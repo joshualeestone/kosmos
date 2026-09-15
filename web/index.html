@@ -4924,50 +4924,51 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    variation. background-color (not the shorthand) so the #2921 room hover overlay
    still composites on top. */
 body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg-bd[data-am] { background-color: var(--agent-msg); }
-/* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
-   surfaces that render them -- the talk thread (.dm-b) and the project message
-   list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
-   (.msg-b), via pjProse (#2239 wired the room, the surface #2067 deferred).
-   Everything here is INLINE so it coexists with the pre-wrap on .dm-b and (as
+/* #2067 / #2239: restricted-markdown treatments, on the surfaces that render
+   them -- the talk thread (.dm-b) and the project message list (.pj-msg-text),
+   both via pjRich; the project ROOM activity thread (.msg-b), via pjProse (#2239
+   wired the room, the surface #2067 deferred); and, as of #3122, the task body
+   (.tkdetail), also via pjRich. Everything here is INLINE so it coexists with
+   the pre-wrap on .dm-b and .tkdetail (both pre-wrap) and (as
    of #2294) .pj-msg-text; line breaks are the <br>s the renderer emits, not
    block margins. strong/em/s need no rule
    (the UA already renders them). Colours ride the existing theme tokens, so
    they flip with light/dark like the rest. */
-.dm-b .mdh, .pj-msg-text .mdh, .msg-b .mdh { font-weight: 700; font-size: 1.0625rem; }
+.dm-b .mdh, .pj-msg-text .mdh, .msg-b .mdh, .tkdetail .mdh { font-weight: 700; font-size: 1.0625rem; }
 /* #2701: heading LEVEL sizing. Before, every `#`..`######` collapsed to one
    mdh size, so text and emojis in a `##` and a `####` heading looked identical.
    mdh3 keeps the old single size (the common case, so ordinary messages are
    unchanged); the ramp scales gently around it for a chat surface. */
-.dm-b .mdh1, .pj-msg-text .mdh1, .msg-b .mdh1 { font-size: 1.3rem; }
-.dm-b .mdh2, .pj-msg-text .mdh2, .msg-b .mdh2 { font-size: 1.15rem; }
-.dm-b .mdh3, .pj-msg-text .mdh3, .msg-b .mdh3 { font-size: 1.0625rem; }
-.dm-b .mdh4, .pj-msg-text .mdh4, .msg-b .mdh4 { font-size: 1rem; }
-.dm-b .mdh5, .pj-msg-text .mdh5, .msg-b .mdh5 { font-size: .9375rem; }
-.dm-b .mdh6, .pj-msg-text .mdh6, .msg-b .mdh6 { font-size: .875rem; }
+.dm-b .mdh1, .pj-msg-text .mdh1, .msg-b .mdh1, .tkdetail .mdh1 { font-size: 1.3rem; }
+.dm-b .mdh2, .pj-msg-text .mdh2, .msg-b .mdh2, .tkdetail .mdh2 { font-size: 1.15rem; }
+.dm-b .mdh3, .pj-msg-text .mdh3, .msg-b .mdh3, .tkdetail .mdh3 { font-size: 1.0625rem; }
+.dm-b .mdh4, .pj-msg-text .mdh4, .msg-b .mdh4, .tkdetail .mdh4 { font-size: 1rem; }
+.dm-b .mdh5, .pj-msg-text .mdh5, .msg-b .mdh5, .tkdetail .mdh5 { font-size: .9375rem; }
+.dm-b .mdh6, .pj-msg-text .mdh6, .msg-b .mdh6, .tkdetail .mdh6 { font-size: .875rem; }
 /* #2701: markdown tables. The WRAPPER is the inline-block scroll container --
    it flows in the renderer's inline (<br>-joined)
    output like .mdhr's inline-block, caps the width, and SCROLLS a wide table
    rather than letting it widen the message bubble (a long URL / inline-code
    token in a cell cannot force the column wider). The table itself lays out
    normally inside it. */
-.dm-b .mdtablewrap, .pj-msg-text .mdtablewrap, .msg-b .mdtablewrap {
+.dm-b .mdtablewrap, .pj-msg-text .mdtablewrap, .msg-b .mdtablewrap, .tkdetail .mdtablewrap {
   display: inline-block; max-width: 100%; overflow-x: auto; vertical-align: top; margin: 4px 0; }
-.dm-b .mdtable, .pj-msg-text .mdtable, .msg-b .mdtable {
+.dm-b .mdtable, .pj-msg-text .mdtable, .msg-b .mdtable, .tkdetail .mdtable {
   border-collapse: collapse; font-size: .9375rem; }
-.dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th,
-.dm-b .mdtable td, .pj-msg-text .mdtable td, .msg-b .mdtable td {
+.dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th, .tkdetail .mdtable th,
+.dm-b .mdtable td, .pj-msg-text .mdtable td, .msg-b .mdtable td, .tkdetail .mdtable td {
   border: 1px solid var(--k-rule); padding: 3px 8px; text-align: left; vertical-align: top; }
-.dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th {
+.dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th, .tkdetail .mdtable th {
   font-weight: 700; background: var(--k-sunk, rgba(20,22,26,.06)); }
-.dm-b .mdc, .pj-msg-text .mdc, .msg-b .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.dm-b .mdc, .pj-msg-text .mdc, .msg-b .mdc, .tkdetail .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: var(--k-sunk, rgba(20,22,26,.08)); padding: .05em .35em; border-radius: 5px; }
-.dm-b .mdcb, .pj-msg-text .mdcb, .msg-b .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
+.dm-b .mdcb, .pj-msg-text .mdcb, .msg-b .mdcb, .tkdetail .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
   white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em;
   background: var(--k-sunk, rgba(20,22,26,.08)); padding: 4px 8px; border-radius: 6px; }
-.dm-b .mdq, .pj-msg-text .mdq, .msg-b .mdq { border-left: 2px solid var(--k-rule); padding-left: 8px; color: var(--k-ink-2); }
-.dm-b .mdli::before, .pj-msg-text .mdli::before, .msg-b .mdli::before { content: "\2022\00a0\00a0"; }
-.dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before, .msg-b .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
-.dm-b .mdhr, .pj-msg-text .mdhr, .msg-b .mdhr { display: inline-block; width: 100%; margin: 4px 0;
+.dm-b .mdq, .pj-msg-text .mdq, .msg-b .mdq, .tkdetail .mdq { border-left: 2px solid var(--k-rule); padding-left: 8px; color: var(--k-ink-2); }
+.dm-b .mdli::before, .pj-msg-text .mdli::before, .msg-b .mdli::before, .tkdetail .mdli::before { content: "\2022\00a0\00a0"; }
+.dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before, .msg-b .mdli.mdlin::before, .tkdetail .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
+.dm-b .mdhr, .pj-msg-text .mdhr, .msg-b .mdhr, .tkdetail .mdhr { display: inline-block; width: 100%; margin: 4px 0;
   border-top: 1px solid var(--k-rule); vertical-align: middle; }
 /* 🛑 A `.theirs` FILL IS RIGHT AS OF #2805 -- BUT ONLY WITH THE RIGHT TOKEN,
    AND THIS NOTE IS WHY. The agent bubble now carries `--k-sunk` (the rule
@@ -37999,7 +38000,15 @@ function paintTaskPage() {
   document.getElementById('tk-num').textContent = 'Task ' + t.number;
   document.getElementById('tk-title').textContent = t.sentence;
   const det = document.getElementById('tk-detail');
-  det.textContent = t.detail || '';
+  // #3122: render the task body as restricted markdown via pjRich (the same
+  // escape-first, XSS-safe renderer the agent-dialogue surfaces use, #2067). It
+  // esc()'s every text run BEFORE emitting any tag and only ever emits a fixed
+  // whitelist of tags it itself produces, so innerHTML here is safe: a detail
+  // carrying a script tag or an onerror image renders as inert visible text. The
+  // INVARIANT: t.detail only ever reaches innerHTML THROUGH pjRich, never raw.
+  // (No literal script open-tag in this comment on purpose: tests slice the app
+  // via PAGE.lastIndexOf of that token, and a stray one truncates their slice.)
+  det.innerHTML = t.detail ? pjRich(t.detail) : '';
   det.hidden = !t.detail;
 
   document.getElementById('tk-project').textContent = p.name;

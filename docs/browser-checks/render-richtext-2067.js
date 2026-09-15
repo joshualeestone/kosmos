@@ -110,6 +110,10 @@ function ok(name, cond, detail) {
         // preserved behaviour
         url: pj('see https://x.test/p now'),
         emoji: pj('ship it \u{1F680}'),
+        // #3122: a realistic multi-line TASK BODY. #tk-detail renders via this
+        // same pjRich now, and a task body is user prose (an XSS surface), so the
+        // markdown must render AND the embedded script must stay inert.
+        taskDetail: pj('**Ship** it.\n\n- one\n- two\n\nsee https://x.test run `kosmos open`\n\n<script>alert(1)</script>'),
       };
     });
 
@@ -175,6 +179,9 @@ function ok(name, cond, detail) {
     ok(t + ' E3 url linked', /href="https:\/\/x\.test"/.test(r.boldUrl), r.boldUrl);
     ok(t + ' E3 no ** leak', !r.boldUrl.includes('**'), r.boldUrl);
     ok(t + ' E3 anchor well-formed', anchorsSafe(r.boldUrl), r.boldUrl);
+    // #3122: the task-body input renders its markdown AND keeps the script inert.
+    ok(t + ' task detail markdown renders', /<strong>Ship<\/strong>/.test(r.taskDetail) && /<span class="mdli">one<\/span>/.test(r.taskDetail) && /<code class="mdc">kosmos open<\/code>/.test(r.taskDetail) && /<a class="xlink" href="https:\/\/x\.test"/.test(r.taskDetail), r.taskDetail);
+    ok(t + ' task detail script inert', !/<script/i.test(r.taskDetail) && /&lt;script&gt;/.test(r.taskDetail), r.taskDetail);
 
     /* CONTROL: prove pjRich can actually MANGLE if it were wrong, i.e. the plain
        arm is a real equality and not both sides being the same broken thing. A
