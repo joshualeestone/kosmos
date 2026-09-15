@@ -50,10 +50,12 @@ shrinks toward zero defeats the point of verifying a build before it reaches pro
   is what closes the card. Left #2036 needs-decision; only this observability slice ships here.
 
 ## Verification
-- `node -c server.js` OK; `node --test server.staging-revert-warn-2036.test.js` 12/12 pass (5-case pure
-  truth table + 3 child-process WIRING tests pinning the raw-stamp-vs-badge accessor choice via the
-  promoted-build divergence case + 3 EMIT tests pinning the fire-decision and exact message text + 1
-  DEFAULT-SINK test proving the no-arg default routes the warning to stderr, not stdout).
+- `node -c server.js` OK; `node --test server.staging-revert-warn-2036.test.js` 14/14 pass: 5-case pure
+  truth table + 3 child-process WIRING tests (raw-stamp-vs-badge accessor choice via the promoted-build
+  divergence case) + 3 EMIT tests (fire-decision + exact message text) + 1 DEFAULT-SINK test (no-arg
+  default routes to stderr not stdout) + 2 BOOT tests that boot the real app.start(0) in a child sandbox
+  and assert the warning is / is not on stderr -- closing the last seam (that the listen callback actually
+  calls the emit) end-to-end through the real boot path, so no untested-wiring tradeoff remains.
 - Behavior-preserving: no channel-resolution or installed-byte path changes; the only runtime effect is a
   conditional stderr write at boot. (Not literally additive-only after the emit was extracted into
   `emitStagingRevertWarning()`, but no existing behavior changed.)

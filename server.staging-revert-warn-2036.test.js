@@ -31,7 +31,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const store = require('./engine/store');
 const { stagingRevertWarning } = require('./server');
 
@@ -210,4 +210,75 @@ test('EMIT: the DEFAULT sink (no argument) routes the warning to stderr, not std
   assert.equal(got.firedDefault, true, 'the default-sink emit fires in the revert case');
   assert.match(got.defaultToStderr, /WARNING/, 'the default routes the warning to stderr');
   assert.equal(got.defaultToStdout, '', 'and nothing to stdout');
+});
+
+/*
+ * BOOT: the one seam the unit tests above cannot reach -- that the listen callback actually CALLS
+ * emitStagingRevertWarning(). Deleting that single line disables the whole feature yet leaves every
+ * unit test green, so this boots the real server via app.start(0) in a child (the sibling
+ * server.sourcechannel-promote-2934.test.js establishes that booting in a child sandbox is viable)
+ * and asserts the warning does / does not appear on the child's STDERR. This closes the last
+ * coverage gap end-to-end through the real boot path.
+ */
+function bootStderrWith({ content, latest, channel }) {
+  const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-revertboot-'));
+  const dataRoot = nodePath.join(sb, 'data', store.APP);
+  fs.mkdirSync(nodePath.join(dataRoot, 'profiles'), { recursive: true });
+  fs.mkdirSync(nodePath.join(sb, 'workers'), { recursive: true });
+  fs.mkdirSync(nodePath.join(sb, 'launch'), { recursive: true });
+  if (content !== undefined) fs.writeFileSync(nodePath.join(dataRoot, 'source-channel'), content);
+  const bin = nodePath.join(sb, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
+  const script = `
+    const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
+    const updates = require(${JSON.stringify(nodePath.join(REPO, 'engine', 'update.js'))});
+    updates.setAutoPref(() => false);
+    updates.setInstalledRoot(() => null);
+    updates.setFetcher(async () => ({ ok: true, json: async () => ({ version: ${JSON.stringify(latest)} }) }));
+    (async () => {
+      await updates.refresh().catch(() => {});
+      // start(0) runs the real listen callback, whose emitStagingRevertWarning() writes to stderr.
+      await app.start(0);
+      // The warn is written synchronously inside onListening before start() resolves; a small
+      // margin covers any deferred boot logging. The board's timers are unref'd, so exit is clean.
+      setTimeout(() => process.exit(0), 300);
+    })();
+  `;
+  const env = {
+    ...process.env,
+    PATH: `${bin}:${process.env.PATH}`,
+    AGENT_WORKFORCE_DRY_RUN: '1',
+    AGENT_WORKFORCE_TMUX_BIN: nodePath.join(bin, 'tmux'),
+    AGENT_WORKFORCE_DATA: nodePath.join(sb, 'data'),
+    AGENT_WORKFORCE_WORKERS: nodePath.join(sb, 'workers'),
+    AGENT_WORKFORCE_LAUNCH: nodePath.join(sb, 'launch'),
+    AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'),
+  };
+  delete env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+  delete env.KOSMOS_UPDATE_CHANNEL;
+  if (channel) env.AGENT_WORKFORCE_UPDATE_CHANNEL = channel;
+
+  try {
+    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env, timeout: 20000 });
+    return { status: r.status, signal: r.signal, stderr: r.stderr || '', stdout: r.stdout || '' };
+  } finally {
+    fs.rmSync(sb, { recursive: true, force: true });
+  }
+}
+
+test('BOOT: a real app.start() on a promoted-staging revert box writes the warning to stderr', () => {
+  const r = bootStderrWith({ content: 'staging', latest: RUNNING });
+  assert.equal(r.signal, null, 'the boot did not hang/timeout');
+  assert.equal(r.status, 0, 'the board booted cleanly');
+  assert.match(r.stderr, /WARNING/, 'the boot path emitted the revert warning to stderr');
+  assert.match(r.stderr, /source-channel=staging/, 'and it is the #2969 revert warning');
+});
+
+test('BOOT: a real app.start() on a healthy staging box writes NO warning', () => {
+  const r = bootStderrWith({ content: 'staging', latest: RUNNING, channel: 'staging' });
+  assert.equal(r.signal, null, 'the boot did not hang/timeout');
+  assert.equal(r.status, 0, 'the board booted cleanly');
+  assert.doesNotMatch(r.stderr, /this box installed from the staging channel/, 'still on staging: the boot emits no revert warning');
 });

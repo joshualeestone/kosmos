@@ -436,16 +436,14 @@ function stagingRevertWarningNow() {
    test with an injected sink -- not just the predicate. The listen callback calls this with the
    default (real stderr); a test passes a capturing `write` and asserts the message in the same
    divergence env the wiring test uses. Returns whether it fired, purely so a test reads the
-   decision without parsing the text. The ONE residual untested seam is that the listen callback
-   actually calls this line, which requires booting the full listen path (unref'd poll/heartbeat
-   timers, the live-execution gate) to exercise; that is left as a documented tradeoff -- it is a
-   single visually-obvious call, and a boot-integration test would be disproportionately heavy and
-   flaky on a loaded runner for a one-line wiring. `write` defaults to stderr and exists only as
-   the test seam. */
+   decision without parsing the text. The listen callback's actual call of this is exercised by the
+   BOOT test, which boots app.start(0) in a child sandbox and asserts the warning on its stderr, so
+   deleting the call site is a test failure rather than a silent loss of the feature. `write`
+   defaults to stderr and exists only as the test seam. */
 function emitStagingRevertWarning(write = (s) => process.stderr.write(s)) {
   if (!stagingRevertWarningNow()) return false;
   write('Kosmos update check: WARNING -- this box installed from the staging channel '
-    + '(source-channel=staging) but is resolving the prod channel, so it has silently stopped receiving '
+    + '(source-channel=staging) but is resolving the prod channel, so it is no longer receiving '
     + 'staging builds (kosmos#2969). The update channel is not carried across login; a durable fix is '
     + 'tracked in kosmos#2969 and is not yet shipped, and setting the channel only in an interactive shell '
     + 'does not survive the next login. See kosmos#2969 and kosmos#2036 for status.\n');
