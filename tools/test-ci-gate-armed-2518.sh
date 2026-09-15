@@ -53,7 +53,11 @@ pass() { printf 'ok   %s\n' "$*"; }
 #  - run-tests.sh SOURCES-AND-CALLS each gate (the `&& <fn> )` invocation shape; prose
 #    never contains `&& kosmos_...`)
 FETCH_DEPTH_RE='^[[:space:]]*fetch-depth:[[:space:]]*0[[:space:]]*$'
-RUNTESTS_CALL_RE='^[[:space:]]*run:[[:space:]]*bash[[:space:]]+tools/run-tests\.sh[[:space:]]*$'
+# The run-tests.sh invocation, matched on ANY line (not anchored to `run:`), so both
+# `run: bash tools/run-tests.sh` and a multiline `run: |` block that calls it on its own
+# line satisfy it. Comment mentions are excluded separately (grep -vE '^#') at the use
+# site, so a `#`-prose reference to run-tests.sh cannot false-pass.
+RUNTESTS_CALL_RE='bash[[:space:]]+tools/run-tests\.sh'
 COARSE_CALL_RE='&&[[:space:]]*kosmos_browser_check_gate[[:space:]]*\)'
 SURFACE_CALL_RE='&&[[:space:]]*kosmos_browser_check_surface_gate[[:space:]]*\)'
 
@@ -85,10 +89,15 @@ grep -qE "$FETCH_DEPTH_RE" "$WF" \
   || fail "test.yml checkout does not set 'fetch-depth: 0' -- origin/main would be ABSENT in CI, so BOTH browser-check diff gates (#1720 + #2518) fail-soft to a vacuous pass and gate nothing. Do not drop this line even if #1025's range resolution no longer needs it."
 pass "test.yml checks out with fetch-depth: 0 (origin/main resolves -> the diff gates are armed)"
 
-# 2. The workflow actually RUNS run-tests.sh (the harness the gates live inside).
-grep -qE "$RUNTESTS_CALL_RE" "$WF" \
-  || fail "test.yml does not run 'bash tools/run-tests.sh' -- the gates would never execute in CI"
-pass "test.yml runs tools/run-tests.sh (the harness that invokes the gates)"
+# 2. The workflow actually RUNS run-tests.sh (the harness the gates live inside). Match on a
+#    NON-comment line, so both `run: bash tools/run-tests.sh` and a multiline `run: |` block
+#    satisfy it, while a `#`-prose mention of run-tests.sh does not (the comment-false-pass
+#    class). pipefail makes an empty first grep fail the pipeline -> the fail branch.
+if grep -E "$RUNTESTS_CALL_RE" "$WF" | grep -qvE '^[[:space:]]*#'; then
+  pass "test.yml runs tools/run-tests.sh on a non-comment line (the harness that invokes the gates)"
+else
+  fail "test.yml does not run 'bash tools/run-tests.sh' on a non-comment line -- the gates would never execute in CI"
+fi
 
 # 3. run-tests.sh SOURCES-AND-CALLS both gates. Removing either call stops that gate
 #    running in CI while CI stays green -- the un-arming this guard exists to catch.
@@ -131,7 +140,16 @@ if grep -qE "$FETCH_DEPTH_RE" "$tmp/test-d1.yml"; then
 fi
 pass "RED-CAPABILITY: fetch-depth: 1 (shallow) reds the fetch-depth assertion"
 
-# 4c. Remove each gate call from a copy of run-tests.sh -> its assertion must MISS.
+# 4c. Remove the run-tests.sh invocation from a copy of test.yml -> assertion 2 must MISS
+#     (grep -vE drops every line carrying the invocation, comment or not, so the non-comment
+#     match the assertion needs is gone).
+grep -vE "$RUNTESTS_CALL_RE" "$WF" > "$tmp/test-no-runtests.yml"
+if grep -E "$RUNTESTS_CALL_RE" "$tmp/test-no-runtests.yml" | grep -qvE '^[[:space:]]*#'; then
+  fail "RED-CAPABILITY: run-tests invocation still matched after removal -- the assertion cannot see the harness call being dropped"
+fi
+pass "RED-CAPABILITY: removing the run-tests.sh invocation reds the harness-call assertion"
+
+# 4d. Remove each gate call from a copy of run-tests.sh -> its assertion must MISS.
 grep -vE "$SURFACE_CALL_RE" "$RUNTESTS" > "$tmp/run-tests-no-surface.sh"
 if grep -qE "$SURFACE_CALL_RE" "$tmp/run-tests-no-surface.sh"; then
   fail "RED-CAPABILITY: surface-gate call still matched after removal -- the assertion cannot see the surface gate being dropped"
