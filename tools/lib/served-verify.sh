@@ -288,6 +288,49 @@ served_verify_host_discriminates() {
 served_verify_asset_ok() {
   _svao_url=$1
   _svao_label=$2
+  # #3073: HEAD-first. This function checks only STATUS + CONTENT-TYPE -- the asset's BYTE
+  # integrity is verified separately, locally, against its manifest/.sha256 (deploy-site.sh),
+  # never by downloading the served body here. Both status and content-type are in a HEAD
+  # response's headers, so a HEAD answers the whole question without transferring the body --
+  # decisive for the multi-hundred-MB Windows zip, which this used to pull in full through
+  # `-o /dev/null` just to read a status line. The HEAD result is TRUSTED only on an
+  # unambiguous success: a 200 carrying a non-empty, non-html content-type. On ANY other
+  # outcome -- a non-200, an empty/absent content-type, an html page wearing a 200, a 405/501
+  # (server does not implement HEAD), or a transport error -- it falls through to the GET path
+  # below, which keeps sole ownership of the detailed failure messages and the redirect note.
+  # This assumes HEAD and GET AGREE (same status + content-type): the one case it is weaker than
+  # the old full GET is a server that answers a HEAD 200 + non-html content-type while its GET
+  # would refuse. That is not expected for the static, CDN-served release artifacts this checks
+  # (RFC 9110 §9.3.2 says a server SHOULD send the same headers on HEAD as on GET -- a SHOULD, not a
+  # MUST, and an omitted content-type simply falls through here), it cannot ship unverified BYTES
+  # (integrity is checked separately/locally against the manifest/.sha256, not here), and the
+  # realistic #1667 SSO wall is EXPECTED to return text/html or an empty content-type on both
+  # verbs -- not measured against a real SSO wall on HEAD -- so it should still fall through to the
+  # GET and be refused. See .claude/plans/served-verify-head-3073.md for the residual. The
+  # extra HEAD is a header-only round-trip; it does not invoke a GET handler, so a stateful
+  # server's GET-keyed behavior is unperturbed by it.
+  # The probe carries a TIGHTER timeout budget than the GET it precedes (5s/10s vs 10s/30s), for
+  # the same reason _served_verify_redirect_note does ("a diagnostic must not delay the answer it
+  # annotates"): an optimistic probe must not delay the fallback. A slow HEAD simply times out and
+  # falls through to the full-budget GET, so worst-case time-to-refuse grows by the probe's 10s,
+  # not by another 30s. A HEAD is header-only and returns in well under this on a healthy host.
+  # The probe suppresses its own stderr (`2>/dev/null`) DELIBERATELY, unlike the GET below: the
+  # probe is optimistic, so any HEAD failure is meant to degrade SILENTLY to the GET, which owns
+  # the transport-error diagnostic. Surfacing the HEAD's stderr too would print a spurious error
+  # line on every fall-through. (Named because this file's convention is to narrate every
+  # deliberate asymmetry.)
+  _svao_hhdr=$(curl -sSLI --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url" 2>/dev/null) || _svao_hhdr=''
+  if [ -n "$_svao_hhdr" ]; then
+    _svao_hcode=${_svao_hhdr%% *}
+    _svao_hct=${_svao_hhdr#* }
+    if [ "$_svao_hcode" = "200" ] && [ -n "$_svao_hct" ]; then
+      _svao_hct_lc=$(printf '%s' "$_svao_hct" | tr '[:upper:]' '[:lower:]')
+      case "$_svao_hct_lc" in
+        *text/html*) : ;;   # an html page wearing 200: fall through to GET for the #1667 message
+        *) return 0 ;;      # clean HEAD: 200 + a non-empty, non-html content-type
+      esac
+    fi
+  fi
   _svao_hdr=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url") || {
     printf '%s\n' "served-verify: could not reach ${_svao_url} (${_svao_label}) -- transport error" >&2
     return 2
