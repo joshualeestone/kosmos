@@ -1,7 +1,7 @@
 {
   "name": "Kosmos",
   "short_name": "Kosmos",
-  "description": "Your agents, on your Mac, from your phone.",
+  "description": "Your agents, on your computer, from your phone.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
