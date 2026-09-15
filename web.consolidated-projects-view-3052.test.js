@@ -46,6 +46,10 @@ function classList(initial) {
 // the observable stubs (body classList, the map/list elements, layoutApply calls,
 // and every localStorage.setItem the fn made).
 function scope({ storageThrows, saved } = {}) {
+  // The body is deliberately seeded with BOTH pj-mapmode AND (on #pj-list) asgrid at once.
+  // Live these are mutually exclusive (map mode hides the list), but placeProjectsView's
+  // consolidated branch clears both unconditionally, so seeding both in one fixture asserts
+  // BOTH clears happen in a single call rather than needing a separate grid-only fixture.
   const body = { classList: classList(['pj-mapmode', 'consolidated']) };
   const map = { hidden: false };
   const list = { classList: classList(['asgrid']) };

@@ -64,9 +64,19 @@ source-pattern assertion pins the showTab wiring (call present, before `loadProj
 
 This is a visual bug, and a seeded-sandbox browser check asserting "map saved -> consolidated shows
 the list, not the org-chart" would be the gold-standard coverage. The fix is DOM-state logic
-(fully node-tested, including the `#pj-map` hidden / `pj-mapmode` off states the CSS turns into the
-visual), and the list rendering in the consolidated panel is already exercised by
-render-consolidated-layouts.js. A live seeded-sandbox verification is deferred (night shift, no seed
-board handy); adding the assertion to render-consolidated-layouts.js is a good follow-up. The
-weakest premise is that the DOM-state node test plus the existing consolidated render check together
-stand in for that live assertion.
+(fully node-tested, including the `#pj-map` hidden / `pj-mapmode` off / `asgrid` off states the CSS
+turns into the visual).
+
+To be precise about what is and is not browser-covered today: render-consolidated-layouts.js sets
+only `kosmos.layout.AGENTS` and asserts the consolidated panel's PRESENCE and rail geometry
+(`#alist`, `#pj-list-view`, `#rail-agents`, `#rail-projects`). It does NOT set
+`kosmos.layout.projects='map'` and does NOT assert `body.pj-mapmode` / `#pj-list.asgrid`, so it does
+NOT exercise this PR's exact regression (a tab left on Map drawing the org-chart in the narrow
+consolidated column). That scenario is therefore covered only at the DOM-state level (the node
+test), not visually, today.
+
+So a live seeded-sandbox assertion is a genuine gap, not a redundancy: adding a case to
+render-consolidated-layouts.js (or a new check) that seeds `kosmos.layout.projects='map'`, enters
+consolidated, and asserts `#pj-list` is shown and `#pj-map` is hidden is the right follow-up. It is
+deferred here (night shift, no seed board handy). The weakest premise is that the DOM-state node
+test stands in for that live assertion until the follow-up lands.
