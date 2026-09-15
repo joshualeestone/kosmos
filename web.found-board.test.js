@@ -182,15 +182,23 @@ test('a changed list IS rebuilt', async () => {
   assert.match(list.innerHTML, /Anna/);
 });
 
-test('leaving the Agents tab hides the found-agents block (it followed a person to every other tab)', () => {
+test('#3048: the home found/scan off-tab hides are GONE with the panels (removed-wrap still hidden)', () => {
+  /* Was: "leaving the Agents tab hides the found-agents block". The found/scan
+     discovery panels and their trigger were removed from the home (#3048), so the
+     off-tab-hide lines that kept found-wrap/scan-wrap/found-scan-trigger from
+     following a person to other tabs (#2025/#2651) are gone too. This asserts they
+     are gone (a dangling getElementById on a removed id was never null-guarded and
+     would throw), while removed-wrap -- a DIFFERENT feature, kept -- is still hidden
+     off-tab, which also confirms this is the right handler slice. */
   const fs2 = require('node:fs');
   const page = fs2.readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
   const script = page.slice(page.lastIndexOf('<script>'));
   const st = script.slice(script.indexOf('function showTab('), script.indexOf('function showTab(') + 5000);
   const off = st.slice(st.indexOf('if (!agents) {'), st.indexOf('} else {', st.indexOf('if (!agents) {')));
-  assert.match(off, /getElementById\('found-wrap'\)\.hidden = true;/, 'the found block is not hidden when the tab changes; it was on every screen but Agents on 0.5.21');
-  assert.match(off, /getElementById\('removed-wrap'\)\.hidden = true;/, 'CONTROL: the removed block, hidden the same way, is not in this slice');
-  assert.match(off, /getElementById\('found-scan-trigger'\)[\s\S]{0,40}\.hidden = true;/, '#2651: the discovery trigger is not hidden when the tab changes; like its two panels it would otherwise follow the person off the Agents tab');
+  assert.match(off, /getElementById\('removed-wrap'\)\.hidden = true;/, 'CONTROL: the removed-agents block, kept and hidden the same way, must still be in this slice (else the slice is wrong)');
+  assert.doesNotMatch(off, /getElementById\('found-wrap'\)/, '#3048: the found-wrap off-tab hide must be gone (found-wrap was removed; the ref was not null-guarded)');
+  assert.doesNotMatch(off, /getElementById\('scan-wrap'\)/, '#3048: the scan-wrap off-tab hide must be gone (scan-wrap was removed)');
+  assert.doesNotMatch(off, /getElementById\('found-scan-trigger'\)/, '#3048: the discovery-trigger off-tab hide must be gone (found-scan-trigger was removed)');
 });
 
 /* #2651: the SCAN panel's DISCOVERY_OPENED gate, the symmetric partner to the found-panel
