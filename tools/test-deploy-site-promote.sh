@@ -107,6 +107,9 @@ make_scenario() {  # [committed_sha_override]
   printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
   ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   printf 'setup-script\n' > "$live/setup"
+  # #2511/#1666: deploy-site's post-deploy edge-check re-fetches the (setup, setup.sha256) pair and
+  # refuses a mismatch (the pair the .pkg postinstall verifies). Publish a matching setup.sha256.
+  ( cd "$live" && shasum -a 256 setup > setup.sha256 )
   local newsha; newsha="$(sha_of "$live/dist/$NEWART")"
   write_ptr "$live/dist/latest.json" "$OLD" "oldsha000000" "$OLDART"   # LIVE prod = OLD
 
@@ -223,6 +226,9 @@ make_rollback_scenario() {  # echoes "SITE LIVE"
   printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
   ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   printf 'setup-script\n' > "$live/setup"
+  # #2511/#1666: deploy-site's post-deploy edge-check re-fetches the (setup, setup.sha256) pair and
+  # refuses a mismatch (the pair the .pkg postinstall verifies). Publish a matching setup.sha256.
+  ( cd "$live" && shasum -a 256 setup > setup.sha256 )
   local oldsha; oldsha="$(sha_of "$live/dist/$OLDART")"
   write_ptr "$live/dist/latest.json" "$NEW" "newsha000000" "$NEWART"   # LIVE prod = NEW
   git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
