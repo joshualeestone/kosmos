@@ -30139,6 +30139,61 @@ let OPENAI_PICK_MODELS = [];
    early return, so an import that first paints with no account still pre-picks once an
    account is chosen. A normal manual create leaves it false: it keeps "Let OpenAI choose". */
 let IMPORT_OPENAI_DEFAULT = false;
+/* #3081 (Josh 2026-09-14): the last-selected create defaults, remembered per machine so an
+   operator who runs several agents on the same provider/account/model does not re-pick all
+   three every time. Persisted in localStorage (a per-viewer preference, the same store the
+   theme, layout and sort choices use), read back on each create open, and applied ONLY when
+   still usable -- a saved provider the machine no longer has an account for, an account since
+   removed, or a retired model all fall back to the ordinary default. It is a DEFAULT, not a
+   lock: the operator can change any of the three, and a manual change during the open wins
+   (the restore is gated on CREATE_PROVIDER_TOUCHED, exactly like the #2097 openai auto-upgrade).
+   Scoped to the CREATE flow: the Model/provider SWITCH dialog uses different selectors
+   (#d-provider / #d-model), so it does not share this and is untouched. */
+const CREATE_PREF_KEYS = { provider: 'kosmos.create.provider', account: 'kosmos.create.account', model: 'kosmos.create.model' };
+/* A one-shot, mirroring IMPORT_OPENAI_DEFAULT: the saved OpenAI model is applied by the
+   NEXT completing paintOpenaiCreateModel (the account's model list is fetched async, so it
+   cannot be set synchronously), then cleared -- so a later manual account change never
+   re-forces it. Cleared on a fresh create by resetCreateProvider. */
+let CREATE_PREF_OPENAI_MODEL = '';
+function readCreatePrefs() {
+  try {
+    return {
+      provider: localStorage.getItem(CREATE_PREF_KEYS.provider) || '',
+      account: localStorage.getItem(CREATE_PREF_KEYS.account) || '',
+      model: localStorage.getItem(CREATE_PREF_KEYS.model) || '',
+    };
+  } catch { return { provider: '', account: '', model: '' }; }  // private window / blocked storage: no saved default, the ordinary default stands
+}
+function saveCreatePrefs(provider, account, model) {
+  // Store the raw selector values verbatim (an empty account = the single-account hidden
+  // row, an empty model = OpenAI's "let it choose"); an empty value simply will not match
+  // an option on the next open, so it degrades to the ordinary default without a special case.
+  try {
+    localStorage.setItem(CREATE_PREF_KEYS.provider, provider || '');
+    localStorage.setItem(CREATE_PREF_KEYS.account, account || '');
+    localStorage.setItem(CREATE_PREF_KEYS.model, model || '');
+  } catch { /* the choice just will not be remembered this once; the create itself is unaffected */ }
+}
+/* Set the account select to a saved dir ONLY when it is one of the offered options -- so a
+   removed or now-unusable account (fillCreateAccounts already excludes the confirmed-dead)
+   falls through to the server-marked isDefault rather than selecting a value that is not there. */
+function applyCreateAccountPref(want) {
+  if (!want) return;
+  const sel = document.getElementById('create-account');
+  if (!sel) return;
+  if (Array.prototype.some.call(sel.options, (o) => o.value === want)) sel.value = want;
+}
+/* Set the Claude model select to a saved key ONLY when it is still in the engine's list
+   (CREATE_MODELS), so a retired model falls back to the default. The OpenAI model is applied
+   via the CREATE_PREF_OPENAI_MODEL one-shot instead, because its list is fetched per account. */
+function applyCreateModelPref(want) {
+  if (!want) return;
+  const sel = document.getElementById('create-model');
+  if (sel && CREATE_MODELS.some((m) => m.key === want)) {
+    sel.value = want;
+    paintModelWhy('create-model', 'create-model-why');
+  }
+}
 
 /**
  * The model picker on an agent's page.
@@ -33401,6 +33456,13 @@ function paintOpenaiCreateModel() {
           const def = out.models.find((m) => m.default);
           if (def) sel.value = def.key;
         }
+        /* #3081: restore the last-selected OpenAI model for THIS account when it is still
+           offered. One-shot (cleared below), so a later manual account change does not
+           re-force it; falls through to "Let OpenAI choose" when the saved model is not in
+           this account's list. Runs after the IMPORT default so an explicit import still wins. */
+        if (CREATE_PREF_OPENAI_MODEL && out.models.some((m) => m.key === CREATE_PREF_OPENAI_MODEL)) {
+          sel.value = CREATE_PREF_OPENAI_MODEL;
+        }
       }
       paintModelWhy('create-model', 'create-model-why');
     } else {
@@ -33422,6 +33484,9 @@ function paintOpenaiCreateModel() {
        return above, so the flag survives an account-less first paint through to the paint
        that actually has an account; resetCreateProvider clears it on a fresh create. */
     IMPORT_OPENAI_DEFAULT = false;
+    // #3081: the saved-model one-shot consumes the same way -- once a real account's list
+    // has painted, a later manual account change must not re-apply it.
+    CREATE_PREF_OPENAI_MODEL = '';
   })();
 }
 
@@ -33495,6 +33560,8 @@ function resetCreateProvider() {
   // #2140: a form reset starts fresh -- forget a Claude pick remembered for a
   // provider round-trip, so a reopen defaults rather than restoring a stale pick.
   LAST_CLAUDE_MODEL = '';
+  // #3081: drop any pending saved-model one-shot before this open's restore sets a fresh one.
+  CREATE_PREF_OPENAI_MODEL = '';
   /* #2453 follow-up: a fresh create is not an import, so drop any pending import default
      (the sibling one-shot), or an abandoned import could pre-pick on a later create. */
   IMPORT_OPENAI_DEFAULT = false;
@@ -35156,7 +35223,36 @@ async function loadCreateExtras() {
     if (prov && !CREATE_PROVIDER_TOUCHED) {
       const hasClaude = CREATE_ACCOUNTS.some((x) => x && x.provider !== 'openai');
       const hasOpenai = CREATE_ACCOUNTS.some((x) => x && x.provider === 'openai');
-      if (!hasClaude && hasOpenai) { prov.value = 'openai'; applyCreateProviderUI(); }
+      /* #3081: prefer the last-selected provider/account/model, each applied only while still
+         usable. This runs in the SAME untouched-auto-default gate as the openai upgrade below
+         (CREATE_PROVIDER_TOUCHED false is exactly "the operator has not deliberately picked
+         yet"), and supersedes it when a saved provider applies -- a saved 'openai' already
+         covers the only-openai case, and a saved Claude keeps Claude. It stays a DEFAULT: the
+         operator can change any of the three, and a manual change flips the flag so this never
+         overrides it. */
+      const pref = readCreatePrefs();
+      const prefProviderUsable = !!pref.provider
+        && ((pref.provider === 'openai' && hasOpenai) || (pref.provider !== 'openai' && hasClaude));
+      if (prefProviderUsable) {
+        // Only re-run the provider UI when the provider actually changes; otherwise the account
+        // and model selects filled above are already the right ones to override in place.
+        if (prov.value !== pref.provider) { prov.value = pref.provider; applyCreateProviderUI(); }
+        /* Account first (applyCreateProviderUI's fillCreateAccounts reset it to isDefault),
+           then the model. On OpenAI the model list is per-account and async, so set the account,
+           arm the saved-model one-shot, and repaint ONCE for the chosen account -- a single paint
+           with the right account, so the one-shot cannot be consumed by a wrong-account paint. */
+        applyCreateAccountPref(pref.account);
+        if (prov.value === 'openai') {
+          CREATE_PREF_OPENAI_MODEL = pref.model || '';
+          paintOpenaiCreateModel();
+        } else {
+          applyCreateModelPref(pref.model);
+        }
+      } else if (!hasClaude && hasOpenai) {
+        // #2097: no saved default applies -- keep the openai auto-upgrade for an only-openai
+        // machine (the prior behaviour, unchanged).
+        prov.value = 'openai'; applyCreateProviderUI();
+      }
     }
   })();
   /* 🛑 THE PROJECTS PICKER IS GONE (Josh, 2026-08-22). What was here fetched
@@ -35389,6 +35485,18 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // already announced the words).
     if (/role label/i.test(msg.textContent)) document.getElementById('create-label').focus();
     return;
+  }
+
+  /* #3081: an agent was actually created, so remember this provider/account/model as the
+     defaults for the next create. Only on 'created' -- a 'partial' rolls back (nothing was
+     made), so it must not become the remembered choice. Reads the selectors' live values, the
+     same source the POST body above read. */
+  if (result.outcome === 'created') {
+    saveCreatePrefs(
+      document.getElementById('create-provider').value,
+      document.getElementById('create-account').value,
+      document.getElementById('create-model').value,
+    );
   }
 
   // #2190: we already advanced to the progress screen and started the loader on
