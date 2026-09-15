@@ -2923,7 +2923,16 @@ html[data-layout="consolidated"] body.consolidated #pj-one-view .pj-crumbrow { d
    from shrinking so it stays visible even when the lead truncates. The inter-ancestor
    separators live inside .pj-crumb-lead and are not matched by this child combinator. */
 .pj-crumb > .pj-crumb-sep { flex: none; }
-.pj-crumb .pj-crumb-sep { opacity: .55; }
+/* #3125 (Josh, 6.68): give the slash room to breathe ("A  /  B", not "A/B"). The
+   space is margin here rather than text spaces in the separator, so it is one place
+   to tune and never double-counts with collapsed inline whitespace. */
+.pj-crumb .pj-crumb-sep { opacity: .55; margin: 0 5px; }
+/* #3125: ancestor crumbs are CLICKABLE to jump straight to that project, with NO
+   underline (Josh's ask). A pointer cursor plus a hover ink shift carry the
+   affordance; the current ("you are here") crumb stays plain, never a link. */
+.pj-crumb-link { cursor: pointer; color: inherit; text-decoration: none; }
+.pj-crumb-link:hover { color: var(--k-ink); }
+.pj-crumb-link:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; border-radius: 3px; }
 /* #3103 (Josh, 6.68): the .pj-subs / .pj-subrow styles for the removed project-view
    sub-projects section were deleted with the section (markup + painter + delegate). */
 /* The wide Projects tab (list sub-view) carries tree depth by this margin indent.
@@ -38783,6 +38792,23 @@ document.getElementById('pj-back').addEventListener('click', () => {
   if (p && p.parent && pjById(p.parent)) { openProject(p.parent); return; }
   PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
 });
+/* #3125 (Josh, 6.68): ancestor breadcrumb crumbs jump straight to that project.
+   Delegated on #pj-crumb (set once, mirroring the list card's data-project ->
+   openProject pattern), so re-painting the crumb never re-binds. Keyboard: Enter or
+   Space activate the role=link crumb; preventDefault stops Space from scrolling. */
+(() => {
+  const crumbRow = document.getElementById('pj-crumb');
+  if (!crumbRow) return;
+  const go = (t) => {
+    const link = t && t.closest && t.closest('.pj-crumb-link[data-project]');
+    if (link && link.dataset.project) { openProject(link.dataset.project); return true; }
+    return false;
+  };
+  crumbRow.addEventListener('click', (e) => { go(e.target); });
+  crumbRow.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && go(e.target)) e.preventDefault();
+  });
+})();
 document.getElementById('pj-settings-link').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -39057,24 +39083,48 @@ function paintOneProject() {
      its target is decided at click time from the then-current project. */
   const crumbEl = document.getElementById('pj-crumb');
   if (crumbEl) {
-    const chain = pjAncestry(p).concat([p.name]);
-    const cur = chain[chain.length - 1];
-    const anc = chain.slice(0, -1);
-    /* The visible " / " is aria-hidden, so a vh comma rides alongside it to give a
+    const cur = p.name;
+    /* #3125 (Josh, 6.68): ancestor crumbs are clickable to jump straight to that
+       project, so each needs its id, not just its name. pjAncestry() returns names
+       only, so walk the parent chain here with the SAME self/loop guard and
+       parentName fallback, keeping the id. An ancestor whose record is not loaded yet
+       (p.parentName) has only a name and renders as plain text, never a dead link. */
+    const ancNodes = [];
+    {
+      const seen = new Set(p && p.id ? [p.id] : []);
+      let c = (p && p.parent) ? pjById(p.parent) : null;
+      if (!c && p && p.parentName) {
+        ancNodes.push({ name: p.parentName });
+      } else {
+        while (c && !seen.has(c.id)) {
+          seen.add(c.id);
+          ancNodes.unshift({ id: c.id, name: c.name });
+          c = c.parent ? pjById(c.parent) : null;
+        }
+      }
+    }
+    /* The visible "/" is aria-hidden, so a vh comma rides alongside it to give a
        screen reader an announced separation ("Kosmos, App, Mobile") rather than one
        unbroken run -- the same pairing the card ancestry chain uses (search
-       pj-anc-sep). */
-    const sep = '<span class="pj-crumb-sep" aria-hidden="true"> / </span><span class="vh">, </span>';
-    /* #2928: the current project is its own protected crumb (.pj-crumb-cur); the
+       pj-anc-sep). The space AROUND the slash is CSS margin on .pj-crumb-sep (#3125),
+       not text, so it never double-counts with collapsed inline whitespace. */
+    const sep = '<span class="pj-crumb-sep" aria-hidden="true">/</span><span class="vh">, </span>';
+    /* #3125: an ancestor WITH an id becomes a role=link crumb (clickable, keyboard
+       focusable, no underline -- see .pj-crumb-link + the delegated #pj-crumb handler);
+       one without an id stays plain text. #2928: the current project is its own
+       protected crumb (.pj-crumb-cur) and is NEVER a link -- you are already there. The
        ancestor lead (.pj-crumb-lead) carries the ellipsis and shrinks first, so the
        "you are here" name is never the piece CSS truncates away. A top-level project
        has no lead -- just the single current crumb. */
-    if (anc.length) {
+    const crumbLink = (node) => node.id
+      ? '<span class="pj-crumb-link" role="link" tabindex="0" data-project="' + esc(node.id) + '">' + esc(node.name) + '</span>'
+      : esc(node.name);
+    if (ancNodes.length) {
       /* The separator BEFORE the current crumb sits OUTSIDE the lead (a flex:none child
          of .pj-crumb), so when the lead ellipsis-truncates hard it is not eaten with the
          lead -- the row stays "Kosm… / Mobile", never an ambiguous "Kosm… Mobile". The
          inter-ancestor separators stay inside the lead and truncate with it. */
-      crumbEl.innerHTML = '<span class="pj-crumb-lead">' + anc.map((n) => esc(n)).join(sep) + '</span>'
+      crumbEl.innerHTML = '<span class="pj-crumb-lead">' + ancNodes.map(crumbLink).join(sep) + '</span>'
         + sep
         + '<span class="pj-crumb-cur">' + esc(cur) + '</span>';
     } else {
