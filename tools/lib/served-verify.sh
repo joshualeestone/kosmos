@@ -301,7 +301,8 @@ served_verify_asset_ok() {
   # This assumes HEAD and GET AGREE (same status + content-type): the one case it is weaker than
   # the old full GET is a server that answers a HEAD 200 + non-html content-type while its GET
   # would refuse. That is not expected for the static, CDN-served release artifacts this checks
-  # (a compliant CDN mirrors GET's headers on HEAD per RFC 9110), it cannot ship unverified BYTES
+  # (RFC 9110 §9.3.2 says a server SHOULD send the same headers on HEAD as on GET -- a SHOULD, not a
+  # MUST, and an omitted content-type simply falls through here), it cannot ship unverified BYTES
   # (integrity is checked separately/locally against the manifest/.sha256, not here), and the
   # realistic #1667 SSO wall is EXPECTED to return text/html or an empty content-type on both
   # verbs -- not measured against a real SSO wall on HEAD -- so it should still fall through to the

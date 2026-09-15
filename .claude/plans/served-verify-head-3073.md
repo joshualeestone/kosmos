@@ -66,8 +66,11 @@ discarded via `-o /dev/null`) and would have caught that; the fast path trusts t
 
 Why this is bounded, and a WARNING rather than a hole:
 - The URLs checked here are static, CDN-served release artifacts (the Windows zip, its .sha256, the
-  pointers, /setup). For those, a compliant CDN returns the same status + content-type on HEAD as on
-  GET (RFC 9110 requires it), so the divergence is not expected.
+  pointers, /setup). For those, a compliant CDN is expected to return the same status + content-type
+  on HEAD as on GET -- RFC 9110 §9.3.2 says a server SHOULD send the same header fields on a HEAD as
+  it would on a GET (a SHOULD, and it explicitly permits omitting representation headers on HEAD), so
+  the divergence is not expected but is not forbidden by spec. The code is defensive about the
+  permitted case: an omitted/empty content-type on HEAD falls through to the GET (tested).
 - Byte integrity is NOT checked here anyway -- it is verified locally against the manifest/.sha256 --
   so a HEAD/GET disagreement could at worst let a wrong-status or html-bodied response pass this
   presence check, never ship unverified bytes.
