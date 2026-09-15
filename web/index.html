@@ -47899,13 +47899,10 @@ document.addEventListener('click', async (e) => {
     const undo = row.querySelector('.fr-foundundo');
     if (out.name) row.dataset.foundKey = out.name;
     if (undo && out.name) { undo.hidden = false; undo.disabled = false; undo.textContent = 'Undo'; }
-    /* 🔑 THE BOARD IS ASKED AGAIN, but only for a row on the board. Setup's copy
-       of this list is in front of a board the person has not reached yet, and
-       the fleet screen deliberately does not repaint on an add. Here the card
-       IS the outcome: without this, somebody adds an agent and the grid behind
-       the panel does not change for another five seconds, which reads as the
-       press having done nothing. */
-    if (row.closest('#found-wrap, #scan-wrap')) { try { tick(); } catch { /* the poll will */ } }
+    /* #3048: this add path used to refresh the board grid for a row that lived in
+       the home found/scan panels (the fleet/setup copy of this list deliberately
+       does not repaint the board). Those panels were removed, so there is no home
+       surface left to refresh here; the 5s poll keeps the board current anyway. */
     /* 🛑 NO SENTENCE ON SUCCESS (Josh, 2026-08-22). It read "Added, and started.
        It stays in its own folder." -- true, and one more line to read on a screen
        where somebody is about to press three more buttons. The button saying
@@ -47963,9 +47960,8 @@ document.addEventListener('click', async (e) => {
     undo.textContent = 'Undo';
     delete row.dataset.foundKey;
     row.classList.remove('done');
-    /* Same reason as the add: the card going away is what the person is looking
-       at when they press this. */
-    if (row.closest('#found-wrap, #scan-wrap')) { try { tick(); } catch { /* the poll will */ } }
+    /* #3048: same as the add path above, the home-panel board refresh was removed
+       with those panels; the poll keeps the board current. */
     go.classList.remove('added');
     go.disabled = false;
     /* ⚠️ THE DISPLAYED NAME REBUILDS THE LABEL, not the registered one: this is

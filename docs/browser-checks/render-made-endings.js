@@ -15,7 +15,7 @@
  *
  * ⚠️ THE CREATE ROUTE IS INTERCEPTED, so nothing here makes an agent.
  *
- * ⚠️ NEEDS A SANDBOX WITH FIRST RUN COMPLETE (see render-found-board.js).
+ * ⚠️ NEEDS A SANDBOX WITH FIRST RUN COMPLETE (see render-found-undo.js).
  *
  * Run: see the README in this directory.
  */

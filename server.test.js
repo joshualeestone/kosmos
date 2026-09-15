@@ -5588,7 +5588,7 @@ function firstRunHarness(name, state, opts = {}) {
        frFindAgents and (for non-frPaintFound targets) frPaintFound are.
        ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE and cannot see an
        integration defect; the wired scan behaviour is covered by
-       docs/browser-checks/render-scan-board.js and render-first-run.js. */
+       docs/browser-checks/render-firstrun-scan-on-grant-1652.js and render-first-run.js. */
     let FR_SCAN = ${JSON.stringify(state.FR_SCAN === undefined ? { ok: true, candidates: [] } : state.FR_SCAN)};
     let FR_SCAN_GEN = 0;
     /* #2389: frPaintFleet's adopt arm now reads FR_SCAN_INFLIGHT to hold the "checking"

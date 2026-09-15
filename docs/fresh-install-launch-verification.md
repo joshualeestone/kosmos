@@ -154,8 +154,8 @@ The two ways an existing fleet comes into Kosmos both have to work.
 **Automatable (existing browser-checks):**
 - `render-found-count.js` - the found-agents screen: one row per agent and a count
   that cannot disagree with its rows (#1346).
-- `render-found-board.js` - the board panel for agents Kosmos is not yet managing
-  (the route in for everybody who already finished first run).
+- `render-home-discovery-removed-3048.js` - the guard that the permanent home
+  "Look for agents" trigger and its two panels stay removed (#3048).
 - `render-adopt-1531.js` - the adopt prompt renders as a question, the name field
   is editable, Add posts the typed name, an empty name is refused.
 - `import-agent-flow.js` - "import my existing agent": after pasting a CLAUDE.md

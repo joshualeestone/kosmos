@@ -16,7 +16,7 @@
  * agent or rewrites anybody's instruction file. The three answers are the three
  * the server can actually give.
  *
- * ⚠️ NEEDS A SANDBOX WITH FIRST RUN COMPLETE (see render-found-board.js) and at
+ * ⚠️ NEEDS A SANDBOX WITH FIRST RUN COMPLETE (see render-found-undo.js) and at
  * least one agent the board can see. It drives whichever agent the board opens
  * first and never presses anything but Save.
  *

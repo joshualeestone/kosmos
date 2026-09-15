@@ -20,7 +20,7 @@
  *     mkdir -p "$SB/data/Kosmos"
  *     echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/Kosmos/first-run.json"
  *
- * Run: see the README in this directory (same shape as render-scan-board.js).
+ * Run: see the README in this directory (same shape as render-found-undo.js).
  *
  * // Browser-check-surface: pick-orgchart orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg
  */
