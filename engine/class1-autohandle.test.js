@@ -11,10 +11,11 @@ const {
   standingFromAgent,
   recordAttempt,
   pruneAttempts,
-  sweepOnce,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_WINDOW_MS,
 } = require('./class1-autohandle');
+// sweepOnce is exercised against REAL fleet cards in class1-autohandle-sweep-2808.test.js,
+// not here (a hand-built card would fail fixture-discipline).
 
 // A standing report shaped like selfreport.read()'s return, class-1 by default.
 const class1 = (over) => ({ found: true, state: 'needs_you', by: 'auto', because: 'asking permission to use Bash: cd', ...(over || {}) });

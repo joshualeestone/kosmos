@@ -29,10 +29,10 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const fleet = require('./test-support/fleet');
-const status = require('./engine/status');
-const selfreport = require('./engine/selfreport');
-const class1 = require('./engine/class1-autohandle');
+const fleet = require('../test-support/fleet');
+const status = require('./status');
+const selfreport = require('./selfreport');
+const class1 = require('./class1-autohandle');
 
 test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 

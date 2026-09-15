@@ -13395,6 +13395,9 @@ function start(port = PORT) {
          the full snapshot cards carry. */
       const class1Attempts = new Map();
       const class1Sweep = setInterval(() => {
+        // 🛑 LOAD-BEARING, DO NOT REMOVE: this is the ONLY gate on create.trustAgentFolder's
+        // real config write (it does not self-gate the way remove.restart does). It makes the
+        // whole sweep inert under `node --test` and before the board's live-execution opt-in.
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         if (process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_OFF === '1') return; // operator brake
         try {
