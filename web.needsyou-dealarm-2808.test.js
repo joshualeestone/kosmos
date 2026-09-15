@@ -3,7 +3,7 @@
 /**
  * #2808 class 2: a needs_you the agent reported DELIBERATELY (by:'agent' -> card
  * stateReportedBy 'agent') is the agent's OWN substantive question, so the board presents it as
- * a CALM "has a question" -- not the red "Needs you" alarm a QA tester read as "app broken"
+ * a CALM "Question" -- not the red "Issue" alarm a QA tester read as "app broken"
  * (Josh, 2026-09-14 16:49). The technical permission/trust junk (by:'auto', class 1), a scraped
  * prompt, and an unknown-provenance/legacy report (null) STAY red -- de-alarming only the KNOWN
  * agent case is the safe direction (selfreport.js:389: absence is never "an agent typed it").
@@ -55,14 +55,14 @@ test('#2808 class 2: a deliberate agent question (by:agent) is the calm "questio
   const a = card({ stateReportedBy: 'agent' });
   assert.equal(derive.cardStOf(a).st, 'question', 'a by:agent needs_you should get the calm question shape');
   const copy = derive.stateCopyOf(a);
-  assert.equal(copy.label, 'Has a question');
+  assert.equal(copy.label, 'Question');
   assert.equal(copy.attn, false, 'a class-2 question must NOT be an attention (red) state');
 });
 
 test('#2808 control: a technical permission prompt (by:auto, class 1) STAYS the red attn alarm', () => {
   const a = card({ stateReportedBy: 'auto' });
   assert.equal(derive.cardStOf(a).st, 'attn', 'class 1 (auto) must stay red -- it is PigeonPete\'s invisible handle, and the red is the fallback if it misses');
-  assert.equal(derive.stateCopyOf(a).label, 'Needs you');
+  assert.equal(derive.stateCopyOf(a).label, 'Issue');
   assert.equal(derive.stateCopyOf(a).attn, true);
 });
 

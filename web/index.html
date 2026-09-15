@@ -1671,7 +1671,7 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
          display: grid; place-items: center; font-size: .75rem; font-weight: 700;
          color: var(--k-ink-2); background: rgba(20,22,26,.05);
          box-shadow: inset 0 0 0 1px var(--k-rule); }
-/* #2808 class 2: the calm "has a question" family. A deliberate agent question is surfaced
+/* #2808 class 2: the calm "Question" family. A deliberate agent question is surfaced
    but NOT alarmed, so it uses a calm blue (info) -- never the red .haz / .st-attn / .acard.attn
    family (red stays reserved for "somebody is waiting on you"). Distinct from .qmark (unknown,
    muted grey): a question is actionable-but-calm, not "we cannot tell". FIRST-CUT palette; the
@@ -2599,7 +2599,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* The same bubble recipe .astate draws on the agents grid, scoped here
    rather than sharing the class -- .astate carries a six-state agent
    vocabulary (working/attn/idle/paused/stopped/unknown) that does not
-   apply to a project's two-state pill (default or "Needs you"). */
+   apply to a project's two-state pill (default or "Issue"). */
 .pj-list.asgrid .pj-row .pjpill { order: 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   margin: 12px auto 0; font-size: 1rem; font-weight: 600; color: var(--k-ink);
   padding: .38rem 1rem; border-radius: 100px; border: 1.5px solid var(--k-rule); background: var(--k-surface); }
@@ -3501,7 +3501,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .stop,
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .qmark,
   /* #2808 class 2: the calm question mark is a decorative glyph like its siblings, so it hides
-     in consolidated too (the word "Has a question" carries the state to eye and ear) -- without
+     in consolidated too (the word "Question" carries the state to eye and ear) -- without
      this line the status bubble Josh rejected on 2026-08-26 would reappear for a class-2 card. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .ask { display: none; }
   /* #2146: the coexistence badge obeys the same consolidated rule. Its dots are
@@ -11037,7 +11037,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <div class="stat"><b id="st-pj">0</b><span class="slab">Projects</span></div>
         <div class="stat alert" id="st-pjattn-tile" hidden>
           <span class="haz" aria-hidden="true">!</span>
-          <b id="st-pjattn">0</b><span class="slab">Needs you</span>
+          <b id="st-pjattn">0</b><span class="slab">Issue</span>
         </div>
         <!-- #2863 (Josh): the projects half of the unread-message tally, the
              rollup of the per-project unread bubbles, so at a glance you see how
@@ -11454,7 +11454,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          answering at once and nothing answering are the same bug.
          #2691, Josh 2026-09-10: this area is now Engineering-mode ONLY (pjApplyEngMode
          gates it on ENG_ON). In the default view a waiting agent is signalled by the
-         roster ("Needs you" + the #2699 red triangle) and answered through the detail
+         roster ("Issue" + the #2699 red triangle) and answered through the detail
          view (#d-qask); the earlier Off-mode asking-override + its dismiss breadcrumb
          are gone (Josh: "all of that needs to go away"). -->
     <div class="field" id="pj-thread">
@@ -13288,7 +13288,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          at zero exactly as the alert tile does, so a healthy board is unchanged
          and the moment an agent stops the headline says so before you read a
          single card.
-         ⚠️ BEFORE `Needs you`, not after: the row increases in urgency left to
+         ⚠️ BEFORE `Issue`, not after: the row increases in urgency left to
          right and ends on the red one. A stopped agent is less urgent than one
          asking you a question (Mona Lisa, #278).
          🔑 AND IT IS WHAT MAKES THE ROW ADD UP. Working plus Idle plus this is
@@ -13301,13 +13301,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          longer sums to Agents when something is stopped, on purpose. -->
     <div class="stat alert" id="st-attn-tile" hidden>
       <span class="haz" aria-hidden="true">!</span>
-      <b id="st-attn" data-count="attn">0</b><span class="slab">Needs you</span>
+      <b id="st-attn" data-count="attn">0</b><span class="slab">Issue</span>
     </div>
-    <!-- #1898: of the "Needs you" above, the ones that named NO project. A
+    <!-- #1898: of the "Issue" above, the ones that named NO project. A
          needs_you without a project lights no project tile, so a person scanning
          the Projects board never sees it; this is where the omission is caught.
          🔑 A DRILL-DOWN OF THE RED TILE, NOT A NEW STATE. It is a SUBSET of
-         "Needs you", so it does not enter the Working + Idle + Needs you = Agents
+         "Issue", so it does not enter the Working + Idle + Issue = Agents
          arithmetic, and it sits immediately after its parent tile. Hidden at zero
          exactly as its parent is, so a healthy board (and the common case where
          every question named its project) is unchanged and it only appears when
@@ -13821,13 +13821,13 @@ let MADE_LAST = null;
 
 const STATE_COPY = {
   working:      { label: 'Working',       attn: false },
-  needs_you:    { label: 'Needs you',     attn: true  },
+  needs_you:    { label: 'Issue',         attn: true  },
   /* #2808 class 2: a deliberate agent question (needs_you reported by:'agent') reads as a
-     CALM "has a question", NOT the red "Needs you" alarm that a QA tester read as "app
+     CALM "Question", NOT the red "Issue" alarm that a QA tester read as "app
      broken". attn:false -- it is surfaced (never dropped), just not alarmed. The state is
      still needs_you; cardStOf/stateCopyOf route a class-2 here via the inlined
      `state==='needs_you' && stateReportedBy==='agent'` predicate (glyphOf follows cardStOf.st). */
-  question:     { label: 'Has a question', attn: false },
+  question:     { label: 'Question',      attn: false },
   rate_limited: { label: 'Paused',        attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
      merely throttled it. "Working" forever was the bug; "Paused" would be
@@ -13923,7 +13923,7 @@ const GLYPH = {
   working: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>',
   attn:    '<span class="haz" aria-hidden="true">!</span>',
   /* #2808 class 2: a calm question mark, NOT the red hazard '!'. aria-hidden because the
-     label ("Has a question") already names it. First-cut mark; Mona's restyle owns the final. */
+     label ("Question") already names it. First-cut mark; Mona's restyle owns the final. */
   question: '<span class="ask" aria-hidden="true">?</span>',
   idle:    '<span class="rest" aria-hidden="true"></span>',
   paused:  '<span class="pause" aria-hidden="true"><i></i><i></i></span>',
@@ -13981,8 +13981,8 @@ function glyphOf(a) {
 }
 function stateCopyOf(a) {
   if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
-  // #2808 class 2: a deliberate agent question reads "Has a question", attn:false (calm), not
-  // the red "Needs you". The predicate is byte-identical to cardStOf's above (inlined, not
+  // #2808 class 2: a deliberate agent question reads "Question", attn:false (calm), not
+  // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
   // shared, so this painter stays self-contained for eval-extraction), so label and card agree.
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   return STATE_COPY[a.state] || STATE_COPY.unknown;
@@ -14638,7 +14638,7 @@ function boardMods(a, m) {
        (.acard.question) is a calm BORDER + shadow only -- NO ground wash. That is deliberate:
        "state owns the ground" reserves a filled ground for working (green) and needs-you (red),
        and everything else stays white (the rule above), so a class-2 stays white-grounded like
-       idle/paused and is told apart by its border, glyph and "has a question" label, never by a
+       idle/paused and is told apart by its border, glyph and "Question" label, never by a
        red wash. Derived from the pill like every arm here. First-cut styling; Mona's restyle owns
        the final look. */
     m.st === 'question' ? 'question' : '',
@@ -15032,12 +15032,12 @@ function card(a) {
    stopped row draws neither: the route emits no memory reading for a
    stopped agent, and reading a field the route does not emit is the defect
    the roster fixture exists to throw on. */
-const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Needs you"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
+const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Issue"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
 /* #2577: the org-chart node's needs-you corner badge is the SAME glyph as the
    list row, DERIVED from it by a class swap so the triangle, the exclamation and
    the built-in ground halo (stroke var(--k-bg)) can never drift apart -- only the
    class differs, so CSS places it top-right on a node instead of centred on a
-   row. One mark means "needs you" on a tile, a pill, a row and a node (Mona Lisa,
+   row. One mark means "Issue" on a tile, a pill, a row and a node (Mona Lisa,
    #2577). web.org-view.test.js pins that the two carry the identical path. */
 const ONODE_WARN = LROW_WARN.replace('class="lwarn"', 'class="owarn"');
 function lrowRing(a) {
@@ -16717,7 +16717,7 @@ async function tick() {
        and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
-    /* #1898: the no-project subset of "Needs you". Same hide-at-zero grammar as
+    /* #1898: the no-project subset of "Issue". Same hide-at-zero grammar as
        its parent tile above, so it appears only when an agent needs you AND named
        no project -- the case that lights no project tile and is otherwise caught
        only on the agent's own card. `needsYouUnattributed` is served on the
@@ -21214,7 +21214,7 @@ function pjApplyEngMode() {
        it ... if engineering mode is turned on"); the default view every
        non-engineer sees no longer carries it, asking or not.
        The two surfaces a waiting agent needs are preserved in Off. The needs_you
-       SIGNAL still shows in the member roster (the "Needs you" status + the #2699
+       SIGNAL still shows in the member roster (the "Issue" status + the #2699
        red warning triangle on the avatar), and a waiting agent is still ANSWERED
        in Off through the detail view (#d-qask, the agent's own page, reached from
        the roster card's "See the question" button, proven visible in Off by
@@ -23768,7 +23768,7 @@ async function paintTalk(sessionName, agentName) {
    * a free-text question, or a new menu whose labels wrap, which `optionsIn`
    * refuses by design -- and `different` stayed false, `stillTheSame` stayed
    * true, and the WHOLE `#d-qask` block hid, question text included, while the
-   * board card said Needs you.
+   * board card said Issue.
    *
    * That is verbatim the harm this file names two hundred lines up: "panel
    * gone, no buttons, while the board card still said the person was needed."
@@ -23803,7 +23803,7 @@ async function paintTalk(sessionName, agentName) {
    * the deletion changed was what happens on the tick AFTER.
    *
    * So they are separated: the panel is SHOWN (a question we can see must not
-   * be hidden while the board says Needs you) and the answer is REMEMBERED (the
+   * be hidden while the board says Issue) and the answer is REMEMBERED (the
    * next keyable tick decides by equality, as it always did). The cost is that
    * the question text can appear for a tick and go again when the menu
    * re-parses, which is the honest price of not being able to tell one
@@ -23954,7 +23954,7 @@ async function paintTalk(sessionName, agentName) {
     qtext.hidden = true;
     qtext.classList.remove('clamped', 'expanded');   // #2808: no wall, no clamp
   } else if (body.asking) {
-    /* ⚠️ SAID, not hidden. A "Needs you" card over an empty question box is
+    /* ⚠️ SAID, not hidden. An "Issue" card over an empty question box is
        the stranded state this feature exists to remove. The ROUTE's own
        sentence is used, for the reason the room records: a second wording
        here drifts from that one the first time either is edited. */
@@ -23963,7 +23963,7 @@ async function paintTalk(sessionName, agentName) {
     pjSetScreen(qtext, '');
     qtext.hidden = true;
     qtext.classList.remove('clamped', 'expanded');   // #2808: no captured wall here
-    /* #2808: the stranded "Needs you" state IS the one Josh hit (a leftover
+    /* #2808: the stranded "Issue" state IS the one Josh hit (a leftover
        waiting flag with no question on screen); the dismiss must reach it too. */
     if (qClear) qClear.hidden = false;
   }
@@ -29721,7 +29721,7 @@ document.getElementById('d-qask-clear').addEventListener('click', async () => {
         /* Re-read so the cleared question comes off screen at once. The success
            receipt is the box disappearing, so no message is written here. */
         await paintTalk(CURRENT.sessionName, CURRENT.name);
-        /* #2832: also refresh the BOARD, so the "Needs you" indicator comes off
+        /* #2832: also refresh the BOARD, so the "Issue" indicator comes off
            the agent's status line immediately instead of lingering until the
            next 5s poll. paintTalk only re-reads THIS agent's thread; the board
            roster/counts are painted by tick() (the status poll), so drive one
@@ -37165,13 +37165,13 @@ function pjTilesUnknown() {
   document.getElementById('st-pjdm-tile').hidden = true;
 }
 
-/* The pack's state pill (view C): Needs you > Working > Can't tell >
+/* The pack's state pill (view C): Issue > Working > Can't tell >
    Nothing running. "Nothing running" is a CLAIM -- it is only made when
    every member was actually seen; a blind roster or unseen members get
    the board's own unsure treatment instead of a reassurance. */
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
-  if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Needs you' };
+  if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
   /* #2019: the projects-list rollup is the 7th agent-state surface. A project
      whose only active agent is mid-restart must NOT fall through to "Nothing
@@ -39114,7 +39114,7 @@ function paintOneProject() {
            The status is text-only here (label without cp.glyph): the card is a
            tile with room for the animated glyph, the sub-row is a compact list
            line where the word alone carries the state and the attn border marks
-           "Needs you". Deliberate lighter-weight treatment. */
+           "Issue". Deliberate lighter-weight treatment. */
         const meta = cp.label ? esc(cp.label) : '';
         return '<button class="pj-subrow' + (cp.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(c.id) + '">'
           + '<span class="pj-subrow-n"><b>' + esc(c.name) + '</b>' + unreadBadge(c.unread) + '</span>'
@@ -42357,7 +42357,7 @@ function paintThread(body) {
     pjApplyEngMode();
   } else if (body.asking) {
     /**
-     * ⚠️ SAID, not hidden. A "Needs you" card over an empty question box is the
+     * ⚠️ SAID, not hidden. An "Issue" card over an empty question box is the
      * stranded state this whole feature exists to remove, rebuilt one step
      * further in. The two reads differ in moment, flags and depth, so this is
      * genuinely reachable.
@@ -43161,7 +43161,7 @@ document.getElementById('pj-say').addEventListener('keydown', (e) => {
 });
 
 /**
- * From a card that says "Needs you" to the question, in one click.
+ * From a card that says "Issue" to the question, in one click.
  *
  * ⚠️ THE STRANDED STATE THIS EXISTS TO MAKE IMPOSSIBLE: a card saying an agent
  * is showing a question, with no way to see or answer it. So every ending here

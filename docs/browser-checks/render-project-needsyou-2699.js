@@ -4,7 +4,7 @@
  * kosmos#2699 (Josh, design channel 2026-09-10): on the PROJECT view a member that needs
  * the operator "just says 'needs you' in text and doesn't show" - it sits in the same spot
  * as Idle/Working and blends in. Josh asked for the little red triangle over the agent's
- * icon and the "Needs you" text in red, so it calls for attention. This drives the real
+ * icon and the "Issue" text in red, so it calls for attention. This drives the real
  * pjMember() row builder (the project card / settings member roster) for a needs_you member
  * and an idle member, and checks the rendered result.
  *
@@ -98,7 +98,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (!r.needsWarnOverFace) fail.push('the triangle is not positioned over the avatar (no overlap with .pj-face) - the show/position rule is missing');
   if (!/\bpj-attn\b/.test(r.needsSmallClass)) fail.push('the needs-you status <small> did not get the pj-attn class (' + r.needsSmallClass + ')');
   if (!r.needsColor || r.needsColor === r.idleColor) fail.push('the needs-you status text is not a distinct (red) color from the idle status (' + r.needsColor + ' vs ' + r.idleColor + ')');
-  if (!/needs you/i.test(r.needsLabel)) fail.push('the needs-you row does not read "Needs you" (' + JSON.stringify(r.needsLabel) + ')');
+  if (!/^issue$/i.test(r.needsLabel)) fail.push('the needs-you row does not read "Issue" (' + JSON.stringify(r.needsLabel) + ')');
   // Negative arm: an idle member gets neither the triangle nor the red.
   if (r.idleWarnPresent) fail.push('an IDLE member also got the warning triangle - the signal no longer means needs-you');
   // Load-bearing negative arm: a STOPPED member (STATE_COPY.attn is true for it, but it is NOT
