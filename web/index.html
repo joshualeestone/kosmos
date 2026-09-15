@@ -30328,11 +30328,11 @@ function placeAppSettings(consolidated) {
   if (!panel || !projects) return;
   if (consolidated) {
     if (panel.parentElement !== projects) {
-      // Restore anchor: the original parent + next sibling, captured once. Unlike
-      // placeSubProjects (which restores to a fixed structural node, .pj3), this caches a
-      // sibling REFERENCE -- safe because #panel-settings's next sibling is #conn, a
-      // persistent top-level node that is never reparented, so insertBefore(panel, next) puts
-      // it back in the same slot. insertBefore also tolerates `next` being null (appends).
+      // Restore anchor: the original parent + next sibling, captured once. This caches a
+      // sibling REFERENCE (rather than a fixed structural node) -- safe because
+      // #panel-settings's next sibling is #conn, a persistent top-level node that is never
+      // reparented, so insertBefore(panel, next) puts it back in the same slot. insertBefore
+      // also tolerates `next` being null (appends).
       if (!APP_SETTINGS_HOME) APP_SETTINGS_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
       panel.hidden = true;   // relocated but not shown until openConsolidatedSettings()
       projects.appendChild(panel);
