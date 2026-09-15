@@ -1,20 +1,20 @@
 'use strict';
 
 /**
- * A project row is two lines, with its status on the agents line (#1303 E).
+ * The consolidated left-rail project row shows ONLY its title (#3105, 6.68).
  *
- * 🔑 Josh, 0.5.97 review: "the title / right below it, three agents / on the same
- * line as the three agents, in the same font size, the status... That way we can
- * tighten up these projects and get a whole lot more of them displayed."
+ * 🔑 Josh, 6.68 (#3105): "Show ONLY the project titles. Remove the number of
+ * agents, the status line, and the number of sub projects from each row. Literally
+ * just the project titles only." This SUPERSEDES the #1303E / 0.5.97 density design
+ * (status on the agents line) that this check used to verify: that whole subtitle
+ * was removed from the rail.
  *
- * 🛑 THE CLAIM IS "SAME LINE", WHICH IS A COMPARISON OF TWO ELEMENTS' VERTICAL
- * POSITIONS, NOT A PROPERTY OF EITHER. A check that read only the status pill
- * would pass on any layout. This asserts the status and the agent count share a
- * baseline, and that the row is SHORTER than it was, which is the density he
- * asked for and the reason the change exists.
- *
- * ⚠️ AND IT ASSERTS THE FONT SIZES MATCH, because "in the same font size" is half
- * his sentence and is the half a purely geometric check cannot see.
+ * 🛑 SO THE LOAD-BEARING ASSERTIONS ARE ABSENCES: the status pill and the agent
+ * count are NOT laid out in the rail (a display:none ancestor gives a zero box, so
+ * rect() returns null), while the title stays and the row is compact. They return
+ * the dangerous answer on origin/main, where both are shown. The tab-view arm below
+ * is the CONTROL that this removal is scoped to the consolidated rail: the Projects
+ * TAB list keeps its status pill.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-project-rows.js
  *
@@ -91,6 +91,11 @@ const chk = (ok, label, extra) => {
         const rg = document.createRange();
         rg.selectNodeContents(node);
         const r = rg.getBoundingClientRect();
+        // #3105: an element whose ANCESTOR is display:none (e.g. .pjcount inside a
+        // hidden .pjfaces) is not caught by the own-display check above but has no
+        // layout box -- treat a zero box as "not shown" so a rail-hidden count reads
+        // as null, not as a zero-positioned element.
+        if (r.width === 0 && r.height === 0) return null;
         return {
           bottom: Math.round(r.bottom * 10) / 10,
           mid: Math.round((r.top + r.height / 2) * 10) / 10,
@@ -118,38 +123,24 @@ const chk = (ok, label, extra) => {
       console.log('');
       console.log('  row height : ' + m.rowHeight + 'px');
       console.log('  title      : ' + JSON.stringify(m.title));
-      console.log('  status     : ' + JSON.stringify(m.pill));
-      console.log('  agents     : ' + JSON.stringify(m.count));
+      console.log('  status     : ' + JSON.stringify(m.pill) + '   (expect null: #3105 hides it in the rail)');
+      console.log('  agents     : ' + JSON.stringify(m.count) + '   (expect null: #3105 hides it in the rail)');
       console.log('  visible parts: ' + (m.parts || []).join('  '));
       console.log('');
 
-      /* 🛑 CONTROLS FIRST. Every element the comparisons below rest on must
-         actually be painted with text. A hidden pill would make "same line"
-         unfalsifiable and a missing count would make it vacuous. */
+      /* #3105 (Josh, 6.68): the rail row is TITLE ONLY. The title is painted; the
+         status pill and the agent count are NOT laid out (hidden in the rail), so
+         rect() returns null for them. These absences are the load-bearing arms and
+         they return the dangerous answer on origin/main, where both are shown. */
       chk(!!(m.title && m.title.text), 'the title is on screen', m.title && m.title.text);
-      chk(!!(m.pill && m.pill.text), 'the status is on screen', m.pill && m.pill.text);
-      chk(!!(m.count && m.count.text), 'the agent count is on screen', m.count && m.count.text);
+      chk(!m.pill, 'the status is NOT shown in the rail (#3105 titles-only)', JSON.stringify(m.pill));
+      chk(!m.count, 'the agent count is NOT shown in the rail (#3105 titles-only)', JSON.stringify(m.count));
 
-      if (m.pill && m.count && m.title) {
-        /* His sentence, both halves. */
-        chk(Math.abs(m.pill.mid - m.count.mid) <= 2,
-          'the status sits on the SAME LINE as the agents',
-          m.pill.mid + ' vs ' + m.count.mid);
-        chk(m.pill.fontSize === m.count.fontSize,
-          'the status is the SAME FONT SIZE as the agents',
-          m.pill.fontSize + ' vs ' + m.count.fontSize);
-        /* And it must be BELOW the title, not beside it: "right below it". */
-        chk(m.count.mid > m.title.mid + 4,
-          'the agents line sits below the title',
-          m.count.mid + ' vs ' + m.title.mid);
-      }
-
-      /* ⚠️ THE POINT OF THE CHANGE, and the assertion most likely to be left
-         out: he asked for DENSITY. A row that satisfies every line above and
-         got taller has not done what he asked for. Three lines at this size
-         measured 71px; two lines must come in under that. */
-      chk(m.rowHeight < 60, 'the row is shorter than the three-line shape it replaces',
-        m.rowHeight + 'px  (was 90.2)');
+      /* ⚠️ DENSITY, the point of the row work: with only the title the row is even
+         tighter than the old two-line title+status/count shape (which came in under
+         60px). A row that got TALLER has not done what #3105 asked for. */
+      chk(m.rowHeight < 44, 'the title-only row is compact (tighter than the old two-line row)',
+        m.rowHeight + 'px  (the old three-line shape was 90.2)');
     }
     /* 🛑 THE ASSERTION THAT PROTECTS THE SURFACE I DID NOT TOUCH. The grid tile
        is the SAME MARKUP laid out differently, and #747/#748 put its status at
