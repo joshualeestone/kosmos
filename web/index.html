@@ -13896,7 +13896,8 @@ const STATE_COPY = {
   /* #2808 class 2: a deliberate agent question (needs_you reported by:'agent') reads as a
      CALM "has a question", NOT the red "Needs you" alarm that a QA tester read as "app
      broken". attn:false -- it is surfaced (never dropped), just not alarmed. The state is
-     still needs_you; stateCopyOf/cardStOf/glyphOf route a class-2 here via isAgentQuestion. */
+     still needs_you; cardStOf/stateCopyOf route a class-2 here via the inlined
+     `state==='needs_you' && stateReportedBy==='agent'` predicate (glyphOf follows cardStOf.st). */
   question:     { label: 'Has a question', attn: false },
   rate_limited: { label: 'Paused',        attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not

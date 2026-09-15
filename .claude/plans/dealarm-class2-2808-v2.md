@@ -16,6 +16,7 @@ The classification routes through the SHARED per-agent derivation `cardStOf`, so
 - **Agents list row** (`lrow()`): drops the red warn glyph (`LROW_WARN` gated on `cardStOf.st==='attn'`); shows the calm glyph + "Has a question" via the shared `glyphOf`/`stateCopyOf`.
 - **Org-chart node** (web/index.html ~21695): `needsYou = cardStOf(a).st==='attn'`, so a class-2 loses its red `onode-attn` badge + glow and renders quiet (no calm affordance yet — a Mona restyle item).
 - **Project-member row** (`pjMember`, ~36240, the #2699 red-triangle surface): `needsYou = cardStOf(m).st==='attn'`, so a class-2 loses its `LROW_WARN` triangle, `pj-attn` red text and `pjm-attn` red ground, rendering neutral.
+- **Detail panel** (`#d-state`, ~24584): reads the same shared `cardStOf`/`stateCopyOf`/`glyphOf`, so an open agent's detail badge shows the calm "Has a question" treatment too. Consistent with the card, by construction.
 
 What is NOT touched (the deliberate deferral): the fleet/project COUNTS — `counts.needsYou` (the red "Needs you" TILE) and the project summary `needsYou` (the red project PILL). Those still count a class-2, so the aggregate red numbers are unchanged; only the per-agent RENDER de-alarms. Splitting the counts is the #763/#1253 + Josh product question below.
 
