@@ -2897,6 +2897,14 @@ body.consolidated .pj-anc { justify-content: flex-start; }
    same open-on-click buttons the cards are, at a lighter weight. */
 /* #2928: the back chevron + breadcrumb row that replaced #2487's parent trail. */
 .pj-crumbrow { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; min-width: 0; }
+/* #3103 (Josh, 6.68): the breadcrumb sits full-width at the top of the project
+   view now (placeProjectHead moves it to a direct child of #pj-one-view, above
+   .pj3), so give it a little room below before the members/conversation/tasks
+   columns. Tab view only; the consolidated rule below hides it. */
+body:not(.consolidated) #pj-one-view > .pj-crumbrow { margin: 4px 0 10px; }
+/* #3104 (Josh, 6.68): the consolidated view's left project list already shows
+   where you are, so the breadcrumb is redundant here -- hide it. */
+html[data-layout="consolidated"] body.consolidated #pj-one-view .pj-crumbrow { display: none; }
 .pj-back { background: none; border: 0; padding: 2px; color: var(--k-ink-2); cursor: pointer;
            display: inline-flex; flex: none; border-radius: 6px; }
 .pj-back:hover { background: var(--k-sunk); color: var(--k-ink); }
@@ -30281,6 +30289,18 @@ function placeProjectHead() {
   const mid = document.querySelector('#pj-one-view .pjmidhead');
   if (!head || !mid) return;
   if (head.parentElement !== mid) mid.insertBefore(head, mid.firstChild);
+  /* #3103 (Josh, 6.68): the breadcrumb moves OUT of the centre/dialogue column
+     to a full-width row at the top of #pj-one-view (above .pj3), where the removed
+     sub-projects section sat -- Josh's mockup arrow moves the crumb up to replace
+     that title. The project NAME stays in .pjhead (the centre-column header). Moved
+     once and left there, exactly like the .pjhead move above; the consolidated view
+     hides it by CSS (#3104: the left project list already shows the location, so
+     the crumb is redundant). #pj-crumb / #pj-back are looked up by id by
+     paintOneProject and the back handler, so they work wherever the row sits. */
+  const oneView = document.querySelector('#pj-one-view');
+  const crumb = oneView && oneView.querySelector('.pj-crumbrow');
+  const pj3 = oneView && oneView.querySelector('.pj3');
+  if (crumb && pj3 && crumb.parentElement !== oneView) oneView.insertBefore(crumb, pj3);
 }
 /* #3103 (Josh, 6.68): placeSubProjects removed with the sub-projects section it
    positioned. The #2848 consolidated-vs-tab relocation it did no longer applies. */
