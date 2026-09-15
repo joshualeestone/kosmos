@@ -1123,6 +1123,31 @@ chk "our app went to the home folder instead" "[ -x \"$SBH4/Applications/Kosmos.
 chk "the divert speaks its own sentence" "grep -q 'something else already has the Kosmos spot' \"$SB/divert.log\""
 KOSMOS_HOME="$SB/home6" "$SB/bin6/kosmos" stop > /dev/null 2>&1 || true
 
+echo "== #3058: a fresh install with a foreign system bundle still AUTO-LAUNCHES our diverted copy =="
+# Josh's report (test12@Caseys-Mac-mini, 0.6.64): a prior Kosmos held the system
+# Applications folder, ours diverted to ~/Applications, and "it did not launch on
+# its own". The divert pass above proves the bundle lands and the foreign one is
+# left alone -- but it runs with the open SUPPRESSED, so it never showed whether the
+# launch block opens OUR diverted copy. This pass drives the recording open-stub
+# through the exact shape and pins that the auto-launch fires on the ~/Applications
+# bundle (the behavior the report doubted, reproduced here as correct). The residual
+# real-world cause was environmental: over SSH/headless `open` is a documented
+# best-effort no-op (setup.sh's launch header), which no installer change can fix.
+SYS_FOREIGN2="$SB/sysforeign2"
+seed_kosmos_bundle "$SYS_FOREIGN2" "/Users/another-account/Kosmos"
+SBH_AL="$SB/autolaunch-foreign-home"
+mkdir -p "$SBH_AL"
+export KOSMOS_HOME="$SB/home6al" KOSMOS_BIN_DIR="$SB/bin6al"
+OPENED_BEFORE_AL="$(wc -l < "$SB/opened.log" | tr -d ' ')"
+RC=0; cat "$SETUP" | HOME="$SBH_AL" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_FOREIGN2" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/autolaunch-foreign.log" 2>&1 || RC=$?
+chk "autolaunch-foreign install exits 0" "rc_ok $RC"
+chk "our app diverted to the home folder" "[ -x \"$SBH_AL/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+chk "the foreign system bundle is untouched" "grep -q 'another-account' \"$SYS_FOREIGN2/Kosmos.app/Contents/MacOS/Kosmos\""
+chk "#3058: exactly one open fired for this run" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"\$((OPENED_BEFORE_AL + 1))\" ]"
+chk "#3058: the open targeted OUR diverted ~/Applications bundle, not the foreign one" "tail -1 \"$SB/opened.log\" | grep -qF \"$SBH_AL/Applications/Kosmos.app\" && ! tail -1 \"$SB/opened.log\" | grep -qF \"$SYS_FOREIGN2\""
+chk "#3058: the summary promises the app will open (not a bare manual instruction)" "grep -q 'Kosmos will open to walk you through' \"$SB/autolaunch-foreign.log\""
+KOSMOS_HOME="$SB/home6al" "$SB/bin6al/kosmos" stop > /dev/null 2>&1 || true
+
 echo "== foreign bundle PLUS aliased folders: no icon at all, said honestly =="
 # The composed case: something not ours holds the system spot AND the home
 # Applications folder is a symlink to the same place. "Divert to the home

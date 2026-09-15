@@ -4031,7 +4031,20 @@ if [ "$BOARD_OURS" = "yes" ]; then
   # #2073: app-only. The Kosmos app is the dashboard; the board URL is demoted to a
   # technical note (it still serves there for `kosmos open`), not presented as the
   # thing to open in a browser.
-  printf '  Open the Kosmos app from your Applications folder; it will walk you through connecting your AI account.\n'
+  # #3058: when this install HAS a bundle to open (APP_MADE=yes -- a fresh install, or
+  # one that left a current bundle in place), the launch block below auto-opens it, so
+  # the summary must NOT tell the person to open it by hand. The bare imperative read
+  # as "it did not open on its own" even on the runs where it did, and over SSH/headless
+  # -- where `open` is a documented best-effort no-op (see the launch header below) --
+  # the hedged form is the honest state: it will open, and here is what to do if it does
+  # not appear. The bare "open it from Applications" line is kept ONLY for APP_MADE=no,
+  # where there is no bundle for the launch block to auto-open.
+  if [ "$APP_MADE" = "yes" ]; then
+    printf '  Kosmos will open to walk you through connecting your AI account.\n'
+    printf '  If it does not appear, open the Kosmos app from your Applications folder.\n'
+  else
+    printf '  Open the Kosmos app from your Applications folder; it will walk you through connecting your AI account.\n'
+  fi
   printf '  (Advanced: the board also serves at http://127.0.0.1:%s, which `kosmos open` uses.)\n\n' "$PORT"
 else
   # 🛑 THE CAUSE IS NOT ASSERTED ANY MORE, and the old sentence was confidently
