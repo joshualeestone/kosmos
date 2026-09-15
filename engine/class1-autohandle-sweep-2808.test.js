@@ -105,6 +105,29 @@ test('sweepOnce acts on by:auto AND a trust-dialog scrape; never on by:agent / n
   } finally { b.restore(); }
 });
 
+test('the REACHABLE case: a standing by:agent question + a LIVE trust-dialog screen -> handled (correctly)', () => {
+  // reconcileReport leads with the live trust dialog and DROPS `by` (status.js:5837), so the
+  // card carries stateReportedBy null + trust evidence even though a by:'agent' report exists.
+  // The sweep restarts it - which is CORRECT: a trust-dialog scrape means the agent is at
+  // STARTUP, so the prior question is from a now-ended session (orphaned, un-answerable while
+  // stuck), and restarting is the only recovery. This is the sequence the earlier hand-built
+  // "by:agent + evidence" defense-in-depth test could not represent (status.js never emits both).
+  const b = installBoard([
+    { name: 'staleq', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN, report: { state: 'needs_you', because: 'Which venue? (from a prior, now-ended session)' } },
+  ]);
+  try {
+    const key = b.keyOf.staleq;
+    const card = b.agents.find((c) => c.sessionName === key);
+    assert.equal(card.state, 'needs_you');
+    assert.equal(card.stateReportedBy, null, 'the live trust dialog leads, so by is dropped (a real by:agent report is laundered to null here)');
+    assert.match(String(card.stateEvidence || ''), /^Quick safety check:/, 'the trust dialog is the evidence');
+    const d = fakeDeps();
+    const { results } = class1.sweepOnce({ roster: b.agents, attempts: new Map(), now: 1e6, ...d });
+    assert.equal(results.find((r) => r.session === key).act, 'trust-and-restart', 'the startup trust wedge is cleared by restart');
+    assert.deepEqual(d.calls, [['trust', key], ['restart', key, 'restart']]);
+  } finally { b.restore(); }
+});
+
 test('BLOCKER regression: the executor is keyed on the card sessionName, not the display name', () => {
   const b = installBoard([
     // A NAMED agent: display name 'Splinterish' differs from the session key 'blkperm',

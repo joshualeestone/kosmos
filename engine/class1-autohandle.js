@@ -285,15 +285,22 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   const rawBy = (agent && agent.stateReportedBy) || null;
   const trustDialogScrape = typeof isTrustDialogEvidence === 'function'
     && isTrustDialogEvidence(agent && agent.stateEvidence);
-  // DEFENSE-IN-DEPTH: a trust-dialog scrape promotes to 'auto' ONLY when there is no
-  // conflicting self-report provenance (rawBy null - the genuine screen-led case). A
-  // self-reported by:'agent' (class 2, a real question) or by:'operator' is NEVER
-  // overridden into an auto-restart by a scrape. Today reconcileReport emits `evidence`
-  // XOR `by` (a card cannot carry both stateReportedBy:'agent' AND live trust evidence -
-  // status.js:5837 vs :5844), so this cannot happen; but the class-2-never-restarted
-  // guarantee for a production auto-restart must not rest on an invariant that lives in
-  // another module and is not enforced here. If that invariant ever changed, this still
-  // refuses to auto-restart a self-reported question.
+  // A trust-dialog scrape promotes to 'auto'. When the live screen shows the folder-trust
+  // dialog, reconcileReport (status.js:5837) leads with the screen and DROPS `by`, so the
+  // card that reaches here always carries rawBy null - the `!rawBy` clause is therefore
+  // always satisfied on a real trust scrape, and is DEFENSE-IN-DEPTH: if status.js ever did
+  // surface a self-reported by:'agent'/'operator' alongside trust evidence, we still refuse
+  // to launder a self-reported question into an auto-restart.
+  //
+  // 🔑 WHY restarting is correct even when a STANDING by:'agent' question exists upstream:
+  // the folder-trust dialog only appears at LAUNCH, so a live trust-dialog scrape means the
+  // agent is at startup, and any prior by:'agent' question is from a now-ended session -
+  // already orphaned, and un-answerable while the agent is stuck at the dialog. Restarting
+  // (write trust key + relaunch) is the ONLY recovery; it does not drop a LIVE question,
+  // only clears the startup wedge. class1-autohandle-sweep-2808.test.js exercises exactly
+  // this reachable sequence (a by:'agent' report, then a trust-dialog screen on the same
+  // session -> card by:null + evidence -> handled), which the earlier defense-in-depth test
+  // (a by:'agent' + evidence card, a shape status.js cannot produce) did not.
   const by = (rawBy === 'auto' || (trustDialogScrape && !rawBy)) ? 'auto' : rawBy;
   return { found: true, state: agent && agent.state, by };
 }
