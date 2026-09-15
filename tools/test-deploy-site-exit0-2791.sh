@@ -148,6 +148,10 @@ make_publish_scenario() {  # <mode> ; echoes "SITE LIVE"
   printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
   ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   printf 'setup-script\n' > "$live/setup"
+  # #2511/#1666: the served (setup, setup.sha256) PAIR must be self-consistent -- deploy-site's
+  # post-deploy edge-check re-fetches both and refuses a mismatch (the pair the .pkg postinstall
+  # verifies). Publish a setup.sha256 whose hash matches the served /setup, or that check 404s/mismatches.
+  ( cd "$live" && shasum -a 256 setup > setup.sha256 )
   # LIVE prod pointer: the current version, advertising the real served sha.
   write_ptr "$live/dist/latest.json" "$V" "$realsha" "$ART"
 
@@ -199,6 +203,31 @@ if [ "$RC" != 0 ] && has "$out" "COMMITTED latest.json differs from LIVE"; then
   pass "B2-CONTROL: a stale --publish (committed != live) REFUSES with rc=$RC -- B1's rc==0 discriminates"
 else
   bad "B2-CONTROL: a stale --publish did not refuse (rc=$RC); B1's rc==0 would be vacuous. out=$out"
+fi
+
+# B3) CONTROL for the #2511/#1666 (setup, setup.sha256) edge-check: a served /setup whose
+# /setup.sha256 advertises a DIFFERENT hash must REFUSE with a non-zero exit. This proves the
+# post-deploy edge-check is not vacuous -- it can return the dangerous answer. It is exactly the
+# half-published/half-warmed state that makes the .pkg postinstall fail with "installation failed".
+read -r S3 L3 <<<"$(make_publish_scenario ok)"
+printf '%s  setup\n' "0000000000000000000000000000000000000000000000000000000000000000" > "$L3/setup.sha256"
+run_deploy "$S3" "$L3" --publish
+if [ "$RC" != 0 ] && has "$out" "does NOT match its served /setup.sha256"; then
+  pass "B3-CONTROL: a served /setup whose /setup.sha256 MISMATCHES refuses (rc=$RC) -- the edge-check is not vacuous"
+else
+  bad "B3-CONTROL: a mismatched (setup, setup.sha256) pair did not refuse (rc=$RC); the edge-check would be vacuous. out=$out"
+fi
+
+# B4) CONTROL: an UNREACHABLE /setup.sha256 (sidecar 404, e.g. dropped or not-yet-warmed) must also
+# REFUSE -- the .pkg postinstall refuses the install when the sidecar is unfetchable, so the deploy
+# must not certify a state a client cannot verify. Distinct branch from B3 (fetch-fail vs mismatch).
+read -r S4 L4 <<<"$(make_publish_scenario ok)"
+rm -f "$L4/setup.sha256"
+run_deploy "$S4" "$L4" --publish
+if [ "$RC" != 0 ] && has "$out" "postinstall REFUSES"; then
+  pass "B4-CONTROL: an unreachable /setup.sha256 refuses (rc=$RC) -- the fetch-fail branch fires, not just the mismatch branch"
+else
+  bad "B4-CONTROL: an unreachable /setup.sha256 did not refuse (rc=$RC); the fetch-fail branch is untested. out=$out"
 fi
 
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }

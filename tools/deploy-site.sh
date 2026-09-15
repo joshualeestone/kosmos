@@ -520,6 +520,21 @@ fi
 # host's root routing changed and wants investigation, not that this gate is wrong.
 served_verify_host_discriminates "$HOST" "/" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed for the ROOT route that serves /setup (see above), so a 200 at /setup would be meaningless; the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: /setup failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+# #2511/#1666: prove the served (setup, setup.sha256) PAIR is self-consistent AT THE EDGE before
+# declaring promoted. served_verify_asset_ok above only proves /setup is a served 200 non-html; this
+# proves it is served WHOLE and its published checksum DESCRIBES the served bytes. This is the EXACT
+# pair the .pkg postinstall verifies -- it fetches /setup + /setup.sha256 and REFUSES the install
+# (the generic "installation failed") on a mismatch or an unreachable sidecar -- and the pair a
+# mid-publish window (#1666: a checksum that did not match the served bytes survived a whole day) or
+# a half-warmed CDN edge desynchronizes. Fetch-to-file (never `curl | awk`) so a failed fetch is not
+# hidden by the pipe's exit status.
+_svsetup=$(mktemp "${TMPDIR:-/tmp}/deploy-site-setup.XXXXXX")
+curl -fsSL -H 'Cache-Control: no-cache' "$HOST/setup" -o "$_svsetup" || { echo "deploy-site: could not re-fetch the served /setup after deploy -- investigate."; rm -f "$_svsetup"; exit 1; }
+_svsetup_got=$(shasum -a 256 < "$_svsetup" | awk '{print $1}'); rm -f "$_svsetup"
+_svsetup_sum=$(mktemp "${TMPDIR:-/tmp}/deploy-site-setupsum.XXXXXX")
+curl -fsSL -H 'Cache-Control: no-cache' "$HOST/setup.sha256" -o "$_svsetup_sum" || { echo "deploy-site: could not fetch the served /setup.sha256 after deploy -- refusing (the .pkg postinstall REFUSES the install when this sidecar is unreachable, so a client would hit the same failure)."; rm -f "$_svsetup_sum"; exit 1; }
+_svsetup_want=$(awk '{print $1; exit}' "$_svsetup_sum"); rm -f "$_svsetup_sum"
+[ -n "$_svsetup_want" ] && [ "$_svsetup_want" = "$_svsetup_got" ] || { echo "deploy-site: the served /setup (sha $_svsetup_got) does NOT match its served /setup.sha256 (${_svsetup_want:-<none>}) -- refusing to certify. This is exactly what makes the .pkg postinstall refuse with \"installation failed\" (#1666/#2511): a half-published or half-warmed-CDN state where a client can fetch a mismatched (setup, setup.sha256) pair. Re-run the deploy and/or purge+warm the edge for /setup and /setup.sha256."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
 
