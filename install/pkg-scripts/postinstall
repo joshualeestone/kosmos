@@ -219,7 +219,7 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
        fi
        exit 1
      fi
-     /bin/sleep 3
+     /bin/sleep "$_rsleep"
    done
    exec /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED"
 rc=$?

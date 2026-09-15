@@ -107,7 +107,7 @@ if has "$out" "safe to try again"; then pass "and this one IS safe to retry, so 
 # window closes. We prove it deterministically (not on a wall-clock race): a tiny
 # origin serves the WRONG setup.sha256 on the first request and the CORRECT one on
 # every request after, so attempt 1 mismatches and attempt 2 matches and runs.
-kill "$SRV" 2>/dev/null; SRV=""
+kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 CNT="$T/sha_hits"; : > "$CNT"
 # bind + report the port, then serve (wrong sha on the 1st fetch, right after)
 FLIPLOG="$T/flip.log"
@@ -147,7 +147,7 @@ if [ -z "$FPORT" ]; then fail "ARM 4 flip-origin did not start"; else
 fi
 
 # --- CONTROL: the harness can tell a run from a refusal --------------------
-kill "$SRV" 2>/dev/null; SRV=""
+kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 cd "$WWW" || exit 1
 /usr/bin/python3 -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
 SRV=$!
