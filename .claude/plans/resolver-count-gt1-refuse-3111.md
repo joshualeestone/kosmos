@@ -49,7 +49,10 @@ left running in another account (an abandoned, not force-quit, prior install) al
 count. In that case this change refuses an otherwise-unambiguous single-investor install that the
 pre-#3111 code would have silently completed via console fallback. Accepted, deliberately:
 - The refusal is RECOVERABLE (not a lockout) - the message names the competing accounts and tells the
-  user to quit the other Installer(s), after which count==1 and candidate 1 resolves. It is a
+  user to quit the other Installer(s), after which count==1 and candidate 1 resolves. Crucially, when
+  the other account is NOT reachable (a stale Installer in an account this person cannot log into),
+  the message also offers the always-available remedy: RESTART the Mac, which closes every account's
+  Installer. So even a person with no access to the other account has a stated way out - it is a
   messaged, actionable refusal, not a lockout, and it beats a silent possibly-wrong install.
 - A robust liveness filter to drop stale Installers is NOT cleanly available: the only obvious
   liveness signal is the root-context `launchctl print gui/<uid>` session probe, which is exactly

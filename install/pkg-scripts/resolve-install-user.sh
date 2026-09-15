@@ -147,14 +147,18 @@ resolve_install_user() {
   # investor install -- so count>1 is not ALWAYS a genuine simultaneous ambiguity. A
   # robust liveness filter is not cleanly available here: the root-context
   # `launchctl print gui/<uid>` session probe is exactly what #2511 removed as
-  # unreliable. This is accepted because the refusal is RECOVERABLE (not a lockout; the
-  # message tells the user to quit the other Installer, after which count==1
-  # resolves), which beats a silent possibly-wrong install. A process-age filter is a
-  # future mitigation if stale Installers prove common (see the plan).
+  # unreliable. This is accepted because the refusal is RECOVERABLE (not a lockout):
+  # the message tells the user to quit the other Installer -- or, if that account is
+  # not reachable (a stale Installer in an account this person cannot log into), to
+  # RESTART the Mac, which closes every account's Installer -- after which count==1
+  # resolves. That always-available remedy is the load-bearing one: it is what makes
+  # this recoverable even when the person has no access to the other account. Beats a
+  # silent possibly-wrong install. A process-age filter is a future mitigation if
+  # stale Installers prove common (see the plan).
   if [ "$_riu_owner_count" -gt 1 ]; then
     RIU_REASON="Kosmos: more than one account is running the installer ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, - | /usr/bin/sed 's/,/, /g')), so Kosmos cannot tell which one to install for.
 Installing for the wrong account would put your agents in the wrong account's home folder, so Kosmos did not guess.
-Quit the installer in the other account(s), or sign in at this Mac's own screen as just the account you want, then open this installer again."
+Quit the installer in the other account(s) and open this installer again. If you cannot reach those accounts, restart the Mac -- that closes every account's installer -- then open this installer again as just the account you want."
     return 1
   fi
 

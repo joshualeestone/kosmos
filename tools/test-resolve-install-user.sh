@@ -140,6 +140,16 @@ run; r="$RUN_RESULT"
   && pass "  and did NOT fall back to the console holder bob" \
   || fail "  and DID fall back to the console holder: INSTALL_USER='${INSTALL_USER:-}'"
 
+# --- ARM 6c: #3111 -- THREE competing owners, to exercise the ", "-join for >2
+# owners (paste -sd, - | sed 's/,/, /g'). Still refuses, and names all three.
+STUB_CONSOLE="bob"; STUB_OWNERS=$'bob\ncarol\ndave'; STUB_SESSIONS="502 503 504"
+run; r="$RUN_RESULT"
+[ "$r" = "<refused>" ] && pass "ambiguous 3-owner (#3111): refuses with three Installer owners" \
+  || fail "ambiguous 3-owner: expected refusal, got '$r'"
+{ has "$RIU_REASON" "bob" && has "$RIU_REASON" "carol" && has "$RIU_REASON" "dave"; } \
+  && pass "  and names all three competing accounts (join handles >2 owners)" \
+  || fail "  and names all three: $RIU_REASON"
+
 # --- ARM 7: KOSMOS#2511 -- THE OBSERVED FAILURE, now fixed. A sole GUI Installer
 # owner (bob) whose Aqua-session PRINT would fail (STUB_SESSIONS empty = the
 # root-context `launchctl print gui/<uid>` false-negative on macOS 26). BEFORE
