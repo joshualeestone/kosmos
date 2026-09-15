@@ -103,7 +103,13 @@ function isClass1(standing) {
  *     the window without clearing; surface to a person, do NOT restart again.
  */
 function planClass1Handle(standing, attempts, now, opts) {
-  const maxAttempts = (opts && Number.isFinite(opts.maxAttempts)) ? opts.maxAttempts : DEFAULT_MAX_ATTEMPTS;
+  // Require maxAttempts >= 1. A 0 (or negative) would make recentAttempts >= maxAttempts
+  // true on the very first wait, i.e. escalate before ever trying a single
+  // trust-and-restart - and "0" reads ambiguously as "unlimited" to a future caller.
+  // Anything not a finite integer >= 1 falls back to the default rather than becoming a
+  // never-restart footgun.
+  const maxAttempts = (opts && Number.isFinite(opts.maxAttempts) && opts.maxAttempts >= 1)
+    ? opts.maxAttempts : DEFAULT_MAX_ATTEMPTS;
   const windowMs = (opts && Number.isFinite(opts.windowMs)) ? opts.windowMs : DEFAULT_WINDOW_MS;
 
   if (!isClass1(standing)) {

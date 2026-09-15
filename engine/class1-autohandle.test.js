@@ -85,6 +85,15 @@ test('plan: a custom maxAttempts of 1 escalates on the first recent prior attemp
   const p = planClass1Handle(class1(), [now - 1000], now, { maxAttempts: 1 });
   assert.equal(p.act, 'escalate');
 });
+test('CONTROL plan: maxAttempts of 0 (or negative) falls back to the default, NOT never-restart', () => {
+  // A literal 0 would otherwise escalate on the first wait (0 >= 0) and never try a
+  // restart - the ambiguous "0 = unlimited?" footgun. It must clamp to the default.
+  assert.equal(planClass1Handle(class1(), [], 1e6, { maxAttempts: 0 }).act, 'trust-and-restart');
+  assert.equal(planClass1Handle(class1(), [], 1e6, { maxAttempts: -3 }).act, 'trust-and-restart');
+  // and at the default cap it still escalates, proving the fallback is the default (2), not infinity
+  const now = 1e6;
+  assert.equal(planClass1Handle(class1(), [now - 1, now - 2], now, { maxAttempts: 0 }).act, 'escalate');
+});
 
 // ---------------------------------------------------------------------------
 // runClass1Handle - the executor. Injected deps; assert it calls the SAME
