@@ -45,6 +45,21 @@ test('the node button gets the glow class', () => {
     'the glow class is not appended to the onode button');
 });
 
+test("#2808 class 2: a de-alarmed question keeps an accessible-name signal on the org node (', has a question'), not a silent drop", () => {
+  const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
+  assert.ok(paint.length > 0, 'could not bound the paintOrg body');
+  /* The class-2 signal comes from the SAME shared cardStOf table as needsYou/working, so it
+     cannot drift from the card treatment. */
+  assert.match(paint, /const hasQuestion = cardStOf\(a\)\.st === 'question';/,
+    'the org node does not derive a class-2 "has a question" signal from the shared cardStOf table');
+  /* The de-alarm drops onode-attn for a class-2, so without this fold the accessible NAME would
+     lose its state signal entirely -- a silent drop of a real question, against Josh's ruling.
+     The name folds in ", has a question" in place of ", needs you". This is the a11y text signal;
+     the calm VISUAL affordance on the node is a Mona restyle item. */
+  assert.match(paint, /\(needsYou \? ', needs you' : hasQuestion \? ', has a question' : ''\)/,
+    "the org node aria-label does not fold in the class-2 ', has a question' signal, so a screen reader loses the state on a de-alarmed node");
+});
+
 test('the glow CSS uses the card state colours, green for working and red for needs-you', () => {
   const working = PAGE.match(/\.onode\.onode-working \.face \{[^}]*\}/);
   const attn = PAGE.match(/\.onode\.onode-attn \.face \{[^}]*\}/);
