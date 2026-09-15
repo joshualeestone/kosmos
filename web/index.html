@@ -1671,6 +1671,25 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
          display: grid; place-items: center; font-size: .75rem; font-weight: 700;
          color: var(--k-ink-2); background: rgba(20,22,26,.05);
          box-shadow: inset 0 0 0 1px var(--k-rule); }
+/* #2808 class 2: the calm "has a question" family. A deliberate agent question is surfaced
+   but NOT alarmed, so it uses a calm blue (info) -- never the red .haz / .st-attn / .acard.attn
+   family (red stays reserved for "somebody is waiting on you"). Distinct from .qmark (unknown,
+   muted grey): a question is actionable-but-calm, not "we cannot tell". FIRST-CUT palette; the
+   final look is Mona Lisa's restyle -- the class hooks (.ask / .st-question / .acard.question)
+   are what the render emits and will not change under her. */
+.ask { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 5px;
+       display: grid; place-items: center; font-size: .8125rem; font-weight: 700; line-height: 1;
+       color: #2c5aa0; background: rgba(44,90,160,.12);
+       box-shadow: inset 0 0 0 1px rgba(44,90,160,.38); }
+.astate.st-question { border-color: rgba(44,90,160,.5); }
+.acard.question { border-color: rgba(44,90,160,.34); box-shadow: 0 1px 3px rgba(44,90,160,.1); }
+/* #2808: only the SYSTEM-dark copy is hand-written; the forced (:root[data-theme="dark"]) twin
+   is generated into the forced-theme section by tools/sync-forced-theme.js (run after this). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ask { color: #9db8e0; background: rgba(120,160,220,.16); box-shadow: inset 0 0 0 1px rgba(120,160,220,.42); }
+  :root:not([data-theme="light"]) .astate.st-question { border-color: rgba(140,175,230,.58); }
+  :root:not([data-theme="light"]) .acard.question { border-color: rgba(140,175,230,.42); }
+}
 @media (max-width: 56rem) {
   .statsrow { grid-template-columns: auto auto; justify-content: space-between; }
   .statsrow > .stats { grid-column: 1 / -1; order: 3; }
@@ -3480,7 +3499,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .rest,
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .pause,
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .stop,
-  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .qmark { display: none; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .qmark,
+  /* #2808 class 2: the calm question mark is a decorative glyph like its siblings, so it hides
+     in consolidated too (the word "Has a question" carries the state to eye and ear) -- without
+     this line the status bubble Josh rejected on 2026-08-26 would reappear for a class-2 card. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .ask { display: none; }
   /* #2146: the coexistence badge obeys the same consolidated rule. Its dots are
      a decorative glyph and must stay hidden here too, but they nest one level
      deeper (.lstate > .alsowork > .act) than the direct-child rule above, so they
@@ -7446,6 +7469,10 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 :root[data-theme="dark"] .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(255,140,130,.6); }
 
 :root[data-theme="dark"] .onode .face { background: #3a3d42; }
+
+:root[data-theme="dark"] .ask { color: #9db8e0; background: rgba(120,160,220,.16); box-shadow: inset 0 0 0 1px rgba(120,160,220,.42); }
+:root[data-theme="dark"] .astate.st-question { border-color: rgba(140,175,230,.58); }
+:root[data-theme="dark"] .acard.question { border-color: rgba(140,175,230,.42); }
 
 :root[data-theme="dark"] .chk.ok .chk-m { color: var(--gold-deep); }
 :root[data-theme="dark"] .chk.att .chk-m { background: rgba(255,140,130,.13); border-color: rgba(255,140,130,.5); color: #ff8c82; }
@@ -13866,6 +13893,11 @@ let MADE_LAST = null;
 const STATE_COPY = {
   working:      { label: 'Working',       attn: false },
   needs_you:    { label: 'Needs you',     attn: true  },
+  /* #2808 class 2: a deliberate agent question (needs_you reported by:'agent') reads as a
+     CALM "has a question", NOT the red "Needs you" alarm that a QA tester read as "app
+     broken". attn:false -- it is surfaced (never dropped), just not alarmed. The state is
+     still needs_you; stateCopyOf/cardStOf/glyphOf route a class-2 here via isAgentQuestion. */
+  question:     { label: 'Has a question', attn: false },
   rate_limited: { label: 'Paused',        attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
      merely throttled it. "Working" forever was the bug; "Paused" would be
@@ -13912,6 +13944,11 @@ const STATE_COPY = {
 const CARD_ST = {
   working:      { st: 'working', pres: 'on' },
   needs_you:    { st: 'attn',    pres: 'on' },
+  /* #2808 class 2: the calm pack shape for a deliberate agent question. Its OWN st ('question')
+     so red stays reserved for "somebody is waiting on you" -- an agent's question is surfaced
+     but not alarmed. pres 'on' (the process is up). First-cut treatment; the exact visual is
+     Mona Lisa's design restyle, the plumbing beneath it is fixed. */
+  question:     { st: 'question', pres: 'on' },
   rate_limited: { st: 'paused',  pres: 'on' },
   /* #874: wears the same quiet "paused" pack shape as rate_limited for now
      (an account-level problem stopping work is the closest existing
@@ -13955,6 +13992,9 @@ const kGlyph = (still) => '<span class="kspin' + (still ? ' kspin-still' : '') +
 const GLYPH = {
   working: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>',
   attn:    '<span class="haz" aria-hidden="true">!</span>',
+  /* #2808 class 2: a calm question mark, NOT the red hazard '!'. aria-hidden because the
+     label ("Has a question") already names it. First-cut mark; Mona's restyle owns the final. */
+  question: '<span class="ask" aria-hidden="true">?</span>',
   idle:    '<span class="rest" aria-hidden="true"></span>',
   paused:  '<span class="pause" aria-hidden="true"><i></i><i></i></span>',
   stopped: '<span class="stop" aria-hidden="true"></span>',
@@ -13970,7 +14010,14 @@ const PRESSAY = {
 
 /* One derivation each, shared by BOTH renderers (card and row), so the two
    views cannot drift apart on what they say about the same agent. */
-function cardStOf(a) { return CARD_ST[a.state] || CARD_ST.unknown; }
+/* #2808 class 2: a needs_you the agent reported deliberately (by:'agent') is its OWN question
+   to you, not the technical permission/trust junk (by:'auto', class 1) nor a scrape, so it gets
+   the calm 'question' shape instead of the red 'attn'. ONLY the KNOWN 'agent' case is calmed --
+   'auto', 'operator' and null (unknown provenance, selfreport.js:389) stay the red alarm, the
+   safe direction. The predicate is INLINED here and in stateCopyOf (kept byte-identical, not a
+   shared helper) so each painter stays self-contained -- the node tests eval-extract cardStOf /
+   stateCopyOf in isolation, and a shared global would ReferenceError in every one of those slices. */
+function cardStOf(a) { return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -14004,6 +14051,10 @@ function glyphOf(a) {
 }
 function stateCopyOf(a) {
   if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
+  // #2808 class 2: a deliberate agent question reads "Has a question", attn:false (calm), not
+  // the red "Needs you". The predicate is byte-identical to cardStOf's above (inlined, not
+  // shared, so this painter stays self-contained for eval-extraction), so label and card agree.
+  if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   return STATE_COPY[a.state] || STATE_COPY.unknown;
 }
 function taskLine(a, opts) {
@@ -14653,6 +14704,11 @@ function boardMods(a, m) {
        with the label sitting on it. */
     m.st === 'working' ? 'working' : '',
     m.st === 'attn' ? 'attn' : '',
+    /* #2808 class 2: a deliberate agent question gets a CALM ground (not the red 'attn' wash),
+       so it is distinguishable but reads as "has a question", never "app broken". Derived from
+       the pill like every arm here, so ground and label cannot disagree. First-cut styling;
+       Mona Lisa's restyle owns the final look. */
+    m.st === 'question' ? 'question' : '',
     m.st === 'stopped' ? 'off' : '',
     m.st === 'unknown' ? 'unk' : '',
     /* #2019: the card keeps its normal white ground while restarting (this is
