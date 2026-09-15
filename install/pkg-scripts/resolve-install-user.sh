@@ -121,20 +121,44 @@ resolve_install_user() {
     fi
   fi
 
-  # candidate 2 (FALLBACK): the physical console user, whenever candidate 1 did NOT
-  # resolve -- no Installer owner (count 0) OR an ambiguous multiple (count > 1).
-  # #1880 restricted this to count==0 AND hard-gated it on the same unreliable
+  # #3111: REFUSE on a genuine multi-account ambiguity (more than one account
+  # running Installer at the SAME instant) rather than falling back to the console
+  # holder below. #2511's P0 relaxed candidate 2 to fall back even on count>1 so an
+  # install never refuses ("investors MUST install" -- a reversible product call).
+  # That fallback is safe for count==0 (nobody invoked, so the console user is the
+  # only signal) but NOT for count>1: when several accounts each drive an Installer,
+  # the physical-console holder may not be the one who invoked THIS install, so
+  # falling back there silently installs for the WRONG user -- the exact #1880 class
+  # this resolver exists to prevent, reached through console divergence. A silent
+  # wrong-user install (agents in the wrong home) is worse than an honest refusal
+  # with a clear next step, so on count>1 we refuse and name it.
+  #
+  # This does NOT reintroduce the #1880 refusal for the case Josh's ruling protects:
+  # a single investor installing on their own Mac is count==1 and still resolves via
+  # candidate 1 above (no session gate), and count==0 still falls back to console
+  # below. count>1 requires multiple accounts running Installer at the same instant
+  # (fast user switching, a second Screen-Sharing session) -- rare, and genuinely
+  # ambiguous, which is the only case narrowed here. Reverses the count>1 half of
+  # #2511's console fallback (itself marked reversible); count==0/count==1 unchanged.
+  if [ "$_riu_owner_count" -gt 1 ]; then
+    RIU_REASON="Kosmos: more than one account is running the installer at the same time ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)), so Kosmos cannot tell which one to install for. Installing for the wrong account would put your agents in the wrong account's home folder. Quit the installer in the other account(s), or sign in at this Mac's own screen as just the account you want, then open this installer again."
+    return 1
+  fi
+
+  # candidate 2 (FALLBACK): the physical console user, when candidate 1 did NOT
+  # resolve and the ambiguity above did not refuse -- i.e. no Installer owner
+  # (count 0), or the single owner (count 1) whose username did not resolve to a
+  # uid. #1880 restricted this to count==0 AND hard-gated it on an unreliable
   # session print, turning a fallback into a HARD REFUSAL. Per Josh's standing
   # priority "investors MUST be able to install" (Splinter, 2026-09-15 -- a
-  # reversible product call), FALL BACK rather than refuse, even in the ambiguous
-  # multi-account case, and without the session print.
+  # reversible product call), FALL BACK rather than refuse in THESE cases, without
+  # the session print. (The count>1 ambiguity is handled above, not here.)
   #
-  # ACCEPTED RESIDUAL (documented, reversible): in a genuine multi-account /
-  # Screen-Sharing session this resolves to the CONSOLE holder rather than a
-  # specific non-console invoker -- the exact #1880 concern. That trade is accepted
-  # because a REFUSED install (an investor who cannot install at all) is the worse
-  # failure. The single-owner invoker PREFERENCE above still wins whenever it
-  # resolves, so the ordinary case keeps #1880's behavior.
+  # ACCEPTED RESIDUAL (documented, reversible): with no Installer owner at all
+  # (count 0) this resolves to the console holder, which in a Screen-Sharing session
+  # may not be the remote invoker. That is accepted because with no owner signal the
+  # console user is the ONLY signal, and a REFUSED install is the worse failure. The
+  # single-owner invoker PREFERENCE above still wins whenever it resolves.
   case "$_riu_console" in
     ''|root|loginwindow) : ;;
     *)
@@ -155,9 +179,10 @@ resolve_install_user() {
     *)
       _riu_console_desc="the physical console user is '$_riu_console', which could not be resolved to a usable account" ;;
   esac
-  if [ "$_riu_owner_count" -gt 1 ]; then
-    _riu_own_desc="$_riu_owner_count accounts are running Installer ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)) and there is no usable console user to fall back to"
-  elif [ "$_riu_owner_count" -eq 1 ]; then
+  # #3111: count>1 refuses earlier (the multi-account ambiguity block above), so it
+  # cannot reach here; only count==1 (owner whose uid did not resolve) and count==0
+  # (no owner at all) fall through to this final refuse.
+  if [ "$_riu_owner_count" -eq 1 ]; then
     _riu_own_desc="a GUI Installer is running as '$_riu_owners' but that username did not resolve to a uid, and there is no usable console user to fall back to"
   else
     _riu_own_desc="no GUI Installer owner was found, and there is no usable console user to fall back to"

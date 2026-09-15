@@ -111,30 +111,34 @@ has "$RIU_REASON" "'ghost' (no one is signed in at the screen)" \
   && fail "  must NOT tell a named console user 'no one is signed in'" \
   || pass "  and does NOT contradict itself with 'no one is signed in'"
 
-# --- ARM 6: ambiguous -- >1 accounts running Installer AND no usable console --
-# count>1 now falls back to the console user (ARM 6b), but here console=loginwindow
-# (no real console user), so it refuses -- the one genuine refusal in the
-# ambiguous case.
+# --- ARM 6: #3111 -- >1 accounts running Installer (a genuine multi-account
+# ambiguity) REFUSES rather than falling back to a console holder who may not be
+# the invoker. Here there is no usable console user either (console=loginwindow).
 STUB_CONSOLE="loginwindow"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS="502 503"
 run; r="$RUN_RESULT"
-[ "$r" = "<refused>" ] && pass "ambiguous+no-console: refuses when >1 accounts drive Installer and there is no usable console user" \
+[ "$r" = "<refused>" ] && pass "ambiguous+no-console (#3111): refuses when >1 accounts drive Installer" \
   || fail "ambiguous+no-console: expected refusal, got '$r'"
-has "$RIU_REASON" "accounts are running Installer" && pass "  and says it is ambiguous" \
+has "$RIU_REASON" "more than one account is running the installer" && pass "  and says it is ambiguous" \
   || fail "  and says it is ambiguous: $RIU_REASON"
 { has "$RIU_REASON" "bob" && has "$RIU_REASON" "carol"; } && pass "  and names both candidates" \
   || fail "  and names both candidates: $RIU_REASON"
 
-# --- ARM 6b: ambiguous, but a real console user is present -> FALL BACK to it.
-# Splinter product call (2026-09-15): fall back rather than refuse, even on this
-# arm-A ambiguity -- a refused investor install is the worse failure. With two
-# Installer owners and no clean single invoker, candidate 2 resolves to the
-# physical console user (bob). ACCEPTED, reversible residual (#2511): this can
-# install for the console holder rather than a specific non-console invoker.
+# --- ARM 6b: #3111 KEY PROTECTION -- same count>1 ambiguity, but now a real
+# console user (bob) IS present. #2511's P0 fell back to bob here (its accepted,
+# reversible residual). #3111 REVERSES that half: on a genuine multi-account
+# ambiguity we REFUSE rather than silently install for the console holder, who may
+# not be who invoked THIS install (the #1880 wrong-user class). So this must refuse
+# and must NOT resolve to bob -- proving count>1 refuses EVEN WHEN a console
+# fallback was available. count==0 and count==1 "investors must install" behavior
+# (ARMs 2, 4, 7) is unchanged.
 STUB_CONSOLE="bob"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS="502 503"
 run; r="$RUN_RESULT"
-[ "$r" = "bob" ] && [ "$INSTALL_UID" = 502 ] \
-  && pass "ambiguous+console: >1 Installer owners falls back to the real console user (bob), not refuse" \
-  || fail "ambiguous+console: expected bob/502, got '$r'/'${INSTALL_UID:-}'"
+[ "$r" = "<refused>" ] \
+  && pass "ambiguous+console (#3111): >1 Installer owners REFUSES even with a usable console user (no wrong-user install)" \
+  || fail "ambiguous+console (#3111): expected refusal, got '$r'/'${INSTALL_UID:-}'"
+{ [ -z "${INSTALL_USER:-}" ] || [ "$INSTALL_USER" != "bob" ]; } \
+  && pass "  and did NOT fall back to the console holder bob" \
+  || fail "  and DID fall back to the console holder: INSTALL_USER='${INSTALL_USER:-}'"
 
 # --- ARM 7: KOSMOS#2511 -- THE OBSERVED FAILURE, now fixed. A sole GUI Installer
 # owner (bob) whose Aqua-session PRINT would fail (STUB_SESSIONS empty = the
