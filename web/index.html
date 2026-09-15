@@ -2914,18 +2914,8 @@ body.consolidated .pj-anc { justify-content: flex-start; }
    separators live inside .pj-crumb-lead and are not matched by this child combinator. */
 .pj-crumb > .pj-crumb-sep { flex: none; }
 .pj-crumb .pj-crumb-sep { opacity: .55; }
-.pj-subs { margin: 4px 0 8px; }
-.pj-subs .dlab { margin: 0 0 8px; }
-.pj-subrows { display: flex; flex-direction: column; gap: 8px; }
-.pj-subrow { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; text-align: left; cursor: pointer; font-family: inherit; color: var(--k-ink);
-  background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 10px; padding: 10px 14px;
-  transition: border-color .12s ease; }
-.pj-subrow:hover { border-color: rgba(20,22,26,.28); }
-.pj-subrow.attn { border-color: rgba(179,38,30,.42); }
-.pj-subrow-n { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: .9375rem; }
-.pj-subrow-n b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pj-subrow-m { font-size: .8125rem; color: var(--k-ink-2); flex: none; }
+/* #3103 (Josh, 6.68): the .pj-subs / .pj-subrow styles for the removed project-view
+   sub-projects section were deleted with the section (markup + painter + delegate). */
 /* The wide Projects tab (list sub-view) carries tree depth by this margin indent.
    The asgrid grid (tiles) still falls back to the ancestry chip. The consolidated
    rail USED to fall back to the chip too, but #2929 (Josh, 6.59 QA) turns it into
@@ -4262,24 +4252,8 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex-shrink: 0; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
-  /* #2848: the sub-projects strip, now nested under the name (placeSubProjects
-     moves it into .pjmid right after the header), reads as PART of that header
-     rather than a second bar. Two moves make it one header block:
-       - the header drops its own full-bleed rule while a strip follows it, and
-         the strip carries the rule beneath both -- so the name and its
-         sub-projects sit above a single line, not two;
-       - the strip goes compact and indented (a quiet caption, tight rows set in
-         from the title) so it reads as nested beneath the title, not competing
-         with it.
-     A project with no sub-projects hides the strip ([hidden]), so the :has()
-     rules never fire and the header is exactly as before. */
-  html[data-layout="consolidated"] body.consolidated .pjmid:has(> #pj-one-subprojects:not([hidden])) .pjmidhead { border-bottom: 0; margin-bottom: 4px; padding-bottom: 4px; }
-  html[data-layout="consolidated"] body.consolidated .pjmid > #pj-one-subprojects:not([hidden]) { margin: 0 -16px 12px; padding: 0 16px 10px; border-bottom: 1px solid var(--k-rule); }
-  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .dlab { margin: 0 0 5px; }
-  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrows { gap: 4px; }
-  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow { padding: 6px 10px; border-radius: 8px; margin-left: 12px; }
-  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow-n { font-size: .8125rem; }
-  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow-m { font-size: .75rem; }
+  /* #3103 (Josh, 6.68): the #2848 consolidated sub-projects strip styling (nested
+     under the header, compact + indented) was removed with the section itself. */
   html[data-layout="consolidated"] body.consolidated #rail-agents, html[data-layout="consolidated"] body.consolidated > #panel-projects, html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 6px; }
   /* #520 piece eight (Josh, toward the mock): the member rows lose their box
      and go flat and quiet like the agents rail, and the add/remove controls
@@ -6680,11 +6654,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   :root:not([data-theme="light"]) .astate.st-unknown { border-color: rgba(245,245,244,.40); }
   :root:not([data-theme="light"]) .lrow:hover { border-color: rgba(245,245,244,.30); }
   :root:not([data-theme="light"]) .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
-  /* #2487: the detail sub-project rows follow the card/lrow hover, so they need the
-     same dark override -- the light rgba(20,22,26,.28) is lower contrast than the
-     resting rule on the dark ground and the hover would vanish. */
-  :root:not([data-theme="light"]) .pj-subrow:hover { border-color: rgba(245,245,244,.30); }
-  :root:not([data-theme="light"]) .pj-subrow.attn { border-color: rgba(255,140,130,.55); }
 }
 /* A restore that half-worked, said on the row it happened to. Full width so it
    wraps under the name rather than squeezing the Restore button off the end. */
@@ -7555,11 +7524,6 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 :root[data-theme="dark"] .astate.st-unknown { border-color: rgba(245,245,244,.40); }
 :root[data-theme="dark"] .lrow:hover { border-color: rgba(245,245,244,.30); }
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
-/* #2487: the detail sub-project rows follow the card/lrow hover, so they need the
-     same dark override -- the light rgba(20,22,26,.28) is lower contrast than the
-     resting rule on the dark ground and the hover would vanish. */
-:root[data-theme="dark"] .pj-subrow:hover { border-color: rgba(245,245,244,.30); }
-:root[data-theme="dark"] .pj-subrow.attn { border-color: rgba(255,140,130,.55); }
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
 
@@ -11197,14 +11161,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <button class="linkish pj-settings-cog" id="pj-settings-link" type="button" aria-label="Project settings" title="Project settings"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
 
-    <!-- #2487: the sub-projects section (Josh 2026-09-07: "add a subprojects
-         section on the design page"). Sits between the head and the members/
-         files/tasks grid, OUTSIDE the view-order-sensitive .pj3, so it cannot
-         disturb the deliberate tab-vs-consolidated ordering that grid keeps.
-         paintOneProject fills it with this project's DIRECT children (deeper
-         descendants nest under those children in the list, not here); the whole
-         section is hidden when the project has none. -->
-    <section class="pj-subs" id="pj-one-subprojects" aria-label="Sub-projects" hidden></section>
+    <!-- #3103 (Josh, 6.68): the sub-projects section was removed from the project
+         view entirely. paintOneProject no longer renders a children list here, its
+         placeSubProjects relocation is gone, and the section's own click delegate
+         went with it. Josh: "We might come back and add a way to see this info on
+         a project but not now." -->
 
     <div class="pj3">
     <!-- #534 (Josh, 2026-08-24 10:34): members and files are TWO containers,
@@ -17105,12 +17066,6 @@ function showTab(tab) {
   const cons = layoutConsolidated() && (tab === 'agents' || tab === 'projects');
   const wasCons = document.body.classList.contains('consolidated');
   document.body.classList.toggle('consolidated', cons);
-  // #2848: nest the project's sub-projects strip under the name in the
-  // consolidated view, restore it above the grid in the tab view. Here because
-  // this is the one place that knows the effective view (the resize re-check
-  // and every tab switch pass through it), keyed on the same `cons` the body
-  // class uses so the DOM move and the consolidated CSS never disagree.
-  placeSubProjects(cons);
   // #2842: relocate the app-settings panel into the projects display column in the
   // consolidated view (so #rail-me-go can open it in place), and restore it to the
   // top level in the tab view. Same chokepoint and same `cons` flag as above, so the
@@ -30327,34 +30282,8 @@ function placeProjectHead() {
   if (!head || !mid) return;
   if (head.parentElement !== mid) mid.insertBefore(head, mid.firstChild);
 }
-/* #2848 (Josh, 0.6.57 staging review: "we've got to figure out the sub-project
-   view because it's breaking this across the top of this thing"). In the
-   CONSOLIDATED view the sub-projects strip used to render above the whole .pj3
-   grid, so a project with a sub-project stacked three separate bars across the
-   top -- a "1 sub-project" label, the child row, and the project name (the name
-   lives in the conversation column's header, .pjmidhead, since #761). This nests
-   the strip directly under that header instead, so the parent title and its
-   sub-projects read as ONE header. The move is confined to a single grid cell
-   (.pjmid), so it does not disturb the .pj3 column ordering #2487 was careful to
-   protect. Reversible and idempotent: in the tab view (not flagged, and its
-   balanced 3-column layout does not break) the strip is restored to its original
-   slot, before .pj3 in #pj-one-view. Gated on body.consolidated, which is exactly
-   the scope the CSS below keys on, so DOM placement and styling stay in lockstep.
-   Called from showTab, the one chokepoint that reflects the EFFECTIVE view (the
-   saved layout AND the 960px width gate, resize included). */
-function placeSubProjects(consolidated) {
-  const oneView = document.getElementById('pj-one-view');
-  const subs = document.getElementById('pj-one-subprojects');
-  if (!oneView || !subs) return;
-  const midHead = oneView.querySelector('.pjmidhead');
-  const pj3 = oneView.querySelector('.pj3');
-  if (!midHead || !pj3) return;
-  if (consolidated) {
-    if (subs.parentElement !== midHead.parentElement) midHead.insertAdjacentElement('afterend', subs);
-  } else {
-    if (subs.parentElement !== oneView) oneView.insertBefore(subs, pj3);
-  }
-}
+/* #3103 (Josh, 6.68): placeSubProjects removed with the sub-projects section it
+   positioned. The #2848 consolidated-vs-tab relocation it did no longer applies. */
 /* #2842 (Josh, 0.6.57 review): opening user settings from the consolidated view
    used to kick the whole layout back to the tab view, because #rail-me-go clicks
    the Settings tab and showTab drops body.consolidated for any tab that is not
@@ -39080,17 +39009,13 @@ function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
   document.getElementById('pj-one-name').textContent = p.name;
-  /* #2487, now the #2928 breadcrumb: the location trail (where this project sits)
-     above the name, and the sub-projects section below the head. Both derive from
-     the same tree the list cards use -- pjAncestry for the breadcrumb, a
-     direct-children filter for the section -- so the detail page and the list can
-     never disagree. The rows carry
-     `data-project` like the cards, but #pj-one-subprojects lives in #pj-one-view,
-     a SIBLING of #pj-list, so the list's click delegate never sees it: a dedicated
-     delegate on #pj-one-subprojects (search for it below) opens them. */
-  /* Both blocks self-guard their element lookups so extracting paintOneProject
+  /* #2928 breadcrumb: the location trail (where this project sits) above the name,
+     derived from pjAncestry -- the same tree the list cards use -- so the detail
+     page and the list can never disagree. (#3103 removed the sub-projects section
+     that used to render this project's direct children below the head.) The
+     breadcrumb block self-guards its element lookups so extracting paintOneProject
      for an unrelated concern (e.g. the desc-collapse harness) does not require
-     every test to mock these new nodes, and a partial render never throws. */
+     every test to mock the node, and a partial render never throws. */
   /* #2928: the breadcrumb is the FULL location, current project included
      ("Project / Subproject / ThisProject"), where #2487 showed only the
      ancestors. A top-level project shows its own name as the single crumb. The
@@ -39130,30 +39055,9 @@ function paintOneProject() {
     const backParent = p.parent && pjById(p.parent);
     backEl.setAttribute('aria-label', backParent ? ('Back to ' + backParent.name) : 'Back to all projects');
   }
-  const subsEl = document.getElementById('pj-one-subprojects');
-  if (subsEl) {
-    const kids = PROJECTS.filter((c) => !c.archived && c.parent === p.id);
-    if (kids.length) {
-      const rows = kids.map((c) => {
-        const cp = pjPillOf(c, PJ_AGENTS_UNREADABLE);
-        /* Match the card: pjPillOf returns an EMPTY label for a project with no
-           agents (Josh: do not show "no agents" as a status on the Projects tab),
-           and returns a non-empty label whenever it has agents -- so an empty
-           child shows its name with no meta, never "No agents yet".
-           The status is text-only here (label without cp.glyph): the card is a
-           tile with room for the animated glyph, the sub-row is a compact list
-           line where the word alone carries the state and the attn border marks
-           "Issue". Deliberate lighter-weight treatment. */
-        const meta = cp.label ? esc(cp.label) : '';
-        return '<button class="pj-subrow' + (cp.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(c.id) + '">'
-          + '<span class="pj-subrow-n"><b>' + esc(c.name) + '</b>' + unreadBadge(c.unread) + '</span>'
-          + '<span class="pj-subrow-m">' + meta + '</span></button>';
-      }).join('');
-      subsEl.innerHTML = '<h3 class="dlab">' + kids.length + (kids.length === 1 ? ' sub-project' : ' sub-projects') + '</h3>'
-        + '<div class="pj-subrows">' + rows + '</div>';
-      subsEl.hidden = false;
-    } else { subsEl.innerHTML = ''; subsEl.hidden = true; }
-  }
+  /* #3103 (Josh, 6.68): the sub-projects section that used to render this project's
+     direct children here was removed. The element, its placeSubProjects relocation,
+     and its click delegate are gone. */
   paintProjectTasks(p);
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was
      offered and resolved; otherwise the honest generic. Screen-made shows
@@ -43691,15 +43595,6 @@ document.getElementById('pj-list').addEventListener('keydown', (e) => {
   const folded = row.getAttribute('aria-expanded') === 'false';
   if (e.key === 'ArrowRight' && folded) { pjTreeToggleFold(row.dataset.project); e.preventDefault(); }
   else if (e.key === 'ArrowLeft' && !folded) { pjTreeToggleFold(row.dataset.project); e.preventDefault(); }
-});
-
-/* #2487: the detail page's sub-projects section is its OWN delegate. Its rows carry
-   data-project like the cards, but it lives in #pj-one-view, a sibling of #pj-list,
-   so the list delegate above never sees it -- without this the rows look clickable
-   (cursor:pointer, hover) and do nothing. Same open handle the cards use. */
-document.getElementById('pj-one-subprojects').addEventListener('click', (e) => {
-  const row = e.target.closest('[data-project]');
-  if (row) openProject(row.dataset.project);
 });
 
 /* #2458: the Map's clicks. A fold-disclosure click is checked FIRST and returns, so
