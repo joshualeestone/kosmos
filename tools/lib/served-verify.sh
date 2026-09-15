@@ -297,10 +297,16 @@ served_verify_asset_ok() {
   # unambiguous success: a 200 carrying a non-empty, non-html content-type. On ANY other
   # outcome -- a non-200, an empty/absent content-type, an html page wearing a 200, a 405/501
   # (server does not implement HEAD), or a transport error -- it falls through to the GET path
-  # below, so the check is never weaker than the full GET it replaces, and the GET path keeps
-  # sole ownership of the detailed failure messages and the redirect note. The extra HEAD is a
-  # header-only round-trip; it does not invoke a GET handler, so a stateful server's GET-keyed
-  # behavior is unperturbed by it.
+  # below, which keeps sole ownership of the detailed failure messages and the redirect note.
+  # This assumes HEAD and GET AGREE (same status + content-type): the one case it is weaker than
+  # the old full GET is a server that answers a HEAD 200 + non-html content-type while its GET
+  # would refuse. That does not happen for the static, CDN-served release artifacts this checks
+  # (a compliant CDN mirrors GET's headers on HEAD), it cannot ship unverified BYTES (integrity
+  # is checked separately/locally against the manifest/.sha256, not here), and the realistic
+  # #1667 SSO wall returns text/html or an empty content-type on BOTH verbs so it still falls
+  # through and is refused. See .claude/plans/served-verify-head-3073.md for the residual. The
+  # extra HEAD is a header-only round-trip; it does not invoke a GET handler, so a stateful
+  # server's GET-keyed behavior is unperturbed by it.
   _svao_hhdr=$(curl -sSLI --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url" 2>/dev/null) || _svao_hhdr=''
   if [ -n "$_svao_hhdr" ]; then
     _svao_hcode=${_svao_hhdr%% *}

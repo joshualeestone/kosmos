@@ -58,7 +58,23 @@ meta-guards and formatting-frozen fixtures must not be perturbed); it stays gree
 
 ## Weakest premise
 
-The performance win (skipping the body transfer) only materializes when the serving CDN answers HEAD
-with a 200 + content-type. If a CDN omits the content-type on HEAD, the fallback fires and behavior
-is exactly today's -- correct, just not faster for that asset. So the correctness is unconditional;
-only the speedup is CDN-dependent, and it degrades safely.
+The real residual is an assumption, not the speedup: **that HEAD and GET agree** for a given URL --
+same status, same content-type. There is exactly one input class where HEAD-first is weaker than the
+old full GET: a server that answers a HEAD with `200` + a non-empty, non-html content-type while its
+GET would refuse (a non-200, or a `text/html` body). The old code always issued the GET (body
+discarded via `-o /dev/null`) and would have caught that; the fast path trusts the HEAD and returns 0.
+
+Why this is bounded, and a WARNING rather than a hole:
+- The URLs checked here are static, CDN-served release artifacts (the Windows zip, its .sha256, the
+  pointers, /setup). For those, a compliant CDN returns the same status + content-type on HEAD as on
+  GET (RFC 9110 requires it), so the divergence is not expected.
+- Byte integrity is NOT checked here anyway -- it is verified locally against the manifest/.sha256 --
+  so a HEAD/GET disagreement could at worst let a wrong-status or html-bodied response pass this
+  presence check, never ship unverified bytes.
+- The realistic #1667 shape is preserved: an SSO/login wall returns `text/html` or an empty
+  content-type on **both** HEAD and GET, so it falls through to the GET path and is refused there.
+
+The performance win (skipping the body transfer) is separately CDN-dependent: if a CDN omits the
+content-type on HEAD, or 405/501s it, the fallback fires and behavior is exactly today's -- correct,
+just not faster for that asset. So the speedup degrades safely; the correctness residual is the
+HEAD/GET-agreement assumption above, bounded as described.
