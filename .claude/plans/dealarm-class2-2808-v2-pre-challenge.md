@@ -2,13 +2,24 @@
 pre_challenge: true
 method: challenge-loop
 branch: dealarm-class2-2808-v2
-diff_hash: 2979783f471477a4a172db4ec2ff70493b8a7405e5553e71382481da6ae5d2c4
+diff_hash: e4877a09b77f5bf403ee190fbdcc78be6ccabcaa4ff0246953d5fa75044dbe70
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-15T01:27:30Z
-iterations: 8
+timestamp: 2026-09-15T01:41:00Z
+iterations: 9
 converged: true
 ---
+
+## [CHALLENGE-LOOP] Iteration 9 — post-rebase confirming pass
+
+After iteration 8 converged, the branch was rebased onto current origin/main (db8b27b9d), which
+merged two ADDITIVE collisions with a parallel #3051 browser-check: `tools/browser-checks.sh` (runner
+list — now carries BOTH `render-user-menu-3051` and `render-needsyou-dealarm-2808`) and
+`browser-checks-reason-grep.test.js` (EXPECTED_SITES 110→114, EXPECTED_CATCH_SITES 78→82 = base + both
+checks' +2/+2). The rebase orphans the diff_hash, so a fresh blind review + full validation re-ran on
+the rebased HEAD: **zero actionable findings**, full suite + the reason-grep self-recompute + the
+Playwright check all green, surface gate overridden. diff_hash refreshed to the rebased value above.
+`git rerere` replayed the two-file resolution across the later iteration commits automatically.
 
 ## [CHALLENGE-LOOP] Summary
 
