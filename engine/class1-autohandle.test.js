@@ -178,7 +178,12 @@ test('sweep: no action is taken (read-only) - deps carry no writer', () => {
 // and the store's class-1 line (record()'s #2456 clobber-guard) cannot diverge.
 // ---------------------------------------------------------------------------
 const selfreport = require('./selfreport');
-test('isClass1 agrees with selfreport.isAutoPermissionWait across shared fixtures (no two-derivations drift)', () => {
+// isClass1 delegates to selfreport.isAutoPermissionWait today, so this comparison is
+// trivially true NOW. Its value is as a regression pin: if a future edit re-inlines
+// isClass1 with its own (possibly divergent) predicate, this fails - catching the
+// two-derivations drift before it ships. The behavioral coverage of the class-1 line
+// itself is the control tests above.
+test('isClass1 must stay equal to selfreport.isAutoPermissionWait (re-inline drift pin)', () => {
   const fixtures = [
     class1(),
     class1({ by: 'agent' }),
@@ -209,6 +214,13 @@ test('CONTROL loop-guard: a single non-finite attempt (under cap) still plans tr
   const p = planClass1Handle(class1(), [NaN], 10_000_000);
   assert.equal(p.act, 'trust-and-restart');
   assert.equal(p.recentAttempts, 1); // counted, not dropped
+});
+test('loop-guard: a non-finite `now` (corrupt clock) counts all attempts recent -> escalate, never restart', () => {
+  // With a NaN now, a finite attempt would be dropped by (now - t) and bias to
+  // restart; the guard must instead count everything recent and escalate at cap.
+  const p = planClass1Handle(class1(), [1000, 2000], NaN);
+  assert.equal(p.act, 'escalate');
+  assert.equal(p.recentAttempts, 2);
 });
 
 // ---------------------------------------------------------------------------

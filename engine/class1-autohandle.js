@@ -25,8 +25,9 @@
  *
  * SAFE BY CONSTRUCTION.
  *  - Fires ONLY on the stable class-1 seam: a standing report with
- *    found && state === 'needs_you' && by === 'auto' - selfreport.js's own
- *    `standingIsAutoPermissionWait` (selfreport.js:222). It NEVER fires on
+ *    found && state === 'needs_you' && by === 'auto' - via selfreport's own
+ *    exported `isAutoPermissionWait` (the same predicate record()'s clobber-guard
+ *    uses). It NEVER fires on
  *    by:'agent' (class 2, the agent's OWN substantive question, which must be kept
  *    and surfaced, never auto-cleared - Josh: "do NOT silently drop these"),
  *    by:'operator', or a by:null legacy line (absence is not agent-typed and is
@@ -56,8 +57,10 @@
 
 const selfreport = require('./selfreport');
 
-const CLASS1_STATE = 'needs_you';
-const CLASS1_BY = 'auto';
+// No CLASS1_STATE / CLASS1_BY literals live here: the class-1 line ('needs_you' +
+// by:'auto') is defined once, in selfreport.isAutoPermissionWait, and this module
+// delegates to it. Re-stating the literals here (even exported for reference) would
+// be the latent second derivation convention #5 exists to prevent.
 
 // Defaults for the loop-guard. Two handles inside ten minutes is enough to clear a
 // transient race; a third inside the window means the restart is not fixing it (a
@@ -67,11 +70,8 @@ const DEFAULT_WINDOW_MS = 10 * 60 * 1000;
 
 /*
  * Is this standing report a class-1 technical permission/trust wait that we may
- * auto-handle? This is the ONE place the class-1 vs class-2 line is drawn, and it
- * mirrors selfreport.js:222-224 exactly (found + needs_you + by==='auto') so the two
- * cannot disagree about what "class 1" is.
- *
- * It is NOT re-derived here: it delegates to selfreport.isAutoPermissionWait, the ONE
+ * auto-handle? The class-1-vs-class-2 line (found + needs_you + by==='auto') is NOT
+ * re-derived here: this delegates to selfreport.isAutoPermissionWait, the ONE
  * definition record()'s #2456 clobber-guard also uses, so the auto-handle's class-1
  * line and the store's class-1 line cannot silently diverge (the two-derivations
  * defect this codebase names as its most-shipped). class1-autohandle.test.js pins the
@@ -120,7 +120,14 @@ function planClass1Handle(standing, attempts, now, opts) {
   // counted as recent explicitly rather than dropped, so a bad timestamp can only
   // ever make us escalate sooner, never loop-restart an agent.
   const list = Array.isArray(attempts) ? attempts : [];
-  const recentAttempts = list.filter((t) => !Number.isFinite(t) || (now - t) < windowMs).length;
+  // A non-finite `now` (a corrupt clock) is itself the dangerous shape: with it,
+  // `(now - t) < windowMs` is false for every finite t, so attempts would go
+  // uncounted and bias toward restart. Treat a bad `now` as "count everything
+  // recent" so the corrupt-clock case also biases to escalate, symmetric with the
+  // per-entry guard. (Every current caller feeds Date.now(); this is defence for the
+  // WIRE-UP #2 store's future callers.)
+  const nowBad = !Number.isFinite(now);
+  const recentAttempts = list.filter((t) => nowBad || !Number.isFinite(t) || (now - t) < windowMs).length;
 
   if (recentAttempts >= maxAttempts) {
     return {
@@ -224,8 +231,6 @@ module.exports = {
   planClass1Handle,
   runClass1Handle,
   sweepClass1,
-  CLASS1_STATE,
-  CLASS1_BY,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_WINDOW_MS,
 };

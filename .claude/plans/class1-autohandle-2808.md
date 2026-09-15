@@ -23,9 +23,10 @@ the dialog. This automates that one click.
     RESTARTED). Reuses the manual route's exact functions; NO send-keys (a mis-fired keystroke into a
     real conversation is the whole hazard). `handled` keys on the restart outcome.
   - `sweepClass1(names, deps, now, opts)` - the dry-run surface: names -> plans, read-only.
-- `engine/class1-autohandle.test.js`: 21 tests, red-capable controls on every branch (class-2 must
-  NOT be handled; loop-guard must escalate not loop; executor keys handled on the restart; sweep is
-  read-only).
+- `engine/class1-autohandle.test.js`: red-capable controls on every branch (class-2 must NOT be
+  handled; loop-guard must escalate not loop, incl. corrupt-timestamp and corrupt-clock cases;
+  executor keys handled on the restart and never throws out; sweep is read-only and survives a
+  throwing read/attemptsFor; a re-inline drift pin against selfreport's canonical predicate).
 - `bin/class1-autohandle.js`: DRY-RUN inspector (argv names -> printed plan). Deliberately no --arm:
   the armed path needs a PERSISTENT attempts store (cross-invocation loop-guard memory) + Angel's
   class-2 classification, so arming here would be an unguarded restart loop.
