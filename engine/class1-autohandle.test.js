@@ -1,0 +1,173 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const {
+  isClass1,
+  planClass1Handle,
+  runClass1Handle,
+  sweepClass1,
+  DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_WINDOW_MS,
+} = require('./class1-autohandle');
+
+// A standing report shaped like selfreport.read()'s return, class-1 by default.
+const class1 = (over) => ({ found: true, state: 'needs_you', by: 'auto', because: 'asking permission to use Bash: cd', ...(over || {}) });
+
+// ---------------------------------------------------------------------------
+// isClass1 - the class-1 vs class-2 line. The CONTROLS are the point: a
+// class-2 (by:'agent') real question, an operator clear, a legacy null line,
+// and any non-needs_you state must all read as NOT class-1, or the auto-handle
+// would silently drop a real request.
+// ---------------------------------------------------------------------------
+test('isClass1: a standing by:auto needs_you IS class-1', () => {
+  assert.equal(isClass1(class1()), true);
+});
+test('CONTROL isClass1: by:agent (class 2, the agent\'s own question) is NOT class-1', () => {
+  assert.equal(isClass1(class1({ by: 'agent' })), false);
+});
+test('CONTROL isClass1: by:operator is NOT class-1', () => {
+  assert.equal(isClass1(class1({ by: 'operator' })), false);
+});
+test('CONTROL isClass1: by:null (legacy, provenance unknown) is NOT class-1', () => {
+  assert.equal(isClass1(class1({ by: null })), false);
+});
+test('CONTROL isClass1: a by:auto but non-needs_you state (blocked) is NOT class-1', () => {
+  assert.equal(isClass1(class1({ state: 'blocked' })), false);
+});
+test('CONTROL isClass1: found:false is NOT class-1', () => {
+  assert.equal(isClass1({ found: false }), false);
+  assert.equal(isClass1(null), false);
+});
+
+// ---------------------------------------------------------------------------
+// planClass1Handle - the decision. Controls prove each branch and prove the
+// dangerous ones (handling class-2, looping) cannot happen.
+// ---------------------------------------------------------------------------
+test('plan: class-1, no prior attempts -> trust-and-restart', () => {
+  const p = planClass1Handle(class1(), [], 1_000_000);
+  assert.equal(p.act, 'trust-and-restart');
+  assert.equal(p.recentAttempts, 0);
+});
+test('CONTROL plan: a class-2 real question -> none (never auto-handled)', () => {
+  const p = planClass1Handle(class1({ by: 'agent' }), [], 1_000_000);
+  assert.equal(p.act, 'none');
+});
+test('CONTROL plan: operator/legacy/blocked all -> none', () => {
+  assert.equal(planClass1Handle(class1({ by: 'operator' }), [], 1e6).act, 'none');
+  assert.equal(planClass1Handle(class1({ by: null }), [], 1e6).act, 'none');
+  assert.equal(planClass1Handle(class1({ state: 'blocked' }), [], 1e6).act, 'none');
+  assert.equal(planClass1Handle({ found: false }, [], 1e6).act, 'none');
+});
+test('plan loop-guard: at maxAttempts within the window -> escalate, NOT another restart', () => {
+  const now = 10_000_000;
+  const attempts = [now - 1000, now - 2000]; // 2 == DEFAULT_MAX_ATTEMPTS, both recent
+  const p = planClass1Handle(class1(), attempts, now);
+  assert.equal(p.act, 'escalate');
+  assert.equal(p.recentAttempts, DEFAULT_MAX_ATTEMPTS);
+});
+test('CONTROL loop-guard: attempts OUTSIDE the window do not count -> trust-and-restart', () => {
+  const now = 10_000_000;
+  const attempts = [now - (DEFAULT_WINDOW_MS + 1), now - (DEFAULT_WINDOW_MS + 2)]; // both expired
+  const p = planClass1Handle(class1(), attempts, now);
+  assert.equal(p.act, 'trust-and-restart');
+  assert.equal(p.recentAttempts, 0);
+});
+test('CONTROL loop-guard: one recent attempt (under cap) -> still trust-and-restart', () => {
+  const now = 10_000_000;
+  const p = planClass1Handle(class1(), [now - 1000], now);
+  assert.equal(p.act, 'trust-and-restart');
+  assert.equal(p.recentAttempts, 1);
+});
+test('plan: a custom maxAttempts of 1 escalates on the first recent prior attempt', () => {
+  const now = 10_000_000;
+  const p = planClass1Handle(class1(), [now - 1000], now, { maxAttempts: 1 });
+  assert.equal(p.act, 'escalate');
+});
+
+// ---------------------------------------------------------------------------
+// runClass1Handle - the executor. Injected deps; assert it calls the SAME
+// path the manual route uses, in order, and keys `handled` on the restart.
+// ---------------------------------------------------------------------------
+const RESTARTED = 'restarted';
+
+test('run: trust write + restart both succeed -> handled, both called in order', () => {
+  const calls = [];
+  const deps = {
+    trustAgentFolder: (n) => { calls.push(['trust', n]); return { wrote: true }; },
+    restart: (n, cause) => { calls.push(['restart', n, cause]); return { outcome: RESTARTED }; },
+    RESTARTED,
+  };
+  const r = runClass1Handle('angel', deps);
+  assert.equal(r.handled, true);
+  assert.deepEqual(calls, [['trust', 'angel'], ['restart', 'angel', 'restart']]);
+});
+test('CONTROL run: restart REFUSED -> handled:false with a reason', () => {
+  const deps = {
+    trustAgentFolder: () => ({ wrote: true }),
+    restart: () => ({ outcome: 'refused', because: 'agent is busy' }),
+    RESTARTED,
+  };
+  const r = runClass1Handle('angel', deps);
+  assert.equal(r.handled, false);
+  assert.match(r.because, /did not complete/);
+});
+test('run: a soft-failed trust write but a good restart is still handled (relaunch shim re-writes trust)', () => {
+  const deps = {
+    trustAgentFolder: () => ({ wrote: false, because: 'symlinked config' }),
+    restart: () => ({ outcome: RESTARTED }),
+    RESTARTED,
+  };
+  const r = runClass1Handle('angel', deps);
+  assert.equal(r.handled, true);
+  assert.equal(r.trusted.wrote, false); // surfaced, not swallowed
+});
+test('CONTROL run: a throwing restart is caught, handled:false (never throws out)', () => {
+  const deps = {
+    trustAgentFolder: () => ({ wrote: true }),
+    restart: () => { throw new Error('boom'); },
+    RESTARTED,
+  };
+  const r = runClass1Handle('angel', deps);
+  assert.equal(r.handled, false);
+  assert.match(r.because, /boom/);
+});
+test('CONTROL run: missing deps -> handled:false, does not throw', () => {
+  assert.equal(runClass1Handle('angel', {}).handled, false);
+  assert.equal(runClass1Handle('angel').handled, false);
+});
+
+// ---------------------------------------------------------------------------
+// sweepClass1 - the dry-run surface. Maps names to plans, no action.
+// ---------------------------------------------------------------------------
+test('sweep: maps each agent to its plan, reading per-agent standing + attempts', () => {
+  const now = 10_000_000;
+  const store = {
+    angel: class1(),                                   // class-1 -> trust-and-restart
+    mona: class1({ by: 'agent' }),                     // class-2 -> none
+    ice: class1(),                                     // class-1 but looping -> escalate
+  };
+  const attempts = { ice: [now - 1000, now - 2000] };
+  const out = sweepClass1(['angel', 'mona', 'ice'], {
+    read: (n) => store[n],
+    attemptsFor: (n) => attempts[n] || [],
+  }, now);
+  assert.deepEqual(out.map((e) => [e.name, e.plan.act]), [
+    ['angel', 'trust-and-restart'],
+    ['mona', 'none'],
+    ['ice', 'escalate'],
+  ]);
+});
+test('CONTROL sweep: a read() that throws is caught and planned as none, not a crash', () => {
+  const out = sweepClass1(['boom'], { read: () => { throw new Error('store gone'); } }, 1e6);
+  assert.equal(out[0].plan.act, 'none');
+});
+test('sweep: no action is taken (read-only) - deps carry no writer', () => {
+  // The sweep only takes `read`/`attemptsFor`; there is no way for it to restart
+  // anything. This is the dry-run guarantee, asserted structurally.
+  let restartCalled = false;
+  const deps = { read: () => class1(), attemptsFor: () => [], restart: () => { restartCalled = true; } };
+  sweepClass1(['angel'], deps, 1e6);
+  assert.equal(restartCalled, false);
+});
