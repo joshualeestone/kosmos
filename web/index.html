@@ -44491,12 +44491,26 @@ const FR_STEP_YOU = 8;
    only the hops between them and the progress follow this list. On a Mac the list is
    1..FR_STEPS, so every hop and the progress are the numbers they always were. */
 function frStepSequence() {
-  const steps = [];
-  for (let i = 1; i <= FR_STEPS; i += 1) steps.push(i);
-  return onWindows() ? steps.filter((s) => s !== 2 && s !== 4) : steps;
+  // #3112 (Josh, 6.68+): Model (pane 5) is shown SECOND, right after Welcome, so a
+  // model is chosen before the permission/automation steps (which is what lets the
+  // tmux prompts fire). The pane IDS are STABLE -- browser checks and lib-firstrun-steps
+  // find panes by id and deep links open ?fr-step=N -> fr-pane-N -- so only the DISPLAY
+  // ORDER changes here, not the numbering. Windows still drops Access(2) + Notifications(4)
+  // by pane NUMBER, unaffected by the reorder.
+  const order = [1, 5, 2, 3, 4, 6, 7, 8, 9];   // Welcome, Model, Access, Automation, Notifications, Self-improving, Success, About-you, Your-agents
+  return onWindows() ? order.filter((s) => s !== 2 && s !== 4) : order;
 }
 function frStepAfter(step) {
-  const next = frStepSequence().find((s) => s > step);
+  // #3112: advance by SEQUENCE POSITION, not numeric value. The old
+  // `find((s) => s > step)` walked pane NUMBERS, so once Model (5) is shown at
+  // position 2 it would jump 5 -> 6 and skip Access/Automation/Notifications. Walk the
+  // display order instead (frStepProgress already uses indexOf, so this aligns them).
+  const seq = frStepSequence();
+  const at = seq.indexOf(step);
+  if (at !== -1) return at + 1 < seq.length ? seq[at + 1] : FR_STEPS;
+  // step not in the display sequence (e.g. a Windows-filtered pane via deep link):
+  // fall back to the next pane by number, the pre-#3112 behaviour, so frGo's clamp lands.
+  const next = seq.find((s) => s > step);
   return next === undefined ? FR_STEPS : next;
 }
 function frStepProgress(step) {
@@ -44942,13 +44956,13 @@ function frGo(step) {
   } else if (step === 6) {
     // S6 Self improving: one consent switch (the daily feedback report). #11
     // (0.6.39) removed the create-agent-ping switch from this screen.
-    frActions({ label: 'Next', go: () => frGo(7) });
+    frActions({ label: 'Next', go: () => frGo(frStepAfter(6)) });   // #3112: route through the sequence, not a hardcoded 7
     frRefreshFeedback();   // #2037: paint persisted/default-ON state on show
   } else if (step === 7) {
     // S7 Success: a static screen (#12, 0.6.39). The app-location reveal
     // subsystem was removed; the pane is fixed markup, so there is nothing to
     // paint here beyond wiring the single primary onward to step 8.
-    frActions({ label: 'Next', go: () => frGo(8) });
+    frActions({ label: 'Next', go: () => frGo(frStepAfter(7)) });   // #3112: route through the sequence, not a hardcoded 8
   } else if (step === 8) {
     // S8 About you: sets its own gated Next and advances to step 9.
     frPaintYou();
@@ -45146,7 +45160,7 @@ async function frPaintYou() {
         // a newer paint.
         if (entry !== FR_YOU_GEN) return;
       }
-      frGo(FR_STEP_YOU + 1);
+      frGo(frStepAfter(FR_STEP_YOU));   // #3112: route through the sequence, not FR_STEP_YOU + 1 (numeric)
     } catch {
       if (entry !== FR_YOU_GEN) return;
       saving = false;
@@ -46105,7 +46119,7 @@ function frPaintConnect(st) {
           + 'and follow its sign-in. Then come back and press Try again.</details>'
         : ''))
     + '</div>';
-    frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(6) });
+    frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(frStepAfter(5)) });
     return;
   }
 
@@ -46132,7 +46146,7 @@ function frPaintConnect(st) {
       title: 'A connection attempt was interrupted',
       detail: 'Kosmos was closed while it was ' + frConnBefore(before) + '. ' + afterSentence,
     });
-    frActions({ label: 'Start again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(6) });
+    frActions({ label: 'Start again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(frStepAfter(5)) });
     return;
   }
 
@@ -46992,12 +47006,12 @@ async function frPaintOpenai(known) {
        AND a connected OpenAI at once, and the OpenAI-only-first-run case Josh hit
        has no Claude connect record so frConnResume is a no-op there. */
     const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
-    if (!claudeConnected) frActions({ label: 'Next', go: () => frGo(6) }, null);
+    if (!claudeConnected) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
   } else {
     /* 📌 The not-connected branch deliberately does NOT reset the actions: there
        is no in-wizard way to disconnect OpenAI (the forget-provider handlers are
        Settings-only), so a connected->none transition on THIS screen is not
-       reachable, and Skip already routes to frGo(6) if it ever were. */
+       reachable, and Skip already routes to frGo(frStepAfter(5)) if it ever were. */
     // Leave `flow.hidden` alone: a person mid-typing should not have the
     // form yanked shut under them by an unrelated repaint. A positively
     // dead key names itself (its because), so the person knows why the row
@@ -47069,7 +47083,7 @@ function frPaintSubscription() {
        the Claude binary, so a screen asserting that every agent thinks with
        Claude describes a product that had one provider. The same sentence is
        corrected in the `none` arm below. */
-    frActions({ label: 'Next', go: () => frGo(6) },
+    frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) },
       { label: 'Check again', go: frRecheck });
     return;
   }
@@ -47137,7 +47151,7 @@ function frPaintSubscription() {
      ⚠️ Removing it strands nobody: every provider row carries its own Connect
      (#fr-llm-connect for Claude, #fr-openai-connect for GPT), which is where a
      person actually starts. Checked before deleting it. */
-  frActions(null, { label: 'Skip connecting a model', go: () => frGo(6), link: true });
+  frActions(null, { label: 'Skip connecting a model', go: () => frGo(frStepAfter(5)), link: true });
 }
 
 /* --------------------------------------------------------------------------
