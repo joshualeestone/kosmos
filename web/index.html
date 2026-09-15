@@ -17177,6 +17177,11 @@ function showTab(tab) {
   // #3053: same relocation for the New Agent create panel, so it opens in the consolidated
   // display column and is restored to the top level in the tab view. Same chokepoint + `cons`.
   placeCreatePanel(cons);
+  // #3052: the consolidated projects panel has its own view (the list), independent of the
+  // Projects tab's saved grid/list/map choice. Force the list for display in the consolidated
+  // view and restore the saved layout on the way out. Same chokepoint + `cons`/`wasCons` flags,
+  // and it runs BEFORE loadProjects() below so paintProjects sees the corrected mode.
+  placeProjectsView(cons, wasCons);
   // #980: the search placeholder follows the EFFECTIVE view, set in the
   // one place that decides it (this toggle re-runs on tab switches and on
   // the resize re-check), never the saved layout alone -- a consolidated
@@ -30629,6 +30634,47 @@ function placeCreatePanel(consolidated) {
     }
   } else if (CREATE_PANEL_HOME && panel.parentElement === projects) {
     CREATE_PANEL_HOME.parent.insertBefore(panel, CREATE_PANEL_HOME.next);
+  }
+}
+/* #3052 (Josh, 6.63 testing): the consolidated view's projects panel used to
+   inherit whatever layout the Projects TAB was last left on (grid/list/map),
+   because both read the one body.pj-mapmode / #pj-list.asgrid state. If the tab
+   was on the Map (the project org-chart), the consolidated panel -- a narrow
+   column -- drew that org chart, where Josh "can't see anything". The consolidated
+   projects panel needs its OWN view specific to projects: the readable list.
+
+   This is the projects analogue of the Agents pack, which boardApplyVisibility
+   already forces to 'list' in the consolidated view (`consolidated ? 'list' :
+   BOARD_LAYOUT`) without touching the pack's saved BOARD_LAYOUT. Here we do the
+   same for projects: in the consolidated view force the list for DISPLAY (drop
+   pj-mapmode, hide the map container, drop the grid class) and NEVER write
+   localStorage, so returning to the tab view restores the person's chosen mode.
+   On the way OUT of consolidated, re-apply the saved projects layout -- the
+   parallel of showTab's `if (wasCons && !cons) boardApplyVisibility(agents)`.
+
+   Called from showTab, the one chokepoint that knows the EFFECTIVE view (the saved
+   layout AND the 960px width gate, resize included), keyed on the same `cons` flag
+   as body.consolidated. Reversible and idempotent, like the place* helpers above.
+   The projects viewtoggle is display:none in the consolidated view, so nothing can
+   re-enter map mode while consolidated, and no button state needs updating here;
+   the restore path's layoutApply repaints the toggle for the tab view. */
+function placeProjectsView(cons, wasCons) {
+  if (cons) {
+    // Consolidated: this panel's own view is the list. Display-only, no storage write.
+    document.body.classList.remove('pj-mapmode');
+    const map = document.getElementById('pj-map');
+    if (map) map.hidden = true;
+    const list = document.getElementById('pj-list');
+    if (list) list.classList.remove('asgrid');
+  } else if (wasCons) {
+    // Leaving consolidated: restore the tab view's saved projects layout (grid/list/map).
+    // Same allowlist-or-fallback the boot restore uses, so an unreadable or foreign value
+    // falls back rather than being guessed. No `paint` arg: paintProjects repaints on data.
+    let saved = null;
+    try { saved = localStorage.getItem('kosmos.layout.projects'); } catch { saved = null; }
+    const allowed = LAYOUTS.projects.layouts;
+    if (!allowed.includes(saved)) saved = LAYOUTS.projects.fallback;
+    layoutApply('projects', saved);
   }
 }
 /* Open the create panel inside the consolidated display column, staying in the consolidated view.
