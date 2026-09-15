@@ -92,6 +92,19 @@ the file's "painters write by id" note, but confirm at execution (step 2/4).
 #3047 (nav button ORDER - a separate reorder on top of this) and #3044 (header order). Deploy/cut is
 0.6.67 (Splinter slots it; Josh scoping).
 
+## UPDATE (2026-09-14 pm, Baron) - REBASED onto origin/main + browser-check blast radius FIXED
+Rebased the branch onto current origin/main (was 14 behind; merge-tree clean, rebased clean).
+Re-ran the gates on the new base and caught a NEW interaction: 3 docs/browser-checks navigate/query
+the standalone `data-go="instr"` nav pill that #3046 removed (Instructions folds under "Profile
+Info"). The #2518 gate only flagged render-reassign-update-3050 (it maps d-instr-outdated); a
+fleet-wide grep for `data-go="instr"` caught the full set (gate red is a lower bound). Repointed all
+three to data-go="profile" (render-reassign-update-3050, render-detail-header-1841 incl. the moved
+needs-you dot + wording, regress-a-night); commit 2665a5e8e. Now: node --test affected 303/0,
+#1720 + #2518 both exit 0, all edited checks syntax-OK. Branch is current + fully gate-green.
+REMAINING for a claude-fe session: the manual /browser-test eyeball (the automated render-agent-nav
++ the repointed checks cover it structurally at cut, but the manual pass is the policy step) + the
+mandatory /challenge-loop + open the PR. Then #3047, #3044.
+
 ## RESUME STATUS (2026-09-14, Baron) - CODE COMPLETE; only browser-verify (step 10) + PR remain
 
 ALL CODE STEPS DONE + COMMITTED (this session):
