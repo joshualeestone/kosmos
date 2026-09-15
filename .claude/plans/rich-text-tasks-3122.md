@@ -54,3 +54,17 @@ That pjRich's output (inline spans joined by `<br>`, tuned for chat bubbles) LOO
 a claude-fe / CI browser pass to confirm, not just node tests. Like #3052/#3081, the behavioral
 "looks right" verify on the task surface is browser-gated; this bot session cannot run it. The safety
 (XSS-inert) and the wiring (reuses pjRich) are covered; the visual polish awaits a browser pass.
+
+One STRUCTURAL case in that browser-gated set, named explicitly (blind-review finding, iter 2):
+`#tk-detail` is a `<p>`, whereas the other pjRich surfaces are `<div>`/`<span>`. If a `detail`
+contains GFM table syntax, pjRich emits a real `<table>` (inside a `.mdtablewrap` that is
+`display:inline-block`), so `det.innerHTML` would nest a `<table>` inside a `<p>`. Reasoned-through
+(not measured): assigning via `.innerHTML` uses HTML5 FRAGMENT parsing with `#tk-detail` as the
+context element, which is NOT pushed onto the parser's open-elements stack, so the document-parsing
+"a `<table>` auto-closes an open `<p>`" rule cannot fire; the table nests as a child of the `<p>` in
+the DOM, and being `inline-block` it flows in the pre-wrap paragraph. So it very likely renders fine,
+but it is unmeasured here. The browser pass that verifies the visual should include a `detail` with a
+table (a `#tk-detail`-painted check with a table input is the stronger guard, a good browser-session
+follow-up). If it ever misrenders, the cheap fix is to make `#tk-detail` a `<div>` (matching the
+other surfaces); deferred rather than done now because changing the tag is itself browser-gated
+(other `.pj-desc`/`.tkdetail` layout could assume a `<p>`), trading one unmeasured case for another.
