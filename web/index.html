@@ -2728,6 +2728,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pj-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-5); }
 .pj-list { display: flex; flex-direction: column; gap: 14px; }
 .pj-arch-wrap { margin-top: var(--space-6); }
+/* #3105 (Josh, 6.68): "Show archived projects" was a heavy underlined link.
+   Make it a much smaller, un-underlined text button in every view (it is one
+   control; a lighter treatment reads better in both the tab list and the
+   consolidated rail). The #pj-arch-toggle id out-specifies the base `.linkish`
+   (underline, .875rem, weight 600). The 24px min-height hit-area floor from
+   `.linkish` (WCAG 2.5.8) is deliberately KEPT -- only the text shrinks. */
+#pj-arch-toggle { font-size: .6875rem; font-weight: 500; text-decoration: none; }
 /* ⚠️ `color` is explicit, and it is the fix for a real dark-mode contrast
    failure. A <button> does NOT inherit the page's colour -- it uses the UA's
    `buttontext`, which is near-black. In light mode that happened to look
@@ -3772,6 +3779,18 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      dangling child that fell back to depth 0 keeps its chip (no indent to carry
      it), so the relationship is never silently lost. */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.child .pj-parent { display: none; }
+  /* #3105 (Josh, 6.68): the consolidated left rail shows ONLY project titles.
+     Josh struck out the agent count/faces, the status line, and the sub-project
+     count in the mockup ("literally just the project titles only"). Hidden here
+     and NOT on the Projects TAB: this is keyed on `body.consolidated #pj-list`
+     (the rail), so the full-width tab list keeps its faces/status. The fold
+     caret and the title stay -- the caret is the tree affordance, and the title
+     is the whole point. The #pj-list in the selector out-specifies the earlier
+     rail rules that placed .pjfaces/.pjpill (so this display:none wins). */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjfaces,
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill,
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjsub,
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pj-parent { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
