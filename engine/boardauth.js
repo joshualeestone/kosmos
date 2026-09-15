@@ -140,7 +140,6 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-/** Read the token file, or null if it is absent or empty. */
 /* #2509: the board.token path on the LEGACY store leaf (AgentWorkforce), or null
    when there is no distinct legacy leaf. #2439 renamed the store leaf
    AgentWorkforce -> Kosmos and `fs.rename`d the whole dir, so a `kosmos` CLI whose
@@ -172,6 +171,7 @@ function legacyTokenPath() {
    the WRITE-back is gone (it never resurrected a clean install; now it never writes
    a live credential into the deprecated leaf at all). */
 
+/** Read the token file, or null if it is absent or empty. */
 function readToken() {
   try {
     const t = fs.readFileSync(tokenPath(), 'utf8').trim();
