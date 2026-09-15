@@ -285,7 +285,16 @@ function standingFromAgent(agent, isTrustDialogEvidence) {
   const rawBy = (agent && agent.stateReportedBy) || null;
   const trustDialogScrape = typeof isTrustDialogEvidence === 'function'
     && isTrustDialogEvidence(agent && agent.stateEvidence);
-  const by = (rawBy === 'auto' || trustDialogScrape) ? 'auto' : rawBy;
+  // DEFENSE-IN-DEPTH: a trust-dialog scrape promotes to 'auto' ONLY when there is no
+  // conflicting self-report provenance (rawBy null - the genuine screen-led case). A
+  // self-reported by:'agent' (class 2, a real question) or by:'operator' is NEVER
+  // overridden into an auto-restart by a scrape. Today reconcileReport emits `evidence`
+  // XOR `by` (a card cannot carry both stateReportedBy:'agent' AND live trust evidence -
+  // status.js:5837 vs :5844), so this cannot happen; but the class-2-never-restarted
+  // guarantee for a production auto-restart must not rest on an invariant that lives in
+  // another module and is not enforced here. If that invariant ever changed, this still
+  // refuses to auto-restart a self-reported question.
+  const by = (rawBy === 'auto' || (trustDialogScrape && !rawBy)) ? 'auto' : rawBy;
   return { found: true, state: agent && agent.state, by };
 }
 
@@ -300,6 +309,12 @@ function recordAttempt(attempts, name, now, opts) {
   const windowMs = (opts && Number.isFinite(opts.windowMs) && opts.windowMs > 0) ? opts.windowMs : DEFAULT_WINDOW_MS;
   const book = attempts instanceof Map ? attempts : new Map();
   if (!name) return book;
+  // STORAGE prunes non-finite entries (Number.isFinite(t) && ...), which is deliberately
+  // NOT planClass1Handle's rule (which COUNTS non-finite as recent, biasing to escalate).
+  // The two differ because their jobs differ: storage must not persist a garbage timestamp,
+  // while the DECISION errs toward escalate on any corrupt input. This module only ever
+  // writes a finite `now` here, so the Map never actually holds a non-finite entry; the
+  // divergence is harmless and intentional.
   const prior = (book.get(name) || []).filter((t) => Number.isFinite(t) && (now - t) < windowMs);
   prior.push(now);
   book.set(name, prior);

@@ -320,6 +320,17 @@ test('CONTROL standingFromAgent: a scraped NON-trust question (not the trust dia
 test('CONTROL standingFromAgent: a class-2 (by:agent) card is NOT class-1 even with a non-trust question', () => {
   assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'agent', stateEvidence: 'Which one?' }, isTrustDialogEvidence)), false);
 });
+test('DEFENSE-IN-DEPTH standingFromAgent: a self-reported by:agent is NOT promoted to class-1 even if a trust scrape coexists', () => {
+  // Unproducible today (reconcile emits evidence XOR by), but the class-2-never-restarted
+  // guarantee must not rest on that invariant: a scrape must never override a self-reported
+  // question into an auto-restart.
+  const s = standingFromAgent({ state: 'needs_you', stateReportedBy: 'agent', stateEvidence: TRUST_ROW }, isTrustDialogEvidence);
+  assert.equal(s.by, 'agent');
+  assert.equal(isClass1(s), false);
+});
+test('DEFENSE-IN-DEPTH standingFromAgent: a self-reported by:operator is likewise not promoted by a trust scrape', () => {
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'operator', stateEvidence: TRUST_ROW }, isTrustDialogEvidence)), false);
+});
 test('CONTROL standingFromAgent: with NO isTrustDialogEvidence dep, only by:auto fires (a scrape does not)', () => {
   assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW })), false);
 });

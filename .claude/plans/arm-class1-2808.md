@@ -72,5 +72,21 @@ clearable, so the agent's own next working/idle heartbeat OVERWRITES it (a stale
 once the agent acts); and (b) the loop-guard caps restarts at 2/window then escalates. The
 trust-DIALOG scrape signal has no staleness problem at all - the screen shows the dialog right now.
 
+Scope of the by:'auto' signal (decided, not asked - Josh's LOCKED ruling settles it): by:'auto' is
+ANY tool-permission PermissionRequest, not only the folder-trust dialog. So an agent parked on a
+tool-permission prompt mid-turn is restarted, which discards that in-flight turn. Kept, for three
+reasons: (1) Josh 2026-09-14 16:49 ruled ALL class-1 technical permission/trust junk auto-handled +
+cleared invisibly, and a tool-permission prompt is class-1; (2) the sweep fires ONLY on state
+needs_you - a STUCK agent that is not making progress, so there is no live work to interrupt, only a
+turn already dead-in-the-water at a prompt it cannot answer; (3) it is the exact action the manual
+/trust-and-restart button already performs, and #3087 re-applies bypass on the relaunch so the agent
+resumes cleanly rather than re-prompting. Under --dangerously-skip-permissions a by:'auto'
+tool-permission prompt is itself a rare malfunction. If product intent later narrows this to the
+folder-trust dialog only, drop the by:'auto' arm of standingFromAgent and keep the trust-scrape arm.
+
+Log-noise note (deferred): a persistently-escalating (divergent) agent logs ~1 stdout line/minute
+until its window prunes. Left as-is: an escalating agent is a genuine divergence a person should see,
+it is rare, and the line is bounded. A transition-only log is a cheap follow-up if the noise matters.
+
 Full challenge-loop before PR (this arms auto-restart in production; the review is the point).
 Addresses #2808 (class 1).
