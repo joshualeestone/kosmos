@@ -215,18 +215,23 @@ test('it is the same shape and height as the grid, list and org group', () => {
   assert.equal(geom('.laypick {').radius[1], geom('.viewtoggle {').radius[1]);
 });
 
-test('the stamp sits to the LEFT of the light and dark control', () => {
-  /* Josh, 2026-08-22: "take note that the light/dark mode is to the far right
-     and the agent status is to the left of it. Right now we're showing it in
-     the reverse way." Order in the markup is order on the screen here. */
+test('the agent-status stamp is the LAST item in the user menu, below the light and dark control', () => {
+  /* #3051 (Josh, 0.6.63 for 6.65): the light/dark control and the agent-status
+     stamp moved OFF the header row INTO the upper-right user menu (#userpop). The
+     menu order is Settings, Appearance (light/dark), Board view, Agent status, so
+     the stamp is now drawn AFTER the theme control. This supersedes the 2026-08-22
+     header order ("the light/dark mode is to the far right and the agent status is
+     to the left of it") -- that ordering was a property of the old header row,
+     which #3051 replaces; the menu-order property is asserted rendered in
+     docs/browser-checks/render-theme-toggle.js (stampTop >= pickBottom). */
   /* ⚠️ BOTH ARE PROVED PRESENT FIRST. A missing element gives `indexOf` -1,
-     and -1 is less than every real index, so deleting the stamp outright made
-     this assertion pass. Measured by deleting it. */
+     and -1 is less than every real index, so deleting the stamp outright would
+     flip this assertion; proving presence first keeps that from reading green. */
   const stampAt = PAGE.indexOf('id="checked"');
   const pickAt = PAGE.indexOf('class="themepick"');
   assert.ok(stampAt > -1, 'the agent-status stamp is gone from the page');
   assert.ok(pickAt > -1, 'the light and dark control is gone from the page');
-  assert.ok(stampAt < pickAt, 'the control is drawn before the stamp again');
+  assert.ok(stampAt > pickAt, 'the agent-status stamp is no longer drawn after the light/dark control in the menu');
 });
 
 test('a script this file adds does not capture the page-source extractor', () => {

@@ -42,20 +42,28 @@ const fails = [];
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
     await pg.waitForTimeout(900);
 
+    // #3051: the light/dark control and the agent-status stamp moved into the
+    // upper-right user menu (#userpop). Open it before measuring. The theme-highlight
+    // logic (read from the Mac, gold fill) is unchanged; the old header geometry (the
+    // stamp to the LEFT of the picker, and the height matched to the view toggle) is
+    // retired -- in the menu the stamp sits BELOW the picker, which this asserts instead.
+    await pg.click('#userpop-btn');
+    await pg.waitForTimeout(200);
+
     const seen = await pg.evaluate(() => {
       const pick = document.querySelector('.themepick');
-      const vt = document.querySelector('.viewtoggle');
       const opts = [...pick.querySelectorAll('.themeopt')];
       const on = opts.find((o) => o.getAttribute('aria-checked') === 'true');
       const stamp = document.getElementById('checked');
+      const pr = pick.getBoundingClientRect();
+      const sr = stamp.getBoundingClientRect();
       return {
         count: opts.length,
         onIs: on ? on.dataset.themeSet : null,
         onBg: on ? getComputedStyle(on).backgroundColor : null,
-        pickH: Math.round(pick.getBoundingClientRect().height),
-        vtH: vt ? Math.round(vt.getBoundingClientRect().height) : 0,
-        stampRight: Math.round(stamp.getBoundingClientRect().right),
-        pickLeft: Math.round(pick.getBoundingClientRect().left),
+        pickH: Math.round(pr.height),
+        stampTop: Math.round(sr.top),
+        pickBottom: Math.round(pr.bottom),
       };
     });
     const say = (ok, label, extra) => {
@@ -66,15 +74,13 @@ const fails = [];
     /* The control has never been touched here, so this is the Mac answering. */
     say(seen.onIs === theme, 'the highlighted half is what the page is in', String(seen.onIs));
     say(seen.onBg === 'rgb(227, 179, 65)', 'the active half is filled gold', seen.onBg);
-    /* ⚠️ NOT ASSERTED AGAINST A HIDDEN ELEMENT. On an empty board the view
-       toggle has no box, so `0 === 32` would fail for a reason that is not
-       about the picker and `0 === 0` would pass for one. Reported when it
-       cannot be measured, never quietly skipped. */
-    if (seen.vtH > 0) say(seen.pickH === seen.vtH, 'same height as the view toggle', seen.pickH + ' vs ' + seen.vtH);
-    else console.log('SKIP  ' + theme + ': the view toggle is not rendered on this board, so there is nothing to compare (the CSS numbers are pinned in web.theme.test.js)');
-    say(seen.stampRight <= seen.pickLeft, 'the stamp is to its left', seen.stampRight + ' <= ' + seen.pickLeft);
+    /* #3051: the picker renders as a real box inside the open menu, and the
+       agent-status stamp sits BELOW it (menu order: Settings, Appearance, Board
+       view, Agent status). */
+    say(seen.pickH > 0, 'the light/dark control renders in the open menu', String(seen.pickH));
+    say(seen.stampTop >= seen.pickBottom, 'the agent-status stamp is below the picker', seen.stampTop + ' >= ' + seen.pickBottom);
 
-    await pg.screenshot({ path: path.join(OUT, 'toggle-' + theme + '.png'), clip: { x: 900, y: 0, width: 500, height: 90 } });
+    await pg.screenshot({ path: path.join(OUT, 'toggle-' + theme + '.png'), clip: { x: 900, y: 0, width: 500, height: 400 } });
     await pg.close();
   }
   await b.close();

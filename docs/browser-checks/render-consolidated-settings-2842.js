@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: rail-me-go openConsolidatedSettings placeAppSettings
+// Browser-check-surface: userpop-settings openConsolidatedSettings placeAppSettings
 // (#2518) the distinctive web/index.html tokens this check asserts: the settings button in
 // the consolidated rail and the two functions that open/relocate the settings panel into the
 // display column. A change to any of them must update this check at PR time.
@@ -8,8 +8,9 @@
  * and showTab drops body.consolidated for any tab that is not agents/projects. The fix opens
  * settings IN the display column (like View-All for tasks/files): #panel-settings is
  * relocated into #panel-projects, the agents column and projects list stay, and settings take
- * over the display area. This drives the SHIPPED showTab + #rail-me-go handler +
- * openConsolidatedSettings + pjView against a real fixture in the real page.
+ * over the display area. This drives the SHIPPED showTab + the user menu's Settings link
+ * handler (#userpop-settings, #3051; the person moved off the bottom-left rail into the
+ * top-right user menu) + openConsolidatedSettings + pjView against a real fixture.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-consolidated-settings-2842.js
  *      (HEADED=0 on a machine with no console session)
@@ -47,7 +48,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const panelSettings = document.getElementById('panel-settings');
       const panelProjects = document.getElementById('panel-projects');
       const listView = document.getElementById('pj-list-view');
-      const railGo = document.getElementById('rail-me-go');
+      // #3051: the person moved from the bottom-left rail (#rail-me-go, now retired in the
+      // consolidated view) to the top-right user menu; its Settings link is the shipped entry
+      // and calls the SAME openConsolidatedSettings in the consolidated view, so this check
+      // now drives the real #userpop-settings handler.
+      const userSet = document.getElementById('userpop-settings');
       const rect = (e) => { const b = e.getBoundingClientRect(); return { w: Math.round(b.width), left: Math.round(b.left), right: Math.round(b.right) }; };
       try {
         // Enter the consolidated view through the real path; showTab relocates settings.
@@ -56,8 +61,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         showTab('projects');
         res.relocatedByShowTab = panelSettings.parentElement === panelProjects;
         res.hiddenBeforeOpen = panelSettings.hidden === true;
-        // Open settings via the real #rail-me-go click handler.
-        railGo.click();
+        // Open settings via the real #userpop-settings click handler (#3051 entry).
+        userSet.click();
         res.stillConsolidated = document.body.classList.contains('consolidated');   // THE FIX: no kick-out
         res.settingsVisible = panelSettings.hidden === false;
         res.settingsInDisplay = panelSettings.parentElement === panelProjects;
@@ -82,10 +87,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         document.documentElement.setAttribute('data-layout', 'tabs');
         showTab('projects');
         res.restoredToTopLevel = panelSettings.parentElement !== panelProjects;
-        // CONTROL: in the tab view #rail-me-go routes to the Settings tab and does NOT enter
-        // the consolidated view (layoutConsolidated() is false, so openConsolidatedSettings is
-        // never called). body.consolidated must be false after the tab-view open.
-        railGo.click();
+        // CONTROL: in the tab view #userpop-settings routes to the Settings panel and does NOT
+        // enter the consolidated view (layoutConsolidated() is false, so openConsolidatedSettings
+        // is never called -- it calls showTab('settings')). body.consolidated must be false after.
+        userSet.click();
         res.tabViewNotConsolidated = document.body.classList.contains('consolidated') === false;
         res.err = null;
       } catch (e) { res.err = String(e && e.message || e); }
@@ -127,7 +132,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         showTab('projects');                              // PJ_VIEW becomes 'list'
         res.noneShownBeforeOpen = none.hidden === false;  // control: the hint IS up in the list state
         // Open settings from the list state.
-        document.getElementById('rail-me-go').click();
+        document.getElementById('userpop-settings').click();
         res.settingsOpen = settings.hidden === false && settings.parentElement === document.getElementById('panel-projects');
         res.noneHiddenAfterOpen = none.hidden === true;   // THE BLOCKER: hint must be hidden under settings
         // The 5s project poll re-invokes paintPjNone; it must NOT re-show the hint over settings.
@@ -142,8 +147,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #2842 BLOCKER: opening settings from the list state hides #pj-none (no hint over settings)', listState.err === null && listState.settingsOpen === true && listState.noneHiddenAfterOpen === true, JSON.stringify(listState));
     ok(t + ' #2842 the project poll (paintPjNone) does not re-show #pj-none while settings is open', listState.err === null && listState.noneStillHiddenAfterPoll === true && listState.settingsStillOpenAfterPoll === true, JSON.stringify(listState));
 
-    // ---- Reachable from the AGENTS tab too (#rail-me-go shows whenever cons is true, and cons
-    // includes tab==='agents'). Opening settings there must behave the same. ----
+    // ---- Reachable from the AGENTS tab too (the user menu is in the header in every
+    // consolidated view, and cons includes tab==='agents'). Opening settings there must
+    // behave the same. ----
     const agentsTab = await page.evaluate(() => {
       const res = {};
       const settings = document.getElementById('panel-settings');
@@ -153,7 +159,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         document.documentElement.setAttribute('data-layout', 'consolidated');
         showTab('agents');                                 // consolidated agents tab
         res.consolidatedOnAgents = document.body.classList.contains('consolidated');
-        document.getElementById('rail-me-go').click();
+        document.getElementById('userpop-settings').click();
         res.stillConsolidated = document.body.classList.contains('consolidated');
         res.settingsOpen = settings.hidden === false && settings.parentElement === document.getElementById('panel-projects');
         res.err = null;

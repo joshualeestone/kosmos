@@ -642,7 +642,7 @@ async function main() {
 
 
       // The person's own switch, through the real card.
-      await page.click('.tab[data-tab="settings"]');
+      await page.evaluate(() => showTab('settings'));
       await page.waitForTimeout(300);
       await page.click('#s-nav button[data-go="advanced"]');   // the switch lives in Advanced since settings-nav
       await page.click('#eng-toggle');
@@ -704,7 +704,7 @@ async function main() {
       await page.click('.tab[data-tab="projects"]');
       await page.waitForTimeout(300);
       // Back Off through the same switch, so later states see the default.
-      await page.click('.tab[data-tab="settings"]');
+      await page.evaluate(() => showTab('settings'));
       await page.waitForTimeout(300);
       await page.click('#s-nav button[data-go="advanced"]');   // the switch lives in Advanced since settings-nav
       await page.click('#eng-toggle');

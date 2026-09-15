@@ -65,7 +65,7 @@ async function openPlus(page, remote) {
   });
   await page.goto(page.__url, { waitUntil: 'networkidle' });
   if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
-  await page.click('.tab[data-tab="settings"]');
+  await page.evaluate(() => showTab('settings'));
   await page.waitForSelector('#panel-settings:not([hidden])');
   await page.click('#s-nav button[data-go="plus"]');
   // Wait for the SPECIFIC final state this scenario expects, not merely "exactly one of

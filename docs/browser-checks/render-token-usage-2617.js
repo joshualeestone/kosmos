@@ -45,7 +45,7 @@ async function openUsage(page) {
   // Mock BEFORE the section paints, so the fetch it fires hits the fixture.
   await page.route('**/api/usage*', (r) => r.fulfill({ json: USAGE }));
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.click('.tab[data-tab="settings"]');
+  await page.evaluate(() => showTab('settings'));
   await page.click('#s-nav button[data-go="usage"]');
   await page.waitForSelector('#s-sec-usage:not([hidden])');
   await page.waitForSelector('#usage-hero .tv-hero');       // #2840: the hero has painted
@@ -204,7 +204,7 @@ function readUsage(page) {
     await p.unroute('**/api/usage*');
     await p.route('**/api/usage*', (r) => r.fulfill({ json: BIG }));
     await p.reload({ waitUntil: 'networkidle' });
-    await p.click('.tab[data-tab="settings"]');
+    await p.evaluate(() => showTab('settings'));
     await p.click('#s-nav button[data-go="usage"]');
     await p.waitForSelector('#usage-hero .tv-hero');
     const scale = await p.evaluate(() => {

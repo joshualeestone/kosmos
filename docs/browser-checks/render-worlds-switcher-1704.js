@@ -140,7 +140,11 @@ function chk(ok, label, extra) {
     // it) present across every view, so the switcher is now shown in consolidated
     // too. This reverses the pre-#2282 behavior, where the switcher was a tab-view
     // header element hidden when the header collapsed in consolidated.
-    await page.click('.headright .laypick [data-layout-switch="consolidated"]');
+    // #3051: the board-view toggle moved into the header's user menu, so open it
+    // first, then press "one screen".
+    await page.click('#userpop-btn');
+    await page.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
+    await page.click('#userpop-menu .laypick [data-layout-switch="consolidated"]');
     await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 });
     await page.waitForTimeout(200);
     chk(await page.locator('#worldsw').first().isVisible(), 'the switcher is shown in the consolidated view (#2282 persistent header)');

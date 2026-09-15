@@ -57,7 +57,7 @@ async function openUpdates(pg) {
   await pg.goto(BASE, { waitUntil: 'networkidle' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
   await pg.waitForTimeout(800);
-  await pg.click('.tab[data-tab="settings"]');
+  await pg.evaluate(() => showTab('settings'));
   await pg.waitForTimeout(400);
   await pg.click('#s-nav button[data-go="updates"]');
   await pg.waitForTimeout(300);

@@ -117,13 +117,15 @@ const RELPORT = freePort();
     if (!/Update available/.test(txt) || !/Kosmos 9\.9\.9/.test(txt)) die('toast text wrong: ' + txt);
 
     // In the flow beside the mark; the checks below prove no overlap with the header controls either way.
+    // #3051: the agent-status stamp (#checked) moved off the header row into the user
+    // menu, so it is no longer a header-row peer the toast could collide with or re-space;
+    // it is dropped from this check's geometry set (measuring a hidden element is vacuous).
     const boxes = {};
-    for (const [k, sel] of [['toast', '.utoast:not(.stale)'], ['newagent', '#new-agent'], ['checked', '#checked']]) {
+    for (const [k, sel] of [['toast', '.utoast:not(.stale)'], ['newagent', '#new-agent']]) {
       boxes[k] = await p.locator(sel).boundingBox();
     }
     const overlap = (a, c) => a && c && a.x < c.x + c.width && c.x < a.x + a.width && a.y < c.y + c.height && c.y < a.y + a.height;
     if (overlap(boxes.toast, boxes.newagent)) die('toast overlaps the New agent button');
-    if (overlap(boxes.toast, boxes.checked)) die('toast overlaps the checked stamp');
 
     // The drawn placement (#47, pack 2e4e100): the notice lives INSIDE the
     // header's left group, in line beside the mark, not floating anywhere.
@@ -149,7 +151,6 @@ const RELPORT = freePort();
     // over anything unclickable). Pin the x-shift at zero.
     const withToast = await p.evaluate(() => ({
       newagent: Math.round(document.getElementById('new-agent').getBoundingClientRect().x),
-      checked: Math.round(document.getElementById('checked').getBoundingClientRect().x),
     }));
     // display:none, not an innerHTML round trip: rebuilding the markup from
     // a string would strip the buttons' listeners and kill the Install step
@@ -157,10 +158,9 @@ const RELPORT = freePort();
     await p.evaluate(() => { document.getElementById('utoast-slot').style.display = 'none'; });
     const sansToast = await p.evaluate(() => ({
       newagent: Math.round(document.getElementById('new-agent').getBoundingClientRect().x),
-      checked: Math.round(document.getElementById('checked').getBoundingClientRect().x),
     }));
     await p.evaluate(() => { document.getElementById('utoast-slot').style.display = ''; });
-    if (withToast.newagent !== sansToast.newagent || withToast.checked !== sansToast.checked) {
+    if (withToast.newagent !== sansToast.newagent) {
       die('the notice re-spaces the header row: ' + JSON.stringify({ withToast, sansToast }));
     }
     await p.screenshot({ path: path.join(OUT, 'update-toast.png') });
@@ -233,7 +233,7 @@ const RELPORT = freePort();
     // and the footer offers Check for Update, the real button, which clears.
     served = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).version;
     await p.evaluate(async () => { await fetch('/api/update/check', { method: 'POST' }).then((r) => r.text()); });
-    await p.click('[data-tab="settings"]'); await p.waitForTimeout(300);
+    await p.evaluate(() => showTab('settings')); await p.waitForTimeout(300);
     await p.click('#s-nav button[data-go="updates"]'); await p.waitForTimeout(300);
     await p.waitForFunction(() => { const b = document.getElementById('upd-btn'); return b && !b.hidden && b.getBoundingClientRect().height > 0 && /Check for Update/.test(b.innerText); }, null, { timeout: 15000 });
     await p.click('#upd-btn');
@@ -251,11 +251,11 @@ const RELPORT = freePort();
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
     await p.waitForSelector('.utoast:not(.stale)', { state: 'visible', timeout: 20000 });
     const mboxes = {};
-    for (const [k, sel] of [['toast', '.utoast:not(.stale)'], ['newagent', '#new-agent'], ['checked', '#checked'], ['burger', '.burger']]) {
+    for (const [k, sel] of [['toast', '.utoast:not(.stale)'], ['newagent', '#new-agent'], ['burger', '.burger']]) {
       const loc = p.locator(sel).first();
       mboxes[k] = (await loc.count()) && await loc.isVisible() ? await loc.boundingBox() : null;
     }
-    for (const k of ['newagent', 'checked', 'burger']) {
+    for (const k of ['newagent', 'burger']) {
       if (overlap(mboxes.toast, mboxes[k])) die('mobile: toast overlaps ' + k + ' ' + JSON.stringify(mboxes));
     }
     if (mboxes.toast.x < 0 || mboxes.toast.y < 0) die('mobile: toast off-screen ' + JSON.stringify(mboxes.toast));

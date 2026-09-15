@@ -65,7 +65,7 @@ function chk(ok, label, extra) {
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: theme });
       await page.goto(URL, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
-      await page.click('.tab[data-tab="settings"]');
+      await page.evaluate(() => showTab('settings'));
       await page.waitForSelector('#panel-settings:not([hidden])');
       await page.waitForTimeout(800);
       await page.click('#s-nav button[data-go="automation"]');

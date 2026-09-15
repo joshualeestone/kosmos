@@ -99,7 +99,7 @@ function stateAnswers(state, served) {
 async function openUpdatesCard(pg) {
   await pg.goto(URL, { waitUntil: 'networkidle' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
-  await pg.click('.tab[data-tab="settings"]');
+  await pg.evaluate(() => showTab('settings'));
   await pg.waitForSelector('#panel-settings:not([hidden])');
   await pg.click('#s-nav button[data-go="updates"]');
   await pg.waitForSelector('#s-sec-updates:not([hidden])');
