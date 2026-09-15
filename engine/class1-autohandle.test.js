@@ -171,3 +171,73 @@ test('sweep: no action is taken (read-only) - deps carry no writer', () => {
   sweepClass1(['angel'], deps, 1e6);
   assert.equal(restartCalled, false);
 });
+
+// ---------------------------------------------------------------------------
+// Convention #5 pin: isClass1 must agree with selfreport's ONE definition of an
+// auto permission wait across shared fixtures, so the auto-handle's class-1 line
+// and the store's class-1 line (record()'s #2456 clobber-guard) cannot diverge.
+// ---------------------------------------------------------------------------
+const selfreport = require('./selfreport');
+test('isClass1 agrees with selfreport.isAutoPermissionWait across shared fixtures (no two-derivations drift)', () => {
+  const fixtures = [
+    class1(),
+    class1({ by: 'agent' }),
+    class1({ by: 'operator' }),
+    class1({ by: null }),
+    class1({ state: 'blocked' }),
+    class1({ state: 'working' }),
+    { found: false },
+    null,
+  ];
+  for (const f of fixtures) {
+    assert.equal(isClass1(f), selfreport.isAutoPermissionWait(f), `disagreement on ${JSON.stringify(f)}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Loop-guard, corrupt-timestamp direction: a NON-FINITE attempt must count as
+// recent (bias to escalate), never be dropped (which would bias to restart).
+// ---------------------------------------------------------------------------
+test('loop-guard: non-finite timestamps (NaN/undefined) count as recent -> escalate at cap, never drop', () => {
+  const now = 10_000_000;
+  // maxAttempts default 2; two NaN entries must count as 2 recent -> escalate.
+  const p = planClass1Handle(class1(), [NaN, undefined], now);
+  assert.equal(p.act, 'escalate');
+  assert.equal(p.recentAttempts, 2);
+});
+test('CONTROL loop-guard: a single non-finite attempt (under cap) still plans trust-and-restart', () => {
+  const p = planClass1Handle(class1(), [NaN], 10_000_000);
+  assert.equal(p.act, 'trust-and-restart');
+  assert.equal(p.recentAttempts, 1); // counted, not dropped
+});
+
+// ---------------------------------------------------------------------------
+// Executor: a THROWING trustAgentFolder is caught and, with a good restart,
+// still handled (red-capable for the trust-write try/catch).
+// ---------------------------------------------------------------------------
+test('run: a THROWING trustAgentFolder is caught; a good restart still handles it', () => {
+  const deps = {
+    trustAgentFolder: () => { throw new Error('trust write blew up'); },
+    restart: () => ({ outcome: RESTARTED }),
+    RESTARTED,
+  };
+  const r = runClass1Handle('angel', deps);
+  assert.equal(r.handled, true);
+  assert.equal(r.trusted.wrote, false);
+  assert.match(r.trusted.because, /trust write blew up/);
+});
+
+// ---------------------------------------------------------------------------
+// Sweep: a THROWING attemptsFor degrades THAT agent to no-history, does not
+// crash the whole sweep (symmetric with the read() guard).
+// ---------------------------------------------------------------------------
+test('CONTROL sweep: a throwing attemptsFor does not crash the sweep; the agent still gets a plan', () => {
+  const out = sweepClass1(['angel', 'mona'], {
+    read: (n) => (n === 'angel' ? class1() : class1({ by: 'agent' })),
+    attemptsFor: () => { throw new Error('attempts store unavailable'); },
+  }, 1e6);
+  assert.deepEqual(out.map((e) => [e.name, e.plan.act]), [
+    ['angel', 'trust-and-restart'], // no history -> fresh decision, not a crash
+    ['mona', 'none'],
+  ]);
+});

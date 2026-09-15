@@ -54,6 +54,8 @@
  *      planner and the executor are separate functions.
  */
 
+const selfreport = require('./selfreport');
+
 const CLASS1_STATE = 'needs_you';
 const CLASS1_BY = 'auto';
 
@@ -69,15 +71,18 @@ const DEFAULT_WINDOW_MS = 10 * 60 * 1000;
  * mirrors selfreport.js:222-224 exactly (found + needs_you + by==='auto') so the two
  * cannot disagree about what "class 1" is.
  *
- * WIRE-UP #1: Angel's class-2 by/permissionAsk refines this. When it lands, replace
- * the `standing.by === CLASS1_BY` clause with the richer classification; keep the
- * found + needs_you guards. Nothing else in this file needs to change.
+ * It is NOT re-derived here: it delegates to selfreport.isAutoPermissionWait, the ONE
+ * definition record()'s #2456 clobber-guard also uses, so the auto-handle's class-1
+ * line and the store's class-1 line cannot silently diverge (the two-derivations
+ * defect this codebase names as its most-shipped). class1-autohandle.test.js pins the
+ * two equal across shared fixtures.
+ *
+ * WIRE-UP #1: Angel's class-2 by/permissionAsk refines the class-1-vs-class-2 line.
+ * When it lands, tighten selfreport.isAutoPermissionWait (its single home); this
+ * wrapper and everything below follow automatically.
  */
 function isClass1(standing) {
-  return !!standing
-    && standing.found === true
-    && standing.state === CLASS1_STATE
-    && standing.by === CLASS1_BY;
+  return selfreport.isAutoPermissionWait(standing);
 }
 
 /*
@@ -108,11 +113,14 @@ function planClass1Handle(standing, attempts, now, opts) {
     return { act: 'none', because: 'not a standing by:auto needs_you (class-1) wait' };
   }
 
-  // Count only handles still inside the window. A `now` that predates an attempt
-  // (a clock skew) counts it as recent, the safe direction (bias toward escalate,
-  // never toward another restart).
+  // Count handles still inside the window. Both non-safe shapes bias toward
+  // ESCALATE, never toward another restart: a future timestamp (clock skew, t > now)
+  // is recent by the < windowMs test, and a NON-FINITE / corrupt entry (NaN,
+  // undefined - the kind the WIRE-UP #2 persistent attempts store could yield) is
+  // counted as recent explicitly rather than dropped, so a bad timestamp can only
+  // ever make us escalate sooner, never loop-restart an agent.
   const list = Array.isArray(attempts) ? attempts : [];
-  const recentAttempts = list.filter((t) => Number.isFinite(t) && (now - t) < windowMs).length;
+  const recentAttempts = list.filter((t) => !Number.isFinite(t) || (now - t) < windowMs).length;
 
   if (recentAttempts >= maxAttempts) {
     return {
@@ -198,7 +206,15 @@ function sweepClass1(names, deps, now, opts) {
     let standing;
     try { standing = read(name); }
     catch (err) { standing = { found: false, because: String((err && err.message) || err) }; }
-    const plan = planClass1Handle(standing, attemptsFor(name), now, opts);
+    // attemptsFor is the WIRE-UP #2 persistent store's reader (I/O-backed), so it can
+    // throw; degrade THIS agent to no-history rather than crashing the whole sweep and
+    // returning no plan for any agent - symmetric with read()'s guard above. No history
+    // means planClass1Handle sees recentAttempts 0, so a genuine class-1 wait still
+    // plans trust-and-restart (the loop-guard just loses its memory for this one tick).
+    let attempts;
+    try { attempts = attemptsFor(name); }
+    catch { attempts = []; }
+    const plan = planClass1Handle(standing, attempts, now, opts);
     return { name, plan };
   });
 }
