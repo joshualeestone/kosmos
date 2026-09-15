@@ -376,9 +376,12 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
      it cannot start a line at column zero inside this file's indented CSS. */
   const at = PAGE.indexOf('\nconst GLYPH = {');
   assert.ok(at > 0, 'the GLYPH declaration moved or was renamed; the count below would be measuring nothing');
-  const g = PAGE.slice(at, at + 700);
-  assert.equal((g.match(/aria-hidden="true"/g) || []).length, 6,
-    'a GLYPH lost its aria-hidden: the visually-hidden .lstate would announce decoration with the state word');
+  /* #2808: slice to the block's own close rather than a fixed 700-char window. The window was
+     one glyph-plus-comment away from clipping its last entry (`question` was added with a
+     comment), and a count over a window that silently drops an entry is a count that lies. */
+  const g = PAGE.slice(at, PAGE.indexOf('\n};', at));
+  assert.equal((g.match(/aria-hidden="true"/g) || []).length, 7,
+    'a GLYPH lost its aria-hidden: the visually-hidden .lstate would announce decoration with the state word (7 aria-hidden glyphs: working/attn/question/idle/paused/stopped/unknown; #2808 added question, restarting is a kGlyph() call with no literal here)');
 });
 
 test('each fold hides its OWN rail label, and only its own', () => {

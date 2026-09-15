@@ -2628,6 +2628,30 @@ test('#1889: a background wait and a reported idle are not in conflict, because 
     '#1995 stopped surfacing the conflict for an ordinary working pane');
 });
 
+test('#2808 class 2: reconcileReport carries the self-report `by` so the card can tell a deliberate question from technical junk', () => {
+  const now = Date.now();
+  const idleScrape = { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is at its prompt' };
+  const at = new Date(now).toISOString();
+
+  // A DELIBERATE agent question (by:'agent', class 2): must carry by:'agent' to the card, or
+  // the render can never calm it to "has a question".
+  const agentQ = { found: true, state: STATE.NEEDS_YOU, because: 'Which venue?', at, by: 'agent' };
+  const got = reconcileReport(agentQ, idleScrape, now);
+  assert.equal(got.state, STATE.NEEDS_YOU, 'a self-reported question is still needs_you');
+  assert.equal(got.reported, true);
+  assert.equal(got.by, 'agent', 'by:agent must survive to the card, or the class-2 de-alarm is dead');
+
+  // CONTROL: a class-1 technical prompt (by:'auto') must carry by:'auto', not be mislabelled
+  // 'agent' -- else PigeonPete's invisible-handle target would render calm and lose its red fallback.
+  const autoJunk = { found: true, state: STATE.NEEDS_YOU, because: 'asking permission to use Bash', at, by: 'auto' };
+  assert.equal(reconcileReport(autoJunk, idleScrape, now).by, 'auto', 'class 1 must carry by:auto');
+
+  // CONTROL: a legacy line with no `by` is null, NEVER defaulted to 'agent' (selfreport.js:389 --
+  // treating absence as agent-typed would calm real alarms of unknown provenance).
+  const legacy = { found: true, state: STATE.NEEDS_YOU, because: 'an older line', at };
+  assert.equal(reconcileReport(legacy, idleScrape, now).by, null, 'absence must be null, never agent');
+});
+
 test('#1889: the no-count fallback is BEHAVIOUR, and one character of it turns the feature off', () => {
   /**
    * 🛑 THIS WAS DESCRIBED AS BEHAVIOUR AND PINNED BY NOTHING.

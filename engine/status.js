@@ -5836,7 +5836,12 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
       const asked = reported.because ? ' Its last report asked: ' + reported.because : '';
       return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: scraped.because, evidence: scraped.evidence, reported: false, conflict: 'its screen shows a question its last report did not mention.' + asked, ...project };
     }
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, ...project };
+    /* #2808 class 2: carry the self-report's `by` through, so the board can tell a
+       DELIBERATE agent question (by:'agent') from the technical permission/trust junk
+       (by:'auto', class 1). Only the KNOWN 'agent' case is de-alarmed downstream; 'auto',
+       'operator' and null (legacy, provenance unknown -- selfreport.js:389) stay red, which
+       is the safe direction. Read-only passthrough: it changes no state decision here. */
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, by: reported.by || null, ...project };
   }
   if (reported.state === 'blocked') {
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
@@ -6022,6 +6027,13 @@ function panelessCard(key, nowMs, defaultStatus) {
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
     stateReported: status.reported === true,
+    /* #2808 class 2: same field as the pane card carries, for shape parity, so a consumer reads
+       one card shape. panelessCard reconciles through the SAME reconcileReport as the pane path,
+       so a paneless agent that self-reports needs_you with by:'agent' DOES carry 'agent' here and
+       IS calmed to "has a question" like the pane card -- the de-alarm is not pane-only. Null only
+       when the report carried no `by` (legacy/unknown provenance, which stays alarmed and is by
+       definition not a class-2 question). See the pane card below (the #188 stateReported field). */
+    stateReportedBy: status.by || null,
     /* 📌 ALWAYS `false` HERE, AND SAYING SO IS THE POINT. `panelessCard` reconciles
        against `PANELESS_DEFAULT` / `NEVER_RUN_DEFAULT`, neither of which carries
        `backgroundWait`, and there is no pane to scrape, so nothing can ever set it.
@@ -6537,6 +6549,12 @@ function snapshot() {
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
+      /* #2808 class 2: 'auto' = a technical permission/trust prompt (class 1, PigeonPete's
+         invisible supervision handle), 'agent' = the agent's own deliberate question (class 2,
+         de-alarmed to a calm "has a question" rather than the red "Needs you" that reads as
+         "app broken"), 'operator'/null = unknown provenance, left alarmed. Null for a scraped
+         (not self-reported) state, so a scrape stays red. */
+      stateReportedBy: status.by || null,
       /* #1889. `working` because the screen says the agent is waiting on a
          BACKGROUND agent, which is a different fact from `working` mid-turn: the
          parent's own turn has ENDED and its REPL is at its prompt. Published
@@ -6655,6 +6673,15 @@ function snapshot() {
 function countAgents(agents, unreadableLines, unreadableSamples) {
   return {
     total: agents.length,
+    /* #2808 class 2, FIRST-CUT SCOPE: this count is UNCHANGED. The de-alarm ships as the calm
+       CARD treatment only (cardStOf/STATE_COPY route a by:'agent' needs_you to a calm "has a
+       question", not the red card). Whether the "Needs you" TILE and the project pill should
+       ALSO drop a class-2 question from their red count is a real-money-of-the-board question
+       (#763 project attribution + #1253's needs_you measurement), and the honest reading of
+       Josh's ruling on THAT is ambiguous (calm the card vs. calm every fleet surface). Deferred
+       to a follow-up with Josh's call + Mona (design) + PigeonPete (#1253 owner) rather than
+       reshaped unilaterally here. The card is the surface a QA tester reads as "app broken";
+       calming it is the confident, low-blast-radius half. */
     needsYou: agents.filter((a) => a.state === STATE.NEEDS_YOU).length,
     /* #1898: of those needs_you, how many named NO project (`stateProject`
        null). A needs_you without `--project` lights no project tile, so it is

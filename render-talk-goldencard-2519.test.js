@@ -846,7 +846,7 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
      22, so the first deletion netted to 21 and passed, while the comment below claimed
      the floor catches a net removal. A floor one below the truth catches nothing. */
   assert.equal(pinned.size, 25, `the pin count changed: ${pinned.size} -> ${[...pinned].sort()}`);
-  assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence'],
+  assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence', 'stateReportedBy'],
     'the set of fields re-pinned FROM another object changed; that is the enum-bounded category and it needs an arm of its own');
 
   /* 🛑 THE REGION, NOT THE WHOLE FILE, AND THAT WAS A REAL HOLE. The first version asked

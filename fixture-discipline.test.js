@@ -92,7 +92,9 @@ test('the fields the projects engine reads off a card are fields snapshot() real
   // `role` and `profile` joined when describe() grew profileRole (round 40:
   // the branch widened the seam and the tripwire was not widened with it,
   // which is the one failure this file exists to make loud).
-  const READ_BY_PROJECTS = ['sessionName', 'name', 'state', 'because', 'isNamedOurs', 'role', 'profile'];
+  // #2808: describe() now also reads card.stateReportedBy (for pjMember's class-2 de-alarm), so
+  // a real card must carry it -- added here to keep this tripwire current with what describe reads.
+  const READ_BY_PROJECTS = ['sessionName', 'name', 'state', 'because', 'isNamedOurs', 'role', 'profile', 'stateReportedBy'];
   const board = fleet.install([fleet.agent('mara', { state: 'working' })]);
   try {
     const card = board.card('mara');

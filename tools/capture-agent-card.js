@@ -37,14 +37,15 @@
  *     `because` line, any `stateConflict` sentence, the scraped evidence line, every
  *     string under `profile`, and every string anywhere else that is not re-pinned to a
  *     known-safe producer value below. "Known-safe" means ENUM-BOUNDED by status.js
- *     (state, stateConfidence, runner), not merely "a field I recognise": model and
+ *     (state, stateConfidence, runner, stateReportedBy), not merely "a field I recognise": model and
  *     modelName are regex-extracted from a transcript and are pinned to constants.
  *   - PRESERVES each field's TYPE: where the producer emits null, the recording carries
  *     null. ⚠️ EVERY re-pin to a CONSTANT below is therefore conditional on the field
- *     already being a string. The three ENUM re-pins (`state`, `stateConfidence`,
- *     `runner`) are unconditional and do not need the guard, because they copy the
- *     producer's own value and so cannot invent a type. An earlier version of this
- *     sentence said "every re-pin", which those three contradict. An unconditional pin was the defect here: `model` was assigned a string
+ *     already being a string. The four ENUM re-pins (`state`, `stateConfidence`,
+ *     `runner`, `stateReportedBy`) are unconditional and do not need the guard, because they copy
+ *     the producer's own value and so cannot invent a type (`stateReportedBy` also copies null
+ *     through unchanged on a pane-derived/legacy card, which is correct). An earlier version of this
+ *     sentence said "every re-pin", which those four contradict. An unconditional pin was the defect here: `model` was assigned a string
  *     unconditionally while `readModel()` returns `{model: null}` on three paths
  *     (status.js:4628, 4630, 4658 -- no transcript, empty tail, no non-synthetic match),
  *     so a tied agent with an unreadable transcript produced a card this recording could
@@ -234,6 +235,15 @@ const ENUMS = {
   state: ['working', 'needs_you', 'rate_limited', 'auth_failed', 'idle', 'stopped', 'restarting', 'blocked', 'unknown'],
   stateConfidence: ['structured', 'scraped', 'none'],
   runner: ['codex', 'claude'],
+  /* #2808: `stateReportedBy` (selfreport.js's `by`) is ENUM-bounded like the three above --
+     'auto' (a lifecycle hook) | 'agent' (the agent chose to say it) | 'operator' (a person
+     cleared a stale report), or null for a pane-derived/legacy card. It is re-pinned from the
+     raw card below rather than scrubbed: it is a bounded enum, not free-form identity, and on
+     a self-reporting agent it is a real string ('agent'/'auto') that scrubStrings would
+     otherwise rewrite to 'example-statereportedby', silently corrupting the exact field the
+     class-2 de-alarm keys on. null bypasses scrubStrings, which is why the current fixture
+     (state working, by null) captured safely and this gap was invisible. */
+  stateReportedBy: ['auto', 'agent', 'operator'],
 };
 
 function neutralise(live) {
@@ -275,7 +285,7 @@ function neutralise(live) {
      regex-extracted from transcript text. So the tool REFUSES rather than recording a
      value outside the vocabulary, and an arm checks this vocabulary against status.js's
      own exports so the two cannot drift apart silently. */
-  for (const f of ['state', 'stateConfidence', 'runner']) {
+  for (const f of ['state', 'stateConfidence', 'runner', 'stateReportedBy']) {
     const v = live[f];
     if (v !== null && v !== undefined && !ENUMS[f].includes(v)) {
       /* ⚠️ A throw, because neutralise() is the PURE half and a test drives it; the
@@ -289,6 +299,7 @@ function neutralise(live) {
   card.state = live.state;
   card.stateConfidence = live.stateConfidence;
   card.runner = live.runner;   // normalised to 'codex'|'claude' by status.js, enum-bounded
+  card.stateReportedBy = live.stateReportedBy;   // #2808: enum-bounded ('auto'|'agent'|'operator') or null; restored raw, refused above if outside the vocabulary
   /* 🛑 model AND modelName ARE **NOT** ENUM-BOUNDED, and re-pinning them from the raw
      producer was the third instance of this same hole (context was the second).
      status.js's readModel() extracts by REGEX over the last 64KB of the agent's
