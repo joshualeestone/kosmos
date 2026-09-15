@@ -102,12 +102,20 @@ fi
 # 3. run-tests.sh SOURCES-AND-CALLS both gates. Removing either call stops that gate
 #    running in CI while CI stays green -- the un-arming this guard exists to catch.
 [ -f "$RUNTESTS" ] || fail "tools/run-tests.sh is missing"
-grep -qE "$COARSE_CALL_RE" "$RUNTESTS" \
-  || fail "run-tests.sh does not invoke kosmos_browser_check_gate (#1720 coarse gate) -- a web change with no check update would no longer be refused at PR time"
-pass "run-tests.sh invokes the #1720 coarse gate (kosmos_browser_check_gate)"
-grep -qE "$SURFACE_CALL_RE" "$RUNTESTS" \
-  || fail "run-tests.sh does not invoke kosmos_browser_check_surface_gate (#2518 surface gate) -- a web change staling a SPECIFIC mapped check would no longer be refused at PR time"
-pass "run-tests.sh invokes the #2518 surface gate (kosmos_browser_check_surface_gate)"
+# Match on a NON-comment line, same reason as assertion 2 and the comment-false-pass class the
+# preamble names: commenting out a gate call (`# ( . ... && kosmos_browser_check_gate )`) leaves
+# the `&& <fn> )` substring in the file, so a bare grep would still match and falsely report the
+# gate as invoked while it no longer executes. The `^[[:space:]]*#` filter excludes that.
+if grep -E "$COARSE_CALL_RE" "$RUNTESTS" | grep -qvE '^[[:space:]]*#'; then
+  pass "run-tests.sh invokes the #1720 coarse gate (kosmos_browser_check_gate) on a non-comment line"
+else
+  fail "run-tests.sh does not invoke kosmos_browser_check_gate (#1720 coarse gate) on a non-comment line -- a web change with no check update would no longer be refused at PR time"
+fi
+if grep -E "$SURFACE_CALL_RE" "$RUNTESTS" | grep -qvE '^[[:space:]]*#'; then
+  pass "run-tests.sh invokes the #2518 surface gate (kosmos_browser_check_surface_gate) on a non-comment line"
+else
+  fail "run-tests.sh does not invoke kosmos_browser_check_surface_gate (#2518 surface gate) on a non-comment line -- a web change staling a SPECIFIC mapped check would no longer be refused at PR time"
+fi
 
 # 4. Sanity: the gate libs the calls source actually exist and parse, so a green CI is
 #    not sourcing a missing/broken script (which would fail-soft or error, not gate).
@@ -149,17 +157,20 @@ if grep -E "$RUNTESTS_CALL_RE" "$tmp/test-no-runtests.yml" | grep -qvE '^[[:spac
 fi
 pass "RED-CAPABILITY: removing the run-tests.sh invocation reds the harness-call assertion"
 
-# 4d. Remove each gate call from a copy of run-tests.sh -> its assertion must MISS.
-grep -vE "$SURFACE_CALL_RE" "$RUNTESTS" > "$tmp/run-tests-no-surface.sh"
-if grep -qE "$SURFACE_CALL_RE" "$tmp/run-tests-no-surface.sh"; then
-  fail "RED-CAPABILITY: surface-gate call still matched after removal -- the assertion cannot see the surface gate being dropped"
+# 4d. COMMENT OUT each gate call in a copy of run-tests.sh -> its assertion must MISS. This is
+#     the REPRESENTATIVE disarm: the `&& <fn> )` substring survives a comment-out, so this is
+#     what proves the non-comment filter in Part A actually works. A full-line removal would red
+#     even WITHOUT the filter, so it could not catch the comment-false-pass gap the filter closes.
+sed -E "/${SURFACE_CALL_RE}/ s/^/# /" "$RUNTESTS" > "$tmp/run-tests-comment-surface.sh"
+if grep -E "$SURFACE_CALL_RE" "$tmp/run-tests-comment-surface.sh" | grep -qvE '^[[:space:]]*#'; then
+  fail "RED-CAPABILITY: surface-gate assertion still matched after the call was COMMENTED OUT -- it would false-pass a disarmed gate (the comment-false-pass class)"
 fi
-pass "RED-CAPABILITY: dropping the surface-gate call reds the surface assertion"
+pass "RED-CAPABILITY: commenting out the surface-gate call reds the surface assertion"
 
-grep -vE "$COARSE_CALL_RE" "$RUNTESTS" > "$tmp/run-tests-no-coarse.sh"
-if grep -qE "$COARSE_CALL_RE" "$tmp/run-tests-no-coarse.sh"; then
-  fail "RED-CAPABILITY: coarse-gate call still matched after removal -- the assertion cannot see the coarse gate being dropped"
+sed -E "/${COARSE_CALL_RE}/ s/^/# /" "$RUNTESTS" > "$tmp/run-tests-comment-coarse.sh"
+if grep -E "$COARSE_CALL_RE" "$tmp/run-tests-comment-coarse.sh" | grep -qvE '^[[:space:]]*#'; then
+  fail "RED-CAPABILITY: coarse-gate assertion still matched after the call was COMMENTED OUT -- it would false-pass a disarmed gate (the comment-false-pass class)"
 fi
-pass "RED-CAPABILITY: dropping the coarse-gate call reds the coarse assertion"
+pass "RED-CAPABILITY: commenting out the coarse-gate call reds the coarse assertion"
 
 echo "ci-gate-armed (#2518): all arms passed -- the PR-time browser-check gates are armed in CI and guarded against silent disarming"
