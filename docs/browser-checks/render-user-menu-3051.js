@@ -101,6 +101,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         settings: shown('#userpop-menu #userpop-settings'),
         theme: shown('#userpop-menu .themepick'),
         view: shown('#userpop-menu .laypick'),
+        // Deliberately an EXISTENCE check, not shown(), and do not "upgrade" it: over file://
+        // there is no /api/status, so tick() never paints #checked, it has zero size, and a
+        // shown() arm would fail the hermetic run. Presence in the menu is what this asserts.
         status: !!document.querySelector('#userpop-menu #checked'),
       };
     });
