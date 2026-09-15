@@ -19,19 +19,20 @@ by coincidence (34 wide -> ~34 tall).
 `height: 100%` -> `height: auto; aspect-ratio: 1`. The width is still box-constrained to 34 (100%), and
 `aspect-ratio: 1` drives the height from it, so the img is ALWAYS 1:1; `object-fit: cover` crops any
 photo to that square -> a true circle, robust to any source dimensions (exactly the card's ask). Square
-photos are unchanged. This is the base `.lav` avatar, so it corrects the whole `.lav` avatar FAMILY -- the
-Members list and every other surface that inherits `.lav img` without overriding it. One `.lav` variant DOES
-override it: `.lav.youav` (the operator "you"/rail-me 56x56 avatar) re-pins `height: 100%` at higher
-specificity, so it gets the same one-line fix here.
+photos are unchanged. `.lav img` is the base rule, so this covers the Members-list `.lav.pj-face` (the card)
+and any `.lav` avatar that does not override the height.
 
-## Scope: the sibling avatar surfaces (a follow-up, tracked, not silently dropped)
-The root cause is a CLASS: an avatar `<img>` pinning `height: 100%` inside a `display:grid; place-items:center`
-fixed box. Beyond the `.lav` family (fixed here), the same latent oval exists on other avatar classes that
-carry their own `height: 100%` and are NOT `.lav` descendants: `.railme-face img`, `.msg-av img`,
-`.detail-av img`, `.userpop-face img`, `.hub.haspic img`, and possibly `.onode .face img` (the org-chart node,
-a distinct render context). Those are out of #3110's literal scope (the Members list), and changing six more
-avatar surfaces during the P0/6.68 freeze is broader than this card warrants, so they are filed as a follow-up
-rather than swept in blind. The fix for each is mechanical and identical (`height: auto; aspect-ratio: 1`).
+## Scope: why the OVAL is Members-list-specific, and what the other surfaces actually do
+The oval needs the parent box to DROP its clip. `.pj-member .pj-face` sets `overflow: visible` (so the memory
+ring can extend past the disc), which lets the tall img's OWN `border-radius: 50%` draw an UNCLIPPED vertical
+ellipse -- that is the Members list, and it is what this PR fixes and browser-verifies. Other avatar surfaces
+that also pin `height: 100%` keep the base `overflow: hidden` (e.g. `.lav.youav`, `.railme-face`, `.msg-av`,
+`.detail-av`, `.userpop-face`, `.hub.haspic`), so a tall photo is CLIPPED to the circle and shows a mis-centered
+TOP-CROP, NOT an oval -- a milder, cosmetic issue. The same `aspect-ratio: 1` one-liner would center those
+crops too, but that is a different surface and a different (non-oval) symptom, out of this card's scope and
+broader than a P0/freeze change warrants. Tracked in follow-up #3117, not swept in blind.
+(An earlier revision of this PR also patched `.lav.youav` on a "it ovals" premise; REVERTED -- youav has
+`overflow: hidden`, so it top-crops rather than ovals, making that edit an out-of-scope cosmetic change.)
 
 ## Verification (browser, via pw-runtime)
 Extended the existing same-surface browser-check `docs/browser-checks/render-member-modal.js`
