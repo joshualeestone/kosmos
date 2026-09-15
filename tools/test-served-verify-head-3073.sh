@@ -63,12 +63,19 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_response(405); self.end_headers()
         elif self.path == "/emptyct":
             self.send_response(200); self.end_headers()
+        elif self.path == "/redir":
+            self.send_response(302); self.send_header("Location", "/good2.zip"); self.end_headers()
+        elif self.path == "/good2.zip":
+            self.send_response(200); self.send_header("Content-Type", "application/zip"); self.end_headers()
         else:
             self.send_response(404); self.end_headers()
 
     def do_GET(self):
         self._record()
-        if self.path in ("/good.zip", "/nohead", "/emptyct"):
+        if self.path == "/redir":
+            self.send_response(302); self.send_header("Location", "/good2.zip"); self.end_headers()
+            return
+        if self.path in ("/good.zip", "/good2.zip", "/nohead", "/emptyct"):
             self.send_response(200); self.send_header("Content-Type", "application/zip"); self.end_headers()
             self.wfile.write(b"PK\x03\x04payload-bytes")
         elif self.path == "/htmlhead":
@@ -122,6 +129,26 @@ if printf '%s\n' "$(methods_for /good.zip)" | /usr/bin/grep -qx GET; then
   fail "fast path: a GET reached /good.zip -- the body was transferred; the HEAD short-circuit did not fire (methods '[$_gm]')"
 else
   pass "fast path: HEAD only, NO GET reached /good.zip -- the body was not transferred (methods '[$_gm]')"
+fi
+
+# 1b) FAST PATH THROUGH A REDIRECT: `curl -sSLI -L` follows a 302 with HEAD (verified: it does NOT
+#     switch to GET on the redirect), so a HEAD that 302s to a clean 200 + non-html asset still
+#     resolves without transferring a body. asset_ok returns 0 and no GET reaches the final asset.
+: > "$LOG"
+if served_verify_asset_ok "$HOST/redir" "an asset behind a HEAD 302" >/dev/null 2>&1; then
+  pass "fast path via redirect: returns 0 when a HEAD 302s to a 200 + application/zip"
+else
+  fail "fast path via redirect: expected rc=0 when a HEAD 302s to a 200 + application/zip"
+fi
+if printf '%s\n' "$(methods_for /good2.zip)" | /usr/bin/grep -qx HEAD; then
+  pass "fast path via redirect: the HEAD followed the 302 to the target /good2.zip"
+else
+  fail "fast path via redirect: no HEAD reached the redirect target /good2.zip (methods '[$(methods_for /good2.zip | tr '\n' ',' | sed 's/,$//')]')"
+fi
+if printf '%s\n' "$(methods_for /good2.zip)" | /usr/bin/grep -qx GET; then
+  fail "fast path via redirect: a GET reached /good2.zip -- the body was transferred despite a clean HEAD across the 302"
+else
+  pass "fast path via redirect: HEAD only across the 302, NO GET reached /good2.zip -- no body transfer"
 fi
 
 # 2) HTML wearing 200 on HEAD: must still be caught (#1667). It falls through to GET, whose

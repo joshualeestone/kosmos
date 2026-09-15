@@ -71,8 +71,9 @@ Why this is bounded, and a WARNING rather than a hole:
 - Byte integrity is NOT checked here anyway -- it is verified locally against the manifest/.sha256 --
   so a HEAD/GET disagreement could at worst let a wrong-status or html-bodied response pass this
   presence check, never ship unverified bytes.
-- The realistic #1667 shape is preserved: an SSO/login wall returns `text/html` or an empty
-  content-type on **both** HEAD and GET, so it falls through to the GET path and is refused there.
+- The realistic #1667 shape is expected to be preserved: an SSO/login wall is believed to return
+  `text/html` or an empty content-type on **both** HEAD and GET (not measured against a real SSO
+  wall on HEAD), so it should fall through to the GET path and be refused there.
 
 The performance win (skipping the body transfer) is separately CDN-dependent: if a CDN omits the
 content-type on HEAD, or 405/501s it, the fallback fires and behavior is exactly today's -- correct,

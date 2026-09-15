@@ -300,14 +300,20 @@ served_verify_asset_ok() {
   # below, which keeps sole ownership of the detailed failure messages and the redirect note.
   # This assumes HEAD and GET AGREE (same status + content-type): the one case it is weaker than
   # the old full GET is a server that answers a HEAD 200 + non-html content-type while its GET
-  # would refuse. That does not happen for the static, CDN-served release artifacts this checks
-  # (a compliant CDN mirrors GET's headers on HEAD), it cannot ship unverified BYTES (integrity
-  # is checked separately/locally against the manifest/.sha256, not here), and the realistic
-  # #1667 SSO wall returns text/html or an empty content-type on BOTH verbs so it still falls
-  # through and is refused. See .claude/plans/served-verify-head-3073.md for the residual. The
+  # would refuse. That is not expected for the static, CDN-served release artifacts this checks
+  # (a compliant CDN mirrors GET's headers on HEAD per RFC 9110), it cannot ship unverified BYTES
+  # (integrity is checked separately/locally against the manifest/.sha256, not here), and the
+  # realistic #1667 SSO wall is EXPECTED to return text/html or an empty content-type on both
+  # verbs -- not measured against a real SSO wall on HEAD -- so it should still fall through to the
+  # GET and be refused. See .claude/plans/served-verify-head-3073.md for the residual. The
   # extra HEAD is a header-only round-trip; it does not invoke a GET handler, so a stateful
   # server's GET-keyed behavior is unperturbed by it.
-  _svao_hhdr=$(curl -sSLI --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url" 2>/dev/null) || _svao_hhdr=''
+  # The probe carries a TIGHTER timeout budget than the GET it precedes (5s/10s vs 10s/30s), for
+  # the same reason _served_verify_redirect_note does ("a diagnostic must not delay the answer it
+  # annotates"): an optimistic probe must not delay the fallback. A slow HEAD simply times out and
+  # falls through to the full-budget GET, so worst-case time-to-refuse grows by the probe's 10s,
+  # not by another 30s. A HEAD is header-only and returns in well under this on a healthy host.
+  _svao_hhdr=$(curl -sSLI --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url" 2>/dev/null) || _svao_hhdr=''
   if [ -n "$_svao_hhdr" ]; then
     _svao_hcode=${_svao_hhdr%% *}
     _svao_hct=${_svao_hhdr#* }
