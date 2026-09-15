@@ -1,7 +1,7 @@
 # Kosmos
 
 Manage a workforce of AI agents on your own computer. Your agents, your
-computer, your AI subscription.
+machine, your AI subscription.
 
 ## Installing (the product's front door)
 

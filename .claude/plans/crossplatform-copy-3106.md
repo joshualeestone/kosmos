@@ -16,6 +16,10 @@ silicon / macOS 13.5+ / Windows specifics) as-is lower down.
 - `README.md:3` "Manage a workforce of AI agents on your own Mac." -> "...on your own computer."
 - `web/manifest.webmanifest:4` "Your agents, on your Mac, from your phone." -> "...on your computer,
   from your phone." (ships in the app/PWA, rides 6.68).
+- `README.md:3` follow-on (challenge-loop NIT): changing the lead to "on your own computer" created a
+  "computer ... computer" echo with the pre-existing ownership triad "Your agents, your computer, your
+  AI subscription." Reworded the triad's middle term to the synonym "your machine" so the lead keeps
+  the card's cross-platform "computer" and the triad reads clean. Same meaning (you own the hardware).
 
 Swept agent-workforce for other headline "on your Mac" / "your Mac," lines: only these two (index.html
 is clean). The public repo README is this same README.md (agent-workforce is joshualeestone/kosmos);
