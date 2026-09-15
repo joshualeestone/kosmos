@@ -3778,17 +3778,20 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      it), so the relationship is never silently lost. */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.child .pj-parent { display: none; }
   /* #3105 (Josh, 6.68): the consolidated left rail shows ONLY project titles.
-     Josh struck out the agent count/faces, the status line, and the sub-project
-     count in the mockup ("literally just the project titles only"). Hidden here
-     and NOT on the Projects TAB: this is keyed on `body.consolidated #pj-list`
-     (the rail), so the full-width tab list keeps its faces/status. The fold
-     caret and the title stay -- the caret is the tree affordance, and the title
-     is the whole point. The #pj-list in the selector out-specifies the earlier
-     rail rules that placed .pjfaces/.pjpill (so this display:none wins). */
+     Josh's list to remove was the agent count/faces, the status line, and the
+     sub-project count ("literally just the project titles only") -- so hide exactly
+     those three. Hidden here and NOT on the Projects TAB: keyed on
+     `body.consolidated #pj-list` (the rail), so the full-width tab list keeps its
+     faces/status. The fold caret and the title stay -- the caret is the tree
+     affordance, and the title is the whole point. The #pj-list in the selector
+     out-specifies the earlier rail rules that placed .pjfaces/.pjpill.
+     🔑 The ancestry chip (.pj-parent) is deliberately NOT hidden here: Josh did not
+     list it, and #2929 already governs it in the rail (hidden on a nested .child
+     row, KEPT on a dangling/orphan row so a child of a gone parent still shows its
+     "under X" -- the one place the tree indent cannot carry the relationship). */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjfaces,
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill,
-  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjsub,
-  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pj-parent { display: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjsub { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
