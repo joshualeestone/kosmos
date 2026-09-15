@@ -44490,8 +44490,10 @@ const FR_STEP_YOU = 8;
    (a macOS folder-permission dialog) and S4 (a macOS background-activity notice) show
    Windows something Windows never asks, so a Windows wizard skips them. The pane ids
    stay put, because browser checks find panes by identity (lib-firstrun-steps.js);
-   only the hops between them and the progress follow this list. On a Mac the list is
-   1..FR_STEPS, so every hop and the progress are the numbers they always were. */
+   only the hops between them and the progress follow this list. #3112 sets the DISPLAY order
+   below (Model shown second), so on a Mac the list is [1,5,2,3,4,6,7,8,9], not ascending
+   1..FR_STEPS -- the pane NUMBERS are unchanged, but the hops and progress now follow the
+   display position. */
 function frStepSequence() {
   // #3112 (Josh, 6.68+): Model (pane 5) is shown SECOND, right after Welcome, so a
   // model is chosen before the permission/automation steps (which is what lets the
