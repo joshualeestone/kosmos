@@ -44445,8 +44445,9 @@ setInterval(() => {
 // steps become unreachable (the clamp caps navigation and the loop never unhides
 // them). web.firstrun-panecount-9screen.test.js pins this against the DOM.
 // (History: 7 when #1214's Accessibility offer sat as a standalone step; 6 before
-// About-you; the flow is now Welcome/Access/Automation/Notifications/Model/Self-
-// improving/Success/About-you/Your-agents.)
+// About-you. The panes by NUMBER are Welcome(1)/Access(2)/Automation(3)/
+// Notifications(4)/Model(5)/Self-improving(6)/Success(7)/About-you(8)/Your-agents(9);
+// #3112 shows them in a different DISPLAY order, Model second, via frStepSequence.)
 const FR_STEPS = 9;
 // The return pane's step number, named and used by the generation bump and
 // every navigation into the step. (The paint branch is the clamped chain's
@@ -44477,12 +44478,13 @@ const FR_STEPS = 9;
 // which is why only that is corrected here.
 //
 // The constant keeps its name so the generation-guard pins keep reading.
-// install-flow-9screen: the setup flow is now 9 screens (Welcome, Access,
-// Automation, Notifications, Model, Self-improving, Success, About-you, Your
+// install-flow-9screen: the setup is 9 panes, fr-pane-1..9 (by NUMBER: Welcome,
+// Access, Automation, Notifications, Model, Self-improving, Success, About-you, Your
 // agents). These constants are the single source the step guards and their
-// "next step" reads read from. Success (the return/dock/reveal screen) is now
-// step 7; About-you is step 8. The ordered frGo if/else-if ladder is literal
-// 1..9.
+// "next step" reads read from. Success (the return/dock/reveal screen) is pane 7;
+// About-you is pane 8. The frGo if/else-if ladder is literal 1..9 by pane number.
+// #3112 changed only the DISPLAY order (frStepSequence puts Model second); the pane
+// numbers here are unchanged.
 const FR_STEP_YOU = 8;
 /* win32-board-copy (W-10, W-12): the steps THIS computer's wizard walks, in order. S2
    (a macOS folder-permission dialog) and S4 (a macOS background-activity notice) show
@@ -44509,12 +44511,13 @@ function frStepAfter(step) {
   const at = seq.indexOf(step);
   if (at !== -1) return at + 1 < seq.length ? seq[at + 1] : seq[seq.length - 1];
   // step is NOT in the display sequence (e.g. a Windows-filtered pane reached by a
-  // ?fr-step= deep link). Fall forward to the first sequence element GREATER than step in
-  // ARRAY order -- which is no longer ascending, so on Windows a deep link to the skipped
-  // Access(2) lands on Model(5), not Automation(3). Landing on a real pane is all this owes
-  // frGo's clamp; it is a rare deep-link edge, never a normal Next hop.
-  const next = seq.find((s) => s > step);
-  return next === undefined ? seq[seq.length - 1] : next;
+  // ?fr-step= deep link). Fall forward to the next pane BY NUMBER that is in the sequence --
+  // the SMALLEST element > step, not the first in array order (the array is no longer
+  // ascending after the reorder). This exactly preserves the pre-#3112 fallback: on Windows a
+  // deep link to the skipped Access(2) lands on Automation(3). A rare deep-link edge, never a
+  // normal Next hop.
+  const forward = seq.filter((s) => s > step);
+  return forward.length ? Math.min(...forward) : seq[seq.length - 1];
 }
 function frStepProgress(step) {
   const steps = frStepSequence();

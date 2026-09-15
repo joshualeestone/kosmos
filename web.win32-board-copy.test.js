@@ -292,8 +292,8 @@ test('a Windows wizard skips S2 (macOS file-access dialog) and S4 (macOS backgro
   assert.equal(wizard('win32', 'frStepAfter(1)'), 5, 'Get Started now lands on the Model step (#3112)');
   assert.equal(wizard('win32', 'frStepAfter(5)'), 3, 'Model Next lands on the automation step');
   assert.equal(wizard('win32', 'frStepAfter(3)'), 6, 'S3 Next lands on step 6 (Access + Notifications are macOS-only)');
-  assert.equal(wizard('win32', 'frStepAfter(2)'), 5, 'a deep link to the skipped S2 falls forward to Model');
-  assert.equal(wizard('win32', 'frStepAfter(4)'), 5, 'a deep link to the skipped S4 falls forward to Model');
+  assert.equal(wizard('win32', 'frStepAfter(2)'), 3, 'a deep link to the skipped S2 falls forward BY NUMBER to Automation (pre-#3112 fallback)');
+  assert.equal(wizard('win32', 'frStepAfter(4)'), 5, 'a deep link to the skipped S4 falls forward BY NUMBER to Model (the next pane number in the sequence)');
   assert.equal(wizard('win32', 'frStepProgress(3)'), 2 / 6, 'the progress counts display position, skipped steps included');
   assert.equal(wizard('win32', 'frStepProgress(9)'), 1);
   const go = page.lift(SCRIPT, 'frGo');
