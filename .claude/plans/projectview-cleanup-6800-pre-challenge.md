@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: projectview-cleanup-6800
-diff_hash: 1e832f464c55e7737a221e769e2ba4ce4f59fdb23633f0e339254336311776ff
+diff_hash: c7aadc79e81f6f86a3f6797a840e907fe6481f65bec4a3796d762b0b54a0dc5a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-15T18:43:57Z
-iterations: 6
+timestamp: 2026-09-15T20:55:06Z
+iterations: 7
 converged: true
 ---
 
@@ -70,6 +70,33 @@ summary comment. Reviewed by opus and sonnet, alternating, across 6 iterations.
 - [NIT] `.pj-warn` (bad-folder warning) kept visible in the titles-only rail --> DEFERRED (deliberate: suppressing an actionable error is worse than a strict "titles only"; Josh's ask targets decorative counts/status, not error warnings).
 - [NIT] render-project-rows tab-view leak-control comment (pre-existing arm, accurate for the #867 rules it guards) --> DEFERRED.
 - [NIT] commit 065f697e2 body links the pre-rename plan path (historical, no code impact) --> DEFERRED.
+
+#### Iteration 7 (opus) -- post-rebase re-verification (2026-09-15 15:54 CDT)
+**Why:** 6.68 got the GO (Josh's fresh-Mac install confirmed the P0). Main had moved 5 commits
+touching the shared web/index.html (#3110 avatar CSS, #3106 headline copy, #3114 resolver,
+#1670/#3115, publish-atomic #3073b). Rebased projectview-cleanup-6800 onto current origin/main
+(ab39ef8ef); merge-tree predicted no conflict and the 10-commit rebase applied with ZERO
+conflicts. Per a-rebase-orphans-every-recorded-run, the pre-rebase green is not trusted: full
+re-validation + a fresh blind challenge were run on the rebased HEAD.
+**Reviewer model:** opus (fresh, blind, cold)
+**New findings:** 0 BLOCKER, 0 WARNING, 0 CONVENTION (1 design-scope NOTE, not a defect).
+- Traced every removed identifier (`pj-one-subprojects`, `placeSubProjects`, `pj-subs`,
+  `pj-subrow`, `subsEl`) repo-wide: they survive ONLY in explanatory comments; the four
+  removed-as-a-unit pieces (section markup, painter block, showTab call, click delegate) are
+  all gone as a set, so no load-time null-deref.
+- Rebase integrity confirmed: #3110 avatar CSS present at web/index.html:2522, #3106 copy is an
+  ancestor of HEAD, the origin/main...HEAD diff is coherent project-view-only content with no
+  duplicated/half-applied avatar/headline hunks; the challenge-loop fixups survived.
+- Both browser-checks (render-subprojects-1994.js, render-project-rows.js) are in the live run
+  loop and return the dangerous answer on origin/main (non-vacuous).
+- Conventions clean: no em dashes (all five spellings incl. \u{2014}), no "Mac" product-voice,
+  no new user-facing copy.
+- [NOTE, not a defect] the #3105 Show Archived restyle is scoped to `body.consolidated` (rail
+  only), consistent with the titles-only hide and faithful to the card's "(left column /
+  consolidated left rail)" grouping; reversible. Flagged for Josh's awareness only.
+**Re-validation:** full node suite on the rebased HEAD -- tests 7704, pass 7566, fail 0,
+cancelled 0; browser-check surface gate 0 FAILED; bc-surface-map 0 FAILED; VAL_EXIT=0.
+**Converged** -- rebased tree re-confirmed clean.
 
 ### Final Ledger
 
