@@ -399,6 +399,57 @@ function sourceChannelNow() {
   } catch { return 'staging'; }
 }
 
+/* #2036 observability slice (behavior-preserving; changes no channel resolution and moves no
+   bytes). A box INSTALLED from the staging channel but RESOLVING prod has silently lost its
+   staging subscription at login (#2969): the board's launchd job carries no channel, so
+   updateChannel() falls back to prod and the box quietly stops being ahead of prod, with no
+   error -- exactly the silence Josh named as #2036's failure mode. This predicate is the boot
+   diagnostic's condition, kept PURE so it is testable and so it cannot throw on the listen path.
+
+   🔑 IT COMPARES THE RAW INSTALL STAMP, NOT THE BADGE. `recorded` must be recordedSourceChannel()
+   (the durable one-time install stamp), NOT sourceChannelNow() -- the latter applies #2934's
+   prod-publishes-running re-derivation, which reports 'prod' for a legitimately-promoted staging
+   build and would MASK a genuine silent revert. `resolved` is updateChannel() (what the poller
+   actually fetches). The signature is: installed-from-staging yet polling-prod.
+
+   ⚠️ This is OBSERVABILITY ONLY. The byte-changing fix (persist the channel across login so the
+   subscription survives) is #2969/#2934 and stays parked on real-fresh-machine verification per
+   Josh's gate; this predicate neither resolves the channel nor changes which bytes install. */
+function stagingRevertWarning(recorded, resolved) {
+  return recorded === 'staging' && resolved === 'prod';
+}
+
+/* #2036: the boot site's actual decision, composed so the load-bearing WIRING is pinned by a
+   test and not just the truth table. The pure predicate above cannot protect the one choice that
+   matters here: that this reads recordedSourceChannel() (the RAW install stamp) and NOT
+   sourceChannelNow() (the #2934-rederived badge). Those two differ ONLY for a legitimately
+   promoted staging build (recorded 'staging', prodPublishesRunning() true), and there the badge
+   reads 'prod' -- so wiring the warn to the badge would report (prod, prod) and MASK exactly the
+   revert this exists to surface. Exported and exercised in that divergence case so the swap is a
+   test failure, not a silent regression. Reads env + disk at call time; both accessors are
+   non-throwing, so this cannot throw on the listen path. */
+function stagingRevertWarningNow() {
+  return stagingRevertWarning(recordedSourceChannel(), updates.updateChannel());
+}
+
+/* #2036: the boot emit, extracted so the fire-decision AND the exact warning text are pinned by a
+   test with an injected sink -- not just the predicate. The listen callback calls this with the
+   default (real stderr); a test passes a capturing `write` and asserts the message in the same
+   divergence env the wiring test uses. Returns whether it fired, purely so a test reads the
+   decision without parsing the text. The listen callback's actual call of this is exercised by the
+   BOOT test, which boots app.start(0) in a child sandbox and asserts the warning on its stderr, so
+   deleting the call site is a test failure rather than a silent loss of the feature. `write`
+   defaults to stderr and exists only as the test seam. */
+function emitStagingRevertWarning(write = (s) => process.stderr.write(s)) {
+  if (!stagingRevertWarningNow()) return false;
+  write('Kosmos update check: WARNING -- this box installed from the staging channel '
+    + '(source-channel=staging) but is resolving the prod channel, so it is no longer receiving '
+    + 'staging builds (kosmos#2969). The update channel is not carried across login; a durable fix is '
+    + 'tracked in kosmos#2969 and is not yet shipped, and setting the channel only in an interactive shell '
+    + 'does not survive the next login. See kosmos#2969 and kosmos#2036 for status.\n');
+  return true;
+}
+
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
@@ -13463,6 +13514,12 @@ function start(port = PORT) {
          will fetch, so a staging board, or a board aimed at a mirror, reads as one from its log
          line alone. */
       process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
+      /* #2036: warn LOUDLY at boot when this box installed from staging (the durable stamp) but is
+         resolving prod -- the #2969 silent revert. Observability only: it changes nothing about which
+         channel resolves or which bytes install (that fix is parked on real-machine verification).
+         stagingRevertWarningNow() cannot throw on the listen path (both its reads are non-throwing), and
+         it wires the RAW install stamp rather than the #2934 badge (see its docstring). */
+      emitStagingRevertWarning();
       /* 🪟 S4: tell the updater the board it must stop and the port it must confirm on, so the win32
          in-app helper (win32update.begin -> win32apply) hands the swap this exact process and port
          rather than its own default. Read from the bound socket, so it is the real listening port even
@@ -13869,6 +13926,13 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
+     composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
+     install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the
+     divergence test can show the badge would read 'prod' for a promoted build (masking the
+     revert) where the warn correctly fires -- i.e. the wiring, not just the predicate, is
+     guarded. The warn itself fires inside the listen callback a require-only test never reaches. */
+  stagingRevertWarning, stagingRevertWarningNow, emitStagingRevertWarning, sourceChannelNow,
   /* #1704 PR2: exported so a test can run one outbox drain against a sandboxed
      board; production starts it from the real-start path (startOutboxDrain). */
   drainOutboxNow,
