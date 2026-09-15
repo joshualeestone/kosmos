@@ -446,10 +446,9 @@ function emitStagingRevertWarning(write = (s) => process.stderr.write(s)) {
   if (!stagingRevertWarningNow()) return false;
   write('Kosmos update check: WARNING -- this box installed from the staging channel '
     + '(source-channel=staging) but is resolving the prod channel, so it has silently stopped receiving '
-    + 'staging builds (kosmos#2969). The remedy is durable, not a one-off: the update channel is not '
-    + 'carried across login, so it must be persisted in the board\'s auto-start job (the mechanism and the '
-    + 'exact variable are per-platform -- see tools/release.sh and kosmos#2969), not merely set in an '
-    + 'interactive shell, which does not survive the next login and lets the revert return. See kosmos#2036.\n');
+    + 'staging builds (kosmos#2969). The update channel is not carried across login; a durable fix is '
+    + 'tracked in kosmos#2969 and is not yet shipped, and setting the channel only in an interactive shell '
+    + 'does not survive the next login. See kosmos#2969 and kosmos#2036 for status.\n');
   return true;
 }
 

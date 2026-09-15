@@ -28,7 +28,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+const { execFileSync } = require('node:child_process');
+const store = require('./engine/store');
 const { stagingRevertWarning } = require('./server');
+
+const REPO = __dirname;
+const RUNNING = require('./package.json').version;
 
 test('the silent-revert signature (installed staging, resolving prod) warns', () => {
   assert.equal(stagingRevertWarning('staging', 'prod'), true);
@@ -69,17 +77,8 @@ test('only the staging->prod combination is the revert (exhaustive truth table)'
  * sandbox + injected-fetcher setup mirrors server.sourcechannel-promote-2934.test.js so the
  * updater's cache carries the shape production writes, not a hand-built stand-in.
  */
-const fs = require('node:fs');
-const os = require('node:os');
-const nodePath = require('node:path');
-const { execFileSync } = require('node:child_process');
-
-const REPO = __dirname;
-const RUNNING = require('./package.json').version;
-
 function warnNowWith({ content, latest, channel, look = true }) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-revert2036-'));
-  const store = require('./engine/store');
   const dataRoot = nodePath.join(sb, 'data', store.APP);
   fs.mkdirSync(nodePath.join(dataRoot, 'profiles'), { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'workers'), { recursive: true });
@@ -103,16 +102,28 @@ function warnNowWith({ content, latest, channel, look = true }) {
     (async () => {
       if (LOOK) await updates.refresh().catch(() => {});
       // Capture what the boot emit writes, via the injected sink, so the if-block + the exact
-      // warning text are exercised (not just the predicate). The default sink is real stderr;
-      // the test seam replaces it with a collector.
+      // warning text are exercised (not just the predicate).
       let emitted = '';
       const fired = app.emitStagingRevertWarning((s) => { emitted += s; });
+      // Also exercise the REAL DEFAULT sink (no argument): monkeypatch both streams so we can
+      // assert the default routes the warning to STDERR (not stdout) -- a regression swapping the
+      // default binding would otherwise pass every injected-sink test. Restore before the JSON.
+      const errChunks = []; const outChunks = [];
+      const origErr = process.stderr.write.bind(process.stderr);
+      const origOut = process.stdout.write.bind(process.stdout);
+      process.stderr.write = (s) => { errChunks.push(String(s)); return true; };
+      process.stdout.write = (s) => { outChunks.push(String(s)); return true; };
+      const firedDefault = app.emitStagingRevertWarning();
+      process.stderr.write = origErr; process.stdout.write = origOut;
       process.stdout.write(JSON.stringify({
         warn: app.stagingRevertWarningNow(),
         badge: app.sourceChannelNow(),
         resolved: updates.updateChannel(),
         fired,
         emitted,
+        firedDefault,
+        defaultToStderr: errChunks.join(''),
+        defaultToStdout: outChunks.join(''),
       }));
       process.exit(0);
     })();
@@ -189,4 +200,14 @@ test('EMIT: a plain prod box emits nothing', () => {
   const got = warnNowWith({ content: undefined, latest: RUNNING });
   assert.equal(got.fired, false, 'no staging stamp, so nothing to warn about');
   assert.equal(got.emitted, '', 'and writes nothing');
+});
+
+test('EMIT: the DEFAULT sink (no argument) routes the warning to stderr, not stdout', () => {
+  // Exercises the real `write = (s) => process.stderr.write(s)` default, not just an injected one.
+  // The file's convention is informational lines -> stdout, warnings/errors -> stderr; a regression
+  // swapping the default to stdout would pass every injected-sink test but fail here.
+  const got = warnNowWith({ content: 'staging', latest: RUNNING });
+  assert.equal(got.firedDefault, true, 'the default-sink emit fires in the revert case');
+  assert.match(got.defaultToStderr, /WARNING/, 'the default routes the warning to stderr');
+  assert.equal(got.defaultToStdout, '', 'and nothing to stdout');
 });

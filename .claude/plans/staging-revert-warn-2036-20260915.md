@@ -23,11 +23,14 @@ shrinks toward zero defeats the point of verifying a build before it reaches pro
    stamp) with `updates.updateChannel()`. The accessor choice is load-bearing (see Key design decision) and
    is what the WIRING tests pin.
 3. `server.js`: `emitStagingRevertWarning(write = stderr)` -- the boot emit, extracted with an injected sink
-   so the if-block AND the exact warning TEXT are testable. On a revert it writes a loud WARNING naming the
-   silent revert (#2969) and a PLATFORM-NEUTRAL durable remedy: the channel must be persisted in the board's
-   auto-start job (the mechanism + exact variable are per-platform -- points to `tools/release.sh` + #2969
-   rather than naming a var inline, so it cannot drift and is correct on Windows too, where there is no
-   launchd). The listen callback calls `emitStagingRevertWarning()` right after the existing
+   so the if-block AND the exact warning TEXT are testable. On a revert it writes a loud WARNING that is an
+   honest DIAGNOSTIC, not a prescription: it names the silent revert (#2969), states that a durable fix is
+   tracked in #2969 and not yet shipped (there is no supported durable per-platform persistence recipe today
+   -- that recipe IS the parked byte-change), notes that an interactive-shell set does not survive login, and
+   points to #2969/#2036 for status. Deliberately platform-neutral (no launchd/EnvironmentVariables wording;
+   this callback runs on Windows too) and cites no remedy doc, because none currently documents the durable
+   fix -- an earlier draft pointed at `tools/release.sh`, whose only relevant line is the ephemeral form this
+   warning warns against. The listen callback calls `emitStagingRevertWarning()` right after the existing
    `Kosmos update check: channel=...` line. Both accessor reads are non-throwing.
 4. `server.js`: export `stagingRevertWarning`, `stagingRevertWarningNow`, `emitStagingRevertWarning`,
    `sourceChannelNow` (the last so the divergence test can show the #2934 badge would read 'prod' where the
@@ -47,9 +50,10 @@ shrinks toward zero defeats the point of verifying a build before it reaches pro
   is what closes the card. Left #2036 needs-decision; only this observability slice ships here.
 
 ## Verification
-- `node -c server.js` OK; `node --test server.staging-revert-warn-2036.test.js` 11/11 pass (5-case pure
+- `node -c server.js` OK; `node --test server.staging-revert-warn-2036.test.js` 12/12 pass (5-case pure
   truth table + 3 child-process WIRING tests pinning the raw-stamp-vs-badge accessor choice via the
-  promoted-build divergence case + 3 EMIT tests pinning the fire-decision and exact message text).
+  promoted-build divergence case + 3 EMIT tests pinning the fire-decision and exact message text + 1
+  DEFAULT-SINK test proving the no-arg default routes the warning to stderr, not stdout).
 - Behavior-preserving: no channel-resolution or installed-byte path changes; the only runtime effect is a
   conditional stderr write at boot. (Not literally additive-only after the emit was extracted into
   `emitStagingRevertWarning()`, but no existing behavior changed.)
