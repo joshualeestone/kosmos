@@ -34,7 +34,6 @@ has()  { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 # =============================================================================================
 # PART A -- source-level pins
 # =============================================================================================
-GUARD_MARK="not on '\$_default_branch' (#3073)"
 
 # A1) --force is parsed into FORCE.
 if grep -qE -- '--force\)[[:space:]]*FORCE=1' "$DEPLOY"; then

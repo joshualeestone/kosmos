@@ -152,7 +152,7 @@ make_publish_scenario() {  # <mode> ; echoes "SITE LIVE"
   write_ptr "$live/dist/latest.json" "$V" "$realsha" "$ART"
 
   # --- the SITE checkout ---
-  git init -q "$s"
+  git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
   printf 'setup-script\n' > "$s/setup"
