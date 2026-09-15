@@ -89,52 +89,56 @@ run; r="$RUN_RESULT"
   || fail "nobody: expected refusal, got '$r'"
 has "$RIU_REASON" "no one is signed in at the screen" && pass "  and names the console check" \
   || fail "  and names the console check: $RIU_REASON"
-has "$RIU_REASON" "no GUI Installer process was found" && pass "  and names the installer check" \
+has "$RIU_REASON" "no GUI Installer owner was found" && pass "  and names the installer check" \
   || fail "  and names the installer check: $RIU_REASON"
 has "$RIU_REASON" "no one is signed in to install for." && fail "  must NOT use the old flat message" \
   || pass "  and does not use the old flat 'no one is signed in to install for.'"
 
-# --- ARM 6: ambiguous -- two accounts running Installer, no console tiebreak -
+# --- ARM 6: ambiguous -- >1 accounts running Installer AND no usable console --
+# count>1 now falls back to the console user (ARM 6b), but here console=loginwindow
+# (no real console user), so it refuses -- the one genuine refusal in the
+# ambiguous case.
 STUB_CONSOLE="loginwindow"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS="502 503"
 run; r="$RUN_RESULT"
-[ "$r" = "<refused>" ] && pass "ambiguous: refuses when two accounts drive Installer and no console tiebreak" \
-  || fail "ambiguous: expected refusal, got '$r'"
-has "$RIU_REASON" "more than one account is running Installer" && pass "  and says it is ambiguous" \
+[ "$r" = "<refused>" ] && pass "ambiguous+no-console: refuses when >1 accounts drive Installer and there is no usable console user" \
+  || fail "ambiguous+no-console: expected refusal, got '$r'"
+has "$RIU_REASON" "accounts are running Installer" && pass "  and says it is ambiguous" \
   || fail "  and says it is ambiguous: $RIU_REASON"
 { has "$RIU_REASON" "bob" && has "$RIU_REASON" "carol"; } && pass "  and names both candidates" \
   || fail "  and names both candidates: $RIU_REASON"
 
-# --- ARM 6b: ambiguous, and the console holder being one of them does NOT
-# tiebreak. Two Installer processes is genuinely ambiguous, so it refuses rather
-# than guess -- picking the console holder here would reintroduce the #1880 class
-# (the console holder may just have a stale Installer window open). #1880 review.
+# --- ARM 6b: ambiguous, but a real console user is present -> FALL BACK to it.
+# Splinter product call (2026-09-15): fall back rather than refuse, even on this
+# arm-A ambiguity -- a refused investor install is the worse failure. With two
+# Installer owners and no clean single invoker, candidate 2 resolves to the
+# physical console user (bob). ACCEPTED, reversible residual (#2511): this can
+# install for the console holder rather than a specific non-console invoker.
 STUB_CONSOLE="bob"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS="502 503"
 run; r="$RUN_RESULT"
-[ "$r" = "<refused>" ] \
-  && pass "ambiguous: even when the console holder (bob) is one of two Installer owners, it refuses rather than guess" \
-  || fail "ambiguous+console: expected refusal (no tiebreak), got '$r'"
-has "$RIU_REASON" "more than one account is running Installer" \
-  && pass "  and still says it is ambiguous" \
-  || fail "  and still says it is ambiguous: $RIU_REASON"
+[ "$r" = "bob" ] && [ "$INSTALL_UID" = 502 ] \
+  && pass "ambiguous+console: >1 Installer owners falls back to the real console user (bob), not refuse" \
+  || fail "ambiguous+console: expected bob/502, got '$r'/'${INSTALL_UID:-}'"
 
-# --- ARM 7: a SOLE Installer owner without an Aqua session -> REFUSE, not the
-# console holder. There is a detected invoker signal (bob) that failed its gate,
-# which contradicts the console holder (alice); redirecting to alice would be the
-# #1880 class via the session-gate route, so it refuses and names the situation.
-# (iteration-2 review: console fallback is for "no Installer signal at all" only.)
-STUB_CONSOLE="alice"; STUB_OWNERS="bob"; STUB_SESSIONS="501"   # bob(502) has no session
+# --- ARM 7: KOSMOS#2511 -- THE OBSERVED FAILURE, now fixed. A sole GUI Installer
+# owner (bob) whose Aqua-session PRINT would fail (STUB_SESSIONS empty = the
+# root-context `launchctl print gui/<uid>` false-negative on macOS 26). BEFORE
+# #2511 this REFUSED (Josh's "installation failed" on a fresh single-user direct
+# install); AFTER, a running GUI Installer owned by bob IS proof of a live
+# session, so candidate 1 resolves to bob -- the invoker -- without the print.
+STUB_CONSOLE="alice"; STUB_OWNERS="bob"; STUB_SESSIONS=""   # bob(502): the print would say "no session"
 run; r="$RUN_RESULT"
-[ "$r" = "<refused>" ] \
-  && pass "gui-gate: a sole Installer owner without an Aqua session REFUSES (does not redirect to console)" \
-  || fail "gui-gate: expected refusal, got '$r'"
-has "$RIU_REASON" "no active window session to install into" \
-  && pass "  and names the sessionless Installer owner" \
-  || fail "  and names the sessionless Installer owner: $RIU_REASON"
-# and it must NOT falsely tell the signed-in console user (alice, session 501)
-# that they have no session -- that message accuracy was an iteration-3 finding.
-has "$RIU_REASON" "not the account driving this install" \
-  && pass "  and describes the signed-in console user accurately (not 'no session')" \
-  || fail "  and must not tell a signed-in console user they have no session: $RIU_REASON"
+[ "$r" = "bob" ] && [ "$INSTALL_UID" = 502 ] \
+  && pass "arm-B (#2511): a sole Installer owner resolves even when the session PRINT fails (running Installer = proof of session), and still beats the console holder" \
+  || fail "arm-B (#2511): expected bob/502 (was the observed refuse), got '$r'/'${INSTALL_UID:-}'"
+
+# --- ARM 7b: KOSMOS#2511 single-user shape -- the EXACT case Josh hit. The one
+# fresh user OWNS Installer AND is the console user (one uid), and the
+# root-context session print fails. Must install for that user, not refuse.
+STUB_CONSOLE="alice"; STUB_OWNERS="alice"; STUB_SESSIONS=""
+run; r="$RUN_RESULT"
+[ "$r" = "alice" ] && [ "$INSTALL_UID" = 501 ] \
+  && pass "arm-B single-user: a fresh user at the physical console installs even when the root-context session print fails" \
+  || fail "arm-B single-user: expected alice/501, got '$r'/'${INSTALL_UID:-}'"
 
 # --- ARM 8: root Installer owner is filtered out ---------------------------
 # The CLI `installer` runs as root; only the GUI Installer.app owner should count.
@@ -143,14 +147,17 @@ run; r="$RUN_RESULT"
 [ "$r" = "bob" ] && pass "root-filter: a root Installer owner is ignored, bob is used" \
   || fail "root-filter: expected bob, got '$r'"
 
-# --- CONTROL: the Aqua-session gate really gates ---------------------------
-# Same as ARM 2/3 inputs but NO uid has a session. If resolution still succeeds,
-# the gate is not gating and every session-dependent arm above is vacuous.
-STUB_CONSOLE="alice"; STUB_OWNERS="bob"; STUB_SESSIONS=""
+# --- CONTROL: the fix is NOT "always resolve" ------------------------------
+# The session print is no longer a gate (#2511), so the control is now the
+# genuine no-user state: NO Installer owner AND console=loginwindow (headless /
+# SSH / sitting at the login screen). It must STILL refuse -- proving we did not
+# turn resolve_install_user into an unconditional resolve. Sessions are present
+# in the stub but no longer consulted, which is the point.
+STUB_CONSOLE="loginwindow"; STUB_OWNERS=""; STUB_SESSIONS="501 502 503"
 run; r="$RUN_RESULT"
 [ "$r" = "<refused>" ] \
-  && pass "CONTROL: with no Aqua session anywhere, resolution refuses -- the gate gates" \
-  || fail "CONTROL: expected refusal with no sessions, got '$r' (gate is not gating; session arms are vacuous)"
+  && pass "CONTROL: headless (no owner, console=loginwindow) still refuses even with sessions present -- the fix is not 'always resolve'" \
+  || fail "CONTROL: expected refusal in the headless case, got '$r'"
 
 # --- owner-parse coverage: the real awk parse of `ps` output ---------------
 # Arms above override _riu_installer_owners; this arm exercises the SHIPPED parse
