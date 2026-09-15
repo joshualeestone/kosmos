@@ -4026,20 +4026,46 @@ if [ -f "$KOSMOS_HOME/board.pid" ]; then
   esac
 fi
 
+# #3058: DECIDE the auto-launch ONCE, here, BEFORE the summary, so the summary message and
+# the launch block below key on the SAME signal rather than drifting. The first pass at this
+# keyed the summary on APP_MADE while the launch keyed on _open_gate + bundle_is_ours, which
+# disagree: a normal SEEDED UPDATE has APP_MADE=yes but _open_gate=no, so it does NOT launch,
+# yet the APP_MADE summary promised "Kosmos will open"; and an APP_MADE=no run that DOES launch
+# (a current bundle left in place -- see the launch header's "APP_MADE=no still has a valid app
+# that must launch") printed the bare "open it yourself" imperative on a run that opened. Both
+# are the exact contradiction #3058 is about. _do_open is the whole launch predicate, computed
+# once and consumed by both the summary and the launch. The two knobs and the enforcing-update
+# gate are documented in full at the launch site below; this is the same computation, hoisted.
+OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
+_awnode_r="$KOSMOS_HOME/runtime/bin/node"; _awroot_r=""; _repair_seed=""
+if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
+  _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
+  [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
+fi
+_open_gate="$FRESH_INSTALL"; _opened=no
+if [ -n "$_repair_seed" ] && [ ! -f "$_repair_seed" ] && [ -s "$_awroot_r/board.token" ]; then
+  _open_gate=yes
+fi
+_do_open=no
+if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
+   && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_OPEN_CMD:-}" ]; } \
+   && bundle_is_ours "$APP_DIR/Kosmos.app" \
+   && command -v "$OPEN_CMD" >/dev/null 2>&1; then
+  _do_open=yes
+fi
+
 if [ "$BOARD_OURS" = "yes" ]; then
   printf '\n  Kosmos is running.\n'
   # #2073: app-only. The Kosmos app is the dashboard; the board URL is demoted to a
   # technical note (it still serves there for `kosmos open`), not presented as the
   # thing to open in a browser.
-  # #3058: when this install HAS a bundle to open (APP_MADE=yes -- a fresh install, or
-  # one that left a current bundle in place), the launch block below auto-opens it, so
-  # the summary must NOT tell the person to open it by hand. The bare imperative read
-  # as "it did not open on its own" even on the runs where it did, and over SSH/headless
-  # -- where `open` is a documented best-effort no-op (see the launch header below) --
-  # the hedged form is the honest state: it will open, and here is what to do if it does
-  # not appear. The bare "open it from Applications" line is kept ONLY for APP_MADE=no,
-  # where there is no bundle for the launch block to auto-open.
-  if [ "$APP_MADE" = "yes" ]; then
+  # #3058: key the guidance on _do_open (the SAME predicate the launch block uses), not on
+  # APP_MADE. When the app WILL auto-open, promise that and give the manual step only as a
+  # fallback -- which is also the honest state over SSH/headless, where `open` is a documented
+  # best-effort no-op. When it will NOT (a seeded update, a foreign/aliased bundle, no opener,
+  # or a harness-suppressed open), print the bare imperative, which is the correct guidance for
+  # exactly those cases. Keying on _do_open is what stops the summary and the launch disagreeing.
+  if [ "$_do_open" = "yes" ]; then
     printf '  Kosmos will open to walk you through connecting your AI account.\n'
     printf '  If it does not appear, open the Kosmos app from your Applications folder.\n'
   else
@@ -4096,72 +4122,35 @@ printf '  To remove it later:  curl -fsSL https://installkosmos.com/setup | sh -
 # why the pidfile is the instrument). (install/kosmos's cmd_open is the
 # other place this URL is spelled; keep the two together.)
 #
-# Two knobs, each doing exactly one job. KOSMOS_NO_OPEN: any non-empty
-# value suppresses the open (yes, even "no" or "0" -- it is an internal
-# is-it-set knob, recorded here so nobody is surprised); the harness
-# exports it globally because a test that steals the operator's browser is
-# a test nobody runs twice. KOSMOS_OPEN_CMD exists ONLY so the harness can
-# substitute a recording stub and assert both legs -- a hardcoded
-# /usr/bin/open made this block the one new behavior the suite could not
-# see at all. Unguarded by choice, unlike KOSMOS_HOME and KOSMOS_PORT:
-# it is never baked into anything and anyone who can set it can already
-# run commands as this user.
-OPEN_CMD="${KOSMOS_OPEN_CMD:-/usr/bin/open}"
-# command -v rather than -x: it resolves a bare command name as well as a
-# path, so an override like KOSMOS_OPEN_CMD=open does not silently no-op.
-# The sandbox overrides also suppress the open (belt to KOSMOS_NO_OPEN's
-# braces): either override set means a harness, and a harness must not
-# depend solely on remembering the other knob. KOSMOS_SYS_APP_DIR gets
-# one carve-out -- a set KOSMOS_OPEN_CMD re-enables it -- because the
-# probe passes are exactly where the recording stub must be allowed to
-# observe the open.
-# #2023/#2073: also open ONCE on an enforcing UPDATE to establish the httpOnly
-# board cookie #1946's enforcement requires. #2073 LAUNCHES THE APP here (not a
-# browser): the app reads the board token and appends ?token= itself, the board
-# sets the cookie, and server.js seeds the reauth marker on that ?token= redemption
-# -- so a normal update, WHEN THE APP WAS NOT ALREADY RUNNING, launches the app
-# once and then this gate stops.
-# ⚠️ RUNNING-APP EDGE, ACCEPTED not fixed here: if the app is ALREADY running at
-# update time, `open Kosmos.app` is an AppKit REOPEN (applicationShouldHandleReopen)
-# that only re-shows the window -- it does NOT re-navigate the WebView, so the board
-# sees no ?token= bootstrap, the marker is not seeded, and this gate re-fires
-# (bringing the app to front) on each later update until the next fresh relaunch.
-# Low impact: the cohort is enforcing-but-unseeded machines mid-migration, and the
-# cost is a window-to-front, not a broken state -- arguably fine for app-only. The
-# real fix is a Swift change (re-navigate on reopen), a native-app follow-up; the
-# old browser ?boot= always spawned a fresh navigation regardless of app state.
-# ⚠️ #2028 EDGE, ACCEPTED not fixed here: if the update did NOT refresh the bundle
-# (make_app skipped -- aliased Applications, a foreign bundle), the launched app can
-# be too old to carry tokenizedBoardURL, so it cannot seed the marker and this open
-# re-fires every update. The old browser ?boot= repair "worked regardless of bundle
-# age" only because it did not touch the app at all; app-only makes the app the
-# single surface, so a stale bundle (that is #2028's bug) loses the self-heal. The
-# not-refreshed note earlier (APP_MADE != yes) points the user at the remedy.
-# Gated on a marker beside board.token so it fires on the FIRST update carrying this
-# fix and never again (the cookie is Max-Age 400 days, so one seed carries every
-# later update forward -- the "no launch per update" property the header keeps).
-# Enforcing-only: `-s board.token` (present and non-empty) is setup.sh's reading of
-# enforced() -- an enforcing board has a token, a sandbox/harness one does not.
-_awnode_r="$KOSMOS_HOME/runtime/bin/node"; _awroot_r=""; _repair_seed=""
-if [ -f "$_awnode_r" ] && [ -x "$_awnode_r" ]; then
-  _awroot_r="$("$_awnode_r" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || _awroot_r=""
-  [ -n "$_awroot_r" ] && _repair_seed="$_awroot_r/.reauth-seeded"
-fi
-_open_gate="$FRESH_INSTALL"; _opened=no
-# A first enforcing run (fresh OR update) that has not been SEEDED launches the app
-# once. #2030/#2073: the seed marker is written server-side on the app's ?token=
-# redemption (engine/boardauth.js seedReauthMarker), NOT here -- so this stays a READ
-# of the marker (launch iff absent), and a machine whose app never redeemed stays
-# unseeded and RE-LAUNCHES on the next update until one actually navigates (narrowed
-# by the accepted running-app / #2028 edges documented below). FRESH_INSTALL already
-# launches; this adds the enforcing-update path.
-if [ -n "$_repair_seed" ] && [ ! -f "$_repair_seed" ] && [ -s "$_awroot_r/board.token" ]; then
-  _open_gate=yes
-fi
-if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_OPEN:-}" ] && [ -z "${KOSMOS_APP_DIR:-}" ] \
-   && { [ -z "${KOSMOS_SYS_APP_DIR:-}" ] || [ -n "${KOSMOS_OPEN_CMD:-}" ]; } \
-   && bundle_is_ours "$APP_DIR/Kosmos.app" \
-   && command -v "$OPEN_CMD" >/dev/null 2>&1; then
+# The launch predicate (_do_open) and its inputs -- OPEN_CMD, the enforcing-update gate
+# (_open_gate) and the reauth-marker read -- were computed ABOVE, before the summary, so the
+# summary line and this launch key on the SAME signal (#3058). The semantics they encode, kept
+# here beside the launch action they govern:
+#
+# Two knobs. KOSMOS_NO_OPEN: any non-empty value suppresses the open (the harness exports it
+# globally because a test that steals the operator's browser is a test nobody runs twice).
+# KOSMOS_OPEN_CMD exists ONLY so the harness can substitute a recording stub and assert both
+# legs; the sandbox app-dir overrides also suppress the open, with one carve-out -- a set
+# KOSMOS_OPEN_CMD re-enables the SYS_APP_DIR probe passes, where the stub must observe the open.
+# command -v (not -x) so a bare-name override like KOSMOS_OPEN_CMD=open does not silently no-op.
+#
+# #2023/#2073: also open ONCE on an enforcing UPDATE to establish the httpOnly board cookie
+# #1946's enforcement requires. #2073 LAUNCHES THE APP (not a browser): the app reads the board
+# token and appends ?token= itself, the board sets the cookie, and server.js seeds the reauth
+# marker on that redemption -- so a normal update, WHEN THE APP WAS NOT ALREADY RUNNING, launches
+# once and then _open_gate stops. Gated on a marker beside board.token so it fires on the FIRST
+# update carrying this fix and never again (Max-Age 400 days; one seed carries every later update
+# forward -- the "no launch per update" property). Enforcing-only: `-s board.token` present and
+# non-empty is setup.sh's reading of enforced().
+# ⚠️ RUNNING-APP EDGE, ACCEPTED: if the app is ALREADY running at update time, `open Kosmos.app`
+# is an AppKit REOPEN that only re-shows the window -- no ?token= bootstrap, no seed, so the gate
+# re-fires (window-to-front) on each later update until the next fresh relaunch. Low impact; the
+# real fix is a Swift re-navigate-on-reopen, a native-app follow-up.
+# ⚠️ #2028 EDGE, ACCEPTED: if the update did NOT refresh the bundle (make_app skipped -- aliased
+# Applications, a foreign bundle), the launched app can be too old to carry tokenizedBoardURL, so
+# it cannot seed and re-fires every update. The not-refreshed note earlier (APP_MADE != yes)
+# points the user at the remedy.
+if [ "$_do_open" = "yes" ]; then
   # #2073: only auto-launch OUR OWN app, and only when it exists. bundle_is_ours
   # (not a bare `-d`) because `-d` follows a symlink onto a FOREIGN Kosmos.app in
   # the multi-account / aliased-~/Applications case, where the resolver set

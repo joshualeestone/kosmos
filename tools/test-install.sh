@@ -1148,6 +1148,22 @@ chk "#3058: the open targeted OUR diverted ~/Applications bundle, not the foreig
 chk "#3058: the summary promises the app will open (not a bare manual instruction)" "grep -q 'Kosmos will open to walk you through' \"$SB/autolaunch-foreign.log\""
 KOSMOS_HOME="$SB/home6al" "$SB/bin6al/kosmos" stop > /dev/null 2>&1 || true
 
+echo "== #3058: an UPDATE must NOT falsely promise the app will open =="
+# The honesty this pins, and the defect a first pass at #3058 had: the summary keyed on APP_MADE
+# while the LAUNCH keys on _open_gate (FRESH_INSTALL, or an unseeded-enforcing update). A normal
+# seeded / non-enforcing UPDATE refreshes the bundle (APP_MADE=yes) but does NOT auto-launch
+# (_open_gate=no), so an APP_MADE-keyed message printed "Kosmos will open" and then did not. The
+# fix keys the summary on _do_open, the SAME predicate the launch uses. Re-run the install over the
+# just-installed home6al (now an update: bin/kosmos exists, FRESH_INSTALL=no) through the same
+# foreign-divert env and assert: no new open fires, and the message tells the truth for that path.
+OPENED_BEFORE_UPD="$(wc -l < "$SB/opened.log" | tr -d ' ')"
+RC=0; cat "$SETUP" | HOME="$SBH_AL" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_FOREIGN2" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/autolaunch-foreign-update.log" 2>&1 || RC=$?
+chk "autolaunch-foreign UPDATE install exits 0" "rc_ok $RC"
+chk "#3058: the update did NOT auto-launch (no new open fired)" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"$OPENED_BEFORE_UPD\" ]"
+chk "#3058: the update did NOT falsely promise the app would open" "! grep -q 'Kosmos will open to walk you through' \"$SB/autolaunch-foreign-update.log\""
+chk "#3058: the update printed the bare manual instruction instead" "grep -q 'Open the Kosmos app from your Applications folder; it will walk you through' \"$SB/autolaunch-foreign-update.log\""
+KOSMOS_HOME="$SB/home6al" "$SB/bin6al/kosmos" stop > /dev/null 2>&1 || true
+
 echo "== foreign bundle PLUS aliased folders: no icon at all, said honestly =="
 # The composed case: something not ours holds the system spot AND the home
 # Applications folder is a symlink to the same place. "Divert to the home
