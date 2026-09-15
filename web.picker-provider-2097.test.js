@@ -31,6 +31,10 @@ function defaultFor(accounts) {
   // declare it so the strict eval does not throw a ReferenceError.
   // eslint-disable-next-line no-unused-vars, prefer-const
   let IMPORT_OPENAI_DEFAULT = false;
+  // #3081: resetCreateProvider also clears the saved-model one-shot on a form reset;
+  // declare it beside its siblings so the strict eval does not throw a ReferenceError.
+  // eslint-disable-next-line no-unused-vars, prefer-const
+  let CREATE_PREF_OPENAI_MODEL = 'stale';
   // eslint-disable-next-line no-unused-vars
   const applyCreateProviderUI = () => {};
   // eslint-disable-next-line no-eval
