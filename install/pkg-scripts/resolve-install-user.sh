@@ -70,6 +70,11 @@ _riu_uid_for() { /usr/bin/id -u "$1" 2>/dev/null; }
 # precondition for the `launchctl asuser`/`bootstrap gui/<uid>` this postinstall
 # performs downstream. This is the card's "confirm that uid really has an Aqua
 # session before dropping into it".
+# 🛑 #2511: NO LONGER A GATE -- advisory / tests only. resolve_install_user
+# stopped hard-gating on this: `launchctl print gui/<uid>` FALSE-NEGATIVES from
+# the installd/root context (it raced a freshly-logged-in user's Aqua-session
+# registration and refused valid installs). A running GUI Installer owner is
+# proof of a session on its own. Do NOT re-introduce this as a hard gate.
 _riu_has_gui_session() { /bin/launchctl print "gui/$1" >/dev/null 2>&1; }
 
 # --- resolver --------------------------------------------------------------
