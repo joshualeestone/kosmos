@@ -16,17 +16,25 @@ fetches the prod pointer, and the box quietly stops being ahead of prod - with n
 exactly the failure mode Josh named as #2036's whole reason to exist (a staging population that silently
 shrinks toward zero defeats the point of verifying a build before it reaches prod).
 
-## The change (additive-only; git diff = 35 insertions, 0 deletions)
+## The change (additive-only; behavior-preserving)
 1. `server.js`: new PURE predicate `stagingRevertWarning(recorded, resolved)` = `recorded === 'staging' &&
-   resolved === 'prod'`. Kept pure so it is testable and cannot throw on the listen path.
-2. `server.js` boot log: right after the existing `Kosmos update check: channel=... pointer=...` line, if
-   `stagingRevertWarning(recordedSourceChannel(), updates.updateChannel())`, write a loud WARNING to stderr
-   naming the silent revert (#2969) and the remedy (set KOSMOS_UPDATE_CHANNEL=staging). Both reads are
-   non-throwing (recordedSourceChannel try/catches to 'prod'; updates.updateChannel is pure).
-3. `server.js`: export `stagingRevertWarning` (the warn fires inside the listen callback, which a
-   require-only test never reaches, so the predicate is the testable seam).
-4. New `server.staging-revert-warn-2036.test.js`: the four-way truth table + an exhaustive control asserting
-   ONLY `staging->prod` fires.
+   resolved === 'prod'`. Pure so it is testable and cannot throw on the listen path.
+2. `server.js`: composition `stagingRevertWarningNow()` wiring `recordedSourceChannel()` (the RAW install
+   stamp) with `updates.updateChannel()`. The accessor choice is load-bearing (see Key design decision) and
+   is what the WIRING tests pin.
+3. `server.js`: `emitStagingRevertWarning(write = stderr)` -- the boot emit, extracted with an injected sink
+   so the if-block AND the exact warning TEXT are testable. On a revert it writes a loud WARNING naming the
+   silent revert (#2969) and a PLATFORM-NEUTRAL durable remedy: the channel must be persisted in the board's
+   auto-start job (the mechanism + exact variable are per-platform -- points to `tools/release.sh` + #2969
+   rather than naming a var inline, so it cannot drift and is correct on Windows too, where there is no
+   launchd). The listen callback calls `emitStagingRevertWarning()` right after the existing
+   `Kosmos update check: channel=...` line. Both accessor reads are non-throwing.
+4. `server.js`: export `stagingRevertWarning`, `stagingRevertWarningNow`, `emitStagingRevertWarning`,
+   `sourceChannelNow` (the last so the divergence test can show the #2934 badge would read 'prod' where the
+   warn correctly fires).
+5. New `server.staging-revert-warn-2036.test.js`: the pure truth table + exhaustive control, the child-process
+   WIRING tests (the promoted-build divergence case that catches an accessor swap), and the EMIT tests
+   (the emit fires + the exact message text, and stays platform-neutral).
 
 ## Key design decision + weakest premise
 - Compares the RAW install stamp `recordedSourceChannel()`, NOT `sourceChannelNow()` - the latter applies
@@ -39,9 +47,11 @@ shrinks toward zero defeats the point of verifying a build before it reaches pro
   is what closes the card. Left #2036 needs-decision; only this observability slice ships here.
 
 ## Verification
-- `node -c server.js` OK; `node --test server.staging-revert-warn-2036.test.js` 8/8 pass (the 5-case
-  pure truth table plus 3 child-process WIRING tests pinning the raw-stamp-vs-badge accessor choice via
-  the promoted-build divergence case).
-- Diff confirmed additive-only (behavior-preserving).
+- `node -c server.js` OK; `node --test server.staging-revert-warn-2036.test.js` 11/11 pass (5-case pure
+  truth table + 3 child-process WIRING tests pinning the raw-stamp-vs-badge accessor choice via the
+  promoted-build divergence case + 3 EMIT tests pinning the fire-decision and exact message text).
+- Behavior-preserving: no channel-resolution or installed-byte path changes; the only runtime effect is a
+  conditional stderr write at boot. (Not literally additive-only after the emit was extracted into
+  `emitStagingRevertWarning()`, but no existing behavior changed.)
 - challenge-loop to convergence, then normal green-gated PR (merge on CI green per the beta ruling; this is
   not the gated byte-change).

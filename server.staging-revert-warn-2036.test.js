@@ -102,10 +102,17 @@ function warnNowWith({ content, latest, channel, look = true }) {
     });
     (async () => {
       if (LOOK) await updates.refresh().catch(() => {});
+      // Capture what the boot emit writes, via the injected sink, so the if-block + the exact
+      // warning text are exercised (not just the predicate). The default sink is real stderr;
+      // the test seam replaces it with a collector.
+      let emitted = '';
+      const fired = app.emitStagingRevertWarning((s) => { emitted += s; });
       process.stdout.write(JSON.stringify({
         warn: app.stagingRevertWarningNow(),
         badge: app.sourceChannelNow(),
         resolved: updates.updateChannel(),
+        fired,
+        emitted,
       }));
       process.exit(0);
     })();
@@ -151,4 +158,35 @@ test('WIRING: a healthy staging subscriber (installed staging, channel env still
 test('WIRING: a plain prod box (no source-channel stamp) does not warn', () => {
   const got = warnNowWith({ content: undefined, latest: RUNNING });
   assert.equal(got.warn, false, 'never installed from staging, so there is no revert to report');
+});
+
+/*
+ * EMIT: the boot site's actual observable behavior -- the if-block firing and the exact warning
+ * TEXT -- exercised through emitStagingRevertWarning() with an injected sink. The truth-table and
+ * wiring tests above pin the DECISION; these pin that the decision is emitted and what it says, so
+ * deleting the emit or mangling the message is a test failure rather than a silent loss of the
+ * feature's only user-visible output. (The one remaining untested seam -- that the listen callback
+ * calls emitStagingRevertWarning() -- needs a full server boot to exercise and is a documented
+ * tradeoff; see the function's docstring.)
+ */
+test('EMIT: on the promoted-staging revert, the emit fires and the message names the cause and the durable remedy', () => {
+  const got = warnNowWith({ content: 'staging', latest: RUNNING });
+  assert.equal(got.fired, true, 'the emit fires in the revert case');
+  assert.match(got.emitted, /WARNING/, 'the message is a loud WARNING');
+  assert.match(got.emitted, /source-channel=staging/, 'it states the box installed from staging');
+  assert.match(got.emitted, /kosmos#2969/, 'it cites the silent-revert cause');
+  assert.match(got.emitted, /kosmos#2036/, 'it cites the tracking card');
+  assert.doesNotMatch(got.emitted, /launchd|EnvironmentVariables/, 'the remedy stays platform-neutral (this callback runs on Windows too)');
+});
+
+test('EMIT: a healthy staging subscriber emits nothing', () => {
+  const got = warnNowWith({ content: 'staging', latest: RUNNING, channel: 'staging' });
+  assert.equal(got.fired, false, 'no revert, so the emit does not fire');
+  assert.equal(got.emitted, '', 'and writes nothing');
+});
+
+test('EMIT: a plain prod box emits nothing', () => {
+  const got = warnNowWith({ content: undefined, latest: RUNNING });
+  assert.equal(got.fired, false, 'no staging stamp, so nothing to warn about');
+  assert.equal(got.emitted, '', 'and writes nothing');
 });

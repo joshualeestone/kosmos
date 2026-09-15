@@ -432,6 +432,27 @@ function stagingRevertWarningNow() {
   return stagingRevertWarning(recordedSourceChannel(), updates.updateChannel());
 }
 
+/* #2036: the boot emit, extracted so the fire-decision AND the exact warning text are pinned by a
+   test with an injected sink -- not just the predicate. The listen callback calls this with the
+   default (real stderr); a test passes a capturing `write` and asserts the message in the same
+   divergence env the wiring test uses. Returns whether it fired, purely so a test reads the
+   decision without parsing the text. The ONE residual untested seam is that the listen callback
+   actually calls this line, which requires booting the full listen path (unref'd poll/heartbeat
+   timers, the live-execution gate) to exercise; that is left as a documented tradeoff -- it is a
+   single visually-obvious call, and a boot-integration test would be disproportionately heavy and
+   flaky on a loaded runner for a one-line wiring. `write` defaults to stderr and exists only as
+   the test seam. */
+function emitStagingRevertWarning(write = (s) => process.stderr.write(s)) {
+  if (!stagingRevertWarningNow()) return false;
+  write('Kosmos update check: WARNING -- this box installed from the staging channel '
+    + '(source-channel=staging) but is resolving the prod channel, so it has silently stopped receiving '
+    + 'staging builds (kosmos#2969). The remedy is durable, not a one-off: the update channel is not '
+    + 'carried across login, so it must be persisted in the board\'s auto-start job (the mechanism and the '
+    + 'exact variable are per-platform -- see tools/release.sh and kosmos#2969), not merely set in an '
+    + 'interactive shell, which does not survive the next login and lets the revert return. See kosmos#2036.\n');
+  return true;
+}
+
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
@@ -13501,14 +13522,7 @@ function start(port = PORT) {
          channel resolves or which bytes install (that fix is parked on real-machine verification).
          stagingRevertWarningNow() cannot throw on the listen path (both its reads are non-throwing), and
          it wires the RAW install stamp rather than the #2934 badge (see its docstring). */
-      if (stagingRevertWarningNow()) {
-        process.stderr.write('Kosmos update check: WARNING -- this box installed from the staging channel '
-          + '(source-channel=staging) but is resolving the prod channel, so it has silently stopped receiving '
-          + 'staging builds (kosmos#2969). The remedy is durable, not a one-off: the update channel is not '
-          + 'carried across login, so it must be persisted in the board\'s auto-start job (the mechanism and the '
-          + 'exact variable are per-platform -- see tools/release.sh and kosmos#2969), not merely set in an '
-          + 'interactive shell, which does not survive the next login and lets the revert return. See kosmos#2036.\n');
-      }
+      emitStagingRevertWarning();
       /* 🪟 S4: tell the updater the board it must stop and the port it must confirm on, so the win32
          in-app helper (win32update.begin -> win32apply) hands the swap this exact process and port
          rather than its own default. Read from the bound socket, so it is the real listening port even
@@ -13921,7 +13935,7 @@ module.exports = {
      divergence test can show the badge would read 'prod' for a promoted build (masking the
      revert) where the warn correctly fires -- i.e. the wiring, not just the predicate, is
      guarded. The warn itself fires inside the listen callback a require-only test never reaches. */
-  stagingRevertWarning, stagingRevertWarningNow, sourceChannelNow,
+  stagingRevertWarning, stagingRevertWarningNow, emitStagingRevertWarning, sourceChannelNow,
   /* #1704 PR2: exported so a test can run one outbox drain against a sandboxed
      board; production starts it from the real-start path (startOutboxDrain). */
   drainOutboxNow,
