@@ -110,11 +110,11 @@ const BASE = require('./fixtures/agent-card.json');
   if (/\battn\b/.test(r.q.acardClass)) fail.push('a class-2 agent question got the RED attn card wash (' + r.q.acardClass + ')');
   if (!/\bquestion\b/.test(r.q.acardClass)) fail.push('a class-2 card lacks the calm "question" class (' + r.q.acardClass + ')');
   if (!/st-question\b/.test(r.q.pillClass)) fail.push('a class-2 pill is not st-question (' + r.q.pillClass + ')');
-  if (!/has a question/i.test(r.q.label)) fail.push('a class-2 card does not read "Has a question" (' + JSON.stringify(r.q.label) + ')');
+  if (!/^question$/i.test(r.q.label)) fail.push('a class-2 card does not read "Question" (' + JSON.stringify(r.q.label) + ')');
   if (!r.q.glyphAsk || r.q.glyphHaz) fail.push('a class-2 card shows the red hazard ! instead of the calm ? glyph (' + JSON.stringify(r.q) + ')');
   // Negative arm 1: class 1 (auto) stays red.
   if (!/\battn\b/.test(r.auto.acardClass)) fail.push('a class-1 (auto) needs_you LOST its red attn - class 1 must stay red as PigeonPete\'s fallback (' + r.auto.acardClass + ')');
-  if (!/needs you/i.test(r.auto.label)) fail.push('a class-1 card no longer reads "Needs you" (' + JSON.stringify(r.auto.label) + ')');
+  if (!/^issue$/i.test(r.auto.label)) fail.push('a class-1 card no longer reads "Issue" (' + JSON.stringify(r.auto.label) + ')');
   // Negative arm 2: a scraped needs_you (null provenance) stays red.
   if (!/\battn\b/.test(r.scr.acardClass)) fail.push('a SCRAPED needs_you (null provenance) was wrongly calmed - only KNOWN by:agent is de-alarmed (' + r.scr.acardClass + ')');
   // Computed-color proof: the calm border must actually differ from the red one, or .acard.question
@@ -137,5 +137,5 @@ const BASE = require('./fixtures/agent-card.json');
     console.error('  measured=' + JSON.stringify(r));
     process.exit(1);
   }
-  console.log('render-needsyou-dealarm-2808: a deliberate agent question renders as a calm "Has a question" card (no red attn, calm ? glyph, a border color distinct from the alarm); a class-1 (auto) and a scraped needs_you both stay red. PASS');
+  console.log('render-needsyou-dealarm-2808: a deliberate agent question renders as a calm "Question" card (no red attn, calm ? glyph, a border color distinct from the alarm); a class-1 (auto) and a scraped needs_you both stay red "Issue". PASS');
 })().catch((e) => { console.error('FAIL  render-needsyou-dealarm-2808', e && e.message); process.exit(1); });

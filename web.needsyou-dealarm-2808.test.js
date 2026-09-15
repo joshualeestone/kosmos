@@ -55,14 +55,14 @@ test('#2808 class 2: a deliberate agent question (by:agent) is the calm "questio
   const a = card({ stateReportedBy: 'agent' });
   assert.equal(derive.cardStOf(a).st, 'question', 'a by:agent needs_you should get the calm question shape');
   const copy = derive.stateCopyOf(a);
-  assert.equal(copy.label, 'Has a question');
+  assert.equal(copy.label, 'Question');
   assert.equal(copy.attn, false, 'a class-2 question must NOT be an attention (red) state');
 });
 
 test('#2808 control: a technical permission prompt (by:auto, class 1) STAYS the red attn alarm', () => {
   const a = card({ stateReportedBy: 'auto' });
   assert.equal(derive.cardStOf(a).st, 'attn', 'class 1 (auto) must stay red -- it is PigeonPete\'s invisible handle, and the red is the fallback if it misses');
-  assert.equal(derive.stateCopyOf(a).label, 'Needs you');
+  assert.equal(derive.stateCopyOf(a).label, 'Issue');
   assert.equal(derive.stateCopyOf(a).attn, true);
 });
 

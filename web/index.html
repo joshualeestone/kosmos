@@ -11037,7 +11037,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <div class="stat"><b id="st-pj">0</b><span class="slab">Projects</span></div>
         <div class="stat alert" id="st-pjattn-tile" hidden>
           <span class="haz" aria-hidden="true">!</span>
-          <b id="st-pjattn">0</b><span class="slab">Needs you</span>
+          <b id="st-pjattn">0</b><span class="slab">Issue</span>
         </div>
         <!-- #2863 (Josh): the projects half of the unread-message tally, the
              rollup of the per-project unread bubbles, so at a glance you see how
@@ -13301,7 +13301,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          longer sums to Agents when something is stopped, on purpose. -->
     <div class="stat alert" id="st-attn-tile" hidden>
       <span class="haz" aria-hidden="true">!</span>
-      <b id="st-attn" data-count="attn">0</b><span class="slab">Needs you</span>
+      <b id="st-attn" data-count="attn">0</b><span class="slab">Issue</span>
     </div>
     <!-- #1898: of the "Needs you" above, the ones that named NO project. A
          needs_you without a project lights no project tile, so a person scanning
@@ -13821,13 +13821,13 @@ let MADE_LAST = null;
 
 const STATE_COPY = {
   working:      { label: 'Working',       attn: false },
-  needs_you:    { label: 'Needs you',     attn: true  },
+  needs_you:    { label: 'Issue',         attn: true  },
   /* #2808 class 2: a deliberate agent question (needs_you reported by:'agent') reads as a
      CALM "has a question", NOT the red "Needs you" alarm that a QA tester read as "app
      broken". attn:false -- it is surfaced (never dropped), just not alarmed. The state is
      still needs_you; cardStOf/stateCopyOf route a class-2 here via the inlined
      `state==='needs_you' && stateReportedBy==='agent'` predicate (glyphOf follows cardStOf.st). */
-  question:     { label: 'Has a question', attn: false },
+  question:     { label: 'Question',       attn: false },
   rate_limited: { label: 'Paused',        attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
      merely throttled it. "Working" forever was the bug; "Paused" would be
@@ -15032,7 +15032,7 @@ function card(a) {
    stopped row draws neither: the route emits no memory reading for a
    stopped agent, and reading a field the route does not emit is the defect
    the roster fixture exists to throw on. */
-const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Needs you"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
+const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Issue"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
 /* #2577: the org-chart node's needs-you corner badge is the SAME glyph as the
    list row, DERIVED from it by a class swap so the triangle, the exclamation and
    the built-in ground halo (stroke var(--k-bg)) can never drift apart -- only the
@@ -37171,7 +37171,7 @@ function pjTilesUnknown() {
    the board's own unsure treatment instead of a reassurance. */
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
-  if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Needs you' };
+  if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
   /* #2019: the projects-list rollup is the 7th agent-state surface. A project
      whose only active agent is mid-restart must NOT fall through to "Nothing

@@ -35,7 +35,7 @@ test('every OTHER state still has its label, so this did not silence the pill', 
   /* 🛑 THE CONTROL THAT MATTERS. Returning an empty label for everything would
      pass the test above and remove the status from the whole product. */
   const f = pillOf();
-  assert.equal(f({ summary: { total: 3, needsYou: 1 } }, false).label, 'Needs you');
+  assert.equal(f({ summary: { total: 3, needsYou: 1 } }, false).label, 'Issue');
   assert.equal(f({ summary: { total: 3, working: 1 } }, false).label, 'Working');
   assert.equal(f({ summary: { total: 3 } }, false).label, 'Nothing running');
   assert.equal(f({ summary: { total: 3, unseen: 1 } }, false).label, 'Can’t tell');

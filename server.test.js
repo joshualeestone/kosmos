@@ -6928,7 +6928,7 @@ test('the project pill claims only what the counts support', () => {
      blind roster or unseen members get the unsure treatment, never a
      reassurance. */
   const pjPillOf = pageFunction('pjPillOf');
-  assert.equal(pjPillOf({ summary: { total: 3, needsYou: 1, working: 1 } }, false).label, 'Needs you');
+  assert.equal(pjPillOf({ summary: { total: 3, needsYou: 1, working: 1 } }, false).label, 'Issue');
   assert.equal(pjPillOf({ summary: { total: 3, working: 2 } }, false).label, 'Working');
   assert.equal(pjPillOf({ summary: { total: 2 } }, false).label, 'Nothing running');
   /* ⚠️ WAS 'No agents yet' UNTIL #1303 E. Josh: "On the Projects tab I don't want
@@ -7426,7 +7426,7 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
   // present branch, so an absent key would fall through to STATE_COPY.unknown
   // rather than fail; the stub names each one so the test does not lean on that.
   const prelude = TOLD_PRELUDE
-    + 'const STATE_COPY = { working: { label: "Working" }, needs_you: { label: "Needs you" }, idle: { label: "Idle" }, rate_limited: { label: "Paused" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
+    + 'const STATE_COPY = { working: { label: "Working" }, needs_you: { label: "Issue" }, idle: { label: "Idle" }, rate_limited: { label: "Paused" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
     + pageConstSource('DISC_TINTS') + '\n'
     + pageConstSource('DISC_INKS') + '\n'
     // LROW_WARN is a string const (pageConstSource lifts only object/array consts),
@@ -8907,7 +8907,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
     'the detail state is not rendered as the card badge');
   assert.match(needs.state.className, /\bst-attn\b/,
     'the badge class does not track the state, so its colour cannot');
-  assert.match(needs.state.innerHTML, /Needs you/, 'the badge lost its word');
+  assert.match(needs.state.innerHTML, /Issue/, 'the badge lost its word');
   // #209: needs_you no longer borrows the frozen title as its qualifier. The
   // title is a boot fossil (Kosmos never writes it), and it misled worst here,
   // because a person deciding whether to answer read it as what the agent is
