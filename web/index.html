@@ -44954,7 +44954,8 @@ function frGo(step) {
     frActions({ label: 'Next', go: () => frGo(frStepAfter(4)) });
   } else if (step === 5) {
     // S5 Model: the existing model-connect UI (reused). Its painters set their
-    // own primary (Next / Skip) and advance to step 6; a connect flow already
+    // own primary (Next / Skip) and advance via frStepAfter(5) (Access on macOS,
+    // Automation on Windows, since #3112 shows Model second); a connect flow already
     // running server-side is repainted by frConnResume once its answer arrives.
     frPaintSubscription();
     frPaintOpenai();
