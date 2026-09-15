@@ -2599,7 +2599,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* The same bubble recipe .astate draws on the agents grid, scoped here
    rather than sharing the class -- .astate carries a six-state agent
    vocabulary (working/attn/idle/paused/stopped/unknown) that does not
-   apply to a project's two-state pill (default or "Needs you"). */
+   apply to a project's two-state pill (default or "Issue"). */
 .pj-list.asgrid .pj-row .pjpill { order: 2; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   margin: 12px auto 0; font-size: 1rem; font-weight: 600; color: var(--k-ink);
   padding: .38rem 1rem; border-radius: 100px; border: 1.5px solid var(--k-rule); background: var(--k-surface); }
@@ -11454,7 +11454,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          answering at once and nothing answering are the same bug.
          #2691, Josh 2026-09-10: this area is now Engineering-mode ONLY (pjApplyEngMode
          gates it on ENG_ON). In the default view a waiting agent is signalled by the
-         roster ("Needs you" + the #2699 red triangle) and answered through the detail
+         roster ("Issue" + the #2699 red triangle) and answered through the detail
          view (#d-qask); the earlier Off-mode asking-override + its dismiss breadcrumb
          are gone (Josh: "all of that needs to go away"). -->
     <div class="field" id="pj-thread">
@@ -13288,7 +13288,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          at zero exactly as the alert tile does, so a healthy board is unchanged
          and the moment an agent stops the headline says so before you read a
          single card.
-         ⚠️ BEFORE `Needs you`, not after: the row increases in urgency left to
+         ⚠️ BEFORE `Issue`, not after: the row increases in urgency left to
          right and ends on the red one. A stopped agent is less urgent than one
          asking you a question (Mona Lisa, #278).
          🔑 AND IT IS WHAT MAKES THE ROW ADD UP. Working plus Idle plus this is
@@ -13303,11 +13303,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn" data-count="attn">0</b><span class="slab">Issue</span>
     </div>
-    <!-- #1898: of the "Needs you" above, the ones that named NO project. A
+    <!-- #1898: of the "Issue" above, the ones that named NO project. A
          needs_you without a project lights no project tile, so a person scanning
          the Projects board never sees it; this is where the omission is caught.
          🔑 A DRILL-DOWN OF THE RED TILE, NOT A NEW STATE. It is a SUBSET of
-         "Needs you", so it does not enter the Working + Idle + Needs you = Agents
+         "Issue", so it does not enter the Working + Idle + Issue = Agents
          arithmetic, and it sits immediately after its parent tile. Hidden at zero
          exactly as its parent is, so a healthy board (and the common case where
          every question named its project) is unchanged and it only appears when
@@ -13823,7 +13823,7 @@ const STATE_COPY = {
   working:      { label: 'Working',       attn: false },
   needs_you:    { label: 'Issue',         attn: true  },
   /* #2808 class 2: a deliberate agent question (needs_you reported by:'agent') reads as a
-     CALM "has a question", NOT the red "Needs you" alarm that a QA tester read as "app
+     CALM "Question", NOT the red "Issue" alarm that a QA tester read as "app
      broken". attn:false -- it is surfaced (never dropped), just not alarmed. The state is
      still needs_you; cardStOf/stateCopyOf route a class-2 here via the inlined
      `state==='needs_you' && stateReportedBy==='agent'` predicate (glyphOf follows cardStOf.st). */
@@ -13923,7 +13923,7 @@ const GLYPH = {
   working: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>',
   attn:    '<span class="haz" aria-hidden="true">!</span>',
   /* #2808 class 2: a calm question mark, NOT the red hazard '!'. aria-hidden because the
-     label ("Has a question") already names it. First-cut mark; Mona's restyle owns the final. */
+     label ("Question") already names it. First-cut mark; Mona's restyle owns the final. */
   question: '<span class="ask" aria-hidden="true">?</span>',
   idle:    '<span class="rest" aria-hidden="true"></span>',
   paused:  '<span class="pause" aria-hidden="true"><i></i><i></i></span>',

@@ -26,12 +26,19 @@ buttons wont wrap to two lines and it will keep a single word indicator for all 
 5. Project member row status: flows through stateCopyOf().label automatically.
 
 ## Deliberately LEFT unchanged (scoping, not oversight)
-- The agent org-chart node aria + the projects-map node aria/line
-  ("Open <name>, needs you"): a descriptive accessible NAME in a sentence, not the
-  compact wrapping pill Josh asked about. Hardcoded separately from STATE_COPY, and
-  in a view Josh did not reference. Changing "..., needs you" to "..., issue" reads
-  worse and does not serve his no-wrap goal (aria does not wrap). render-projects-map
-  and render-org-rings therefore stay green with no change.
+- The agent org-chart node aria + the projects-map node caption/aria (pjMapNode,
+  the `.pjoc` span and its "Open <name>, needs you" aria): hardcoded separately from
+  STATE_COPY, in the projects-MAP view Josh did not reference. NOTE, honestly: the
+  `.pjoc` line is a VISIBLE caption (no white-space:nowrap in a min-width:70px node),
+  so it could itself wrap, which is the same symptom Josh flagged for the pills, so
+  the no-wrap rationale is not the whole story. It is deferred anyway because: (1)
+  Josh's instruction referenced the board card state pills ("your design above", the
+  wrapping buttons), not the map view; (2) the map caption uses in-sentence lowercase
+  grammar ("needs you / N agents / idle") where a single-word "issue" is a separate
+  design call; and (3) Josh is ACTIVELY reworking the projects / consolidated / map
+  views for 6.68 (his 2026-09-15 message), so changing the map node captions now
+  collides with that imminent rework. A fast-follow, or subsumed by the 6.68 map work.
+  render-projects-map and render-org-rings therefore stay green with no change here.
 - The nav-section "(needs you)" visually-hidden hints (detail/settings nav): these
   mean "this section needs your attention", a DIFFERENT concept from the agent state.
 - Engine-source comments that mention "Needs you" (PigeonPete confirmed all ~28 are

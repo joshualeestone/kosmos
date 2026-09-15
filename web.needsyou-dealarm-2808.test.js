@@ -3,7 +3,7 @@
 /**
  * #2808 class 2: a needs_you the agent reported DELIBERATELY (by:'agent' -> card
  * stateReportedBy 'agent') is the agent's OWN substantive question, so the board presents it as
- * a CALM "has a question" -- not the red "Needs you" alarm a QA tester read as "app broken"
+ * a CALM "Question" -- not the red "Issue" alarm a QA tester read as "app broken"
  * (Josh, 2026-09-14 16:49). The technical permission/trust junk (by:'auto', class 1), a scraped
  * prompt, and an unknown-provenance/legacy report (null) STAY red -- de-alarming only the KNOWN
  * agent case is the safe direction (selfreport.js:389: absence is never "an agent typed it").

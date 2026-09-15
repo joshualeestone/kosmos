@@ -3,7 +3,7 @@
 /**
  * #2808 class 2 (Josh, 2026-09-14 16:49): a needs_you the agent reported DELIBERATELY
  * (stateReportedBy 'agent' -- its own substantive question, e.g. an agent asking the operator
- * to pick a visual direction) renders as a CALM "Has a question" card, NOT the red "Needs you" alarm a QA
+ * to pick a visual direction) renders as a CALM "Question" card, NOT the red "Issue" alarm a QA
  * tester read as "the app is broken". The technical permission/trust junk (by:'auto', class 1)
  * and a scraped prompt (null provenance) STAY red -- only the KNOWN agent case is de-alarmed.
  *

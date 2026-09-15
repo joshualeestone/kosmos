@@ -4,7 +4,7 @@
  * kosmos#2699 (Josh, design channel 2026-09-10): on the PROJECT view a member that needs
  * the operator "just says 'needs you' in text and doesn't show" - it sits in the same spot
  * as Idle/Working and blends in. Josh asked for the little red triangle over the agent's
- * icon and the "Needs you" text in red, so it calls for attention. This drives the real
+ * icon and the "Issue" text in red, so it calls for attention. This drives the real
  * pjMember() row builder (the project card / settings member roster) for a needs_you member
  * and an idle member, and checks the rendered result.
  *
