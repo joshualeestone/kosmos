@@ -881,6 +881,15 @@ function describe(project, roster, all) {
          needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
       stateProjectInferred: Boolean(card && card.isNamedOurs && card.stateProjectInferred === true),
+      /* #2808 class 2: carry the card's `stateReportedBy` onto the member (same isNamedOurs gate
+         as `state`), so pjMember's shared `cardStOf(m).st==='attn'` render de-alarms a deliberate
+         agent question here just as it does on the home card / list row / org node. WITHOUT this,
+         a class-2 member arrives with `stateReportedBy` undefined, cardStOf stays 'attn', and the
+         member keeps the red #2699 triangle in production -- the calm-card / red-project-view
+         split this branch exists to avoid. This is the RENDER carry, independent of the deferred
+         COUNT split: the project needsYou counts (the red pill) deliberately still include a
+         class-2 (see the plan), only the per-member render de-alarms. Null when untied. */
+      stateReportedBy: (card && card.isNamedOurs) ? (card.stateReportedBy || null) : null,
       // The face, gated on tied like every other card-read here: a
       // stranger's pane borrowing the name must not lend the row a
       // photograph of somebody it is not (the project cards draw member

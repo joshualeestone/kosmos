@@ -73,7 +73,11 @@ test('#2863: the list row and the org node wire the DM badge (source guard, no b
   // aria-label is inert inside the labeled button, so the fold is the real signal.
   assert.match(SCRIPT, /\+ dmBadge\(a\)/,
     'the org node does not concatenate dmBadge(a)');
-  assert.match(SCRIPT, /\(needsYou \? ', needs you' : ''\) \+ dmAria \+ '">'/,
+  // The fold this guard is about is `+ dmAria + '">'` at the END of the aria-label expression;
+  // the leading state ternary (`needsYou ? ', needs you' : ...`) is a separate concern (#2808
+  // added a `: hasQuestion ? ', has a question'` arm to it), so pin the dmAria fold itself, not
+  // the exact ternary preceding it.
+  assert.match(SCRIPT, /\) \+ dmAria \+ '">'/,
     'the org node button aria-label does not fold in the unread-DM count (dmAria)');
 });
 

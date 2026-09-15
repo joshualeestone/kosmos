@@ -2514,3 +2514,29 @@ test('#2708: the membership message points at the section, without the generic "
   assert.match(line, /"Your projects" section of your instructions has the details\./,
     'the membership message no longer points at the section, where the honest task state now lives');
 });
+
+test('#2808 class 2: describe carries stateReportedBy onto the member, so pjMember de-alarms a deliberate agent question on the project view (real data path, not a fabricated member)', () => {
+  /* The de-alarm reaches pjMember only if the MEMBER carries stateReportedBy -- pjMember reads
+     the shared cardStOf(m).st, which keys on m.stateReportedBy==='agent'. This drives the REAL
+     projects.list() off a recorded self-report (not a hand-built member), so it fails if the
+     describe() carry is dropped -- the exact production gap a fabricated-member render check
+     cannot see. */
+  const selfreport = require('./selfreport');
+  const q = projects.create({ name: 'Venue', folder: folder('venue-2808'), agents: ['claudebot', 'mara'] });
+  // class 2: a deliberate agent question is a self-report with no auto flag -> by:'agent'.
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'Which venue?', project: q.id }).recorded, true);
+  // CONTROL, class 1: a technical permission prompt is by:'auto'. Recorded for a SEPARATE agent --
+  // an auto needs_you is refused over a SAME agent's standing deliberate needs_you (by design), so
+  // the control uses `mara` to record from clean and prove the carry transmits provenance, not a
+  // blanket 'agent'.
+  assert.equal(selfreport.record('mara', { state: 'needs_you', because: 'asking permission to use Bash', project: q.id, auto: true }).recorded, true);
+  const roster = cards([fleet.agent('claudebot', { state: 'needs_you' }), fleet.agent('mara', { state: 'needs_you' })]);
+  const members = {};
+  for (const a of projects.list(roster).find((p) => p.id === q.id).agents) members[a.sessionName] = a;
+  assert.ok(members.claudebot && members.claudebot.present, 'the class-2 member resolves from the real status engine');
+  assert.equal(members.claudebot.state, 'needs_you');
+  assert.equal(members.claudebot.stateReportedBy, 'agent',
+    'a deliberate agent question must carry by:agent onto the member -- without it pjMember cardStOf stays attn (red) and the class-2 de-alarm never reaches the project view');
+  assert.ok(members.mara && members.mara.present, 'the class-1 member resolves');
+  assert.equal(members.mara.stateReportedBy, 'auto', 'a class-1 (auto) prompt must carry by:auto onto the member, so pjMember keeps it red');
+});
