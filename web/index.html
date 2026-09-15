@@ -38004,8 +38004,10 @@ function paintTaskPage() {
   // escape-first, XSS-safe renderer the agent-dialogue surfaces use, #2067). It
   // esc()'s every text run BEFORE emitting any tag and only ever emits a fixed
   // whitelist of tags it itself produces, so innerHTML here is safe: a detail
-  // carrying <script> or an onerror image renders as inert visible text. The
+  // carrying a script tag or an onerror image renders as inert visible text. The
   // INVARIANT: t.detail only ever reaches innerHTML THROUGH pjRich, never raw.
+  // (No literal script open-tag in this comment on purpose: tests slice the app
+  // via PAGE.lastIndexOf of that token, and a stray one truncates their slice.)
   det.innerHTML = t.detail ? pjRich(t.detail) : '';
   det.hidden = !t.detail;
 

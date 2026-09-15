@@ -277,6 +277,19 @@ test('the poll repaints the task page, not only the project under it', () => {
   assert.match(SCRIPT, /TK_OPEN !== null && !document\.getElementById\('pj-task-view'\)\.hidden\) paintTaskPage\(\)/);
 });
 
+test('#3122: the task body renders through pjRich, never raw (the XSS invariant)', () => {
+  /* 🛑 THE ASKED-FOR THING IS THE UNGUARDED ONE. detail is user prose written
+     into innerHTML, so it MUST route through pjRich (escape-first, XSS-safe). No
+     fixture here has a non-null detail, and pjRich is not in this file's Function
+     scope, so a behavioral test cannot exercise the branch -- a revert to
+     textContent or raw innerHTML would pass everything. This source guard pins
+     the exact safe wiring so that revert goes red. */
+  assert.match(SCRIPT, /det\.innerHTML = t\.detail \? pjRich\(t\.detail\) : ''/,
+    'the task body must render via pjRich (a revert to raw innerHTML / textContent must fail here)');
+  assert.doesNotMatch(SCRIPT, /det\.textContent = t\.detail/,
+    'the old plain-text render is gone; detail is never assigned as textContent again');
+});
+
 test('the view is one of the project views, so opening it puts the others away', () => {
   /* 🛑 NOT THE EXACT MEMBERSHIP LIST. This pinned all six names, so ADDING a
      legitimate view broke it: #1382 added `alltasks` and this went red on
