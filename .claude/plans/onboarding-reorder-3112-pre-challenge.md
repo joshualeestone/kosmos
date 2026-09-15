@@ -2,13 +2,26 @@
 pre_challenge: true
 method: challenge-loop
 branch: onboarding-reorder-3112
-diff_hash: 71c86d5d4d7d26bb173320e4f6eb6289774d762c5935f4cdd43d35b4cb0701a8
+diff_hash: 706f7c8dc244dde911bfefec930a3e4d911ddf8b9684521e4a4da42ee11c4e7f
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-15T20:40:14Z
-iterations: 6
+timestamp: 2026-09-15T23:12:34Z
+iterations: 7
 converged: true
 ---
+
+<!-- ITER 7 (post-0.6.68-prod rebase, 2026-09-15 18:12 CDT): 0.6.68 is LIVE on prod, the
+post-6.68 gate is OPEN, and #3112 is the priority 6.69 cut (Splinter). Rebased onto current
+prod main cfab4aad0 (over 0.6.68 + Angel's #3123 rich-text task-detail + others), CLEAN with
+zero conflicts -- the reorder region (frStep* ~line 44414) is disjoint from every intervening
+change. The 6 reorder commits applied unmodified, so the diff is byte-identical to the
+converged content (same file set: web/index.html + win32-board-copy.test.js + a11y-1214 +
+server.test.js). Re-validated the full suite on the rebased HEAD (do not trust the pre-rebase
+green). diff_hash refreshed to 706f7c8d. No new blind pass: the content is byte-identical to
+the 6-iteration + prior-rebase-blind converged version; the full-suite re-run is the
+integration check against the new main. [STRENGTH] rebase clean + disjoint; reorder order line
+still [1,5,2,3,4,6,7,8,9]. -->
+
 
 ## [CHALLENGE-LOOP] Summary
 
