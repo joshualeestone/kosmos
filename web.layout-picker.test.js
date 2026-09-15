@@ -225,7 +225,11 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
 test('piece six: the board notice bars do not sit over the consolidated grid', () => {
   const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
-  assert.match(block, /> #found-wrap, [^{]*> #removed-wrap, [^{]*> #restart-wrap \{ display: none; \}/, 'the found/removed/restart bars still stack over the grid');
+  /* #3048: the found/scan discovery bars were removed from the home, so the
+     consolidated-hide list no longer names them; removed-wrap + restart-wrap
+     (the board-management chrome kept for the tab view) must still be hidden. */
+  assert.match(block, /> #removed-wrap, [^{]*> #restart-wrap \{ display: none; \}/, 'the removed/restart bars still stack over the grid');
+  assert.doesNotMatch(block, /> #found-wrap|> #scan-wrap|> #found-scan-trigger/, '#3048: the removed discovery bars must be gone from the consolidated-hide list');
   /* Control: the news line is NOT hidden here; it has a home in the header slot.
      Comments stripped for the same reason as piece five above -- a comment
      explaining what this protects must not be able to fail it. */
