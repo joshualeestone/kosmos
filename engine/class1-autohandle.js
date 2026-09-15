@@ -245,37 +245,56 @@ function sweepClass1(names, deps, now, opts) {
 
 /*
  * #2808 class-1 (c) ARMED: adapt a board snapshot/roster agent card to the `standing`
- * shape planClass1Handle wants.
+ * shape planClass1Handle wants. The armed sweep reads the RECONCILED roster (status.js
+ * snapshot / safeRoster).
  *
- * The armed sweep reads the RECONCILED roster (status.js snapshot / safeRoster), NOT the
- * raw self-report, and that is a safety choice, not a convenience:
- *  - `stateReportedBy` is set ONLY for a SELF-REPORTED state (#3092). A needs_you that is
- *    only SCRAPED (no self-report) carries stateReportedBy null, so it is NOT class-1 here
- *    and stays red - the pane-scrape must never drive an auto-restart on its own.
- *  - A scrape that supersedes or conflicts with a stale by:auto report has ALREADY been
- *    reconciled by reconcileReport before it reaches the card (a working scrape wins, an
- *    auth_failed scrape becomes auth_failed with a conflict), so the card's `state` is the
- *    board's current truth. Firing on it cannot restart an agent that has moved past the
- *    prompt - the false-positive an auto-restart most has to avoid.
- * So class-1 here means exactly: the board's reconciled state is needs_you AND that state
- * was self-reported by the lifecycle hook as by:'auto' (the technical permission/trust
- * prompt). by:'agent' (class 2, the agent's own question - de-alarmed by #3092, stays
- * visible), operator, and null all fall through to `none`.
+ * WHAT COUNTS AS CLASS-1 HERE, and why BOTH signals are needed:
+ *  1. `stateReportedBy === 'auto'` - a technical prompt the lifecycle hook SELF-REPORTED
+ *     (a tool-permission PermissionRequest). This is the paneless / report-driven signal.
+ *  2. `isTrustDialogEvidence(stateEvidence)` - the live screen shows Claude Code's
+ *     FOLDER-TRUST dialog ("Quick safety check:"). This is REQUIRED, not optional: the
+ *     folder-trust dialog (the #2129/#2808 root, the case Josh sees "constantly") is NOT
+ *     a PermissionRequest, so the hook never fires for it and there is NO by:'auto'
+ *     self-report. The board detects it only by scraping the screen, and reconcileReport
+ *     leads with that scrape (status.js ~5825: reported:false, no `by` -> stateReportedBy
+ *     null). Keying on by:'auto' ALONE would therefore miss every on-box folder-trust
+ *     dialog - the whole point of the feature. This scrape is a SAFE trigger: the trust
+ *     dialog is a fixed, specific screen shape and is never a class-2 question, so it can
+ *     only ever mean "restart to clear the trust dialog", which is exactly what the manual
+ *     /trust-and-restart button does.
+ * A live trust-dialog scrape is mapped to by:'auto' so the shared class-1 predicate + the
+ * loop-guard in planClass1Handle treat it as the technical prompt it is. (Here `by` means
+ * "this is a class-1 technical prompt", not raw self-report provenance - it is an internal
+ * adapter value, never persisted.)
+ *
+ * NEVER class-1: a by:'agent' question (class 2, de-alarmed by #3092 and kept VISIBLE -
+ * auto-clearing it would drop a real request), operator/legacy reports, and a non-trust
+ * SCRAPED needs_you (a scraped question that is NOT the trust dialog - stays red).
+ *
+ * SAFETY LIMIT, stated honestly (this replaces an earlier overclaim that "a working scrape
+ * wins"): reconcileReport does NOT decay a reported needs_you (rule 6), so a by:'auto'
+ * report whose agent has since moved on - but has not yet written a fresher self-report -
+ * still cards as needs_you/auto and would be handled. Two things bound it, neither of which
+ * is "the scrape wins": (a) an agent's own next report (a working/idle heartbeat)
+ * OVERWRITES a standing by:'auto' needs_you (#2456 makes it clearable), so a stale by:'auto'
+ * self-clears once the agent acts; and (b) the loop-guard restarts at most maxAttempts per
+ * window, then escalates. A trust-DIALOG scrape has no staleness problem - the screen shows
+ * the dialog right now.
  */
-function standingFromAgent(agent) {
-  return {
-    found: true,
-    state: agent && agent.state,
-    by: (agent && agent.stateReportedBy) || null,
-  };
+function standingFromAgent(agent, isTrustDialogEvidence) {
+  const rawBy = (agent && agent.stateReportedBy) || null;
+  const trustDialogScrape = typeof isTrustDialogEvidence === 'function'
+    && isTrustDialogEvidence(agent && agent.stateEvidence);
+  const by = (rawBy === 'auto' || trustDialogScrape) ? 'auto' : rawBy;
+  return { found: true, state: agent && agent.state, by };
 }
 
 /*
- * Record one auto-handle attempt for an agent into the attempts Map (a Map<name,
- * number[]> the caller carries across ticks, heartbeat-style), pruning entries older
- * than the window so the Map cannot grow unbounded. Called after EVERY trust-and-restart
- * attempt (whether the restart succeeded or not), so the loop-guard advances toward
- * escalate when a restart is not clearing the prompt. Returns the same Map for chaining.
+ * Record one auto-handle attempt for an agent into the attempts Map (a Map<sessionName,
+ * number[]> the caller carries across ticks, heartbeat-style), pruning entries older than
+ * the window. Called after EVERY trust-and-restart attempt (whether the restart succeeded
+ * or not), so the loop-guard advances toward escalate when a restart is not clearing the
+ * prompt. Returns the same Map for chaining.
  */
 function recordAttempt(attempts, name, now, opts) {
   const windowMs = (opts && Number.isFinite(opts.windowMs) && opts.windowMs > 0) ? opts.windowMs : DEFAULT_WINDOW_MS;
@@ -288,23 +307,47 @@ function recordAttempt(attempts, name, now, opts) {
 }
 
 /*
- * One armed sweep tick. Reads the reconciled roster, plans each agent, and for the
- * class-1 (`trust-and-restart`) agents runs runClass1Handle (write folder-trust key +
- * restart, via the injected create.trustAgentFolder / remove.restart), recording each
- * attempt so the loop-guard escalates rather than loops. `none` and `escalate` take NO
- * action - an escalate is left standing (red), which is Angel's #3092 safety net and a
- * signal a person should look. Best-effort per agent: one agent's failure never aborts
- * the sweep. Dependency-injected so a test drives it with no real restart.
+ * Drop entries whose (pruned) attempt list is empty, so an agent that left the roster does
+ * not keep an entry forever. Called once per tick over the CURRENT set of names so the Map
+ * cannot grow with the count of distinct names ever seen. now/opts give the same window.
+ */
+function pruneAttempts(attempts, now, opts) {
+  const windowMs = (opts && Number.isFinite(opts.windowMs) && opts.windowMs > 0) ? opts.windowMs : DEFAULT_WINDOW_MS;
+  const book = attempts instanceof Map ? attempts : new Map();
+  for (const [name, ts] of book) {
+    const kept = (Array.isArray(ts) ? ts : []).filter((t) => Number.isFinite(t) && (now - t) < windowMs);
+    if (kept.length === 0) book.delete(name);
+    else book.set(name, kept);
+  }
+  return book;
+}
+
+/*
+ * One armed sweep tick over the reconciled roster. For each agent that is class-1
+ * (standingFromAgent -> planClass1Handle), the trust-and-restart ones run runClass1Handle
+ * (write folder-trust key + restart, via injected create.trustAgentFolder / remove.restart)
+ * and every attempt is recorded so the loop-guard escalates rather than loops. `none` and
+ * `escalate` take NO action - an escalate is left standing (red), Angel's #3092 safety net
+ * and the divergence signal a person should see. Best-effort per agent; never throws out.
+ * Dependency-injected so a test drives it with no real restart.
+ *
+ * 🔑 THE EXECUTOR IS KEYED ON sessionName, NOT the display name. A roster card's `name` is
+ * the DISPLAY name (identity.displayName), but create.trustAgentFolder / remove.restart
+ * resolve an agent by its SESSION key (remove.js matches p.sessionName). For the named fleet
+ * (session `angel` -> display `Angel`, `claudebot` -> `Splinter`) passing the display name
+ * would find no session (REFUSED, the handle silently never fires then escalates) or, worse,
+ * collide with another agent's session key and restart the WRONG agent. So `sessionName` is
+ * the key for the executor AND the loop-guard Map; the display `name` is for logging only.
  *
  * @param {object} o
- *   - roster: array of reconciled agent cards (safeRoster()); each needs `name`, `state`,
- *     `stateReportedBy`.
- *   - attempts: Map<name, number[]> carried across ticks (the loop-guard's memory).
- *   - now: ms.
- *   - trustAgentFolder(name), restart(name, cause), RESTARTED: the executor deps
- *     (create.trustAgentFolder, remove.restart, remove.OUTCOME.RESTARTED).
- *   - opts: forwarded to planClass1Handle / recordAttempt.
- *   - log(record): optional, called once per acted agent with {name, handled, because}.
+ *   - roster: reconciled agent cards (safeRoster()); each needs `sessionName`, `state`,
+ *     `stateReportedBy`, `stateEvidence` (and `name` for logs).
+ *   - attempts: Map<sessionName, number[]> carried across ticks.
+ *   - now, opts: forwarded to the planner / recordAttempt / pruneAttempts.
+ *   - trustAgentFolder(sessionName), restart(sessionName, cause), RESTARTED: executor deps.
+ *   - isTrustDialogEvidence(evidence): status.isTrustDialogEvidence, for the trust-dialog
+ *     scrape trigger. Absent -> only the by:'auto' self-report path fires.
+ *   - log(record): optional, called once per NON-none agent with {name, session, act, handled}.
  * @returns {{results: Array, attempts: Map}}
  */
 function sweepOnce(o) {
@@ -312,29 +355,34 @@ function sweepOnce(o) {
   const now = o && Number.isFinite(o.now) ? o.now : Date.now();
   const book = (o && o.attempts instanceof Map) ? o.attempts : new Map();
   const roster = (o && Array.isArray(o.roster)) ? o.roster : [];
+  const isTrustDialogEvidence = o && o.isTrustDialogEvidence;
   const deps = { trustAgentFolder: o && o.trustAgentFolder, restart: o && o.restart, RESTARTED: o && o.RESTARTED };
   const log = (o && typeof o.log === 'function') ? o.log : null;
   const results = [];
   for (const agent of roster) {
-    const name = agent && agent.name;
-    if (!name) continue;
+    const session = agent && agent.sessionName;   // the KEY the executor + loop-guard use
+    const display = (agent && agent.name) || session; // for logs only
+    if (!session) continue;
     let plan;
-    try { plan = planClass1Handle(standingFromAgent(agent), book.get(name) || [], now, opts); }
-    catch (err) { results.push({ name, act: 'none', because: 'plan threw: ' + String((err && err.message) || err) }); continue; }
+    try { plan = planClass1Handle(standingFromAgent(agent, isTrustDialogEvidence), book.get(session) || [], now, opts); }
+    catch (err) { results.push({ session, name: display, act: 'none', because: 'plan threw: ' + String((err && err.message) || err) }); continue; }
     if (plan.act !== 'trust-and-restart') {
-      results.push({ name, act: plan.act, because: plan.because });
+      results.push({ session, name: display, act: plan.act, because: plan.because });
+      // escalate is logged too: it is the "a person should look" divergence signal.
+      if (plan.act === 'escalate' && log) { try { log({ name: display, session, act: 'escalate', handled: false, because: plan.because }); } catch { /* logging never breaks a sweep */ } }
       continue;
     }
-    // Record the attempt BEFORE (or regardless of) the outcome: a restart that throws or
-    // refuses still counts toward the loop-guard, so a persistently-stuck agent escalates
-    // instead of being restarted every tick forever.
-    recordAttempt(book, name, now, opts);
+    // Record the attempt regardless of the outcome: a restart that throws or refuses still
+    // counts toward the loop-guard, so a persistently-stuck agent escalates instead of being
+    // restarted every tick forever.
+    recordAttempt(book, session, now, opts);
     let res;
-    try { res = runClass1Handle(name, deps); }
+    try { res = runClass1Handle(session, deps); }
     catch (err) { res = { handled: false, because: 'runClass1Handle threw: ' + String((err && err.message) || err) }; }
-    results.push({ name, act: 'trust-and-restart', handled: !!res.handled, because: res.because });
-    if (log) { try { log({ name, handled: !!res.handled, because: res.because }); } catch { /* logging never breaks a sweep */ } }
+    results.push({ session, name: display, act: 'trust-and-restart', handled: !!res.handled, because: res.because });
+    if (log) { try { log({ name: display, session, act: 'trust-and-restart', handled: !!res.handled, because: res.because }); } catch { /* logging never breaks a sweep */ } }
   }
+  pruneAttempts(book, now, opts); // drop entries for agents that left the roster / aged out
   return { results, attempts: book };
 }
 
@@ -345,6 +393,7 @@ module.exports = {
   sweepClass1,
   standingFromAgent,
   recordAttempt,
+  pruneAttempts,
   sweepOnce,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_WINDOW_MS,

@@ -63,6 +63,10 @@ const {
      dialog and Enter there picks "No, exit"; see `trustDialogHold` below. */
   trustPrompt,
   TRUST_DIALOG_SENTENCE,
+  /* #2808 class-1 (c): tell whether a card's stateEvidence is the FOLDER-TRUST dialog,
+     the scrape-detected class-1 trigger the invisible auto-handle sweep needs (that
+     dialog is not a PermissionRequest, so it has no by:'auto' self-report). */
+  isTrustDialogEvidence,
   /* #2456: the placeholder `because` string, so a route can tell a real
      reported question from the board's generic "asking" and not offer the
      placeholder as the question the person should answer. */
@@ -13401,7 +13405,8 @@ function start(port = PORT) {
             trustAgentFolder: create.trustAgentFolder,
             restart: removal.restart,
             RESTARTED: removal.OUTCOME.RESTARTED,
-            log: (r) => process.stdout.write(`class1-autohandle: ${r.name} ${r.handled ? 'handled (trust+restart)' : 'attempted'} - ${r.because}\n`),
+            isTrustDialogEvidence, // the scrape-detected folder-trust trigger (no by:'auto' for that dialog)
+            log: (r) => process.stdout.write(`class1-autohandle: ${r.name} (${r.session}) ${r.act === 'escalate' ? 'ESCALATED (restart not clearing it, left red)' : (r.handled ? 'handled (trust+restart)' : 'attempted')} - ${r.because}\n`),
           });
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only

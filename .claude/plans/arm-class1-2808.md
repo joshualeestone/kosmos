@@ -27,10 +27,18 @@ into the board so a Claude Code technical permission/trust prompt is auto-handle
   class1Attempts Map across ticks (heartbeat-style).
 
 ## Safety (safety is the whole risk of this feature)
-- Fires ONLY on reconciled state needs_you + self-reported by:'auto'. NEVER on by:'agent' (class 2,
+- Fires ONLY on a reconciled needs_you that is a TECHNICAL prompt, from EITHER of two signals:
+  (1) self-reported by:'auto' (a tool-permission PermissionRequest the hook reported), OR
+  (2) a live TRUST-DIALOG scrape (isTrustDialogEvidence(stateEvidence) = "Quick safety check:").
+  Signal (2) is REQUIRED, not optional: the folder-trust dialog (the #2129/#2808 root, Josh's
+  "constantly" case) is NOT a PermissionRequest, so the hook never fires and there is no by:'auto'
+  self-report - the board detects that dialog only by scraping the screen. Keying on by:'auto' alone
+  would miss every on-box folder-trust dialog, the whole point. NEVER fires on by:'agent' (class 2,
   the agent's own question - de-alarmed by #3092, kept VISIBLE; auto-clearing it would drop a real
-  request and stall the fleet), operator, legacy null, or a pane-scraped needs_you (stateReportedBy
-  null -> red).
+  request and stall the fleet), operator/legacy, or a scraped NON-trust question (a scraped needs_you
+  whose evidence is not the trust dialog stays red). The trust-dialog scrape is a safe trigger: it is
+  a fixed, specific screen shape, never a class-2 question, so it can only mean "restart to clear the
+  trust dialog".
 - Write-key + restart, NO send-keys (the manual /trust-and-restart path), so no keystroke ever
   enters a live pane.
 - Loop-guarded across ticks: after maxAttempts (2) in the window (10 min) a still-standing prompt
@@ -38,7 +46,8 @@ into the board so a Claude Code technical permission/trust prompt is auto-handle
 - Gated on the board's live-execution opt-in (liveExecutionAllowed), which the board sets on the
   real-start path only - so the sweep is INERT under `node --test` (no test can trigger a real
   restart or trust write) and active in production. remove.restart independently enforces the same
-  gate, so the executor is doubly protected.
+  gate, so the RESTART half is doubly protected (the trustAgentFolder write is gated once, by the
+  server-side liveExecutionAllowed check that also gates the whole sweep).
 - ALWAYS ON in production (Josh: invisible, not a user setting), with
   AGENT_WORKFORCE_CLASS1_AUTOHANDLE_OFF=1 as an operator emergency brake.
 
@@ -54,6 +63,14 @@ it shows red on the board the whole time as Angel's #3092 safety net). A sticky 
 until reset" flag is a possible follow-up if real divergence is observed at scale; the bounded retry
 is the safe first cut. What would change my mind: an observed agent that restart cannot fix accruing
 cost - then make escalate sticky.
+
+Second weakest premise (a false-positive path, named because the earlier "a working scrape wins"
+claim was wrong): reconcileReport does NOT decay a reported needs_you (rule 6), so a by:'auto' report
+whose agent has moved on but not yet re-reported still cards as needs_you/auto and would be handled.
+Two things bound it - NOT "the scrape wins": (a) #2456 makes a standing by:'auto' needs_you
+clearable, so the agent's own next working/idle heartbeat OVERWRITES it (a stale by:'auto' self-clears
+once the agent acts); and (b) the loop-guard caps restarts at 2/window then escalates. The
+trust-DIALOG scrape signal has no staleness problem at all - the screen shows the dialog right now.
 
 Full challenge-loop before PR (this arms auto-restart in production; the review is the point).
 Addresses #2808 (class 1).
