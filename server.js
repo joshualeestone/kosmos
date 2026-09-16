@@ -8575,21 +8575,22 @@ const server = http.createServer((req, res) => {
           projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
         }
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
-      /* #3034: seed the one-time setup-assistant agent -- named after the user,
-         running on their own connected account. Same posture as the welcome seed:
-         once-ever, best-effort, and it MUST NOT throw or block, because
-         onboarding has already succeeded above. It skips silently when there is
-         no connected Claude account (a live agent needs one, and the model step
-         is skippable), no saved user name, or it was already seeded -- see
-         engine/setup-assistant.js for why it gates on the account rather than
-         relying on createAgent to refuse. The flag is written only on a real
-         create, so a skip or refusal leaves nothing behind. */
-      try {
-        const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
-        if (seed && seed.seeded) {
-          setupAssistant.markSetupAssistantSeeded({ name: seed.name, via: 'first-run' });
-        }
-      } catch { /* the setup assistant is a nicety; onboarding still completed */ }
+      /* #3034: GATED OFF pending Josh's direction -- the why (and the release
+         timing) lives with FIRSTRUN_AUTOCREATE_ENABLED in engine/setup-assistant.js,
+         not repeated here. WHEN ENABLED, this seeds the one-time setup-assistant
+         agent (named after the user, on their own connected account), same posture
+         as the welcome seed above: once-ever, best-effort, and it MUST NOT throw or
+         block because onboarding has already succeeded. It skips silently with no
+         connected Claude account, no saved user name, or if already seeded, and the
+         flag file is written only on a real create, so a skip leaves nothing behind. */
+      if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        try {
+          const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
+          if (seed && seed.seeded) {
+            setupAssistant.markSetupAssistantSeeded({ name: seed.name, via: 'first-run' });
+          }
+        } catch { /* the setup assistant is a nicety; onboarding still completed */ }
+      }
     }
     /**
      * ⚠️ Reports whether it STUCK, read back, rather than whether the write
