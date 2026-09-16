@@ -155,22 +155,19 @@ const said = (who) => ({ kind: 'post', id: 'm-' + who, from: who, to: ['you'],
    showing "Rick" merged into one match. */
 const sentence = (silentSessionNames) => api.pjReceiptSentence(ALL_PLACED, P, silentSessionNames || []);
 
-test('nobody has answered: the receipt says so instead of only saying it was placed', () => {
-  assert.equal(sentence(['johnson', 'rick', 'bob']),
-    'Nothing back from any of them.');
-});
-
-test('one silent of three is named, and the other two are not', () => {
-  assert.equal(sentence(['rick']), 'Nothing back from Rick.');
-});
-
-test('two silent are joined with OR, because it is a different list from the one above', () => {
+test('#3130 (Josh 6.68): the "Nothing back from ..." silence sentence is gone', () => {
   /**
-   * ⚠️ The base receipt is an AND list: all of them got it. The silence clause
-   * is not — "nothing back from Rick and Bob" reads as one joint absence rather
-   * than two separate ones.
+   * Josh asked to remove the "nothing back from <agent>" / "nothing back from
+   * any of them" messages entirely. `pjReceiptSentence` no longer emits them, so
+   * a post placed with everyone yields an EMPTY receipt whatever the silent list
+   * is -- the delivery facts (could-not-reach / unconfirmed) still speak; the
+   * silence clause does not. (The silence COMPUTATION plumbing -- pjSilences /
+   * pjSilentSince / the `silent` params / paintRoom's silences map -- is now
+   * unused and its removal is a separate cleanup follow-up.)
    */
-  assert.equal(sentence(['rick', 'bob']), 'Nothing back from Rick or Bob.');
+  assert.equal(sentence(['johnson', 'rick', 'bob']), '');
+  assert.equal(sentence(['rick']), '');
+  assert.equal(sentence(['rick', 'bob']), '');
 });
 
 test('a post that simply worked says nothing at all', () => {
@@ -199,28 +196,23 @@ test('a post that simply worked says nothing at all', () => {
     'an unconfirmed recipient should still leave the placed names on screen');
 });
 
-test('"any of them" is only for ALL of them, and never for a single recipient', () => {
-  /**
-   * ⚠️ A one-agent room whose one agent is silent must say the NAME. "Nothing
-   * back from any of them" about one person is a sentence nobody would write.
-   */
+test('#3130: a placed-everywhere post with a silent recipient now yields an empty receipt', () => {
+  // Was "Nothing back from Rick."; the silence clause is removed.
   const one = { rick: 'placed' };
-  const s = api.pjReceiptSentence(one, P, ['rick']);
-  assert.equal(s, 'Nothing back from Rick.');
+  assert.equal(api.pjReceiptSentence(one, P, ['rick']), '');
 });
 
-test('an agent we could not reach is not also reported as silent', () => {
+test('#3130: delivery facts still speak, but no silence sentence is appended', () => {
   /**
-   * ⚠️ It is already named in its own clause. Saying it twice invents a second
-   * failure, and the two sentences would contradict each other about what we
-   * know: one says the message never got there, the other implies it did and
-   * was ignored.
+   * The actionable delivery clauses ("could not be reached", "may have it; not
+   * confirmed") are kept -- Josh removed the silence noise, not the delivery
+   * receipt. Whatever the silent list, no "Nothing back from ..." is added.
    */
   const mixed = { johnson: 'placed', rick: 'could_not', bob: 'unconfirmed' };
   const s = api.pjReceiptSentence(mixed, P, ['johnson', 'rick', 'bob']);
-  assert.match(s, /Nothing back from Johnson\./);
-  assert.doesNotMatch(s, /Nothing back from[^.]*Rick/);
-  assert.doesNotMatch(s, /Nothing back from[^.]*Bob/);
+  assert.match(s, /Rick could not be reached\./);
+  assert.match(s, /Bob may have it; not confirmed/);
+  assert.doesNotMatch(s, /Nothing back/);
 });
 
 test('anything an agent says afterwards counts, and it does not have to be a reply', () => {
@@ -424,21 +416,17 @@ test('the sentence actually reaches the rendered row', () => {
 
   const post = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: ALL_PLACED, text: 'anyone there?' };
 
+  /* #3130: the row renders (anchored on the post's own text, since the healthy
+     receipt is empty), and it carries NO silence sentence whatever the silent
+     list -- placed-with-everyone is now a bodyless receipt, and the empty-pill
+     guard in pjRoomRow draws no stray `<span class="delivery">`. */
   const withSilence = render(post, P, ['rick', 'bob']);
-  /* ⚠️ PROBED ON THE SILENCE CLAUSE, not on "Placed with…": that sentence is
-     now dropped when delivery is the whole story (Josh, 2026-08-21), so using
-     it here would test the receipt's copy rather than the HOP this test exists
-     for. The mixed case below keeps the placed names covered. */
-  assert.match(withSilence, /Nothing back from Rick or Bob\./);
-  assert.match(withSilence, /Nothing back from Rick or Bob\./,
-    'the row rendered without the sentence, so the receipt still cannot tell a working room from a broken one');
+  assert.match(withSilence, /anyone there\?/, 'the row did not render at all');
+  assert.doesNotMatch(withSilence, /Nothing back/, 'the removed silence sentence still reached the row');
+  assert.doesNotMatch(withSilence, /class="delivery"><\/span>/, 'an empty delivery pill was drawn');
 
-  // ⚠️ AND THE OTHER HALF, or this passes for a renderer that always appends it.
   const quiet = render(post, P, []);
-  /* ⚠️ ANCHORED ON THE POST ITSELF, because the receipt is now EMPTY when
-     everything simply worked. "Placed with…" was standing in for "the renderer
-     produced something", and that control has to keep working without it. */
-  assert.match(quiet, /anyone there\?/, 'the row did not render at all, so the half below proves nothing');
+  assert.match(quiet, /anyone there\?/, 'the row did not render at all');
   assert.doesNotMatch(quiet, /Nothing back/, 'a room where everyone answered still got the sentence');
 });
 
@@ -460,71 +448,29 @@ test('an agent’s own post renders no silence sentence, whatever it is handed',
 
   const html = render(agentPost, P, ['johnson']);
   assert.match(html, /class="delivery/, 'no receipt rendered at all, so this tests nothing');
-  assert.match(html, /Bob could not be reached/, 'the receipt is not the one this fixture is for');
-  assert.doesNotMatch(html, /Nothing back from/,
-    'the room told the person nobody answered, underneath a message somebody else sent');
+  assert.match(html, /Bob could not be reached/, 'the delivery facts should still show');
+  assert.doesNotMatch(html, /Nothing back from/, 'the silence sentence should be gone (#3130)');
 
-  // ⚠️ THE CONTROL: the same outcomes on the PERSON's post do get the sentence,
-  // so the assertion above is about who sent it and not about the shape.
+  // #3130: the same outcomes on the PERSON's own post ALSO carry no silence
+  // sentence now -- the clause is removed for every sender, not gated by one.
   const ownPost = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: { johnson: 'placed', bob: 'could_not' }, text: 'anyone?' };
-  assert.match(render(ownPost, P, ['johnson']), /Nothing back from Johnson\./,
-    'the person’s own post lost the sentence too, so the gate is not about the sender');
+  const own = render(ownPost, P, ['johnson']);
+  assert.match(own, /Bob could not be reached/, 'the delivery facts should still show on the person’s own post');
+  assert.doesNotMatch(own, /Nothing back from/, 'the person’s own post still carried the removed silence sentence');
 });
 
-test('"any of them" never sweeps in the agent we just said could not be reached', () => {
+test('#3130: the delivery facts stand alone, with no silence sentence appended', () => {
   /**
-   * 🛑 "THEM" POINTS AT THE LIST ALREADY ON SCREEN, and that list is the whole
-   * receipt, not the placed half of it. Comparing against the placed group
-   * alone produced:
-   *
-   *   Placed with Johnson and Rick. Bob could not be reached.
-   *   Nothing back from any of them.
-   *
-   * which sweeps Bob in one sentence after saying his message never arrived.
-   * The two clauses then contradict each other about what we know: one says it
-   * never got there, the other implies it did and was ignored.
+   * The receipt keeps "Placed with A and B. C could not be reached." (which is
+   * what makes the failure actionable) but no longer appends any "Nothing back
+   * from ..." clause. (Was the "any of them never sweeps in the unreached
+   * agent" test; that whole sentence is removed.)
    */
   const mixed = { johnson: 'placed', rick: 'placed', bob: 'could_not' };
   const s = api.pjReceiptSentence(mixed, P, ['johnson', 'rick']);
   assert.match(s, /Placed with Johnson and Rick\. Bob could not be reached\./);
-  assert.match(s, /Nothing back from Johnson or Rick\.$/,
-    'the sentence swept in the agent the clause before said never received it');
+  assert.doesNotMatch(s, /Nothing back/);
   assert.doesNotMatch(s, /any of them/);
-});
-
-test('"any of them" IS used when the receipt named nobody else', () => {
-  /**
-   * ⚠️ The control on the rule above: without it, comparing against a wider set
-   * would simply never say "any of them" and the branch would be dead.
-   */
-  const s = api.pjReceiptSentence(ALL_PLACED, P, ['johnson', 'rick', 'bob']);
-  assert.match(s, /Nothing back from any of them\.$/);
-});
-
-test('two agents showing the same display name are not merged into one verdict', () => {
-  /**
-   * 🛑 DISPLAY NAMES ARE NOT UNIQUE. Creation collides only on the SLUG, and
-   * a display name is recorded separately with no uniqueness check anywhere, so
-   * two agents can both show "Rick". An earlier version matched the silent list
-   * against the receipt in DISPLAY-NAME space: one Rick answers, the other does
-   * not, both match, the count says everybody is silent, and the person is told
-   * "Nothing back from any of them" about a room where somebody answered.
-   *
-   * ⚠️ The visible sentence still reads oddly here ("Rick or Rick"), and that
-   * is honest: two agents really are showing one name. What must not happen is
-   * a WRONG claim about how many of them answered.
-   */
-  const twoRicks = { agents: [member('rick', 'Rick'), member('rick-2', 'Rick')] };
-  /* ⚠️ A COULD_NOT THIRD MEMBER, so the "Placed with…" clause is still on
-     screen to be asserted: it is suppressed when everything simply worked. The
-     duplicate-name property being tested is unchanged. */
-  const outcomes = { rick: 'placed', 'rick-2': 'placed', bob: 'could_not' };
-  twoRicks.agents.push(member('bob', 'Bob'));
-
-  const s = api.pjReceiptSentence(outcomes, twoRicks, ['rick-2']);
-  assert.match(s, /Placed with Rick and Rick\./);
-  assert.match(s, /Nothing back from Rick\.$/, 'one silent of two was reported as both');
-  assert.doesNotMatch(s, /any of them/, 'a room where one of two answered was reported as nobody answering');
 });
 
 test('paintRoom actually puts the sentence on the screen', () => {
@@ -550,12 +496,11 @@ test('paintRoom actually puts the sentence on the screen', () => {
   const html = scope.written['pj-room'];
 
   assert.ok(html && html.length > 0, 'paintRoom wrote nothing, so this tests nothing');
-  /* Anchored on the post's own text: the healthy receipt is empty now, so this
-     is what proves paintRoom rendered anything at all. */
+  /* #3130: paintRoom renders the post (anchored on its own text, since the
+     healthy receipt is empty), and NO "Nothing back from ..." silence sentence
+     reaches the screen for any recipient -- the clause is removed. */
   assert.match(html, /anyone there\?/, 'paintRoom rendered no post at all');
-  assert.match(html, /Nothing back from Johnson or Bob\./,
-    'the sentence never reached the screen: the silence map is computed and then dropped');
-  assert.doesNotMatch(html, /Nothing back from[^.]*Rick/, 'Rick answered and was still named');
+  assert.doesNotMatch(html, /Nothing back/, 'the removed silence sentence still reached the screen');
 });
 
 test('paintRoom leaves a fresh post alone, so the gate is applied on the way to the screen', () => {
