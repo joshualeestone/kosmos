@@ -283,13 +283,39 @@ function resetGrantCache() { grantCache = null; }
  *   the #2911 route treats that as advisory so it never traps (#2912).
  */
 function tmuxGrant(opts) {
-  // The tmux binary Kosmos actually runs, then its realpath: TCC keys on the
-  // real path, and the resolved bin is commonly a symlink (Homebrew's
-  // bin/tmux -> Cellar/.../tmux, or the bundled tmux/bin/tmux). Lazy require of
-  // create so a11ystatus carries no load-time dependency on it (no cycle).
-  let tmuxBin;
-  try { tmuxBin = (opts && opts.tmuxBin) || require('./create').binPaths(opts).tmuxBin; }
-  catch { tmuxBin = null; }
+  // The tmux binary THIS INSTALL RUNS, then its realpath: TCC keys on the real
+  // path, and the resolved bin is commonly a symlink (the bundled tmux/bin/tmux,
+  // or Homebrew's bin/tmux -> Cellar/.../tmux).
+  //
+  // #3113 / #3075 item 5: resolve the BUNDLED tmux deterministically, INDEPENDENT
+  // of process env. This status route can run inside the board's launchd job (the
+  // com.kosmos.board RunAtLoad process), which does NOT carry
+  // AGENT_WORKFORCE_TMUX_BIN; binPaths' homebrew fallback then reads the WRONG TCC
+  // row, so a genuinely-granted bundled tmux misses its `exact` row and lands in
+  // the "a grant exists but not for our binary" cannot-check branch below -- the
+  // "Checking..." forever Josh saw on 6.70. So on an INSTALLED board, read the
+  // bundled tmux ($KOSMOS_HOME/tmux/bin/tmux, via update.installedRoot()) directly,
+  // and fall back to the shared, env-aware binPaths only for a from-source board
+  // with no bundle. Scoped to tmuxGrant's own read: binPaths (shared with agent
+  // creation) is untouched. Lazy requires so a11ystatus carries no load-time
+  // dependency (no cycle). On an installed board the bundled tmux DELIBERATELY
+  // supersedes an AGENT_WORKFORCE_TMUX_BIN override in this status read: the status
+  // process cannot trust its own env (that is the whole bug), so the read is
+  // env-independent by design (#3113) and does not honour that override HERE.
+  // opts.tmuxBin / opts.installedRoot are the test seams.
+  let tmuxBin = opts && opts.tmuxBin;
+  if (!tmuxBin) {
+    let root;
+    try { root = (opts && ('installedRoot' in opts)) ? opts.installedRoot : require('./update').installedRoot(); }
+    catch { root = null; }
+    if (root) {
+      const bundled = path.join(root, 'tmux', 'bin', 'tmux');
+      try { if (fs.existsSync(bundled)) tmuxBin = bundled; } catch { /* unreadable -> fall through */ }
+    }
+  }
+  if (!tmuxBin) {
+    try { tmuxBin = require('./create').binPaths(opts).tmuxBin; } catch { tmuxBin = null; }
+  }
   if (!tmuxBin) return { checkable: false, because: 'could not resolve the tmux binary path' };
   let real;
   try { real = fs.realpathSync(tmuxBin); } catch { real = tmuxBin; }
@@ -297,7 +323,7 @@ function tmuxGrant(opts) {
   const dbPath = (opts && opts.tccDb) || TCC_DB;
   // Only the production path (no test overrides) is cached, so a test never reads
   // a value seeded by another test or by production.
-  const useCache = !(opts && (opts.sqliteRunner || opts.tccDb || opts.tmuxBin));
+  const useCache = !(opts && (opts.sqliteRunner || opts.tccDb || opts.tmuxBin || ('installedRoot' in opts)));
   const cacheKey = real + ' ' + dbPath;
   if (useCache && grantCache && grantCache.key === cacheKey && (Date.now() - grantCache.at) < GRANT_TTL_MS) {
     return grantCache.value;

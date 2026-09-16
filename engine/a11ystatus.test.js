@@ -155,6 +155,84 @@ test('#2911 tmuxGrant: a checkable:false verdict (path-mismatch) carries no pres
   assert.equal(r.present, undefined, 'present is only meaningful on a checkable verdict');
 });
 
+// ---- #3113 / #3075 item 5: tmuxGrant resolves the BUNDLED tmux env-independently ----
+// The board's /api/tmux-a11y-status route can run inside the com.kosmos.board launchd
+// job, which does NOT carry AGENT_WORKFORCE_TMUX_BIN. tmuxGrant must still resolve
+// $installedRoot/tmux/bin/tmux (the bundled binary agents run under) rather than falling
+// to homebrew and reading the wrong TCC row. These pin the fix: given ONLY
+// opts.installedRoot (no tmuxBin, no env), it reads the bundled row.
+
+// A temp install root carrying a real bundled tmux/bin/tmux the fix can stat + realpath.
+function bundledInstallRoot() {
+  // Under SANDBOX so it rides the file's exit-time cleanup (no per-call temp-dir leak).
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'installroot-'));
+  const bin = path.join(root, 'tmux', 'bin', 'tmux');
+  fs.mkdirSync(path.dirname(bin), { recursive: true });
+  fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+  return { root, real: fs.realpathSync(bin) };
+}
+
+test('#3113 THE REGRESSION (env-independent): bundled tmux granted, NO other tmux row -> resolved and read as green', () => {
+  // This is the guard that fails without the fix on ANY machine, homebrew or not.
+  // Pre-fix, with no AGENT_WORKFORCE_TMUX_BIN, binPaths resolved '/opt/homebrew/bin/tmux';
+  // with only the BUNDLED row present, `exact` missed and `rows.some(granted)` was false,
+  // so present:false -- but on a real install the bundled tmux IS granted, and reading
+  // homebrew instead is exactly the wrong-subject read. The fix resolves the bundled
+  // binary, so its own granted row is read: checkable:true, trusted:true, present:true.
+  const { root, real } = bundledInstallRoot();
+  const r = a11y.tmuxGrant({ installedRoot: root, sqliteRunner: rowsRunner([{ client: real, auth: 2 }]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, true);
+  assert.equal(r.present, true);
+});
+
+test('#3113 a coexisting stray homebrew grant does not divert the read from OUR bundled tmux', () => {
+  // A coexistence robustness check, NOT the primary regression guard: on a box with no
+  // homebrew the pre-fix code realpath-fails on the '/opt/homebrew/bin/tmux' literal and
+  // would match the stray row anyway, so its discriminating power is machine-dependent.
+  // The env-independent guard is the test above; this pins that a stray grant alongside
+  // the bundled one still resolves to the bundled row.
+  const { root, real } = bundledInstallRoot();
+  const r = a11y.tmuxGrant({
+    installedRoot: root,
+    sqliteRunner: rowsRunner([
+      { client: '/opt/homebrew/bin/tmux', auth: 2 },   // a stray homebrew grant
+      { client: real, auth: 2 },                         // OUR bundled tmux, granted
+    ]),
+  });
+  assert.equal(r.checkable, true, 'the bundled tmux is resolved and read, not a cannot-check mismatch');
+  assert.equal(r.trusted, true);
+});
+
+test('#3113 tmuxGrant: bundled tmux present but OFF (auth 0) -> present:true, Not activated + Turn On (never stuck on Checking)', () => {
+  const { root, real } = bundledInstallRoot();
+  const r = a11y.tmuxGrant({ installedRoot: root, sqliteRunner: rowsRunner([{ client: real, auth: 0 }]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false);
+  assert.equal(r.present, true);
+});
+
+test('#3113 tmuxGrant: bundled tmux not listed at all -> present:false (advisory, never a trap)', () => {
+  const { root } = bundledInstallRoot();
+  const r = a11y.tmuxGrant({ installedRoot: root, sqliteRunner: rowsRunner([]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false);
+  assert.equal(r.present, false);
+});
+
+test('#3113 opts.tmuxBin still takes precedence over the installedRoot resolution (test seam order)', () => {
+  const { root, real } = bundledInstallRoot();   // a granted bundled tmux exists...
+  // ...but an explicit tmuxBin must win, so the verdict reflects /fake/tmux (off), not
+  // the bundled row (granted).
+  const r = a11y.tmuxGrant({
+    installedRoot: root,
+    tmuxBin: '/fake/tmux',
+    sqliteRunner: rowsRunner([{ client: real, auth: 2 }, { client: '/fake/tmux', auth: 0 }]),
+  });
+  assert.equal(r.present, true);
+  assert.equal(r.trusted, false);
+});
+
 // ---- #2559: appGrant, the LIVE app-AX reader (previously untested) ----
 test('#2559 appGrant: app row granted (auth 2) -> checkable:true, trusted:true (live green)', () => {
   const r = a11y.appGrant({ appSqliteRunner: rowsRunner([{ client: a11y.APP_CLIENT, auth: 2 }]) });
@@ -208,9 +286,10 @@ test('#2085 tmuxGrant: a runner that THROWS is caught -> checkable:false, never 
 });
 
 test('#2085 tmuxGrant: an empty opts.tmuxBin FALLS BACK to the resolved default (does not crash)', () => {
-  // '' is falsy, so it falls through to create.binPaths().tmuxBin (the resolved
-  // default) rather than the "could not resolve" arm. rowsRunner([]) (no grant)
-  // makes the verdict deterministic regardless of which path binPaths returns.
+  // '' is falsy, so it falls through the new installedRoot branch (which finds no
+  // bundle on this from-source test box: update.installedRoot() -> null) to
+  // create.binPaths().tmuxBin (the resolved default), not the "could not resolve" arm.
+  // rowsRunner([]) (no grant) makes the verdict deterministic regardless of the path.
   const r = a11y.tmuxGrant({ tmuxBin: '', sqliteRunner: rowsRunner([]) });
   assert.equal(r.checkable, true, 'an empty tmuxBin should resolve via binPaths, not fail to ask');
   assert.equal(r.trusted, false);
