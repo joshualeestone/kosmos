@@ -3138,7 +3138,15 @@ async function accountConnectable({ provider, accountDir } = {}) {
      process (no ambient shell env) -> UNKNOWN. Here that failed OPEN (the create still
      proceeds) so it was benign, but it is the same launchd-missing-ambient-env class as
      #3136 (the check-now badge) and #3113 (tmux). acct.dir is the env-resolved
-     <homeDir>/.claude (accounts.js), so passing it is env-independent -- one pattern. */
+     <homeDir>/.claude (accounts.js), so passing it is env-independent -- one pattern.
+     🛑 DO NOT "unify" this into an `isDefault ? null` fix everywhere: the correct
+     configDir for the default is SUBCOMMAND-DEPENDENT. `claude -p` (HERE) needs the
+     RESOLVED DIR. `claude auth status` (subscription.checkLive, via accounts.listLiveNow)
+     needs UNDEFINED -- the default's real config is the `<homeDir>/.claude.json` FILE
+     beside the dir, and CLAUDE_CONFIG_DIR=<homeDir>/.claude makes auth status read a
+     DECOY `.claude.json` INSIDE the dir and report not-signed-in (measured; see the
+     accounts.js listLiveNow comment). Same account, opposite correct argument, both
+     board-confirmed (#3189). */
   let state;
   try { state = await claudeAccountLive(acct.dir); }
   catch (err) { return failOpen("claudeAccountLive", err); }
