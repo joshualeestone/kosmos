@@ -120,9 +120,18 @@ const chk = (ok, label, extra) => {
         const ls = r.querySelector('.lstate');
         const vhr = ls ? ls.querySelector('.vh') : null;
         const vhrCs = vhr ? getComputedStyle(vhr) : null;
+        const rWord = vhr ? vhr.textContent.trim() : '';
+        /* the .lstate text with the .vh word removed = what the EYE sees in that
+           cell (an answerBtn / "Working now" label is legitimately here on some
+           rows; the state WORD must not be). */
+        const rLeftover = ls ? ls.textContent.replace(rWord, '').trim() : '';
         byAgent[r.dataset.agent || '?'] = {
           cls: r.className.trim(),
           wash: getComputedStyle(r).backgroundImage,
+          /* the state WORD must not appear as visible text outside its .vh, on ANY
+             row -- robust to fixture order (does not care which row is first) and
+             to a needs-you row's visible answerBtn (that is not the state word). */
+          wordLeaked: rWord.length > 0 && rLeftover.includes(rWord),
           /* the state word is kept in .vh AND that .vh is clipped -- checked on
              EVERY row, not just the first, so a needs-you row (whose .lstate also
              carries a visible answerBtn) is verified to still hide its WORD. */
@@ -170,7 +179,13 @@ const chk = (ok, label, extra) => {
          catches a revert of the .vh wrap in lrow(). */
       chk(!!m.stateWord, 'the state word is kept for screen readers (a11y)', m.stateWord);
       chk(m.vhClipped, 'the state word is visually hidden (.vh clipped), not a visible line', 'clipped=' + m.vhClipped);
-      chk(m.stateVisible === '', 'no waiting/idle/busy TEXT is visible in the row', JSON.stringify(m.stateVisible));
+      /* Per-row and order-robust: no row shows its OWN state word as visible text
+         (an answerBtn / "Working now" label is allowed; the waiting/idle/busy word
+         is not). Replaces an earlier first-row-only check that a fixture reorder
+         could have false-failed on a needs-you row's visible answerBtn. */
+      chk(Object.values(m.byAgent).every((v) => !v.wordLeaked),
+        'no agent row shows its state word as visible text (word lives only in .vh)',
+        JSON.stringify(Object.fromEntries(Object.entries(m.byAgent).map(([k, v]) => [k, v.wordLeaked]))));
 
       /* #3187 (Josh 6.70): status owns the GROUND, and the ground must be the
          RIGHT colour for the state, not just some gradient. Green=working,
