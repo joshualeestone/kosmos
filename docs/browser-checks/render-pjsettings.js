@@ -121,6 +121,11 @@ const PORT = freePort();
     // it stays on settings). Re-open settings from the project we returned to.
     await p.click('#pj-settings-link');
     await p.waitForSelector('#pj-settings-view', { state: 'visible' });
+    // The settings back-link label (paintProjectSettings sets #pj-settings-backname
+    // to p.name) reflects the rename that just landed -- coverage kept from before
+    // the #3134 rewrite, since the label is still painted on every settings open.
+    const backname = (await shown(p.locator('#pj-settings-backname'))).trim();
+    if (backname !== 'Settings Drive Renamed') die('the settings back-link label did not pick up the rename: ' + backname);
     await p.click('#pjs-save');
     await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Nothing has changed.'; }, null, { timeout: 5000 });
     // Give the (non-scheduled) auto-advance no chance to fire, then confirm we are STILL on settings.
@@ -173,8 +178,27 @@ const PORT = freePort();
     await p.waitForTimeout(1400);   // well past the ~1s auto-advance window
     if (!(await p.locator('#pj-settings-view').isVisible())) die('#3134 BLOCKER: a no-op second save within the prior save\'s auto-advance window did not cancel it -- a stale timer navigated off the settings view');
 
+    // #3134 guard (leaving the Projects tab): the auto-advance must NOT fire an
+    // invisible pjView('one') while the person is on another tab. Still on Second
+    // Project's settings. Make a real save (schedules the advance), switch to the
+    // Agents tab WITHIN the window, wait past it, and assert PJ_VIEW is still
+    // 'settings' -- the panel-hidden guard suppressed the advance. Without that
+    // guard the timer would flip PJ_VIEW to 'one' invisibly (the dangerous answer).
+    await p.route('**/api/project/**', async (route) => {
+      if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
+      await route.continue();
+    });
+    await p.fill('#pjs-desc', 'tab-switch test: the save schedules the advance');
+    await p.click('#pjs-save');
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-save-live'); return m && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
+    await p.unroute('**/api/project/**');
+    await p.click('[data-tab="agents"]');   // leave the Projects tab before the advance fires
+    await p.waitForTimeout(1400);
+    const viewAfterTab = await p.evaluate(() => (typeof PJ_VIEW !== 'undefined' ? PJ_VIEW : null));
+    if (viewAfterTab !== 'settings') die('#3134: the auto-advance fired while on another tab (PJ_VIEW=' + viewAfterTab + '); the panel-hidden guard did not suppress it');
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
+    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, back-link rename, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, the advance is suppressed on another tab, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();

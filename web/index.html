@@ -39155,13 +39155,20 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
         // visible effect on the detail -- a description-only edit lives only in
         // settings (#2838) -- would otherwise return with nothing confirming it;
         // then we advance to the project. The timeout is stored on the button and
-        // guarded on the current view + project, so a manual navigation (or
-        // opening another project) in the meantime cancels the auto-advance and
-        // never yanks the person off a screen they moved to themselves. Any prior
-        // pending timer was already cleared at the top of this handler.
+        // only advances while all of these still hold, so a navigation the person
+        // made themselves in the meantime suppresses it: still on THIS project's
+        // settings sub-view (PJ_VIEW / PJ_CURRENT), the project still exists, AND
+        // the Projects panel is still the visible tab. The last check matters
+        // because leaving for the Agents tab via showTab does not touch
+        // PJ_VIEW/PJ_CURRENT, so without it the advance would fire an invisible
+        // pjView('one') on another tab. (Returning to the Projects tab re-opens the
+        // current project's detail on its own via showTab -> pjView('one'); that is
+        // pre-existing tab behaviour, not this timer.) Any prior pending timer was
+        // already cleared at the top of this handler.
         const savedId = fresh.id;
         btn.__navTimer = setTimeout(() => {
-          if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)) pjView('one');
+          if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)
+              && !document.getElementById('panel-projects').hidden) pjView('one');
         }, 1000);
       }
     }
