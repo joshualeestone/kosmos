@@ -155,6 +155,75 @@ test('#2911 tmuxGrant: a checkable:false verdict (path-mismatch) carries no pres
   assert.equal(r.present, undefined, 'present is only meaningful on a checkable verdict');
 });
 
+// ---- #3113 / #3075 item 5: tmuxGrant resolves the BUNDLED tmux env-independently ----
+// The board's /api/tmux-a11y-status route can run inside the com.kosmos.board launchd
+// job, which does NOT carry AGENT_WORKFORCE_TMUX_BIN. tmuxGrant must still resolve
+// $installedRoot/tmux/bin/tmux (the bundled binary agents run under) rather than falling
+// to homebrew and reading the wrong TCC row. These pin the fix: given ONLY
+// opts.installedRoot (no tmuxBin, no env), it reads the bundled row.
+
+// A temp install root carrying a real bundled tmux/bin/tmux the fix can stat + realpath.
+function bundledInstallRoot() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-installroot-'));
+  const bin = path.join(root, 'tmux', 'bin', 'tmux');
+  fs.mkdirSync(path.dirname(bin), { recursive: true });
+  fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+  return { root, real: fs.realpathSync(bin) };
+}
+
+test('#3113 tmuxGrant resolves the bundled tmux from installedRoot (no tmuxBin, no env) and reads ITS grant -> green', () => {
+  const { root, real } = bundledInstallRoot();
+  const r = a11y.tmuxGrant({ installedRoot: root, sqliteRunner: rowsRunner([{ client: real, auth: 2 }]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, true);
+  assert.equal(r.present, true);
+});
+
+test('#3113 THE REGRESSION: bundled tmux granted while a stray homebrew tmux row also exists -> reads the bundled (green), NOT the "grant exists but not ours" cannot-check ("Checking..." forever)', () => {
+  const { root, real } = bundledInstallRoot();
+  // Josh's 6.70 shape, fixed: with the old homebrew fallback the granted bundled tmux
+  // missed `exact` and hit the path-key-mismatch cannot-check branch -> "Checking..."
+  // forever. Resolving the bundled binary makes `exact` hit its own granted row.
+  const r = a11y.tmuxGrant({
+    installedRoot: root,
+    sqliteRunner: rowsRunner([
+      { client: '/opt/homebrew/bin/tmux', auth: 2 },   // a stray homebrew grant
+      { client: real, auth: 2 },                         // OUR bundled tmux, granted
+    ]),
+  });
+  assert.equal(r.checkable, true, 'the bundled tmux is resolved and read, not a cannot-check mismatch');
+  assert.equal(r.trusted, true);
+});
+
+test('#3113 tmuxGrant: bundled tmux present but OFF (auth 0) -> present:true, Not activated + Turn On (never stuck on Checking)', () => {
+  const { root, real } = bundledInstallRoot();
+  const r = a11y.tmuxGrant({ installedRoot: root, sqliteRunner: rowsRunner([{ client: real, auth: 0 }]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false);
+  assert.equal(r.present, true);
+});
+
+test('#3113 tmuxGrant: bundled tmux not listed at all -> present:false (advisory, never a trap)', () => {
+  const { root } = bundledInstallRoot();
+  const r = a11y.tmuxGrant({ installedRoot: root, sqliteRunner: rowsRunner([]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false);
+  assert.equal(r.present, false);
+});
+
+test('#3113 opts.tmuxBin still takes precedence over the installedRoot resolution (test seam order)', () => {
+  const { root, real } = bundledInstallRoot();   // a granted bundled tmux exists...
+  // ...but an explicit tmuxBin must win, so the verdict reflects /fake/tmux (off), not
+  // the bundled row (granted).
+  const r = a11y.tmuxGrant({
+    installedRoot: root,
+    tmuxBin: '/fake/tmux',
+    sqliteRunner: rowsRunner([{ client: real, auth: 2 }, { client: '/fake/tmux', auth: 0 }]),
+  });
+  assert.equal(r.present, true);
+  assert.equal(r.trusted, false);
+});
+
 // ---- #2559: appGrant, the LIVE app-AX reader (previously untested) ----
 test('#2559 appGrant: app row granted (auth 2) -> checkable:true, trusted:true (live green)', () => {
   const r = a11y.appGrant({ appSqliteRunner: rowsRunner([{ client: a11y.APP_CLIENT, auth: 2 }]) });
