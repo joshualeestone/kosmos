@@ -1488,12 +1488,17 @@ async function main() {
         return {
           listHidden: document.getElementById('pj-arch-list').hidden,
           expanded: document.getElementById('pj-arch-toggle').getAttribute('aria-expanded'),
+          toggleText: document.getElementById('pj-arch-toggle').textContent,
           who: row ? row.querySelector('.who').textContent : null,
           hasRestore: !!(row && row.querySelector('[data-restore]')),
           when: row ? row.querySelector('.when').textContent : null,
         };
       });
       if (open.listHidden || open.expanded !== 'true') throw new Error('the disclosure did not open: ' + JSON.stringify(open));
+      // #3132: the label is STATIC "Archived (X)" in both states -- open does not
+      // flip it to a "Hide ..." variant. aria-expanded (asserted above) carries
+      // the state; this pins that the text does not.
+      if (open.toggleText !== 'Archived (1)') throw new Error('#3132: the open-state toggle label changed (should stay the static "Archived (1)"): ' + JSON.stringify(open));
       if (open.who !== 'Quarter close' || !open.hasRestore) throw new Error('the archived row is not the project with its Restore: ' + JSON.stringify(open));
       if (!/^Archived/.test(open.when || '')) throw new Error('the row does not say when it was archived: "' + open.when + '"');
       await page.click('#pj-arch-list [data-restore]');
