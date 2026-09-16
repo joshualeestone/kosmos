@@ -215,17 +215,45 @@ async function fresh(browser) {
     await ctx.close();
   }
   {
-    // #2911 tmux-not-yet-listed: the route maps present:false -> checkable:false, so a screen
-    // reached before tmux registers is advisory (never a trap). App granted -> Next ENABLED
-    // even though the tmux row is not-yet-grantable.
+    // #2911/#3113 tmux-not-yet-listed: the route maps present:false -> checkable:false +
+    // actionable:true, so a screen reached before tmux registers is advisory (never a trap) BUT
+    // the row offers a real "Not activated" + Turn On affordance instead of a dead "Checking..."
+    // spinner (Josh's #3113). App granted -> Next ENABLED even though the tmux row is not yet
+    // granted; the tmux row is actionable (Turn On shown), not green, not a spinner.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: true },
       tmux: { checkable: true, trusted: true },
-      tmuxA11y: { checkable: false, because: 'tmux is not yet listed in Accessibility (nothing to turn on here yet)' },
+      tmuxA11y: { checkable: false, actionable: true, because: 'tmux is not yet listed in Accessibility; turn it on to grant it' },
     });
-    ok(!(await nextDisabled(page)), '#2911 tmux-not-yet-listed (uncheckable) never blocks -- no trap before tmux registers');
+    ok(!(await nextDisabled(page)), '#2911/#3113 tmux-not-yet-listed (actionable-uncheckable) never blocks -- no trap before tmux registers');
     ok(!(await rowGranted(page, 'tmux-a11y')), 'and the not-yet-listed tmux row is not false-green');
+    const a11yUi = await page.evaluate(() => {
+      const row = document.querySelector('[data-gate="tmux-a11y"]');
+      const vis = (sel) => { const e = row.querySelector(sel); return !!(e && getComputedStyle(e).display !== 'none'); };
+      return { turnOn: vis('.s3-req'), checking: vis('.s3-checking'), granted: vis('.s3-granted') };
+    });
+    ok(a11yUi.turnOn && !a11yUi.checking && !a11yUi.granted,
+      '#3113 the not-yet-listed tmux row shows the "Not activated" + Turn On affordance, NOT a dead "Checking..." spinner');
+    await ctx.close();
+  }
+  {
+    // #3113 negative control: a plain uncheckable (no actionable flag -- a browser / no-FDA box,
+    // where tmux genuinely cannot be granted) KEEPS the honest "Checking..." spinner and no Turn
+    // On, proving the actionable render is gated on the flag and not applied to every uncheckable.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: true },
+      tmux: { checkable: true, trusted: true },
+      tmuxA11y: { checkable: false, because: 'accessibility is not live-checkable here' },
+    });
+    const plainUi = await page.evaluate(() => {
+      const row = document.querySelector('[data-gate="tmux-a11y"]');
+      const vis = (sel) => { const e = row.querySelector(sel); return !!(e && getComputedStyle(e).display !== 'none'); };
+      return { turnOn: vis('.s3-req'), checking: vis('.s3-checking') };
+    });
+    ok(plainUi.checking && !plainUi.turnOn,
+      '#3113 CONTROL: a non-actionable uncheckable (browser/no-FDA) keeps "Checking..." and shows no Turn On');
     await ctx.close();
   }
 

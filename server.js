@@ -8213,6 +8213,21 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, r);
     return;
   }
+  /* #2911/#3113: fire the TMUX accessibility/automation prompt on demand. Same fire-and-forget
+     contract as /api/a11y-prompt, but records a `tmux-a11y` request the native watcher answers
+     by running an osascript automation op UNDER the bundled tmux, so macOS prompts for tmux
+     (the responsible process agents run under) rather than the Kosmos app, letting tmux acquire
+     its own Accessibility TCC row. Fired from the tmux gate row's Turn On on the S3 Automation
+     step (NOT on step entry -- an entry-time fire hung a Playwright networkidle wait; #3113
+     makes the not-yet-listed state actionable in the render instead). Falls back to Settings via
+     the caller when no native app is present, like its sibling. */
+  if (pathname === '/api/tmux-a11y-prompt' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('tmux-a11y'); }
+    catch (err) { r = { ok: false, because: 'we could not record the tmux accessibility prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
+    return;
+  }
   if (pathname === '/api/file-access-prompt' && req.method === 'POST') {
     let r;
     try { r = promptrequest.request('file-access'); }
@@ -8318,7 +8333,17 @@ const server = http.createServer((req, res) => {
     try {
       const g = a11ystatus.tmuxGrant();
       if (g && g.checkable === true && g.present === false) {
-        reading = { checkable: false, because: 'tmux is not yet listed in Accessibility (nothing to turn on here yet)' };
+        // #3113: tmux's TCC db WAS readable (checkable:true) but tmux has no Accessibility row
+        // yet -- i.e. a real Mac where tmux simply has not registered. Keep it NON-BLOCKING
+        // (checkable:false, so it never traps Next -- the #2912 invariant), but flag it
+        // `actionable:true` so the gate row paints "Not activated" + Turn On (an affordance the
+        // user can act on) instead of a dead "Checking..." spinner (Josh's #3113). Clicking
+        // Turn On fires /api/tmux-a11y-prompt (which registers tmux) or, if no native app
+        // answers, falls back to opening the Accessibility pane. A browser / no-FDA box (db
+        // unreadable) is a DIFFERENT verdict from tmuxGrant
+        // (checkable:false with no present field), so it is NOT flagged actionable and keeps the
+        // honest "Checking..." advisory -- there is genuinely nothing to grant there.
+        reading = { checkable: false, actionable: true, because: 'tmux is not yet listed in Accessibility; turn it on to grant it' };
       } else {
         reading = g;
       }

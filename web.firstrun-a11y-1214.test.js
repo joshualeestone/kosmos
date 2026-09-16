@@ -168,12 +168,52 @@ test('#2911: S3 asks for tmux\'s OWN Accessibility grant (data-gate="tmux-a11y")
   assert.match(rcode, /a11ystatus\.tmuxGrant\(\)/, 'the tmux-a11y route serves tmuxGrant()');
   assert.match(rcode, /present === false/, 'the route maps present:false (tmux not yet listed) to a non-blocking reading (never a trap, #2912)');
 
-  // The Turn On for the tmux row opens the Accessibility pane (shared with the app row;
-  // no native trigger -- tmux registers by running, not by a button).
+  // #3113: the Turn On for the tmux row now FIRES the tmux registration prompt
+  // (/api/tmux-a11y-prompt) AND falls back to opening the Accessibility pane (shared with the
+  // app row). The native trigger is what lets tmux acquire its OWN Accessibility TCC row, so
+  // the row can leave the not-yet-listed "Checking..." state and offer a real Turn On. This
+  // row had no trigger before #3113 (it sat stuck on "Checking..." with no affordance).
   const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
   const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));
+  assert.match(handler, /gate === 'tmux-a11y'\s*\?\s*'\/api\/tmux-a11y-prompt'/,
+    'the tmux-a11y Turn On fires the native tmux-a11y-prompt trigger (#3113)');
   assert.match(handler, /gate === 'tmux' \|\| gate === 'tmux-a11y'\)\s*\?\s*'\/api\/open-accessibility-settings'/,
-    'the tmux-a11y Turn On opens the Accessibility pane (shared with the app row)');
+    'the tmux-a11y Turn On falls back to opening the Accessibility pane (shared with the app row)');
+});
+
+test('#3113: the not-yet-listed tmux row is ACTIONABLE (Not activated + Turn On), never a dead "Checking..."', () => {
+  // Josh's screenshot: the tmux row sat forever on "Checking..." with no affordance because
+  // tmuxGrant reports present:false (tmux not yet in Accessibility) and the route mapped that to
+  // a plain uncheckable reading. The fix keeps it NON-BLOCKING (the #2912 fail-safe) but flags
+  // it actionable, so the poll paints the DEFAULT "Not activated" + Turn On state instead of the
+  // spinner. Three layers pin this end to end:
+
+  // (1) The route flags the present:false verdict actionable (and keeps it non-blocking).
+  const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const rstart = SERVER.indexOf("pathname === '/api/tmux-a11y-status'");
+  const rnext = SERVER.indexOf('if (pathname ===', rstart + 1);
+  const rcode = SERVER.slice(rstart, rnext > -1 ? rnext : rstart + 2000).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(rcode, /present === false[\s\S]*?actionable:\s*true/,
+    'the present:false (tmux not yet listed) verdict is flagged actionable:true');
+  assert.match(rcode, /present === false[\s\S]*?checkable:\s*false/,
+    'and it stays checkable:false (non-blocking -- the #2912 no-trap invariant is intact)');
+
+  // (2) frReadGate carries the actionable flag off the reading (only for the uncheckable state).
+  const rg = PAGE.indexOf('async function frReadGate(');
+  const rgbody = PAGE.slice(rg, PAGE.indexOf('\n}', rg));
+  assert.match(rgbody, /actionable\s*=\s*r\.actionable === true/,
+    'frReadGate reads r.actionable off the reading');
+  assert.match(rgbody, /state:\s*'uncheckable',\s*battOnly,\s*actionable/,
+    'and returns it on the uncheckable branch (where it matters)');
+
+  // (3) frPollGates paints an actionable-uncheckable row as the DEFAULT (Turn On) state -- NOT
+  // data-checking -- and still does not gate Next (only 'blocked' sets anyBlocked).
+  const pg = PAGE.indexOf('async function frPollGates(');
+  const pgbody = PAGE.slice(pg, PAGE.indexOf('\n}', pg));
+  assert.match(pgbody, /st === 'uncheckable' && !reads\[i\]\.actionable/,
+    "an actionable-uncheckable row is NOT painted 'Checking...' (falls through to the default Turn On state)");
+  assert.match(pgbody, /if \(st === 'blocked' && !\(spec && spec\.gatesNext === false\)\) anyBlocked = true;/,
+    'only a definite blocked reading gates Next -- an actionable-uncheckable row never blocks (#2912 fail-safe)');
 });
 
 test('install-flow-9screen: the S3 Next go() guard reads fr-next.disabled and drives off the gate poll', () => {

@@ -9909,7 +9909,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         </div>
         <div class="s3-gate-row" data-gate="sleep">
           <span class="s3-gate-lbl">Prevent sleep</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button" aria-label="Turn on prevent sleep">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
           <!-- #2587: on a laptop that sleeps on battery (data-battonly, set by the
@@ -9958,13 +9958,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              per-grant confirmation. Kosmos = data-gate="tmux" (app), tmux = data-gate="tmux-a11y". -->
         <div class="s3-gate-row" data-gate="tmux" data-win-hide>
           <span class="s3-gate-lbl">Kosmos</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button" aria-label="Turn on Kosmos accessibility">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
         <div class="s3-gate-row" data-gate="tmux-a11y" data-win-hide>
           <span class="s3-gate-lbl">tmux</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button" aria-label="Turn on tmux accessibility">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
@@ -44825,9 +44825,14 @@ async function frReadGate(row) {
   // the honest note in place of the useless Turn On on that row (see frPollGates). Absent
   // predicate (every gate but sleep) is always false.
   const battOnly = spec.battOnly ? spec.battOnly(r) === true : false;
-  if (spec.granted(r)) return { state: 'granted', battOnly };
-  if (spec.blocked(r)) return { state: 'blocked', battOnly };
-  return { state: 'uncheckable', battOnly };
+  // #3113: an uncheckable reading may still be ACTIONABLE -- the tmux-a11y route flags
+  // present:false (tmux not yet listed on a real Mac, TCC db readable) as actionable:true so
+  // the row can offer Turn On instead of a dead "Checking..." spinner. Only meaningful for the
+  // uncheckable state (granted/blocked already carry their own affordance); it never gates.
+  const actionable = r.actionable === true;
+  if (spec.granted(r)) return { state: 'granted', battOnly, actionable: false };
+  if (spec.blocked(r)) return { state: 'blocked', battOnly, actionable: false };
+  return { state: 'uncheckable', battOnly, actionable };
 }
 async function frPollGates(screenEl, gen) {
   if (gen !== FR_GATE_GEN) return;
@@ -44847,7 +44852,13 @@ async function frPollGates(screenEl, gen) {
     // S3 rows carry [data-checking] CSS; on the S2 file-access row it is inert
     // (that row keeps its default red state, unchanged) -- harmless, not a regression.
     if (st === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
-    else if (st === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
+    // #3113: an uncheckable-but-ACTIONABLE row (tmux not yet listed on a real Mac) paints the
+    // DEFAULT "Not activated" + Turn On affordance rather than a dead "Checking..." spinner, so
+    // the user can act (the Turn On fires /api/tmux-a11y-prompt to register tmux + opens the
+    // Accessibility pane). It STILL never gates Next -- the reading is uncheckable, so the #2912
+    // fail-safe holds and only a definite 'blocked' sets anyBlocked below. A non-actionable
+    // uncheckable (a browser / no-FDA box) keeps the honest "Checking..." (nothing to grant).
+    else if (st === 'uncheckable' && !reads[i].actionable) { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
     // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
     // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
@@ -45615,15 +45626,21 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
      (Kitty's /api/a11y-prompt), which registers the CALLING BINARY (the kosmos-app =
      Kosmos) in the Accessibility list so it appears and is grantable. The app's grant
      is keyed on the app; tmux holds its OWN, separate Accessibility grant (#2911).
-     #2911: the tmux Accessibility row (data-gate="tmux-a11y") has NO native trigger --
-     tmux registers itself in the Accessibility list by actually running (the
-     bg-agent-at-Access-step does this up front, #1940), not by a button. So its Turn On
-     just opens the Accessibility pane, where the user toggles the tmux row that is
-     already listed beside Kosmos. sleep is programmatic (pmset), not a prompt category,
-     so it opens Settings and passes no trigger. Both a11y rows fall back to opening the
-     same Accessibility pane. */
+     #2911/#3113: the tmux Accessibility row (data-gate="tmux-a11y") now DOES have a native
+     trigger -- /api/tmux-a11y-prompt -- which runs an osascript automation op UNDER the
+     bundled tmux, so macOS attributes the prompt to the RESPONSIBLE process (tmux) and tmux
+     acquires its OWN Accessibility TCC row. Without that row tmux is never "listed" in
+     Accessibility, so tmuxGrant reports present:false and /api/tmux-a11y-status maps that to a
+     non-blocking reading. Before #3113 that reading painted a dead "Checking..." with no
+     affordance (Josh's screenshot); now the route flags that not-yet-listed state actionable
+     (see frReadGate/frPollGates), so the row paints "Not activated" + this Turn On, and the
+     Turn On fires this trigger (registering tmux); frFirePermission opens the Accessibility pane
+     only as the fallback when no native app answers the trigger. sleep is programmatic (pmset),
+     not a prompt category, so it opens Settings and passes no trigger. Both a11y rows fall back
+     to opening the same Accessibility pane. */
   const s3PermissionTargets = (gate) => ({
-    trigger: gate === 'tmux' ? '/api/a11y-prompt' : null,
+    trigger: gate === 'tmux' ? '/api/a11y-prompt'
+      : gate === 'tmux-a11y' ? '/api/tmux-a11y-prompt' : null,
     fallback: gate === 'sleep' ? '/api/open-sleep-settings'
       : (gate === 'tmux' || gate === 'tmux-a11y') ? '/api/open-accessibility-settings' : null,
   });
