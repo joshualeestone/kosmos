@@ -169,9 +169,12 @@ const ACCOUNTS = [
     // OpenAI subscription reauth. #2568/#2584: the two reauth affordances never cross.
     { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false, checkNow: true },
     { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/, checkNow: true },
-    // #3136: unver@ is EXACTLY Josh's state (signed in, not recently checked). It must
-    // carry "Check now" so the person can positively verify a connected-but-idle account.
-    { email: 'unver@example.com', cls: 'acct-unknown', text: /not recently checked/, honesty: true, checkNow: true },
+    // #3136: unver@ is EXACTLY Josh's state (a signed-in but not-recently-observed account).
+    // The VISIBLE pill now reads a NEUTRAL "Signed in" (Josh read the old "not recently checked"
+    // as "not connected" though he was); the nuance moves to the TITLE, and it carries "Check
+    // now" so he can positively verify. Still honesty:true -- muted, never green (#874).
+    { email: 'unver@example.com', cls: 'acct-unknown', text: /Signed in/, notText: /not recently checked/,
+      titleText: /Check now|not seen a request/, honesty: true, checkNow: true },
     // #3136: signed_out and unchecked are still CLAUDE rows, so "Check now" must render on
     // them too -- assert it, so the "every Claude row" claim is tested for every badge state
     // and a future change that conditioned the button on `badge` would red here.

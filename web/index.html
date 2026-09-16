@@ -18263,14 +18263,19 @@ async function paintAccounts() {
     const ageStr = agoWords(a.connection && a.connection.observedAgeMs);
     const workingWhy = 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
     const rejectedWhy = 'a real request on this account was rejected' + (ageStr ? ' (' + ageStr + ')' : '') + '. The sign-in needs renewing.';
-    const unverifiedWhy = 'a sign-in for this account exists on this computer, but no recent request has been seen to succeed, so we are not claiming it works. It verifies itself the next time an agent on it makes a call.';
+    // #3136 (Josh, 6.68): the PILL now reads a neutral "Signed in" (Josh saw "not recently
+    // checked" and read it as "not connected" though he was). The "not verified live" nuance
+    // moves here, into the tooltip, and nudges toward the "Check now" button beside the badge
+    // (added with #3145's on-demand probe). Still #874-safe: the dot stays muted, not green --
+    // we are NOT claiming the sign-in works, only that it exists and can be verified on demand.
+    const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. Use Check now to verify it, or it confirms itself the next time an agent on it runs.';
     let connBadge;
     if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
       connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
     } else if (badge === 'signed_in_unverified') {
-      connBadge = '<span class="acct-unknown" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · not recently checked</span>';
+      connBadge = '<span class="acct-unknown" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else if (badge === 'signed_out') {
       connBadge = '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>';
     } else if (badge === 'unchecked') {

@@ -72,12 +72,19 @@ test('the five badge states each render, and only "working" is green', () => {
 
   // 🔑 THE HONESTY PIN: signed_in_unverified (a credential exists but was never
   // observed working) must NOT be green -- this is the exact false-green #874/#1921
-  // remove. It renders the muted class and says it was not recently checked.
+  // remove. It renders the muted class. #3136: the VISIBLE pill now reads a neutral
+  // "Signed in" (Josh read "not recently checked" as "not connected" though he was);
+  // the not-verified-live nuance moves to the tooltip (unverifiedWhy). Still #874-safe:
+  // muted, not green -- we only claim the sign-in EXISTS, not that it works.
   const unver = fn.match(/badge === 'signed_in_unverified'\)\s*\{([\s\S]*?)\}\s*else if/);
   assert.ok(unver, "the 'signed_in_unverified' branch is missing");
   assert.doesNotMatch(unver[1], /acct-connected/, 'a merely-existing credential is rendered GREEN -- the #874 false green is back');
   assert.match(unver[1], /acct-unknown/, 'signed_in_unverified is not the muted class');
-  assert.match(unver[1], /not recently checked/, 'signed_in_unverified does not tell the person it was not recently checked');
+  assert.match(unver[1], />Signed in</, '#3136: the pill must read a neutral "Signed in"');
+  assert.doesNotMatch(unver[1], /not recently checked/, '#3136: "not recently checked" must NOT be in the visible pill -- it reads as "not connected"');
+  assert.match(unver[1], /title="'\s*\+\s*esc\(unverifiedWhy\)/, 'the not-verified-live nuance must ride the tooltip (unverifiedWhy), not the visible pill');
+  // and the tooltip itself carries the nuance + nudges to the #3145 Check now button.
+  assert.match(fn, /unverifiedWhy\s*=\s*'[^']*Check now[^']*'/, '#3136: unverifiedWhy should nudge toward Check now');
 
   assert.match(fn, /badge === 'signed_out'/, "the 'signed_out' branch is missing");
   assert.match(fn, /badge === 'unchecked'/, "the 'unchecked' branch is missing");
