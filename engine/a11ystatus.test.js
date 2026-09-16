@@ -171,7 +171,13 @@ function bundledInstallRoot() {
   return { root, real: fs.realpathSync(bin) };
 }
 
-test('#3113 tmuxGrant resolves the bundled tmux from installedRoot (no tmuxBin, no env) and reads ITS grant -> green', () => {
+test('#3113 THE REGRESSION (env-independent): bundled tmux granted, NO other tmux row -> resolved and read as green', () => {
+  // This is the guard that fails without the fix on ANY machine, homebrew or not.
+  // Pre-fix, with no AGENT_WORKFORCE_TMUX_BIN, binPaths resolved '/opt/homebrew/bin/tmux';
+  // with only the BUNDLED row present, `exact` missed and `rows.some(granted)` was false,
+  // so present:false -- but on a real install the bundled tmux IS granted, and reading
+  // homebrew instead is exactly the wrong-subject read. The fix resolves the bundled
+  // binary, so its own granted row is read: checkable:true, trusted:true, present:true.
   const { root, real } = bundledInstallRoot();
   const r = a11y.tmuxGrant({ installedRoot: root, sqliteRunner: rowsRunner([{ client: real, auth: 2 }]) });
   assert.equal(r.checkable, true);
@@ -179,11 +185,13 @@ test('#3113 tmuxGrant resolves the bundled tmux from installedRoot (no tmuxBin, 
   assert.equal(r.present, true);
 });
 
-test('#3113 THE REGRESSION: bundled tmux granted while a stray homebrew tmux row also exists -> reads the bundled (green), NOT the "grant exists but not ours" cannot-check ("Checking..." forever)', () => {
+test('#3113 a coexisting stray homebrew grant does not divert the read from OUR bundled tmux', () => {
+  // A coexistence robustness check, NOT the primary regression guard: on a box with no
+  // homebrew the pre-fix code realpath-fails on the '/opt/homebrew/bin/tmux' literal and
+  // would match the stray row anyway, so its discriminating power is machine-dependent.
+  // The env-independent guard is the test above; this pins that a stray grant alongside
+  // the bundled one still resolves to the bundled row.
   const { root, real } = bundledInstallRoot();
-  // Josh's 6.70 shape, fixed: with the old homebrew fallback the granted bundled tmux
-  // missed `exact` and hit the path-key-mismatch cannot-check branch -> "Checking..."
-  // forever. Resolving the bundled binary makes `exact` hit its own granted row.
   const r = a11y.tmuxGrant({
     installedRoot: root,
     sqliteRunner: rowsRunner([
