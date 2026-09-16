@@ -867,11 +867,17 @@ async function signinEnrol(kind, phone) {
     kind,  // the locally-validated kind we requested, never the coordinator's echo
     why_authenticator: typeof d.why_authenticator === 'string' ? d.why_authenticator : '',
   };
-  // totp: the secret to scan/type. sms: only the masked tail. Present exactly the
-  // material the guard just accepted; never invent the other, never the phone number.
-  if (secret) out.secret = secret;
-  if (otpauth) out.otpauth = otpauth;
-  if (sentTo) out.sent_to = sentTo;
+  // Copy only THIS kind's material, mirroring the kind-scoped guard above: totp gets
+  // the secret/otpauth to scan or type, sms gets only the masked tail. Gating by kind
+  // (not a flat copy) means a stray wrong-kind field the coordinator happens to send
+  // -- a secret on an sms answer, a tail on a totp answer -- cannot bleed into the
+  // page; we present exactly the material the guard just accepted, never the other.
+  if (kind === 'totp') {
+    if (secret) out.secret = secret;
+    if (otpauth) out.otpauth = otpauth;
+  } else if (kind === 'sms') {
+    if (sentTo) out.sent_to = sentTo;
+  }
   return { ok: true, because: null, data: out };
 }
 

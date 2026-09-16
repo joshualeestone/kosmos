@@ -111,7 +111,9 @@ if (args[0] === 'signin') {
       if (!phone) { process.stderr.write('the coordinator said no (400): phone required for sms\\n'); process.exit(1); }
       // The phone rides argv (recorded above), so a test asserts it reached the
       // binary; the answer carries only the masked tail, never the full number.
-      console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'sms', token: 'kst1.should-be-stripped', sent_to: '*** *** ' + phone.slice(-4), why_authenticator: 'why' }));
+      // Includes a STRAY secret/otpauth (wrong-kind material a misbehaving coordinator
+      // might send on an sms answer): the engine's kind-scoped copy must drop them.
+      console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'sms', token: 'kst1.should-be-stripped', sent_to: '*** *** ' + phone.slice(-4), secret: 'STRAYSECRET', otpauth: 'otpauth://stray', why_authenticator: 'why' }));
       process.exit(0);
     }
     process.stderr.write('the coordinator said no (400): kind is totp or sms\\n'); process.exit(1);
@@ -675,6 +677,8 @@ test('signin enrol by sms passes the number on argv and returns only the masked 
   assert.equal(started.data.kind, 'sms');
   assert.equal(started.data.sent_to, '*** *** 1234', 'the masked tail the app shows');
   assert.ok(!('phone' in started.data), 'the full number must not come back to the caller');
+  // The kind-scoped copy drops wrong-kind material the coordinator strayed into the answer.
+  assert.ok(!('secret' in started.data) && !('otpauth' in started.data), 'totp material bled into an sms answer: ' + JSON.stringify(started.data));
   // Stronger than the key-absence check above: the full number must not appear
   // anywhere in the app-facing payload, under any key, and the coordinator's
   // session token must be stripped by the engine allowlist.
