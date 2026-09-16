@@ -8,6 +8,13 @@
 //  classes is the intended cost of that staleness-catch; a narrower `dmbadge`-only
 //  declaration was considered and rejected because it would leave the placement
 //  assertions unguarded against a `.lrow`/`.onode` change.)
+// #3131 + #3187 (Josh 6.70) touched `.lrow`: lrow() now wraps the state glyph+word in
+// a .vh span (status is a ground colour, not text) and .lrow carries a grey/green/red
+// wash. Reviewed against this check -- the DM badge sits absolutely over the `.lav`
+// corner and the consolidated `:not(.dmbadge)` catch-all exemption is unchanged, so
+// neither the wash nor the hidden state word moves or clips the badge. Re-ran this
+// check after the change: ALL PASS. No assertion update needed; this note records the
+// surface review the #2518 gate asks for.
 // #2863: the unread-DM bubble on the LIST row and the ORG node -- the follow-up to
 // the grid-card badge (#2885), from the same `a.dmUnread` and the same dmBadge()
 // helper. This drives the REAL list/org render on the REAL page with a seeded
