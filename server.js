@@ -8464,8 +8464,10 @@ const server = http.createServer((req, res) => {
 
   /* #2911: serve tmux's OWN Accessibility grant (tmuxGrant) -- the SECOND, distinct
      Accessibility subject the onboarding must detect (the "tmux" row macOS lists
-     alongside "Kosmos", keyed on the bundled tmux binary's real path, resolved from
-     AGENT_WORKFORCE_TMUX_BIN which the board process carries). Same {checkable,
+     alongside "Kosmos", keyed on the bundled tmux binary's real path, which tmuxGrant
+     resolves ENV-INDEPENDENTLY to $KOSMOS_HOME/tmux/bin/tmux: the board's launchd
+     process does NOT reliably carry AGENT_WORKFORCE_TMUX_BIN, and reading the homebrew
+     fallback instead was the "Checking..." forever root cause, #3113/#3075 item 5). Same {checkable,
      trusted} shape as /api/a11y-status, so the S3 gate poll consumes it unchanged and
      blocks Next ONLY on a definite checkable:true + trusted:false. The ONE extra
      rule: a present:false verdict (our tmux binary is not yet listed in Accessibility,

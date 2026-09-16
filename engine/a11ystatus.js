@@ -298,7 +298,11 @@ function tmuxGrant(opts) {
   // and fall back to the shared, env-aware binPaths only for a from-source board
   // with no bundle. Scoped to tmuxGrant's own read: binPaths (shared with agent
   // creation) is untouched. Lazy requires so a11ystatus carries no load-time
-  // dependency (no cycle). opts.tmuxBin / opts.installedRoot are the test seams.
+  // dependency (no cycle). On an installed board the bundled tmux DELIBERATELY
+  // supersedes an AGENT_WORKFORCE_TMUX_BIN override in this status read: the status
+  // process cannot trust its own env (that is the whole bug), so the read is
+  // env-independent by design (#3113) and does not honour that override HERE.
+  // opts.tmuxBin / opts.installedRoot are the test seams.
   let tmuxBin = opts && opts.tmuxBin;
   if (!tmuxBin) {
     let root;

@@ -164,7 +164,8 @@ test('#2911 tmuxGrant: a checkable:false verdict (path-mismatch) carries no pres
 
 // A temp install root carrying a real bundled tmux/bin/tmux the fix can stat + realpath.
 function bundledInstallRoot() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-installroot-'));
+  // Under SANDBOX so it rides the file's exit-time cleanup (no per-call temp-dir leak).
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'installroot-'));
   const bin = path.join(root, 'tmux', 'bin', 'tmux');
   fs.mkdirSync(path.dirname(bin), { recursive: true });
   fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
@@ -285,9 +286,10 @@ test('#2085 tmuxGrant: a runner that THROWS is caught -> checkable:false, never 
 });
 
 test('#2085 tmuxGrant: an empty opts.tmuxBin FALLS BACK to the resolved default (does not crash)', () => {
-  // '' is falsy, so it falls through to create.binPaths().tmuxBin (the resolved
-  // default) rather than the "could not resolve" arm. rowsRunner([]) (no grant)
-  // makes the verdict deterministic regardless of which path binPaths returns.
+  // '' is falsy, so it falls through the new installedRoot branch (which finds no
+  // bundle on this from-source test box: update.installedRoot() -> null) to
+  // create.binPaths().tmuxBin (the resolved default), not the "could not resolve" arm.
+  // rowsRunner([]) (no grant) makes the verdict deterministic regardless of the path.
   const r = a11y.tmuxGrant({ tmuxBin: '', sqliteRunner: rowsRunner([]) });
   assert.equal(r.checkable, true, 'an empty tmuxBin should resolve via binPaths, not fail to ask');
   assert.equal(r.trusted, false);
