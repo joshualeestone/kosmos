@@ -2903,7 +2903,6 @@ body.pj-mapmode #pj-list, body.pj-mapmode #pj-list-msg, body.pj-mapmode #pj-arch
    "under <parent>" chip with the full ancestry line + depth dots; it keeps the
    `pj-parent` class so the same default-shown / hidden-in-wide-list rule applies.)
    The line is the default; the wide-list rule below hides it and uses the indent. */
-.pjsub { display: inline-block; font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
 .pj-parent { display: inline-block; margin-top: 6px; font-size: .75rem; color: var(--k-ink-2); }
 /* #2487: the ancestry mouseprint (grid tiles + narrow rail; the wide list hides
    it and uses the indent). Depth dots then the name chain; the chain truncates
@@ -3736,6 +3735,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      control flush against the window edge reads as clipped rather than placed. */
   html[data-layout="consolidated"] body.consolidated #pj-docs-view,
   html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-right: var(--space-8); }
+  /* #3133 (Josh, 6.68): "add more TOP margin - the project name is too close to the
+     top" in the consolidated View-all-tasks. Scoped to the alltasks view (not the
+     shared docs-view rule above, which Josh did not flag), and matching the
+     --space-8 right inset already applied so the view reads evenly boxed. */
+  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-top: var(--space-8); }
   /* 🔑 AND THE SIZE SITS BESIDE ITS FILE, NOT AT THE FAR RIGHT. Josh: "I'd also
      like to have the file sizes of the files closer to the actual files
      themselves."
@@ -3877,8 +3881,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      row, KEPT on a dangling/orphan row so a child of a gone parent still shows its
      "under X" -- the one place the tree indent cannot carry the relationship). */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjfaces,
-  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill,
-  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjsub { display: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
@@ -37518,8 +37521,12 @@ function projectCard(p, unreadable, depth, childCount) {
      nothing about WHICH project is on screen). The tab view ignores the
      class; openProject() also toggles it directly so selection paints on
      the click, not on the next list repaint. */
-  const subCount = subs
-    ? '<span class="pjsub">' + subs + (subs === 1 ? ' sub-project' : ' sub-projects') + '</span>' : '';
+  /* #3133 (Josh, 6.68): the "X sub-projects" count is removed from the projects-list
+     row -- the sub-projects are listed right beneath it (nested by indent in the wide
+     list), so the count is redundant. It was already hidden in the consolidated rail
+     (.pjsub display:none); this drops it from the tab list too. `subs` is kept: the
+     consolidated fold caret below is rendered for any parent (subs > 0). */
+  const subCount = '';
   /* #2929: the consolidated tree's fold caret, rendered for any parent (subs>0).
      Hidden by CSS outside the consolidated rail (the wide list carries depth by
      indent alone, the grid by the ancestry chip), so this is inert there. It is
