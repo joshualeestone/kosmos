@@ -666,11 +666,24 @@ let signinSession = null;
     app owns and persists it, per the CLI contract. It is a plain opaque label,
     not enrolment crypto (see the NO CRYPTO HERE note at the top). Minted once,
     kept in remote.json, reused forever; a stored value that somehow fails the
-    shape check is replaced rather than trusted. */
+    shape check is replaced rather than trusted.
+
+    The in-process memo (`mintedDeviceId`) is what makes start and verify use the
+    SAME id even if the write to remote.json fails (disk full, permissions): that
+    tie is load-bearing (the coordinator binds the emailed code to the device id
+    a `start` presented, and `verify` must present the same one), and a single
+    sign-in flow always runs in one board process. A fresh process re-reads the
+    file, or mints again if the write never landed. */
+let mintedDeviceId = null;
 function signinDeviceId() {
+  if (mintedDeviceId && DEVICE_ID.test(mintedDeviceId)) return mintedDeviceId;
   const r = read();
-  if (typeof r.device_id === 'string' && DEVICE_ID.test(r.device_id)) return r.device_id;
+  if (typeof r.device_id === 'string' && DEVICE_ID.test(r.device_id)) {
+    mintedDeviceId = r.device_id;
+    return mintedDeviceId;
+  }
   const id = crypto.randomUUID();
+  mintedDeviceId = id;      // hold it even if the persist below fails
   write({ device_id: id });
   return id;
 }
@@ -708,6 +721,16 @@ function absorbSession(data) {
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
 }
 
+/** Append --device-name only when the label is present and clean (trimmed once,
+    no newline, 1-60 chars). A malformed label is dropped rather than surfaced --
+    a newline in argv would let it inject a second value. Shared by start/verify
+    so the two carry the label identically. */
+function pushDeviceName(args, deviceName) {
+  if (typeof deviceName !== 'string') return;
+  const trimmed = deviceName.trim();
+  if (DEVICE_NAME.test(trimmed)) args.push('--device-name', trimmed);
+}
+
 /** Step one: ask the coordinator to email the six-digit code. Safe to repeat;
     reveals nothing about whether the account exists. A fresh start abandons any
     half-finished flow. */
@@ -718,9 +741,7 @@ async function signinStart(email, deviceName) {
   signinSession = null;
   const args = ['signin', 'start', '--coordinator', COORDINATOR(),
     '--email', email, '--device-id', signinDeviceId()];
-  if (typeof deviceName === 'string' && DEVICE_NAME.test(deviceName.trim())) {
-    args.push('--device-name', deviceName.trim());
-  }
+  pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
   // Deliberately does NOT persist the email. The setup flow writes it because
   // setupComplete reads it back; sign-in carries the email explicitly through
@@ -743,9 +764,7 @@ async function signinVerify(email, code, deviceName) {
   }
   const args = ['signin', 'verify', '--coordinator', COORDINATOR(),
     '--email', email, '--device-id', signinDeviceId(), '--code', String(code)];
-  if (typeof deviceName === 'string' && DEVICE_NAME.test(deviceName.trim())) {
-    args.push('--device-name', deviceName.trim());
-  }
+  pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
   if (!r.ok) return r;
   return absorbSession(r.data);
@@ -847,8 +866,9 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   stateDir: STATE_DIR,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) AND clears any
-     in-flight sign-in, so no held token/challenge leaks across cases. */
-  resetForTests: () => { signinSession = null; stopChild(); },
+     in-flight sign-in and the device-id memo, so neither a held token/challenge
+     nor a memoised device id leaks across cases. */
+  resetForTests: () => { signinSession = null; mintedDeviceId = null; stopChild(); },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
      right after ensure() instead of waiting a fixed interval and hoping. */

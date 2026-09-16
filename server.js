@@ -5576,6 +5576,13 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* The one email-shape rule every Plus enrolment route checks (setup-start and
+     the two signin steps). ONE derivation, per the repo convention that two
+     copies of a rule drift the moment one changes. The engine has its own,
+     deliberately coarser `.includes('@')` sanity guard (matching setupStart);
+     this route-level regex is the real gate, and the engine's coarse check is
+     defense-in-depth for a direct engine caller, not a second copy of THIS. */
+  const EMAIL_RULE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (pathname === '/api/remote/setup-start' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
@@ -5583,7 +5590,7 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const email = String(body.email || '').trim();
-        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        if (!email || !EMAIL_RULE.test(email)) {
           sendJson(res, 400, { error: 'that does not look like an email address' });
           return;
         }
@@ -5621,9 +5628,8 @@ const server = http.createServer((req, res) => {
      returned here, so the page drives stages without ever carrying a credential
      (#874). A missing account is the coordinator's silence, surfaced as a
      generic stage the wizard turns into a "Join Kosmos" nudge, never a
-     yes/no on existence. The email shape is checked once here (SIGNIN_EMAIL_RE)
-     and applied identically by start and verify, so the two steps cannot drift. ---- */
-  const SIGNIN_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+     yes/no on existence. Both signin steps check the email with the shared
+     EMAIL_RULE above, so start and verify (and setup-start) cannot drift. ---- */
   if (pathname === '/api/remote/signin-start' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
@@ -5631,7 +5637,7 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const email = String(body.email || '').trim();
-        if (!email || !SIGNIN_EMAIL_RE.test(email)) {
+        if (!email || !EMAIL_RULE.test(email)) {
           sendJson(res, 400, { error: 'that does not look like an email address' });
           return;
         }
@@ -5651,7 +5657,7 @@ const server = http.createServer((req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const email = String(body.email || '').trim();
         const code = String(body.code || '').trim();
-        if (!email || !SIGNIN_EMAIL_RE.test(email)) { sendJson(res, 400, { error: 'that does not look like an email address' }); return; }
+        if (!email || !EMAIL_RULE.test(email)) { sendJson(res, 400, { error: 'that does not look like an email address' }); return; }
         if (!code) { sendJson(res, 400, { error: 'type the code from the email' }); return; }
         const deviceName = typeof body.device_name === 'string' ? body.device_name : undefined;
         const got = await remote.signinVerify(email, code, deviceName);

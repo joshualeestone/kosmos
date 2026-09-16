@@ -11248,7 +11248,10 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     try { remoteEngine.setOn(false); } catch { /* leave the sandbox off */ }
     try {
       const rj = JSON.parse(fs.readFileSync(remoteEngine.FILE, 'utf8'));
-      rj.email = '';
+      /* Clear what THIS flow persists to the shared fixture: sign-in mints and
+         keeps a device_id (it does NOT write email, unlike setup), so leaving it
+         would leak into a later test that reads or asserts on it. */
+      delete rj.device_id;
       fs.writeFileSync(remoteEngine.FILE, JSON.stringify(rj));
     } catch { /* nothing written means nothing to clear */ }
   }
