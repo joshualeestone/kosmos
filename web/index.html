@@ -6545,8 +6545,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    block. Scoped on body.consolidated, so this covers every .tkcard rendered in that
    layout -- the per-project task list AND the View-all-tasks screen when it is opened
    from consolidated. The base .tkcard border keeps its stroke in the tab/grid layout
-   (body:not(.consolidated)). Scoped like the container cards' own layout-specific
-   border handling. The focus-visible outline (a11y) is unaffected; border-color:
+   (body:not(.consolidated)). Same TECHNIQUE the container cards use for their
+   layout-specific border (gating a border property via a body-class selector), though
+   the opposite direction: .pjcard drops its border in the tab layout, this drops the
+   .tkcard stroke in consolidated. The focus-visible outline (a11y) is unaffected; border-color:
    transparent keeps the 1px box so nothing shifts; the hover cue is dropped too,
    per "no stroke". */
 body.consolidated .tkcard,
