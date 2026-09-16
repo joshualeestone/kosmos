@@ -644,10 +644,10 @@ async function deviceRemove(id) {
    token, `verify` a phone-code challenge id, and `verify`'s enrol_second_factor
    branch an enrol-only token (which `enrol`/`confirm-enrol` spend). All are
    sensitive and live in `signinSession` in this process for the seconds between
-   steps -- the wizard sees a `stage` and nothing else, and `register` spends the
-   session token from here (piped to the CLI over stdin, off argv). This is the
-   #874 posture: the page cannot carry, replay, or leak a credential it never
-   holds. It is memory-only on purpose -- a board restart mid-flow drops it and
+   steps -- the wizard sees only page-safe fields (never bearer material), and
+   `register` spends the session token from here (piped to the CLI over stdin, off
+   argv). This is the #874 posture: the page cannot carry, replay, or leak a
+   credential it never holds. It is memory-only on purpose -- a board restart mid-flow drops it and
    the person simply starts sign-in again, which is safe and quick.
 
    ⚠️ ONE SLOT, and the collision edge stated in full (by design, not a defect,
@@ -847,26 +847,31 @@ async function signinEnrol(kind, phone) {
   // blank enrol screen presented as success. We validate the MATERIAL, not d.stage --
   // the tunnel forces stage: "enrolment_started" on this verb, so a stage check could
   // never fire; a missing field is the failure that can actually reach here.
-  // Truthiness, not typeof: an empty-string secret/sent_to is "no material" just as
-  // an absent one is, and it must fail closed the same way -- matching absorbSession's
-  // !token / !challenge convention. A typeof check would let secret:'' through and
-  // show the blank screen this guard exists to prevent.
-  if (kind === 'totp' && !d.secret && !d.otpauth) {
+  //
+  // ONE predicate ("a usable material string") drives BOTH the presence guard and the
+  // copy into out, so the two can never disagree. An earlier split -- a truthiness
+  // guard beside a typeof copy -- let an empty string, then a truthy non-string
+  // (secret: 123), slip between "believed present" and "actually returned", each
+  // yielding the blank screen as a false success. str() collapses that surface: a
+  // field is material iff it is a non-empty string, and exactly those get copied.
+  const str = (v) => (typeof v === 'string' && v !== '' ? v : null);
+  const secret = str(d.secret), otpauth = str(d.otpauth), sentTo = str(d.sent_to);
+  if (kind === 'totp' && !secret && !otpauth) {
     return { ok: false, because: 'the coordinator did not return an authenticator secret to set up' };
   }
-  if (kind === 'sms' && !d.sent_to) {
+  if (kind === 'sms' && !sentTo) {
     return { ok: false, because: 'the coordinator did not confirm where the code was sent' };
   }
   const out = {
     stage: 'enrolment_started',
-    kind: typeof d.kind === 'string' ? d.kind : kind,
+    kind,  // the locally-validated kind we requested, never the coordinator's echo
     why_authenticator: typeof d.why_authenticator === 'string' ? d.why_authenticator : '',
   };
   // totp: the secret to scan/type. sms: only the masked tail. Present exactly the
-  // one the coordinator sent; never invent the other, and never the phone number.
-  if (typeof d.secret === 'string') out.secret = d.secret;
-  if (typeof d.otpauth === 'string') out.otpauth = d.otpauth;
-  if (typeof d.sent_to === 'string') out.sent_to = d.sent_to;
+  // material the guard just accepted; never invent the other, never the phone number.
+  if (secret) out.secret = secret;
+  if (otpauth) out.otpauth = otpauth;
+  if (sentTo) out.sent_to = sentTo;
   return { ok: true, because: null, data: out };
 }
 

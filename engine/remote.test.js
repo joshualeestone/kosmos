@@ -76,6 +76,7 @@ if (args[0] === 'signin') {
     if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-fake', sms_available: true, why_authenticator: 'stronger than sms' })); process.exit(0); }
     if (code === '777777') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, sms_available: true })); process.exit(0); }  // enrol stage with NO token -> engine guard
     if (code === '888888') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer omits the material -> engine fail-closed
+    if (code === '999999') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-badtype', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer returns TRUTHY NON-STRING material -> engine fail-closed
     // Malformed coordinator answers, so the engine's guard paths are exercised:
     // a session with no token, a challenge with no id, and an unknown stage.
     if (code === '444444') { console.log(JSON.stringify({ stage: 'session' })); process.exit(0); }
@@ -98,6 +99,10 @@ if (args[0] === 'signin') {
     // case: a typeof check would let it through, so this proves the guard uses
     // truthiness and fails closed rather than showing a blank enrol screen.
     if (token === 'kst1.enrol-nomaterial') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', secret: '', otpauth: '', why_authenticator: 'why' })); process.exit(0); }
+    // Truthy-but-NON-STRING material (secret a number, otpauth an object): the mirror
+    // of the empty-string case. A truthiness-only guard would believe material is
+    // present while the string-only copy drops it -> a blank screen as false success.
+    if (token === 'kst1.enrol-badtype') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', secret: 123, otpauth: {}, why_authenticator: 'why' })); process.exit(0); }
     // The coordinator's answer carries a session-bearing token; the engine allowlist
     // must strip it so it never reaches the caller (asserted at the enrol boundary below).
     if (kind === 'totp') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', token: 'kst1.should-be-stripped', secret: 'JBSWY3DPEHPK3PXP', otpauth: 'otpauth://totp/x', why_authenticator: 'why' })); process.exit(0); }
@@ -694,6 +699,13 @@ test('enrol fails closed when the coordinator returns an enrolment-started answe
   const started = await remote.signinEnrol('totp');
   assert.equal(started.ok, false, 'a material-less enrol answer must be refused, not shown');
   assert.match(started.because, /authenticator secret/);
+  // The mirror case: truthy but non-string material (secret:123, otpauth:{}) must also
+  // fail closed, so the presence guard and the string-only copy can never disagree.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '999999');   // holds kst1.enrol-badtype
+  const badType = await remote.signinEnrol('totp');
+  assert.equal(badType.ok, false, 'truthy non-string material must be refused, not shown');
+  assert.match(badType.because, /authenticator secret/);
 });
 
 test('enrol refuses without a held enrolment, on a bad kind, and on a tokenless enrol answer', async () => {
