@@ -39137,10 +39137,31 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
     if (!(await loadProjects())) await loadProjects();
     if (!PJ_READ_FAILED) {
       const fresh = pjById(PJ_CURRENT);
-      if (fresh) { paintProjectSettings(fresh); paintOneProject(); pjView('settings'); }
+      if (fresh) {
+        // Repaint settings (so #pjs-save-live's "Saved." below has a fresh panel)
+        // and the detail we are about to return to.
+        paintProjectSettings(fresh); paintOneProject(); pjView('settings');
+        // #3134 (Josh, 6.68): don't leave the person "stuck on settings" after a
+        // save -- return to the project. We keep #2923's "Saved." (set below, in
+        // #pjs-save-live) visible for a brief beat first, because a save with no
+        // visible effect on the detail -- a description-only edit lives only in
+        // settings (#2838) -- would otherwise return with nothing confirming it;
+        // then we advance to the project. The timeout is stored on the button and
+        // guarded on the current view + project, so a manual navigation (or
+        // opening another project) in the meantime cancels the auto-advance and
+        // never yanks the person off a screen they moved to themselves.
+        clearTimeout(btn.__navTimer);
+        const savedId = fresh.id;
+        btn.__navTimer = setTimeout(() => {
+          if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)) pjView('one');
+        }, 1000);
+      }
     }
     // #2923: "Saved." to the LEFT of the button (replacing the spinner), not
-    // below it where it was easy to miss. msg stays empty on the happy path.
+    // below it where it was easy to miss. msg stays empty on the happy path. On
+    // the read-back-failed path we also stay on settings and confirm here (no
+    // auto-advance was scheduled), since navigating to a project we cannot read
+    // back would land on a blank or stale detail.
     live.textContent = 'Saved.';
   } catch {
     live.textContent = '';  // #2923: drop the spinner; the error shows below.
@@ -43985,11 +44006,13 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not add that project');
     await loadProjects();
-    // ⚠️ `body.id` is the fallback the route ships for the case where the
-    // project WAS created but the read-back failed; `body.project` is null
-    // there. Reading only `body.project.id` threw a raw JS internals string
-    // into the person's face about a project that exists.
-    openProject((body.project && body.project.id) || body.id);
+    // #3134 (Josh, 6.68): after creating, return to the projects LIST (Josh's
+    // ask), not into the new project's empty detail. Fall back to openProject
+    // when the create succeeded but the read-back failed (no row to show, so its
+    // "could not read it back" notice is shown). Rationale in the plan/commit.
+    const newProjectId = (body.project && body.project.id) || body.id;
+    if (pjById(newProjectId)) { PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); }
+    else { openProject(newProjectId); }
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
     // (round 20): the engine's reasons are clauses, and this catch was the

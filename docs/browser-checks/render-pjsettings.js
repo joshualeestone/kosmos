@@ -78,7 +78,7 @@ const PORT = freePort();
     }
     await p.screenshot({ path: path.join(OUT, 'project-settings.png') });
 
-    // Save round trip: rename, verify it lands everywhere.
+    // Save round trip: rename, verify it lands, confirm, and #3134 returns to it.
     // #2923: delay the PUT so the in-flight Sweep spinner is observable (the
     // local round trip is otherwise instant, which would let a regression that
     // dropped the spinner injection still pass). Only the PUT is delayed; the
@@ -94,8 +94,9 @@ const PORT = freePort();
     // decorative markup injected via innerHTML.
     await p.waitForSelector('#pjs-save-live .spin-sweep', { state: 'attached', timeout: 3000 });
     // #2923: the save confirmation then lands to the LEFT of the button in
-    // #pjs-save-live (Josh: "Saved." below the button was easy to miss), not in
-    // the after-button #pjs-msg slot. Assert it shows there, sits left of the
+    // #pjs-save-live, still ON the settings panel (kept visible for a beat so a
+    // description-only save -- no visible effect on the detail, #2838 -- is
+    // confirmed before #3134 advances). Assert it shows there, sits left of the
     // button, and is NOT duplicated below.
     await p.waitForFunction(() => { const m = document.getElementById('pjs-save-live'); return m && m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
     const savedPos = await p.evaluate(() => {
@@ -105,28 +106,41 @@ const PORT = freePort();
     });
     if (!(savedPos.statusRight <= savedPos.btnLeft + 1)) die('the "Saved." status is not to the LEFT of the Save changes button: ' + JSON.stringify(savedPos));
     if ((await p.locator('#pjs-msg').innerText()).trim() === 'Saved.') die('"Saved." is still duplicated below the button (#pjs-msg)');
+    // #3134 (Josh, 6.68): a beat after the confirmation it AUTO-ADVANCES to the
+    // project detail instead of leaving the person "stuck on settings". This
+    // navigation is the card's core and returns the dangerous answer on
+    // origin/main (which stays on settings). The auto-advance is ~1s in code, so
+    // a generous timeout here.
+    await p.waitForSelector('#pj-one-view', { state: 'visible', timeout: 10000 });
+    if (await p.locator('#pj-settings-view').isVisible()) die('after Save Changes, still on the settings view (#3134: should auto-advance to the project)');
+    if ((await shown(p.locator('#pj-one-name'))).trim() !== 'Settings Drive Renamed') die('the project page missed the rename after save');
     await p.unroute('**/api/project/**');  // later saves need no delay
-    const back = (await shown(p.locator('#pj-settings-backname'))).trim();
-    if (back !== 'Settings Drive Renamed') die('the back link did not pick up the rename');
-    await p.click('#pj-settings-back');
-    await p.waitForSelector('#pj-one-view', { state: 'visible' });
-    if ((await shown(p.locator('#pj-one-name'))).trim() !== 'Settings Drive Renamed') die('the project page missed the rename');
 
-    // And a no-change save says so instead of lying "Saved."
+    // A no-change save says so instead of lying "Saved." -- and a no-op does NOT
+    // navigate (it returns before the fetch, so no auto-advance is scheduled and
+    // it stays on settings). Re-open settings from the project we returned to.
     await p.click('#pj-settings-link');
+    await p.waitForSelector('#pj-settings-view', { state: 'visible' });
     await p.click('#pjs-save');
     await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Nothing has changed.'; }, null, { timeout: 5000 });
+    // Give the (non-scheduled) auto-advance no chance to fire, then confirm we are STILL on settings.
+    await p.waitForTimeout(1300);
+    if (!(await p.locator('#pj-settings-view').isVisible())) die('a no-op save must stay on the settings view, not navigate (#3134 auto-advances only on a real save)');
+    // The manual back link (leaving settings WITHOUT saving) still works.
+    await p.click('#pj-settings-back');
+    await p.waitForSelector('#pj-one-view', { state: 'visible' });
 
-    // #2923 BLOCKER: a prior project's "Saved." must not survive into another
-    // project's settings panel. Make a real save here (sets "Saved." in
-    // #pjs-save-live), then open a DIFFERENT project's settings and confirm
-    // paintProjectSettings cleared it. Non-vacuous: the waitForFunction proves
-    // "Saved." was actually set before we navigate away.
+    // #2923 BLOCKER, re-checked under #3134: a prior project's "Saved." must not
+    // survive into another project's settings. Make a real save (sets "Saved." in
+    // #pjs-save-live, then auto-advances to the detail), then open a DIFFERENT
+    // project's settings and confirm paintProjectSettings cleared #pjs-save-live.
+    // Non-vacuous: the waitForFunction proves "Saved." was actually set first.
+    await p.click('#pj-settings-link');
+    await p.waitForSelector('#pj-settings-view', { state: 'visible' });
     await p.fill('#pjs-desc', 'a real change so this save is not a no-op');
     await p.click('#pjs-save');
     await p.waitForFunction(() => { const m = document.getElementById('pjs-save-live'); return m && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
-    await p.click('#pj-settings-back');
-    await p.waitForSelector('#pj-one-view', { state: 'visible' });
+    await p.waitForSelector('#pj-one-view', { state: 'visible', timeout: 10000 });   // auto-advanced
     await p.click('[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Second Project').first().click();
     await p.waitForSelector('#pj-settings-link', { state: 'visible' });
@@ -136,7 +150,7 @@ const PORT = freePort();
     if (staleLive !== '') die('a prior project\'s "Saved." survived into the next project\'s settings (#pjs-save-live not cleared by paintProjectSettings): ' + JSON.stringify(staleLive));
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip (spinner in-flight + "Saved." left of button), honest no-op, no cross-project "Saved." leak, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
+    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();
