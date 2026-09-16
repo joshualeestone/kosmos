@@ -12693,6 +12693,29 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         stops, nothing else. Kosmos only does what you asked an agent to do.
       </p>
     </section>
+    <!-- #2436 (Josh, 2026-09-07): the master on/off for the #2407 new-message sound.
+         #3138 (Josh, 6.68): MOVED here to This computer (from Automations), LAST in the
+         section -- whether YOU hear the pop is a property of this machine, so it belongs
+         with the other per-device controls, not with the board-read Automation switches.
+         🔑 A PER-VIEWER PREFERENCE, NOT A SERVER SETTING. It lives in localStorage
+         (soundMasterOn), so the toggle shows its known state immediately rather than hiding
+         until a status read (paintSwitch is called with a real boolean, never null).
+         When OFF, no pop plays on ANY project regardless of the per-project toggles; when
+         ON, the per-project toggles govern each project as they do today. On by default
+         (Josh chose the sound); the static markup starts ON and paintSettings confirms it
+         from storage, so there is no flash. Copy is Mona Lisa's (the card). -->
+    <section class="dbox">
+      <h3 class="dlab">Sounds</h3>
+      <div class="setrow" id="snd-row" style="margin-top:14px;">
+        <div><b>Play a sound for new messages</b>
+          <p class="dhint" style="margin:2px 0 0;">A soft pop when a new message lands on one of your projects, so you notice without watching. On by default. Turn it off to silence it everywhere; you can also mute a single project in its own settings.</p></div>
+        <!-- ⚠️ WCAG 2.5.3 Label in Name (Level A): the accessible name must CONTAIN the
+             visible label ("Play a sound for new messages"), so a speech-input user can
+             activate the control by the words they see. The sibling per-project toggle
+             keeps the same discipline (its visible label is a substring of its aria-label). -->
+        <button class="toggle on" id="snd-toggle" role="switch" aria-checked="true" aria-label="Play a sound for new messages on any of your projects"><i></i></button>
+      </div>
+    </section>
   </section>
   <section class="dsec" id="s-sec-automation" data-sec="automation" tabindex="-1" aria-label="Automation" hidden>
     <section class="dbox">
@@ -12764,31 +12787,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <select id="hb-interval" aria-label="How often to check on your agents"></select>
       </div>
       <p class="dhint" id="hb-msg" role="status" style="margin:8px 0 0;"></p>
-    </section>
-    <!-- #2436 (Josh, 2026-09-07): the master on/off for the #2407 new-message sound,
-         the global switch Josh asked for after hearing it ("something in the settings
-         somewhere to turn it on/off but have it on by default"). It sits here beside the
-         Prompter as the other "how Kosmos gets your attention" control.
-         🔑 A PER-VIEWER PREFERENCE, NOT A SERVER SETTING. Whether YOU hear the pop is
-         yours, like the per-project toggles it governs -- so it lives in localStorage
-         (soundMasterOn) and, unlike Auto-save/Prompter above, there is nothing to read
-         from the board: the toggle shows its known state immediately rather than hiding
-         until a status read (paintSwitch is called with a real boolean, never null).
-         When OFF, no pop plays on ANY project regardless of the per-project toggles; when
-         ON, the per-project toggles govern each project as they do today. On by default
-         (Josh chose the sound); the static markup starts ON and paintSettings confirms it
-         from storage, so there is no flash. Copy is Mona Lisa's (the card). -->
-    <section class="dbox">
-      <h3 class="dlab">Sounds</h3>
-      <div class="setrow" id="snd-row" style="margin-top:14px;">
-        <div><b>Play a sound for new messages</b>
-          <p class="dhint" style="margin:2px 0 0;">A soft pop when a new message lands on one of your projects, so you notice without watching. On by default. Turn it off to silence it everywhere; you can also mute a single project in its own settings.</p></div>
-        <!-- ⚠️ WCAG 2.5.3 Label in Name (Level A): the accessible name must CONTAIN the
-             visible label ("Play a sound for new messages"), so a speech-input user can
-             activate the control by the words they see. The sibling per-project toggle
-             keeps the same discipline (its visible label is a substring of its aria-label). -->
-        <button class="toggle on" id="snd-toggle" role="switch" aria-checked="true" aria-label="Play a sound for new messages on any of your projects"><i></i></button>
-      </div>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own

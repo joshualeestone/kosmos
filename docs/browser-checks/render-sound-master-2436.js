@@ -1,8 +1,9 @@
 'use strict';
 /**
  * kosmos#2436 (Josh, 2026-09-07): the GLOBAL master on/off for the #2407 new-message
- * sound, in Settings > Automation > Sounds. On by default; when OFF no pop plays on any
- * project regardless of the per-project toggles.
+ * sound. #3138 (Josh, 6.68): moved to Settings > This computer > Sounds (from Automation).
+ * On by default; when OFF no pop plays on any project regardless of the per-project toggles.
+ * This check finds the toggle by id (section-agnostic), so the move does not affect it.
  *
  * 🔑 WHAT SOURCE CANNOT SEE. A grep confirms `#snd-toggle` exists and that a handler
  * flips localStorage; only a browser confirms the switch actually PAINTS its state, that
@@ -61,8 +62,8 @@ function check(name, pass, detail) {
     // start clean
     try { window.localStorage.removeItem('kosmos.sound.master'); } catch (e) { /* probed above */ }
 
-    // The toggle lives in the Automation settings section, hidden on load; unhide its
-    // ancestors so paint/visibility reflects the switch's own drawing.
+    // The toggle lives in the This computer settings section (#3138), hidden on load; unhide
+    // its ancestors so paint/visibility reflects the switch's own drawing.
     for (let n = tog; n; n = n.parentElement) {
       if (n.removeAttribute) n.removeAttribute('hidden');
       if (getComputedStyle(n).display === 'none') n.style.display = 'block';
