@@ -176,6 +176,60 @@ run; r="$RUN_RESULT"
   && pass "CONTROL: headless (no owner, console=loginwindow) still refuses even with sessions present -- the fix is not 'always resolve'" \
   || fail "CONTROL: expected refusal in the headless case, got '$r'"
 
+# --- #3108 GUARD: owner_count>1 does NOT prefer a session-backed owner -------
+# kosmos#3108 asked whether, in the multi-account (owner_count>1) case, the
+# resolver should prefer a specific non-console invoker (an owner with an "active
+# session") over the console fallback. Decided WON'T-FIX (won't-fix analysis on
+# the #3108 card): the package script runs as root under installd DETACHED from
+# Installer.app, so there is no reliable root-context signal for which owner
+# invoked THIS install. The only non-console signal (_riu_has_gui_session /
+# launchctl print gui/<uid>) FALSE-NEGATIVES from that context (#2511), and as a
+# PICKER that asymmetry can install into a bystander owner's home (reopening the
+# #1880 silent-misinstall) or convert an honest refuse into a wrong-home install.
+# So the safe behavior is: owner_count>1 IGNORES sessions and falls back to the
+# console user (or refuses when there is no usable console).
+#
+# These arms are the CONTROL THAT RETURNS THE DANGEROUS ANSWER. Arms (1) and (3)
+# are the sharp discriminators: each goes RED if a future edit re-adds "signal
+# (b)" (prefer the lone session-backed owner over the console fallback), because
+# each has exactly one session-backed owner for signal (b) to wrongly pick. Arm
+# (2) has TWO session-backed owners, so signal (b) itself would still fall back to
+# console there; arm (2) instead guards a cruder reintroduction that guesses among
+# multiple session-backed owners. They touch NO resolver logic -- only the same
+# stubbed sensors every arm above uses -- so this guard is additive and off the P0
+# install path.
+
+# (1) owner_count>1, exactly ONE non-console owner has a session, console usable.
+# Must fall back to the console user (alice), NOT prefer the lone session-owner
+# (bob). This is the sharp discriminator: signal (b) would pick bob here.
+STUB_CONSOLE="alice"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS="502"
+run; r="$RUN_RESULT"
+[ "$r" = "alice" ] && [ "$INSTALL_UID" = 501 ] \
+  && pass "#3108 guard: owner_count>1 with ONE session-backed non-console owner still falls back to the console user (alice), never prefers the session-owner (bob)" \
+  || fail "#3108 guard: expected alice/501 (console fallback, no signal-b), got '$r'/'${INSTALL_UID:-}'"
+
+# (2) owner_count>1, BOTH owners have sessions, console usable. Must fall back to
+# the console user, never guess between two session-backed owners.
+STUB_CONSOLE="alice"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS="502 503"
+run; r="$RUN_RESULT"
+[ "$r" = "alice" ] && [ "$INSTALL_UID" = 501 ] \
+  && pass "#3108 guard: owner_count>1 with TWO session-backed owners still falls back to the console user (alice), never guesses one" \
+  || fail "#3108 guard: expected alice/501, got '$r'/'${INSTALL_UID:-}'"
+
+# (3) owner_count>1, ONE session-backed non-console owner, console=loginwindow
+# (no usable console). Must REFUSE -- must NOT convert the refuse into a
+# session-owner pick (that wrong-home install is the exact #1880 reopen).
+STUB_CONSOLE="loginwindow"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS="502"
+run; r="$RUN_RESULT"
+[ "$r" = "<refused>" ] \
+  && pass "#3108 guard: owner_count>1 + session-backed owner + no usable console still REFUSES, never picks the session-owner (no refuse-to-wrong-home conversion)" \
+  || fail "#3108 guard: expected refusal, got '$r'"
+# self-contained: assert the refuse REASON is the ambiguous-multi-owner one, so this
+# arm does not rely on the pre-existing Arm 6 to cover the message shape.
+has "$RIU_REASON" "accounts are running Installer" \
+  && pass "#3108 guard: the refusal names the ambiguous multi-owner reason" \
+  || fail "#3108 guard: expected the ambiguous-multi-owner refuse reason, got: $RIU_REASON"
+
 # --- owner-parse coverage: the real awk parse of `ps` output ---------------
 # Arms above override _riu_installer_owners; this arm exercises the SHIPPED parse
 # by overriding only the raw `ps` sensor, so the awk that reads real ps lines is
