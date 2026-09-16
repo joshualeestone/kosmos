@@ -194,7 +194,9 @@ test('#3136: a fresh dir ok drives verdict to working; a fresh dir 401 to reject
   // readDir feeds the SAME verdict fn the agent store does, so a check-now ok greens
   // and a check-now 401 reddens, both gated by freshness. Control: no dir observation
   // + checkLive connected -> signed_in_unverified (the too-strict state Josh saw).
-  const okObs = observed.readDir(ANTHROPIC, '/x') || null; // null control first
+  // Control: before anything is seeded, readDir returns null and the verdict is the
+  // too-strict signed_in_unverified state Josh saw -- so a green below means the seed did it.
+  assert.equal(observed.readDir(ANTHROPIC, '/x'), null);
   assert.equal(observed.verdict({ checkLiveState: 'connected', now: 1000, freshMs: 5000 }).badge, 'signed_in_unverified');
   observed.sawDir(ANTHROPIC, '/x', OK, 1000);
   const o = observed.readDir(ANTHROPIC, '/x');
@@ -202,5 +204,4 @@ test('#3136: a fresh dir ok drives verdict to working; a fresh dir 401 to reject
   observed.sawDir(ANTHROPIC, '/x', REJECTED, 2000);
   const r = observed.readDir(ANTHROPIC, '/x');
   assert.equal(observed.verdict({ checkLiveState: 'connected', observedOutcome: r.outcome, observedAt: r.at, now: 2200, freshMs: 5000 }).badge, 'rejected');
-  void okObs;
 });
