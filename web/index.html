@@ -4320,22 +4320,25 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
   html[data-layout="consolidated"] body.consolidated #pj-one-view .dname { font-size: 1.25rem; }
   /* #520 piece nine: the project head sits inside the conversation header,
      beside the search (placeProjectHead moves it there). The header takes
-     the mock's shape: title left, search right, one rule beneath; the
-     "Conversation" label steps aside because the title now names the
-     column. */
-  /* 🔑 THE RULE REACHES THE COLUMN EDGES (kosmos#1303 B). Josh: "the horizontal
-     rule below the title, description, settings and search is still not going
-     the full width of its dialog box area. Right now it cuts off on both sides."
-     MEASURED at 1440px, and the inset is not symmetrical, which is why a single
-     negative margin would have looked wrong on one side:
+     the mock's shape: title left, search right (the rule that once sat
+     beneath was removed in #3186); the "Conversation" label steps aside
+     because the title now names the column. */
+  /* HISTORICAL (kosmos#1303 B): this header once carried a horizontal rule, and
+     this block explains why the `-16px` margin / `16px` padding below are set the
+     way they are. #3186 later removed that rule (see the comment on the rule
+     itself); the inset math is still what those values encode, so it is kept.
+     Josh, on the rule at the time: "the horizontal rule below the title,
+     description, settings and search is still not going the full width of its
+     dialog box area. Right now it cuts off on both sides." MEASURED at 1440px,
+     and the inset is not symmetrical, which is why a single negative margin would
+     have looked wrong on one side:
 
          .pjmid      left 442.1   right 1184
          .pjmidhead  left 458.1   right 1167     inset 16 left, 17 right
 
      The extra pixel on the right is `.pjmid`'s own `border-right`, so the head
-     is pulled out by 16 on both sides and the border stops against that rule
-     rather than crossing it. The padding is added back so nothing the person
-     reads moves; only the line gets longer. */
+     is pulled out by 16 on both sides. The padding is added back so nothing the
+     person reads moves. */
   /* #3186 (Josh 6.70): remove the horizontal rule under the discussion header on
      the consolidated view (the header reads as a header from its content/size, so
      the divider line is the clutter he flagged). Keep the padding/margin that give
