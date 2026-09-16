@@ -52,17 +52,18 @@ const create = require('./create');
 
 const SETUP_ROLE_KEY = 'setup';
 
-/* #3034 (Josh, 2026-09-16, 6.70 verification): the first-run auto-create is GATED
- * OFF. Josh's words: "I don't know why this was set up as complete or indicated it
- * was complete because we haven't gone through this yet and I haven't given
- * direction on it." The DESIGN below is his to direct and is left fully intact;
- * this flag only controls whether server.js WIRES the seed into first-run
- * completion. The auto-create is LIVE in the served 0.6.70 build (that is why Josh
- * is seeing a setup-assistant agent he did not create); gating it off here removes
- * it from the next cut (6.71) until Josh directs it. Flip to true when he does;
- * nothing else changes, and seedSetupAssistant() still works when called directly
- * (its tests cover the design). Reversible in a commit, per Josh's make-your-best-call
- * ruling. */
+/* #3034 (Josh, 2026-09-16): the first-run auto-create is GATED OFF. Josh's words:
+ * "I don't know why this was set up as complete or indicated it was complete
+ * because we haven't gone through this yet and I haven't given direction on it."
+ * The auto-create shipped undirected (PR #3153) and is running in prod; this flag
+ * removes it from the next build until Josh directs the design. The DESIGN below is
+ * his to direct and is left fully intact -- this flag only controls whether
+ * server.js WIRES the seed into first-run completion. Flip to true when he directs
+ * it; nothing else changes, and seedSetupAssistant() still works when called
+ * directly (its tests cover the design). Reversible in a commit, per Josh's
+ * make-your-best-call ruling. The release-timing specifics (which cut shipped it,
+ * which removes it) live in the plan and commit, not pinned here where a version
+ * number would go stale. */
 const FIRSTRUN_AUTOCREATE_ENABLED = false;
 
 /* Once-ever flag, same shape/rationale as projects.js welcome-seed: an empty

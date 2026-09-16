@@ -156,3 +156,20 @@ test('GATE (#3034, Josh 2026-09-16): first-run auto-create is OFF pending Josh d
   assert.equal(setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED, false,
     'the setup-assistant first-run auto-create must stay OFF until Josh directs it (#3034)');
 });
+
+test('WIRING GUARD (#3034): server.js seeds the assistant ONLY behind the flag', () => {
+  // The GATE test above guards the flag's DEFAULT value. This guards the WIRING:
+  // the real gate is server.js wrapping the seed call in the flag check, and if
+  // someone removed/inverted that wrapper (restoring the old unconditional seed)
+  // while the constant stayed false, the value test would still pass but the
+  // undirected behavior would return. This reds on exactly that regression.
+  // Structural rather than behavioral because seedSetupAssistant's real createAgent
+  // dependency makes a server-level "no seed on first-run" test vacuous in a bare
+  // sandbox (the seed skips for want of an account/runner regardless of the gate).
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const calls = src.match(/seedSetupAssistant\s*\(/g) || [];
+  assert.equal(calls.length, 1,
+    'expected exactly one seedSetupAssistant() call site in server.js, found ' + calls.length);
+  assert.match(src, /if\s*\(\s*setupAssistant\.FIRSTRUN_AUTOCREATE_ENABLED\s*\)[\s\S]{0,600}?seedSetupAssistant\s*\(/,
+    'the seedSetupAssistant() call in server.js is not guarded by FIRSTRUN_AUTOCREATE_ENABLED -- the gate wiring was removed or bypassed');
+});

@@ -8575,20 +8575,14 @@ const server = http.createServer((req, res) => {
           projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
         }
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
-      /* #3034 (Josh, 2026-09-16): GATED OFF, and the gate owns this block's story.
-         Josh flagged the setup-assistant as prematurely indicated-complete and
-         undirected ("we haven't gone through this yet and I haven't given direction
-         on it"), so the first-run wiring is skipped while
-         setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED is false and the undirected
-         auto-create does not ship on the next cut. The engine is left intact and
-         directable; flip the flag true when Josh directs the design.
-         WHEN ENABLED, this seeds the one-time setup-assistant agent -- named after
-         the user, on their own connected account, same posture as the welcome seed
-         above: once-ever, best-effort, and it MUST NOT throw or block because
-         onboarding has already succeeded. It skips silently with no connected
-         Claude account, no saved user name, or if already seeded (see
-         engine/setup-assistant.js), and the flag file is written only on a real
-         create, so a skip or refusal leaves nothing behind. */
+      /* #3034: GATED OFF pending Josh's direction -- the why (and the release
+         timing) lives with FIRSTRUN_AUTOCREATE_ENABLED in engine/setup-assistant.js,
+         not repeated here. WHEN ENABLED, this seeds the one-time setup-assistant
+         agent (named after the user, on their own connected account), same posture
+         as the welcome seed above: once-ever, best-effort, and it MUST NOT throw or
+         block because onboarding has already succeeded. It skips silently with no
+         connected Claude account, no saved user name, or if already seeded, and the
+         flag file is written only on a real create, so a skip leaves nothing behind. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
           const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
