@@ -123,7 +123,12 @@ function sameLine(a, b) {
     await p.setViewportSize({ width: 700, height: 900 });
     await p.waitForTimeout(250);
     const narrow = await boxes(p);
-    if (!sameLine(narrow.title, narrow.gear)) ok('CONTROL: stacked at 700px reads as NOT one line');
+    // #3128 pinned Settings to the LEFT of the title in both layouts, so the gear
+    // no longer stacks away from the title at narrow width (they share a line at
+    // every width now). Search is the element that still stacks under 760px, so it
+    // is the honest control that the sameLine measurement can still report "not one
+    // row". Measured post-#3128: title/gear share y, search sits a row below.
+    if (!sameLine(narrow.title, narrow.search)) ok('CONTROL: stacked at 700px reads as NOT one line');
     else bad('CONTROL: stacked at 700px reads as NOT one line',
       'the check reported one row where the CSS stacks them, so it cannot fail: ' + JSON.stringify(narrow));
     await p.close();
