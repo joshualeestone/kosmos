@@ -182,10 +182,12 @@ test('#1903/#1916/#3189: the DEFAULT account is checked with its RESOLVED dir (n
      claudeAccountLive's `claude -p` lean on the board's launchd ambient default
      resolution, which fails (no ambient shell env -> UNKNOWN, the #3136 class).
      The stub is dead ONLY when it receives the resolved default dir, so a refusal
-     here proves the default was checked with the explicit resolved dir. The
-     sawConfigDir assertion is the NEGATIVE CONTROL: a null/empty configDir would
-     answer ALIVE (r.ok true) AND fail the equality below, so a regression back to
-     the ambient-lean `isDefault ? null` contract reds this test rather than passing.
+     here proves the default was checked with the explicit resolved dir. NEGATIVE
+     CONTROL: on a regression back to `isDefault ? null` the default is probed with
+     null, the stub answers ALIVE, and `assert.equal(r.ok, false)` reds (it fires
+     first). The `sawConfigDir === DEFAULT_DIR` assertion is a second, explicit guard
+     that pins the EXACT resolved dir the probe must receive, documenting the contract
+     as a machine-checked assertion rather than leaving it implicit in the r.ok outcome.
      (This is a `claude -p` probe; checkLive's default arm correctly uses UNDEFINED
      for the opposite reason -- see the accounts.js listLiveNow decoy comment.) */
   const DEFAULT_DIR = nodePath.join(HOME, '.claude');
