@@ -157,9 +157,23 @@ const readStep = (page) => page.evaluate(() => (typeof FR_STEP !== 'undefined') 
       await routeFlow(page, { fileAccessGranted: false, completeHit });
       await page.goto(`http://127.0.0.1:${PORT}/?first-run=1`, { waitUntil: 'networkidle' });
       await page.waitForTimeout(400);
-      // Welcome -> permission (S2).
-      await page.evaluate(() => { const b = document.getElementById('fr-next'); if (b && !b.disabled) b.click(); });
-      await page.waitForFunction(() => (typeof FR_STEP !== 'undefined') && FR_STEP === 2, null, { timeout: 5000 }).catch(() => {});
+      // Welcome -> file-access (pane 2). #3112 (6.69) moved Model to DISPLAY position 2, so
+      // Welcome -> Next now lands on Model (pane 5), not file-access -- a single click no longer
+      // reaches the S2 gate. Walk forward by CONTENT (Next if usable, else the Model step's Skip
+      // #fr-alt on a clean/not-connected machine) until the file-access gate (pane 2) is showing.
+      // Stop AT pane 2 without clicking past it, so the gate's own disabled-Next is what we then
+      // assert. (Pane NUMBERS are unchanged by the reorder; only the walk order is.)
+      for (let i = 0; i < 4; i += 1) {
+        const at = await readStep(page);
+        if (at === 2) break;
+        const clickable = await page.evaluate(() => {
+          for (const id of ['fr-next', 'fr-alt']) { const b = document.getElementById(id); if (b && !b.hidden && !b.disabled) return id; }
+          return null;
+        });
+        if (!clickable) break;   // nothing forward before pane 2 -> let the assertion below report the real step
+        await page.click('#' + clickable);
+        await page.waitForFunction((b) => (typeof FR_STEP !== 'undefined') && FR_STEP !== b, at, { timeout: 5000 }).catch(() => {});
+      }
       // Let the gate poll land its measured-not-granted verdict.
       await page.waitForTimeout(900);
       const atS2 = await readStep(page);
