@@ -550,12 +550,12 @@ async function main() {
         const receipt = you && you.querySelector('.delivery');
         return {
           rows: msgs.length,
-          /* #3130 (Josh 6.68): the operator's OWN name is dropped from the dialog
-             ("no user name"). The render is `isOp ? '' : '<b>' + name + '</b>'`, so a
-             "you" post has no .msg-h b, while an AGENT post still does. Read both --
-             null-safe -- so the assertions below can prove the operator name is ABSENT
-             while the agent name is PRESENT (not a broken name mechanism). */
-          youNamed: (you && you.querySelector('.msg-h b') || {}).textContent || null,
+          /* #3130 (Josh 6.68): the operator's own name is dropped from the dialog
+             ("no user name"): the render is `isOp ? '' : '<b>' + name + '</b>'`, so a "you"
+             post has no .msg-h b while an agent post does. youBold reads the <b> ELEMENT's
+             presence -- not its text -- so an empty <b> cannot read as absent; agentNamed
+             reads text so the agent's name must actually be there. */
+          youBold: !!(you && you.querySelector('.msg-h b')),
           agentNamed: (box.querySelector('.msg:not(.you) .msg-h b') || {}).textContent || null,
           /* #3130 (Josh 6.68): the agent title is REMOVED from the dialog. These
              fields read whatever .msg-role the render produced -- a profile role
@@ -588,15 +588,12 @@ async function main() {
         };
       });
       if (!seen.visible || seen.rows !== 2) throw new Error('the room did not render its two posts: ' + JSON.stringify(seen));
-      /* #3130 (Josh 6.68): the operator's own name is dropped from the dialog ("no user
-         name"); the render keeps the name <b> for an AGENT post and omits it for the
-         operator (`isOp ? '' : '<b>'+name+'</b>'`). Assert BOTH -- the agent post IS named
-         and the operator post is NOT -- so the operator-name absence is the #3130 change and
-         stays RED-CAPABLE: a render that stripped the agent's name too (a broken mechanism)
-         fails the first check rather than reading as a false green, and a render that put the
-         operator name back fails the second. This replaces the pre-#3130 youNamed==='You'. */
+      /* #3130: assert both sides of the render above and stay RED-CAPABLE -- the agent post
+         must be named (a stripped agent name reds here, so the operator check below is not
+         vacuous) and the operator post must carry no name <b> (a returned operator name reds).
+         Replaces the pre-#3130 youNamed==='You'. */
       if (!seen.agentNamed) throw new Error('the agent post has no name <b>, so the operator-name-absence check would be vacuous: ' + JSON.stringify(seen));
-      if (seen.youNamed !== null) throw new Error('#3130: the operator post still shows a name <b> (' + seen.youNamed + '), but the user name is removed from the dialog');
+      if (seen.youBold) throw new Error('#3130: the operator post still carries a name <b>, but the user name is removed from the dialog');
       /* #3130 (Josh 6.68): the agent's title is NOT shown in the dialog anymore
          (the #1703 .msg-role span was removed). The profile role is still seeded
          above, so this asserts the title is absent despite a role existing --
