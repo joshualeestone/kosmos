@@ -6614,13 +6614,13 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    light and dark by construction rather than hardcoding a colour. */
 #alltasks-list .tkcard { position: relative; padding-right: 5.25rem; }
 #alltasks-list .tkcard.closed b { text-decoration: line-through; color: var(--label-2); }
-.tkcard-badge { position: absolute; top: 50%; right: var(--space-5); transform: translateY(-50%);
+#alltasks-list .tkcard-badge { position: absolute; top: 50%; right: var(--space-5); transform: translateY(-50%);
   font: var(--text-caption) var(--font-ui); border: 1px solid var(--label-2); border-radius: 999px;
   padding: 1px 9px; color: var(--k-ink); background: var(--k-sunk); }
-.tkcard-badge.closed { color: var(--k-ink-2); border-color: var(--k-rule); }
-.tk-divider { display: flex; align-items: center; gap: var(--space-4);
+#alltasks-list .tkcard-badge.closed { color: var(--k-ink-2); border-color: var(--k-rule); }
+#alltasks-list .tk-divider { display: flex; align-items: center; gap: var(--space-4);
   color: var(--label-2); font: var(--text-caption) var(--font-ui); }
-.tk-divider::before, .tk-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--k-rule); }
+#alltasks-list .tk-divider::before, #alltasks-list .tk-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--k-rule); }
 .tksay { font-style: normal; color: var(--label-2); margin-left: 4px; }
 /* ⚠️ A DIFFERENT APPEARANCE, not just different words. `.tksay` carries what
    the AGENT said; this carries what WE could not establish, which is a
@@ -38173,23 +38173,30 @@ async function openAllTasksView() {
      far-right Open/Closed pill, and show the task number the way the project
      column already does (`Task N`). The pill carries the closed state, so the
      old ' \u00b7 finished' meta text is retired to avoid saying it twice.
-     \ud83d\udd11 THE #1346 GUARANTEE IS KEPT: `rows` is still the one array the heading
-     counted, sorted IN PLACE (open before closed) so the count cannot disagree,
+     \ud83d\udd11 ONE SORT, THE SERVER'S. allTasks() (engine/tasks.js) already returns
+     open-before-closed, pinned by engine/tasks.all-1382.test.js ("open work sorts
+     above finished work"), so this render TRUSTS that grouping rather than
+     re-deriving it (repo convention: no two derivations of one fact). The divider
+     therefore expects a single open->closed boundary, and render-alltasks asserts
+     exactly one divider, so a change to the server order is caught here.
+     \ud83d\udd11 THE #1346 GUARANTEE IS KEPT: `rows` is the one array the heading counted,
      and the divider is a non-`.tkcard` element, so the rendered-row count
-     render-alltasks pins against the heading is unchanged. */
-  rows.sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0));
+     render-alltasks pins against the heading is unchanged.
+     The badge is the LAST child so the button's reading order (number, title,
+     who, then status) matches the visual order; `position: absolute` keeps it at
+     the far right regardless of DOM position. */
   const anyOpen = rows.some((t) => !t.isClosed);
   list.innerHTML = rows.map((t, i) => {
     const opensClosedGroup = t.isClosed && anyOpen && (i === 0 || !rows[i - 1].isClosed);
-    return (opensClosedGroup ? '<div class="tk-divider" role="separator" aria-label="Closed tasks"><span>Closed</span></div>' : '')
+    return (opensClosedGroup ? '<div class="tk-divider" role="separator"><span>Closed</span></div>' : '')
       + '<button class="tkcard' + (t.isClosed ? ' closed' : '')
       + '" type="button" data-project="' + esc(t.projectId) + '" data-task="' + Number(t.number) + '">'
-      + '<span class="tkcard-badge' + (t.isClosed ? ' closed' : '') + '">' + (t.isClosed ? 'Closed' : 'Open') + '</span>'
       + '<span class="tkcard-n">Task ' + Number(t.number) + '</span>'
       + '<b>' + esc(t.sentence || '') + '</b>'
       + '<small>' + esc(t.projectName || '')
       + (t.whoNames && t.whoNames.length ? ' \u00b7 ' + esc(t.whoNames.join(', ')) : '')
       + '</small>'
+      + '<span class="tkcard-badge' + (t.isClosed ? ' closed' : '') + '">' + (t.isClosed ? 'Closed' : 'Open') + '</span>'
       + '</button>';
   }).join('');
 }

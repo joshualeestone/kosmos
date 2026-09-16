@@ -255,6 +255,33 @@ const say = (n, cond, note) => {
     say('the document holds more task cards than this screen, so the scoping matters',
       seen.everywhere >= seen.rows, 'document ' + seen.everywhere + ' vs screen ' + seen.rows);
 
+    /* #3171: the no-closed branch, positively. Beta (made[1]) has two OPEN tasks
+       and nothing closed, so its all-tasks screen must render NO divider and only
+       Open pills. Without this, the "no divider when nothing is closed" path is
+       only read, never executed. Done last so it does not disturb the Alpha-context
+       assertions above (scoping, heading==rows, member face). */
+    await p.click('[data-tab="projects"]');
+    await p.locator('#pj-list').getByText('Beta Project').first().click();
+    await p.waitForSelector('#pj-one-view', { state: 'visible' });
+    await p.waitForTimeout(300);
+    await p.click('#pj-alltasks');
+    await p.waitForSelector('#pj-alltasks-view', { state: 'visible' });
+    await p.waitForTimeout(400);
+    const beta = await p.evaluate(() => {
+      const list = document.getElementById('alltasks-list');
+      const rows = [...document.getElementById('pj-alltasks-view').querySelectorAll('.tkcard')]
+        .filter((r) => r.getBoundingClientRect().height > 0);
+      return {
+        rows: rows.length,
+        dividers: list.querySelectorAll('.tk-divider').length,
+        badges: rows.map((r) => { const b = r.querySelector('.tkcard-badge'); return b ? b.textContent.trim() : null; }),
+      };
+    });
+    say('#3171: an all-open project renders NO divider (the no-closed branch)',
+      beta.rows > 0 && beta.dividers === 0, JSON.stringify(beta));
+    say('#3171: an all-open project shows only Open pills',
+      beta.rows > 0 && beta.badges.every((b) => b === 'Open'), JSON.stringify(beta.badges));
+
     say('no page errors', errs.length === 0, errs.join(' | '));
   } catch (e) {
     say('the check ran to completion', false, String(e && e.message ? e.message : e));

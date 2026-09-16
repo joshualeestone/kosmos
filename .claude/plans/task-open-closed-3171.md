@@ -13,9 +13,13 @@ here).
 1. **Far-right Open/Closed pill** on every row (`.tkcard-badge`), reusing the
    existing semantic tokens so it follows light and dark by construction.
 2. **A labelled "Closed" divider** (`.tk-divider`) between the open group and the
-   closed group. Rows are sorted in place open-before-closed so the grouping is
-   guaranteed regardless of API order, and the divider is a non-`.tkcard`
-   element so it is not counted as a row.
+   closed group. The server (`allTasks()` in `engine/tasks.js`) already returns
+   tasks open-before-closed, pinned by `engine/tasks.all-1382.test.js` ("open work
+   sorts above finished work"), so the render TRUSTS that grouping rather than
+   re-deriving it with a second client sort (repo convention: no two derivations
+   of one fact). The divider is a non-`.tkcard` element so it is not counted as a
+   row, and render-alltasks asserts exactly one divider, so a change to the server
+   order is caught here.
 3. **The task number** (`.tkcard-n` "Task N") on each row, matching the project
    column's treatment.
 4. Closed titles struck through + dimmed (scoped `#alltasks-list .tkcard.closed b`),
@@ -24,11 +28,14 @@ here).
    not said twice).
 
 ## Guarantees kept
-- **#1346 (heading == rows):** `rows` is still the one array the heading counts,
-  sorted in place; the divider is not a `.tkcard`, so render-alltasks' rendered-
-  row-vs-heading assertion is unchanged.
-- **Scope:** all CSS is scoped to `#alltasks-list`, so the shared `.tkcard` on the
-  project page / consolidated view is untouched (render-tasks.js still passes).
+- **#1346 (heading == rows):** `rows` is the one array the heading counts; the
+  divider is not a `.tkcard`, so render-alltasks' rendered-row-vs-heading
+  assertion is unchanged.
+- **Scope:** every one of the six new CSS rules is prefixed `#alltasks-list`, so
+  the shared `.tkcard` on the project page / consolidated view is untouched
+  (render-tasks.js still passes). The `.tkcard-badge` / `.tk-divider` class names
+  are also new and unused elsewhere, but the selector scope is the real guard, not
+  name-uniqueness.
 
 ## Weakest premise
 That `t.isClosed` is the authoritative open/closed flag on the all-tasks payload.
