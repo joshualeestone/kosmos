@@ -79,6 +79,15 @@ test('the list view lays the row across four columns with the status at the far 
   // title-narrow/description-wide, and the agents column widened so five
   // faces plus the count text (projectCard's own worst case) fit without
   // spilling into the status column.
+  // ⚠️ #3135 (6.68): in the non-consolidated tab list view these base rules'
+  // grid-template-columns and the pc-t/pjfaces/pjpill placements are OVERRIDDEN
+  // at runtime by the higher-specificity `body:not(.consolidated) #pj-list:not(.asgrid)`
+  // multi-column block (rows are compact cards at every width, and the <52rem
+  // media collapse below is superseded). These asserts pin the base rule TEXT,
+  // which is still live for this view's display:grid, padding, column-gap and
+  // truncation -- so do not read "four columns" / "narrow-only stacking" as the
+  // rendered behavior of the columnised list view; that contrast is covered by
+  // render-subproject-columns-3135.js.
   assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \{ display: grid;[^}]*grid-template-columns: minmax\(9rem, 1fr\) minmax\(9rem, 1fr\) minmax\(9rem, 12rem\) auto;/);
   assert.match(PAGE, /\.pj-list:not\(\.asgrid\) \.pj-row \.pjcard-h \{ display: contents; \}/);
   for (const [sel, col] of [['.pjname', 1], ['.pc-t', 2], ['.pjfaces', 3], ['.pjpill', 4]]) {
