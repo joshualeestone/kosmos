@@ -2097,7 +2097,7 @@ test('every model the menu offers is named the same by the board that reports it
   }
 });
 
-test('own is the last entry and no role is hidden but it', () => {
+test('own and setup are the only hidden entries; every other role is in the menu', () => {
   // ⚠️ TWO FACTS, AND THEY USED TO BE TWO NUMBERS THAT MOVED TOGETHER (27 and
   // 26). Adding Project Director broke both at once, which is exactly the
   // situation the original comment was trying to avoid: two failures naming
@@ -2116,16 +2116,26 @@ test('own is the last entry and no role is hidden but it', () => {
   // candidates, he confirmed all four -- "Family roles sound great" -- and
   // asked for the group at the bottom of the list, which array order
   // already gives it).
-  assert.equal(roles.ROLES.length, 34, 'the catalogue grew or shrank; say so here on purpose');
+  // 35 since the #3034 setup-assistant role -- the SECOND hidden entry
+  // (menu:false), auto-created once on first-run and never offered in the picker.
+  assert.equal(roles.ROLES.length, 35, 'the catalogue grew or shrank; say so here on purpose');
   const menu = roles.ROLES.filter((r) => r.menu !== false);
-  assert.equal(menu.length, roles.ROLES.length - 1,
-    'exactly one entry is meant to be hidden; own leaked into the picker, or a menu role got hidden');
-  assert.ok(!menu.some((r) => r.key === 'own'), 'own is in the grouped menu');
-  // POSITIVE CONTROL: the exclusion is the flag doing work, not a
-  // coincidence of counting -- flipping it in a copy must change the count.
+  // TWO facts, kept as separate axes: exactly which roles are hidden, and that
+  // none of them reaches the picker. The hidden SET is pinned by key so a new
+  // hidden role cannot join silently and `own`/`setup` leaking still fails on
+  // its own line.
+  const hidden = roles.ROLES.filter((r) => r.menu === false).map((r) => r.key).sort();
+  assert.deepEqual(hidden, ['own', 'setup'],
+    'exactly two entries are meant to be hidden (own, setup); one leaked into the picker or a new one got hidden');
+  assert.equal(menu.length, roles.ROLES.length - hidden.length,
+    'a hidden role leaked into the grouped menu, or a menu role got hidden');
+  assert.ok(!menu.some((r) => r.key === 'own' || r.key === 'setup'), 'own or setup is in the grouped menu');
+  // POSITIVE CONTROL: the exclusion is the flag doing work, not a coincidence of
+  // counting -- flipping own in a copy must add exactly one back to the menu
+  // (setup stays hidden).
   const flipped = roles.ROLES.map((r) => (r.key === 'own' ? { ...r, menu: true } : r))
     .filter((r) => r.menu !== false);
-  assert.equal(flipped.length, roles.ROLES.length, 'the menu filter is not reading the flag this test guards');
+  assert.equal(flipped.length, menu.length + 1, 'the menu filter is not reading the flag this test guards');
   // No label on purpose: it prints under the agent's name, and "Custom" is
   // nobody's job. The gate lives in create and is tested below.
   assert.ok(!roles.byKey('own').label, 'own grew a default label');
