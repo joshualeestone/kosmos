@@ -25396,6 +25396,18 @@ function usageUsd(n) {
   if (v >= 1e3) return '$' + usageNum(Math.round(v));
   return '$' + v.toFixed(v < 10 ? 2 : 0);
 }
+/* #3137 (Josh, 6.68): the hero's fixed-width stat TILES clip a full thousands figure
+   -- "$176,332" (Approximate Human Cost) ran past the tile edge. In a tile, abbreviate
+   the thousands band to $NK (Josh's "176k"), no decimal so it stays as narrow as
+   possible; below $1k keeps the exact $N / $N.NN. This is TILE-ONLY: usageUsd (and so
+   the per-row Value COLUMN, which has room and which #2840 ruled shows the exact figure)
+   is untouched. The M+ bands are formatted at each tile's call site because the hero keeps
+   one decimal ($1.8M) while the API-cost tile stays whole ($1M) -- the approved mock's
+   intentional difference -- so this helper only owns the shared sub-$1M path. Pure. */
+function usageUsdTileSub1M(n) {
+  const v = Number(n) || 0;
+  return v >= 1e3 ? '$' + (v / 1e3).toFixed(0) + 'K' : usageUsd(v);
+}
 /* The per-row blended dollar Value: the row's 4-class token total, valued at the
    design's blended rate. Pure. */
 function usageRowValue(total) {
@@ -25437,8 +25449,9 @@ function usageHeroHtml(totals, activeDays, apiCostUsd) {
   // The one-decimal M band is DELIBERATELY only on this headline (the mock locks "$135.0M");
   // the API-cost stat below stays on usageUsd's whole-number M band. That the two dollar
   // figures in this card differ by a decimal is the approved mock, not a formatting drift.
-  const valueStr = value >= 1e6 ? '$' + (value / 1e6).toFixed(1) + 'M' : usageUsd(value);
-  const apiStr = (apiCostUsd === null || apiCostUsd === undefined) ? '-' : usageUsd(apiCostUsd);
+  const valueStr = value >= 1e6 ? '$' + (value / 1e6).toFixed(1) + 'M' : usageUsdTileSub1M(value);
+  const apiStr = (apiCostUsd === null || apiCostUsd === undefined) ? '-'
+    : apiCostUsd >= 1e6 ? usageUsd(apiCostUsd) : usageUsdTileSub1M(apiCostUsd);
   return '<div class="tv-hero">'
     + '<p class="tv-days"><span class="tv-dnum">' + usageHeroDigits(activeDays) + '</span>'
     + '<span class="tv-dtxt">Active Days on Kosmos</span></p>'
