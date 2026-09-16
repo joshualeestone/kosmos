@@ -27,6 +27,25 @@ Center via the flex CONTAINER, immune to the child-margin override:
   populated list keeps `justify-content: normal` and top-aligns its cards (verified).
 - Works in both layouts: tab (min-height:14rem box) and consolidated (flex-filled box).
 
+## Scope: this is a CLASS fix, both `.tkcards` empty-states (raised in review, intentional)
+The selector is deliberately on the CLASS, not `#pj-tasklist` alone, because BOTH `.tkcards`
+consumers carried the identical bug:
+- `#pj-tasklist` - the per-project tasks column (the surface Josh reported). Measured 61/61.
+- `#alltasks-list` - the all-tasks screen's empty-state ("No tasks on this project yet",
+  reached from a fresh project's door). Measured 82/82, free 163 - centers correctly.
+Fixing only the reported id would leave the identical bug on the sibling (fix-the-class, not
+the-instance). The generic selector is not a regression on either surface: the pre-fix state
+was bottom-aligned on both, and centered-or-noop is strictly not worse.
+
+Assertion decision: the browser-check asserts centering on `#pj-tasklist` (the card's surface),
+which guards the single shared CSS mechanism. A second automated assertion via the all-tasks DOM
+path was judged disproportionate for a one-rule CSS fix (render-tasks.js populates the column, so
+reaching the EMPTY all-tasks state needs extra navigation, and a second check file risks the
+browser-check wiring guards). The sibling is verified manually via pw-runtime instead.
+Weakest premise: if a future change adds an `#alltasks-list`-specific container override that
+breaks centering, only manual verification caught the sibling today - mitigated by the selector
+being one commented rule that visibly covers both.
+
 ## Verification
 - Re-measured after the fix: gapAbove 61, gapBelow 61, centered in both layouts.
 - Populated list: `justify-content: normal`, first card at top (gapAboveFirst 0).

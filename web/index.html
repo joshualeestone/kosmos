@@ -6564,7 +6564,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    margin-bottom:auto to split the free space, but `.panel p:last-child { margin-bottom: 0 }`
    (higher specificity) zeroes it, so only the top auto-margin survived and the text
    bottom-aligned. justify-content on the container is immune to that override and
-   works in both the tab min-height:14rem box and the consolidated flex-filled box. */
+   works in both the tab min-height:14rem box and the consolidated flex-filled box.
+   Scoped to the class, not one id, on purpose: BOTH `.tkcards` empty-state consumers
+   carried the same bug -- the per-project column (#pj-tasklist) and the all-tasks
+   screen (#alltasks-list, "No tasks on this project yet"). One rule fixes both; both
+   measured centred via pw-runtime (61/61 and 82/82). A populated list has no `.tk-empty`
+   child, so it keeps justify-content:normal and its cards stay top-aligned. */
 .tkcards:has(> .tk-empty) { justify-content: center; }
 .tk-empty { margin: 0; padding: var(--space-7) var(--space-5); text-align: center; font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: 1.5; }
 #pj-newtask { margin-bottom: var(--space-5); }
