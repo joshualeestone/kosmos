@@ -17,8 +17,7 @@ repaints. Today there is NO visual indication of where the drop will land.
   before/after split the drop handler uses (`e.clientY > rect.top + rect.height/2` => after), so the
   line always matches where the drop will actually land.
 - The line is a CSS pseudo-element (`::before` at top, `::after` at bottom) sitting in the 4px gap
-  between rows (top/bottom -3px), 2px tall, in the brand gold (`--gold-bright`, the primary-button
-  colour), `pointer-events: none`. Scoped to `html[data-layout="consolidated"] body.consolidated #pj-list`.
+  between rows (top/bottom -3px), 2px tall, in the theme-aware brand-gold edge (`--gold-edge`, which clears the WCAG 1.4.11 3:1 floor in both themes, unlike --gold-bright), `pointer-events: none`. Scoped to `html[data-layout="consolidated"] body.consolidated #pj-list`.
 - Cleared whenever the drag ends (`endDrag` runs in both the drop and dragend paths) and when the
   pointer moves off a valid target (a new dragover clears the prior row's line first; dragover over
   the dragged row itself clears and shows nothing).

@@ -3827,12 +3827,16 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      project will drop. Set on the row under the pointer as .pj-drop-before (drop
      ABOVE it) or .pj-drop-after (drop BELOW it), by which half the pointer is over
      -- the same before/after split the drop handler uses. The line sits in the 4px
-     gap between rows (top/bottom -3px) so it reads as "between these two", in the
-     brand gold. Set on dragover, cleared on drop/dragend; consolidated view only. */
+     gap between rows (top/bottom -3px) so it reads as "between these two". Colour is
+     --gold-edge, the theme-aware brand-gold EDGE variant (dark gold on light, light
+     gold on dark), NOT --gold-bright: this is a state-identifying graphic under WCAG
+     SC 1.4.11 (3:1 floor), and --gold-bright measures ~1.95:1 (see the note at ~L129);
+     --gold-edge clears 3:1 in both themes. Set on dragover, cleared on drop/dragend;
+     consolidated view only. */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-drop-before::before,
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-drop-after::after {
     content: ''; position: absolute; left: 0; right: 0; height: 2px;
-    background: var(--gold-bright); border-radius: 2px; pointer-events: none; }
+    background: var(--gold-edge); border-radius: 2px; pointer-events: none; }
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-drop-before::before { top: -3px; }
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-drop-after::after { bottom: -3px; }
   /* The indent now carries the relationship, so drop the ancestry chip on rows the
@@ -37239,7 +37243,10 @@ function pjTreeToggleFold(id) {
    over), and that order is saved as PJ_ORDER and repainted. Dragging SETS the manual
    order; choosing a sort clears it (the #pj-sort change handler) -- mutually exclusive,
    last action wins. Keyboard ordering stays on the sort dropdown; drag is a pointer
-   affordance, so this adds no keyboard trap. */
+   affordance, so this adds no keyboard trap.
+   #3127: while dragging, a placement LINE (.pj-drop-before/.pj-drop-after on the row
+   under the pointer) shows where the drop will land, using the same before/after
+   split as the drop below; it is cleared on drop/dragend and off a valid target. */
 (function wirePjClusterDrag() {
   const list = document.getElementById('pj-list');
   if (!list) return;
