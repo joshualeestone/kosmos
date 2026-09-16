@@ -4912,7 +4912,12 @@ test('the browser-layer fixes on this branch cannot be undone silently', () => {
     // A bare clock time is only true today; a thread keeps a thousand rows.
     [/then\.toDateString\(\) !== now\.toDateString\(\)/,
      'pjWhen dropped the calendar-day qualifier, so a three-day-old row reads as this afternoon'],
-    [/return 'at ' \+ time \+ ' on '/,
+    // #3130 (Josh 6.68): the dated form is now "10:59 am, Sep 12" (was "at 10:59
+    // AM on Sep 12"); the calendar-day branch still returns a form carrying the
+    // date, so a three-day-old row is still qualified. Pinned through to
+    // toLocaleDateString so a refactor that dropped the date (returning
+    // `time + ', <non-date>'`) still trips this guard.
+    [/return time \+ ', '[\s\S]{0,60}toLocaleDateString/,
      'the calendar-day branch no longer returns a dated form, so its condition decides nothing'],
   ];
 

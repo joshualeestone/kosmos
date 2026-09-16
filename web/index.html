@@ -4684,7 +4684,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
           min-height: 26rem; max-height: min(62vh, 44rem); overflow-y: auto;
           border: 1px solid var(--k-rule); border-radius: 10px;
           background: var(--k-bg); }
-.msg { display: flex; gap: 14px; }
+.msg { display: flex; align-items: center; gap: 14px; }
 .msg-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; display: grid;
           place-items: center; background: rgba(20,22,26,.06); font-size: .875rem;
           font-weight: 600; color: var(--k-ink-2); overflow: hidden; }
@@ -4741,12 +4741,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .msg-h b { font-size: .9375rem; }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
-/* #1703 (Josh, 2026-08-31): the agent's title in very small text between their
-   name and the timestamp, so a person with ~19 agents can tell the manager from
-   the worker at a glance. Muted and normal-weight so it reads as metadata beside
-   the bold name, never competing with it. `--label-3` is theme-aware, so no
-   separate dark rule is needed (the same token pj-member-role uses). */
-.msg-role { font-size: .75rem; color: var(--label-3); font-weight: 400; }
+/* #3130 (Josh 6.68): the #1703 `.msg-role` agent-title span is no longer rendered
+   in the dialog (removed in pjRoomRow), so its CSS rule is removed with it. The
+   member roster's own title styling (pj-member-role) is unaffected. */
 /* The conversation search (18e:380-386, verbatim). The header row that
    locks it right is the EXISTING .pjmidhead rule above; a duplicate
    selector here shadowed its gap while its margin survived, a hybrid
@@ -40900,9 +40897,9 @@ function pjReceiptSentence(outcomes, p, silent) {
    * whether anyone got it. So the sentence goes only when nothing else is
    * being said about delivery.
    *
-   * 📌 The placed GROUP is still computed either way: "Nothing back from any of
-   * them" is derived from it, and that sentence is the #145 signal that told
-   * Josh his agents were answering into their own sessions.
+   * 📌 The placed GROUP is still computed either way, for the "Placed with ..."
+   * clause. (It used to also derive the "Nothing back from ..." #145 silence
+   * signal; that sentence was removed for #3130, Josh 6.68.)
    */
   const deliveryIsTheWholeStory = !groups.unconfirmed.length && !groups.could_not.length;
   if (groups.placed.length && !deliveryIsTheWholeStory) {
@@ -40913,31 +40910,15 @@ function pjReceiptSentence(outcomes, p, silent) {
   }
   if (groups.could_not.length) bits.push(pjJoinNames(groups.could_not) + ' could not be reached.');
 
-  /* ⚠️ ORDERED BY THE LIST ALREADY ON SCREEN, so the two sentences can be
-     matched by eye without re-reading the first one. */
-  if (silent && silent.length && groups.placed.length) {
-    /* ⚠️ MATCHED ON SESSION NAMES, NOT ON WHAT IS DISPLAYED. Display names are
-       not unique — creation collides only on the slug, so two agents can both
-       show "Rick" — and matching in display-name space merged them: one
-       answers, one does not, both match, and the person is told nobody
-       answered about a room where somebody did. The caller passes the session
-       names and the mapping to words happens here, once. */
-    const names = placedWho.filter((who) => silent.includes(who)).map((who) => pjNameOf(p, who));
-    if (names.length) {
-      /* ⚠️ "ANY OF THEM" WHEN IT IS ALL OF THEM, deliberately. Repeating the
-         whole list reads as a DIFFERENT set of people; "any of them" points at
-         the list already in front of the person.
-         ⚠️ AND "THEM" IS EVERYONE THE RECEIPT JUST NAMED, not everyone it was
-         placed with. Comparing against the placed group alone produced
-         "Placed with A and B. C could not be reached. Nothing back from any of
-         them." — sweeping in the agent the sentence before had just said never
-         received it. */
-      const everyoneNamed = groups.placed.length + groups.unconfirmed.length + groups.could_not.length;
-      bits.push(names.length === everyoneNamed && names.length > 1
-        ? 'Nothing back from any of them.'
-        : 'Nothing back from ' + pjJoinOr(names) + '.');
-    }
-  }
+  /* #3130 (Josh 6.68): the "Nothing back from <agent>" / "Nothing back from any
+     of them" silence sentences are REMOVED from the room dialog. Josh asked to
+     drop that noise; the real delivery facts above ("could not be reached",
+     "may have it; not confirmed") stay, since those are actionable, not noise.
+     The `silent` param is kept in the signature so pjRoomRow's call site is
+     unchanged; `placedWho` (a now-unused local) and the now-orphaned `pjJoinOr`
+     helper fall out of the same removal. All fold into the deferred
+     silence-plumbing cleanup (pjSilences / pjSilentSince / paintRoom's silences
+     map / pjJoinOr). */
   return bits.join(' ');
 }
 
@@ -41214,27 +41195,21 @@ function pjRoomRow(m, p, silent) {
      agent's post whenever any recipient did NOT simply receive it --
      partial delivery in the room must never look like the full room heard. */
   const showReceipt = isOp || states.some((v) => v !== 'placed');
-  /* ⚠️ THE PILL READS DELIVERY, AND THE SENTENCE INSIDE IT NOW READS MORE THAN
-     DELIVERY. A post placed with everyone where nobody has come back draws a
-     green `placed` pill around the words "Nothing back from any of them" — the
-     fastest-read channel on the row disagreeing with the slowest, on a feature
-     whose entire point is telling a working room from a broken one at a glance.
-     ⚠️ It is left as it is on purpose. `placed` is TRUE: the message was
-     delivered, and that is what the pill has always meant. Recolouring it on
-     silence would make the pill mean two different things depending on how old
-     the post is, and would put a failure colour on a delivery that worked. The
-     mismatch is real and it belongs to the pill's vocabulary, which is a design
-     question, not a bug to patch here. */
+  /* #3130 (Josh 6.68): the pill reads pure DELIVERY again. The silence sentence
+     ("Nothing back from ...") is removed, so a post placed with everyone and no
+     failures now produces an EMPTY receipt sentence, and pjRoomRow's empty-pill
+     guard below draws no `delivery` pill at all for it. The old mismatch this
+     block used to weigh -- a green `placed` pill wrapped around a silence
+     sentence -- can no longer arise, because that sentence is gone. */
   const cls = states.length && states.every((v) => v === 'placed') ? 'placed'
     : (states.some((v) => v === 'could_not') ? 'failed' : 'unsure');
-  const receipt = showReceipt && states.length
-    /* ⚠️ THE SILENCE CLAUSE IS GATED HERE TOO, NOT ONLY IN `pjSilences`. An
-       agent's post carries outcomes as well, so a caller that handed this
-       function a list would draw "Nothing back from Johnson" underneath a
-       message RICK sent — a receipt about somebody else's message. That it
-       cannot happen today rests on one condition in a different function; this
-       is the row a person actually reads, so it enforces the rule itself. */
-    ? '<span class="delivery ' + cls + '">' + esc(pjReceiptSentence(m.outcomes, p, isOp ? silent : null)) + '</span>' : '';
+  const receiptText = showReceipt && states.length ? pjReceiptSentence(m.outcomes, p, isOp ? silent : null) : '';
+  /* #3130: draw the delivery pill ONLY when there is a sentence. With the silence
+     clause removed (see pjReceiptSentence), an operator post placed with everyone
+     and no failures yields an empty sentence, and an empty `<span class="delivery
+     placed">` would render as a stray empty pill. Gate on the text, not just on
+     showReceipt/states. */
+  const receipt = receiptText ? '<span class="delivery ' + cls + '">' + esc(receiptText) + '</span>' : '';
   /* #2806 (Josh, 2026-09-11): the message BODY wears a colored box in the room --
      royal-blue for the person's own post (`.msg.you`), light-gray for an agent's --
      the same two tokens the DM view already uses (`--usermsg-tint` / `--k-sunk`; see
@@ -41252,14 +41227,9 @@ function pjRoomRow(m, p, silent) {
   const amSeed = String((m && (m.id || m.at)) || ''); let amH = 0; for (let ai = 0; ai < amSeed.length; ai++) amH = (amH * 31 + amSeed.charCodeAt(ai)) | 0; const amRoom = Math.abs(amH) % 5;
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
-    /* #1703: the agent's title beside the name, before the timestamp. `card` is
-       this message's agent record from p.agents (false for the operator's own
-       posts, so "You" carries no title); its `role` is resolved server-side
-       (engine/projects.js), normalised through roleLine exactly as the member
-       roster does (pj-member-role), so the two surfaces name a role the same way.
-       Guarded on card && card.role: an agent with no title in its instructions
-       renders no span rather than an empty one. */
-    + (card && card.role ? '<small class="msg-role">' + esc(roleLine({ role: card.role }, ROLE_TITLES)) + '</small>' : '')
+    /* #3130 (Josh 6.68): the agent's title is NOT shown in the dialog. The #1703
+       title span was removed here per Josh's feedback; roleLine/ROLE_TITLES stay
+       in use by the member roster (pj-member-role), only this surface drops it. */
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
     + (bd ? '<div class="msg-bd"' + (isOp ? '' : ' data-am="' + amRoom + '"') + '>' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
 }
@@ -42265,18 +42235,20 @@ function pjWhen(at) {
   if (mins < 60) return mins === 1 ? 'a minute ago' : mins + ' minutes ago';
   try {
     const then = new Date(when);
-    const time = then.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    // #3130 (Josh 6.68): lowercase am/pm, and format as "10:59 am" / "10:59 am, Sep 12"
+    // (drop the leading "at", swap "on" for a comma). toLowerCase covers the AM/PM.
+    const time = then.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase();
     // ⚠️ A bare clock time is only TRUE today. A thread keeps up to a
-    // thousand messages, so "at 3:42 PM" on a three-day-old row reads as
+    // thousand messages, so "3:42 pm" on a three-day-old row reads as
     // this afternoon -- a false time claim, the exact class rule 5 exists
     // for. Compared by calendar day, not by 24 hours, because "yesterday at
     // 11 PM" is not today at any hour.
     const now = new Date();
     if (then.toDateString() !== now.toDateString()) {
-      return 'at ' + time + ' on '
+      return time + ', '
         + then.toLocaleDateString([], { month: 'short', day: 'numeric' });
     }
-    return 'at ' + time;
+    return time;
   } catch {
     return '';
   }

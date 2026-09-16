@@ -532,10 +532,10 @@ async function main() {
     ];
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     for (const row of seeded) fs.appendFileSync(logFile, JSON.stringify(row) + '\n');
-    /* #1703: give the room's agent a TITLE, so the title-beside-the-name render
-       has something to show. Seeded as a profile role (profileRole reads the
-       profile file live per request, so it lands before the room fetch below),
-       and the operator post keeps none -- "You" carries no title by design. */
+    /* #3130 (Josh 6.68): give the room's agent a real profile TITLE, so the
+       absence check below proves the title is REMOVED from the dialog despite a
+       role existing -- not merely that no role was set. (#1703 used to render
+       this title beside the name; Josh asked to drop it from the dialog.) */
     const profDir = path.join(SANDBOX, 'data', 'Kosmos', 'profiles');
     fs.mkdirSync(profDir, { recursive: true });
     fs.writeFileSync(path.join(profDir, agents[0] + '.json'), JSON.stringify({ role: 'Project manager' }));
@@ -551,10 +551,10 @@ async function main() {
         return {
           rows: msgs.length,
           youNamed: you ? you.querySelector('.msg-h b').textContent : null,
-          /* #1703: the agent post shows its title, and "You" carries none. Read
-             the title text and its POSITION -- Josh asked for it after the name
-             and before the timestamp, so the render is measured on order, not
-             just presence. */
+          /* #3130 (Josh 6.68): the agent title is REMOVED from the dialog. These
+             fields read whatever .msg-role the render produced -- a profile role
+             is seeded above -- so the assertions below can prove the span is
+             ABSENT despite a role existing, not merely that no role was set. */
           agentRole: (box.querySelector('.msg:not(.you) .msg-role') || {}).textContent || null,
           agentRoleOrder: (() => {
             const r = box.querySelector('.msg:not(.you) .msg-h .msg-role');
@@ -583,15 +583,18 @@ async function main() {
       });
       if (!seen.visible || seen.rows !== 2) throw new Error('the room did not render its two posts: ' + JSON.stringify(seen));
       if (seen.youNamed !== 'You') throw new Error('the operator post is not attributed as You');
-      /* #1703: the agent's title renders beside its name, before the timestamp,
-         and the operator's own post carries none. */
-      if (!seen.agentRole || !/manager/i.test(seen.agentRole)) {
-        throw new Error('#1703: the agent post did not show its title (.msg-role) beside the name: ' + JSON.stringify(seen.agentRole));
+      /* #3130 (Josh 6.68): the agent's title is NOT shown in the dialog anymore
+         (the #1703 .msg-role span was removed). The profile role is still seeded
+         above, so this asserts the title is absent despite a role existing --
+         proving the removal, not just an unset role. Neither an agent post nor
+         the operator's own carries a title now. */
+      if (seen.agentRole) {
+        throw new Error('#3130: the agent title (.msg-role) should not render in the dialog: ' + JSON.stringify(seen.agentRole));
       }
-      if (!seen.agentRoleOrder || !seen.agentRoleOrder.afterName || !seen.agentRoleOrder.beforeTime) {
-        throw new Error('#1703: the title is not positioned after the name and before the timestamp: ' + JSON.stringify(seen.agentRoleOrder));
+      if (seen.agentRoleOrder) {
+        throw new Error('#3130: a .msg-role element is still present in the agent post header: ' + JSON.stringify(seen.agentRoleOrder));
       }
-      if (seen.youHasRole) throw new Error('#1703: the operator’s own post carries a title, but "You" is not an agent');
+      if (seen.youHasRole) throw new Error('#3130: the operator’s own post carries a title span, but the title is removed');
       if (seen.agentChipFromFaceSet !== true) throw new Error('the disc mechanism moved (no inline tint on an agent chip), so the You-chip check below cannot mean anything');
       if (seen.youChipFromFaceSet) throw new Error('the person\u2019s chip was drawn from the agent face set (an inline disc style)');
       if (!seen.receipt || !/could not be reached/.test(seen.receipt) || !/Placed with /.test(seen.receipt)) {
