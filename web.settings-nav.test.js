@@ -80,7 +80,7 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
 // "Agents Talking" top-level tab is gone (checked by the nav-order test above,
 // which no longer lists 'talking'); its one block lives here as block 3. Daily
 // report (#2037) is not built yet, so it is not asserted -- it becomes block 4.
-test('#2054: Automation holds Auto-save, Prompter, Sounds, Agent Communication, Daily report in order, and Agents Talking is no longer its own tab', () => {
+test('#2054/#3138: Automation holds Auto-save, Prompter, Agent Communication, Daily report in order (Sounds moved to This computer), and Agents Talking is no longer its own tab', () => {
   const at = BODY.indexOf('id="s-sec-automation"');
   assert.ok(at > -1, 'the Automation section is gone');
   const end = BODY.indexOf('<section class="dsec"', at + 1);
@@ -88,11 +88,19 @@ test('#2054: Automation holds Auto-save, Prompter, Sounds, Agent Communication, 
   const headings = [...sec.matchAll(/<h3 class="dlab">([^<]+)<\/h3>/g)].map((m) => m[1]);
   // #2037 PR-C1: "Daily report" is the last block, the one the section's own
   // placeholder note reserved ("before the future Daily report (#2037)").
-  // #2436: "Sounds" (the master new-message sound toggle) sits beside the Prompter as
-  // the other "how Kosmos gets your attention" control, between Prompter and Agent
-  // Communication (#2619 retitle, formerly "Agents talking to each other").
-  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Sounds', 'Agent Communication', 'Daily report'],
-    'the Automation blocks are not Auto-save, Prompter, Sounds, Agent Communication, Daily report in that order');
+  // #3138 (Josh, 6.68): "Sounds" MOVED out of Automation to Settings > This computer
+  // (bottom) -- whether YOU hear the pop is a per-device property, not a board setting.
+  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agent Communication', 'Daily report'],
+    'the Automation blocks are not Auto-save, Prompter, Agent Communication, Daily report in that order (Sounds moved out per #3138)');
+  assert.ok(!headings.includes('Sounds'), '#3138: Sounds must NOT be in Automation anymore');
+  // #3138: Sounds is now LAST in the This computer (mac) section.
+  const macAt = BODY.indexOf('id="s-sec-mac"');
+  const macEnd = BODY.indexOf('<section class="dsec"', macAt + 1);
+  const macSec = BODY.slice(macAt, macEnd > macAt ? macEnd : undefined);
+  const macHeadings = [...macSec.matchAll(/<h3 class="dlab">([^<]+)<\/h3>/g)].map((m) => m[1]);
+  assert.ok(macHeadings.includes('Sounds'), '#3138: Sounds must be in the This computer section now');
+  assert.equal(macHeadings[macHeadings.length - 1], 'Sounds', '#3138: Sounds must be LAST in the This computer section');
+  assert.ok(macSec.includes('id="snd-toggle"'), '#3138: the snd-toggle moved with its block into This computer');
   // The tab and its section are deleted, not merely hidden.
   assert.doesNotMatch(BODY, /data-go="talking"/, 'the Agents Talking nav pill survives');
   assert.doesNotMatch(BODY, /id="s-sec-talking"/, 'the Agents Talking section survives');
