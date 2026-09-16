@@ -44233,14 +44233,11 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not add that project');
     await loadProjects();
-    // #3134 (Josh, 6.68): after creating, return to the projects LIST (Josh's
-    // ask), not into the new project's empty detail. Fall back to openProject
-    // when the create succeeded but the read-back failed (no row to show, so its
-    // "could not read it back" notice is shown). Rationale in the plan/commit.
+    // #3134 (Josh 6.70, supersedes the 6.68 "return to list" from PR #3160):
+    // land the person INSIDE the new project. openProject also carries the
+    // read-back-failure case (body.id set, body.project null) with its notice.
     const newProjectId = (body.project && body.project.id) || body.id;
-    const created = pjById(newProjectId);
-    if (created) { PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); }
-    else { openProject(newProjectId); }
+    openProject(newProjectId);
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
     // (round 20): the engine's reasons are clauses, and this catch was the

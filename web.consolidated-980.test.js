@@ -192,13 +192,19 @@ test('the open project stays lit: a persistent .open state, written on click and
      top-level project's back goes to the projects list) calls pjMarkOpen(null)
      so a lit row cannot outlive the project you just left. A subproject's back
      opens the parent instead (openProject), which lights the parent itself.
-     📌 #3134 brings it to 7: after "Create project" the #pj-create handler now
-     returns to the projects LIST (Josh 6.68), a new close path, so it clears the
-     open marker (`PJ_CURRENT = null; pjMarkOpen(null)`) too -- no project is left
-     lit when we land on the list. */
+     📌 #3134 brought it to 7 (Josh 6.68): after "Create project" the #pj-create
+     handler returned to the projects LIST, a new close path clearing the open
+     marker (`PJ_CURRENT = null; pjMarkOpen(null)`).
+     📌 #3134 returns it to 6 (Josh 6.70, supersedes 6.68): the create handler now
+     lands the person INSIDE the new project (`openProject(newProjectId)`) instead
+     of returning to the list, so it is no longer a close path and its explicit
+     pjMarkOpen(null) is gone. No path was LOST -- openProject carries both halves:
+     it lights the new project's row (pjMarkOpen(id)), and on a read-back failure it
+     runs its OWN `PJ_CURRENT = null; pjMarkOpen(null); pjView('list')` (already one
+     of these six), so a lit row still cannot outlive its project. */
   const nulls = (codeOnly.match(/pjMarkOpen\(null\)/g) || []).length;
-  assert.equal(nulls, 7,
-    `pjMarkOpen(null) is called from ${nulls} places, expected 7. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
+  assert.equal(nulls, 6,
+    `pjMarkOpen(null) is called from ${nulls} places, expected 6. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
   assert.ok((('/* pjMarkOpen(null) */').replace(/\/\*[\s\S]*?\*\//g, '').match(/pjMarkOpen\(null\)/g) || []).length === 0,
     'control: the comment strip no longer removes a quoted call, so the count above can be satisfied by prose');
 });
