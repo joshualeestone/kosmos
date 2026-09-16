@@ -528,6 +528,7 @@ function boardTokenOk(req) {
   }
 }
 const create = require('./engine/create');
+const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-ever default setup helper
 /* #2129 fallback: the trust-and-restart route writes the Claude-side folder-trust
    key through the same writer the create path uses (native-realpath-keyed since
    #2382), so the one-click escape and the automatic create-time write can never
@@ -8400,6 +8401,19 @@ const server = http.createServer((req, res) => {
           projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
         }
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
+      /* #3034: seed the one-time setup-assistant agent -- named after the user,
+         running on their own connected model. Same posture as the welcome seed:
+         once-ever, best-effort, and it MUST NOT throw or block, because
+         onboarding has already succeeded above. It skips silently when there is
+         no connected model (createAgent refuses -- a live helper needs one), no
+         saved user name, or it was already seeded. The flag is written only on a
+         real create, so a refusal leaves nothing behind. */
+      try {
+        const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
+        if (seed && seed.seeded) {
+          setupAssistant.markSetupAssistantSeeded({ name: seed.name, via: 'first-run' });
+        }
+      } catch { /* the setup assistant is a nicety; onboarding still completed */ }
     }
     /**
      * ⚠️ Reports whether it STUCK, read back, rather than whether the write

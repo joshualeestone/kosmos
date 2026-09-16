@@ -1,0 +1,78 @@
+# #3034 - default Kosmos setup-assistant agent (auto-created on first-run)
+
+Branch: `setup-assistant-3034` * card: joshualeestone/kosmos#3034 * handed cross-lane by Splinter as the queue-dry fill, with a CONSERVATIVE/minimal/reversible mandate (first-run-visible, investor-scrutiny neighborhood).
+
+## What Josh wants (and what he already resolved)
+Auto-create a default "Kosmos setup assistant" agent when a new user finishes
+onboarding (hits "Giddy Up"), pre-existing on their Agents screen, named after the
+user with the user's avatar, a distinct helper role, pre-loaded with setup
+guidance. In the card's own comment Josh RESOLVED the open questions: it is a
+**LIVE** agent running on **one of the user's own models**, and **burning their
+quota is explicitly acceptable** ("they're giving us access to one of their
+models"). So there is no money carve-out to protect - Josh ruled it fine.
+
+Help-"bubble" (bottom-right persistent chat) is explicitly **phase 2, parked** -
+NOT built here.
+
+## Design (mine, per Josh's make-your-best-call ruling; every call reversible + documented)
+- **Seam:** the server-side `POST /api/first-run/complete` `if (ok)` block, right
+  after the existing welcome-home seed. That block is already the idempotent,
+  best-effort, once-ever, swallow-all home (a seed failure "must not turn a done
+  onboarding into an error"). Server-side (not client) so it runs regardless of
+  which onboarding exit was taken.
+- **New module `engine/setup-assistant.js`** with an injectable `createAgent` so
+  the logic is unit-testable without launching a real agent. Owns a once-ever
+  flag (`store.ROOT/setup-assistant.json`), mirroring projects.js welcome-seed.
+- **New role `setup`** in engine/roles.js, `menu: false` (like `own`) so it is
+  NEVER offered in the normal create flow. Brief = a concise, accurate Kosmos
+  setup guide; it explicitly tells the assistant NOT to invent buttons/screens it
+  is unsure of (kosmos#120 discipline on first-run-visible copy).
+- **Name = the user's own name** (Josh: "we would name it My Name (Josh)"). If
+  the About-you step was skipped so there is no saved name, SKIP the assistant
+  rather than invent one.
+- **Avatar = the user's picture**, copied onto the agent best-effort
+  (`you.picturePath()` -> `store.saveAvatar`). No picture -> default initials
+  avatar. Never fatal.
+- **Model/account = the user's default connected account** (createAgent with no
+  model/account). Josh: their own model, quota-burn accepted.
+
+## Fragilities handled (from the terrain map)
+- **No model connected at Giddy-Up** (the wizard's model step is skippable): a
+  live agent cannot run without one, so `createAgent` REFUSES; we seed nothing and
+  write no flag. Onboarding is unaffected. LIMITATION (documented): a user who
+  skipped model connection gets no assistant. Follow-up idea: seed it on the first
+  model-connect. Out of scope for this minimal version.
+- **Must not block onboarding:** the whole hook is in the existing swallow-all
+  `if (ok)` block; the module never throws (createAgent-throws is caught too).
+- **Idempotency:** once-ever flag, written only after a real create, so a repeat
+  completion POST or a refusal never double-creates.
+- **No agent-count limit exists** (verified); the assistant increments the
+  telemetry `createdCount` beacon like any agent, which is fine.
+
+## Two decisions a reviewer will (rightly) probe
+1. **Synchronous create latency.** The seed runs synchronously in the completion
+   handler before the response, matching the existing welcome seed. `createAgent`
+   here does the FAST runner-runnable check + launchctl bootstrap (~1s), NOT the
+   slower live `claude -p` auth probe (that probe lives in the /api/create ROUTE,
+   not in createAgent). So Giddy-Up gains ~1s once, at a one-time action. Kept
+   synchronous for clean flag/failure semantics; if the latency proves bad,
+   moving the seed to after sendJson (fire-and-forget) is the follow-up.
+2. **Runnable-check, not the route's live-auth probe.** Because we call
+   create.createAgent directly, an installed-but-expired account could create an
+   assistant whose live turns then fail auth (the board already surfaces that as
+   auth_failed, recoverable by reconnecting). Adding the live probe would
+   reintroduce multi-second latency; not worth it for a minimal helper. Documented.
+
+## Reversibility
+Fully additive: a normal deletable agent, one flag file, one menu:false role. The
+user can delete the assistant like any agent; nothing here is irreversible.
+
+## Verification
+- `engine.setup-assistant-3034.test.js` (new, 8 tests): role exists + menu:false +
+  excluded from the create menu; POSITIVE create (named after user, role setup);
+  and biting CONTROLS - no user name (no create), no model / createAgent REFUSES
+  (no seed, no flag), createAgent throws (swallowed), once-ever guard (no double
+  create), avatar copied / absent both handled.
+- 476 role/first-run-adjacent tests (roles, server, role-picker, win-cli-parity,
+  server.projects) pass unchanged.
+- Full validation suite via the challenge-loop 6.0 gate.
