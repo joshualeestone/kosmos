@@ -23,6 +23,11 @@
  * grows a second implementation of any of that. The binary writes the
  * status file atomically on every state change; absence or a dead pid in
  * it means the process, not the connection, is the problem.
+ *   (The ONE use of node:crypto here is a random device *label* --
+ *   crypto.randomUUID() in signinDeviceId (#3149) -- which is an opaque,
+ *   non-secret id, no key material, so it is not the enrolment crypto this
+ *   note keeps out. The identity keypair the binary mints at register time
+ *   still stays the binary's job.)
  *
  * States a caller sees, each with a because sentence when not up:
  *   off         the switch is off (or the board is missing what it needs)
@@ -62,6 +67,7 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const store = require('./store');
 
@@ -150,6 +156,11 @@ function read() {
     /* #567: ids this Mac said no to, with when. A re-ask from one of them
        gets a sentence on the card; nothing else reads this. */
     denied: parsed.denied && typeof parsed.denied === 'object' && !Array.isArray(parsed.denied) ? parsed.denied : {},
+    /* #3149: this computer's stable sign-in device id. Preserved as-is so a
+       later write() (which reconstructs the file from read()) does not drop it;
+       shape is checked where it is minted/used (signinDeviceId), not here, the
+       same way relay/email carry through unvalidated. */
+    device_id: typeof parsed.device_id === 'string' ? parsed.device_id : '',
     ok: true,
   };
 }
@@ -375,12 +386,17 @@ function status() {
 
 /** Run a setup subcommand; resolve {ok, because} and never reject. The
     binary owns the crypto and the wire; we own turning its exit into a
-    sentence a person reads next to the switch. */
-function setupRun(args) {
+    sentence a person reads next to the switch. When `stdin` is a string it is
+    written to the child's stdin and the stream closed (the #3149 `signin
+    register` path pipes the session token in this way, so the 30-day credential
+    never sits on argv); when it is null the child gets no stdin, exactly as
+    before -- so every existing caller is unaffected. */
+function setupRun(args, stdin = null) {
   return new Promise((resolve) => {
     let spawned;
-    try { spawned = spawn(BIN(), args, { stdio: ['ignore', 'pipe', 'pipe'] }); }
-    catch (err) {
+    try {
+      spawned = spawn(BIN(), args, { stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    } catch (err) {
       resolve({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
       return;
     }
@@ -391,6 +407,12 @@ function setupRun(args) {
     spawned.on('error', (err) => {
       resolve({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
     });
+    if (stdin !== null && spawned.stdin) {
+      // A child that exits before reading breaks the pipe with EPIPE; that is
+      // the child's exit code's story, not an error to surface here, so swallow it.
+      spawned.stdin.on('error', () => {});
+      try { spawned.stdin.end(String(stdin)); } catch { /* the exit handler reports the real outcome */ }
+    }
     spawned.on('exit', (code) => {
       if (code === 0) { resolve({ ok: true, because: null, said: out.trim() }); return; }
       const lines = (errOut.trim() || out.trim()).split('\n').filter(Boolean);
@@ -596,6 +618,163 @@ async function deviceRemove(id) {
   return parseSaid(await setupRun(deviceArgs('remove', id, false)));
 }
 
+/* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
+   old jump-to-the-web: email code -> phone code -> "you're signed in". Unlike
+   `setup` (create-or-join enrolment), these verbs never create an account -- a
+   missing account is the coordinator's anti-enumeration silence, and the app
+   shows a generic "Join Kosmos" nudge from the code screen rather than
+   confirming existence. The kosmos-tunnel `signin {start,verify,second,register}`
+   verbs each print one JSON object with a `stage` field; this module drives them
+   and hands the PAGE only the stage.
+
+   🔒 The bearer material stays HERE, never the browser. `verify`/`second` return
+   a 30-day session token, and `verify` a phone-code challenge id; both are
+   sensitive. They live in `signinSession` in this process for the seconds
+   between steps -- the wizard sees a `stage` and nothing else, and `register`
+   spends the token from here (piped to the CLI over stdin, off argv). This is
+   the #874 posture: the page cannot carry, replay, or leak a session it never
+   holds. One slot: one person at one board signs in this computer at a time; a
+   fresh `start` clears it (last flow wins), and it is memory-only on purpose --
+   a board restart mid-flow drops it and the person simply starts sign-in again,
+   which is safe and quick. ---- */
+let signinSession = null;
+
+/** This computer's stable sign-in device id. `signin start` and its matching
+    `verify` must carry the SAME device id (the coordinator ties the emailed
+    code to it), and it should be stable across attempts so the account's device
+    list shows one "this computer" row rather than a new one each try -- so the
+    app owns and persists it, per the CLI contract. It is a plain opaque label,
+    not enrolment crypto (see the NO CRYPTO HERE note at the top). Minted once,
+    kept in remote.json, reused forever; a stored value that somehow fails the
+    shape check is replaced rather than trusted. */
+function signinDeviceId() {
+  const r = read();
+  if (typeof r.device_id === 'string' && DEVICE_ID.test(r.device_id)) return r.device_id;
+  const id = crypto.randomUUID();
+  write({ device_id: id });
+  return id;
+}
+
+/** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
+    to the caller ONLY the stage (never the token, never the challenge value).
+    Pure-ish: it mutates `signinSession` and returns the page-safe shape. */
+function absorbSession(data) {
+  const stage = data && typeof data.stage === 'string' ? data.stage : '';
+  if (stage === 'session') {
+    const token = data && typeof data.token === 'string' ? data.token : '';
+    if (!token) return { ok: false, because: 'the coordinator did not return a usable session' };
+    signinSession = { token };
+    return { ok: true, because: null, data: { stage: 'session' } };
+  }
+  if (stage === 'second') {
+    const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
+    if (!challenge) return { ok: false, because: 'the coordinator did not return a phone challenge' };
+    signinSession = { challenge };
+    return { ok: true, because: null, data: { stage: 'second' } };
+  }
+  if (stage === 'enrol_second_factor') {
+    // The account has no second factor yet and the coordinator requires one.
+    // Enrolment verbs are a later increment; the wizard shows an honest message.
+    signinSession = null;
+    return { ok: true, because: null, data: { stage: 'enrol_second_factor' } };
+  }
+  return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
+}
+
+/** Step one: ask the coordinator to email the six-digit code. Safe to repeat;
+    reveals nothing about whether the account exists. A fresh start abandons any
+    half-finished flow. */
+async function signinStart(email, deviceName) {
+  if (typeof email !== 'string' || !email.includes('@')) {
+    return { ok: false, because: 'that does not look like an email address' };
+  }
+  signinSession = null;
+  const args = ['signin', 'start', '--coordinator', COORDINATOR(),
+    '--email', email, '--device-id', signinDeviceId()];
+  if (typeof deviceName === 'string' && DEVICE_NAME.test(deviceName.trim())) {
+    args.push('--device-name', deviceName.trim());
+  }
+  const r = parseSaid(await setupRun(args));
+  // Remembered only so the Settings screen can show whose sign-in is in flight;
+  // the flow does not read it back (verify carries the email explicitly).
+  if (r.ok) write({ email });
+  return r.ok ? { ok: true, because: null, data: { stage: 'code_sent' } } : r;
+}
+
+/** Step two: hand back the emailed code. The answer is a finished session, a
+    phone challenge (`stage: "second"`), or an enrolment prompt. */
+async function signinVerify(email, code, deviceName) {
+  if (typeof email !== 'string' || !email.includes('@')) {
+    return { ok: false, because: 'that does not look like an email address' };
+  }
+  if (!/^[0-9]{6}$/.test(String(code || ''))) {
+    return { ok: false, because: 'the code is six digits' };
+  }
+  const args = ['signin', 'verify', '--coordinator', COORDINATOR(),
+    '--email', email, '--device-id', signinDeviceId(), '--code', String(code)];
+  if (typeof deviceName === 'string' && DEVICE_NAME.test(deviceName.trim())) {
+    args.push('--device-name', deviceName.trim());
+  }
+  const r = parseSaid(await setupRun(args));
+  if (!r.ok) return r;
+  return absorbSession(r.data);
+}
+
+/** Step three (only after `verify` returned `stage: "second"`): the phone code,
+    checked against the challenge held here. On success, a session. */
+async function signinSecond(code) {
+  if (!signinSession || typeof signinSession.challenge !== 'string') {
+    return { ok: false, because: 'start the sign-in again: there is no phone step waiting' };
+  }
+  if (!/^[0-9]{6}$/.test(String(code || ''))) {
+    return { ok: false, because: 'the code is six digits' };
+  }
+  const r = parseSaid(await setupRun(['signin', 'second', '--coordinator', COORDINATOR(),
+    '--challenge', signinSession.challenge, '--code', String(code)]));
+  if (!r.ok) return r;
+  return absorbSession(r.data);
+}
+
+/** Last step: register THIS computer with the session held here. The keypair is
+    born in the binary (private half never travels); the token is piped in over
+    stdin, off argv. On success the state dir is written and the tunnel comes up
+    if the switch is on, exactly as `setup complete` does. A failed register
+    keeps the session so the person can pick another name without redoing the
+    code steps. */
+async function signinRegister(name) {
+  if (!signinSession || typeof signinSession.token !== 'string') {
+    return { ok: false, because: 'finish the code steps first' };
+  }
+  if (typeof name !== 'string' || !/^[a-z0-9-]{3,32}$/.test(name)) {
+    return { ok: false, because: 'the name is 3 to 32 lowercase letters, digits or hyphens' };
+  }
+  // #1010/#1003: a surviving state dir already at this name IS this Mac. Do not
+  // re-register -- it would mint a fresh identity key and spend a scarce
+  // certificate for this Mac's own previous life. Recognise it, bring the tunnel
+  // up, done. A DIFFERENT name is a real move and falls through to register.
+  if (enrolled()) {
+    const have = address();
+    if (have && have.split('.')[0] === name) {
+      ensure(localPort);
+      signinSession = null;
+      return { ok: true, because: null, data: { stage: 'registered', address: have, name, alreadySetUp: true } };
+    }
+  }
+  secureStateDir();
+  const r = parseSaid(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
+    '--name', name, '--state-dir', STATE_DIR()], signinSession.token));
+  if (!r.ok) return r;
+  signinSession = null;   // the token is spent; it must not linger in this process
+  ensure(localPort);
+  const d = r.data && typeof r.data === 'object' ? r.data : {};
+  return { ok: true, because: null, data: {
+    stage: 'registered',
+    address: typeof d.address === 'string' ? d.address : address(),
+    name: typeof d.name === 'string' ? d.name : name,
+    standing: typeof d.standing === 'string' ? d.standing : '',
+  } };
+}
+
 module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
@@ -607,6 +786,10 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   status,
   setupStart,
   setupComplete,
+  signinStart,
+  signinVerify,
+  signinSecond,
+  signinRegister,
   pendingDevices,
   devicesList,
   deviceAllow,
@@ -619,8 +802,9 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   coordinator: COORDINATOR,
   stateDir: STATE_DIR,
   /* test seam: stops the supervised child between cases (the name is the
-     one the reachability sweep excuses for exactly this job) */
-  resetForTests: stopChild,
+     one the reachability sweep excuses for exactly this job) AND clears any
+     in-flight sign-in, so no held token/challenge leaks across cases. */
+  resetForTests: () => { signinSession = null; stopChild(); },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
      right after ensure() instead of waiting a fixed interval and hoping. */

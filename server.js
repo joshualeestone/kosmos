@@ -5614,6 +5614,89 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
     return;
   }
+  /* ---- Sign in THIS computer (#3149 journey 2): the in-app wizard's seam,
+     replacing the old jump to the web. Four steps -- email code, then phone
+     code, then register -- each relaying the engine's `stage` to the page. The
+     30-day session token and the phone challenge are held in the ENGINE, never
+     returned here, so the page drives stages without ever carrying a credential
+     (#874). A missing account is the coordinator's silence, surfaced as a
+     generic stage the wizard turns into a "Join Kosmos" nudge, never a
+     yes/no on existence. ---- */
+  if (pathname === '/api/remote/signin-start' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const email = String(body.email || '').trim();
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          sendJson(res, 400, { error: 'that does not look like an email address' });
+          return;
+        }
+        const deviceName = typeof body.device_name === 'string' ? body.device_name : undefined;
+        const got = await remote.signinStart(email, deviceName);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true, stage: got.data.stage });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not start the sign-in' }));
+    return;
+  }
+  if (pathname === '/api/remote/signin-verify' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const email = String(body.email || '').trim();
+        const code = String(body.code || '').trim();
+        if (!email) { sendJson(res, 400, { error: 'that does not look like an email address' }); return; }
+        if (!code) { sendJson(res, 400, { error: 'type the code from the email' }); return; }
+        const deviceName = typeof body.device_name === 'string' ? body.device_name : undefined;
+        const got = await remote.signinVerify(email, code, deviceName);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true, stage: got.data.stage });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
+    return;
+  }
+  if (pathname === '/api/remote/signin-second' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const code = String(body.code || '').trim();
+        if (!code) { sendJson(res, 400, { error: 'type the code from your phone' }); return; }
+        const got = await remote.signinSecond(code);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true, stage: got.data.stage });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
+    return;
+  }
+  if (pathname === '/api/remote/signin-register' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const name = String(body.name || '').trim();
+        if (!name) { sendJson(res, 400, { error: 'pick a name for this computer' }); return; }
+        const got = await remote.signinRegister(name);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        try { remote.ensure(); } catch { /* status says what happened */ }
+        sendJson(res, 200, {
+          ok: true,
+          stage: got.data.stage,
+          address: got.data.address,
+          name: got.data.name,
+          standing: got.data.standing,
+          status: remote.status(),
+        });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not finish signing in' }));
+    return;
+  }
   /* ---- Second-factor reset (#733 recovery): the Mac's own signed request,
      relayed. The control under Plus is the design queue's; this is the seam. */
   if (pathname === '/api/remote/second-reset' && req.method === 'POST') {
