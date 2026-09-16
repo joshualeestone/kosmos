@@ -73,7 +73,28 @@ function readUsage(page) {
         const fig = box && box.querySelector('.tv-fig');
         return !!fig && (fig.textContent || '').trim() === '10';
       })(),
-      heroApi: heroText.includes('$1,152') && heroText.includes('Equivalent Token API Cost'),
+      // #3137 (Josh, 6.68): the fixed-width tiles ABBREVIATE the thousands band so a wide
+      // figure does not clip. The fixture's API cost 1152 -> "$1.2K" (was the clipping "$1,152").
+      heroApi: heroText.includes('$1.2K') && heroText.includes('Equivalent Token API Cost'),
+      // #3137: no hero stat TILE clips its figure -- overflow:hidden means a too-wide value
+      // is silently cut, so measure the real horizontal fit of every .tv-fig in the hero.
+      heroFigsFit: [...document.querySelectorAll('#usage-hero .tv-fig')]
+        .every((f) => f.scrollWidth <= f.clientWidth + 1),
+      // #3137 NON-VACUOUS fit control: on the real Approximate Human Cost tile, the FULL
+      // reported figure "$176,332" overflows the box while the abbreviated "$176.3K" fits.
+      // Proves the abbreviation is both necessary (full clips) and sufficient (abbr fits) at
+      // the tile's real rendered width, not just that a short fixture value happens to fit.
+      tileFitControl: (() => {
+        const box = [...document.querySelectorAll('#usage-hero .tv-fbox')]
+          .find((b) => /Approximate Human Cost/.test(b.textContent || ''));
+        const fig = box && box.querySelector('.tv-fig');
+        if (!fig) return null;
+        const orig = fig.textContent;
+        fig.textContent = '$176,332'; const fullOverflows = fig.scrollWidth > fig.clientWidth + 1;
+        fig.textContent = '$176.3K'; const abbrFits = fig.scrollWidth <= fig.clientWidth + 1;
+        fig.textContent = orig;
+        return { fullOverflows, abbrFits };
+      })(),
       heroDays: heroText.includes('Active Days on Kosmos'),
       // #2840 charts4: four per-class daily mini-charts, each with an svg.
       charts4Count: document.querySelectorAll('#usage-charts4 .tv-mini').length,
@@ -155,7 +176,11 @@ function readUsage(page) {
     ok(v.heroValue && v.heroValueLabel, 'the human-cost value ($1.8M = total/1e5*$90, Approximate Human Cost) is shown');
     ok(v.heroHours, 'the Human Work Hours stat (20K) is shown');
     ok(v.heroYears, 'the Years of Human Work stat (10) is shown');
-    ok(v.heroApi, 'the Equivalent Token API Cost stat ($1,152 from published opus-4-8 prices) is shown');
+    ok(v.heroApi, 'the Equivalent Token API Cost stat abbreviates its thousands figure to $1.2K (#3137, was the clipping $1,152)');
+    ok(v.heroFigsFit, 'no hero stat tile clips its figure -- every .tv-fig fits its box after the #3137 abbreviation');
+    ok(v.tileFitControl && v.tileFitControl.fullOverflows && v.tileFitControl.abbrFits,
+      'CONTROL: the full $176,332 overflows the cost tile but the abbreviated $176.3K fits (#3137, non-vacuous fit proof) -- '
+      + JSON.stringify(v.tileFitControl));
     ok(v.heroDays, 'the Active Days on Kosmos eyebrow is shown');
     // charts4
     ok(v.charts4Count === 4, `four per-class daily mini-charts render (got ${v.charts4Count})`);
