@@ -6569,8 +6569,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    carried the same bug -- the per-project column (#pj-tasklist) and the all-tasks
    screen (#alltasks-list, "No tasks on this project yet"). One rule fixes both; both
    measured centred via pw-runtime (61/61 and 82/82). A populated list has no `.tk-empty`
-   child, so it keeps justify-content:normal and its cards stay top-aligned. */
-.tkcards:has(> .tk-empty) { justify-content: center; }
+   child, so it keeps justify-content:normal and its cards stay top-aligned.
+   `safe center`, not plain `center`: in the consolidated layout .tkcards is overflow-y:auto
+   with min-height:0 (line ~4047), where plain centering can push overflow off the TOP
+   unreachably if the copy ever exceeds the shrunk track. `safe` centers when it fits and
+   falls back to start-alignment (scrollable, nothing clipped) when it would overflow -- the
+   old margin:auto had the same clip risk and no fallback, so this is strictly safer. */
+.tkcards:has(> .tk-empty) { justify-content: safe center; }
 .tk-empty { margin: 0; padding: var(--space-7) var(--space-5); text-align: center; font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: 1.5; }
 #pj-newtask { margin-bottom: var(--space-5); }
 .tkcard { display: block; width: 100%; text-align: left; cursor: pointer;

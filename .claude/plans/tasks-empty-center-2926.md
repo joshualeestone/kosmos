@@ -16,11 +16,18 @@ Measured (tab view, 16px root): list 224px, text 102px, gapAbove 122, gapBelow 0
 
 ## Fix
 Center via the flex CONTAINER, immune to the child-margin override:
-- `web/index.html`: add `.tkcards:has(> .tk-empty) { justify-content: center; }` and
+- `web/index.html`: add `.tkcards:has(> .tk-empty) { justify-content: safe center; }` and
   change `.tk-empty` margin from `auto 0` to `0` (the auto was defeated and fights
   justify-content).
 - `:has()` is already used 36 times in the file; the board runs in Chromium, so it is
   supported and idiomatic.
+- `safe center`, not plain `center` (raised in review): in the consolidated layout `.tkcards`
+  is `overflow-y:auto; min-height:0`, where plain centering can push overflow off the TOP
+  unreachably if the copy ever exceeds the shrunk track. `safe` centers when it fits and
+  falls back to start-alignment (scrollable) when it would overflow - strictly safer than the
+  old `margin:auto`, which had the same clip risk and no fallback. Verified supported in the
+  runtime: pw-runtime computes `justify-content: safe center` and still centers 61/61 (tab)
+  and 82/82 (all-tasks).
 
 ## Why it is correct
 - Scoped to `:has(> .tk-empty)`, so it applies ONLY when the empty-state is present; a
