@@ -113,6 +113,46 @@ test('#1382: whoNames is ADDED, and the task keeps its own fields', () => {
   assert.equal(row.number, t.number, 'the task number did not survive');
 });
 
+test('#3183: open tasks sort newest-first within a project (highest task number on top)', () => {
+  /* #3172's rationale applied to this screen: the oldest/lowest-numbered task
+     is the one most likely already done, so it must not sit at the top of the
+     live work. Existing tests pin open-before-closed and project-name order but
+     NOT the within-project number DIRECTION, so this is the arm that catches a
+     revert of the DESC tiebreak in allTasks(). */
+  const p = projects.create({ name: 'Zephyr' });
+  tasks.create(p.id, { sentence: 'oldest' });   // number 1
+  tasks.create(p.id, { sentence: 'middle' });   // number 2
+  tasks.create(p.id, { sentence: 'newest' });   // number 3
+  const nums = tasks.allTasks()
+    .filter((t) => t.projectName === 'Zephyr' && !t.isClosed)
+    .map((t) => t.number);
+  assert.ok(nums.length >= 3, 'fewer than three open Zephyr tasks, so direction is untested');
+  /* CONTROL: distinct numbers, or a descending assertion is vacuous on ties. */
+  assert.equal(new Set(nums).size, nums.length, 'task numbers are not distinct, so direction is untested');
+  assert.deepEqual(nums, nums.slice().sort((x, y) => y - x),
+    'open tasks are not newest-first (highest number on top) in the View-All order');
+});
+
+test('#3183: the closed half is newest-closed-first too (the shared tiebreak is DESC)', () => {
+  /* The tiebreak is one comparator shared by both halves, so flipping it moves
+     the finished half as well. Pin that so a future "only flip the open half"
+     change is a deliberate, tested choice rather than a silent asymmetry. */
+  const p = projects.create({ name: 'Yonder' });
+  tasks.create(p.id, { sentence: 'closed first' });   // number 1
+  tasks.create(p.id, { sentence: 'closed second' });  // number 2
+  tasks.create(p.id, { sentence: 'closed third' });   // number 3
+  tasks.close(p.id, 1);
+  tasks.close(p.id, 2);
+  tasks.close(p.id, 3);
+  const nums = tasks.allTasks()
+    .filter((t) => t.projectName === 'Yonder' && t.isClosed)
+    .map((t) => t.number);
+  assert.ok(nums.length >= 3, 'fewer than three closed Yonder tasks, so direction is untested');
+  assert.equal(new Set(nums).size, nums.length, 'task numbers are not distinct, so direction is untested');
+  assert.deepEqual(nums, nums.slice().sort((x, y) => y - x),
+    'closed tasks are not newest-first in the View-All order');
+});
+
 test('#1382: the order is stable, and names sort within each half', () => {
   /* 🛑 A CONTROL ON THE KEY ITSELF. This test first sorted on `t.n`, a field
      that DOES NOT EXIST: both reads returned undefined, compared equal, and it

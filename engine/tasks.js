@@ -640,12 +640,17 @@ function allTasks() {
   /* Deterministic order, so the screen does not reshuffle between paints and
      a test can assert rows rather than a set: project name, then the task
      number within it. */
-  /* Open work first, then finished, each by project then task number. A
-     person opening this is looking for what is live; the finished half is why
-     the door existed and it stays reachable, underneath. */
+  /* Open work first, then finished, each by project then task number
+     DESCENDING (newest first). #3183 (Josh, 2026-09-16): the same reason the
+     project column flipped newest-first in #3172 -- the lowest/oldest number
+     is the task most likely already done, so surfacing it at the top buries
+     the live work. A person opening this is looking for what is live; the
+     finished half is why the door existed and it stays reachable, underneath,
+     now also newest-closed first so the most recently finished reads at the
+     top of that half. Open-before-closed is unchanged. */
   return out.sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)
     || String(a.projectName).localeCompare(String(b.projectName))
-    || (a.number || 0) - (b.number || 0));
+    || (b.number || 0) - (a.number || 0));
 }
 
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
