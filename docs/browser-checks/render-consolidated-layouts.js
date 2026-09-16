@@ -114,16 +114,15 @@ const path = require('path');
     }
   }
 
-  // fold the projects rail alone, then both: the sentence says where the list went, and which column when there are two
+  // #3126 (Josh, 6.68): the projects column is no longer collapsible - there is no
+  // projects-fold control and no "projects list is folded" sentence. Folding the
+  // AGENTS rail alone does not change the projects centre sentence.
   await forceNothingOpen();
-  await pg.click('#rail-projects-fold'); await pg.waitForTimeout(300);
-  const foldedP = await none();
-  say(!!foldedP && /^Nothing is open yet\. The projects list is folded; press › at the top of the narrow column to open it\.$/.test(foldedP), 'projects rail folded: the sentence names the fold button', JSON.stringify(foldedP));
+  say((await pg.$('#rail-projects-fold')) === null, 'the projects fold control is gone (#3126)');
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
-  const folded = await none();
-  say(!!folded && /the second narrow column/.test(folded), 'both rails folded: the sentence says the second narrow column', JSON.stringify(folded));
-  await pg.click('#rail-projects-fold'); await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
-  say(/Pick a project on the left/.test((await none()) || ''), 'rails open again: back to the plain sentence');
+  say(/Pick a project on the left/.test((await none()) || ''), 'agents rail folded: the projects centre sentence is unchanged');
+  await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
+  say(/Pick a project on the left/.test((await none()) || ''), 'agents rail open again: still the plain sentence');
 
   // the New project form open: the sentence is not painted over it by a fold press
   await pg.click('#rail-projects-new'); await pg.waitForTimeout(400);
@@ -137,22 +136,21 @@ const path = require('path');
   // click handler calls -- so it returns to the list view without the hidden click.
   await pg.click('#rail-agents-fold'); await forceNothingOpen(); await pg.waitForTimeout(400);
 
-  // a board with no projects: the open rail's own card says it, so the sentence stays hidden;
-  // folded, the sentence says press + (the + survives the fold); a failed read never says "no projects"
-  const paintAs = (loaded, failed, foldP) => pg.evaluate(([l, f, p]) => {
-    const keep = { P: PROJECTS, L: PJ_LOADED_ONCE, F: PJ_READ_FAILED, fp: document.body.classList.contains('fold-p') };
-    PROJECTS = []; PJ_LOADED_ONCE = l; PJ_READ_FAILED = f; document.body.classList.toggle('fold-p', p);
+  // #3126 (Josh, 6.68): a board with no projects: the open rail's own card says it,
+  // so the sentence stays hidden; a failed read never says "no projects". The
+  // projects column is no longer collapsible, so the folded variants (press + /
+  // "folded; press ›") were removed - fold-p can never be set.
+  const paintAs = (loaded, failed) => pg.evaluate(([l, f]) => {
+    const keep = { P: PROJECTS, L: PJ_LOADED_ONCE, F: PJ_READ_FAILED };
+    PROJECTS = []; PJ_LOADED_ONCE = l; PJ_READ_FAILED = f;
     paintPjNone('list');
     const el = document.getElementById('pj-none'); const t = el.hidden ? null : el.textContent;
-    PROJECTS = keep.P; PJ_LOADED_ONCE = keep.L; PJ_READ_FAILED = keep.F; document.body.classList.toggle('fold-p', keep.fp); paintPjNone('list');
+    PROJECTS = keep.P; PJ_LOADED_ONCE = keep.L; PJ_READ_FAILED = keep.F; paintPjNone('list');
     return t;
-  }, [loaded, failed, foldP]);
-  say((await paintAs(true, false, false)) === null, 'no projects, rail open: the sentence is hidden (the rail card says it)');
-  const foldedEmpty = await paintAs(true, false, true);
-  say(/^No projects yet\. Press \+ at the top of the narrow column to start one\.$/.test(foldedEmpty || ''), 'no projects, rail folded: press +', JSON.stringify(foldedEmpty));
-  say(/Pick a project on the left/.test((await paintAs(false, false, false)) || ''), 'before the first read: never "No projects yet"');
-  say((await paintAs(true, true, false)) === null, 'after a failed read, rail open: silence beside the rail\'s own message');
-  say(/folded; press ›/.test((await paintAs(true, true, true)) || ''), 'after a failed read, rail folded: open the column and see');
+  }, [loaded, failed]);
+  say((await paintAs(true, false)) === null, 'no projects, rail open: the sentence is hidden (the rail card says it)');
+  say(/Pick a project on the left/.test((await paintAs(false, false)) || ''), 'before the first read: never "No projects yet"');
+  say((await paintAs(true, true)) === null, 'after a failed read, rail open: silence beside the rail\'s own message');
 
   // open a project: the sentence goes
   const first = await pg.$('#pj-list [data-project]'); // active rows only; the seed is active

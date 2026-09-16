@@ -55,10 +55,13 @@ test('#2711 item 10: the Add member button keeps its worded name in the DOM', ()
 test('item 2: a folded section hides its plus, and only its plus', () => {
   /* Josh, 10:23. Folded, the rail is 48px and the label is gone, so a + is an
      action with nothing visible to act on. MEASURED: unfolded both visible,
-     folded both hidden, and the fold arrow still visible either way. */
-  const r = rule('body.consolidated.fold-a #rail-agents-new,');
-  assert.match(r, /#rail-projects-new \{ display: none/);
+     folded both hidden, and the fold arrow still visible either way.
+     #3126 (Josh, 6.68): only the agents column folds now - the projects column is
+     no longer collapsible, so this is the agents-only fold rule (was a shared
+     rule that also hid #rail-projects-new). */
+  const r = rule('body.consolidated.fold-a #rail-agents-new');
+  assert.match(r, /#rail-agents-new \{ display: none/);
   // The control: the arrow that unfolds it must NOT be caught by the same rule.
-  assert.doesNotMatch(r, /rail-agents-fold|rail-projects-fold/,
+  assert.doesNotMatch(r, /rail-agents-fold/,
     'the fold arrow is hidden too, which would make a folded rail impossible to reopen');
 });

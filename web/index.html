@@ -3022,13 +3022,15 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    data-layout="consolidated" AND the window is at least 960px wide; under
    that the tabs come back on their own (the picker says so). The mock this
    was drawn from is installkosmos.com/consolidated-mock, at 1280px --
-   below that width, BOTH rails auto-fold to icon-only (the same treatment
-   the fold buttons already give one rail at a time) to buy the centre and
-   right columns room, rather than the view snapping straight to tabs.
-   Josh, 2026-08-25 17:58, after being asked which shape he wanted: "thats
-   perfect, lets try that." See railFoldsApply() for the auto-fold logic;
-   the CSS below needs no new rules for it, since .fold-a/.fold-p already
-   exist for the manual case and this reuses them exactly. */
+   below that width, the AGENTS rail auto-folds to icon-only to buy the
+   centre and right columns room, rather than the view snapping straight to
+   tabs. Josh, 2026-08-25 17:58, after being asked which shape he wanted:
+   "thats perfect, lets try that." (#3126, 6.68: the PROJECTS rail is no
+   longer collapsible - its manual "<" control was removed, so it no longer
+   auto-folds either; with the control gone there would be no affordance to
+   reopen it. Only the agents rail folds now.) See railFoldsApply() for the
+   auto-fold logic; the CSS below needs no new rules for it, since .fold-a
+   already exists for the manual case and this reuses it exactly. */
 /* #2618: the .laytiles/.laytile CSS (the in-tab layout-picker preview tiles) was
    removed with the Settings > Styles tab. The consolidated view itself is unchanged;
    it is switched via the header board-view flipper now. */
@@ -3263,6 +3265,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated > .apphead h1,
   html[data-layout="consolidated"] body.consolidated > .apphead .tabs { display: none; }
   html[data-layout="consolidated"] body.consolidated .railhead .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  /* #3126 (Josh, 6.68): the projects head lost its fold button, so its .lead now
+     holds only the name. Inset it by the button footprint (22px fold + 7px .lead
+     gap) so "Projects" stays horizontally aligned with "Agents", whose head still
+     carries the fold button. */
+  html[data-layout="consolidated"] body.consolidated #rail-projects .lead { padding-left: 29px; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents .lead { flex-direction: column; }
   /* The rails on a deeper ground than the conversation, and their rows flat
      and quiet, the way the mock draws them. */
@@ -3308,7 +3315,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .lrow { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
   html[data-layout="consolidated"] body.consolidated .lrow:hover { background: var(--k-surface); }
   html[data-layout="consolidated"] body.consolidated .lrow.attn { border: 0; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; padding: 7px 8px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; } /* #3126: padding removed here (dead - overridden by the .pj-row padding later in this block); single source below */
   html[data-layout="consolidated"] body.consolidated .pj-row:hover { background: var(--k-surface); box-shadow: none; }
   /* #980: the OPEN project stays lit (the mock's .pj.on): surface on the
      side ground with a hairline ring, stronger than hover and persistent,
@@ -3359,7 +3366,9 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --k-sel: #ffffff; } }
   :root[data-theme="dark"] { --k-sel: #23262b; }
   :root[data-theme="light"] { --k-sel: #ffffff; }
-  html[data-layout="consolidated"] body.consolidated #pj-list { gap: 2px; }
+  /* #3126 (Josh, 6.68): a dead `#pj-list { gap: 2px }` sat here, overridden by
+     the later `#pj-list { gap }` in this same block; removed so the projects
+     list gap has a single source (the tightened value below). */
   /* The rail heads: a name, a +, and the fold arrow. Folded, the arrow (and
      the +) stack and the name goes. */
   /* The 12px bottom margin is item 6, Josh: "a little more room from the label
@@ -3404,27 +3413,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .pj-empty { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
-  /* Folded projects: the arrow alone, the list gone. */
-  html[data-layout="consolidated"] body.consolidated.fold-p #panel-projects { grid-template-columns: 48px minmax(0, 1fr); }
-  /* ⚠️ NO MARGIN DECLARATION HERE ANY MORE. It used to say `margin-left: 0`,
-     which out-specified the sticky header's `margin: 0 -8px` below ((1,3,2)
-     against (1,2,2)), so a folded header kept its right bleed and lost its
-     left. The first fix restated the bleed as `margin-inline-start: -8px`,
-     which was inert: `#rail-projects`'s own rule already supplies it and
-     already beats `.railhead`, so the "fold's own left inset" that
-     declaration claimed to cancel does not exist. A declaration whose comment
-     asserts a job nothing is doing is worse than its absence. */
-  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects { flex-direction: column; }
-  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railacts { flex-direction: column; }
-  /* #980 (Josh, 2026-08-26 08:31): "when I collapse projects the header
-     should go away and just have the + and the arrow" -- the label was
-     never hidden on this side (only fold-a had the rule, and unscoped at
-     that), so PROJECTS overflowed the 48px strip as clipped letters. */
-  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects .railname { display: none; }
-  /* `#pj-list.asgrid` above carries one more class than this, so the fold
-     names the same class or its display:none loses the specificity contest
-     (the switch-specificity trap: two classes beat one, order irrelevant). */
-  html[data-layout="consolidated"] body.consolidated.fold-p #pj-list, html[data-layout="consolidated"] body.consolidated.fold-p #pj-list.asgrid, html[data-layout="consolidated"] body.consolidated.fold-p #pj-arch-wrap, html[data-layout="consolidated"] body.consolidated.fold-p #pj-list-msg { display: none; }
+  /* #3126 (Josh, 6.68): the fold-p (folded-projects) CSS was REMOVED with the
+     collapse control - the Projects column is no longer collapsible, so the
+     folded visual state (a 48px strip, arrow-only head, list hidden) can never
+     occur. The agents-column fold (fold-a, above) is unchanged. */
   /* #520 piece nine: the panel starts on the agents rail HEAD's row, not the
      list's, so the PROJECTS head, the project title and the right column all
      share the AGENTS head's top (Josh, 16:32: "flush vertically with agents";
@@ -3581,7 +3573,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      count, the sort and the view toggle are for the full-width tab. */
   html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow > .stats, html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow > .viewctl { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow { margin: 0 0 8px; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { padding: 8px 10px; box-shadow: none; }
+  html[data-layout="consolidated"] body.consolidated .pj-row { box-shadow: none; } /* #3126: dead `padding: 8px 10px` removed (overridden by the tightened .pj-row padding later in this block) */
   html[data-layout="consolidated"] body.consolidated .pjcard-h b { font-size: .875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t, html[data-layout="consolidated"] body.consolidated .pj-row .pj-who { display: none; }
   /* The projects panel: its list is the second rail, everything else the rest. */
@@ -3724,7 +3716,8 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      to sit flush with row 39). */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
-  html[data-layout="consolidated"] body.consolidated #pj-list { gap: 8px; }
+  /* #3126 (Josh, 6.68): tighter spacing between projects (was gap 8px). */
+  html[data-layout="consolidated"] body.consolidated #pj-list { gap: 4px; }
   /* #905: a long project name escaped the rail on both sides. Root cause --
      the narrow rail reuses #pj-list's markup UNCHANGED whatever sub-layout
      (list or the grid-of-tiles "asgrid") the person last left the full
@@ -3741,7 +3734,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      of #pj-list's own asgrid/list class, is the fix -- not a new
      truncation rule, the existing one from :2096 was already right. */
   html[data-layout="consolidated"] body.consolidated #pj-list.asgrid { display: flex; flex-direction: column; }
-  html[data-layout="consolidated"] body.consolidated .pj-row { height: auto; align-items: stretch; text-align: left; padding: 8px 10px; }
+  html[data-layout="consolidated"] body.consolidated .pj-row { height: auto; align-items: stretch; text-align: left; padding: 5px 10px; } /* #3126: tighter vertical padding (was 8px) */
   /* ⚠️ FIRST ATTEMPT put the name and pill side by side (matching the tab
      view's own row, and how #879 solved this same class of bug there) --
      measured wrong: at the rail's real width a short name ("Book Launch")
@@ -3765,12 +3758,16 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      absolutely at the row's depth so leaves and parents at the same depth align. */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row {
     position: relative;
-    padding-left: calc(24px + var(--pj-depth, 0) * 14px); }
+    padding-left: calc(28px + var(--pj-depth, 0) * 14px); }
+  /* #3126 (Josh, 6.68): the fold caret was a "grain of pepper" (a 10px glyph in a
+     16px box). Enlarged to a 15px glyph in a 20px box, vertically centred by
+     transform (robust to the tighter row padding below), and the gutter widened
+     from 24px to 28px so the bigger caret never overlaps the title. */
   html[data-layout="consolidated"] body.consolidated #pj-list .pjtreefold {
     display: inline-flex; align-items: center; justify-content: center;
-    position: absolute; top: 8px; left: calc(6px + var(--pj-depth, 0) * 14px);
-    width: 16px; height: 16px; border-radius: 4px;
-    font-size: 10px; line-height: 1; color: var(--k-ink-2);
+    position: absolute; top: 50%; transform: translateY(-50%); left: calc(4px + var(--pj-depth, 0) * 14px);
+    width: 20px; height: 20px; border-radius: 4px;
+    font-size: 15px; line-height: 1; color: var(--k-ink-2);
     cursor: pointer; user-select: none; }
   html[data-layout="consolidated"] body.consolidated #pj-list .pjtreefold:hover {
     background: var(--k-surface); color: var(--k-ink); }
@@ -4322,8 +4319,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   /* 🔑 A FOLDED SECTION HIDES ITS PLUS (kosmos#1303 H, Josh 10:23). Folded, the
      rail is 48px of column and the label is gone, so a + still sitting there is
      an action with nothing visible to act on. The arrow that unfolds it stays. */
-  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents-new,
-  html[data-layout="consolidated"] body.consolidated.fold-p #rail-projects-new { display: none; }
+  html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents-new { display: none; } /* #3126: was a shared rule with fold-p #rail-projects-new; projects no longer folds */
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > *, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .dlab, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
   html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
@@ -11025,12 +11021,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <p class="fhint" id="pj-none" hidden></p>
   <div id="pj-list-view">
     <!-- #520, piece two: the projects rail's head, consolidated view only.
-         #2850 (Josh, 2026-09-11): the fold arrow sits on the LEFT (inside .lead,
-         before the name) and the + (the list's own New project) sits on the FAR
-         RIGHT (inside .railacts), matching the agents rail and the tab-view
-         grammar. When folded, the arrow alone remains and reopens the list. -->
+         #2850 (Josh, 2026-09-11): the + (the list's own New project) sits on the
+         FAR RIGHT (inside .railacts), matching the agents rail and the tab-view
+         grammar.
+         #3126 (Josh, 6.68): the "<" fold control was REMOVED - the Projects
+         column is no longer collapsible (no button, and railFoldsApply no longer
+         drives fold-p). A CSS inset on #rail-projects .lead keeps the "Projects"
+         title aligned with the agents head, where a 22px fold button + 7px gap
+         still inset the name. -->
     <div class="railhead" id="rail-projects" hidden>
-      <span class="lead"><button class="fold" type="button" id="rail-projects-fold" data-fold="p" aria-label="Fold the projects column" aria-expanded="true">&lsaquo;</button><span class="railname">Projects</span></span>
+      <span class="lead"><span class="railname">Projects</span></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="New project" title="New project">+</button>
       </span>
@@ -30297,7 +30297,8 @@ let STYLE_REQ = 0;
 /* #520: the layout, from the engine. The root attribute is the only thing
    the CSS reads; the tiles say which is chosen; showTab re-lays the page.
    Two widths, not one, since the 2026-08-25 fold-first change: below
-   CONSOLIDATED_FOLD_WIDTH both rails auto-fold (railFoldsApply); below
+   CONSOLIDATED_FOLD_WIDTH the agents rail auto-folds (railFoldsApply; #3126
+   made the projects rail non-collapsible, so it no longer folds); below
    CONSOLIDATED_MIN_WIDTH the view is not offered at all and the tabs come
    back, same as the old single 1280 floor used to. */
 const CONSOLIDATED_MIN_WIDTH = 960;
@@ -30579,29 +30580,17 @@ function paintPjNone(which) {
   const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen;
   el.hidden = !show;
   if (!show) return;
-  const cls = document.body.classList;
   /* "No projects" is a claim: only after a read that succeeded and came back
      empty. A failed read leaves the rail saying it cannot look, and this
      sentence must not contradict it. */
   const empty = PJ_LOADED_ONCE && !PJ_READ_FAILED && PROJECTS.length === 0;
   let say;
-  if (PJ_READ_FAILED && !cls.contains('fold-p')) {
+  /* #3126 (Josh, 6.68): the projects column is no longer collapsible, so the
+     two folded-projects copy branches were removed - fold-p can never be set. */
+  if (PJ_READ_FAILED) {
     /* The rail beside it has just said it cannot read the projects and holds
-       nothing to pick; telling the person to pick from it contradicts that.
-       Folded, the rail's message is out of sight, so the fold sentence
-       stands and opening the column shows the message. */
+       nothing to pick; telling the person to pick from it would contradict it. */
     say = '';
-  } else if (cls.contains('fold-p')) {
-    /* With both rails folded there are two narrow columns, each with its
-       buttons at the top, and the first one belongs to the agents rail. The
-       + survives the fold, so an empty board is told to press it, not to
-       open the column first. */
-    const col = cls.contains('fold-a') ? 'second narrow column' : 'narrow column';
-    /* Ends at "open it": true whether the opened column then shows a list
-       to pick from or the rail's own cannot-read message. */
-    say = empty
-      ? 'No projects yet. Press + at the top of the ' + col + ' to start one.'
-      : 'Nothing is open yet. The projects list is folded; press \u203a at the top of the ' + col + ' to open it.';
   } else if (empty) {
     /* The open rail already shows its own "No projects yet" card with the
        Add a project button; saying it twice, beside it, helps nobody. */
@@ -30618,18 +30607,25 @@ function paintPjNone(which) {
    reading posture, not a setting); the + buttons are the board's own New
    agent and New project, reached from the rail's top.
    ⚠️ 2026-08-25: a THIRD state joined the stored '1'/absent pair -- '0',
-   an explicit "stay open". Below CONSOLIDATED_FOLD_WIDTH both rails now
-   auto-fold on their own (buying the centre and right columns room
-   instead of the view snapping to tabs), so "never explicitly touched"
-   can no longer just mean "open": it means "follow the width." Only a
-   real click pins a rail one way regardless of width, which is why the
+   an explicit "stay open". Below CONSOLIDATED_FOLD_WIDTH the agents rail
+   auto-folds on its own (buying the centre and right columns room instead
+   of the view snapping to tabs; #3126 made the projects rail
+   non-collapsible, so only agents folds now), so "never explicitly
+   touched" can no longer just mean "open": it means "follow the width."
+   Only a real click pins a rail one way regardless of width, which is why the
    click handler below always writes '1' or '0' now, never removes the
    key -- an untouched rail has to stay reactive to resize AFTER a wide
    session where the person never touched it, not freeze at whatever it
    happened to render on the one tick they clicked something else. */
 function railFoldsApply() {
   const narrow = layoutConsolidated() && window.innerWidth < CONSOLIDATED_FOLD_WIDTH;
-  for (const k of ['a', 'p']) {
+  /* #3126 (Josh, 6.68): the Projects column is no longer collapsible - its "<"
+     control was removed, so only the agents column ('a') folds here. Clear any
+     stale fold-p (a prior session's stored '1', or a narrow-width auto-fold from
+     before this change) so projects can never render folded. */
+  document.body.classList.remove('fold-p');
+  try { sessionStorage.removeItem('rail-fold-p'); } catch { /* fine */ }
+  for (const k of ['a']) {
     let stored = null;
     try { stored = sessionStorage.getItem('rail-fold-' + k); } catch { stored = null; }
     const on = stored === '1' ? true : stored === '0' ? false : narrow;

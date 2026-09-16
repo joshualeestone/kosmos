@@ -66,6 +66,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
           padLeft: getComputedStyle(r).paddingLeft,
           hasCaret: !!caret,
           caretDisplay: caret ? getComputedStyle(caret).display : 'none',
+          caretFont: caret ? getComputedStyle(caret).fontSize : '0px',
           ariaExpanded: r.getAttribute('aria-expanded'),
           childClass: r.classList.contains('child'),
           chipDisplay: chip ? getComputedStyle(chip).display : 'none',
@@ -74,15 +75,18 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       return { k: info('k'), app: info('app'), mob: info('mob'), site: info('site'), orph: info('orph') };
     });
     // Indent grows with depth (computed, so a calc() typo in the padding rule reds):
-    // 24px + depth*14px -> k 24, app 38, mob 52.
-    ok(t + ' indent depth0 = 24px', tree.k.padLeft === '24px', tree.k.padLeft);
-    ok(t + ' indent depth1 = 38px', tree.app.padLeft === '38px', tree.app.padLeft);
-    ok(t + ' indent depth2 = 52px', tree.mob.padLeft === '52px', tree.mob.padLeft);
+    // #3126 widened the gutter for the bigger caret: 28px + depth*14px -> k 28, app 42, mob 56.
+    ok(t + ' indent depth0 = 28px', tree.k.padLeft === '28px', tree.k.padLeft);
+    ok(t + ' indent depth1 = 42px', tree.app.padLeft === '42px', tree.app.padLeft);
+    ok(t + ' indent depth2 = 56px', tree.mob.padLeft === '56px', tree.mob.padLeft);
     // CONTROL: depth is real, not flat -- the three indents differ.
     ok(t + ' CONTROL indent varies with depth', new Set([tree.k.padLeft, tree.app.padLeft, tree.mob.padLeft]).size === 3, JSON.stringify([tree.k.padLeft, tree.app.padLeft, tree.mob.padLeft]));
     // A parent shows a displayed fold caret; a leaf shows none.
     ok(t + ' parent k has a displayed caret', tree.k.hasCaret && tree.k.caretDisplay !== 'none', JSON.stringify(tree.k));
     ok(t + ' parent app has a displayed caret', tree.app.hasCaret && tree.app.caretDisplay !== 'none', JSON.stringify(tree.app));
+    // #3126 (Josh, 6.68): the caret was a "grain of pepper" (a 10px glyph). It is
+    // now a 15px glyph -- a parent caret's computed font-size must be at least 14px.
+    ok(t + ' caret is enlarged (>=14px, #3126)', parseFloat(tree.k.caretFont) >= 14, tree.k.caretFont);
     ok(t + ' leaf mob has NO caret', !tree.mob.hasCaret, JSON.stringify(tree.mob));
     ok(t + ' leaf site has NO caret', !tree.site.hasCaret, JSON.stringify(tree.site));
     // aria-expanded is on parent rows (foldable) and only there.
