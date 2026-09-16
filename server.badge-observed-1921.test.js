@@ -263,3 +263,28 @@ test('#3136 ROUTE: a LABELLED account probes with its own dir (not null)', async
     assert.equal(gotConfigDir, CLEO_DIR, 'a labelled account must probe with its own dir, got: ' + JSON.stringify(gotConfigDir));
   } finally { create.setClaudeProbe(null); }
 });
+
+/* #3136: the fresher-of-two MERGE (server.js Claude arm). When one account has BOTH a
+   passively-witnessed agent observation AND a user-initiated check-now observation, the
+   badge must reflect the FRESHER one. aria has an agent (ariaagent -> ARIA_DIR) AND we can
+   seed a dir observation on ARIA_DIR, so it is the one account that can hold both. These two
+   are each other's control: reverse the comparison and exactly one of them flips to the
+   wrong badge, so they pin the direction, not just the happy path. */
+
+test('#3136 MERGE: a NEWER agent 401 wins over an OLDER check-now ok (badge rejected)', async () => {
+  const now = Date.now();
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, ARIA_DIR, observed.OUTCOME.OK, now - 2000); // older check-now ok
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'ariaagent', observed.OUTCOME.REJECTED, now);   // newer agent 401
+  const m = await badges();
+  assert.equal(m.get('aria@example.com').badge, 'rejected',
+    'the newer agent 401 did not win the merge over the older check-now ok: ' + JSON.stringify(m.get('aria@example.com')));
+});
+
+test('#3136 MERGE: a NEWER check-now ok wins over an OLDER agent 401 (badge working)', async () => {
+  const now = Date.now();
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'ariaagent', observed.OUTCOME.REJECTED, now - 2000); // older agent 401
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, ARIA_DIR, observed.OUTCOME.OK, now);               // newer check-now ok
+  const m = await badges();
+  assert.equal(m.get('aria@example.com').badge, 'working',
+    'the newer check-now ok did not win the merge over the older agent 401: ' + JSON.stringify(m.get('aria@example.com')));
+});
