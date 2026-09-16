@@ -37526,7 +37526,6 @@ function projectCard(p, unreadable, depth, childCount) {
      list), so the count is redundant. It was already hidden in the consolidated rail
      (.pjsub display:none); this drops it from the tab list too. `subs` is kept: the
      consolidated fold caret below is rendered for any parent (subs > 0). */
-  const subCount = '';
   /* #2929: the consolidated tree's fold caret, rendered for any parent (subs>0).
      Hidden by CSS outside the consolidated rail (the wide list carries depth by
      indent alone, the grid by the ancestry chip), so this is inert there. It is
@@ -37552,7 +37551,6 @@ function projectCard(p, unreadable, depth, childCount) {
     + (pill.label ? '<span class="pjpill ' + pill.cls + '">' + pill.glyph + esc(pill.label) + '</span>' : '') + '</span>'
     + (p.description ? '<span class="pc-t">' + esc(p.description) + '</span>' : '')
     + facesRow
-    + subCount
     + parentChip
     + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
     + (folder.bad ? '<span class="pj-warn">' + esc(folder.text) + '</span>' : '')
