@@ -49,3 +49,12 @@ directed the design. Card #3034 stays needs-decision (the design is Josh's to di
 ## Scope / non-goals
 Does NOT build or change the setup-assistant design (Josh's to direct). Does NOT remove the
 engine. Only gates the first-run wiring off so undirected behavior does not ship on the cut.
+
+The gate is FORWARD-LOOKING and does not clean up already-shipped state (worth Josh knowing
+when he directs the design): users already on the served 0.6.70 build keep the assistant that
+was auto-created and its once-ever `setup-assistant.json` flag. Because that flag is a
+once-ever guard, flipping FIRSTRUN_AUTOCREATE_ENABLED back to true later will NOT re-seed
+those users (they already have one, and we must not re-create one they may have deleted). So:
+existing 0.6.70 users keep theirs; users who onboard on the gated cut (6.71+) get none until
+Josh directs it; and no already-shipped state is touched or reverted. If Josh wants the
+already-shipped agents removed, that is a separate, deliberate cleanup, not this gate.
