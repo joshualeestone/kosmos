@@ -11330,6 +11330,7 @@ test('the in-app enrol flow runs end to end through the routes, and no enrol tok
     assert.equal(smsBody.sent_to, '*** *** 1234', smsStarted.body);
     assert.ok(!smsStarted.body.includes('+12145551234'), 'the full number crossed the HTTP boundary: ' + smsStarted.body);
     assert.ok(!('token' in smsBody), 'the enrol token crossed the boundary via sms enrol: ' + smsStarted.body);
+    assert.ok(!smsStarted.body.includes('kst1.'), 'a token value crossed the boundary via sms enrol: ' + smsStarted.body);
 
     const started = await postJson('/api/remote/signin-enrol', { kind: 'totp' });
     assert.equal(started.status, 200, started.body);

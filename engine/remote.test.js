@@ -695,6 +695,15 @@ test('signin enrol by sms passes the number on argv and returns only the masked 
   const noPhone = await remote.signinEnrol('sms', '');
   assert.equal(noPhone.ok, false);
   assert.match(noPhone.because, /phone number is needed/);
+  // A phone that STARTS with '-' (a CLI flag-lookalike) is refused before spawning --
+  // no valid phone starts with '-', so this rejects nothing legitimate.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '333333');
+  const before = recorded().length;
+  const dashPhone = await remote.signinEnrol('sms', '--coordinator');
+  assert.equal(dashPhone.ok, false);
+  assert.match(dashPhone.because, /does not look like a phone number/);
+  assert.equal(recorded().length, before, 'a flag-lookalike phone must be refused before spawning');
 });
 
 test('enrol fails closed when the coordinator returns an enrolment-started answer with no material to show', async () => {

@@ -828,23 +828,34 @@ async function signinEnrol(kind, phone) {
   }
   const args = ['signin', 'enrol', '--coordinator', COORDINATOR(), '--kind', kind];
   if (kind === 'sms') {
-    if (typeof phone !== 'string' || !phone.trim()) {
+    const trimmedPhone = typeof phone === 'string' ? phone.trim() : '';
+    if (!trimmedPhone) {
       return { ok: false, because: 'a phone number is needed for a text message' };
     }
-    // The number goes straight through, not format-checked here (unlike the
-    // newline guard on --device-name): the coordinator OWNS phone normalization
-    // and accepts a spaced/dashed number the person types, so a guard here would
-    // wrongly reject valid input. The one argv-injection worry the device-name
-    // guard exists for cannot arise -- spawn takes the ARRAY form, so a character
-    // inside one element can never become a second argv entry.
-    //
+    // We do NOT format-check the number (unlike --device-name's strict regex): the
+    // coordinator OWNS phone normalization and accepts the spaced/dashed/+ forms a
+    // person types, so a shape guard here would wrongly reject valid input. Two argv
+    // concerns are worth keeping distinct because they have different mechanisms:
+    //   1. Shell injection cannot arise for ANY character -- spawn takes the ARRAY
+    //      form, so a character inside one element (even a newline) can never become a
+    //      second argv entry. This is the mechanism the --device-name comment gestures
+    //      at; array-form is what actually defeats it, not the newline guard itself.
+    //   2. A value that STARTS with '-' could be misread by the tunnel CLI's OWN arg
+    //      parser as a flag rather than --phone's value -- a parser concern, not a
+    //      shell one, and the one thing worth guarding here. No valid phone starts with
+    //      '-' (they start with '+' or a digit), so rejecting a leading '-' rejects no
+    //      legitimate input. --phone is also pushed LAST, so even a misparse could not
+    //      consume a following argument.
+    if (trimmedPhone.startsWith('-')) {
+      return { ok: false, because: 'that does not look like a phone number' };
+    }
     // The phone rides argv and is therefore visible in the local process list (`ps`)
     // for the child's lifetime -- unlike the bearer tokens, which are kept on stdin.
     // This is an ACCEPTED exposure, not an oversight: the phone is not a bearer
     // credential (it cannot admit or authorise anyone), and every non-credential
     // field in the sibling verbs -- email, code, device name -- rides argv the same
     // way. The #874 boundary is about credentials, and no credential is on argv here.
-    args.push('--phone', phone.trim());
+    args.push('--phone', trimmedPhone);
   }
   const r = parseSaid(await setupRun(args, signinSession.enrolToken));
   if (!r.ok) return r;
