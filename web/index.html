@@ -4650,8 +4650,9 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    selector specificity by hand rather than assumed from the rule that
    reads like the intended one), not the dead 1rem line that never wins. */
 /* Josh, 2026-09-10 (#2711 item 5): no horizontal rule under the project
-   title + search in the tab view. The consolidated header keeps its own
-   separator (the rule above at the consolidated .pjmidhead selector). */
+   title + search in the tab view. #3186 (Josh 6.70) then removed the
+   consolidated header's separator too (the border-bottom on the consolidated
+   .pjmidhead selector above), so both surfaces are now rule-free. */
 .pjmidhead:has(.pjhead) { align-items: center; gap: 12px; padding: 0 0 10px; margin-bottom: 16px; }
 .pjmidhead:has(.pjhead) > .dlab { display: none; }
 .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }

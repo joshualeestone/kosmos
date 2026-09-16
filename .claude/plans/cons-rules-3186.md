@@ -26,6 +26,17 @@ verify arm).
   the consolidated view in #3051 (`> #rail-me { display: none }` wins by source
   order), so it is not visible there -- removing its border is a no-op, not the
   rule Josh sees. Left as-is.
+- CONSIDERED and LEFT (flagged for Josh's 6.72 review): two other horizontal
+  `var(--k-rule)` borders exist on the consolidated view. Neither is the
+  "under the discussion header" rule, so I did not remove them blind:
+  - `.apphead header` border-bottom (~line 3338): the TOP APP-BAR separator. This
+    is chrome that bounds the whole top bar, not a divider inside the project. A
+    top bar with no bottom edge floats. Very likely intentional; kept.
+  - `.pj3 > .pjsplit > .pjcard-members` border-top (~line 4108): the divider
+    between the stacked Members and Files cards inside the open-project detail. A
+    deliberate card separator (its own prior card group), structural like the
+    vertical column borders. Kept. If Josh points at either on 6.72, each is a
+    one-line border removal.
 - The VERTICAL column separators (`border-right`) are LEFT ALONE: they are the grid's
   column structure, not horizontal "rules"; removing them would collapse the
   multi-column read.
@@ -44,7 +55,9 @@ strip's `padding: 8px 8px`. One-line tweaks if Josh points at a specific gap.
    person strip (`#rail-me`).
 3. Confirm the vertical column separators still read (agents | discussion columns).
 4. If any horizontal line remains that Josh still dislikes, name the element -- it
-   is a one-line border removal.
+   is a one-line border removal. Two known candidates left in place: the top
+   app-bar separator (`.apphead header` border-bottom) and the Members/Files card
+   divider (`.pjcard-members` border-top). Point at either to remove it.
 
 ## Decisions / trade-offs
 - Removed both horizontal-rule borders (Josh said "rules", plural). Reversible; if
