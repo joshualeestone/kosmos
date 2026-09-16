@@ -11246,6 +11246,11 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     }
     const remoteEngine = require('./engine/remote');
     try { remoteEngine.setOn(false); } catch { /* leave the sandbox off */ }
+    // Clear the in-process device-id memo too, not just the persisted value:
+    // signin mints and memoises a device_id, so wiping only the file would let a
+    // later signin test reuse the memoised id. resetForTests nulls the memo (and
+    // any held session) as well as stopping the child.
+    try { remoteEngine.resetForTests(); } catch { /* nothing to reset */ }
     try {
       const rj = JSON.parse(fs.readFileSync(remoteEngine.FILE, 'utf8'));
       /* Clear what THIS flow persists to the shared fixture: sign-in mints and

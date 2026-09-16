@@ -766,6 +766,12 @@ async function signinVerify(email, code, deviceName) {
     '--email', email, '--device-id', signinDeviceId(), '--code', String(code)];
   pushDeviceName(args, deviceName);
   const r = parseSaid(await setupRun(args));
+  // A CLI error (wrong code, coordinator down) is a TRANSIENT "try again" and
+  // deliberately leaves any prior held session intact for a retry -- same as
+  // signinSecond keeping the challenge on a wrong phone code. Only an untrusted
+  // SHAPE (a well-formed exit whose JSON we cannot use) fails closed, and that
+  // clearing lives in absorbSession. So "unsuccessful verify" is not "slot
+  // cleared"; "unusable answer" is.
   if (!r.ok) return r;
   return absorbSession(r.data);
 }
