@@ -38,10 +38,10 @@ false "your agents are fine". Unit-tested on every branch; no browser.
   every existing caller passes nothing and is unchanged).
 - engine/machine.test.js: the check()-row-count sibling test updated 5->6 (+ the new key), with an
   injected `disabled` seam so it stays hermetic.
-- engine/machine.agentautostart-3182.test.js (new): 12 branch tests - off-darwin null, unreadable->UNKNOWN,
+- engine/machine.agentautostart-3182.test.js (new): 13 branch tests - off-darwin null, unreadable->UNKNOWN,
   none->OK, Set shape, one/many disabled ATTENTION wording, removed excluded, mix, >3 "and N more",
-  unreadable-removed safe direction, a runner-path integration through disabledJobsResult, and a
-  never-mutates-launchd guard.
+  unreadable-removed safe direction (both the ok:false and the throwing-catch branches), a runner-path
+  integration through disabledJobsResult, and a never-mutates-launchd guard.
 
 ## Scope, stated so the row is not read for more than it checks
 - SEES a DISABLED board agent (its RunAtLoad won't fire at the next login).
