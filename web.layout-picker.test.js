@@ -317,9 +317,11 @@ test('piece nine, then #761 (2026-08-25): the project head moves into the conver
 test('piece ten: the + sits at the card heads and the minus on the member rows, in the consolidated view only', () => {
   const src = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   // The minus is drawn only when the project page asks for it, and carries the settings row's own data-drop.
-  assert.match(src, /function pjMember\(m, suppressTold, withMinus\)/);
+  // #3131: pjMember gained a 4th param hideState (drops the Agents-column state label); the roster
+  // call passes it true. The withMinus behaviour and its pins are unchanged.
+  assert.match(src, /function pjMember\(m, suppressTold, withMinus, hideState\)/);
   assert.match(src, /withMinus\n\s+\? '<button class="pj-minus" type="button" data-drop="' \+ esc\(m\.sessionName\)/);
-  assert.match(src, /roster\.map\(\(m\) => pjMember\(m, !!sharedTold, true\)\)/, 'the project page asks for it');
+  assert.match(src, /roster\.map\(\(m\) => pjMember\(m, !!sharedTold, true, true\)\)/, 'the project page asks for it (hideState=true, #3131)');
   // #762: Project settings asks for it too now (the same red-X treatment,
   // not a third pattern), so the count is two -- the tab/consolidated view
   // AND the settings rows -- not one.

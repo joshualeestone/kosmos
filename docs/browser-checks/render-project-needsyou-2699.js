@@ -56,10 +56,16 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
        is NOT needs_you - the exact class that a too-broad condition would wrongly light up, so
        it is the load-bearing negative arm; idle alone could not catch that). */
     host.innerHTML = '<div class="pj-members">' + pjMember(mk('needs_you'), true, false)
-      + pjMember(mk('idle'), true, false) + pjMember(mk('stopped'), true, false) + '</div>';
+      + pjMember(mk('idle'), true, false) + pjMember(mk('stopped'), true, false)
+      /* #3131: the Agents-column roster passes hideState=true, which drops the per-member
+         STATE label -- but the red needs-you triangle must STILL show. Row 4 is a needs-you
+         member (triangle kept, label dropped); row 5 is an idle member the same way (the
+         canonical "no idle text" case: no label AND no triangle). */
+      + pjMember(mk('needs_you'), true, false, true)
+      + pjMember(mk('idle'), true, false, true) + '</div>';
     const rows = host.querySelectorAll('.pj-member');
-    if (rows.length !== 3) return { error: 'expected 3 member rows, got ' + rows.length };
-    const needsRow = rows[0], idleRow = rows[1], stoppedRow = rows[2];
+    if (rows.length !== 5) return { error: 'expected 5 member rows, got ' + rows.length };
+    const needsRow = rows[0], idleRow = rows[1], stoppedRow = rows[2], hiddenRow = rows[3], hiddenIdleRow = rows[4];
     const needsWarn = needsRow.querySelector('.pj-face .lwarn');
     const idleWarn = idleRow.querySelector('.pj-face .lwarn');
     const stoppedWarn = stoppedRow.querySelector('.pj-face .lwarn');
@@ -67,6 +73,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const face = needsRow.querySelector('.pj-face');
     const needsSmall = needsRow.querySelector('small');
     const idleSmall = idleRow.querySelector('small');
+    // #3131: the hideState (Agents-column) rows -- needs-you keeps the triangle, both drop the label.
+    const hiddenWarn = hiddenRow.querySelector('.pj-face .lwarn');
+    const hiddenSmall = hiddenRow.querySelector('small');
+    const hiddenIdleWarn = hiddenIdleRow.querySelector('.pj-face .lwarn');
+    const hiddenIdleSmall = hiddenIdleRow.querySelector('small');
     const disp = (el) => (el ? getComputedStyle(el).display : 'absent');
     let overFace = false;
     if (needsWarn && face) {
@@ -84,6 +95,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       needsColor: needsSmall ? getComputedStyle(needsSmall).color : '',
       idleColor: idleSmall ? getComputedStyle(idleSmall).color : '',
       needsLabel: needsSmall ? needsSmall.textContent : '',
+      hiddenWarnPresent: !!hiddenWarn,
+      hiddenWarnDisplay: disp(hiddenWarn),
+      hiddenHasSmall: !!hiddenSmall,
+      hiddenSmallText: hiddenSmall ? hiddenSmall.textContent : '',
+      hiddenIdleHasSmall: !!hiddenIdleSmall,
+      hiddenIdleSmallText: hiddenIdleSmall ? hiddenIdleSmall.textContent : '',
+      hiddenIdleWarnPresent: !!hiddenIdleWarn,
     };
   });
 
@@ -106,11 +124,18 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   // wrong attn (stateCopyOf) and lights up six states instead of one.
   if (r.stoppedWarnPresent) fail.push('a STOPPED member got the warning triangle - the condition lights up more than needs_you (keying on stateCopyOf.attn, not cardStOf.st===attn)');
   if (/\bpj-attn\b/.test(r.stoppedSmallClass)) fail.push('a STOPPED member got the red pj-attn status - the condition is broader than needs_you');
+  // #3131 arm: the Agents column (hideState=true) drops the state LABEL but KEEPS the red triangle.
+  if (!r.hiddenWarnPresent) fail.push('#3131: a needs-you member rendered with hideState lost its warning triangle - the Agents column must keep the red-! even without the label');
+  if (r.hiddenWarnDisplay === 'none') fail.push('#3131: the hideState needs-you triangle is display:none - the Agents column no longer shows the red-!');
+  if (r.hiddenHasSmall) fail.push('#3131: a member rendered with hideState still shows a status <small> label (' + JSON.stringify(r.hiddenSmallText) + ') - the Agents column should show only the triangle, no waiting/idle/busy text');
+  // #3131: an IDLE member under hideState drops its label too (the canonical "no idle text" case) and gets NO triangle.
+  if (r.hiddenIdleHasSmall) fail.push('#3131: an IDLE member with hideState still shows a status <small> label (' + JSON.stringify(r.hiddenIdleSmallText) + ') - the Agents column drops all state text, not just needs-you');
+  if (r.hiddenIdleWarnPresent) fail.push('#3131: an IDLE member with hideState got the warning triangle - only needs-you gets the red-!');
 
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));
     console.error('  measured=' + JSON.stringify(r));
     process.exit(1);
   }
-  console.log('render-project-needsyou-2699: a needs-you project member shows the red warning triangle over its icon and its status text in red; an idle member gets neither. PASS');
+  console.log('render-project-needsyou-2699: a needs-you project member shows the red warning triangle over its icon and its status text in red; an idle member gets neither; and with hideState (the Agents column, #3131) the triangle stays while the status label is dropped. PASS');
 })().catch((e) => { console.error('FAIL  render-project-needsyou-2699', e && e.message); process.exit(1); });
