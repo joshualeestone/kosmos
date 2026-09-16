@@ -631,17 +631,23 @@ async function deviceRemove(id) {
    `setup` (create-or-join enrolment), these verbs never create an account -- a
    missing account is the coordinator's anti-enumeration silence, and the app
    shows a generic "Join Kosmos" nudge from the code screen rather than
-   confirming existence. The kosmos-tunnel `signin {start,verify,second,register}`
-   verbs each print one JSON object with a `stage` field; this module drives them
-   and hands the PAGE only the stage.
+   confirming existence. The kosmos-tunnel
+   `signin {start,verify,second,enrol,confirm-enrol,register}` verbs each print
+   one JSON object with a `stage` field; this module drives them and hands the
+   PAGE only page-safe fields: the stage always; on the enrol_second_factor stage,
+   sms_available and the why-authenticator copy; and on the enrolment_started stage,
+   the kind and the material the enrol screen shows (a totp secret/otpauth, or the
+   masked sms sent_to tail) -- never a token, and never the full phone number.
 
-   🔒 The bearer material stays HERE, never the browser. `verify`/`second` return
-   a 30-day session token, and `verify` a phone-code challenge id; both are
-   sensitive. They live in `signinSession` in this process for the seconds
-   between steps -- the wizard sees a `stage` and nothing else, and `register`
-   spends the token from here (piped to the CLI over stdin, off argv). This is
-   the #874 posture: the page cannot carry, replay, or leak a session it never
-   holds. It is memory-only on purpose -- a board restart mid-flow drops it and
+   🔒 The bearer material stays HERE, never the browser. THREE bearer credentials
+   pass through, all held the same way: `verify`/`second` return a 30-day session
+   token, `verify` a phone-code challenge id, and `verify`'s enrol_second_factor
+   branch an enrol-only token (which `enrol`/`confirm-enrol` spend). All are
+   sensitive and live in `signinSession` in this process for the seconds between
+   steps -- the wizard sees only page-safe fields (never bearer material), and
+   `register` spends the session token from here (piped to the CLI over stdin, off
+   argv). This is the #874 posture: the page cannot carry, replay, or leak a
+   credential it never holds. It is memory-only on purpose -- a board restart mid-flow drops it and
    the person simply starts sign-in again, which is safe and quick.
 
    ⚠️ ONE SLOT, and the collision edge stated in full (by design, not a defect,
@@ -689,13 +695,17 @@ function signinDeviceId() {
 }
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
-    to the caller ONLY the stage (never the token, never the challenge value).
-    Pure-ish: it mutates `signinSession` and returns the page-safe shape.
+    to the caller ONLY page-safe fields (never the session token, never the
+    challenge value, never the enrol-only token) -- the stage always, plus on the
+    enrol stage the sms_available flag and why-authenticator copy the enrol screen
+    renders. Pure-ish: it mutates `signinSession` and returns the page-safe shape.
 
     FAIL CLOSED: every path sets `signinSession` to exactly this answer's result
-    (a token, a challenge, or nothing), so the slot never carries a stale value
-    from a PRIOR call across a malformed one. A verify/second that returns a
-    shape we cannot use clears the slot -- a person who hits an error state
+    (a session token, a challenge, an enrol-only token, or nothing), so the slot
+    never carries a stale value from a PRIOR call across a malformed one. A
+    verify/second/confirm-enrol answer whose shape we cannot use clears the slot
+    (signinEnrol's own answer does not route through here) -- a
+    person who hits an error state
     restarts sign-in rather than silently spending an earlier session. */
 function absorbSession(data) {
   const stage = data && typeof data.stage === 'string' ? data.stage : '';
@@ -713,9 +723,18 @@ function absorbSession(data) {
   }
   if (stage === 'enrol_second_factor') {
     // The account has no second factor yet and the coordinator requires one.
-    // Enrolment verbs are a later increment; the wizard shows an honest message.
-    signinSession = null;
-    return { ok: true, because: null, data: { stage: 'enrol_second_factor' } };
+    // Hold the ENROL-ONLY token (verify's answer carries it) so signinEnrol /
+    // signinConfirmEnrol can spend it; it is a bearer credential and stays HERE,
+    // never returned to the page, exactly like the session token. The wizard gets
+    // only what it renders: whether SMS is on, and the "why an authenticator" copy.
+    const enrolToken = data && typeof data.token === 'string' ? data.token : '';
+    if (!enrolToken) { signinSession = null; return { ok: false, because: 'the coordinator did not return an enrolment token' }; }
+    signinSession = { enrolToken };
+    return { ok: true, because: null, data: {
+      stage: 'enrol_second_factor',
+      sms_available: data.sms_available === true,
+      why_authenticator: typeof data.why_authenticator === 'string' ? data.why_authenticator : '',
+    } };
   }
   signinSession = null;
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
@@ -791,6 +810,115 @@ async function signinSecond(code) {
   return absorbSession(r.data);
 }
 
+/** Enrol a second factor (#3149 increment 4), only after `verify` returned
+    `enrol_second_factor` -- the account has none and the coordinator requires
+    one, so set one up in-app instead of dead-ending. Drives the tunnel `signin
+    enrol` verb with the held enrol-only token (piped to stdin, off argv). `kind`
+    is "totp" (authenticator app) or "sms" (text message); `phone` is required for
+    sms. Returns the coordinator's start-of-enrolment answer for the wizard to
+    show: for totp the `secret`/`otpauth` to render as a QR or typed string; for
+    sms the masked `sent_to` tail the code went to. The full phone number never
+    comes back -- only the masked tail travels. */
+async function signinEnrol(kind, phone) {
+  if (!signinSession || typeof signinSession.enrolToken !== 'string') {
+    return { ok: false, because: 'start the sign-in again: there is no enrolment waiting' };
+  }
+  if (kind !== 'totp' && kind !== 'sms') {
+    return { ok: false, because: 'choose the authenticator app or a text message' };
+  }
+  const args = ['signin', 'enrol', '--coordinator', COORDINATOR(), '--kind', kind];
+  if (kind === 'sms') {
+    const trimmedPhone = typeof phone === 'string' ? phone.trim() : '';
+    if (!trimmedPhone) {
+      return { ok: false, because: 'a phone number is needed for a text message' };
+    }
+    // We do NOT format-check the number (unlike --device-name's strict regex): the
+    // coordinator OWNS phone normalization and accepts the spaced/dashed/+ forms a
+    // person types, so a shape guard here would wrongly reject valid input. Two argv
+    // concerns are worth keeping distinct because they have different mechanisms:
+    //   1. Shell injection cannot arise for ANY character -- spawn takes the ARRAY
+    //      form, so a character inside one element (even a newline) can never become a
+    //      second argv entry. This is the mechanism the --device-name comment gestures
+    //      at; array-form is what actually defeats it, not the newline guard itself.
+    //   2. A value that STARTS with '-' could be misread by the tunnel CLI's OWN arg
+    //      parser as a flag rather than --phone's value -- a parser concern, not a
+    //      shell one, and the one thing worth guarding here. No valid phone starts with
+    //      '-' (they start with '+' or a digit), so rejecting a leading '-' rejects no
+    //      legitimate input. --phone is also pushed LAST, so even a misparse could not
+    //      consume a following argument.
+    if (trimmedPhone.startsWith('-')) {
+      return { ok: false, because: 'that does not look like a phone number' };
+    }
+    // The phone rides argv and is therefore visible in the local process list (`ps`)
+    // for the child's lifetime -- unlike the bearer tokens, which are kept on stdin.
+    // This is an ACCEPTED exposure, not an oversight: the phone is not a bearer
+    // credential (it cannot admit or authorise anyone), and every non-credential
+    // field in the sibling verbs -- email, code, device name -- rides argv the same
+    // way. The #874 boundary is about credentials, and no credential is on argv here.
+    args.push('--phone', trimmedPhone);
+  }
+  const r = parseSaid(await setupRun(args, signinSession.enrolToken));
+  if (!r.ok) return r;
+  const d = r.data && typeof r.data === 'object' ? r.data : {};
+  // Fail closed if the coordinator's 200 did not carry the material this kind needs
+  // (a totp secret/otpauth to show, or the masked sms tail): a clear error beats a
+  // blank enrol screen presented as success. We validate the MATERIAL, not d.stage --
+  // the tunnel forces stage: "enrolment_started" on this verb, so a stage check could
+  // never fire; a missing field is the failure that can actually reach here.
+  //
+  // ONE predicate ("a usable material string") drives BOTH the presence guard and the
+  // copy into out, so the two can never disagree. An earlier split -- a truthiness
+  // guard beside a typeof copy -- let an empty string, then a truthy non-string
+  // (secret: 123), slip between "believed present" and "actually returned", each
+  // yielding the blank screen as a false success. str() collapses that surface: a
+  // field is material iff it is a non-empty string, and exactly those get copied.
+  const str = (v) => (typeof v === 'string' && v !== '' ? v : null);
+  const secret = str(d.secret), otpauth = str(d.otpauth), sentTo = str(d.sent_to);
+  if (kind === 'totp' && !secret && !otpauth) {
+    return { ok: false, because: 'the coordinator did not return an authenticator secret to set up' };
+  }
+  if (kind === 'sms' && !sentTo) {
+    return { ok: false, because: 'the coordinator did not confirm where the code was sent' };
+  }
+  const out = {
+    stage: 'enrolment_started',
+    kind,  // the locally-validated kind we requested, never the coordinator's echo
+    why_authenticator: typeof d.why_authenticator === 'string' ? d.why_authenticator : '',
+  };
+  // Copy only THIS kind's material, mirroring the kind-scoped guard above: totp gets
+  // the secret/otpauth to scan or type, sms gets only the masked tail. Gating by kind
+  // (not a flat copy) means a stray wrong-kind field the coordinator happens to send
+  // -- a secret on an sms answer, a tail on a totp answer -- cannot bleed into the
+  // page; we present exactly the material the guard just accepted, never the other.
+  if (kind === 'totp') {
+    if (secret) out.secret = secret;
+    if (otpauth) out.otpauth = otpauth;
+  } else if (kind === 'sms') {
+    if (sentTo) out.sent_to = sentTo;
+  }
+  return { ok: true, because: null, data: out };
+}
+
+/** Confirm the enrolment code the new factor now shows (the authenticator app's
+    code, or the texted SMS code). Drives `signin confirm-enrol` with the held
+    enrol-only token; on success the coordinator sets the factor and issues the
+    person's FIRST session, which absorbSession captures exactly like verify /
+    second, so the wizard proceeds to `register`. */
+async function signinConfirmEnrol(code) {
+  if (!signinSession || typeof signinSession.enrolToken !== 'string') {
+    return { ok: false, because: 'start the sign-in again: there is no enrolment waiting' };
+  }
+  if (!CODE_RULE.test(String(code || ''))) {
+    return { ok: false, because: 'the code is six digits' };
+  }
+  const r = parseSaid(await setupRun(['signin', 'confirm-enrol', '--coordinator', COORDINATOR(),
+    '--code', String(code)], signinSession.enrolToken));
+  if (!r.ok) return r;
+  // The confirm answer is a session; absorbSession swaps the held enrol token for
+  // the session token (fail-closed on a malformed shape), so register spends it.
+  return absorbSession(r.data);
+}
+
 /** Last step: register THIS computer with the session held here. The keypair is
     born in the binary (private half never travels); the token is piped in over
     stdin, off argv. On success the state dir is written and the tunnel comes up
@@ -858,6 +986,8 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   signinStart,
   signinVerify,
   signinSecond,
+  signinEnrol,
+  signinConfirmEnrol,
   signinRegister,
   pendingDevices,
   devicesList,

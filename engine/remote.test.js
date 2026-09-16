@@ -73,7 +73,11 @@ if (args[0] === 'signin') {
     const code = flag('--code');
     if (code === '000000') { process.stderr.write('the coordinator said no (401): that code is not right\\n'); process.exit(1); }
     if (code === '222222') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_123' })); process.exit(0); }
-    if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor' })); process.exit(0); }
+    if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-fake', sms_available: true, why_authenticator: 'stronger than sms' })); process.exit(0); }
+    if (code === '777777') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, sms_available: true })); process.exit(0); }  // enrol stage with NO token -> engine guard
+    if (code === '888888') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer omits the material -> engine fail-closed
+    if (code === '999999') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-badtype', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer returns TRUTHY NON-STRING material -> engine fail-closed
+    if (code === '303030') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-sms-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose SMS enrol answer omits sent_to -> engine fail-closed (pins the sms guard branch)
     // Malformed coordinator answers, so the engine's guard paths are exercised:
     // a session with no token, a challenge with no id, and an unknown stage.
     if (code === '444444') { console.log(JSON.stringify({ stage: 'session' })); process.exit(0); }
@@ -85,6 +89,47 @@ if (args[0] === 'signin') {
   if (verb === 'second') {
     if (flag('--code') === '000000') { process.stderr.write('the coordinator said no (401): that code is not right\\n'); process.exit(1); }
     console.log(JSON.stringify({ stage: 'session', token: 'kst1.second-fake' }));
+    process.exit(0);
+  }
+  if (verb === 'enrol') {
+    // The enrol-only token arrives on stdin, NEVER argv (same contract as register).
+    const token = fs.readFileSync(0, 'utf8').trim();
+    if (!token) { process.stderr.write('no token on stdin\\n'); process.exit(1); }
+    const kind = flag('--kind');
+    // A 200 whose material is present-but-EMPTY (secret:''/otpauth:'') -- the harder
+    // case: a typeof check would let it through, so this proves the guard uses
+    // truthiness and fails closed rather than showing a blank enrol screen.
+    if (token === 'kst1.enrol-nomaterial') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', secret: '', otpauth: '', why_authenticator: 'why' })); process.exit(0); }
+    // Truthy-but-NON-STRING material (secret a number, otpauth an object): the mirror
+    // of the empty-string case. A truthiness-only guard would believe material is
+    // present while the string-only copy drops it -> a blank screen as false success.
+    if (token === 'kst1.enrol-badtype') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', secret: 123, otpauth: {}, why_authenticator: 'why' })); process.exit(0); }
+    // An sms enrol answer with NO sent_to: the engine sms guard branch must fail closed
+    // (pins the kind==='sms' + no-sentTo path so a future sent_to/sentTo typo goes red).
+    if (token === 'kst1.enrol-sms-nomaterial') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'sms', why_authenticator: 'why' })); process.exit(0); }
+    // The coordinator's answer carries a session-bearing token; the engine allowlist
+    // must strip it so it never reaches the caller (asserted at the enrol boundary below).
+    // The stray sent_to is wrong-kind material a misbehaving coordinator might send on
+    // a totp answer; the engine's kind-scoped copy must drop it (mirror of the sms case).
+    if (kind === 'totp') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', token: 'kst1.should-be-stripped', secret: 'JBSWY3DPEHPK3PXP', otpauth: 'otpauth://totp/x', sent_to: '*** *** 9999', why_authenticator: 'why' })); process.exit(0); }
+    if (kind === 'sms') {
+      const phone = flag('--phone');
+      if (!phone) { process.stderr.write('the coordinator said no (400): phone required for sms\\n'); process.exit(1); }
+      // The phone rides argv (recorded above), so a test asserts it reached the
+      // binary; the answer carries only the masked tail, never the full number.
+      // Includes a STRAY secret/otpauth (wrong-kind material a misbehaving coordinator
+      // might send on an sms answer): the engine's kind-scoped copy must drop them.
+      console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'sms', token: 'kst1.should-be-stripped', sent_to: '*** *** ' + phone.slice(-4), secret: 'STRAYSECRET', otpauth: 'otpauth://stray', why_authenticator: 'why' }));
+      process.exit(0);
+    }
+    process.stderr.write('the coordinator said no (400): kind is totp or sms\\n'); process.exit(1);
+  }
+  if (verb === 'confirm-enrol') {
+    const token = fs.readFileSync(0, 'utf8').trim();
+    if (!token) { process.stderr.write('no token on stdin\\n'); process.exit(1); }
+    if (flag('--code') === '000000') { process.stderr.write('the coordinator said no (401): that code is not right\\n'); process.exit(1); }
+    // On confirm the coordinator issues the person's FIRST session.
+    console.log(JSON.stringify({ stage: 'session', token: 'kst1.enrol-session-fake' }));
     process.exit(0);
   }
   if (verb === 'register') {
@@ -595,11 +640,119 @@ test('signin verify surfaces the phone-challenge and enrol stages without leakin
   assert.equal(second.ok, true, second.because);
   assert.equal(second.data.stage, 'second');
   assert.ok(!('challenge' in second.data), 'the challenge id leaked to the caller');
-  // A fresh start clears the held challenge; then the enrol stage passes through.
+  // A fresh start clears the held challenge; then the enrol stage passes through,
+  // surfacing sms_available + the why-authenticator copy but NOT the enrol token.
   await remote.signinStart('her@example.com');
   const enrol = await remote.signinVerify('her@example.com', '333333');
   assert.equal(enrol.ok, true, enrol.because);
   assert.equal(enrol.data.stage, 'enrol_second_factor');
+  assert.equal(enrol.data.sms_available, true);
+  assert.ok(!('token' in enrol.data), 'the enrol-only token leaked to the caller');
+});
+
+test('signin enrol and confirm-enrol drive an in-app second-factor setup, token held in the engine', async () => {
+  // totp path: verify -> enrol_second_factor (token held) -> enrol(totp) -> confirm.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '333333');   // enrol token held
+  const started = await remote.signinEnrol('totp');
+  assert.equal(started.ok, true, started.because);
+  assert.equal(started.data.stage, 'enrolment_started');
+  assert.equal(started.data.secret, 'JBSWY3DPEHPK3PXP', 'the totp secret the app shows is passed through');
+  assert.ok(!('sent_to' in started.data), 'sms material bled into a totp answer: ' + JSON.stringify(started.data));
+  assert.ok(!('token' in started.data), 'the enrol token leaked through enrol');
+  assert.ok(!JSON.stringify(started.data).includes('kst1.'), 'the token value leaked under some key: ' + JSON.stringify(started.data));
+  // The enrol-only token reached the binary on STDIN, never argv.
+  const enrolCall = recorded().find((c) => c[0] === 'signin' && c[1] === 'enrol');
+  assert.ok(enrolCall && !enrolCall.some((a) => /kst1\./.test(String(a))), 'the enrol token appeared in argv: ' + JSON.stringify(enrolCall));
+  assert.match((await remote.signinConfirmEnrol('12345')).because, /six digits/);
+  const done = await remote.signinConfirmEnrol('123456');
+  assert.equal(done.ok, true, done.because);
+  assert.equal(done.data.stage, 'session', 'confirm-enrol yields a session');
+  assert.ok(!('token' in done.data), 'the session token leaked through confirm-enrol');
+  assert.ok(!JSON.stringify(done.data).includes('kst1.'), 'the session token value leaked under some key: ' + JSON.stringify(done.data));
+  // The session is now held, so register can spend it.
+  const reg = await remote.signinRegister('hers');
+  assert.equal(reg.ok, true, reg.because);
+  assert.equal(reg.data.stage, 'registered');
+});
+
+test('signin enrol by sms passes the number on argv and returns only the masked tail', async () => {
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '333333');
+  const started = await remote.signinEnrol('sms', '+12145551234');
+  assert.equal(started.ok, true, started.because);
+  assert.equal(started.data.kind, 'sms');
+  assert.equal(started.data.sent_to, '*** *** 1234', 'the masked tail the app shows');
+  assert.ok(!('phone' in started.data), 'the full number must not come back to the caller');
+  // The kind-scoped copy drops wrong-kind material the coordinator strayed into the answer.
+  assert.ok(!('secret' in started.data) && !('otpauth' in started.data), 'totp material bled into an sms answer: ' + JSON.stringify(started.data));
+  // Stronger than the key-absence check above: the full number must not appear
+  // anywhere in the app-facing payload, under any key, and the coordinator's
+  // session token must be stripped by the engine allowlist.
+  assert.ok(!JSON.stringify(started.data).includes('+12145551234'), 'the full number leaked into the enrol answer: ' + JSON.stringify(started.data));
+  assert.ok(!('token' in started.data), 'the enrol token leaked through the sms enrol boundary');
+  const call = recorded().find((c) => c[0] === 'signin' && c[1] === 'enrol');
+  assert.ok(call.includes('--phone') && call.includes('+12145551234'), 'the number did not reach the binary');
+  // sms with no phone is refused before spawning.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '333333');
+  const noPhone = await remote.signinEnrol('sms', '');
+  assert.equal(noPhone.ok, false);
+  assert.match(noPhone.because, /phone number is needed/);
+  // A phone that STARTS with '-' (a CLI flag-lookalike) is refused before spawning --
+  // no valid phone starts with '-', so this rejects nothing legitimate.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '333333');
+  const before = recorded().length;
+  const dashPhone = await remote.signinEnrol('sms', '--coordinator');
+  assert.equal(dashPhone.ok, false);
+  assert.match(dashPhone.because, /does not look like a phone number/);
+  assert.equal(recorded().length, before, 'a flag-lookalike phone must be refused before spawning');
+});
+
+test('enrol fails closed when the coordinator returns an enrolment-started answer with no material to show', async () => {
+  // A 200 with stage enrolment_started but no secret/otpauth (totp) must not be
+  // shown as a blank enrol screen -- the engine refuses instead. This exercises
+  // the material guard (the stage is forced by the tunnel, so it can never fire).
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '888888');   // holds kst1.enrol-nomaterial
+  const started = await remote.signinEnrol('totp');
+  assert.equal(started.ok, false, 'a material-less enrol answer must be refused, not shown');
+  assert.match(started.because, /authenticator secret/);
+  // The mirror case: truthy but non-string material (secret:123, otpauth:{}) must also
+  // fail closed, so the presence guard and the string-only copy can never disagree.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '999999');   // holds kst1.enrol-badtype
+  const badType = await remote.signinEnrol('totp');
+  assert.equal(badType.ok, false, 'truthy non-string material must be refused, not shown');
+  assert.match(badType.because, /authenticator secret/);
+  // The sms branch of the guard, pinned in its own right (not just inferred from the
+  // shared str() predicate): an sms enrol answer with no sent_to must fail closed too.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '303030');   // holds kst1.enrol-sms-nomaterial
+  const smsNoTail = await remote.signinEnrol('sms', '+12145551234');
+  assert.equal(smsNoTail.ok, false, 'an sms answer with no masked tail must be refused, not shown');
+  assert.match(smsNoTail.because, /where the code was sent/);
+});
+
+test('enrol refuses without a held enrolment, on a bad kind, and on a tokenless enrol answer', async () => {
+  // No verify(enrol) first: nothing to enrol against.
+  const early = await remote.signinEnrol('totp');
+  assert.equal(early.ok, false);
+  assert.match(early.because, /no enrolment waiting/);
+  const earlyC = await remote.signinConfirmEnrol('123456');
+  assert.equal(earlyC.ok, false);
+  assert.match(earlyC.because, /no enrolment waiting/);
+  // A held enrolment, but a bad kind is refused in words before spawning.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '333333');
+  assert.match((await remote.signinEnrol('nonsense')).because, /authenticator app or a text message/);
+  // A verify enrol answer with NO token fails closed (no enrolment held to spend).
+  await remote.signinStart('her@example.com');
+  const noTok = await remote.signinVerify('her@example.com', '777777');
+  assert.equal(noTok.ok, false);
+  assert.match(noTok.because, /enrolment token/);
+  assert.equal((await remote.signinEnrol('totp')).ok, false, 'a tokenless enrol answer must not leave an enrolment waiting');
 });
 
 test('signin second requires a challenge waiting, then finishes with a held session', async () => {
