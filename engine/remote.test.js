@@ -721,6 +721,19 @@ test('a malformed coordinator answer is refused, and no session is held to spend
   assert.match(reg.because, /finish the code steps/);
 });
 
+test('a malformed answer AFTER a good one fails closed: the earlier session is cleared, not left spendable', async () => {
+  await remote.signinStart('her@example.com');
+  const good = await remote.signinVerify('her@example.com', '111111');       // session held
+  assert.equal(good.data.stage, 'session');
+  // A second verify returns a malformed answer; the previously-held token must
+  // NOT survive it (fail closed), so register can no longer spend it.
+  const bad = await remote.signinVerify('her@example.com', '444444');        // session, no token
+  assert.equal(bad.ok, false);
+  const reg = await remote.signinRegister('hers');
+  assert.equal(reg.ok, false, 'a stale session survived a malformed answer');
+  assert.match(reg.because, /finish the code steps/);
+});
+
 test('signinDeviceId replaces a stored id that fails the shape check rather than trusting it', async () => {
   // A garbage device_id survived in remote.json somehow (hand-edit, corruption).
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'has spaces and / slashes' }));

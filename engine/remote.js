@@ -146,17 +146,17 @@ function secureStateDir() {
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, ok: true };
-    return { on: false, relay: '', email: '', denied: {}, ok: false };
+    if (err && err.code === 'ENOENT') return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: true };
+    return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: false };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, ok: false }; }
+  try { parsed = JSON.parse(raw); } catch { return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: false }; }
   // A JSON array passes `typeof === 'object'`, but that is harmless HERE, unlike
   // in heartbeat-setting: `on` below is read as `parsed.on === true` (an explicit
   // true test), never defaulted to true, so an array reads off -- the safe value
   // for a relay that is off until turned on. #2013 fixed heartbeat's twin of this
   // guard because heartbeat DID default true; this copy needs no Array.isArray.
-  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, ok: false };
+  if (!parsed || typeof parsed !== 'object') return { on: false, relay: '', email: '', denied: {}, device_id: '', ok: false };
   return {
     on: parsed.on === true,
     relay: typeof parsed.relay === 'string' ? parsed.relay : '',
@@ -677,18 +677,24 @@ function signinDeviceId() {
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
     to the caller ONLY the stage (never the token, never the challenge value).
-    Pure-ish: it mutates `signinSession` and returns the page-safe shape. */
+    Pure-ish: it mutates `signinSession` and returns the page-safe shape.
+
+    FAIL CLOSED: every path sets `signinSession` to exactly this answer's result
+    (a token, a challenge, or nothing), so the slot never carries a stale value
+    from a PRIOR call across a malformed one. A verify/second that returns a
+    shape we cannot use clears the slot -- a person who hits an error state
+    restarts sign-in rather than silently spending an earlier session. */
 function absorbSession(data) {
   const stage = data && typeof data.stage === 'string' ? data.stage : '';
   if (stage === 'session') {
     const token = data && typeof data.token === 'string' ? data.token : '';
-    if (!token) return { ok: false, because: 'the coordinator did not return a usable session' };
+    if (!token) { signinSession = null; return { ok: false, because: 'the coordinator did not return a usable session' }; }
     signinSession = { token };
     return { ok: true, because: null, data: { stage: 'session' } };
   }
   if (stage === 'second') {
     const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
-    if (!challenge) return { ok: false, because: 'the coordinator did not return a phone challenge' };
+    if (!challenge) { signinSession = null; return { ok: false, because: 'the coordinator did not return a phone challenge' }; }
     signinSession = { challenge };
     return { ok: true, because: null, data: { stage: 'second' } };
   }
@@ -698,6 +704,7 @@ function absorbSession(data) {
     signinSession = null;
     return { ok: true, because: null, data: { stage: 'enrol_second_factor' } };
   }
+  signinSession = null;
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
 }
 
