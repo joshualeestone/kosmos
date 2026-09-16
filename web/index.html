@@ -25398,15 +25398,21 @@ function usageUsd(n) {
 }
 /* #3137 (Josh, 6.68): the hero's fixed-width stat TILES clip a full thousands figure
    -- "$176,332" (Approximate Human Cost) ran past the tile edge. In a tile, abbreviate
-   the thousands band to $NK (Josh's "176k"), no decimal so it stays as narrow as
-   possible; below $1k keeps the exact $N / $N.NN. This is TILE-ONLY: usageUsd (and so
-   the per-row Value COLUMN, which has room and which #2840 ruled shows the exact figure)
-   is untouched. The M+ bands are formatted at each tile's call site because the hero keeps
-   one decimal ($1.8M) while the API-cost tile stays whole ($1M) -- the approved mock's
-   intentional difference -- so this helper only owns the shared sub-$1M path. Pure. */
+   the thousands band to $N.NK (Josh floated "176k" OR "176.4k" and left precision to me;
+   one decimal, trailing ".0" dropped, so a small thousands like $1,152 -> $1.2K is not
+   ~13% lossy while a round $45,000 still reads $45K). Below $1k keeps the exact $N / $N.NN.
+   At the TOP of the band (a value that would round to $1000K) roll up to $1.0M so the tile
+   never shows the wider, wrong-magnitude "$1000K". This is TILE-ONLY: usageUsd (and so the
+   per-row Value COLUMN, which has room and which #2840 ruled shows the exact figure) is
+   untouched. The >=1e6 bands are formatted at each tile's call site (the hero keeps one
+   decimal $1.8M, the API-cost tile stays whole $1M -- the approved mock's intentional
+   difference), so this helper owns the shared sub-$1M path plus that top-of-band rollover. Pure. */
 function usageUsdTileSub1M(n) {
   const v = Number(n) || 0;
-  return v >= 1e3 ? '$' + (v / 1e3).toFixed(0) + 'K' : usageUsd(v);
+  if (v < 1e3) return usageUsd(v);
+  const k = v / 1e3;
+  if (k >= 999.95) return '$' + (v / 1e6).toFixed(1) + 'M';   // would round to $1000K -> $1.0M
+  return '$' + k.toFixed(1).replace(/\.0$/, '') + 'K';
 }
 /* The per-row blended dollar Value: the row's 4-class token total, valued at the
    design's blended rate. Pure. */

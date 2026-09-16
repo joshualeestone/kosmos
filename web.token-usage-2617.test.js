@@ -64,7 +64,7 @@ function bundle() {
     + lift('usageModelPrice') + '\n'
     + lift('usageApiCost') + '\n'
     + lift('usageHistoryHtml') + '\n'
-    + 'return { usageTotals, usageGrandTotal, usageRowTokenTotal, usageDailySeries, usageNum, usageAbbr, usageBigTokens, usageUsd, usageRowValue, '
+    + 'return { usageTotals, usageGrandTotal, usageRowTokenTotal, usageDailySeries, usageNum, usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M, usageRowValue, '
     + 'usageHeroHtml, usageByModel, usageModelTableHtml, usageDonutSvg, usageCharts4Html, '
     + 'usageModelPrice, usageApiCost, usageHistoryHtml, USAGE_CLASS_COLORS, USAGE_MODEL_COLORS, USAGE_MODEL_PRICES };'
   )();
@@ -111,7 +111,7 @@ test('#2840: the hero shows the blended total = human-cost equation + three stat
   // #3137 (Josh, 6.68): the stat TILES abbreviate the thousands band ($1,152 -> $1K) so a
   // wide figure does not clip the fixed-width tile. The per-row table Value keeps the exact
   // figure (usageUsd, #2840) -- that assertion is unchanged below.
-  assert.ok(html.includes('>$1K<') && html.includes('Equivalent Token API Cost'), 'the API-cost tile abbreviates the thousands figure (#3137)');
+  assert.ok(html.includes('>$1.2K<') && html.includes('Equivalent Token API Cost'), 'the API-cost tile abbreviates the thousands figure to one decimal (#3137, $1,152 -> $1.2K, not the lossy $1K)');
   // active-days: 2 days -> two digit boxes "2"? no -- 2 days is one digit "2".
   assert.match(html, /class="tv-days"[\s\S]*Active Days on Kosmos/, 'active-days eyebrow present');
 });
@@ -134,6 +134,16 @@ test('#2840/#3137: the hero value degrades gracefully below $1M (a light machine
   assert.ok(!html.includes('$0.0M'), 'no misleading $0.0M for a real sub-$1M value');
   // demo scale is unchanged: the approved $X.XM format still applies at >= $1M.
   assert.ok(U.usageHeroHtml(U.usageTotals(FIXTURE), 2, 1152).includes('$1.8M'), 'demo-scale value keeps the approved $X.XM format');
+});
+
+test('#3137: usageUsdTileSub1M abbreviates the tile thousands band, rolls over at $1000K, and keeps sub-$1k exact', () => {
+  assert.equal(U.usageUsdTileSub1M(1152), '$1.2K', 'small thousands keep one decimal (not the lossy $1K)');
+  assert.equal(U.usageUsdTileSub1M(45000), '$45K', 'a round thousands drops the trailing .0');
+  assert.equal(U.usageUsdTileSub1M(176332), '$176.3K', 'the reported $176,332 abbreviates to $176.3K');
+  assert.equal(U.usageUsdTileSub1M(999999), '$1.0M', 'the top of the K band rolls to $1.0M, never the wider wrong-magnitude $1000K');
+  assert.equal(U.usageUsdTileSub1M(999000), '$999K', 'just below the rollover stays in the K band');
+  assert.equal(U.usageUsdTileSub1M(500), '$500', 'below $1k defers to usageUsd (exact)');
+  assert.equal(U.usageUsdTileSub1M(0), '$0.00', 'zero defers to usageUsd, no misleading abbreviation');
 });
 
 test('#2840: usageByModel aggregates per-model blended totals, sorted most-first', () => {
