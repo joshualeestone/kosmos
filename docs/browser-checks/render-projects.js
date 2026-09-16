@@ -551,10 +551,10 @@ async function main() {
         return {
           rows: msgs.length,
           youNamed: you ? you.querySelector('.msg-h b').textContent : null,
-          /* #1703: the agent post shows its title, and "You" carries none. Read
-             the title text and its POSITION -- Josh asked for it after the name
-             and before the timestamp, so the render is measured on order, not
-             just presence. */
+          /* #3130 (Josh 6.68): the agent title is REMOVED from the dialog. These
+             fields read whatever .msg-role the render produced -- a profile role
+             is seeded above -- so the assertions below can prove the span is
+             ABSENT despite a role existing, not merely that no role was set. */
           agentRole: (box.querySelector('.msg:not(.you) .msg-role') || {}).textContent || null,
           agentRoleOrder: (() => {
             const r = box.querySelector('.msg:not(.you) .msg-h .msg-role');

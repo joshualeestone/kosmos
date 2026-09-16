@@ -40832,8 +40832,9 @@ function pjReceiptSentence(outcomes, p, silent) {
      of them" silence sentences are REMOVED from the room dialog. Josh asked to
      drop that noise; the real delivery facts above ("could not be reached",
      "may have it; not confirmed") stay, since those are actionable, not noise.
-     `silent`/`placedWho` are now unused by this function but kept in the
-     signature so pjRoomRow's call site is unchanged. */
+     The `silent` param is kept in the signature so pjRoomRow's call site is
+     unchanged; `placedWho` is a now-unused local. Both fold into the deferred
+     silence-plumbing cleanup. */
   return bits.join(' ');
 }
 
