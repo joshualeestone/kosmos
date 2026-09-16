@@ -17,7 +17,7 @@
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-alltasks.js
  */
-// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count tkFace
+// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count tkFace tkcard-badge tk-divider
 // ⚠️ `tkFace` here fires only when a line CONTAINING that literal changes (a
 // signature or a call site). The gate keeps `+`/`-` diff-body lines and not context,
 // so an edit to the function BODY -- which is where #2762 lived -- does not trip it.
@@ -105,6 +105,11 @@ const say = (n, cond, note) => {
             body: JSON.stringify({ sentence: s + ' (' + id + ')', who: 'tasker' }) });
         }
       }
+      /* #3171: close ONE task on the project the door opens (out[0]) so this
+         check exercises the closed pill and the open/closed divider, not just
+         the all-open path. Task 1 is "First job here". */
+      await fetch('/api/project/' + out[0] + '/task/1/close', { method: 'POST',
+        headers: { 'content-type': 'application/json' } });
       return out;
     });
     say('the fixture made two projects with tasks on each', made.length === 2, JSON.stringify(made));
@@ -134,12 +139,22 @@ const say = (n, cond, note) => {
       const screen = document.getElementById('pj-alltasks-view');
       const rows = [...screen.querySelectorAll('.tkcard')].filter((r) => r.getBoundingClientRect().height > 0);
       const projectIds = [...new Set(rows.map((r) => r.dataset.project))];
+      /* #3171: the list children are the task cards AND the open/closed divider,
+         in DOM order, so a label per child proves the grouping (opens, then the
+         divider, then closeds) rather than just that a divider exists somewhere. */
+      const list = document.getElementById('alltasks-list');
+      const order = [...list.children].map((k) => k.classList.contains('tk-divider') ? 'divider'
+        : (k.classList.contains('closed') ? 'closed' : 'open'));
       return {
         rows: rows.length,
         heading: (document.getElementById('alltasks-count').innerText || '').trim(),
         projects: projectIds.length,
         projectIds,
         everywhere: document.querySelectorAll('.tkcard').length,
+        badges: rows.map((r) => { const b = r.querySelector('.tkcard-badge'); return b ? b.textContent.trim() : null; }),
+        numbers: rows.map((r) => { const n = r.querySelector('.tkcard-n'); return n ? n.textContent.trim() : null; }),
+        dividers: list.querySelectorAll('.tk-divider').length,
+        order,
       };
     });
 
@@ -159,6 +174,30 @@ const say = (n, cond, note) => {
     say('the heading states a number', Number.isFinite(stated), JSON.stringify(seen.heading));
     say('the heading matches the rows on the screen', stated === seen.rows,
       'heading says ' + stated + ', rows on screen ' + seen.rows);
+
+    /* #3171 (Josh, 2026-09-16): open vs closed at a glance. Every row carries a
+       far-right Open/Closed pill and its task number, and the closed tasks are
+       grouped below the open ones with a single divider between the groups. The
+       fixture closes one task on this project, so both a Closed pill and the
+       divider are actually on screen -- without that, these arms would be
+       vacuous on an all-open list. */
+    say('a closed task is on screen, so the closed pill + divider are exercised (else vacuous)',
+      seen.badges.includes('Closed'), JSON.stringify(seen.badges));
+    say('#3171: every row carries an Open or Closed pill',
+      seen.badges.length === seen.rows && seen.badges.every((b) => b === 'Open' || b === 'Closed'),
+      JSON.stringify(seen.badges));
+    say('#3171: every row shows its task number',
+      seen.numbers.length === seen.rows && seen.numbers.every((n) => /^Task \d+$/.test(n || '')),
+      JSON.stringify(seen.numbers));
+    say('#3171: exactly one divider splits the open and closed groups',
+      seen.dividers === 1, 'dividers: ' + seen.dividers + '  order: ' + JSON.stringify(seen.order));
+    const firstClosed = seen.order.indexOf('closed');
+    const lastOpen = seen.order.lastIndexOf('open');
+    const dividerAt = seen.order.indexOf('divider');
+    say('#3171: open tasks are grouped above the closed ones',
+      firstClosed > -1 && lastOpen > -1 && lastOpen < firstClosed, JSON.stringify(seen.order));
+    say('#3171: the divider sits between the open group and the closed group',
+      dividerAt > lastOpen && dividerAt < firstClosed, JSON.stringify(seen.order));
 
     /* #2762: the member face must carry the avatar VERSION, not a bare URL.
        A bare `/api/agent/<name>/avatar` is byte-identical before and after a
