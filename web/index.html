@@ -39053,6 +39053,14 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
   // pjFieldOk) is not invoked on save, only on opening the settings panel.
   pjFieldOk('pjs-parent', 'pjs-parent-err');
   const btn = document.getElementById('pjs-save');
+  /* #3134: cancel any prior save's pending auto-advance FIRST, before any early
+     return. A second click within the ~1s window -- a no-op ("Nothing has
+     changed."), a field refusal, an engine refusal, a network error, or a
+     read-back failure -- returns before the success path's own schedule, so
+     without this the earlier timer would still fire and yank the person off the
+     screen the second click just put them on (an error, or "Nothing has
+     changed."). The success path below re-arms it. */
+  clearTimeout(btn.__navTimer);
   /* #1303 G: checked BEFORE the round trip, so the reason appears at the field
      rather than as a refusal below a button the person has already scrolled
      past. The engine still refuses independently; this only means the common
@@ -39149,8 +39157,8 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
         // then we advance to the project. The timeout is stored on the button and
         // guarded on the current view + project, so a manual navigation (or
         // opening another project) in the meantime cancels the auto-advance and
-        // never yanks the person off a screen they moved to themselves.
-        clearTimeout(btn.__navTimer);
+        // never yanks the person off a screen they moved to themselves. Any prior
+        // pending timer was already cleared at the top of this handler.
         const savedId = fresh.id;
         btn.__navTimer = setTimeout(() => {
           if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)) pjView('one');
@@ -44011,7 +44019,8 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // when the create succeeded but the read-back failed (no row to show, so its
     // "could not read it back" notice is shown). Rationale in the plan/commit.
     const newProjectId = (body.project && body.project.id) || body.id;
-    if (pjById(newProjectId)) { PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); }
+    const created = pjById(newProjectId);
+    if (created) { PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); }
     else { openProject(newProjectId); }
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen

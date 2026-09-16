@@ -14,14 +14,14 @@
  *      (HEADED=0 on a machine with no console session)
  * Sandboxed roots; kills only what it starts.
  */
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
 const REPO = path.resolve(__dirname, '..', '..');
-const freePort = () => Number(require('node:child_process').execFileSync(process.execPath, ['-e', "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{process.stdout.write(String(s.address().port));s.close()})"], { encoding: 'utf8' }));
+const freePort = () => Number(execFileSync(process.execPath, ['-e', "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{process.stdout.write(String(s.address().port));s.close()})"], { encoding: 'utf8' }));
 const PORT = freePort();
 
 (async () => {
@@ -88,8 +88,40 @@ const PORT = freePort();
     // the consolidated layout must survive the create (a showTab-style navigation would drop it)
     if (!(await p.evaluate(() => document.body.classList.contains('consolidated')))) die('consolidated: the layout was dropped by the create navigation');
 
+    // ---- Read-back-failure fallback (the openProject else branch) ----
+    // Route the create POST to the "created but read-back failed" shape
+    // (body.project null, only body.id) so pjById is false and the handler falls
+    // back to openProject, which surfaces its "created but we could not read it
+    // back" notice on #pj-list-msg and returns to the list rather than a silent
+    // empty screen. Covers the else branch the plan's Verification section names.
+    await p.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) }).then((r) => r.text()));
+    await p.reload({ waitUntil: 'networkidle' });
+    if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
+    await p.route('**/api/projects', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'ghost-unreadable', project: null }) });
+      } else {
+        await route.continue();   // the follow-up GET (loadProjects) hits the real server; no such id exists there
+      }
+    });
+    await p.click('[data-tab="projects"]');
+    await p.click('#pj-new');
+    await p.waitForSelector('#pj-add-view', { state: 'visible', timeout: 5000 });
+    await p.fill('#pj-name', 'Ghost Project');
+    await p.click('#pj-create');
+    await p.waitForSelector('#pj-add-view', { state: 'hidden', timeout: 10000 });
+    const fallback = await p.evaluate(() => ({
+      listShown: !document.getElementById('pj-list-view').hidden,
+      oneHidden: document.getElementById('pj-one-view').hidden,
+      notice: (document.getElementById('pj-list-msg').textContent || '').trim(),
+    }));
+    await p.unroute('**/api/projects');
+    if (!fallback.listShown) die('fallback: after a read-back-failed create the list is not shown');
+    if (!fallback.oneHidden) die('fallback: after a read-back-failed create the project detail is shown instead of the list');
+    if (!/could not read it back|created, but/i.test(fallback.notice)) die('fallback: the "created but could not read it back" notice is missing from #pj-list-msg: ' + JSON.stringify(fallback.notice));
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJCREATE NAV OK (#3134): after Create project the projects LIST is shown (not the new project detail, not the create form), the new project is in the list, in both the tab and consolidated views, with no page errors.');
+    console.log('PJCREATE NAV OK (#3134): after Create project the projects LIST is shown (not the new project detail, not the create form), the new project is in the list, in both the tab and consolidated views; the read-back-failure fallback returns to the list with the "could not read it back" notice; no page errors.');
   } finally {
     await b.close();
     srv.kill();

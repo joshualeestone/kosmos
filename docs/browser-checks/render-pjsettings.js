@@ -149,8 +149,32 @@ const PORT = freePort();
     const staleLive = await p.evaluate(() => document.getElementById('pjs-save-live').textContent.trim());
     if (staleLive !== '') die('a prior project\'s "Saved." survived into the next project\'s settings (#pjs-save-live not cleared by paintProjectSettings): ' + JSON.stringify(staleLive));
 
+    // #3134 BLOCKER guard (interleaved saves): a SECOND save click within the
+    // prior save's ~1s auto-advance window must CANCEL that pending advance, or
+    // the timer fires and yanks the person off the screen the second click just
+    // put them on. We are on Second Project's settings. Make a real save
+    // (schedules the auto-advance), and WHILE its "Saved." is up -- before the
+    // ~1s advance -- click Save again with no edit: a no-op that stays on
+    // settings and must clear the pending timer. Then wait PAST the advance
+    // window and assert we are STILL on settings. On the pre-fix handler the
+    // first save's timer was cleared only on the success path, so it fired here
+    // and navigated to #pj-one-view -- the dangerous answer this guards.
+    await p.route('**/api/project/**', async (route) => {
+      if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
+      await route.continue();
+    });
+    await p.fill('#pjs-desc', 'interleave test: the first save schedules the advance');
+    await p.click('#pjs-save');
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-save-live'); return m && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
+    // second click, no edit -> no-op; must cancel the pending advance
+    await p.click('#pjs-save');
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Nothing has changed.'; }, null, { timeout: 5000 });
+    await p.unroute('**/api/project/**');
+    await p.waitForTimeout(1400);   // well past the ~1s auto-advance window
+    if (!(await p.locator('#pj-settings-view').isVisible())) die('#3134 BLOCKER: a no-op second save within the prior save\'s auto-advance window did not cancel it -- a stale timer navigated off the settings view');
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
+    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();
