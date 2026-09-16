@@ -6290,13 +6290,6 @@ const server = http.createServer((req, res) => {
         const acct = accounts.list().find((a) => a.dir === resolved);
         if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
         let state;
-        // Probe scoped EXACTLY as the create gate does (#1916, engine/create.js):
-        // the DEFAULT account with NO configDir (CLAUDE_CONFIG_DIR unset = claude`s
-        // true default), a labelled account by its dir. Passing the default`s dir
-        // explicitly would diverge from the one tested caller of claudeAccountLive
-        // and, under a sandbox HOME, point the probe at the wrong config. The
-        // OBSERVATION is still keyed by acct.dir below (the value the badge join
-        // reads off the row), for the default too, so it reaches the right badge.
         // #3136: pass the account's RESOLVED config dir explicitly, for the DEFAULT too,
         // instead of deleting CLAUDE_CONFIG_DIR and leaning on claude -p's own ambient
         // default resolution. That ambient path fails in the board's launchd process
@@ -6308,9 +6301,11 @@ const server = http.createServer((req, res) => {
         // it is env-INDEPENDENT -- the same explicit-resolution pattern as #3113's bundled-
         // tmux fix (the launchd-missing-ambient-env class, kosmos#3189). Keyed by acct.dir
         // below for the badge join, as before, so the default reaches the right badge.
-        // DRAFT (#3136): align the default-dir resolver SHAPE to Angel's #3113 helper when
-        // it lands; and the diag flag below surfaces the discarded probe stderr on UNKNOWN
-        // so the board confirms this is the config-dir path (removed once confirmed green).
+        // Aligned with #3113 (merged): the same explicit-resolution pattern, different
+        // resolver (config-dir vs installedRoot), so no shared helper. The diag flag below
+        // surfaces the discarded probe output on UNKNOWN so the 6.71 board deploy confirms
+        // this is the config-dir path -- it is the routed verify instrument (server-side log
+        // only), stripped in a follow-up once 6.71 shows the default account green.
         const probeDir = acct.dir;
         // A validator CRASH fails open (UNKNOWN), never a false "not connected" --
         // the same #1916 rule the create gate states: a broken checker is not a
