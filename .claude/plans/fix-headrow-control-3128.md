@@ -14,17 +14,33 @@ the failed run: title/gear both y=406.8, search sits a row below at y=451.8. The
 (Settings shares the title's line + the search's line) all PASSED; only the narrow control is stale.
 This is a stale check, not a product regression - cog-left works as designed.
 
-## Fix
+## Fix (full rework, after a blind reviewer caught that the WIDE assertions were vacated too)
 
-Repoint the 700px control to a pair that STILL stacks under 760px: !sameLine(narrow.title,
-narrow.search). Search genuinely stacks below at 700px (measured y=451.8 vs title y=406.8), so the
-control stays a LIVE assertion that can still catch a real narrow-layout regression (it returns the
-dangerous answer if search ever stops stacking), not a vacuous pass. Added a comment explaining the
-#3128 pinning so the rationale does not go stale.
+#3128 moved the gear INTO .pjtitle-row (a flex child of the .pjtitle block), so boxes() measured
+the gear as a DESCENDANT of the `title` (.pjtitle) subject. sameLine(.pjtitle, gear) is therefore
+vacuous (a descendant's span is always inside its ancestor's box) - it can never fail. That vacated
+not just the 700px control but every wide "Settings shares the title's line" assertion (tab view,
+consolidated, 961px boundary). Fixing only the control would have shipped a green-but-decorative
+check that certifies the blind spot.
+
+The rework:
+- boxes() now returns the gear's real SIBLING #pj-one-name (the project name text in .pjtitle-row)
+  instead of the .pjtitle block. Comparing two independent siblings is non-vacuous.
+- All four "shares the title's line" sites repointed to sameLine(gear, name): tab view, consolidated,
+  961px boundary, and the narrow guard.
+- Negative control at 700px is now !sameLine(gear, search), the exact inversion of the wide
+  sameLine(gear, search) assertion: search stacks below .pjtitle-row under 60rem, so it genuinely
+  reads NOT-one-line at 700px and the measurement stays provably able to return the dangerous answer.
+- Added a positive guard sameLine(gear, name) at 700px: the #3128 deliverable is that the gear stays
+  pinned to the name row EVEN when stacked; that was unguarded below 60rem.
+- Rewrote the two stale comments (the boxes() note that justified the old .pjtitle subject, and the
+  control note) to match the post-#3128 reality.
 
 ## Test plan
 
-The control's own red-capability is proven by the failed run: the old title/gear form returned the
-dangerous answer (FAIL) when title and gear shared a line. The new title/search form passes on the
-same captured geometry (44px vertical gap, well beyond overlap). Integration verification is the
-re-cut's 3b, which runs render-head-row against the real board. No product code changes.
+Verified in isolation against the real #3128 board (NODE_PATH=pw-runtime node render-head-row.js):
+all 10 checks PASS, including the repointed gear/name assertions, the gear/search control, and the
+new pinned guard. Non-vacuity is structural: gear and name are independent siblings, so sameLine can
+return false (unlike the old ancestor/descendant pair). The negative control's red-capability is the
+inversion it mirrors - search must stack at 700px, which it does. Integration re-verification is the
+re-cut's 3b. No product code changes.
