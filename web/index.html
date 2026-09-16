@@ -60,6 +60,14 @@
    copying a contrast failure faithfully would be a stupid way to fail.
 --------------------------------------------------------------------------- */
 :root {
+  /* #3132 (Josh, 6.68): the consolidated link size, defined once so the archived
+     toggle (#pj-arch-toggle) and the Files/Tasks "View All" doors (.pj-viewall)
+     are guaranteed equal by construction, not by two matching literals
+     (convention #5 -- two derivations of one fact). Defined on :root, not on the
+     consolidated body, because #pj-arch-toggle's consolidated rule applies at all
+     widths while the consolidated grid is @media (min-width: 960px) gated, so a
+     token scoped to that media block would leave var() unresolved below 960px. */
+  --consolidated-link-size: .6875rem;
   /* The pack's board palette (board-pack, view 1 of 13). bg/ink/ink-2/rule
      and the three golds are the values the wizard pinned under #firstrun;
      surface and the mono stack are net-new here, promoted as each view
@@ -2738,14 +2746,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    extending it. The layout + id selector out-specifies the base `.linkish`
    (underline, .875rem, weight 600). The 24px min-height hit-area floor from
    `.linkish` (WCAG 2.5.8) is deliberately KEPT -- only the text shrinks. */
-html[data-layout="consolidated"] body.consolidated #pj-arch-toggle { font-size: .6875rem; font-weight: 500; text-decoration: none; }
+html[data-layout="consolidated"] body.consolidated #pj-arch-toggle { font-size: var(--consolidated-link-size); font-weight: 500; text-decoration: none; }
 /* #3132 (Josh, 6.68): the Files/Tasks "View All" doors should read at the same
    size as the "Archived (X)" link on Projects. Both are .linkish (.875rem base),
    so they already match in the tab view; only consolidated shrinks the Archived
    toggle to .6875rem, so match the doors here. Scoped to consolidated so the tab
    view keeps its existing (already-equal) .875rem. Both doors share .pj-viewall,
    so they stay consistent with each other as well as with Archived. */
-html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: .6875rem; }
+html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(--consolidated-link-size); }
 /* ⚠️ `color` is explicit, and it is the fix for a real dark-mode contrast
    failure. A <button> does NOT inherit the page's colour -- it uses the UA's
    `buttontext`, which is near-black. In light mode that happened to look
@@ -11193,8 +11201,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          viewtoggle is set to Map. paintProjectsMap writes its whole contents. -->
     <div id="pj-map" class="pjorgwrap" hidden></div>
     <!-- ⚠️ Absent entirely when nothing is archived (hidden on the WRAP, same
-         lesson as the removed-agents section: an empty "Show archived
-         projects (0)" teaches the person to ignore this corner). The count in
+         lesson as the removed-agents section: an empty "Archived (0)"
+         teaches the person to ignore this corner). The count in
          the button is derived from the rows the list actually renders, never
          typed beside them. -->
     <div class="pj-arch-wrap" id="pj-arch-wrap" hidden>
@@ -37782,8 +37790,8 @@ async function loadProjects() {
     // archived disclosure below is hidden to avoid.
     pjTilesUnknown();
     // The archived disclosure goes with the list: its count and Restore
-    // buttons derive from a read that did not happen, and "Show archived
-    // projects (3)" is a confident sentence one element below the one saying
+    // buttons derive from a read that did not happen, and "Archived (3)"
+    // is a confident sentence one element below the one saying
     // we could not look. The next successful read repaints it.
     document.getElementById('pj-arch-wrap').hidden = true;
     const one = document.getElementById('pj-one-msg');
