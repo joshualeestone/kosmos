@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-room-search
+// Browser-check-surface: pj-room-search pj-settings-link pj-one-name pjtitle-row
 /* #1043: Settings stays on the same line as the project title and the search.
  *
  * Josh, 2026-08-26 18:29 CT: "The 'settings' should still be visible then on
@@ -66,20 +66,20 @@ function sameLine(a, b) {
   const errs = [];
 
   /* Opens a project and hands back the three boxes that must share a row. */
-  /* ⚠️ THE TITLE HERE IS THE BLOCK (.pjtitle), NOT THE TITLE TEXT.
-     Measured at 961px: when the description wraps to two lines the block gets
-     taller and `align-items: center` centres Settings and the search against
-     the WHOLE block, so they sit below the title's own text by design. A first
-     version of this file compared against #pj-one-name and failed there --
-     a real, intended layout reported as a defect.
-     📌 The block is still the honest subject: if Settings ever dropped onto its
-     own line it would stop overlapping the block entirely, which is exactly
-     what the 700px control proves this can still see. */
+  /* #3128 moved Settings (#pj-settings-link) INTO .pjtitle-row, ahead of the name
+     (#pj-one-name), so the gear is now a flex sibling of the name text rather than
+     a separate control centred against the whole .pjtitle block. The honest
+     subject is that sibling, #pj-one-name: comparing the gear against its ancestor
+     .pjtitle would be VACUOUS, since a descendant's vertical span is always
+     contained in the ancestor's box. (An earlier note here justified using the
+     .pjtitle block over the name text, for a pre-#3128 wrap concern where the gear
+     centred against the block; #3128 inverted that, so the block is no longer a
+     valid subject.) */
   async function boxes(p) {
-    const title = await p.locator('#pj-one-view .pjtitle').first().boundingBox();
+    const name = await p.locator('#pj-one-name').boundingBox();
     const gear = await p.locator('#pj-settings-link').boundingBox();
     const search = await p.locator('#pj-room-search').boundingBox();
-    return { title, gear, search };
+    return { name, gear, search };
   }
 
   /* `create` is false for the second page: the project is already there, and
@@ -109,23 +109,35 @@ function sameLine(a, b) {
     let bx = await boxes(p);
     if (!bx.gear) bad('tab view: Settings is visible at all', 'it has no box');
     else ok('tab view: Settings is visible at all');
-    if (sameLine(bx.title, bx.gear)) ok('tab view: Settings shares the title\'s line');
-    else bad('tab view: Settings shares the title\'s line', JSON.stringify({ title: bx.title, gear: bx.gear }));
+    if (sameLine(bx.gear, bx.name)) ok('tab view: Settings shares the project name\'s line');
+    else bad('tab view: Settings shares the project name\'s line', JSON.stringify({ gear: bx.gear, name: bx.name }));
     if (sameLine(bx.gear, bx.search)) ok('tab view: Settings shares the search\'s line');
     else bad('tab view: Settings shares the search\'s line', JSON.stringify({ gear: bx.gear, search: bx.search }));
 
     /* ---- 2. NEGATIVE CONTROL, run not assumed ----
        🛑 A row check that cannot report "not one row" is decoration. The
-       stylesheet stacks this header under 760px on purpose, so a narrow window
+       stylesheet stacks this header under 960px (the 60rem breakpoint) on purpose, so a narrow window
        is a state where the honest answer is FALSE. If this arm reports the
        boxes still sharing a line, the measurement is broken and every PASS
        above is worthless. */
     await p.setViewportSize({ width: 700, height: 900 });
     await p.waitForTimeout(250);
     const narrow = await boxes(p);
-    if (!sameLine(narrow.title, narrow.gear)) ok('CONTROL: stacked at 700px reads as NOT one line');
+    // The negative control is gear-vs-search, the exact inversion of the wide
+    // sameLine(gear, search) assertion: search stacks below .pjtitle-row under
+    // 60rem (web/index.html @media max-width:60rem), so at 700px they are NOT one
+    // line. That keeps the measurement provably able to return the dangerous
+    // answer. Gear-vs-name would be wrong for this arm: #3128 pins the gear to the
+    // name inside .pjtitle-row in BOTH layouts, so they never stack apart.
+    if (!sameLine(narrow.gear, narrow.search)) ok('CONTROL: stacked at 700px reads as NOT one line');
     else bad('CONTROL: stacked at 700px reads as NOT one line',
       'the check reported one row where the CSS stacks them, so it cannot fail: ' + JSON.stringify(narrow));
+    // Positive guard for the #3128 deliverable in the STACKED layout: the gear
+    // stays pinned to the name row even at 700px (they are flex siblings in
+    // .pjtitle-row). This was unguarded below 60rem; it catches a restyle that
+    // unpins the gear only when stacked.
+    if (sameLine(narrow.gear, narrow.name)) ok('700px: Settings stays pinned to the name row when stacked');
+    else bad('700px: Settings stays pinned to the name row when stacked', JSON.stringify({ gear: narrow.gear, name: narrow.name }));
     await p.close();
 
     /* ---- 3. the consolidated view, the one the mock draws ---- */
@@ -147,8 +159,8 @@ function sameLine(a, b) {
     if (isCons) ok('consolidated: the layout actually switched');
     else bad('consolidated: the layout actually switched', 'body is not .consolidated, so arm 3 tested the tab view again');
     bx = await boxes(p);
-    if (sameLine(bx.title, bx.gear)) ok('consolidated: Settings shares the title\'s line');
-    else bad('consolidated: Settings shares the title\'s line', JSON.stringify({ title: bx.title, gear: bx.gear }));
+    if (sameLine(bx.gear, bx.name)) ok('consolidated: Settings shares the project name\'s line');
+    else bad('consolidated: Settings shares the project name\'s line', JSON.stringify({ gear: bx.gear, name: bx.name }));
     if (sameLine(bx.gear, bx.search)) ok('consolidated: Settings shares the search\'s line');
     else bad('consolidated: Settings shares the search\'s line', JSON.stringify({ gear: bx.gear, search: bx.search }));
 
@@ -160,7 +172,7 @@ function sameLine(a, b) {
     await p.setViewportSize({ width: 961, height: 900 });
     await p.waitForTimeout(250);
     const edge = await boxes(p);
-    if (sameLine(edge.title, edge.gear) && sameLine(edge.gear, edge.search)) ok('961px: the row survives the narrowest window that is owed it');
+    if (sameLine(edge.gear, edge.name) && sameLine(edge.gear, edge.search)) ok('961px: the row survives the narrowest window that is owed it');
     else bad('961px: the row survives the narrowest window that is owed it', JSON.stringify(edge));
     await p.close();
   } catch (e) {
@@ -174,7 +186,7 @@ function sameLine(a, b) {
   else ok('no page errors');
 
   /* A population floor: a check that silently stops running its arms passes. */
-  if (ran < 9) { console.log('head-row: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 10) { console.log('head-row: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('head-row: ' + failures + ' FAILED'); process.exit(1); }
   console.log('head-row: all good, ' + ran + ' checks');
 })();
