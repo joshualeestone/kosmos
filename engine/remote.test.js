@@ -77,6 +77,7 @@ if (args[0] === 'signin') {
     if (code === '777777') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, sms_available: true })); process.exit(0); }  // enrol stage with NO token -> engine guard
     if (code === '888888') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer omits the material -> engine fail-closed
     if (code === '999999') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-badtype', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer returns TRUTHY NON-STRING material -> engine fail-closed
+    if (code === '303030') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-sms-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose SMS enrol answer omits sent_to -> engine fail-closed (pins the sms guard branch)
     // Malformed coordinator answers, so the engine's guard paths are exercised:
     // a session with no token, a challenge with no id, and an unknown stage.
     if (code === '444444') { console.log(JSON.stringify({ stage: 'session' })); process.exit(0); }
@@ -103,6 +104,9 @@ if (args[0] === 'signin') {
     // of the empty-string case. A truthiness-only guard would believe material is
     // present while the string-only copy drops it -> a blank screen as false success.
     if (token === 'kst1.enrol-badtype') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', secret: 123, otpauth: {}, why_authenticator: 'why' })); process.exit(0); }
+    // An sms enrol answer with NO sent_to: the engine sms guard branch must fail closed
+    // (pins the kind==='sms' + no-sentTo path so a future sent_to/sentTo typo goes red).
+    if (token === 'kst1.enrol-sms-nomaterial') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'sms', why_authenticator: 'why' })); process.exit(0); }
     // The coordinator's answer carries a session-bearing token; the engine allowlist
     // must strip it so it never reaches the caller (asserted at the enrol boundary below).
     // The stray sent_to is wrong-kind material a misbehaving coordinator might send on
@@ -722,6 +726,13 @@ test('enrol fails closed when the coordinator returns an enrolment-started answe
   const badType = await remote.signinEnrol('totp');
   assert.equal(badType.ok, false, 'truthy non-string material must be refused, not shown');
   assert.match(badType.because, /authenticator secret/);
+  // The sms branch of the guard, pinned in its own right (not just inferred from the
+  // shared str() predicate): an sms enrol answer with no sent_to must fail closed too.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '303030');   // holds kst1.enrol-sms-nomaterial
+  const smsNoTail = await remote.signinEnrol('sms', '+12145551234');
+  assert.equal(smsNoTail.ok, false, 'an sms answer with no masked tail must be refused, not shown');
+  assert.match(smsNoTail.because, /where the code was sent/);
 });
 
 test('enrol refuses without a held enrolment, on a bad kind, and on a tokenless enrol answer', async () => {
