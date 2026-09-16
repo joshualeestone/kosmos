@@ -75,6 +75,7 @@ if (args[0] === 'signin') {
     if (code === '222222') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_123' })); process.exit(0); }
     if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-fake', sms_available: true, why_authenticator: 'stronger than sms' })); process.exit(0); }
     if (code === '777777') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, sms_available: true })); process.exit(0); }  // enrol stage with NO token -> engine guard
+    if (code === '888888') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer omits the material -> engine fail-closed
     // Malformed coordinator answers, so the engine's guard paths are exercised:
     // a session with no token, a challenge with no id, and an unknown stage.
     if (code === '444444') { console.log(JSON.stringify({ stage: 'session' })); process.exit(0); }
@@ -93,6 +94,9 @@ if (args[0] === 'signin') {
     const token = fs.readFileSync(0, 'utf8').trim();
     if (!token) { process.stderr.write('no token on stdin\\n'); process.exit(1); }
     const kind = flag('--kind');
+    // A 200 that omits the material the kind needs (no secret/otpauth/sent_to) --
+    // the engine must fail closed rather than show a blank enrol screen.
+    if (token === 'kst1.enrol-nomaterial') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', why_authenticator: 'why' })); process.exit(0); }
     // The coordinator's answer carries a session-bearing token; the engine allowlist
     // must strip it so it never reaches the caller (asserted at the enrol boundary below).
     if (kind === 'totp') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', token: 'kst1.should-be-stripped', secret: 'JBSWY3DPEHPK3PXP', otpauth: 'otpauth://totp/x', why_authenticator: 'why' })); process.exit(0); }
@@ -641,6 +645,7 @@ test('signin enrol and confirm-enrol drive an in-app second-factor setup, token 
   assert.equal(started.data.stage, 'enrolment_started');
   assert.equal(started.data.secret, 'JBSWY3DPEHPK3PXP', 'the totp secret the app shows is passed through');
   assert.ok(!('token' in started.data), 'the enrol token leaked through enrol');
+  assert.ok(!JSON.stringify(started.data).includes('kst1.'), 'the token value leaked under some key: ' + JSON.stringify(started.data));
   // The enrol-only token reached the binary on STDIN, never argv.
   const enrolCall = recorded().find((c) => c[0] === 'signin' && c[1] === 'enrol');
   assert.ok(enrolCall && !enrolCall.some((a) => /kst1\./.test(String(a))), 'the enrol token appeared in argv: ' + JSON.stringify(enrolCall));
@@ -649,6 +654,7 @@ test('signin enrol and confirm-enrol drive an in-app second-factor setup, token 
   assert.equal(done.ok, true, done.because);
   assert.equal(done.data.stage, 'session', 'confirm-enrol yields a session');
   assert.ok(!('token' in done.data), 'the session token leaked through confirm-enrol');
+  assert.ok(!JSON.stringify(done.data).includes('kst1.'), 'the session token value leaked under some key: ' + JSON.stringify(done.data));
   // The session is now held, so register can spend it.
   const reg = await remote.signinRegister('hers');
   assert.equal(reg.ok, true, reg.because);
@@ -676,6 +682,17 @@ test('signin enrol by sms passes the number on argv and returns only the masked 
   const noPhone = await remote.signinEnrol('sms', '');
   assert.equal(noPhone.ok, false);
   assert.match(noPhone.because, /phone number is needed/);
+});
+
+test('enrol fails closed when the coordinator returns an enrolment-started answer with no material to show', async () => {
+  // A 200 with stage enrolment_started but no secret/otpauth (totp) must not be
+  // shown as a blank enrol screen -- the engine refuses instead. This exercises
+  // the material guard (the stage is forced by the tunnel, so it can never fire).
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '888888');   // holds kst1.enrol-nomaterial
+  const started = await remote.signinEnrol('totp');
+  assert.equal(started.ok, false, 'a material-less enrol answer must be refused, not shown');
+  assert.match(started.because, /authenticator secret/);
 });
 
 test('enrol refuses without a held enrolment, on a bad kind, and on a tokenless enrol answer', async () => {

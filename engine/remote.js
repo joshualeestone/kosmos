@@ -701,7 +701,8 @@ function signinDeviceId() {
     FAIL CLOSED: every path sets `signinSession` to exactly this answer's result
     (a session token, a challenge, an enrol-only token, or nothing), so the slot
     never carries a stale value from a PRIOR call across a malformed one. A
-    verify/second/enrol answer whose shape we cannot use clears the slot -- a
+    verify/second/confirm-enrol answer whose shape we cannot use clears the slot
+    (signinEnrol's own answer does not route through here) -- a
     person who hits an error state
     restarts sign-in rather than silently spending an earlier session. */
 function absorbSession(data) {
@@ -839,6 +840,17 @@ async function signinEnrol(kind, phone) {
   const r = parseSaid(await setupRun(args, signinSession.enrolToken));
   if (!r.ok) return r;
   const d = r.data && typeof r.data === 'object' ? r.data : {};
+  // Fail closed if the coordinator's 200 did not carry the material this kind needs
+  // (a totp secret/otpauth to show, or the masked sms tail): a clear error beats a
+  // blank enrol screen presented as success. We validate the MATERIAL, not d.stage --
+  // the tunnel forces stage: "enrolment_started" on this verb, so a stage check could
+  // never fire; a missing field is the failure that can actually reach here.
+  if (kind === 'totp' && typeof d.secret !== 'string' && typeof d.otpauth !== 'string') {
+    return { ok: false, because: 'the coordinator did not return an authenticator secret to set up' };
+  }
+  if (kind === 'sms' && typeof d.sent_to !== 'string') {
+    return { ok: false, because: 'the coordinator did not confirm where the code was sent' };
+  }
   const out = {
     stage: 'enrolment_started',
     kind: typeof d.kind === 'string' ? d.kind : kind,

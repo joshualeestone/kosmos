@@ -11337,12 +11337,14 @@ test('the in-app enrol flow runs end to end through the routes, and no enrol tok
     assert.equal(sbody.stage, 'enrolment_started');
     assert.equal(sbody.secret, 'JBSWY3DPEHPK3PXP');
     assert.ok(!('token' in sbody), 'the enrol token crossed the boundary via enrol: ' + started.body);
+    assert.ok(!started.body.includes('kst1.'), 'a token value crossed the boundary via enrol: ' + started.body);
 
     const confirmed = await postJson('/api/remote/signin-confirm-enrol', { code: '123456' });
     assert.equal(confirmed.status, 200, confirmed.body);
     const cbody = JSON.parse(confirmed.body);
     assert.equal(cbody.stage, 'session');
     assert.ok(!('token' in cbody), 'the session token crossed the boundary via confirm-enrol: ' + confirmed.body);
+    assert.ok(!confirmed.body.includes('kst1.'), 'a token value crossed the boundary via confirm-enrol: ' + confirmed.body);
 
     const done = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
     assert.equal(done.status, 200, done.body);
@@ -11384,6 +11386,18 @@ test('the sign-in routes refuse malformed input at the boundary before anything 
   const noName = await postJson('/api/remote/signin-register', { name: '' });
   assert.equal(noName.status, 400);
   assert.match(JSON.parse(noName.body).error, /pick a name/);
+
+  // confirm-enrol refuses a missing code at the HTTP layer, before any spawn.
+  const noEnrolCode = await postJson('/api/remote/signin-confirm-enrol', { code: '' });
+  assert.equal(noEnrolCode.status, 400);
+  assert.match(JSON.parse(noEnrolCode.body).error, /type the code/);
+
+  // enrol's kind guard sits behind the enrolment-held guard, so with no held
+  // enrolment it refuses before spawning -- the pre-spawn guarantee this suite
+  // checks for every route -- rather than reaching the tunnel.
+  const noEnrolment = await postJson('/api/remote/signin-enrol', { kind: '' });
+  assert.equal(noEnrolment.status, 400);
+  assert.match(JSON.parse(noEnrolment.body).error, /no enrolment waiting/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
