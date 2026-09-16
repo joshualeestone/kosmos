@@ -29,8 +29,8 @@ Josh's 6.68 feedback on the room / consolidated message dialog (`pjRoomRow` and 
    `receiptText` and gates the delivery pill on it, so a placed-everywhere operator post
    (empty sentence) draws NO stray empty `<span class="delivery">`.
    SCOPE DECISION (A-pure): the silence COMPUTATION plumbing (`pjSilences`, `pjSilentSince`,
-   the `silent` params, `placedWho`, and paintRoom's `const silences = pjSilences(...)`) is
-   left in place, now unused. Rationale: `pjOldEnoughToJudge` + `PJ_SILENCE_AFTER_MS` are
+   the `silent` params, `placedWho`, the now-orphaned `pjJoinOr` helper, and paintRoom's
+   `const silences = pjSilences(...)` call) is left in place, now unused. Rationale: `pjOldEnoughToJudge` + `PJ_SILENCE_AFTER_MS` are
    SHARED with the DM surface (`dmOwesLine`, a different surface this card does not touch),
    so a full removal is entangled; and removing `pjSilences`/`pjSilentSince` + their large
    dedicated test suite is a clean separate cleanup. FILED AS A FOLLOW-UP rather than

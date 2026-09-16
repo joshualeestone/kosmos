@@ -40833,8 +40833,10 @@ function pjReceiptSentence(outcomes, p, silent) {
      drop that noise; the real delivery facts above ("could not be reached",
      "may have it; not confirmed") stay, since those are actionable, not noise.
      The `silent` param is kept in the signature so pjRoomRow's call site is
-     unchanged; `placedWho` is a now-unused local. Both fold into the deferred
-     silence-plumbing cleanup. */
+     unchanged; `placedWho` (a now-unused local) and the now-orphaned `pjJoinOr`
+     helper fall out of the same removal. All fold into the deferred
+     silence-plumbing cleanup (pjSilences / pjSilentSince / paintRoom's silences
+     map / pjJoinOr). */
   return bits.join(' ');
 }
 
