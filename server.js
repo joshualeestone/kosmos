@@ -5662,7 +5662,15 @@ const server = http.createServer((req, res) => {
         const deviceName = typeof body.device_name === 'string' ? body.device_name : undefined;
         const got = await remote.signinVerify(email, code, deviceName);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
-        sendJson(res, 200, { ok: true, stage: got.data.stage });
+        // On the enrol_second_factor stage the engine surfaces what the enrol
+        // screen renders (is SMS available, and the why-authenticator copy); the
+        // enrol-only token stays engine-side and is never among these.
+        sendJson(res, 200, {
+          ok: true,
+          stage: got.data.stage,
+          sms_available: got.data.sms_available,
+          why_authenticator: got.data.why_authenticator,
+        });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
     return;
@@ -5676,6 +5684,52 @@ const server = http.createServer((req, res) => {
         const code = String(body.code || '').trim();
         if (!code) { sendJson(res, 400, { error: 'type the code from your phone' }); return; }
         const got = await remote.signinSecond(code);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true, stage: got.data.stage });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
+    return;
+  }
+  /* ---- Second-factor enrolment (#3149 increment 4), reached only when
+     signin-verify returned stage:enrol_second_factor (the account has none and
+     the coordinator requires one). Two steps, mirroring the enrol/confirm-enrol
+     tunnel verbs: enrol starts it (totp secret or texted sms), confirm-enrol
+     hands back the code and yields a session. The enrol-only token is held in
+     the ENGINE across both, never returned here (#874). ---- */
+  if (pathname === '/api/remote/signin-enrol' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const kind = String(body.kind || '').trim();
+        const phone = typeof body.phone === 'string' ? body.phone : undefined;
+        const got = await remote.signinEnrol(kind, phone);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        // Relay the coordinator's start-of-enrolment fields the wizard renders;
+        // the phone number is never among them (only the masked sent_to).
+        sendJson(res, 200, {
+          ok: true,
+          stage: got.data.stage,
+          kind: got.data.kind,
+          secret: got.data.secret,
+          otpauth: got.data.otpauth,
+          sent_to: got.data.sent_to,
+          why_authenticator: got.data.why_authenticator,
+        });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not start the second step' }));
+    return;
+  }
+  if (pathname === '/api/remote/signin-confirm-enrol' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const code = String(body.code || '').trim();
+        if (!code) { sendJson(res, 400, { error: 'type the code your second step shows' }); return; }
+        const got = await remote.signinConfirmEnrol(code);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         sendJson(res, 200, { ok: true, stage: got.data.stage });
       })

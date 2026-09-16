@@ -11262,6 +11262,86 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
   }
 });
 
+test('the in-app enrol flow runs end to end through the routes, and no enrol token crosses the HTTP boundary', async () => {
+  const sb = fs.realpathSync(mkTemp('signin-enrol-'));
+  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
+    "const fs = require('node:fs'); const path = require('node:path');",
+    'const a = process.argv.slice(2);',
+    "const flag = (n) => { const i = a.indexOf(n); return i === -1 ? null : a[i + 1]; };",
+    "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
+    // verify returns the enrol stage (account with no second factor), carrying the enrol-only token.
+    "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-route', sms_available: true, why_authenticator: 'why' })); process.exit(0); }",
+    "if (a[0] === 'signin' && a[1] === 'enrol') {",
+    '  const token = fs.readFileSync(0, "utf8").trim();',
+    '  if (!token) { process.stderr.write("no token on stdin"); process.exit(1); }',
+    '  console.log(JSON.stringify({ stage: "enrolment_started", kind: "totp", secret: "JBSWY3DPEHPK3PXP", otpauth: "otpauth://totp/x", why_authenticator: "why" }));',
+    '  process.exit(0);',
+    '}',
+    "if (a[0] === 'signin' && a[1] === 'confirm-enrol') {",
+    '  const token = fs.readFileSync(0, "utf8").trim();',
+    '  if (!token) { process.stderr.write("no token on stdin"); process.exit(1); }',
+    '  console.log(JSON.stringify({ stage: "session", token: "kst1.enrol-session-route" }));',
+    '  process.exit(0);',
+    '}',
+    "if (a[0] === 'signin' && a[1] === 'register') {",
+    '  const token = fs.readFileSync(0, "utf8").trim();',
+    '  if (!token) { process.stderr.write("no token on stdin"); process.exit(1); }',
+    '  const d = flag("--state-dir"); fs.mkdirSync(d, { recursive: true });',
+    '  for (const f of ["mac_id", "tls.crt", "tls.key"]) fs.writeFileSync(path.join(d, f), "x");',
+    '  fs.writeFileSync(path.join(d, "address"), flag("--name") + ".kosmos.invalid\\n");',
+    '  console.log(JSON.stringify({ stage: "registered", mac_id: "m", name: flag("--name"), address: flag("--name") + ".kosmos.invalid", standing: "good", kept_certificate: false }));',
+    '  process.exit(0);',
+    '}',
+    'process.exit(0);', ''].join('\n'));
+  fs.chmodSync(fakeBin, 0o755);
+  const prev = {
+    bin: process.env.AGENT_WORKFORCE_TUNNEL_BIN,
+    relay: process.env.AGENT_WORKFORCE_TUNNEL_RELAY,
+    state: process.env.AGENT_WORKFORCE_TUNNEL_STATE,
+  };
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
+  try {
+    await postJson('/api/remote/signin-start', { email: 'person@example.com' });
+    const verified = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    const vbody = JSON.parse(verified.body);
+    assert.equal(vbody.stage, 'enrol_second_factor');
+    assert.equal(vbody.sms_available, true);
+    assert.ok(!('token' in vbody), 'the enrol token crossed the HTTP boundary: ' + verified.body);
+
+    const started = await postJson('/api/remote/signin-enrol', { kind: 'totp' });
+    assert.equal(started.status, 200, started.body);
+    const sbody = JSON.parse(started.body);
+    assert.equal(sbody.stage, 'enrolment_started');
+    assert.equal(sbody.secret, 'JBSWY3DPEHPK3PXP');
+    assert.ok(!('token' in sbody), 'the enrol token crossed the boundary via enrol: ' + started.body);
+
+    const confirmed = await postJson('/api/remote/signin-confirm-enrol', { code: '123456' });
+    assert.equal(confirmed.status, 200, confirmed.body);
+    const cbody = JSON.parse(confirmed.body);
+    assert.equal(cbody.stage, 'session');
+    assert.ok(!('token' in cbody), 'the session token crossed the boundary via confirm-enrol: ' + confirmed.body);
+
+    const done = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
+    assert.equal(done.status, 200, done.body);
+    assert.equal(JSON.parse(done.body).stage, 'registered');
+  } finally {
+    for (const [k, v] of [['AGENT_WORKFORCE_TUNNEL_BIN', prev.bin], ['AGENT_WORKFORCE_TUNNEL_RELAY', prev.relay], ['AGENT_WORKFORCE_TUNNEL_STATE', prev.state]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    const remoteEngine = require('./engine/remote');
+    try { remoteEngine.setOn(false); } catch { /* leave the sandbox off */ }
+    try { remoteEngine.resetForTests(); } catch { /* nothing to reset */ }
+    try {
+      const rj = JSON.parse(fs.readFileSync(remoteEngine.FILE, 'utf8'));
+      delete rj.device_id;
+      fs.writeFileSync(remoteEngine.FILE, JSON.stringify(rj));
+    } catch { /* nothing written means nothing to clear */ }
+  }
+});
+
 test('the sign-in routes refuse malformed input at the boundary before anything spawns', async () => {
   const badEmail = await postJson('/api/remote/signin-start', { email: 'not-an-email' });
   assert.equal(badEmail.status, 400);

@@ -713,9 +713,18 @@ function absorbSession(data) {
   }
   if (stage === 'enrol_second_factor') {
     // The account has no second factor yet and the coordinator requires one.
-    // Enrolment verbs are a later increment; the wizard shows an honest message.
-    signinSession = null;
-    return { ok: true, because: null, data: { stage: 'enrol_second_factor' } };
+    // Hold the ENROL-ONLY token (verify's answer carries it) so signinEnrol /
+    // signinConfirmEnrol can spend it; it is a bearer credential and stays HERE,
+    // never returned to the page, exactly like the session token. The wizard gets
+    // only what it renders: whether SMS is on, and the "why an authenticator" copy.
+    const enrolToken = data && typeof data.token === 'string' ? data.token : '';
+    if (!enrolToken) { signinSession = null; return { ok: false, because: 'the coordinator did not return an enrolment token' }; }
+    signinSession = { enrolToken };
+    return { ok: true, because: null, data: {
+      stage: 'enrol_second_factor',
+      sms_available: data.sms_available === true,
+      why_authenticator: typeof data.why_authenticator === 'string' ? data.why_authenticator : '',
+    } };
   }
   signinSession = null;
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
@@ -791,6 +800,65 @@ async function signinSecond(code) {
   return absorbSession(r.data);
 }
 
+/** Enrol a second factor (#3149 increment 4), only after `verify` returned
+    `enrol_second_factor` -- the account has none and the coordinator requires
+    one, so set one up in-app instead of dead-ending. Drives the tunnel `signin
+    enrol` verb with the held enrol-only token (piped to stdin, off argv). `kind`
+    is "totp" (authenticator app) or "sms" (text message); `phone` is required for
+    sms. Returns the coordinator's start-of-enrolment answer for the wizard to
+    show: for totp the `secret`/`otpauth` to render as a QR or typed string; for
+    sms the masked `sent_to` tail the code went to. The full phone number never
+    comes back -- only the masked tail travels. */
+async function signinEnrol(kind, phone) {
+  if (!signinSession || typeof signinSession.enrolToken !== 'string') {
+    return { ok: false, because: 'start the sign-in again: there is no enrolment waiting' };
+  }
+  if (kind !== 'totp' && kind !== 'sms') {
+    return { ok: false, because: 'choose the authenticator app or a text message' };
+  }
+  const args = ['signin', 'enrol', '--coordinator', COORDINATOR(), '--kind', kind];
+  if (kind === 'sms') {
+    if (typeof phone !== 'string' || !phone.trim()) {
+      return { ok: false, because: 'a phone number is needed for a text message' };
+    }
+    args.push('--phone', phone.trim());
+  }
+  const r = parseSaid(await setupRun(args, signinSession.enrolToken));
+  if (!r.ok) return r;
+  const d = r.data && typeof r.data === 'object' ? r.data : {};
+  const out = {
+    stage: 'enrolment_started',
+    kind: typeof d.kind === 'string' ? d.kind : kind,
+    why_authenticator: typeof d.why_authenticator === 'string' ? d.why_authenticator : '',
+  };
+  // totp: the secret to scan/type. sms: only the masked tail. Present exactly the
+  // one the coordinator sent; never invent the other, and never the phone number.
+  if (typeof d.secret === 'string') out.secret = d.secret;
+  if (typeof d.otpauth === 'string') out.otpauth = d.otpauth;
+  if (typeof d.sent_to === 'string') out.sent_to = d.sent_to;
+  return { ok: true, because: null, data: out };
+}
+
+/** Confirm the enrolment code the new factor now shows (the authenticator app's
+    code, or the texted SMS code). Drives `signin confirm-enrol` with the held
+    enrol-only token; on success the coordinator sets the factor and issues the
+    person's FIRST session, which absorbSession captures exactly like verify /
+    second, so the wizard proceeds to `register`. */
+async function signinConfirmEnrol(code) {
+  if (!signinSession || typeof signinSession.enrolToken !== 'string') {
+    return { ok: false, because: 'start the sign-in again: there is no enrolment waiting' };
+  }
+  if (!CODE_RULE.test(String(code || ''))) {
+    return { ok: false, because: 'the code is six digits' };
+  }
+  const r = parseSaid(await setupRun(['signin', 'confirm-enrol', '--coordinator', COORDINATOR(),
+    '--code', String(code)], signinSession.enrolToken));
+  if (!r.ok) return r;
+  // The confirm answer is a session; absorbSession swaps the held enrol token for
+  // the session token (fail-closed on a malformed shape), so register spends it.
+  return absorbSession(r.data);
+}
+
 /** Last step: register THIS computer with the session held here. The keypair is
     born in the binary (private half never travels); the token is piped in over
     stdin, off argv. On success the state dir is written and the tunnel comes up
@@ -858,6 +926,8 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   signinStart,
   signinVerify,
   signinSecond,
+  signinEnrol,
+  signinConfirmEnrol,
   signinRegister,
   pendingDevices,
   devicesList,
