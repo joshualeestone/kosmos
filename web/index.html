@@ -6540,12 +6540,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         border-radius: var(--radius-card); padding: var(--space-5); font: inherit; color: var(--label); }
 .tkcard:hover { border-color: var(--label-2); }
 .tkcard:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
-/* #3131 (Josh 6.68, consolidated view): drop the stroke around task cards in the
-   consolidated view. The background + padding still read the card as a block; the
-   base .tkcard border stays in the tab/grid project detail and the View-all-tasks
-   screen (scoped like the container cards' own layout-specific border handling).
-   The focus-visible outline (a11y) is unaffected. border-color:transparent keeps
-   the 1px box so nothing shifts; the hover cue is dropped too, per "no stroke". */
+/* #3131 (Josh 6.68, consolidated view): drop the stroke around task cards while the
+   consolidated layout is active. The background + padding still read the card as a
+   block. Scoped on body.consolidated, so this covers every .tkcard rendered in that
+   layout -- the per-project task list AND the View-all-tasks screen when it is opened
+   from consolidated. The base .tkcard border keeps its stroke in the tab/grid layout
+   (body:not(.consolidated)). Scoped like the container cards' own layout-specific
+   border handling. The focus-visible outline (a11y) is unaffected; border-color:
+   transparent keeps the 1px box so nothing shifts; the hover cue is dropped too,
+   per "no stroke". */
 body.consolidated .tkcard,
 body.consolidated .tkcard:hover { border-color: transparent; }
 .tkcard-n { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2);

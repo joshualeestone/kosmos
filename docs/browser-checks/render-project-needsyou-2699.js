@@ -58,12 +58,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     host.innerHTML = '<div class="pj-members">' + pjMember(mk('needs_you'), true, false)
       + pjMember(mk('idle'), true, false) + pjMember(mk('stopped'), true, false)
       /* #3131: the Agents-column roster passes hideState=true, which drops the per-member
-         STATE label -- but the red needs-you triangle must STILL show. This 4th row renders
-         a needs-you member the way the real Agents column does. */
-      + pjMember(mk('needs_you'), true, false, true) + '</div>';
+         STATE label -- but the red needs-you triangle must STILL show. Row 4 is a needs-you
+         member (triangle kept, label dropped); row 5 is an idle member the same way (the
+         canonical "no idle text" case: no label AND no triangle). */
+      + pjMember(mk('needs_you'), true, false, true)
+      + pjMember(mk('idle'), true, false, true) + '</div>';
     const rows = host.querySelectorAll('.pj-member');
-    if (rows.length !== 4) return { error: 'expected 4 member rows, got ' + rows.length };
-    const needsRow = rows[0], idleRow = rows[1], stoppedRow = rows[2], hiddenRow = rows[3];
+    if (rows.length !== 5) return { error: 'expected 5 member rows, got ' + rows.length };
+    const needsRow = rows[0], idleRow = rows[1], stoppedRow = rows[2], hiddenRow = rows[3], hiddenIdleRow = rows[4];
     const needsWarn = needsRow.querySelector('.pj-face .lwarn');
     const idleWarn = idleRow.querySelector('.pj-face .lwarn');
     const stoppedWarn = stoppedRow.querySelector('.pj-face .lwarn');
@@ -71,9 +73,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const face = needsRow.querySelector('.pj-face');
     const needsSmall = needsRow.querySelector('small');
     const idleSmall = idleRow.querySelector('small');
-    // #3131: the hideState (Agents-column) row -- triangle kept, state label dropped.
+    // #3131: the hideState (Agents-column) rows -- needs-you keeps the triangle, both drop the label.
     const hiddenWarn = hiddenRow.querySelector('.pj-face .lwarn');
     const hiddenSmall = hiddenRow.querySelector('small');
+    const hiddenIdleWarn = hiddenIdleRow.querySelector('.pj-face .lwarn');
+    const hiddenIdleSmall = hiddenIdleRow.querySelector('small');
     const disp = (el) => (el ? getComputedStyle(el).display : 'absent');
     let overFace = false;
     if (needsWarn && face) {
@@ -95,6 +99,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       hiddenWarnDisplay: disp(hiddenWarn),
       hiddenHasSmall: !!hiddenSmall,
       hiddenSmallText: hiddenSmall ? hiddenSmall.textContent : '',
+      hiddenIdleHasSmall: !!hiddenIdleSmall,
+      hiddenIdleSmallText: hiddenIdleSmall ? hiddenIdleSmall.textContent : '',
+      hiddenIdleWarnPresent: !!hiddenIdleWarn,
     };
   });
 
@@ -121,6 +128,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (!r.hiddenWarnPresent) fail.push('#3131: a needs-you member rendered with hideState lost its warning triangle - the Agents column must keep the red-! even without the label');
   if (r.hiddenWarnDisplay === 'none') fail.push('#3131: the hideState needs-you triangle is display:none - the Agents column no longer shows the red-!');
   if (r.hiddenHasSmall) fail.push('#3131: a member rendered with hideState still shows a status <small> label (' + JSON.stringify(r.hiddenSmallText) + ') - the Agents column should show only the triangle, no waiting/idle/busy text');
+  // #3131: an IDLE member under hideState drops its label too (the canonical "no idle text" case) and gets NO triangle.
+  if (r.hiddenIdleHasSmall) fail.push('#3131: an IDLE member with hideState still shows a status <small> label (' + JSON.stringify(r.hiddenIdleSmallText) + ') - the Agents column drops all state text, not just needs-you');
+  if (r.hiddenIdleWarnPresent) fail.push('#3131: an IDLE member with hideState got the warning triangle - only needs-you gets the red-!');
 
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));
