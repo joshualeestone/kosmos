@@ -8584,12 +8584,20 @@ const server = http.createServer((req, res) => {
          engine/setup-assistant.js for why it gates on the account rather than
          relying on createAgent to refuse. The flag is written only on a real
          create, so a skip or refusal leaves nothing behind. */
-      try {
-        const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
-        if (seed && seed.seeded) {
-          setupAssistant.markSetupAssistantSeeded({ name: seed.name, via: 'first-run' });
-        }
-      } catch { /* the setup assistant is a nicety; onboarding still completed */ }
+      /* #3034 (Josh, 2026-09-16): GATED OFF. Josh flagged the setup-assistant as
+         prematurely indicated-complete and undirected ("we haven't gone through
+         this yet and I haven't given direction on it"). The engine is left intact
+         and directable; this wiring is skipped so the undirected auto-create does
+         not ship on the next cut. Flip setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED
+         to true when Josh directs the design. */
+      if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        try {
+          const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
+          if (seed && seed.seeded) {
+            setupAssistant.markSetupAssistantSeeded({ name: seed.name, via: 'first-run' });
+          }
+        } catch { /* the setup assistant is a nicety; onboarding still completed */ }
+      }
     }
     /**
      * ⚠️ Reports whether it STUCK, read back, rather than whether the write

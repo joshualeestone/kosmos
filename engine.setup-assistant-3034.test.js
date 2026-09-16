@@ -146,3 +146,13 @@ test('AVATAR: no user picture -> still seeds, avatarCopied is false (not fatal)'
   assert.equal(res.seeded, true, res.reason || '');
   assert.equal(res.avatarCopied, false, 'there was no picture, so nothing should have been copied');
 });
+
+test('GATE (#3034, Josh 2026-09-16): first-run auto-create is OFF pending Josh direction', () => {
+  // Josh flagged the assistant as prematurely indicated-complete and undirected.
+  // server.js only wires the seed into first-run completion when this flag is true,
+  // so it MUST default false: a flip to true ships the undirected behavior on the
+  // next cut. The seed LOGIC above stays fully tested (design intact); this guards
+  // only the shipping switch. Flip deliberately when Josh directs the design.
+  assert.equal(setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED, false,
+    'the setup-assistant first-run auto-create must stay OFF until Josh directs it (#3034)');
+});
