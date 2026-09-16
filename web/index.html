@@ -4336,7 +4336,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      is pulled out by 16 on both sides and the border stops against that rule
      rather than crossing it. The padding is added back so nothing the person
      reads moves; only the line gets longer. */
-  html[data-layout="consolidated"] body.consolidated .pjmidhead { align-items: center; gap: 12px; padding: 0 16px 10px; margin: 0 -16px 12px; border-bottom: 1px solid var(--k-rule); }
+  /* #3186 (Josh 6.70): remove the horizontal rule under the discussion header on
+     the consolidated view (the header reads as a header from its content/size, so
+     the divider line is the clutter he flagged). Keep the padding/margin that give
+     it breathing room; the line alone is gone. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead { align-items: center; gap: 12px; padding: 0 16px 10px; margin: 0 -16px 12px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead > .dlab { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
