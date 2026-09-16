@@ -74,7 +74,11 @@ NOT built here.
    a setup helper. Adding the live probe would reintroduce multi-second latency at
    Giddy-Up; not worth it for a minimal helper. The common no-account case is
    fully handled by the fast gate; only the rarer expired-token case degrades to
-   auth_failed. Documented.
+   auth_failed. AND that case is near-impossible at the seed's ONLY trigger point:
+   this fires at first-run completion, minutes after the account was connected
+   during onboarding, so a token present-in-config is overwhelmingly live right
+   then. Config-presence ~= liveness at first-run, which is why the fast gate is
+   the right call here rather than a general liveness probe. Documented.
 
 ## Reversibility
 Fully additive: a normal deletable agent, one flag file, one menu:false role. The
