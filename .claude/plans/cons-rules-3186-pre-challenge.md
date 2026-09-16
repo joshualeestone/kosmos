@@ -1,5 +1,6 @@
 ---
 branch: cons-rules-3186
+method: challenge-loop
 diff_hash: 626c54395367203d090d31ad444040a378b50a2e1a3c207b9546d324a81e3028
 converged: true
 iterations: 4
