@@ -125,6 +125,14 @@ const now = () => new Date().toISOString();
              bottom-RIGHT (right offset set, blue). */
           agentTail: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, right: cs.right, bg: cs.backgroundColor }; })(),
           opTail: (() => { const bd = opRow && opRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, right: cs.right, bg: cs.backgroundColor }; })(),
+          /* #3130: `.msg-bd` MUST own a stacking context (position:relative +
+             z-index:0) or the tail's z-index:-1 resolves against the ambient tree
+             and `.thread`'s opaque ground paints OVER the whole nub -- an invisible
+             tail that every getComputedStyle-only tail assertion above still reads
+             as present. This is the structural pin for that (a regression to
+             z-index:auto reds it). */
+          bdPos: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).position : null; })(),
+          bdZ: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).zIndex : null; })(),
         };
         host.remove();
         return out;
@@ -168,10 +176,20 @@ const now = () => new Date().toISOString();
         `${t} #3130: the agent bubble has a tail on the LEFT`, JSON.stringify(m.agentTail));
       chk(!!(m.opTail && m.opTail.on) && parseInt(m.opTail.right, 10) >= 0 && parseInt(m.opTail.right, 10) < 20,
         `${t} #3130: the operator bubble has a tail on the RIGHT`, JSON.stringify(m.opTail));
-      // #3130: the agent tail is the warm cream (--agent-msg = #f9f7f1), NOT the blue.
+      // #3130: the agent tail inherits the bubble's warm cream, NOT the blue.
       const atail = parse(m.agentTail && m.agentTail.bg);
       chk(atail[0] >= atail[1] && atail[1] >= atail[2] && (atail[0] - atail[2]) >= 2 && blueLead(atail) < 20,
         `${t} #3130: the agent tail is the warm cream, not blue`, m.agentTail && m.agentTail.bg);
+      // #3130: the operator tail inherits the blue user tint (blue channel leads),
+      // so an accidental swap of the two side rules would be caught on this side too.
+      const otail = parse(m.opTail && m.opTail.bg);
+      chk(blueLead(otail) >= 20, `${t} #3130: the operator tail is the blue user tint`, m.opTail && m.opTail.bg);
+      // #3130: the STRUCTURAL guard for the tail's visibility -- `.msg-bd` owns its
+      // own stacking context so the z-index:-1 tail tucks behind THIS bubble, not
+      // behind `.thread`'s opaque ground (which would hide it entirely).
+      chk(m.bdPos === 'relative' && m.bdZ === '0',
+        `${t} #3130: .msg-bd owns a stacking context (position:relative, z-index:0) so the tail is not hidden behind .thread`,
+        `position=${m.bdPos} z-index=${m.bdZ}`);
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
