@@ -2473,9 +2473,14 @@ function nameInThisWorld(key) {
    execFileSync on a non-zero exit) AND for a runner/gate result that carries
    `ok:false` (the live-execution-refused path, and the test seam), so the unknown
    state is seen the same way in both. */
-function disabledJobsResult() {
+function disabledJobsResult(runner) {
+  // #3182: an optional injected runner so machine.agentAutostartCheck can read the
+  // same disabled set through the SAME seam boardAutostartCheck uses (a fake
+  // launchctl in a suite, never the operator's real one). Absent, it is the
+  // module `run` -- every existing caller (disabledJobs) is unchanged.
+  const r = (typeof runner === 'function') ? runner : run;
   try {
-    const out = run('/bin/launchctl', ['print-disabled', `gui/${process.getuid()}`]);
+    const out = r('/bin/launchctl', ['print-disabled', `gui/${process.getuid()}`]);
     if (out && out.ok === false) return { ok: false };
     const text = String((out && out.stdout) || '');
     const names = new Set();

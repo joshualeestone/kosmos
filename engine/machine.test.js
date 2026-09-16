@@ -778,12 +778,18 @@ test('five checks come back, and the two kinds of not-ok are counted apart', () 
     // the attention/unknown counts below about the rows this test is measuring.
     platform: 'darwin',
     installedRoot: null,
+    // #3182: the per-agent autostart row also runs on darwin; pin its disabled
+    // read empty so it is a deterministic OK and this test measures the rows it
+    // means to (attention/unknown below stay about sleep, not the real machine's
+    // disabled agents).
+    disabled: { ok: true, jobs: [] },
   });
   fs.rmSync(sb, { recursive: true, force: true });
   if (origLaunch === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = origLaunch;
-  // Five since the board-autostart row joined (#2397, the cannot-see-zero arm).
-  assert.equal(got.checks.length, 5);
-  assert.deepEqual(got.checks.map((c) => c.key), ['installed', 'sleep', 'restart', 'labels', 'autostart']);
+  // Six: the board-autostart row (#2397, cannot-see-zero) plus the per-agent
+  // autostart row (#3182, the same question one level down).
+  assert.equal(got.checks.length, 6);
+  assert.deepEqual(got.checks.map((c) => c.key), ['installed', 'sleep', 'restart', 'labels', 'autostart', 'agentautostart']);
   assert.equal(got.attention, 1);
   assert.equal(got.unknown, 0);
   // Beside the rows, never among them: where the app sits has no bearing on
