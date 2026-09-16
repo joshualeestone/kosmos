@@ -65,8 +65,10 @@
      are guaranteed equal by construction, not by two matching literals
      (convention #5 -- two derivations of one fact). Defined on :root, not on the
      consolidated body, because #pj-arch-toggle's consolidated rule applies at all
-     widths while the consolidated grid is @media (min-width: 960px) gated, so a
-     token scoped to that media block would leave var() unresolved below 960px. */
+     widths while the consolidated grid is gated to windows 960px and wider, so a
+     token scoped to that media block would leave var() unresolved on narrower
+     windows. (No media at-rule spelled out here on purpose: the forced-theme
+     sync tool parses :root and mis-reads that syntax as a rule boundary.) */
   --consolidated-link-size: .6875rem;
   /* The pack's board palette (board-pack, view 1 of 13). bg/ink/ink-2/rule
      and the three golds are the values the wizard pinned under #firstrun;
