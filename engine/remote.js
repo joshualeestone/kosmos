@@ -631,16 +631,20 @@ async function deviceRemove(id) {
    `setup` (create-or-join enrolment), these verbs never create an account -- a
    missing account is the coordinator's anti-enumeration silence, and the app
    shows a generic "Join Kosmos" nudge from the code screen rather than
-   confirming existence. The kosmos-tunnel `signin {start,verify,second,register}`
-   verbs each print one JSON object with a `stage` field; this module drives them
-   and hands the PAGE only the stage.
+   confirming existence. The kosmos-tunnel
+   `signin {start,verify,second,enrol,confirm-enrol,register}` verbs each print
+   one JSON object with a `stage` field; this module drives them and hands the
+   PAGE only the stage (plus, on the enrol stage, what the enrol screen renders --
+   sms_available and the why-authenticator copy, never a token).
 
-   🔒 The bearer material stays HERE, never the browser. `verify`/`second` return
-   a 30-day session token, and `verify` a phone-code challenge id; both are
-   sensitive. They live in `signinSession` in this process for the seconds
-   between steps -- the wizard sees a `stage` and nothing else, and `register`
-   spends the token from here (piped to the CLI over stdin, off argv). This is
-   the #874 posture: the page cannot carry, replay, or leak a session it never
+   🔒 The bearer material stays HERE, never the browser. THREE bearer credentials
+   pass through, all held the same way: `verify`/`second` return a 30-day session
+   token, `verify` a phone-code challenge id, and `verify`'s enrol_second_factor
+   branch an enrol-only token (which `enrol`/`confirm-enrol` spend). All are
+   sensitive and live in `signinSession` in this process for the seconds between
+   steps -- the wizard sees a `stage` and nothing else, and `register` spends the
+   session token from here (piped to the CLI over stdin, off argv). This is the
+   #874 posture: the page cannot carry, replay, or leak a credential it never
    holds. It is memory-only on purpose -- a board restart mid-flow drops it and
    the person simply starts sign-in again, which is safe and quick.
 
@@ -689,13 +693,16 @@ function signinDeviceId() {
 }
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
-    to the caller ONLY the stage (never the token, never the challenge value).
-    Pure-ish: it mutates `signinSession` and returns the page-safe shape.
+    to the caller ONLY page-safe fields (never the session token, never the
+    challenge value, never the enrol-only token) -- the stage always, plus on the
+    enrol stage the sms_available flag and why-authenticator copy the enrol screen
+    renders. Pure-ish: it mutates `signinSession` and returns the page-safe shape.
 
     FAIL CLOSED: every path sets `signinSession` to exactly this answer's result
-    (a token, a challenge, or nothing), so the slot never carries a stale value
-    from a PRIOR call across a malformed one. A verify/second that returns a
-    shape we cannot use clears the slot -- a person who hits an error state
+    (a session token, a challenge, an enrol-only token, or nothing), so the slot
+    never carries a stale value from a PRIOR call across a malformed one. A
+    verify/second/enrol answer whose shape we cannot use clears the slot -- a
+    person who hits an error state
     restarts sign-in rather than silently spending an earlier session. */
 function absorbSession(data) {
   const stage = data && typeof data.stage === 'string' ? data.stage : '';
