@@ -9,9 +9,12 @@
  * per line and half the projects fell off screen. The fix flows the list into
  * RESPONSIVE MULTIPLE COLUMNS (narrower cards, more per page) with the hierarchy
  * KEPT: multi-column so a child flows directly under its parent, and a column
- * break may fall only BEFORE a top-level row (break-before:avoid on .child) so a
- * top-level project plus its subtree stay together and no child is orphaned at a
- * column top with no parent above it.
+ * break may fall only BEFORE a top-level row (break-before:avoid on .child) so
+ * in the common case a top-level project plus its subtree stay together in one
+ * column. break-before/break-inside are advisory hints, not hard guarantees, so
+ * a single subtree taller than a balanced column can still split as a last
+ * resort; the check asserts the MECHANISM is in place (the properties compute to
+ * 'avoid'), which is what removes the orphaning for every ordinary tree.
  *
  * Drives the SHIPPED paintProjects / projectCard against a real fixture PROJECTS
  * tree in the real page (not a copy). Controls that return the DANGEROUS answer on
@@ -88,10 +91,12 @@ const readLayout = () => {
 
   // ---- Layer 2: the subtree-cohesion mechanism is in place ----
   // A column break may fall only BEFORE a top-level row: children carry
-  // break-before:avoid, so a subtree never splits across a column boundary and a
-  // child is never orphaned at a column top with no parent. Assert the COMPUTED
-  // break rules on a real child row and on any row (break-inside). Both are 'auto'
-  // on origin/main (no such rule) -> non-vacuous.
+  // break-before:avoid, so in the common case a subtree stays together in one
+  // column rather than orphaning a child at a column top. These are advisory
+  // hints (a subtree taller than a balanced column can still split as a last
+  // resort), so this asserts the MECHANISM is present -- the COMPUTED break
+  // rules on a real child row and on any row (break-inside). Both are 'auto' on
+  // origin/main (no such rule) -> non-vacuous.
   const breaks = await page.evaluate(() => {
     const child = document.querySelector('#pj-list .pj-row.child');
     const any = document.querySelector('#pj-list .pj-row');

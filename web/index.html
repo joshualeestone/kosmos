@@ -2960,25 +2960,35 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    on one page -- the literal "wrap" Josh asked for, hierarchy KEPT.
    Multi-column (not a wrapping grid) is deliberate: content flows top-to-bottom
    within a column, so a child still sits directly under its parent. A column
-   break may fall only BEFORE a top-level row (never before a .child), so a
-   top-level project plus its whole subtree stay together in one column and a
-   child is never orphaned at a column top with no visible parent above it.
-   Scoped to the non-consolidated LIST sub-view, so the consolidated rail, the
-   grid tile view, drag and fold are all untouched. The per-depth indent (rule
-   above) and the ancestry-chip fallback are both unchanged -- depth still reads
-   inside a subtree group. */
+   break may fall only BEFORE a top-level row (break-before:avoid on every
+   .child), so in the common case a top-level project plus its whole subtree
+   stay together in one column. break-before/break-inside are advisory hints,
+   NOT hard guarantees: a single subtree taller than a balanced column can still
+   be split as a last resort, and because this view hides the ancestry chip on a
+   .child (the indent normally carries depth, rule 2953), an orphaned child then
+   shows its indent but no parent name. That residual is rare (a pathologically
+   tall single subtree) and is the accepted tradeoff of a CSS-only, zero-markup
+   reflow; the mechanism removes it for every ordinary tree. Scoped to the
+   non-consolidated LIST sub-view, so the consolidated rail, the grid tile view,
+   drag and fold are all untouched. The per-depth indent (rule above) and the
+   ancestry-chip fallback are both unchanged -- depth still reads inside a
+   subtree group. */
 body:not(.consolidated) #pj-list:not(.asgrid) { display: block; column-width: 20rem; column-gap: 24px; }
 /* Compact each row to a column-width card: title + status on the first line,
-   description then agents stacked under it (the same shape the narrow-window
-   collapse below already uses, now applied whenever the list is columnised so a
-   wide window packs many cards rather than one 100%-width row each). Higher
-   specificity than the base four-column rule above, which is left verbatim (its
-   text is pinned by web.project-rows.test.js). */
+   description then agents stacked under it. This is the shape the base rule's
+   narrow-window (<52rem) collapse produces, now applied at EVERY width -- so the
+   tab list view is UNCONDITIONALLY compact and columnised, and both the base
+   four-column grid-template AND its <52rem media collapse are superseded here
+   (do not read them as "four columns when wide": they no longer render in this
+   view). The base rule text is left verbatim -- it is pinned by
+   web.project-rows.test.js and still supplies this view's display:grid, padding,
+   column-gap and truncation -- so only its grid-template-columns and the
+   pc-t/pjfaces/pjpill placements are overridden below, by higher specificity. */
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row {
   grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 14px;
-  break-inside: avoid; -webkit-column-break-inside: avoid; }
+  break-inside: avoid; }
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child {
-  break-before: avoid; -webkit-column-break-before: avoid; }
+  break-before: avoid; }
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pc-t { grid-column: 1; grid-row: 2; }
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjfaces { grid-column: 1; grid-row: 3; }
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; grid-row: 1; }
