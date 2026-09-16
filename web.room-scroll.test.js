@@ -258,6 +258,33 @@ test('CONTROL: a reader who moved after the pin is NOT dragged down by a late im
   assert.equal(box.scrollTop, 400, 'a late image dragged a reader who had moved away');
 });
 
+test('CONTROL: a reader who scrolled up INSIDE the RO-advanced dead zone is not dragged down (#1147)', () => {
+  /* The dead zone a bare directional `scrollTop < pinnedAt` guard misses: once
+     holdFloorOnResize's ResizeObserver has advanced scrollTop past the stale
+     pinnedAt (following the growing floor as no-height images load), a reader who
+     scrolls up by LESS than that advance still sits ABOVE pinnedAt, so a
+     directional-only guard would not bail and would yank them down (#3066/#1926).
+     The __wasOnFloor clause -- false the moment the person scrolls away from the
+     CURRENT floor -- is what closes it. Model: pin at bottomOf(50)=1760, the room
+     grows (RO would follow), the reader sits at 1960 (>= pinnedAt, so directional
+     alone would NOT bail) but __wasOnFloor is false (they scrolled off the floor);
+     the late image must leave them.
+     Scope note: this arm pins the __wasOnFloor CLAUSE specifically -- it reds on a
+     directional-only guard but would also pass against the ORIGINAL exact-match bug
+     (1960 != 1760 bails too). The original #1147 regression is covered by the
+     red-capable browser oracle render-room-scroll, not here. */
+  const paint = loadPaint();
+  const box = makeBox();
+  let fire = null;
+  box._imgs = [{ complete: false, addEventListener: (ev, fn) => { if (ev === 'load') fire = fn; } }];
+  paintRows(paint, box, 50, true);
+  box._rows = 60;
+  box.scrollTop = 1960;           // >= pinnedAt(1760): the directional check alone does NOT bail
+  box.__wasOnFloor = false;       // but the scroll listener saw them leave the current floor
+  fire();
+  assert.equal(box.scrollTop, 1960, 'a late image dragged a reader who scrolled up inside the RO-advanced dead zone');
+});
+
 test('CONTROL: a late image from a DIFFERENT room does not move the reader', () => {
   /* 🔑 THIS ARM EXISTS BECAUSE I CHANGED THAT GUARD. pinToBottom keyed on
      `__lastThread`; the room stamps `__lastRoom`, so the room passed the guard

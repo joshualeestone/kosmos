@@ -23431,7 +23431,24 @@ function pinToBottom(el) {
     const again = () => {
       const now_paint = el.__lastThread !== undefined ? el.__lastThread : el.__lastRoom;
       if (now_paint !== paint) return;   // a different conversation or room now
-      if (el.scrollTop !== pinnedAt) return;   // the person has moved; leave them
+      /* #1147 re-introduced by #3130: this guard used to be `scrollTop !== pinnedAt`,
+         an EXACT match against the scrollTop captured at pin time. That is defeated the
+         moment holdFloorOnResize's ResizeObserver re-pins as each no-height image expands
+         the room: scrollTop advances toward the new floor (measured: pinnedAt 5261 ->
+         scrollTop 5645, a 384px follow), the exact match reads that as "moved" and bails,
+         nothing lands on the final floor, and the reader sits ~1152px short -- the #1147
+         bounce. Two signals are needed, because neither alone covers both environments:
+         - `__wasOnFloor === false`: the scroll listener sets this false when the person
+           actually scrolls AWAY, measured against the CURRENT floor, so it catches a small
+           scroll-up EVEN AFTER the RO has advanced scrollTop past the stale pinnedAt (the
+           dead zone a bare `scrollTop < pinnedAt` would miss and wrongly yank them down,
+           #3066/#1926). It is the real-DOM signal.
+         - `scrollTop < pinnedAt`: the unit stub drives scrollTop directly and fires no
+           scroll event, so __wasOnFloor never updates there; this directional check keeps
+           the stub's moved-reader control honest (scrollTop 400 < pinnedAt -> bail).
+         Together: bail if EITHER says the person left the floor; otherwise re-pin through
+         the RO's downward follow. Does not touch #3130's redesign markup. */
+      if (el.__wasOnFloor === false || el.scrollTop < pinnedAt) return;   // the person scrolled away; leave them
       el.scrollTop = el.scrollHeight;
     };
     // `error` too: a broken picture also changes the height it occupies, and
