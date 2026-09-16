@@ -8575,21 +8575,20 @@ const server = http.createServer((req, res) => {
           projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
         }
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
-      /* #3034: seed the one-time setup-assistant agent -- named after the user,
-         running on their own connected account. Same posture as the welcome seed:
-         once-ever, best-effort, and it MUST NOT throw or block, because
-         onboarding has already succeeded above. It skips silently when there is
-         no connected Claude account (a live agent needs one, and the model step
-         is skippable), no saved user name, or it was already seeded -- see
-         engine/setup-assistant.js for why it gates on the account rather than
-         relying on createAgent to refuse. The flag is written only on a real
+      /* #3034 (Josh, 2026-09-16): GATED OFF, and the gate owns this block's story.
+         Josh flagged the setup-assistant as prematurely indicated-complete and
+         undirected ("we haven't gone through this yet and I haven't given direction
+         on it"), so the first-run wiring is skipped while
+         setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED is false and the undirected
+         auto-create does not ship on the next cut. The engine is left intact and
+         directable; flip the flag true when Josh directs the design.
+         WHEN ENABLED, this seeds the one-time setup-assistant agent -- named after
+         the user, on their own connected account, same posture as the welcome seed
+         above: once-ever, best-effort, and it MUST NOT throw or block because
+         onboarding has already succeeded. It skips silently with no connected
+         Claude account, no saved user name, or if already seeded (see
+         engine/setup-assistant.js), and the flag file is written only on a real
          create, so a skip or refusal leaves nothing behind. */
-      /* #3034 (Josh, 2026-09-16): GATED OFF. Josh flagged the setup-assistant as
-         prematurely indicated-complete and undirected ("we haven't gone through
-         this yet and I haven't given direction on it"). The engine is left intact
-         and directable; this wiring is skipped so the undirected auto-create does
-         not ship on the next cut. Flip setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED
-         to true when Josh directs the design. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
           const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
