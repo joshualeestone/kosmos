@@ -740,6 +740,29 @@ async function main() {
   await shot('6-confirm-remove', async (page) => {
     await page.click('[data-project="quarterclose"]');
     await page.waitForTimeout(300);
+    // #3128 (Josh, 6.68): the settings cog now sits to the LEFT of the project
+    // title (it was on the right, pushed by justify-content: space-between).
+    // Measured in the page: the cog's right edge is at or before the name's
+    // left edge, and both share a row (their vertical centers line up). A
+    // position pin, not a picture, so a silent re-swap to the right reds here.
+    const cogPos = await page.evaluate(() => {
+      const cog = document.getElementById('pj-settings-link');
+      const name = document.getElementById('pj-one-name');
+      if (!cog || !name) return { missing: true, cog: Boolean(cog), name: Boolean(name) };
+      const c = cog.getBoundingClientRect();
+      const n = name.getBoundingClientRect();
+      return { cLeft: c.left, cRight: c.right, cMid: (c.top + c.bottom) / 2,
+               nLeft: n.left, nMid: (n.top + n.bottom) / 2 };
+    });
+    if (cogPos.missing) {
+      throw new Error('the cog or the project name is missing from the header: ' + JSON.stringify(cogPos));
+    }
+    if (cogPos.cRight > cogPos.nLeft + 1) {
+      throw new Error('#3128: the settings cog is not to the left of the title (cog.right ' + cogPos.cRight + ' > name.left ' + cogPos.nLeft + ')');
+    }
+    if (Math.abs(cogPos.cMid - cogPos.nMid) > 4) {
+      throw new Error('#3128: the cog and the name are not on the same row (centers differ by more than 4px): ' + JSON.stringify(cogPos));
+    }
     // The remove control moved behind Project settings with the pack
     // restyle (rare-and-destructive off the reading surface), so the
     // question is now two clicks from the card, and this state renders
