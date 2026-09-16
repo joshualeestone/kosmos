@@ -28,11 +28,14 @@ but missed this one.
 Replace the stale assertion with a RED-CAPABLE pair that matches the new render and cannot
 degrade to a vacuous always-pass:
 
-- Collect both `youNamed` (operator post's `.msg-h b`, null-safe) and a new `agentNamed`
-  (an agent post's `.msg-h b`, null-safe).
+- Collect `youBold` = the operator post's `.msg-h b` ELEMENT presence
+  (`!!(you && you.querySelector('.msg-h b'))`), and `agentNamed` = an agent post's `.msg-h b`
+  text (null-safe). Reading the operator side by element presence (not textContent) means an
+  empty `<b></b>` cannot false-pass as absent; reading the agent side by text means the
+  agent's name must genuinely be there.
 - Assert the AGENT post IS named (`!seen.agentNamed` throws) so the operator-name-absence
   is measured against a working name mechanism, not vacuously true.
-- Assert the OPERATOR post is NOT named (`seen.youNamed !== null` throws).
+- Assert the OPERATOR post carries NO name `<b>` (`seen.youBold` throws).
 
 This mirrors the absent-assertion pattern the check already uses for `agentRole`.
 
@@ -41,8 +44,8 @@ This mirrors the absent-assertion pattern the check already uses for `agentRole`
 - **Green:** ran the check against the shipping post-#3130 `web/index.html` (sandboxed
   server + fleet fixture + Playwright), 3/3 PASS.
 - **Red-capable:** surgically re-added the operator name to `web/index.html` and re-ran; the
-  check reds with exactly the new assertion ("the operator post still shows a name <b> (You),
-  but the user name is removed from the dialog"). So it is not a vacuous pass.
+  check reds on the `youBold` assertion ("the operator post still carries a name <b>, but the
+  user name is removed from the dialog"). So it is not a vacuous pass.
 
 ## Scope
 
