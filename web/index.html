@@ -627,8 +627,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
 .acct-reauth,
 .acct-disconnect,
+.acct-check,
 .acct-remove { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
+.acct-check[disabled] { cursor: default; text-decoration: none; opacity: .7; }
 /* #2264: the per-connection actions on ONE bar-separated row instead of stacked
    single links. Each action after the first carries a left bar (--k-rule, the
    same hairline as the box), so an OpenAI two-action row and a Claude
@@ -18342,6 +18344,16 @@ async function paintAccounts() {
          a CSS border-left on each action after the first (.acct-actions), so a
          row with two actions or three lays out the same with no separator markup. */
       + '<div class="acct-actions">'
+      /* #3136: "Check now" — a USER-INITIATED real liveness check that greens (or
+         honestly reddens) THIS account's badge on demand. The passive badge only
+         greens from a witnessed streaming turn, so a signed-in-but-idle account
+         reads as "not connected" though it is fine (Josh, 0.6.68); this lets the
+         person confirm it now. Claude rows only: the probe is a real `claude -p`
+         call, and "not recently checked" is the Claude-side report this answers. */
+      + (isOpenai ? ''
+        : '<button class="acct-check" type="button" data-check-claude="' + esc(a.dir) + '" '
+          + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
+          + 'title="' + esc('Makes one real request on this account to confirm it is connected right now, then updates the badge.') + '">Check now</button>')
       /* #2433/#2441: an api-key Claude account cannot be re-authed -- `Sign in again`
          is the browser-OAuth flow, and writing OAuth into a dir that holds a stored key
          is refused by the connect-start guard (#2432), so the control would only error.
@@ -18492,6 +18504,41 @@ async function paintAccounts() {
     btn.addEventListener('click', () => {
       const row = list.find((x) => String(x.dir) === btn.dataset.openaiReauth);
       openAcctReauthOpenai(btn.dataset.openaiReauth, (row && row.email) || '');
+    });
+  }
+  /* #3136: "Check now" fires a real liveness check for THIS Claude account and
+     repaints so the badge reflects it. Disabled + "Checking…" while in flight (a
+     real `claude -p` call takes a few seconds) so a double-press cannot fire two
+     probes. On `unknown` — capacity / rate / offline / could-not-confirm, which
+     is NOT a dead account (#1916) — the badge is left untouched and the button
+     says so briefly rather than asserting a result. On connected/none the outcome
+     is recorded server-side, so a repaint renders the real badge. */
+  for (const btn of box.querySelectorAll('[data-check-claude]')) {
+    btn.addEventListener('click', async () => {
+      const dir = btn.dataset.checkClaude;
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      let state = 'unknown';
+      try {
+        const res = await fetch('/api/accounts/claude/check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dir }),
+        });
+        const j = (await res.json()) || {};
+        state = res.ok ? (j.state || 'unknown') : 'unknown';
+      } catch { state = 'unknown'; }
+      if (state === 'unknown') {
+        btn.textContent = 'Could not check, try again';
+        btn.disabled = false;
+        setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);
+        return;
+      }
+      /* connected -> green, none -> the honest "not connected": both recorded, so
+         the repaint (which rebuilds this row wholesale) renders the real badge and
+         re-enables the button for us. */
+      await paintAccounts();
     });
   }
   /* #2684: the dead aria-disabled default-Disconnect click handler was removed

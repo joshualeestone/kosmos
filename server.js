@@ -5880,7 +5880,18 @@ const server = http.createServer((req, res) => {
           if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
         const claude = claudeRows.map((a) => {
-          const obs = a.dir ? obsByDir.get(a.dir) : null;
+          /* #3136: the badge is the FRESHER of a passively-witnessed agent
+             observation (obsByDir, filled by the ~60s sweep) and a
+             USER-INITIATED "Check now" recorded against this account's own dir
+             (observed.readDir). A manual check is just another observed outcome,
+             so it flows through the SAME verdict + freshness gating below — no
+             second badge path. This is what lets an agent-less but live account
+             go green on demand rather than sitting at signed_in_unverified. */
+          const agentObs = a.dir ? obsByDir.get(a.dir) : null;
+          const checkObs = a.dir ? observed.readDir(observed.PROVIDER.ANTHROPIC, a.dir) : null;
+          const obs = (agentObs && checkObs)
+            ? (checkObs.at >= agentObs.at ? checkObs : agentObs)
+            : (agentObs || checkObs);
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs && obs.outcome,
@@ -6101,6 +6112,44 @@ const server = http.createServer((req, res) => {
         }
         // Never the key: the row carries the label + the live connection verdict only.
         sendJson(res, 200, { account: { label: prepared.label, connection: { state: live.state } } });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3136: on-demand "Check now" for ONE Claude account. The passive badge only
+     greens from a witnessed streaming turn, so a signed-in account with no
+     currently-streaming agent sits at signed_in_unverified forever and reads as
+     "not connected" (Josh, 0.6.68). This fires the SAME real `claude -p` probe
+     the create gate uses (create.claudeAccountLive — the only validator that
+     survives #874's loggedIn:true-for-a-rejected-token) and records the outcome
+     into observed's dir-keyed store, so the next /api/accounts read greens
+     (connected) or reddens (a positively-confirmed dead sign-in) THIS account.
+     UNKNOWN (capacity / rate / overload / network / unrunnable) records NOTHING
+     and leaves the prior badge — the #1315/#1916 fail-open that must never flip a
+     live-but-capped account to "not connected". USER-INITIATED only; a real call
+     spends the person's quota, so it is never fired on a tick (#1921). */
+  if (pathname === '/api/accounts/claude/check' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const resolved = path.resolve(dir);
+        const acct = accounts.list().find((a) => a.dir === resolved);
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
+        let state;
+        // A validator CRASH fails open (UNKNOWN), never a false "not connected" —
+        // the same #1916 rule the create gate states: a broken checker is not a
+        // dead account. claudeAccountLive already returns UNKNOWN (not a throw)
+        // for every environmental case, so a throw here is our own bug, logged.
+        try { state = await create.claudeAccountLive(acct.dir); }
+        catch (err) { console.error('#3136: claude check-now errored (failing open):', (err && err.stack) || err); state = subscription.STATE.UNKNOWN; }
+        if (state === subscription.STATE.CONNECTED) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.OK);
+        else if (state === subscription.STATE.NONE) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.REJECTED);
+        // UNKNOWN records nothing — the prior badge stands, unclobbered.
+        sendJson(res, 200, { state });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

@@ -64,6 +64,23 @@ const store = new Map();
 function keyOf(provider, agent) { return provider + ' ' + agent; }
 
 /*
+ * #3136: a SECOND, DIR-keyed store for USER-INITIATED "Check now" outcomes. The
+ * agent store above is filled passively by the ~60s sweep from a witnessed
+ * streaming turn (status.js:6318), so an account with no currently-streaming
+ * agent -- the normal state, and every agent-less account -- never records an `ok`
+ * and its badge sits at signed_in_unverified forever (Josh, 0.6.68). "Check now"
+ * fires a real `claude -p` liveness call (engine/create.claudeAccountLive) for
+ * ONE account and records the outcome HERE, keyed by that account's resolved
+ * config dir -- the same value the /api/accounts row and the server.js badge join
+ * key on -- so it reaches the badge without going through an agent. Kept a
+ * separate store, not folded into `saw`, because its key is a dir not an agent
+ * and its outcome is a deliberate user probe, not a passively-witnessed call.
+ * The verdict fn is shared: the join feeds it the FRESHER of the two stores.
+ */
+const dirStore = new Map();
+function keyOfDir(provider, dir) { return provider + ' ' + dir; }
+
+/*
  * Record an observed outcome for an agent on a provider. `provider` must be one of the
  * closed PROVIDER set (PROVIDER.ANTHROPIC / PROVIDER.OPENAI) -- membership is ENFORCED
  * here, not merely asserted by the header comment, because this key is the sole
@@ -91,8 +108,31 @@ function all() {
   return [...store.values()].map((v) => ({ provider: v.provider, agent: v.agent, outcome: v.outcome, at: v.at }));
 }
 
-// Test-only: reset the in-memory record between cases.
-function _clearForTest() { store.clear(); }
+/*
+ * #3136: record a USER-INITIATED "Check now" outcome for one account, keyed by
+ * its resolved config dir. Same enforcement as saw(): a closed provider, a
+ * non-empty dir, and only OUTCOME.OK / OUTCOME.REJECTED are stored -- anything
+ * else (notably the UNKNOWN a capacity/network probe returns) is IGNORED, so a
+ * prior real observation SURVIVES an inconclusive check rather than being
+ * clobbered to gray. The provider is in the key so a Claude check can never be
+ * read by the OpenAI overlay, the same isolation saw() rests on.
+ */
+function sawDir(provider, dir, outcome, now) {
+  if (!PROVIDER_VALUES.has(provider)) return;
+  if (typeof dir !== 'string' || dir === '') return;
+  if (outcome !== OUTCOME.OK && outcome !== OUTCOME.REJECTED) return;
+  const at = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+  dirStore.set(keyOfDir(provider, dir), { provider, dir, outcome, at });
+}
+
+function readDir(provider, dir) {
+  if (typeof dir !== 'string' || dir === '') return null;
+  const v = dirStore.get(keyOfDir(provider, dir));
+  return v ? { outcome: v.outcome, at: v.at } : null;
+}
+
+// Test-only: reset both in-memory records between cases.
+function _clearForTest() { store.clear(); dirStore.clear(); }
 
 /*
  * How recent an observation must be to still drive the badge. The background sweep
@@ -138,4 +178,4 @@ function verdict({ checkLiveState, observedOutcome, observedAt, now, freshMs: fm
   return { badge: 'unchecked', observedAt: null, ageMs: null };
 }
 
-module.exports = { OUTCOME, PROVIDER, saw, read, all, freshMs, verdict, _clearForTest };
+module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, freshMs, verdict, _clearForTest };

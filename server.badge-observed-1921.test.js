@@ -155,3 +155,79 @@ test('a STALE observation does not linger as a confident badge (falls back to ch
     else process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = prev;
   }
 });
+
+/* #3136: on-demand "Check now". The passive badge only greens from a witnessed
+   streaming turn, so cleo -- signed in but with NO agent -- can never green and
+   sits at signed_in_unverified forever (Josh's exact report on 0.6.68). A
+   dir-keyed check-now observation, and the POST route that records one, fix that.
+   Same harness, same badges() reader, same CONNECTED-everywhere checkLive. */
+
+async function checkNow(dir) {
+  const res = await fetch(base + '/api/accounts/claude/check', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ dir }),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+test('#3136 JOIN: a dir-keyed check-now ok greens the AGENT-LESS account (cleo) the agent path never could', async () => {
+  // Control (already proven above): with nothing observed, cleo is signed_in_unverified.
+  // The agent store CANNOT reach cleo (no agent runs on it), so this green is only
+  // possible via the dir-keyed store -- exactly what unblocks Josh's agent-less accounts.
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, CLEO_DIR, observed.OUTCOME.OK, Date.now());
+  const m = await badges();
+  assert.equal(m.get('cleo@example.com').badge, 'working',
+    'a check-now ok did not green the agent-less account: ' + JSON.stringify(m.get('cleo@example.com')));
+  // Per-account: boss and aria, with no observation, stay unverified (not a blanket flip).
+  assert.equal(m.get('boss@example.com').badge, 'signed_in_unverified');
+  assert.equal(m.get('aria@example.com').badge, 'signed_in_unverified');
+});
+
+test('#3136 ROUTE: POST check -> a real CONNECTED probe records ok and greens the account', async () => {
+  create.setClaudeProbe(async () => ({ exitCode: 0, out: 'ok' })); // a clean "reply ok" = CONNECTED
+  try {
+    const r = await checkNow(CLEO_DIR);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.state, 'connected');
+    const m = await badges();
+    assert.equal(m.get('cleo@example.com').badge, 'working',
+      'a CONNECTED check-now did not green the account: ' + JSON.stringify(m.get('cleo@example.com')));
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('#3136 ROUTE: a positively-dead sign-in records 401 and reddens (honest not-connected)', async () => {
+  create.setClaudeProbe(async () => ({ exitCode: 1, out: 'API Error: 401 OAuth access token has expired.' }));
+  try {
+    const r = await checkNow(CLEO_DIR);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.state, 'none');
+    const m = await badges();
+    assert.equal(m.get('cleo@example.com').badge, 'rejected',
+      'a positively-dead check did not redden the account: ' + JSON.stringify(m.get('cleo@example.com')));
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('#3136 ROUTE: UNKNOWN (capacity) records NOTHING and leaves the prior badge -- never a false not-connected', async () => {
+  // A live-but-capped account is NOT dead (#1315/#1916). Seed a prior green, then a
+  // capped check must leave it green rather than clobbering it to gray/red.
+  observed.sawDir(observed.PROVIDER.ANTHROPIC, CLEO_DIR, observed.OUTCOME.OK, Date.now());
+  create.setClaudeProbe(async () => ({ exitCode: 1, out: 'usage limit reached' })); // capacity -> UNKNOWN
+  try {
+    const r = await checkNow(CLEO_DIR);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.state, 'unknown');
+    const m = await badges();
+    assert.equal(m.get('cleo@example.com').badge, 'working',
+      'an inconclusive (capped) check clobbered a prior green: ' + JSON.stringify(m.get('cleo@example.com')));
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('#3136 ROUTE: an unknown account dir is a 404, and no probe is fired', async () => {
+  let probed = false;
+  create.setClaudeProbe(async () => { probed = true; return { exitCode: 0, out: 'ok' }; });
+  try {
+    const r = await checkNow(nodePath.join(HOME, '.claude-does-not-exist'));
+    assert.equal(r.status, 404);
+    assert.equal(probed, false, 'a 404 account should be rejected before the probe runs');
+  } finally { create.setClaudeProbe(null); }
+});

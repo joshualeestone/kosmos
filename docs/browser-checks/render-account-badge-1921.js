@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-connected acct-none acct-unknown
+// Browser-check-surface: acct-connected acct-none acct-unknown acct-check
 'use strict';
 
 /**
@@ -149,6 +149,10 @@ const ACCOUNTS = [
         // reauth (data-openai-reauth); they must never both appear on one row.
         claudeReauth: !!b.querySelector('[data-reauth]'),
         openaiReauth: !!b.querySelector('[data-openai-reauth]'),
+        // #3136: the "Check now" affordance is CLAUDE-ONLY (the probe is a real
+        // claude -p call). It must appear on every Claude row -- including the
+        // api-key one -- and never on an OpenAI row.
+        checkNow: !!b.querySelector('[data-check-claude]'),
       };
     }
     return { count: boxes.length, byEmail };
@@ -163,9 +167,11 @@ const ACCOUNTS = [
   const want = [
     // A Claude subscription row carries the browser-OAuth reauth (data-reauth), never the
     // OpenAI subscription reauth. #2568/#2584: the two reauth affordances never cross.
-    { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false },
-    { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/ },
-    { email: 'unver@example.com', cls: 'acct-unknown', text: /not recently checked/, honesty: true },
+    { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false, checkNow: true },
+    { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/, checkNow: true },
+    // #3136: unver@ is EXACTLY Josh's state (signed in, not recently checked). It must
+    // carry "Check now" so the person can positively verify a connected-but-idle account.
+    { email: 'unver@example.com', cls: 'acct-unknown', text: /not recently checked/, honesty: true, checkNow: true },
     { email: 'out@example.com', cls: 'acct-none' },
     { email: 'unk@example.com', cls: 'acct-unknown' },
     // #2568: the ChatGPT-subscription row. The VISIBLE pill must be the short shape
@@ -176,11 +182,13 @@ const ACCOUNTS = [
     // NOT the Claude data-reauth -- the affordance #2568 deferred, now that the driver exists.
     { email: 'sub@example.com', cls: 'acct-unknown', text: /Signed in . not checked live/,
       notText: /may or may not still work/, titleText: /may or may not still work/, honesty: true,
-      claudeReauth: false, openaiReauth: true },
+      claudeReauth: false, openaiReauth: true, checkNow: false },
     // api-key rows of both providers: NEITHER reauth button. (Keyed by the primary label
     // paintAccounts renders -- an api-key OpenAI row has no email, so its label is its key tail.)
-    { email: 'clkey@example.com', claudeReauth: false, openaiReauth: false },
-    { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false },
+    // #3136: the CLAUDE api-key row DOES get Check now (a claude -p probe works for it);
+    // the OpenAI api-key row does NOT (Check now is Claude-only).
+    { email: 'clkey@example.com', claudeReauth: false, openaiReauth: false, checkNow: true },
+    { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false, checkNow: false },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];
@@ -197,6 +205,9 @@ const ACCOUNTS = [
     }
     if (typeof w.openaiReauth === 'boolean' && got.openaiReauth !== w.openaiReauth) {
       problems.push(`${w.email}: OpenAI reauth button ${got.openaiReauth ? 'present' : 'absent'}, expected ${w.openaiReauth ? 'present' : 'absent'}`);
+    }
+    if (typeof w.checkNow === 'boolean' && got.checkNow !== w.checkNow) {
+      problems.push(`${w.email}: Check now button ${got.checkNow ? 'present' : 'absent'}, expected ${w.checkNow ? 'present' : 'absent'} (#3136 is Claude-only)`);
     }
   }
 
