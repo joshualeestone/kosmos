@@ -38837,6 +38837,14 @@ function pjPaintParentSelect(p) {
 }
 
 function paintProjectSettings(p) {
+  // #3134: showing the settings panel cancels any pending save auto-advance. A
+  // save schedules a ~1s timer that returns to the project; if the person comes
+  // BACK to settings within that window (the cog, a member change, any path that
+  // repaints settings) the fire-time guard would otherwise re-match and pull them
+  // off the settings they just re-opened. This is the one point every settings
+  // (re)paint passes through; the save's own paint runs BEFORE it schedules, so
+  // its advance is unaffected.
+  clearTimeout(document.getElementById('pjs-save').__navTimer);
   document.getElementById('pj-settings-backname').textContent = p.name;
   document.getElementById('pjs-name').value = p.name;
   document.getElementById('pjs-desc').value = p.description || '';
@@ -38960,7 +38968,7 @@ document.getElementById('pj-back').addEventListener('click', () => {
 document.getElementById('pj-settings-link').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
-  paintProjectSettings(p);
+  paintProjectSettings(p);   // #3134: this cancels any pending save auto-advance (see paintProjectSettings)
   pjView('settings');
   document.getElementById('pj-settings-back').focus();
 });
@@ -39053,6 +39061,14 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
   // pjFieldOk) is not invoked on save, only on opening the settings panel.
   pjFieldOk('pjs-parent', 'pjs-parent-err');
   const btn = document.getElementById('pjs-save');
+  /* #3134: cancel any prior save's pending auto-advance FIRST, before any early
+     return. A second click within the ~1s window -- a no-op ("Nothing has
+     changed."), a field refusal, an engine refusal, a network error, or a
+     read-back failure -- returns before the success path's own schedule, so
+     without this the earlier timer would still fire and yank the person off the
+     screen the second click just put them on (an error, or "Nothing has
+     changed."). The success path below re-arms it. */
+  clearTimeout(btn.__navTimer);
   /* #1303 G: checked BEFORE the round trip, so the reason appears at the field
      rather than as a refusal below a button the person has already scrolled
      past. The engine still refuses independently; this only means the common
@@ -39137,10 +39153,46 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
     if (!(await loadProjects())) await loadProjects();
     if (!PJ_READ_FAILED) {
       const fresh = pjById(PJ_CURRENT);
-      if (fresh) { paintProjectSettings(fresh); paintOneProject(); pjView('settings'); }
+      if (fresh) {
+        // Repaint settings (so #pjs-save-live's "Saved." below has a fresh panel)
+        // and the detail we are about to return to.
+        paintProjectSettings(fresh); paintOneProject(); pjView('settings');
+        // #3134 (Josh, 6.68): don't leave the person "stuck on settings" after a
+        // save -- return to the project. We keep #2923's "Saved." (set below, in
+        // #pjs-save-live) visible for a brief beat first, because a save with no
+        // visible effect on the detail -- a description-only edit lives only in
+        // settings (#2838) -- would otherwise return with nothing confirming it;
+        // then we advance to the project. The timeout is stored on the button and
+        // only advances while all of these still hold, so a navigation the person
+        // made themselves in the meantime suppresses it: still on THIS project's
+        // settings sub-view (PJ_VIEW / PJ_CURRENT), the project still exists, AND
+        // the Projects panel is still the visible tab. The last check matters in
+        // the TAB layout, where leaving for the Agents tab via showTab does not
+        // touch PJ_VIEW/PJ_CURRENT, so without it the advance would fire an
+        // invisible pjView('one') on another tab. (In the CONSOLIDATED layout
+        // showTab treats agents+projects as one screen and calls pjView, which the
+        // PJ_VIEW check already catches; and returning to the Projects tab re-opens
+        // the detail on its own via showTab -> pjView('one'), pre-existing tab
+        // behaviour, not this timer.) Any prior pending timer was already cleared
+        // at the top of this handler. On advance, move focus to the settings cog on
+        // the detail, matching pj-settings-back (settings -> detail focuses the
+        // cog): a timer-initiated navigation must not leave focus on the now-hidden
+        // Save button and drop it to <body> for a keyboard/screen-reader user.
+        const savedId = fresh.id;
+        btn.__navTimer = setTimeout(() => {
+          if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)
+              && !document.getElementById('panel-projects').hidden) {
+            pjView('one');
+            document.getElementById('pj-settings-link').focus();
+          }
+        }, 1000);
+      }
     }
     // #2923: "Saved." to the LEFT of the button (replacing the spinner), not
-    // below it where it was easy to miss. msg stays empty on the happy path.
+    // below it where it was easy to miss. msg stays empty on the happy path. On
+    // the read-back-failed path we also stay on settings and confirm here (no
+    // auto-advance was scheduled), since navigating to a project we cannot read
+    // back would land on a blank or stale detail.
     live.textContent = 'Saved.';
   } catch {
     live.textContent = '';  // #2923: drop the spinner; the error shows below.
@@ -43985,11 +44037,14 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not add that project');
     await loadProjects();
-    // ⚠️ `body.id` is the fallback the route ships for the case where the
-    // project WAS created but the read-back failed; `body.project` is null
-    // there. Reading only `body.project.id` threw a raw JS internals string
-    // into the person's face about a project that exists.
-    openProject((body.project && body.project.id) || body.id);
+    // #3134 (Josh, 6.68): after creating, return to the projects LIST (Josh's
+    // ask), not into the new project's empty detail. Fall back to openProject
+    // when the create succeeded but the read-back failed (no row to show, so its
+    // "could not read it back" notice is shown). Rationale in the plan/commit.
+    const newProjectId = (body.project && body.project.id) || body.id;
+    const created = pjById(newProjectId);
+    if (created) { PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); }
+    else { openProject(newProjectId); }
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
     // (round 20): the engine's reasons are clauses, and this catch was the

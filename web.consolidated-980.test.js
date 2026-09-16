@@ -191,10 +191,14 @@ test('the open project stays lit: a persistent .open state, written on click and
      project navigation control again, and its handler's list-return branch (a
      top-level project's back goes to the projects list) calls pjMarkOpen(null)
      so a lit row cannot outlive the project you just left. A subproject's back
-     opens the parent instead (openProject), which lights the parent itself. */
+     opens the parent instead (openProject), which lights the parent itself.
+     📌 #3134 brings it to 7: after "Create project" the #pj-create handler now
+     returns to the projects LIST (Josh 6.68), a new close path, so it clears the
+     open marker (`PJ_CURRENT = null; pjMarkOpen(null)`) too -- no project is left
+     lit when we land on the list. */
   const nulls = (codeOnly.match(/pjMarkOpen\(null\)/g) || []).length;
-  assert.equal(nulls, 6,
-    `pjMarkOpen(null) is called from ${nulls} places, expected 6. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
+  assert.equal(nulls, 7,
+    `pjMarkOpen(null) is called from ${nulls} places, expected 7. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
   assert.ok((('/* pjMarkOpen(null) */').replace(/\/\*[\s\S]*?\*\//g, '').match(/pjMarkOpen\(null\)/g) || []).length === 0,
     'control: the comment strip no longer removes a quoted call, so the count above can be satisfied by prose');
 });
