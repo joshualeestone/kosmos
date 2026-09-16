@@ -40818,9 +40818,9 @@ function pjReceiptSentence(outcomes, p, silent) {
    * whether anyone got it. So the sentence goes only when nothing else is
    * being said about delivery.
    *
-   * 📌 The placed GROUP is still computed either way: "Nothing back from any of
-   * them" is derived from it, and that sentence is the #145 signal that told
-   * Josh his agents were answering into their own sessions.
+   * 📌 The placed GROUP is still computed either way, for the "Placed with ..."
+   * clause. (It used to also derive the "Nothing back from ..." #145 silence
+   * signal; that sentence was removed for #3130, Josh 6.68.)
    */
   const deliveryIsTheWholeStory = !groups.unconfirmed.length && !groups.could_not.length;
   if (groups.placed.length && !deliveryIsTheWholeStory) {
@@ -41113,17 +41113,12 @@ function pjRoomRow(m, p, silent) {
      agent's post whenever any recipient did NOT simply receive it --
      partial delivery in the room must never look like the full room heard. */
   const showReceipt = isOp || states.some((v) => v !== 'placed');
-  /* ⚠️ THE PILL READS DELIVERY, AND THE SENTENCE INSIDE IT NOW READS MORE THAN
-     DELIVERY. A post placed with everyone where nobody has come back draws a
-     green `placed` pill around the words "Nothing back from any of them" — the
-     fastest-read channel on the row disagreeing with the slowest, on a feature
-     whose entire point is telling a working room from a broken one at a glance.
-     ⚠️ It is left as it is on purpose. `placed` is TRUE: the message was
-     delivered, and that is what the pill has always meant. Recolouring it on
-     silence would make the pill mean two different things depending on how old
-     the post is, and would put a failure colour on a delivery that worked. The
-     mismatch is real and it belongs to the pill's vocabulary, which is a design
-     question, not a bug to patch here. */
+  /* #3130 (Josh 6.68): the pill reads pure DELIVERY again. The silence sentence
+     ("Nothing back from ...") is removed, so a post placed with everyone and no
+     failures now produces an EMPTY receipt sentence, and pjRoomRow's empty-pill
+     guard below draws no `delivery` pill at all for it. The old mismatch this
+     block used to weigh -- a green `placed` pill wrapped around a silence
+     sentence -- can no longer arise, because that sentence is gone. */
   const cls = states.length && states.every((v) => v === 'placed') ? 'placed'
     : (states.some((v) => v === 'could_not') ? 'failed' : 'unsure');
   const receiptText = showReceipt && states.length ? pjReceiptSentence(m.outcomes, p, isOp ? silent : null) : '';
