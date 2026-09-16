@@ -1,8 +1,10 @@
 'use strict';
-// Browser-check-surface: pj-parent pjsub pj-crumb pj-back pj-crumb-cur pj-crumb-lead pj-crumbrow pj-crumb-link
+// Browser-check-surface: pj-parent pj-crumb pj-back pj-crumb-cur pj-crumb-lead pj-crumbrow pj-crumb-link
 // (#2518) the distinctive web/index.html tokens this check asserts (the ancestry/parent
-// chip + the sub-projects count line + the detail-page breadcrumb); a change to them must
-// update this check at PR time. #2487 changed pj-parent to a full ancestry line; #3103/#3104
+// chip + the detail-page breadcrumb); a change to them must update this check at PR time.
+// #3133 (6.68) REMOVED the .pjsub "X sub-projects" list-row count from web/index.html, so
+// pjsub is dropped from this surface list; the check now asserts that count's ABSENCE.
+// #2487 changed pj-parent to a full ancestry line; #3103/#3104
 // (6.68) REMOVED the detail-page sub-projects section and the #2848 consolidated strip and
 // MOVED the breadcrumb to the top of #pj-one-view (hidden in the consolidated rail), so this
 // check now guards their ABSENCE + the new breadcrumb placement (see Layer 1e).
@@ -90,9 +92,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' mobile depth 2', tree.by.mob && tree.by.mob.depth === 2);
     ok(t + ' android/ios depth 3', tree.by.and && tree.by.and.depth === 3 && tree.by.ios.depth === 3);
     ok(t + ' children carry .child class', tree.by.app.childClass && tree.by.and.childClass && !tree.by.k.childClass);
-    // sub-project counts derived from the same grouping
-    ok(t + ' k shows 2 sub-projects', /2 sub-projects/.test(tree.by.k.sub), tree.by.k.sub);
-    ok(t + ' app shows 1 sub-project', /1 sub-project\b/.test(tree.by.app.sub), tree.by.app.sub);
+    // #3133 (Josh, 6.68): the "X sub-projects" count was REMOVED from the
+    // projects-list row (the sub-projects are listed right beneath it). No row
+    // renders a .pjsub count now -- parents included -- so every row's sub is ''.
+    ok(t + ' k shows no sub count (#3133 removed the list-row count)', tree.by.k.sub === '', tree.by.k.sub);
+    ok(t + ' app shows no sub count (#3133 removed the list-row count)', tree.by.app.sub === '', tree.by.app.sub);
     ok(t + ' leaf shows no sub count', tree.by.and.sub === '');
     // orphan (dangling parent id) renders at top level
     ok(t + ' dangling-parent child renders at top level', tree.by.orph && tree.by.orph.depth === 0);
