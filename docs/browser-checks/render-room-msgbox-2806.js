@@ -116,6 +116,29 @@ const now = () => new Date().toISOString();
           agentDataAm: (agentRow && agentRow.querySelector('.msg-bd')) ? agentRow.querySelector('.msg-bd').getAttribute('data-am') : null,
           // The operator's own box must NOT carry data-am (emitted only for !isOp).
           opHasDataAm: !!(opRow && opRow.querySelector('.msg-bd') && opRow.querySelector('.msg-bd').hasAttribute('data-am')),
+          /* #3130 (Josh 6.70): the operator's OWN post has NO name/"You" in its
+             header; an agent's keeps its name. */
+          opHasName: !!(opRow && opRow.querySelector('.msg-h b')),
+          agentHasName: !!(agentRow && agentRow.querySelector('.msg-h b')),
+          /* #3130: both bubbles carry a TAIL (::after) -- agent bottom-LEFT (its
+             own left offset set, coloured warm cream = --agent-msg), operator
+             bottom-RIGHT (right offset set, blue). */
+          agentTail: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, right: cs.right, bg: cs.backgroundColor }; })(),
+          opTail: (() => { const bd = opRow && opRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, right: cs.right, bg: cs.backgroundColor }; })(),
+          /* #3130: `.msg-bd` MUST own a stacking context (position:relative +
+             z-index:0) or the tail's z-index:-1 resolves against the ambient tree
+             and `.thread`'s opaque ground paints OVER the whole nub -- an invisible
+             tail that every getComputedStyle-only tail assertion above still reads
+             as present. This is the structural pin for that (a regression to
+             z-index:auto reds it). */
+          bdPos: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).position : null; })(),
+          bdZ: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).zIndex : null; })(),
+          /* #3130: an operator post with a BODY but NO timestamp has nothing for
+             its header (no name, no time), so the empty `.msg-h` bar must be
+             OMITTED, not drawn. Rendered in isolation so it does not disturb the
+             three-row fixture above. */
+          noTimeHasHeader: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-h'); })(),
+          noTimeHasBody: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-bd'); })(),
         };
         host.remove();
         return out;
@@ -147,6 +170,38 @@ const now = () => new Date().toISOString();
       chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent cream are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
       // (e) a bodyless row draws NO box.
       chk(m.emptyRowIsYou && !m.emptyRowHasBox, `${t} a bodyless row draws a .msg row but NO .msg-bd (no empty tinted box)`, `isYou=${m.emptyRowIsYou} hasBox=${m.emptyRowHasBox}`);
+
+      // #3130 (Josh 6.70): the operator's OWN post shows NO name/"You" in the
+      // header; an agent's keeps its name. (The whole point of the user-side
+      // correction: "me as the user doesn't have my name or 'you' in the message".)
+      chk(m.opHasName === false, `${t} #3130: the operator's own post shows NO name/You`, `opHasName=${m.opHasName}`);
+      chk(m.agentHasName === true, `${t} #3130: an agent's post keeps its name`, `agentHasName=${m.agentHasName}`);
+      // #3130: both bubbles carry a TAIL (::after), agent bottom-LEFT, operator
+      // bottom-RIGHT. `left`/`right` resolve to the offset actually set on each side.
+      chk(!!(m.agentTail && m.agentTail.on) && parseInt(m.agentTail.left, 10) >= 0 && parseInt(m.agentTail.left, 10) < 20,
+        `${t} #3130: the agent bubble has a tail on the LEFT`, JSON.stringify(m.agentTail));
+      chk(!!(m.opTail && m.opTail.on) && parseInt(m.opTail.right, 10) >= 0 && parseInt(m.opTail.right, 10) < 20,
+        `${t} #3130: the operator bubble has a tail on the RIGHT`, JSON.stringify(m.opTail));
+      // #3130: the agent tail inherits the bubble's warm cream, NOT the blue.
+      const atail = parse(m.agentTail && m.agentTail.bg);
+      chk(atail[0] >= atail[1] && atail[1] >= atail[2] && (atail[0] - atail[2]) >= 2 && blueLead(atail) < 20,
+        `${t} #3130: the agent tail is the warm cream, not blue`, m.agentTail && m.agentTail.bg);
+      // #3130: the operator tail inherits the blue user tint (blue channel leads),
+      // so an accidental swap of the two side rules would be caught on this side too.
+      const otail = parse(m.opTail && m.opTail.bg);
+      chk(blueLead(otail) >= 20, `${t} #3130: the operator tail is the blue user tint`, m.opTail && m.opTail.bg);
+      // #3130: the STRUCTURAL guard for the tail's visibility -- `.msg-bd` owns its
+      // own stacking context so the z-index:-1 tail tucks behind THIS bubble, not
+      // behind `.thread`'s opaque ground (which would hide it entirely).
+      chk(m.bdPos === 'relative' && m.bdZ === '0',
+        `${t} #3130: .msg-bd owns a stacking context (position:relative, z-index:0) so the tail is not hidden behind .thread`,
+        `position=${m.bdPos} z-index=${m.bdZ}`);
+      // #3130: an operator post with a body but NO timestamp draws its bubble but
+      // OMITS the empty header bar (a control: the body IS present, so this is not
+      // just an empty render).
+      chk(m.noTimeHasBody && !m.noTimeHasHeader,
+        `${t} #3130: an operator post with no timestamp omits the empty header bar (bubble still drawn)`,
+        `hasBody=${m.noTimeHasBody} hasHeader=${m.noTimeHasHeader}`);
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
