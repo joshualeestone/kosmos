@@ -26,8 +26,9 @@ check that certifies the blind spot.
 The rework:
 - boxes() now returns the gear's real SIBLING #pj-one-name (the project name text in .pjtitle-row)
   instead of the .pjtitle block. Comparing two independent siblings is non-vacuous.
-- All four "shares the title's line" sites repointed to sameLine(gear, name): tab view, consolidated,
-  961px boundary, and the narrow guard.
+- The three pre-existing "shares the title's line" sites repointed to sameLine(gear, name): tab view,
+  consolidated, and the 961px boundary (the fourth gear/name assertion, the 700px stacked guard, is
+  newly added below, not repointed).
 - Negative control at 700px is now !sameLine(gear, search), the exact inversion of the wide
   sameLine(gear, search) assertion: search stacks below .pjtitle-row under 60rem, so it genuinely
   reads NOT-one-line at 700px and the measurement stays provably able to return the dangerous answer.

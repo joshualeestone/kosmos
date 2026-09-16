@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-room-search pj-settings-link pj-one-name
+// Browser-check-surface: pj-room-search pj-settings-link pj-one-name pjtitle-row
 /* #1043: Settings stays on the same line as the project title and the search.
  *
  * Josh, 2026-08-26 18:29 CT: "The 'settings' should still be visible then on
