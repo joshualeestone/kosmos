@@ -105,11 +105,19 @@ const say = (n, cond, note) => {
             body: JSON.stringify({ sentence: s + ' (' + id + ')', who: 'tasker' }) });
         }
       }
-      /* #3171: close ONE task on the project the door opens (out[0]) so this
-         check exercises the closed pill and the open/closed divider, not just
-         the all-open path. Task 1 is "First job here". */
-      await fetch('/api/project/' + out[0] + '/task/1/close', { method: 'POST',
-        headers: { 'content-type': 'application/json' } });
+      /* #3171: put TWO open and TWO closed tasks on the project the door opens
+         (out[0]), so the check exercises the closed pill AND the open/closed
+         divider against MULTI-item groups -- a 1-open/1-closed fixture cannot
+         catch an interleave within a group. out[0] already has tasks 1-2; add
+         3-4, then close 1-2, leaving 3-4 open. */
+      for (const s of ['Third job here', 'Fourth job here']) {
+        await fetch('/api/project/' + out[0] + '/tasks', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sentence: s + ' (' + out[0] + ')', who: 'tasker' }) });
+      }
+      for (const n of [1, 2]) {
+        await fetch('/api/project/' + out[0] + '/task/' + n + '/close', { method: 'POST',
+          headers: { 'content-type': 'application/json' } });
+      }
       return out;
     });
     say('the fixture made two projects with tasks on each', made.length === 2, JSON.stringify(made));
@@ -183,11 +191,14 @@ const say = (n, cond, note) => {
        vacuous on an all-open list. */
     say('a closed task is on screen, so the closed pill + divider are exercised (else vacuous)',
       seen.badges.includes('Closed'), JSON.stringify(seen.badges));
+    /* rows > 0 keeps `.every` from passing vacuously; badges/numbers are per-row
+       (a row missing its pill/number yields a null that fails `.every`). The old
+       `length === rows` prefix was a tautology (both derive from the same array). */
     say('#3171: every row carries an Open or Closed pill',
-      seen.badges.length === seen.rows && seen.badges.every((b) => b === 'Open' || b === 'Closed'),
+      seen.rows > 0 && seen.badges.every((b) => b === 'Open' || b === 'Closed'),
       JSON.stringify(seen.badges));
     say('#3171: every row shows its task number',
-      seen.numbers.length === seen.rows && seen.numbers.every((n) => /^Task \d+$/.test(n || '')),
+      seen.rows > 0 && seen.numbers.every((n) => /^Task \d+$/.test(n || '')),
       JSON.stringify(seen.numbers));
     say('#3171: exactly one divider splits the open and closed groups',
       seen.dividers === 1, 'dividers: ' + seen.dividers + '  order: ' + JSON.stringify(seen.order));

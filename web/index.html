@@ -38171,8 +38171,8 @@ async function openAllTasksView() {
   /* #3171 (Josh, 2026-09-16): open vs closed at a glance. Group the open tasks
      above the closed ones with a labelled divider between them, give every row a
      far-right Open/Closed pill, and show the task number the way the project
-     column already does (`Task N`). The pill carries "finished", so the old
-     ' \u00b7 finished' meta text is retired to avoid saying it twice.
+     column already does (`Task N`). The pill carries the closed state, so the
+     old ' \u00b7 finished' meta text is retired to avoid saying it twice.
      \ud83d\udd11 THE #1346 GUARANTEE IS KEPT: `rows` is still the one array the heading
      counted, sorted IN PLACE (open before closed) so the count cannot disagree,
      and the divider is a non-`.tkcard` element, so the rendered-row count
@@ -38181,7 +38181,7 @@ async function openAllTasksView() {
   const anyOpen = rows.some((t) => !t.isClosed);
   list.innerHTML = rows.map((t, i) => {
     const opensClosedGroup = t.isClosed && anyOpen && (i === 0 || !rows[i - 1].isClosed);
-    return (opensClosedGroup ? '<div class="tk-divider"><span>Closed</span></div>' : '')
+    return (opensClosedGroup ? '<div class="tk-divider" role="separator" aria-label="Closed tasks"><span>Closed</span></div>' : '')
       + '<button class="tkcard' + (t.isClosed ? ' closed' : '')
       + '" type="button" data-project="' + esc(t.projectId) + '" data-task="' + Number(t.number) + '">'
       + '<span class="tkcard-badge' + (t.isClosed ? ' closed' : '') + '">' + (t.isClosed ? 'Closed' : 'Open') + '</span>'
