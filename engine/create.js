@@ -3132,10 +3132,15 @@ async function accountConnectable({ provider, accountDir } = {}) {
      dead account. claudeAccountLive makes a real `claude -p` call, the only
      reliable validator for an OAuth subscription token, and returns NONE only on
      a genuine auth failure (capacity/rate/network all fail open). Scoped exactly
-     as before: the default with no configDir (true default), a labelled dir by
-     its path. */
+     as before, EXCEPT the default now passes its RESOLVED dir explicitly too (#3189
+     instance #4): the old `isDefault ? null` deleted CLAUDE_CONFIG_DIR and leaned on
+     claude -p's own ambient default resolution, which fails in the board's launchd
+     process (no ambient shell env) -> UNKNOWN. Here that failed OPEN (the create still
+     proceeds) so it was benign, but it is the same launchd-missing-ambient-env class as
+     #3136 (the check-now badge) and #3113 (tmux). acct.dir is the env-resolved
+     <homeDir>/.claude (accounts.js), so passing it is env-independent -- one pattern. */
   let state;
-  try { state = await claudeAccountLive(acct.isDefault ? null : acct.dir); }
+  try { state = await claudeAccountLive(acct.dir); }
   catch (err) { return failOpen("claudeAccountLive", err); }
   if (state === NONE) {
     return {
