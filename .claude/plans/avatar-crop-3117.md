@@ -47,15 +47,15 @@ still pinned height:100%). A blind reviewer traced this; I re-measured it (44x16
 the other direction: I nearly shipped an exclusion built on an unmeasured premise.
 
 ## Considered and NOT included - .lav.youav (measured, no bug)
-The same reviewer flagged `.lav.youav img` (operator avatar) as still pinning
-height:100%. Measured: 56x56 both arms - no bug. #3110's `.lav img { aspect-ratio: 1 }`
-cascades the aspect-ratio to youav's img per-property (youav's own rule overrides
-`height`, not `aspect-ratio`), so it is already square. It is also a `.lav`
-surface, outside this card's "non-.lav" scope. The reviewer reasoned from
-specificity (youav's height:100% wins) and missed the per-property cascade. I
-reverted the youav edit I had briefly made - re-adding it would repeat the exact
-#3110 over-reach I already learned from (I added then reverted `.lav.youav` there
-too).
+A reviewer flagged `.lav.youav img` (operator avatar) as still pinning
+height:100%. MEASURED: 56x56 both arms (fix and revert) - no bug. It is also a
+`.lav` surface, outside this card's "non-.lav" scope. I do NOT assert the exact
+cascade that keeps it square: two plausible mechanisms were proposed across the
+review rounds (an aspect-ratio cascade from `.lav img`; the container resolving
+height:100% definitely) and neither was pinned - the two-arm measurement is the
+evidence the exclusion rests on. I reverted the youav edit I had briefly made -
+re-adding it would repeat the exact #3110 over-reach I already learned from (I
+added then reverted `.lav.youav` there too), and it fixes no measured bug.
 
 ## Weakest premise
 detail-av's change fixes no live bug (it measured already-square). If a reviewer

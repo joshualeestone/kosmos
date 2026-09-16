@@ -26,10 +26,11 @@
  *                                    ever becomes a grid like its siblings)
  *
  * NOT included: `.lav.youav img` (operator avatar). A reviewer flagged it as
- * still pinning height:100%, but it measured 56x56 both arms (no bug): #3110's
- * `.lav img { aspect-ratio: 1 }` cascades the aspect-ratio to youav's img
- * (youav's own rule overrides height, not aspect-ratio), so it is already
- * square. It is also a .lav surface, outside this card's non-.lav scope.
+ * still pinning height:100%, but it MEASURED 56x56 both arms (fix and revert) -
+ * no bug. It is also a .lav surface, outside this card's non-.lav scope. The
+ * exact cascade that keeps it square is not asserted here (a couple of plausible
+ * mechanisms were proposed and none was pinned); the two-arm measurement is the
+ * evidence, and it is what this exclusion rests on.
  *
  * This is the source-pin regression guard (the same shape web.consolidated-
  * avatar-crop.test.js uses for `.lav img`): it fails if any surface silently
