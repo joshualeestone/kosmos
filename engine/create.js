@@ -2974,7 +2974,7 @@ function defaultClaudeProbe(configDir) {
  * positively-confirmed auth failure), or UNKNOWN (anything we cannot confirm is
  * dead -- capacity, rate, overload, network, or an unrunnable claude).
  */
-async function claudeAccountLive(configDir, opts) {
+async function claudeAccountLive(configDir) {
   const subscription = require('./subscription');
   const run = claudeProbe || defaultClaudeProbe;
   let res;
@@ -2991,15 +2991,6 @@ async function claudeAccountLive(configDir, opts) {
   if (CLAUDE_CAPACITY.test(text)) return subscription.STATE.UNKNOWN; // live but capped/overloaded
   if (CLAUDE_DEAD_AUTH.test(text)) return subscription.STATE.NONE;   // positively dead
   if (exit === 0) return subscription.STATE.CONNECTED;           // a real call went through cleanly
-  // #3136 DIAG (scoped, removed once the fix is confirmed green on the board): a check-now
-  // probe landing here is a fast non-zero exit with no dead-auth/capacity text, and the
-  // classification otherwise DISCARDS the probe output -- hiding WHY the default-account
-  // probe fails in the board's launchd env. Surfacing it (only when a caller passes a diag
-  // label, so the create gate's frequent fail-open stays quiet) names the cause: a missing
-  // HOME/config-not-found (confirms the explicit-config-dir fix) vs something else.
-  if (opts && opts.diag) {
-    console.error(String(opts.diag) + ' probe UNKNOWN (exit=' + exit + '): ' + text.slice(0, 400).replace(/\s+/g, ' ').trim());
-  }
   return subscription.STATE.UNKNOWN;                             // network/unrunnable/other
 }
 

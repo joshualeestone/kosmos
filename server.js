@@ -6302,16 +6302,15 @@ const server = http.createServer((req, res) => {
         // tmux fix (the launchd-missing-ambient-env class, kosmos#3189). Keyed by acct.dir
         // below for the badge join, as before, so the default reaches the right badge.
         // Aligned with #3113 (merged): the same explicit-resolution pattern, different
-        // resolver (config-dir vs installedRoot), so no shared helper. The diag flag below
-        // surfaces the discarded probe output on UNKNOWN so the 6.71 board deploy confirms
-        // this is the config-dir path -- it is the routed verify instrument (server-side log
-        // only), stripped in a follow-up once 6.71 shows the default account green.
+        // resolver (config-dir vs installedRoot), so no shared helper. (The temporary
+        // #3136 diag instrument that surfaced the discarded probe output on UNKNOWN was
+        // removed once the default account was board-confirmed green on the prod board.)
         const probeDir = acct.dir;
         // A validator CRASH fails open (UNKNOWN), never a false "not connected" --
         // the same #1916 rule the create gate states: a broken checker is not a
         // dead account. claudeAccountLive already returns UNKNOWN (not a throw)
         // for every environmental case, so a throw here is our own bug, logged.
-        try { state = await create.claudeAccountLive(probeDir, { diag: '#3136-checknow ' + (acct.isDefault ? 'default' : 'labeled') }); }
+        try { state = await create.claudeAccountLive(probeDir); }
         catch (err) { console.error('#3136: claude check-now errored (failing open):', (err && err.stack) || err); state = subscription.STATE.UNKNOWN; }
         if (state === subscription.STATE.CONNECTED) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.OK);
         else if (state === subscription.STATE.NONE) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.REJECTED);
