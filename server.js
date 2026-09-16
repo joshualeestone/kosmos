@@ -8402,12 +8402,14 @@ const server = http.createServer((req, res) => {
         }
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
       /* #3034: seed the one-time setup-assistant agent -- named after the user,
-         running on their own connected model. Same posture as the welcome seed:
+         running on their own connected account. Same posture as the welcome seed:
          once-ever, best-effort, and it MUST NOT throw or block, because
          onboarding has already succeeded above. It skips silently when there is
-         no connected model (createAgent refuses -- a live helper needs one), no
-         saved user name, or it was already seeded. The flag is written only on a
-         real create, so a refusal leaves nothing behind. */
+         no connected Claude account (a live agent needs one, and the model step
+         is skippable), no saved user name, or it was already seeded -- see
+         engine/setup-assistant.js for why it gates on the account rather than
+         relying on createAgent to refuse. The flag is written only on a real
+         create, so a skip or refusal leaves nothing behind. */
       try {
         const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
         if (seed && seed.seeded) {

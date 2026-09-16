@@ -23,28 +23,34 @@
  *   picture -> the agent keeps the default initials avatar. Never fatal.
  * - MODEL/ACCOUNT = the user's default connected account (createAgent with no
  *   model/account). Josh: runs on the user's own model, quota-burn accepted.
- * - NO MODEL CONNECTED at Giddy-Up (the wizard's model step is skippable): a
- *   live agent cannot run without one, so createAgent REFUSES and we simply do
- *   not seed (no flag written). Documented limitation: a user who skipped model
- *   connection gets no assistant. A future enhancement could seed it on the
- *   first model-connect; out of scope for this minimal version.
+ * - CONNECTED-ACCOUNT GATE (the correctness crux). The wizard's model step is
+ *   SKIPPABLE, so a fresh user can reach Giddy Up with no account connected.
+ *   createAgent does NOT refuse for that -- its account/model refusal only fires
+ *   for an explicitly-passed unknown account, and we pass none; its own refusal
+ *   is keyed on the runner BINARY (Claude Code) being installed. A created agent
+ *   launches under launchd KeepAlive (ThrottleInterval 30), so an agent with no
+ *   account to authenticate would respawn and fail auth on a loop. So we GATE on
+ *   a connected Claude account (accounts.list(), a fast config read -- NOT the
+ *   slow live `claude -p` probe) and seed nothing when there is none. A user who
+ *   skipped account connection gets no assistant. Documented limitation: an
+ *   OpenAI-only user also gets none in v1 (we default to the Claude provider); a
+ *   follow-up could seed on the connected provider, or on first account-connect.
  * - ROLE = the `setup` role (engine/roles.js, menu:false so it is never in the
  *   normal create flow).
  * - The help-BUBBLE Josh floated is explicitly phase 2 and NOT built here.
  *
- * `createAgent` is injected so this is testable without launching a real agent.
+ * `createAgent` and `hasConnectedAccount` are injected so this is testable
+ * without launching a real agent or depending on real account config.
  */
 
 const fs = require('fs');
 const path = require('path');
 const you = require('./you');
 const store = require('./store');
+const accounts = require('./accounts');
+const create = require('./create');
 
 const SETUP_ROLE_KEY = 'setup';
-/* The agent's launch outcome that means "it was really created". Mirrors
- * create.js OUTCOME.CREATED; kept as a literal here so this module does not pull
- * in create.js (which the server injects instead, and which a test replaces). */
-const OUTCOME_CREATED = 'created';
 
 /* Once-ever flag, same shape/rationale as projects.js welcome-seed: an empty
  * store cannot tell "never seeded" from "the user deleted the assistant", so the
@@ -56,7 +62,7 @@ function setupAssistantSeeded() {
   catch { return false; }
 }
 
-/* Written by the caller only AFTER a successful create, so a refused/failed
+/* Written by the caller only AFTER a successful create, so a refused/skipped
  * create leaves no flag. Best-effort: a failed flag write just risks a second
  * attempt on a later completion POST, which the name-collision refusal in
  * createAgent then catches -- belt and braces, not the primary guard. */
@@ -65,6 +71,14 @@ function markSetupAssistantSeeded(meta) {
     fs.writeFileSync(flagPath(),
       JSON.stringify({ at: new Date().toISOString(), ...(meta || {}) }) + '\n', 'utf8');
   } catch { /* the collision refusal still guards the common double-POST case */ }
+}
+
+/* Fast, config-based "is a Claude account connected" (accounts.list() reads the
+ * account dirs' oauthAccount, no live probe). Fails toward "not connected" so a
+ * read error never causes a churning dead agent to be created. */
+function defaultHasConnectedAccount() {
+  try { return accounts.list().length > 0; }
+  catch { return false; }
 }
 
 const MIME_BY_EXT = {
@@ -96,7 +110,7 @@ function copyUserAvatar(agentName) {
  * succeeded, and a helper is a nicety that must not turn a done onboarding into
  * an error. The caller writes the once-ever flag on `seeded: true`.
  */
-function seedSetupAssistant({ createAgent } = {}) {
+function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
   if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
@@ -108,6 +122,12 @@ function seedSetupAssistant({ createAgent } = {}) {
       ? rec.you.name.trim() : '';
   } catch { name = ''; }
   if (!name) return { seeded: false, reason: 'no saved user name to name the assistant after' };
+
+  // A live agent needs a model. Gate on a connected account rather than create a
+  // KeepAlive agent that would loop on auth failure (see the header note).
+  let connected;
+  try { connected = !!hasConnectedAccount(); } catch { connected = false; }
+  if (!connected) return { seeded: false, reason: 'no connected account to run the assistant on' };
 
   let out;
   try {
@@ -123,9 +143,9 @@ function seedSetupAssistant({ createAgent } = {}) {
     return { seeded: false, reason: 'create threw: ' + String((err && err.message) || err) };
   }
 
-  if (!out || out.outcome !== OUTCOME_CREATED) {
-    // The common benign case is REFUSED because no model/account is connected
-    // yet (a live agent needs one). No flag is written, so nothing is recorded.
+  if (!out || out.outcome !== create.OUTCOME.CREATED) {
+    // Benign remaining case: createAgent refuses because the Claude runner is not
+    // installed (its actual account/model refusal path). No flag is written.
     return { seeded: false, reason: 'not created: ' + ((out && out.because) || (out && out.outcome) || 'unknown') };
   }
 
@@ -138,5 +158,6 @@ module.exports = {
   flagPath,
   setupAssistantSeeded,
   markSetupAssistantSeeded,
+  defaultHasConnectedAccount,
   seedSetupAssistant,
 };

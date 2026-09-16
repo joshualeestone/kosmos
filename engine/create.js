@@ -4485,6 +4485,10 @@ const SELF_STARTS = 'it starts itself when this computer is on and it is not rem
 
 module.exports = {
   MODELS,
+  /* #3034: exported so engine/setup-assistant.js reads the CREATED sentinel from
+     one source instead of re-declaring the literal 'created' (convention: a
+     duplicated fact needs one source or a pin). */
+  OUTCOME,
   /* #2039: exported so a test can pin that this DELEGATES to store.dataRootFor
      (the one win32-aware data-root formula) rather than re-growing a second,
      mac-only copy -- the defect it fixed, whose Windows output cannot be

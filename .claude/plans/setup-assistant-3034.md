@@ -37,11 +37,19 @@ NOT built here.
   model/account). Josh: their own model, quota-burn accepted.
 
 ## Fragilities handled (from the terrain map)
-- **No model connected at Giddy-Up** (the wizard's model step is skippable): a
-  live agent cannot run without one, so `createAgent` REFUSES; we seed nothing and
-  write no flag. Onboarding is unaffected. LIMITATION (documented): a user who
-  skipped model connection gets no assistant. Follow-up idea: seed it on the first
-  model-connect. Out of scope for this minimal version.
+- **No account connected at Giddy-Up** (the wizard's model step is skippable): a
+  live agent cannot run without one. CORRECTION caught by blind review: I first
+  believed `createAgent` would REFUSE in this case -- it does not. createAgent's
+  account/model refusal only fires for an explicitly-passed unknown account (we
+  pass none); its own refusal is keyed on the RUNNER BINARY (Claude Code) being
+  installed. With Claude Code installed but no account connected, createAgent
+  would SUCCEED and launch a KeepAlive (ThrottleInterval 30) agent that then
+  loops on auth failure. So we now GATE the seed on a connected Claude account
+  (`accounts.list()`, a fast config read, NOT the slow live probe) and seed
+  nothing when there is none -- no flag, no churn, onboarding unaffected.
+  LIMITATION (documented): a user who skipped account connection, or connected
+  only OpenAI (we default to the Claude provider), gets no assistant in v1.
+  Follow-up: seed on the connected provider, or on first account-connect.
 - **Must not block onboarding:** the whole hook is in the existing swallow-all
   `if (ok)` block; the module never throws (createAgent-throws is caught too).
 - **Idempotency:** once-ever flag, written only after a real create, so a repeat
@@ -57,11 +65,16 @@ NOT built here.
    not in createAgent). So Giddy-Up gains ~1s once, at a one-time action. Kept
    synchronous for clean flag/failure semantics; if the latency proves bad,
    moving the seed to after sendJson (fire-and-forget) is the follow-up.
-2. **Runnable-check, not the route's live-auth probe.** Because we call
-   create.createAgent directly, an installed-but-expired account could create an
-   assistant whose live turns then fail auth (the board already surfaces that as
-   auth_failed, recoverable by reconnecting). Adding the live probe would
-   reintroduce multi-second latency; not worth it for a minimal helper. Documented.
+2. **Account gate is the fast config check, not the route's live-auth probe.**
+   We gate on `accounts.list()` (connected-account config read), not the slow
+   live `claude -p` probe the /api/create route uses. So an installed-but-EXPIRED
+   token could still slip through (config says connected, the token is dead) and
+   create an assistant whose live turns then fail auth -- the board surfaces that
+   as auth_failed, recoverable by reconnecting, and it is a reasonable nudge from
+   a setup helper. Adding the live probe would reintroduce multi-second latency at
+   Giddy-Up; not worth it for a minimal helper. The common no-account case is
+   fully handled by the fast gate; only the rarer expired-token case degrades to
+   auth_failed. Documented.
 
 ## Reversibility
 Fully additive: a normal deletable agent, one flag file, one menu:false role. The
