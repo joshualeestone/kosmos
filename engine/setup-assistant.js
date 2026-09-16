@@ -57,11 +57,12 @@ const SETUP_ROLE_KEY = 'setup';
  * was complete because we haven't gone through this yet and I haven't given
  * direction on it." The DESIGN below is his to direct and is left fully intact;
  * this flag only controls whether server.js WIRES the seed into first-run
- * completion, so the undirected behavior does not ship on the next cut. The seed
- * merged after the v0669 cut (rides un-cut 6.70), so no user has seen it yet -- this
- * keeps it that way until Josh directs it. Flip to true when he does; nothing else
- * changes, and seedSetupAssistant() still works when called directly (its tests
- * cover the design). Reversible in a commit, per Josh's make-your-best-call ruling. */
+ * completion. The auto-create is LIVE in the served 0.6.70 build (that is why Josh
+ * is seeing a setup-assistant agent he did not create); gating it off here removes
+ * it from the next cut (6.71) until Josh directs it. Flip to true when he does;
+ * nothing else changes, and seedSetupAssistant() still works when called directly
+ * (its tests cover the design). Reversible in a commit, per Josh's make-your-best-call
+ * ruling. */
 const FIRSTRUN_AUTOCREATE_ENABLED = false;
 
 /* Once-ever flag, same shape/rationale as projects.js welcome-seed: an empty
