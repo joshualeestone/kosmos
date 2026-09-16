@@ -1706,12 +1706,23 @@ function agentAutostartCheck(runner, opts) {
   const disabledNames = disRes.jobs instanceof Set ? [...disRes.jobs]
     : (Array.isArray(disRes.jobs) ? disRes.jobs.slice() : []);
 
-  /* A disable on a REMOVED agent is not a problem -- it is not expected to come
-     back. Exclude it, keyed by create.cleanName (remove.js's own key). An
-     unreadable removed list falls through to "none removed": surfacing a disabled
-     agent that later proves removed points the user at a real toggle, whereas
-     hiding a disabled LIVE agent is the failure this check exists to prevent, so
-     that is the safe direction. */
+  /* No disabled agents is the common case and needs no removed-list read, so return
+     OK before touching remove.removedNames(). Two reasons this ordering matters: it
+     keeps the OK path off the disk on every check() tick, and it keeps that path
+     seam-clean -- the removed read, unlike the disabled read above, is not
+     runner-injected, so reaching it on an empty-disabled test would touch the
+     operator's real store.ROOT. Only a non-empty disabled set needs the removed list. */
+  const okRow = { key: 'agentautostart', state: STATE.OK,
+    title: 'Your agents start themselves when you log in',
+    detail: 'None of your agents are switched off, so they come back on their own after this computer restarts.' };
+  if (disabledNames.length === 0) return okRow;
+
+  /* At least one agent is disabled. A disable on a REMOVED agent is not a problem --
+     it is not expected to come back -- so exclude it, keyed by create.cleanName
+     (remove.js's own key). An unreadable removed list falls through to "none
+     removed": surfacing a disabled agent that later proves removed points the user
+     at a real toggle, whereas hiding a disabled LIVE agent is the failure this check
+     exists to prevent, so that is the safe direction. */
   let removedNames = [];
   try {
     const rem = ('removed' in o) ? o.removed : require('./remove').removedNames();
@@ -1720,11 +1731,7 @@ function agentAutostartCheck(runner, opts) {
   const removedSet = new Set(removedNames.map((n) => create.cleanName(n)));
 
   const concerning = disabledNames.filter((n) => !removedSet.has(create.cleanName(n)));
-  if (concerning.length === 0) {
-    return { key: 'agentautostart', state: STATE.OK,
-      title: 'Your agents start themselves when you log in',
-      detail: 'None of your agents are switched off, so they come back on their own after this computer restarts.' };
-  }
+  if (concerning.length === 0) return okRow;   // every disabled agent is a removed one
 
   concerning.sort();
   const shown = concerning.slice(0, 3);

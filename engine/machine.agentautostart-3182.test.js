@@ -111,6 +111,20 @@ test('#3182 an unreadable removed list falls back to none-removed (surfaces the 
   assert.match(got.detail, /x/);
 });
 
+test('#3182 a THROWING removed read (the catch branch) also falls back to none-removed, not a crash', () => {
+  // The ok:false test above exercises the graceful-refusal branch; this one
+  // exercises the try/catch itself -- a removed read that THROWS on access (the
+  // production shape when remove.removedNames() itself throws). Same safe fallback:
+  // the live disabled agent still surfaces, and the check never throws.
+  const got = machine.agentAutostartCheck(null, {
+    ...DARWIN,
+    disabled: { ok: true, jobs: ['y'] },
+    removed: { get ok() { throw new Error('removed read blew up'); } },
+  });
+  assert.equal(got.state, machine.STATE.ATTENTION);
+  assert.match(got.detail, /y/);
+});
+
 test('#3182 integration: a fake launchctl print-disabled threads through create.disabledJobsResult', () => {
   // No opts.disabled, so the check reads through create.disabledJobsResult(runner);
   // the fake runner returns a print-disabled dump naming a disabled agent in the
