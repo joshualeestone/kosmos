@@ -641,10 +641,22 @@ async function deviceRemove(id) {
    between steps -- the wizard sees a `stage` and nothing else, and `register`
    spends the token from here (piped to the CLI over stdin, off argv). This is
    the #874 posture: the page cannot carry, replay, or leak a session it never
-   holds. One slot: one person at one board signs in this computer at a time; a
-   fresh `start` clears it (last flow wins), and it is memory-only on purpose --
-   a board restart mid-flow drops it and the person simply starts sign-in again,
-   which is safe and quick. ---- */
+   holds. It is memory-only on purpose -- a board restart mid-flow drops it and
+   the person simply starts sign-in again, which is safe and quick.
+
+   ⚠️ ONE SLOT, and the collision edge stated in full (by design, not a defect,
+   for the same reason setupComplete's ACCOUNT-SWITCH EDGE is). This is built for
+   one person at one board signing in this computer at a time -- the only actor
+   who can reach the board's loopback API. A fresh `start` clears the slot, so
+   the LAST flow wins. If two flows on the same board interleave and BOTH reach a
+   session before either registers, the second overwrites the first, and the
+   first tab's `register` then spends whichever session is current. It is not
+   fully silent: `register`'s answer carries the `address` the account got, which
+   the wizard shows, so a person who somehow drove two accounts in two tabs sees
+   which one landed. Per-flow keying would close it, but a single slot is correct
+   for the product and per-flow ids would push state into the wizard for a race
+   only a split-brain single operator could cause. If concurrent per-board
+   sign-ins ever become real, key this by a per-flow id. ---- */
 let signinSession = null;
 
 /** This computer's stable sign-in device id. `signin start` and its matching
@@ -703,9 +715,13 @@ async function signinStart(email, deviceName) {
     args.push('--device-name', deviceName.trim());
   }
   const r = parseSaid(await setupRun(args));
-  // Remembered only so the Settings screen can show whose sign-in is in flight;
-  // the flow does not read it back (verify carries the email explicitly).
-  if (r.ok) write({ email });
+  // Deliberately does NOT persist the email. The setup flow writes it because
+  // setupComplete reads it back; sign-in carries the email explicitly through
+  // verify, so nothing here needs it. Writing it would also make status()'s
+  // not-enrolled "waiting for the code sent to <email>" sentence render during
+  // sign-in and go stale the moment the flow reaches the phone step, and would
+  // leave a stale email behind if the flow is abandoned. The wizard shows the
+  // in-flight email itself.
   return r.ok ? { ok: true, because: null, data: { stage: 'code_sent' } } : r;
 }
 
@@ -760,6 +776,15 @@ async function signinRegister(name) {
   // re-register -- it would mint a fresh identity key and spend a scarce
   // certificate for this Mac's own previous life. Recognise it, bring the tunnel
   // up, done. A DIFFERENT name is a real move and falls through to register.
+  //
+  // ACCOUNT-SWITCH EDGE (by design, the same one setupComplete documents, and
+  // more reachable here since journey 2 is specifically "sign in an existing
+  // account"): if the surviving state is account A at name X and someone signs
+  // in as account B but registers at the SAME name X, this recognises the Mac
+  // and KEEPS account A's enrolment -- account B's held session is never spent.
+  // Switching the account on a Mac is what forget() (which wipes the state dir)
+  // is for; once the state is gone, enrolled() is false and this guard does not
+  // fire.
   if (enrolled()) {
     const have = address();
     if (have && have.split('.')[0] === name) {

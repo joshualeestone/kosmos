@@ -11259,6 +11259,12 @@ test('the sign-in routes refuse malformed input at the boundary before anything 
   assert.equal(badEmail.status, 400);
   assert.match(JSON.parse(badEmail.body).error, /does not look like an email/);
 
+  // verify validates the email shape identically to start (not just presence),
+  // so the two steps cannot drift: '@' is refused as an email, not as a code.
+  const badVerifyEmail = await postJson('/api/remote/signin-verify', { email: '@', code: '123456' });
+  assert.equal(badVerifyEmail.status, 400);
+  assert.match(JSON.parse(badVerifyEmail.body).error, /does not look like an email/);
+
   const noCode = await postJson('/api/remote/signin-verify', { email: 'a@b.co', code: '' });
   assert.equal(noCode.status, 400);
   assert.match(JSON.parse(noCode.body).error, /code from the email/);

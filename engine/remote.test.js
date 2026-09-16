@@ -74,6 +74,11 @@ if (args[0] === 'signin') {
     if (code === '000000') { process.stderr.write('the coordinator said no (401): that code is not right\\n'); process.exit(1); }
     if (code === '222222') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_123' })); process.exit(0); }
     if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor' })); process.exit(0); }
+    // Malformed coordinator answers, so the engine's guard paths are exercised:
+    // a session with no token, a challenge with no id, and an unknown stage.
+    if (code === '444444') { console.log(JSON.stringify({ stage: 'session' })); process.exit(0); }
+    if (code === '555555') { console.log(JSON.stringify({ stage: 'second' })); process.exit(0); }
+    if (code === '666666') { console.log(JSON.stringify({ stage: 'bogus' })); process.exit(0); }
     console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-fake' }));
     process.exit(0);
   }
@@ -83,6 +88,9 @@ if (args[0] === 'signin') {
     process.exit(0);
   }
   if (verb === 'register') {
+    // A child that exits BEFORE reading stdin, so the engine's EPIPE-swallow path
+    // (setupRun's stdin.on('error')) is exercised rather than crashing the write.
+    if (flag('--name') === 'earlyexit') { process.stderr.write('the coordinator said no (500): try again\\n'); process.exit(1); }
     // The token arrives on stdin, NEVER argv. Record what we received so a test
     // can assert it landed via stdin and is absent from the recorded argv.
     const token = fs.readFileSync(0, 'utf8').trim();
@@ -541,12 +549,14 @@ test('enrolment that lands without an ensure() call rests at "has not started" u
    token, phone challenge) is held in the engine and never returned to the page;
    the create-free property is the coordinator's, not asserted here. ---- */
 
-test('signin start drives the binary, mints a STABLE device id, and remembers the email', async () => {
+test('signin start drives the binary, mints a STABLE device id, and does NOT persist the email', async () => {
   assert.match((await remote.signinStart('not-an-email')).because, /email address/);
   const first = await remote.signinStart('her@example.com');
   assert.equal(first.ok, true, first.because);
   assert.equal(first.data.stage, 'code_sent');
-  assert.equal(remote.read().email, 'her@example.com');
+  // Sign-in must NOT write the email (unlike setup): it would make status()'s
+  // not-enrolled sentence render a stale "waiting for the code" mid-flow.
+  assert.equal(remote.read().email, '', 'sign-in must not persist the email');
   const call = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
   assert.ok(call, 'signin start never reached the binary');
   assert.ok(call.includes('--device-id'), 'no device id was passed');
@@ -679,4 +689,57 @@ test('#1010: a survived state at the same name is recognised, not re-registered'
   assert.equal(again.data.alreadySetUp, true, 'a re-sign-in re-registered instead of being recognised');
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'register'),
     'the guard let a re-sign-in re-register: ' + JSON.stringify(recorded()));
+});
+
+test('a device name reaches the binary when valid, and is dropped (never surfaced) when malformed', async () => {
+  await remote.signinStart('her@example.com', 'My Laptop');
+  const withName = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  assert.ok(withName.includes('--device-name') && withName.includes('My Laptop'),
+    'a valid device name did not reach the binary');
+  // A name with a newline fails DEVICE_NAME and is dropped rather than passed
+  // through (a newline in argv would let a caller inject a second value).
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com', 'bad\nname');
+  const dropped = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  assert.ok(!dropped.includes('--device-name'), 'a malformed device name was passed through: ' + JSON.stringify(dropped));
+});
+
+test('a malformed coordinator answer is refused, and no session is held to spend', async () => {
+  await remote.signinStart('her@example.com');
+  const noToken = await remote.signinVerify('her@example.com', '444444');   // session stage, no token
+  assert.equal(noToken.ok, false);
+  assert.match(noToken.because, /usable session/);
+  const noChallenge = await remote.signinVerify('her@example.com', '555555'); // second stage, no challenge
+  assert.equal(noChallenge.ok, false);
+  assert.match(noChallenge.because, /phone challenge/);
+  const unknown = await remote.signinVerify('her@example.com', '666666');    // unknown stage
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.because, /could not read/);
+  // None of those left a session behind, so register has nothing to spend.
+  const reg = await remote.signinRegister('hers');
+  assert.equal(reg.ok, false);
+  assert.match(reg.because, /finish the code steps/);
+});
+
+test('signinDeviceId replaces a stored id that fails the shape check rather than trusting it', async () => {
+  // A garbage device_id survived in remote.json somehow (hand-edit, corruption).
+  fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'has spaces and / slashes' }));
+  await remote.signinStart('her@example.com');
+  const call = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  const id = call[call.indexOf('--device-id') + 1];
+  assert.notEqual(id, 'has spaces and / slashes', 'a malformed stored device id was trusted');
+  assert.match(id, /^[A-Za-z0-9_-]{1,128}$/, 'the replacement device id has the wrong shape');
+});
+
+test('register survives a child that exits before reading the token off stdin (the EPIPE path)', async () => {
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');   // session held
+  // The fake exits early on this name without reading stdin; the engine must
+  // surface the failure, not crash on the broken pipe.
+  const r = await remote.signinRegister('earlyexit');
+  assert.equal(r.ok, false);
+  assert.match(r.because, /try again|500/);
+  // The session is NOT consumed by a failed register, so a retry is possible.
+  const retry = await remote.signinRegister('hers');
+  assert.equal(retry.ok, true, retry.because);
 });

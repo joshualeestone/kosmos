@@ -36,12 +36,20 @@ strictly better than round-tripping the token through the page.
 
 - **Rejected:** returning the token to the wizard and taking it back on register
   (simpler, stateless engine) — puts a month-long bearer credential in page JS.
-- **Weakest premise:** a single in-memory sign-in slot assumes one sign-in at a time
-  on one board. True for the product (one person, one board); two tabs racing would
-  make one tab's flow error and restart, which is safe. Memory-only means a board
-  restart mid-flow drops it and the person restarts sign-in — also safe and quick.
+- **Weakest premise (stated in full, not softened):** a single in-memory sign-in
+  slot assumes one sign-in at a time on one board — the only actor who can reach the
+  board's loopback API is the person at it. The collision it does NOT prevent: if two
+  flows on the same board interleave and BOTH reach a session before either registers,
+  the second overwrites the first, and the first tab's register spends whichever
+  session is current. It is not fully silent — register's answer carries the address
+  the account got, which the wizard shows — but it is a real gap in a naive "two tabs
+  are safe" reading. It is deliberately accepted: per-flow keying would push race state
+  into the wizard to defend against a split-brain single operator. Memory-only also
+  means a board restart mid-flow drops the slot and the person restarts sign-in.
 - **What would change my mind:** if concurrent per-board sign-ins ever become real,
-  key `signinSession` by a per-flow id instead of a single slot.
+  key `signinSession` by a per-flow id instead of a single slot. Documented in the
+  code at `signinSession` and mirrored to setupComplete's ACCOUNT-SWITCH EDGE on the
+  register short-circuit.
 
 ## Not in this PR (increment 3b, claude-fe)
 The wizard UI in web/index.html and the "Join Kosmos" no-account nudge — frontend,
