@@ -232,11 +232,18 @@ test('#3136 ROUTE: an unknown account dir is a 404, and no probe is fired', asyn
   } finally { create.setClaudeProbe(null); }
 });
 
-test('#3136 ROUTE: the DEFAULT account probes with null configDir (not its dir), matching the create gate (#1916), and greens', async () => {
-  // The create gate calls claudeAccountLive(acct.isDefault ? null : acct.dir): the default
-  // must probe with CLAUDE_CONFIG_DIR unset (claude's true default), NOT its dir. Passing the
-  // dir would diverge from that one tested caller. The observation is still keyed by the row's
-  // dir, so boss (the default) still greens. boss@ is the default in this fixture (born null).
+test('#3136 ROUTE: the DEFAULT account probes with its RESOLVED dir (not null), so it does not lean on the launchd-broken ambient default, and greens', async () => {
+  // #3136 FIX (was: probe the default with CLAUDE_CONFIG_DIR unset, "claude's true default").
+  // That deleted-env path relied on claude -p's OWN ambient default resolution, which fails
+  // in the board's launchd process (wrong/missing HOME -> config-not-found -> a fast non-zero
+  // exit -> UNKNOWN -> the badge never greens). Reproduced server-side on 0.6.70: a labelled
+  // account greened, the default stayed neutral, the default probe failed in ~4-5s (not the
+  // 15s timeout). The fix passes the default's RESOLVED dir (accounts.js's env-independent
+  // <homeDir>/.claude) explicitly, so the probe does not depend on the launchd env. The
+  // observation is still keyed by the row's dir, so boss (the default) greens. boss@ is the
+  // default in this fixture (born null). NOTE: a fake probe cannot reproduce the launchd-env
+  // failure (it ignores configDir), so this asserts the CONTRACT (default -> its dir); the
+  // real green is verified against the served board's live Check now.
   const def = accounts.list().find((a) => a.isDefault);
   assert.ok(def && def.dir, 'the fixture has a default account with a dir: ' + JSON.stringify(accounts.list().map((a) => ({ e: a.email, d: a.isDefault }))));
   let gotConfigDir = 'UNSET_SENTINEL';
@@ -245,7 +252,7 @@ test('#3136 ROUTE: the DEFAULT account probes with null configDir (not its dir),
     const r = await checkNow(def.dir);
     assert.equal(r.status, 200);
     assert.equal(r.body.state, 'connected');
-    assert.equal(gotConfigDir, null, 'the default account must probe with null configDir (create-gate #1916 pattern), got: ' + JSON.stringify(gotConfigDir));
+    assert.equal(gotConfigDir, def.dir, 'the default account must probe with its RESOLVED dir, not null (#3136 launchd-env fix), got: ' + JSON.stringify(gotConfigDir));
     const m = await badges();
     assert.equal(m.get('boss@example.com').badge, 'working',
       'a CONNECTED check-now on the default account did not green it: ' + JSON.stringify(m.get('boss@example.com')));
