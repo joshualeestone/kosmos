@@ -423,7 +423,12 @@ test('the sentence actually reaches the rendered row', () => {
   const withSilence = render(post, P, ['rick', 'bob']);
   assert.match(withSilence, /anyone there\?/, 'the row did not render at all');
   assert.doesNotMatch(withSilence, /Nothing back/, 'the removed silence sentence still reached the row');
-  assert.doesNotMatch(withSilence, /class="delivery"><\/span>/, 'an empty delivery pill was drawn');
+  // #3130 empty-pill guard: an all-placed operator post now yields an empty
+  // receipt sentence, and the pill must NOT render. The pill always carries a
+  // STATE class ('delivery placed'), so a stray empty pill is
+  // `class="delivery placed"></span>` -- match the state class then an immediate
+  // close, or this assertion is vacuous (the pre-fix bug renders exactly that).
+  assert.doesNotMatch(withSilence, /class="delivery[^"]*"><\/span>/, 'an empty delivery pill was drawn');
 
   const quiet = render(post, P, []);
   assert.match(quiet, /anyone there\?/, 'the row did not render at all');

@@ -4725,12 +4725,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .msg-h b { font-size: .9375rem; }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
-/* #1703 (Josh, 2026-08-31): the agent's title in very small text between their
-   name and the timestamp, so a person with ~19 agents can tell the manager from
-   the worker at a glance. Muted and normal-weight so it reads as metadata beside
-   the bold name, never competing with it. `--label-3` is theme-aware, so no
-   separate dark rule is needed (the same token pj-member-role uses). */
-.msg-role { font-size: .75rem; color: var(--label-3); font-weight: 400; }
+/* #3130 (Josh 6.68): the #1703 `.msg-role` agent-title span is no longer rendered
+   in the dialog (removed in pjRoomRow), so its CSS rule is removed with it. The
+   member roster's own title styling (pj-member-role) is unaffected. */
 /* The conversation search (18e:380-386, verbatim). The header row that
    locks it right is the EXISTING .pjmidhead rule above; a duplicate
    selector here shadowed its gap while its margin survived, a hybrid

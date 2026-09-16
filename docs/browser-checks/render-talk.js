@@ -1804,7 +1804,7 @@ function unreachableStates() {
       /* 6. A REPAINT WHERE ONLY THE CLOCK MOVED, on a thread long enough to
          scroll and new enough to say "a minute ago".
          ⚠️ THE SCROLL BLOCK'S OWN FIXTURES, 2c above, ARE DATED January 2026,
-         so their verdict lines render a fixed "at 9:00 on Jan 1" and a repaint
+         so their verdict lines render a fixed "9:00 am, Jan 1" and a repaint
          there is byte-identical. THIS block is the opposite on purpose: its
          thread is 65 seconds old so the phrase moves, which is the whole point
          of it.
