@@ -142,3 +142,66 @@ test('freshMs default is 5 minutes and honours the env seam', () => {
   if (prev === undefined) delete process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS;
   else process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = prev;
 });
+
+/* #3136: the DIR-keyed store for user-initiated "Check now" outcomes. Same
+   verdict + freshness path as the agent store; only the key differs (an account's
+   resolved config dir, not an agent), because a manual check is account-scoped. */
+
+test('#3136: sawDir records ok/401 keyed by (provider, dir); readDir returns it', () => {
+  observed.sawDir(ANTHROPIC, '/home/kitty/.acct-a', OK, 1000);
+  observed.sawDir(ANTHROPIC, '/home/kitty/.acct-b', REJECTED, 2000);
+  assert.deepEqual(observed.readDir(ANTHROPIC, '/home/kitty/.acct-a'), { outcome: OK, at: 1000 });
+  assert.deepEqual(observed.readDir(ANTHROPIC, '/home/kitty/.acct-b'), { outcome: REJECTED, at: 2000 });
+});
+
+test('#3136: the dir store is provider-qualified -- an OpenAI check never reads on the Claude overlay', () => {
+  // The badge overlay for the Claude rows reads readDir(ANTHROPIC, dir); an OpenAI
+  // check for the SAME dir string must not resolve there (the isolation saw() rests
+  // on, applied to the dir key too). Control: the ANTHROPIC read for that dir is null.
+  observed.sawDir(OPENAI, '/shared/dir', OK, 1000);
+  assert.equal(observed.readDir(ANTHROPIC, '/shared/dir'), null);
+  assert.deepEqual(observed.readDir(OPENAI, '/shared/dir'), { outcome: OK, at: 1000 });
+});
+
+test('#3136: sawDir ignores an empty dir, a bad provider, and a non-outcome (prior survives)', () => {
+  observed.sawDir(ANTHROPIC, '/home/kitty/.acct', OK, 1000);
+  observed.sawDir(ANTHROPIC, '', OK, 2000);              // empty dir -> ignored
+  observed.sawDir('nope', '/home/kitty/.acct', OK, 2000); // bad provider -> ignored
+  observed.sawDir(ANTHROPIC, '/home/kitty/.acct', 'idle', 2000); // non-outcome -> ignored, prior survives
+  // The UNKNOWN a capped/offline check returns is passed as neither OK nor REJECTED,
+  // so a prior real OK is NOT clobbered to gray by an inconclusive check.
+  assert.deepEqual(observed.readDir(ANTHROPIC, '/home/kitty/.acct'), { outcome: OK, at: 1000 });
+});
+
+test('#3136: readDir returns null for an unseen dir and for an empty dir (never a fabricated shape)', () => {
+  observed.sawDir(ANTHROPIC, '/home/kitty/.acct', OK, 1000);
+  assert.equal(observed.readDir(ANTHROPIC, '/home/kitty/.nope'), null);
+  assert.equal(observed.readDir(ANTHROPIC, ''), null);
+});
+
+test('#3136: the dir store and the agent store are independent; _clearForTest clears both', () => {
+  observed.saw(ANTHROPIC, 'aria', OK, 1000);
+  observed.sawDir(ANTHROPIC, '/home/kitty/.acct', REJECTED, 1000);
+  // Same provider, and 'aria' is not a dir string: the two stores do not collide.
+  assert.deepEqual(observed.read(ANTHROPIC, 'aria'), { outcome: OK, at: 1000 });
+  assert.deepEqual(observed.readDir(ANTHROPIC, '/home/kitty/.acct'), { outcome: REJECTED, at: 1000 });
+  observed._clearForTest();
+  assert.equal(observed.read(ANTHROPIC, 'aria'), null);
+  assert.equal(observed.readDir(ANTHROPIC, '/home/kitty/.acct'), null);
+});
+
+test('#3136: a fresh dir ok drives verdict to working; a fresh dir 401 to rejected (same verdict path)', () => {
+  // readDir feeds the SAME verdict fn the agent store does, so a check-now ok greens
+  // and a check-now 401 reddens, both gated by freshness. Control: no dir observation
+  // + checkLive connected -> signed_in_unverified (the too-strict state Josh saw).
+  // Control: before anything is seeded, readDir returns null and the verdict is the
+  // too-strict signed_in_unverified state Josh saw -- so a green below means the seed did it.
+  assert.equal(observed.readDir(ANTHROPIC, '/x'), null);
+  assert.equal(observed.verdict({ checkLiveState: 'connected', now: 1000, freshMs: 5000 }).badge, 'signed_in_unverified');
+  observed.sawDir(ANTHROPIC, '/x', OK, 1000);
+  const o = observed.readDir(ANTHROPIC, '/x');
+  assert.equal(observed.verdict({ checkLiveState: 'connected', observedOutcome: o.outcome, observedAt: o.at, now: 1200, freshMs: 5000 }).badge, 'working');
+  observed.sawDir(ANTHROPIC, '/x', REJECTED, 2000);
+  const r = observed.readDir(ANTHROPIC, '/x');
+  assert.equal(observed.verdict({ checkLiveState: 'connected', observedOutcome: r.outcome, observedAt: r.at, now: 2200, freshMs: 5000 }).badge, 'rejected');
+});
