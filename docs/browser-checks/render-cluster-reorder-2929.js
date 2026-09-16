@@ -1,8 +1,9 @@
 'use strict';
-// Browser-check-surface: pj-dragging
-// (#2929 slice 2) the distinctive web/index.html token this check asserts (the class
-// on the cluster being dragged); a rename must update this check at PR time. The drag
-// reorder itself is keyed on data-project + --pj-depth, which render-cons-tree-2929
+// Browser-check-surface: pj-dragging pj-drop-before pj-drop-after
+// (#2929 slice 2) the distinctive web/index.html tokens this check asserts: the class
+// on the cluster being dragged, and (#3127) the placement-line classes set on the row
+// under the pointer during a reorder drag; a rename must update this check at PR time.
+// The drag reorder itself is keyed on data-project + --pj-depth, which render-cons-tree-2929
 // already declares as its surfaces.
 /* #2929 slice 2 (Josh, 6.59 QA: "let's also make them draggable ... drag it up to the
  * very top"): a whole top-level project CLUSTER can be dragged to reorder it in the
@@ -200,6 +201,49 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // Pins the two gates equal, so a drift where one honors the manual order and the other
     // does not (repo convention #5, the screen contradicting itself) is caught.
     ok(`${t} tab view sort control shows the sort, not 'custom' (both gates agree)`, tabIgnores.selValue === 'az', tabIgnores.selValue);
+
+    // ---- #3127: the placement LINE during dragover -- above the target (upper half,
+    // pj-drop-before) or below it (lower half, pj-drop-after), the same split the drop
+    // uses; it clears when the pointer moves to another row, shows nothing over the
+    // dragged row itself, and is gone after the drop/dragend repaint. Asserts the class
+    // (the mechanism); the line's pixels are the CSS pseudo-element, Josh's in-app review. ----
+    const dropLine = await page.evaluate(() => {
+      PJ_ORDER = null;
+      try { localStorage.removeItem('kosmos.order.projects'); } catch { /* ignore */ }
+      PJ_SORT = 'az';
+      // Re-enter the consolidated view (the tab-scoping arm above left the tab layout);
+      // the reorder drag + its line are consolidated-only.
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      document.body.classList.add('consolidated');
+      paintProjects();
+      const row = (id) => document.querySelector('#pj-list .pj-row[data-project="' + id + '"]');
+      const cls = (id) => { const r = row(id); return { before: r.classList.contains('pj-drop-before'), after: r.classList.contains('pj-drop-after') }; };
+      const anyLine = () => document.querySelectorAll('#pj-list .pj-drop-before, #pj-list .pj-drop-after').length;
+      const dt = new DataTransfer();
+      const from = row('c');
+      const fire = (el, type, y, x) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x || 0, clientY: y || 0 }));
+      fire(from, 'dragstart', 0, 0);
+      const ra = row('a').getBoundingClientRect();
+      fire(row('a'), 'dragover', ra.top + 2, ra.left + 4);          // upper half of Alpha => line ABOVE Alpha
+      const upper = cls('a');
+      const rb = row('b').getBoundingClientRect();
+      fire(row('b'), 'dragover', rb.bottom - 2, rb.left + 4);       // lower half of Bravo => line BELOW Bravo
+      const lower = cls('b');
+      const aClearedOnMove = cls('a');                              // Alpha's line cleared when we moved to Bravo
+      const rc = row('c').getBoundingClientRect();
+      fire(row('c'), 'dragover', rc.top + 2, rc.left + 4);          // over the dragged row itself => no line
+      const overSelf = anyLine();
+      fire(row('b'), 'dragover', rb.bottom - 2, rb.left + 4);
+      fire(row('b'), 'drop', rb.bottom - 2, rb.left + 4);
+      fire(from, 'dragend', rb.bottom - 2, rb.left + 4);
+      const afterDrop = anyLine();
+      return { upper, lower, aClearedOnMove, overSelf, afterDrop };
+    });
+    ok(`${t} #3127 dragover upper half sets the line ABOVE the target (pj-drop-before)`, dropLine.upper.before === true && dropLine.upper.after === false, JSON.stringify(dropLine.upper));
+    ok(`${t} #3127 dragover lower half sets the line BELOW the target (pj-drop-after)`, dropLine.lower.after === true && dropLine.lower.before === false, JSON.stringify(dropLine.lower));
+    ok(`${t} #3127 moving to another row clears the previous target's line`, dropLine.aClearedOnMove.before === false && dropLine.aClearedOnMove.after === false, JSON.stringify(dropLine.aClearedOnMove));
+    ok(`${t} #3127 dragover the dragged row itself shows NO line`, dropLine.overSelf === 0, String(dropLine.overSelf));
+    ok(`${t} #3127 the line is gone after drop + dragend`, dropLine.afterDrop === 0, String(dropLine.afterDrop));
 
     await page.close();
   }
