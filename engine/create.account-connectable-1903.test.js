@@ -176,17 +176,33 @@ test('#1903: an UNKNOWN account is accepted here (createAgentInner owns that ref
   } finally { create.setClaudeProbe(null); }
 });
 
-test('#1903/#1916: the DEFAULT account is checked with NO configDir, and a dead default is refused', async () => {
-  /* claudeAccountLive is called with configDir=null for the default (the true
-     default, not a scoped dir). The stub is dead only when configDir is falsy,
-     so a refusal here proves the default was checked as the true default. */
-  create.setClaudeProbe(async (configDir) => (configDir
-    ? { exitCode: 0, out: 'ok' }
-    : { exitCode: 1, out: DEAD_AUTH_OUT }));
+test('#1903/#1916/#3189: the DEFAULT account is checked with its RESOLVED dir (not null), and a dead default is refused', async () => {
+  /* #3189 instance #4: the create gate now probes the default with its RESOLVED
+     config dir (<HOME>/.claude), NOT null. The old `isDefault ? null` made
+     claudeAccountLive's `claude -p` lean on the board's launchd ambient default
+     resolution, which fails (no ambient shell env -> UNKNOWN, the #3136 class).
+     The stub is dead ONLY when it receives the resolved default dir, so a refusal
+     here proves the default was checked with the explicit resolved dir. NEGATIVE
+     CONTROL: on a regression back to `isDefault ? null` the default is probed with
+     null, the stub answers ALIVE, and `assert.equal(r.ok, false)` reds (it fires
+     first). The `sawConfigDir === DEFAULT_DIR` assertion is a second, explicit guard
+     that pins the EXACT resolved dir the probe must receive, documenting the contract
+     as a machine-checked assertion rather than leaving it implicit in the r.ok outcome.
+     (This is a `claude -p` probe; checkLive's default arm correctly uses UNDEFINED
+     for the opposite reason -- see the accounts.js listLiveNow decoy comment.) */
+  const DEFAULT_DIR = nodePath.join(HOME, '.claude');
+  let sawConfigDir = 'unset';
+  create.setClaudeProbe(async (configDir) => {
+    sawConfigDir = configDir;
+    return configDir === DEFAULT_DIR
+      ? { exitCode: 1, out: DEAD_AUTH_OUT }   // dead ONLY for the resolved default dir
+      : { exitCode: 0, out: 'ok' };
+  });
   try {
     const r = await create.accountConnectable({ provider: 'anthropic', accountDir: '' });
-    assert.equal(r.ok, false, 'a dead DEFAULT account was accepted, or it was checked with the wrong (scoped) dir');
+    assert.equal(r.ok, false, 'a dead DEFAULT account was accepted, or it was checked with the wrong dir (null/scoped instead of the resolved default dir)');
     assert.match(r.because, /sign-in is not working/);
+    assert.equal(sawConfigDir, DEFAULT_DIR, 'the create gate must probe the default with its RESOLVED dir (#3189), not null/empty -- a null here is the launchd-ambient-lean regression #3136 fixed');
   } finally { create.setClaudeProbe(null); }
 });
 
