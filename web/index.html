@@ -3823,6 +3823,18 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      cursor; the dragged row dims while it moves. Consolidated view only. */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row[draggable="true"] { cursor: grab; }
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-dragging { opacity: .5; cursor: grabbing; }
+  /* #3127 (Josh, 6.68): a placement LINE during a reorder drag, showing where the
+     project will drop. Set on the row under the pointer as .pj-drop-before (drop
+     ABOVE it) or .pj-drop-after (drop BELOW it), by which half the pointer is over
+     -- the same before/after split the drop handler uses. The line sits in the 4px
+     gap between rows (top/bottom -3px) so it reads as "between these two", in the
+     brand gold. Set on dragover, cleared on drop/dragend; consolidated view only. */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-drop-before::before,
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-drop-after::after {
+    content: ''; position: absolute; left: 0; right: 0; height: 2px;
+    background: var(--gold-bright); border-radius: 2px; pointer-events: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-drop-before::before { top: -3px; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-drop-after::after { bottom: -3px; }
   /* The indent now carries the relationship, so drop the ancestry chip on rows the
      indent actually places (.child) -- the wide-list rule mirrored for the rail. A
      dangling child that fell back to depth 0 keeps its chip (no indent to carry
@@ -37236,7 +37248,11 @@ function pjTreeToggleFold(id) {
   const isTop = (r) => !!r && (Number(r.style.getPropertyValue('--pj-depth')) || 0) === 0;
   const topRow = (el) => { const r = el && el.closest && el.closest('.pj-row[data-project]'); return isTop(r) ? r : null; };
   const topIds = () => Array.from(list.querySelectorAll('.pj-row[data-project]')).filter(isTop).map((r) => r.dataset.project);
-  const endDrag = () => { dragId = null; PJ_DRAGGING = false; };   // reset both together, always paired
+  // #3127: the placement line under the pointer. Cleared whenever the drag ends
+  // (endDrag runs in both the drop and dragend paths) and when the pointer moves
+  // off a valid target.
+  const clearDropLine = () => list.querySelectorAll('.pj-drop-before, .pj-drop-after').forEach((r) => r.classList.remove('pj-drop-before', 'pj-drop-after'));
+  const endDrag = () => { dragId = null; PJ_DRAGGING = false; clearDropLine(); };   // reset together, always paired
   list.addEventListener('dragstart', (e) => {
     if (!cons()) return;
     const row = topRow(e.target);
@@ -37255,9 +37271,16 @@ function pjTreeToggleFold(id) {
   list.addEventListener('dragover', (e) => {
     if (!cons() || dragId == null) return;
     const row = topRow(e.target);
-    if (!row || row.dataset.project === dragId) return;
+    if (!row || row.dataset.project === dragId) { clearDropLine(); return; }
     e.preventDefault();                          // a preventDefault'd dragover marks a valid drop target
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    // #3127: show the placement line where the drop will land -- above the target
+    // (upper half) or below it (lower half), the SAME split the drop handler uses
+    // (e.clientY > rect.top + rect.height/2 => after), so the line matches the drop.
+    const rect = row.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    clearDropLine();
+    row.classList.add(after ? 'pj-drop-after' : 'pj-drop-before');
   });
   list.addEventListener('drop', (e) => {
     if (!cons() || dragId == null) return;
