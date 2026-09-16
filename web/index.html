@@ -4320,23 +4320,30 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
   html[data-layout="consolidated"] body.consolidated #pj-one-view .dname { font-size: 1.25rem; }
   /* #520 piece nine: the project head sits inside the conversation header,
      beside the search (placeProjectHead moves it there). The header takes
-     the mock's shape: title left, search right, one rule beneath; the
-     "Conversation" label steps aside because the title now names the
-     column. */
-  /* 🔑 THE RULE REACHES THE COLUMN EDGES (kosmos#1303 B). Josh: "the horizontal
-     rule below the title, description, settings and search is still not going
-     the full width of its dialog box area. Right now it cuts off on both sides."
-     MEASURED at 1440px, and the inset is not symmetrical, which is why a single
-     negative margin would have looked wrong on one side:
+     the mock's shape: title left, search right (the rule that once sat
+     beneath was removed in #3186); the "Conversation" label steps aside
+     because the title now names the column. */
+  /* HISTORICAL (kosmos#1303 B): this header once carried a horizontal rule, and
+     this block explains why the `-16px` margin / `16px` padding below are set the
+     way they are. #3186 later removed that rule (see the comment on the rule
+     itself); the inset math is still what those values encode, so it is kept.
+     Josh, on the rule at the time: "the horizontal rule below the title,
+     description, settings and search is still not going the full width of its
+     dialog box area. Right now it cuts off on both sides." MEASURED at 1440px,
+     and the inset is not symmetrical, which is why a single negative margin would
+     have looked wrong on one side:
 
          .pjmid      left 442.1   right 1184
          .pjmidhead  left 458.1   right 1167     inset 16 left, 17 right
 
      The extra pixel on the right is `.pjmid`'s own `border-right`, so the head
-     is pulled out by 16 on both sides and the border stops against that rule
-     rather than crossing it. The padding is added back so nothing the person
-     reads moves; only the line gets longer. */
-  html[data-layout="consolidated"] body.consolidated .pjmidhead { align-items: center; gap: 12px; padding: 0 16px 10px; margin: 0 -16px 12px; border-bottom: 1px solid var(--k-rule); }
+     is pulled out by 16 on both sides. The padding is added back so nothing the
+     person reads moves. */
+  /* #3186 (Josh 6.70): remove the horizontal rule under the discussion header on
+     the consolidated view (the header reads as a header from its content/size, so
+     the divider line is the clutter he flagged). Keep the padding/margin that give
+     it breathing room; the line alone is gone. */
+  html[data-layout="consolidated"] body.consolidated .pjmidhead { align-items: center; gap: 12px; padding: 0 16px 10px; margin: 0 -16px 12px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead > .dlab { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
@@ -4643,8 +4650,9 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    selector specificity by hand rather than assumed from the rule that
    reads like the intended one), not the dead 1rem line that never wins. */
 /* Josh, 2026-09-10 (#2711 item 5): no horizontal rule under the project
-   title + search in the tab view. The consolidated header keeps its own
-   separator (the rule above at the consolidated .pjmidhead selector). */
+   title + search in the tab view. #3186 (Josh 6.70) then removed the
+   consolidated header's separator too (the border-bottom on the consolidated
+   .pjmidhead selector above), so both surfaces are now rule-free. */
 .pjmidhead:has(.pjhead) { align-items: center; gap: 12px; padding: 0 0 10px; margin-bottom: 16px; }
 .pjmidhead:has(.pjhead) > .dlab { display: none; }
 .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }

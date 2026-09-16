@@ -310,12 +310,16 @@ test('piece nine, then #761 (2026-08-25): the project head moves into the conver
   // tab view the same shape (see the comment above the unscoped rules).
   const consolidatedBlock = src.slice(src.indexOf('html[data-layout="consolidated"]'));
   assert.match(consolidatedBlock, /body\.consolidated \.pjmidhead > \.dlab \{ display: none; \}/);
-  assert.match(consolidatedBlock, /body\.consolidated \.pjmidhead \{[^}]*border-bottom: 1px solid var\(--k-rule\)/);
+  // #3186 (Josh 6.70): the CONSOLIDATED header no longer carries the horizontal
+  // rule either -- the rule still EXISTS (it sets padding/margin/gap) but must NOT
+  // carry the border-bottom, matching the tab-view header #2711 item 5 already
+  // stripped. So both surfaces are now rule-free.
+  assert.match(consolidatedBlock, /body\.consolidated \.pjmidhead \{/, 'the consolidated header rule is missing (it should still exist, just without the border-bottom)');
+  assert.doesNotMatch(consolidatedBlock, /body\.consolidated \.pjmidhead \{[^}]*border-bottom/, '#3186: the consolidated header still carries the horizontal rule (border-bottom) it should have dropped');
   assert.match(src, /\.pjmidhead:has\(\.pjhead\) > \.dlab \{ display: none; \}/, 'the tab-view (unscoped) rule hiding the label');
-  // #2711 item 5 (Josh, 2026-09-10): the tab-view header no longer carries the
-  // horizontal rule. The consolidated header keeps its border-bottom (asserted
-  // above); the tab-view (unscoped) rule still exists and hides the label
-  // (asserted above), but must NOT carry the border-bottom any more.
+  // #2711 item 5 (tab) + #3186 (consolidated): NEITHER header carries the
+  // horizontal rule now. The tab-view (unscoped) rule still exists and hides the
+  // label (asserted above), but must NOT carry the border-bottom.
   assert.match(src, /\.pjmidhead:has\(\.pjhead\) \{/, 'the tab-view (unscoped) header rule is missing (it should still exist, just without the border-bottom)');
   assert.doesNotMatch(src, /\.pjmidhead:has\(\.pjhead\) \{[^}]*border-bottom/, 'the tab-view header rule still carries the border-bottom that #2711 item 5 removed');
 });
