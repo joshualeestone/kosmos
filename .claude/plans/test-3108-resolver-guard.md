@@ -1,4 +1,4 @@
-# Plan: #3108 regression guard — pin that the install resolver never prefers a session-backed owner in the multi-account case
+# Plan: #3108 regression guard - pin that the install resolver never prefers a session-backed owner in the multi-account case
 
 ## Context / decision being guarded
 #3108 asked whether `resolve_install_user` (install/pkg-scripts/resolve-install-user.sh) should, in the
@@ -20,7 +20,7 @@ was NOT to edit it.
 
 ## What finished looks like
 A test-only regression guard exists so a future edit cannot silently re-add session-based owner
-preference ("signal (b)") without a red test. **No change to resolve-install-user.sh** — the guard is
+preference ("signal (b)") without a red test. **No change to resolve-install-user.sh** - the guard is
 purely additive test arms.
 
 ## Change (test file only)
@@ -38,7 +38,7 @@ These are the "control that returns the dangerous answer": each fails if session
 is re-added to the resolver.
 
 ## Why this is safe
-- No resolver logic changes — off the P0 install path entirely.
+- No resolver logic changes - off the P0 install path entirely.
 - The arms pin CURRENT behavior (verified: all three pass against unmodified origin/main), so they add a
   guard without changing anything shipped.
 
