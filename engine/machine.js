@@ -1657,6 +1657,96 @@ function win32BoardAutostartCheck(opts) {
     startAtSignIn: true };
 }
 
+/* #3182: the PER-AGENT layer of "will it come back after a restart?", one level
+   down from boardAutostartCheck (#2397). The board plist brings the APP back;
+   each agent is ALSO its own LaunchAgent (create.js plistFor writes
+   com.kosmos.agent.<name>[+<world>].plist with RunAtLoad=true + KeepAlive), and
+   that per-agent layer is what a user's agents actually rely on to come back
+   (Josh #2958: after a restart the fleet must auto-launch). RunAtLoad=true is
+   guaranteed at write time by plistFor and pinned by create.test.js, so the
+   reboot-bearing failure still worth surfacing per agent is a standing
+   `launchctl disable` override -- the present-but-disabled arm boardAutostartCheck
+   has, applied to each agent.
+
+   SCOPE, stated so the row is not read for more than it checks:
+   - It sees a DISABLED board agent (its RunAtLoad will not fire at the next login).
+   - It does NOT flag a fully DELETED agent plist. The board's roster is derived
+     from the present plists (createdroster.js reads AGENTS_DIR), so a deleted
+     plist is gone-from-roster, not a known label gone missing -- there is no
+     per-agent equivalent of the single known `com.kosmos.board` label for this to
+     miss, and no false-alarm-free signal for it here. Left out deliberately.
+   - It never reads plist CONTENT for RunAtLoad: plistFor always writes it true and
+     create.test.js reds if that regresses, so re-reading it here would be a
+     second, weaker copy of a fact already guarded.
+
+   The disabled set comes from create.disabledJobsResult(), which OWNS the
+   world-scoping (nameInThisWorld), the both-tokens `=> disabled|true` match
+   boardAutostartCheck documents, and the fail-soft -- reused here rather than
+   regrown. Removed agents are excluded (they are not expected to come back),
+   keyed by create.cleanName the way remove.js keys its own record. Both reads are
+   injectable via opts (opts.disabled / opts.removed) for tests, the same seam
+   style as boardAutostartCheck's opts.installedRoot. */
+function agentAutostartCheck(runner, opts) {
+  const o = opts || {};
+  const platform = o.platform || process.platform;
+  /* Per-agent LaunchAgents are a macOS construct; a win32 per-agent arm (the
+     agents' Scheduled Tasks) is a clean follow-up, so this omits the row on other
+     platforms rather than guessing -- check() filters the null out. */
+  if (platform !== 'darwin') return null;
+
+  // The injected runner reaches create.disabledJobsResult so the launchctl read
+  // goes through the same seam boardAutostartCheck uses; opts.disabled short-
+  // circuits it for a pure aggregation test.
+  const disRes = ('disabled' in o) ? o.disabled : create.disabledJobsResult(runner);
+  if (!disRes || disRes.ok === false) {
+    return { key: 'agentautostart', state: STATE.UNKNOWN,
+      title: 'We could not check whether your agents start at login',
+      detail: 'Not the same as them being wrong. We could not read which of this computer\'s login jobs are switched off.' };
+  }
+  const disabledNames = disRes.jobs instanceof Set ? [...disRes.jobs]
+    : (Array.isArray(disRes.jobs) ? disRes.jobs.slice() : []);
+
+  /* No disabled agents is the common case and needs no removed-list read, so return
+     OK before touching remove.removedNames(). Two reasons this ordering matters: it
+     keeps the OK path off the disk on every check() tick, and it keeps that path
+     seam-clean -- the removed read, unlike the disabled read above, is not
+     runner-injected, so reaching it on an empty-disabled test would touch the
+     operator's real store.ROOT. Only a non-empty disabled set needs the removed list. */
+  const okRow = { key: 'agentautostart', state: STATE.OK,
+    title: 'Your agents start themselves when you log in',
+    detail: 'None of your agents are switched off, so they come back on their own after this computer restarts.' };
+  if (disabledNames.length === 0) return okRow;
+
+  /* At least one agent is disabled. A disable on a REMOVED agent is not a problem --
+     it is not expected to come back -- so exclude it, keyed by create.cleanName
+     (remove.js's own key). An unreadable removed list falls through to "none
+     removed": surfacing a disabled agent that later proves removed points the user
+     at a real toggle, whereas hiding a disabled LIVE agent is the failure this check
+     exists to prevent, so that is the safe direction. */
+  let removedNames = [];
+  try {
+    const rem = ('removed' in o) ? o.removed : require('./remove').removedNames();
+    if (rem && rem.ok && Array.isArray(rem.names)) removedNames = rem.names;
+  } catch { /* unreadable -> treat none as removed (safe direction, above) */ }
+  const removedSet = new Set(removedNames.map((n) => create.cleanName(n)));
+
+  const concerning = disabledNames.filter((n) => !removedSet.has(create.cleanName(n)));
+  if (concerning.length === 0) return okRow;   // every disabled agent is a removed one
+
+  concerning.sort();
+  const shown = concerning.slice(0, 3);
+  const list = shown.join(', ') + (concerning.length > shown.length
+    ? ', and ' + (concerning.length - shown.length) + ' more' : '');
+  const one = concerning.length === 1;
+  return { key: 'agentautostart', state: STATE.ATTENTION,
+    title: (one ? 'An agent is' : concerning.length + ' agents are') + ' set up to start at login, but turned off',
+    detail: list + (one ? ' has its' : ' have their')
+      + ' login job switched off right now, so '
+      + (one ? 'it will not come back on its own' : 'they will not come back on their own')
+      + ' after a restart. You can turn ' + (one ? 'it' : 'them')
+      + ' back on in System Settings, under General then Login Items.' };
+}
+
 function check(opts) {
   const runner = (opts && opts.runner) || run;
 
@@ -1695,6 +1785,10 @@ function check(opts) {
     // arm (the board's Scheduled Task); it still returns null on any OTHER
     // platform, so filter falsy rather than render an empty row.
     boardAutostartCheck(runner, opts),
+    // #3182: the per-agent layer of the same question -- are any of this board's
+    // agents disabled and so won't fire RunAtLoad at the next login? Returns null
+    // off darwin, so filter falsy rather than render an empty row (as above).
+    agentAutostartCheck(runner, opts),
   ].filter(Boolean);
 
   return {
@@ -1716,4 +1810,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
