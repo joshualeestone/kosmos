@@ -1469,7 +1469,9 @@ async function main() {
       const focusAfterArchive = await page.evaluate(() => document.activeElement === document.body);
       if (focusAfterArchive) throw new Error('archiving from the detail dropped keyboard focus to body');
       if (!archivedNow.rowGone) throw new Error('the archived project is still in the active list');
-      if (!archivedNow.wrapShown || archivedNow.toggleText !== 'Show archived projects (1)') {
+      // #3132 (Josh, 6.68): the toggle label is just "Archived (X)", not
+      // "Show/Hide archived projects (X)". The count is still row-derived.
+      if (!archivedNow.wrapShown || archivedNow.toggleText !== 'Archived (1)') {
         throw new Error('the disclosure does not carry the row-derived count: ' + JSON.stringify(archivedNow));
       }
       if (!archivedNow.listHidden) throw new Error('the archived list opened itself');

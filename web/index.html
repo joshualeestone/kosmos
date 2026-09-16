@@ -2739,6 +2739,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    (underline, .875rem, weight 600). The 24px min-height hit-area floor from
    `.linkish` (WCAG 2.5.8) is deliberately KEPT -- only the text shrinks. */
 html[data-layout="consolidated"] body.consolidated #pj-arch-toggle { font-size: .6875rem; font-weight: 500; text-decoration: none; }
+/* #3132 (Josh, 6.68): the Files/Tasks "View All" doors should read at the same
+   size as the "Archived (X)" link on Projects. Both are .linkish (.875rem base),
+   so they already match in the tab view; only consolidated shrinks the Archived
+   toggle to .6875rem, so match the doors here. Scoped to consolidated so the tab
+   view keeps its existing (already-equal) .875rem. Both doors share .pj-viewall,
+   so they stay consistent with each other as well as with Archived. */
+html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: .6875rem; }
 /* ⚠️ `color` is explicit, and it is the fix for a real dark-mode contrast
    failure. A <button> does NOT inherit the page's colour -- it uses the UA's
    `buttontext`, which is near-black. In light mode that happened to look
@@ -37582,7 +37589,12 @@ function paintArchived(archived) {
     toggle.setAttribute('aria-expanded', 'false');
     return;
   }
-  const label = (PJ_ARCH_OPEN ? 'Hide' : 'Show') + ' archived projects (' + rows.length + ')';
+  // #3132 (Josh, 6.68): the label is just "Archived (X)", not
+  // "Show/Hide archived projects (X)". The open/closed state is carried by
+  // aria-expanded (set below) and the disclosure list, so the text stays the
+  // same terse label in both states. Same JS drives the tab and consolidated
+  // views, so this one change covers both.
+  const label = 'Archived (' + rows.length + ')';
   if (toggle.textContent !== label) toggle.textContent = label;
   setIfChanged(listEl, rows.join(''));
   listEl.hidden = !PJ_ARCH_OPEN;
