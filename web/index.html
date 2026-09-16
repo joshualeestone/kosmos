@@ -6540,6 +6540,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         border-radius: var(--radius-card); padding: var(--space-5); font: inherit; color: var(--label); }
 .tkcard:hover { border-color: var(--label-2); }
 .tkcard:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+/* #3131 (Josh 6.68, consolidated view): drop the stroke around task cards in the
+   consolidated view. The background + padding still read the card as a block; the
+   base .tkcard border stays in the tab/grid project detail and the View-all-tasks
+   screen (scoped like the container cards' own layout-specific border handling).
+   The focus-visible outline (a11y) is unaffected. border-color:transparent keeps
+   the 1px box so nothing shifts; the hover cue is dropped too, per "no stroke". */
+body.consolidated .tkcard,
+body.consolidated .tkcard:hover { border-color: transparent; }
 .tkcard-n { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2);
           text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
 .tkcard-t { font: var(--text-body) var(--font-ui); font-weight: 600; }
@@ -36492,9 +36500,14 @@ function pjToldGroupLine(told) {
  * The board's rule one level up: an agent we cannot read is shown as unknown,
  * never as something healthy, and never as nothing at all.
  */
-function pjMember(m, suppressTold, withMinus) {
+function pjMember(m, suppressTold, withMinus, hideState) {
   // suppressTold: the roster's identical verdicts are being said ONCE below
   // the list (pjSharedTold), so the per-member span would triple-state it.
+  // #3131 (Josh 6.68): hideState drops the per-member STATE LABEL text
+  // (Working/Idle/Waiting/Issue...) in the project Agents column, where Josh
+  // wants ONLY the red needs-you triangle to speak. The red-you triangle (warn),
+  // the state colour wash, and the not-present "cannot see" reason all stay; the
+  // Settings members list (hideState falsy) keeps its label.
   const toldLine = suppressTold ? '' : pjToldLine(m.told || {});
   /* ⚠️ THE FACE, and it is the SAME disc as everywhere else. Josh circled the
      blank rings on this column in his 2026-08-19 markup; the pack draws a
@@ -36582,8 +36595,8 @@ function pjMember(m, suppressTold, withMinus) {
          the card/row/detail on the state word (it names the cause when the member
          payload carries a.disruption, and falls back to "Restarting agent" when it
          does not -- honest either way). */
-      ? '<small' + (needsYou ? ' class="pj-attn"' : '') + '>' + esc(stateCopyOf(m).label)
-        + (m.state === 'unknown' && m.because ? ': ' + esc(m.because) : '') + '</small>'
+      ? (hideState ? '' : '<small' + (needsYou ? ' class="pj-attn"' : '') + '>' + esc(stateCopyOf(m).label)
+        + (m.state === 'unknown' && m.because ? ': ' + esc(m.because) : '') + '</small>')
       : '<small>' + esc(m.because || 'We cannot see this agent on this computer right now.') + '</small>')
     /* The removal action lives in PROJECT SETTINGS now (Josh's ruling
        2026-08-18: too easy to hit by accident here, and it took a third
@@ -39402,7 +39415,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   const sharedTold = pjSharedTold(roster);
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
-    ? roster.map((m) => pjMember(m, !!sharedTold, true)).join('')
+    ? roster.map((m) => pjMember(m, !!sharedTold, true, true)).join('')
       + (sharedTold ? '<p class="pj-told-group">' + sharedTold + '</p>' : '')
     : '<p class="fhint">No agents on this project yet.</p>');
 
