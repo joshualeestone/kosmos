@@ -93,13 +93,15 @@ if (args[0] === 'signin') {
     const token = fs.readFileSync(0, 'utf8').trim();
     if (!token) { process.stderr.write('no token on stdin\\n'); process.exit(1); }
     const kind = flag('--kind');
-    if (kind === 'totp') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', secret: 'JBSWY3DPEHPK3PXP', otpauth: 'otpauth://totp/x', why_authenticator: 'why' })); process.exit(0); }
+    // The coordinator's answer carries a session-bearing token; the engine allowlist
+    // must strip it so it never reaches the caller (asserted at the enrol boundary below).
+    if (kind === 'totp') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', token: 'kst1.should-be-stripped', secret: 'JBSWY3DPEHPK3PXP', otpauth: 'otpauth://totp/x', why_authenticator: 'why' })); process.exit(0); }
     if (kind === 'sms') {
       const phone = flag('--phone');
       if (!phone) { process.stderr.write('the coordinator said no (400): phone required for sms\\n'); process.exit(1); }
       // The phone rides argv (recorded above), so a test asserts it reached the
       // binary; the answer carries only the masked tail, never the full number.
-      console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'sms', sent_to: '*** *** ' + phone.slice(-4), why_authenticator: 'why' }));
+      console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'sms', token: 'kst1.should-be-stripped', sent_to: '*** *** ' + phone.slice(-4), why_authenticator: 'why' }));
       process.exit(0);
     }
     process.stderr.write('the coordinator said no (400): kind is totp or sms\\n'); process.exit(1);
@@ -661,6 +663,11 @@ test('signin enrol by sms passes the number on argv and returns only the masked 
   assert.equal(started.data.kind, 'sms');
   assert.equal(started.data.sent_to, '*** *** 1234', 'the masked tail the app shows');
   assert.ok(!('phone' in started.data), 'the full number must not come back to the caller');
+  // Stronger than the key-absence check above: the full number must not appear
+  // anywhere in the app-facing payload, under any key, and the coordinator's
+  // session token must be stripped by the engine allowlist.
+  assert.ok(!JSON.stringify(started.data).includes('+12145551234'), 'the full number leaked into the enrol answer: ' + JSON.stringify(started.data));
+  assert.ok(!('token' in started.data), 'the enrol token leaked through the sms enrol boundary');
   const call = recorded().find((c) => c[0] === 'signin' && c[1] === 'enrol');
   assert.ok(call.includes('--phone') && call.includes('+12145551234'), 'the number did not reach the binary');
   // sms with no phone is refused before spawning.

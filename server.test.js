@@ -11275,7 +11275,17 @@ test('the in-app enrol flow runs end to end through the routes, and no enrol tok
     "if (a[0] === 'signin' && a[1] === 'enrol') {",
     '  const token = fs.readFileSync(0, "utf8").trim();',
     '  if (!token) { process.stderr.write("no token on stdin"); process.exit(1); }',
-    '  console.log(JSON.stringify({ stage: "enrolment_started", kind: "totp", secret: "JBSWY3DPEHPK3PXP", otpauth: "otpauth://totp/x", why_authenticator: "why" }));',
+    '  const kind = flag("--kind");',
+    // Both answers carry a session-bearing token the engine allowlist must strip;
+    // the sms answer additionally proves the full number never round-trips (only
+    // the masked tail comes back), the highest-value phone-leak surface.
+    '  if (kind === "sms") {',
+    '    const phone = flag("--phone");',
+    '    if (!phone) { process.stderr.write("the coordinator said no (400): phone required for sms"); process.exit(1); }',
+    '    console.log(JSON.stringify({ stage: "enrolment_started", kind: "sms", token: "kst1.should-be-stripped", sent_to: "*** *** " + phone.slice(-4), why_authenticator: "why" }));',
+    '    process.exit(0);',
+    '  }',
+    '  console.log(JSON.stringify({ stage: "enrolment_started", kind: "totp", token: "kst1.should-be-stripped", secret: "JBSWY3DPEHPK3PXP", otpauth: "otpauth://totp/x", why_authenticator: "why" }));',
     '  process.exit(0);',
     '}',
     "if (a[0] === 'signin' && a[1] === 'confirm-enrol') {",
@@ -11310,6 +11320,16 @@ test('the in-app enrol flow runs end to end through the routes, and no enrol tok
     assert.equal(vbody.stage, 'enrol_second_factor');
     assert.equal(vbody.sms_available, true);
     assert.ok(!('token' in vbody), 'the enrol token crossed the HTTP boundary: ' + verified.body);
+
+    // sms leg first (the held enrol token survives an enrol call; only confirm-enrol
+    // spends it): the full number reaches the binary on argv but must never appear in
+    // the app-facing response, and no token may cross the boundary.
+    const smsStarted = await postJson('/api/remote/signin-enrol', { kind: 'sms', phone: '+12145551234' });
+    assert.equal(smsStarted.status, 200, smsStarted.body);
+    const smsBody = JSON.parse(smsStarted.body);
+    assert.equal(smsBody.sent_to, '*** *** 1234', smsStarted.body);
+    assert.ok(!smsStarted.body.includes('+12145551234'), 'the full number crossed the HTTP boundary: ' + smsStarted.body);
+    assert.ok(!('token' in smsBody), 'the enrol token crossed the boundary via sms enrol: ' + smsStarted.body);
 
     const started = await postJson('/api/remote/signin-enrol', { kind: 'totp' });
     assert.equal(started.status, 200, started.body);
