@@ -2951,6 +2951,37 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child { border-left: 2px s
    real top-level project -- keep its chip so the relationship stays visible in
    every view, not just the grid and the rail. */
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display: none; }
+/* #3135 (Josh, 6.68): the hierarchical (subprojects) LIST view kept every
+   project HEADLINE at 100% width, so a long tree ran down the page one row per
+   line and half the projects fell off screen ("I can't even see half of my
+   projects... keep everything inside of one page"). Flow the list into
+   RESPONSIVE MULTIPLE COLUMNS (as many ~20rem columns as the page is wide
+   enough for) so headlines are no longer full width and far more projects fit
+   on one page -- the literal "wrap" Josh asked for, hierarchy KEPT.
+   Multi-column (not a wrapping grid) is deliberate: content flows top-to-bottom
+   within a column, so a child still sits directly under its parent. A column
+   break may fall only BEFORE a top-level row (never before a .child), so a
+   top-level project plus its whole subtree stay together in one column and a
+   child is never orphaned at a column top with no visible parent above it.
+   Scoped to the non-consolidated LIST sub-view, so the consolidated rail, the
+   grid tile view, drag and fold are all untouched. The per-depth indent (rule
+   above) and the ancestry-chip fallback are both unchanged -- depth still reads
+   inside a subtree group. */
+body:not(.consolidated) #pj-list:not(.asgrid) { display: block; column-width: 20rem; column-gap: 24px; }
+/* Compact each row to a column-width card: title + status on the first line,
+   description then agents stacked under it (the same shape the narrow-window
+   collapse below already uses, now applied whenever the list is columnised so a
+   wide window packs many cards rather than one 100%-width row each). Higher
+   specificity than the base four-column rule above, which is left verbatim (its
+   text is pinned by web.project-rows.test.js). */
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row {
+  grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 14px;
+  break-inside: avoid; -webkit-column-break-inside: avoid; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child {
+  break-before: avoid; -webkit-column-break-before: avoid; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pc-t { grid-column: 1; grid-row: 2; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjfaces { grid-column: 1; grid-row: 3; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; grid-row: 1; }
 /* The pack's .pc-t, name included: the pack spends `.pjdesc` on the DETAIL
    page's description (.9375rem/1.45), so the card's sentence takes the
    card's own pack class or the pjone rebuild inherits 14px by collision. */
