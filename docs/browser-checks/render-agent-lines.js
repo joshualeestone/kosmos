@@ -116,7 +116,19 @@ const chk = (ok, label, extra) => {
          wash for each state (green=working, red=needs-you, grey=everything else)
          rather than merely "some gradient". */
       const byAgent = {};
-      for (const r of rows) byAgent[r.dataset.agent || '?'] = { cls: r.className.trim(), wash: getComputedStyle(r).backgroundImage };
+      for (const r of rows) {
+        const ls = r.querySelector('.lstate');
+        const vhr = ls ? ls.querySelector('.vh') : null;
+        const vhrCs = vhr ? getComputedStyle(vhr) : null;
+        byAgent[r.dataset.agent || '?'] = {
+          cls: r.className.trim(),
+          wash: getComputedStyle(r).backgroundImage,
+          /* the state word is kept in .vh AND that .vh is clipped -- checked on
+             EVERY row, not just the first, so a needs-you row (whose .lstate also
+             carries a visible answerBtn) is verified to still hide its WORD. */
+          wordHidden: !!vhr && vhr.textContent.trim().length > 0 && !!vhrCs && parseInt(vhrCs.width) <= 2 && vhrCs.overflow === 'hidden',
+        };
+      }
       const cs = (sel) => {
         const e = row.querySelector(sel);
         if (!e) return null;
@@ -174,6 +186,12 @@ const chk = (ok, label, extra) => {
          pass on a single wash that happened to contain all three substrings. */
       chk(washOf('april') !== washOf('mikey') && washOf('mikey') !== washOf('raph') && washOf('april') !== washOf('raph'),
         'the three state washes are distinct', 'w/i/n differ');
+      /* #3131: the WORD is hidden on EVERY row, not only the first (april). This
+         catches a needs-you row -- whose .lstate also carries a visible answerBtn
+         -- failing to wrap its state word in .vh. */
+      chk(Object.values(m.byAgent).length > 0 && Object.values(m.byAgent).every((v) => v.wordHidden),
+        'every agent row hides its state word in a .vh clip',
+        JSON.stringify(Object.fromEntries(Object.entries(m.byAgent).map(([k, v]) => [k, v.wordHidden]))));
 
       /* The remaining #1191 claim, now for the TWO visible lines: the name/title
          leading Josh asked to tighten. Ceiling + floor so neither loose spacing
