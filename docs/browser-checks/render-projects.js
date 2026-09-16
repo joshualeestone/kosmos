@@ -740,6 +740,63 @@ async function main() {
   await shot('6-confirm-remove', async (page) => {
     await page.click('[data-project="quarterclose"]');
     await page.waitForTimeout(300);
+    // #3128 (Josh, 6.68): the settings cog now sits to the LEFT of the project
+    // title (it was on the right, pushed by justify-content: space-between).
+    // Measured in the page: the cog's right edge is at or before the name's
+    // left edge, and both share a row (their vertical centers line up). A
+    // position pin, not a picture, so a silent re-swap to the right reds here.
+    // Josh's ask is BOTH layouts (grid + consolidated), so assert in both: the
+    // DOM order and .pjtitle-row centering are global today, but a future
+    // consolidated-only override could re-right the cog and a grid-only check
+    // would stay green. The measure toggles data-layout/body.consolidated the
+    // same way render-tophead-consolidated-2282 does, then restores grid so the
+    // removal flow below runs in the layout it expects.
+    const measureCog = () => page.evaluate(() => {
+      const cog = document.getElementById('pj-settings-link');
+      const name = document.getElementById('pj-one-name');
+      if (!cog || !name) return { missing: true, cog: Boolean(cog), name: Boolean(name) };
+      const c = cog.getBoundingClientRect();
+      const n = name.getBoundingClientRect();
+      return { cLeft: c.left, cRight: c.right, cMid: (c.top + c.bottom) / 2,
+               nLeft: n.left, nWidth: n.width, nMid: (n.top + n.bottom) / 2 };
+    });
+    const assertCogLeft = (pos, where) => {
+      if (pos.missing) {
+        throw new Error('#3128 (' + where + '): the cog or the project name is missing from the header: ' + JSON.stringify(pos));
+      }
+      // Guard against a degenerate false-pass: if neither element is laid out,
+      // all-zero rects satisfy cRight <= nLeft and cMid == nMid. A rendered
+      // name has nonzero width, so this makes the edge comparison meaningful.
+      if (!(pos.nWidth > 0)) {
+        throw new Error('#3128 (' + where + '): the project name has zero width (not laid out), so the position check is vacuous: ' + JSON.stringify(pos));
+      }
+      if (pos.cRight > pos.nLeft + 1) {
+        throw new Error('#3128 (' + where + '): the settings cog is not to the left of the title (cog.right ' + pos.cRight + ' > name.left ' + pos.nLeft + ')');
+      }
+      if (Math.abs(pos.cMid - pos.nMid) > 4) {
+        throw new Error('#3128 (' + where + '): the cog and the name are not on the same row (centers differ by more than 4px): ' + JSON.stringify(pos));
+      }
+    };
+    assertCogLeft(await measureCog(), 'grid');
+    // Capture the original layout so it can be restored exactly (the removal
+    // flow below expects the layout it entered in), then enter consolidated.
+    const priorLayout = await page.evaluate(() => {
+      const prior = {
+        attr: document.documentElement.getAttribute('data-layout'),
+        consolidated: document.body.classList.contains('consolidated'),
+      };
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      document.body.classList.add('consolidated');
+      return prior;
+    });
+    await page.waitForTimeout(200);
+    assertCogLeft(await measureCog(), 'consolidated');
+    await page.evaluate((prior) => {
+      if (prior.attr === null) document.documentElement.removeAttribute('data-layout');
+      else document.documentElement.setAttribute('data-layout', prior.attr);
+      document.body.classList.toggle('consolidated', prior.consolidated);
+    }, priorLayout);
+    await page.waitForTimeout(200);
     // The remove control moved behind Project settings with the pack
     // restyle (rare-and-destructive off the reading surface), so the
     // question is now two clicks from the card, and this state renders

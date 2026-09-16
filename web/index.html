@@ -4610,7 +4610,10 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    gone it holds only the h2. Kept rather than flattened because #pj-one-name
    takes its min-width: 0 from `.pjtitle-row .dname` here, and the one-line
    truncation below needs that to clip a long name. */
-.pjtitle-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+/* #3128: was align-items: baseline (single text item). The settings cog now
+   leads this row (left of the name), so center it against the name instead of
+   sitting the 28px button on the text baseline. */
+.pjtitle-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .pjtitle-row .dname { min-width: 0; }
 /* #2838: the header title stays on one line. The disclosure that used to expand
    a truncated title is gone, so the closed (truncated) state is the only one
@@ -11219,6 +11222,35 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <p class="pj-crumb" id="pj-crumb"></p>
         </div>
         <div class="pjtitle-row">
+          <!-- #3128 (Josh, 6.68 feedback): "move the project-title cog to the
+               LEFT of the title (grid + consolidated)". The cog was a pjhead
+               corner control pushed right by justify-content: space-between. It
+               now sits inside .pjtitle-row, ahead of the name, so it pairs with
+               the title on one line in BOTH layouts (same DOM, only the layout
+               class differs). Left of the name is the faithful read of "left of
+               the title"; reversible if a far-left gutter was meant instead. -->
+          <!-- ⚠️ VISIBLE "Settings", ACCESSIBLE NAME "Project settings", and the two
+               differ on purpose. Josh asked for the shorter visible label (#980), but
+               the consolidated view puts this control on the same screen as the
+               person's row, whose accessible name is also "Open Settings" and which
+               opens the APP's settings. A screen-reader user listing the buttons
+               would hear "Settings" twice, going to two different places, with
+               nothing to tell them apart.
+               📌 It also keeps the door matching its destination: the page this
+               opens still titles itself "Project settings". The eye gets the trim;
+               the ear keeps the noun that says which settings these are. -->
+          <!-- Josh, 2026-08-27: "add a cog in place of settings, like a little cog
+               icon and remove the word Settings".
+               🔑 THE WORD MOVES INTO THE LABEL, IT DOES NOT DISAPPEAR. aria-label
+               already said "Project settings" and still does, so the control keeps
+               its name for anyone not looking at it. A glyph-only button with no
+               accessible name is silent, and the note above already makes exactly
+               this point: the eye gets the trim, the ear keeps the noun.
+               📌 Drawn rather than reused. Searching this file for a cog returned
+               12 hits and ALL TWELVE were the letters "cog" inside "recognise".
+               There was nothing to reuse. Same 24-box, 1.8 stroke, currentColor
+               idiom as every other inline icon here. -->
+          <button class="linkish pj-settings-cog" id="pj-settings-link" type="button" aria-label="Project settings" title="Project settings"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
           <h2 class="dname" id="pj-one-name"></h2>
         </div>
         <!-- Who asked for this project (#327): shown only when it was NOT the
@@ -11227,30 +11259,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              be able to tell apart at a glance. -->
         <p class="dhint" id="pj-one-made" style="margin:2px 0 0;" hidden></p>
       </div>
-      <!-- The door to settings, in the pack's pjhead corner: what lives
-           there is what has nowhere else to live. -->
-      <!-- ⚠️ VISIBLE "Settings", ACCESSIBLE NAME "Project settings", and the two
-           differ on purpose. Josh asked for the shorter visible label (#980), but
-           the consolidated view puts this control on the same screen as the
-           person's row, whose accessible name is also "Open Settings" and which
-           opens the APP's settings. A screen-reader user listing the buttons
-           would hear "Settings" twice, going to two different places, with
-           nothing to tell them apart.
-           📌 It also keeps the door matching its destination: the page this
-           opens still titles itself "Project settings". The eye gets the trim;
-           the ear keeps the noun that says which settings these are. -->
-      <!-- Josh, 2026-08-27: "add a cog in place of settings, like a little cog
-           icon and remove the word Settings".
-           🔑 THE WORD MOVES INTO THE LABEL, IT DOES NOT DISAPPEAR. aria-label
-           already said "Project settings" and still does, so the control keeps
-           its name for anyone not looking at it. A glyph-only button with no
-           accessible name is silent, and the note above already makes exactly
-           this point: the eye gets the trim, the ear keeps the noun.
-           📌 Drawn rather than reused. Searching this file for a cog returned
-           12 hits and ALL TWELVE were the letters "cog" inside "recognise".
-           There was nothing to reuse. Same 24-box, 1.8 stroke, currentColor
-           idiom as every other inline icon here. -->
-      <button class="linkish pj-settings-cog" id="pj-settings-link" type="button" aria-label="Project settings" title="Project settings"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
 
     <!-- #3103 (Josh, 6.68): the sub-projects section was removed from the project
