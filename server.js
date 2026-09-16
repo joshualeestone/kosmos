@@ -8216,11 +8216,11 @@ const server = http.createServer((req, res) => {
   /* #2911/#3113: fire the TMUX accessibility/automation prompt on demand. Same fire-and-forget
      contract as /api/a11y-prompt, but records a `tmux-a11y` request the native watcher answers
      by running an osascript automation op UNDER the bundled tmux, so macOS prompts for tmux
-     (the responsible process agents run under) rather than the Kosmos app. The S3 Automation
-     step fires this UP FRONT when it is reached (so tmux acquires its own Accessibility row and
-     the tmux gate row can leave the not-yet-listed "Checking..." state) and again from the tmux
-     row's Turn On affordance. Falls back to Settings via the caller when no native app is
-     present, like its sibling. */
+     (the responsible process agents run under) rather than the Kosmos app, letting tmux acquire
+     its own Accessibility TCC row. Fired from the tmux gate row's Turn On on the S3 Automation
+     step (NOT on step entry -- an entry-time fire hung a Playwright networkidle wait; #3113
+     makes the not-yet-listed state actionable in the render instead). Falls back to Settings via
+     the caller when no native app is present, like its sibling. */
   if (pathname === '/api/tmux-a11y-prompt' && req.method === 'POST') {
     let r;
     try { r = promptrequest.request('tmux-a11y'); }
@@ -8338,8 +8338,9 @@ const server = http.createServer((req, res) => {
         // (checkable:false, so it never traps Next -- the #2912 invariant), but flag it
         // `actionable:true` so the gate row paints "Not activated" + Turn On (an affordance the
         // user can act on) instead of a dead "Checking..." spinner (Josh's #3113). Clicking
-        // Turn On fires /api/tmux-a11y-prompt, which registers tmux, and opens the Accessibility
-        // pane. A browser / no-FDA box (db unreadable) is a DIFFERENT verdict from tmuxGrant
+        // Turn On fires /api/tmux-a11y-prompt (which registers tmux) or, if no native app
+        // answers, falls back to opening the Accessibility pane. A browser / no-FDA box (db
+        // unreadable) is a DIFFERENT verdict from tmuxGrant
         // (checkable:false with no present field), so it is NOT flagged actionable and keeps the
         // honest "Checking..." advisory -- there is genuinely nothing to grant there.
         reading = { checkable: false, actionable: true, because: 'tmux is not yet listed in Accessibility; turn it on to grant it' };

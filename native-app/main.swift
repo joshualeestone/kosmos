@@ -1229,9 +1229,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         consumeRequest(named: "tmux-a11y-prompt-request") { [weak self] in
             // #2911/#3113: run an osascript automation op UNDER tmux so macOS prompts for tmux
-            // (the responsible process agents run under), securing it up front. No
-            // AXIsProcessTrusted here -- that would register the app; the whole point is to
-            // prompt for tmux so it acquires its own Accessibility TCC row.
+            // (the responsible process agents run under). No AXIsProcessTrusted here -- that
+            // would register the app; the whole point is to prompt for tmux so it acquires its
+            // own Accessibility TCC row. Requested by the tmux gate row's Turn On (server.js
+            // /api/tmux-a11y-prompt), not on onboarding-step entry.
             self?.spawnTmuxAutomationPrompt(kosmosHome: home)
         }
     }
@@ -1286,9 +1287,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// #2911/#3113: fire the macOS accessibility/automation prompt attributed to TMUX, so the
-    /// user secures it UP FRONT instead of being ambushed mid-work (Josh's ruling), and so tmux
-    /// acquires its own Accessibility TCC row -- the row whose absence keeps the onboarding tmux
-    /// gate stuck on "Checking..." with no Turn On affordance (#3113).
+    /// user secures it during onboarding (from the tmux gate row's Turn On) instead of being
+    /// ambushed mid-work (Josh's ruling), and so tmux acquires its own Accessibility TCC row --
+    /// the row whose absence otherwise leaves the onboarding tmux gate showing a bare "Checking..."
+    /// (before #3113 that state had no Turn On at all; #3113 makes it actionable in the render).
     ///
     /// Unlike spawnAxHatchUnderTmux (which runs the app executable under tmux and calls
     /// AXIsProcessTrusted as the APP -- the calling binary, #2451, so it registers Kosmos),

@@ -46,10 +46,11 @@ const REQUEST_FILE = {
      calling binary, #2451). This one asks the native watcher to run an osascript
      Terminal/System-Events automation op UNDER the bundled tmux, so macOS attributes the
      prompt to the RESPONSIBLE process (tmux) -- the binary agents actually run under, which
-     is what gets prompted at runtime when engine/terminal.js drives Terminal.app. Securing
-     it up front (fired when the S3 Automation step is reached) stops the mid-work ambush and
-     is what lets tmux acquire its own Accessibility TCC row, so the tmux gate row can leave
-     the "Checking..." (not-yet-listed) state and offer a real Turn On affordance (#3113).
+     is what gets prompted at runtime when engine/terminal.js drives Terminal.app. Firing it
+     lets tmux acquire its own Accessibility TCC row (so the gate row can eventually flip to
+     Activated). It is fired from the tmux gate row's Turn On on the S3 Automation step, not on
+     step entry (an entry-time fire hung a Playwright networkidle wait, so #3113 makes the
+     not-yet-listed state actionable in the render instead; see .claude/plans/fix-3113-tmux-a11y.md).
      (The exact osascript payload + which TCC service(s) fire is pinned by a fresh-install
      verify; the native hatch owns that string.) */
   'tmux-a11y': 'tmux-a11y-prompt-request',

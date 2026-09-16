@@ -45616,9 +45616,10 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
      non-blocking reading. Before #3113 that reading painted a dead "Checking..." with no
      affordance (Josh's screenshot); now the route flags that not-yet-listed state actionable
      (see frReadGate/frPollGates), so the row paints "Not activated" + this Turn On, and the
-     Turn On fires this trigger (registering tmux) plus opens the Accessibility pane. sleep is
-     programmatic (pmset), not a prompt category, so it opens Settings and passes no trigger.
-     Both a11y rows fall back to opening the same Accessibility pane. */
+     Turn On fires this trigger (registering tmux); frFirePermission opens the Accessibility pane
+     only as the fallback when no native app answers the trigger. sleep is programmatic (pmset),
+     not a prompt category, so it opens Settings and passes no trigger. Both a11y rows fall back
+     to opening the same Accessibility pane. */
   const s3PermissionTargets = (gate) => ({
     trigger: gate === 'tmux' ? '/api/a11y-prompt'
       : gate === 'tmux-a11y' ? '/api/tmux-a11y-prompt' : null,
