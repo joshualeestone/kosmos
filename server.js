@@ -6297,12 +6297,26 @@ const server = http.createServer((req, res) => {
         // and, under a sandbox HOME, point the probe at the wrong config. The
         // OBSERVATION is still keyed by acct.dir below (the value the badge join
         // reads off the row), for the default too, so it reaches the right badge.
-        const probeDir = acct.isDefault ? null : acct.dir;
+        // #3136: pass the account's RESOLVED config dir explicitly, for the DEFAULT too,
+        // instead of deleting CLAUDE_CONFIG_DIR and leaning on claude -p's own ambient
+        // default resolution. That ambient path fails in the board's launchd process
+        // (wrong/missing HOME -> claude cannot find the default config -> a fast non-zero
+        // exit -> UNKNOWN -> the badge never greens; reproduced server-side on 0.6.70:
+        // a LABELED account greens, the DEFAULT stays neutral, and the default probe
+        // fails in ~4-5s, not the 15s timeout). acct.dir is already <homeDir>/.claude
+        // (accounts.js, env-resolved via AGENT_WORKFORCE_HOME || os.homedir()), so passing
+        // it is env-INDEPENDENT -- the same explicit-resolution pattern as #3113's bundled-
+        // tmux fix (the launchd-missing-ambient-env class, kosmos#3189). Keyed by acct.dir
+        // below for the badge join, as before, so the default reaches the right badge.
+        // DRAFT (#3136): align the default-dir resolver SHAPE to Angel's #3113 helper when
+        // it lands; and the diag flag below surfaces the discarded probe stderr on UNKNOWN
+        // so the board confirms this is the config-dir path (removed once confirmed green).
+        const probeDir = acct.dir;
         // A validator CRASH fails open (UNKNOWN), never a false "not connected" --
         // the same #1916 rule the create gate states: a broken checker is not a
         // dead account. claudeAccountLive already returns UNKNOWN (not a throw)
         // for every environmental case, so a throw here is our own bug, logged.
-        try { state = await create.claudeAccountLive(probeDir); }
+        try { state = await create.claudeAccountLive(probeDir, { diag: '#3136-checknow ' + (acct.isDefault ? 'default' : 'labeled') }); }
         catch (err) { console.error('#3136: claude check-now errored (failing open):', (err && err.stack) || err); state = subscription.STATE.UNKNOWN; }
         if (state === subscription.STATE.CONNECTED) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.OK);
         else if (state === subscription.STATE.NONE) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.REJECTED);
