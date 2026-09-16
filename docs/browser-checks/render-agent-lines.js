@@ -1,13 +1,22 @@
 'use strict';
 
 /**
- * The three lines of a rail agent, measured as TEXT rather than as boxes (#1303 A item 3).
+ * The lines of a rail agent, measured as TEXT rather than as boxes (#1303 A item 3).
  *
  * 🔑 Josh, 0.5.97 review: "for each agent let's tighten up the spacing between
  * lines between the agent name, its title, and its status". The rail row is a
- * three-row grid with a 2px row gap, so the gap is not what a reader sees: at
+ * multi-row grid with a 2px row gap, so the gap is not what a reader sees: at
  * .8125rem and .625rem the LINE BOXES are most of the height, and the leading
  * inside them is the spacing being complained about.
+ *
+ * 🛑 #3131 + #3187 (Josh 6.70) CHANGED WHAT THIS ROW SHOWS. The status is no
+ * longer a third TEXT line -- it is the row's ground COLOUR now (grey/green/red),
+ * and the state word is kept only in a .vh span for screen readers. So this check
+ * now measures the leading of the TWO visible lines (name, title), asserts the
+ * state word is present-but-visually-hidden, and asserts the row carries a colour
+ * wash. This supersedes the original three-line-stack contract (which came from
+ * #1191's "single text line to indicate what they're doing"); the leading claim
+ * for name->title is what carries over.
  *
  * 🛑 MEASURED WITH A RANGE, NOT `getBoundingClientRect` ON THE ELEMENT. An
  * element's box includes its leading, so reading element boxes reports the
@@ -86,7 +95,18 @@ const chk = (ok, label, extra) => {
       if (!row) return { missing: true };
       const name = textRect(row.querySelector('.lname b')) || textRect(row.querySelector('.lname'));
       const title = textRect(row.querySelector('.ltitle'));
-      const state = textRect(row.querySelector('.lstate'));
+      /* #3131 + #3187 (Josh 6.70): the state WORD is no longer a visible third
+         line -- status is the row's ground colour now, and the word is kept only
+         in a .vh span for screen readers. So this reads the .vh word (must exist,
+         a11y) AND any state text left VISIBLE outside it (must be empty), instead
+         of measuring a state line's leading. */
+      const lstate = row.querySelector('.lstate');
+      const vh = lstate ? lstate.querySelector('.vh') : null;
+      const stateWord = vh ? vh.textContent.trim() : '';
+      const vhCs = vh ? getComputedStyle(vh) : null;
+      const vhClipped = vhCs ? (parseInt(vhCs.width) <= 2 && vhCs.overflow === 'hidden') : false;
+      const stateVisible = lstate ? lstate.textContent.replace(stateWord, '').trim() : '';
+      const wash = getComputedStyle(row).backgroundImage;
       const rows = [...document.querySelectorAll('#alist .lrow')];
       const cs = (sel) => {
         const e = row.querySelector(sel);
@@ -95,10 +115,11 @@ const chk = (ok, label, extra) => {
         return { fontSize: s.fontSize, lineHeight: s.lineHeight };
       };
       return {
-        name, title, state,
+        name, title,
+        stateWord, vhClipped, stateVisible, wash,
         rowHeight: Math.round(row.getBoundingClientRect().height * 10) / 10,
         rowCount: rows.length,
-        css: { name: cs('.lname b'), title: cs('.ltitle'), state: cs('.lstate') },
+        css: { name: cs('.lname b'), title: cs('.ltitle') },
       };
     });
 
@@ -106,38 +127,39 @@ const chk = (ok, label, extra) => {
     else {
       const gap = (a, b) => (a && b ? Math.round((b.top - a.bottom) * 10) / 10 : null);
       const nameTitle = gap(m.name, m.title);
-      const titleState = gap(m.title, m.state);
       console.log('');
       console.log('  row height        : ' + m.rowHeight + 'px  (' + m.rowCount + ' rows)');
       console.log('  name              : ' + JSON.stringify(m.css.name) + '  "' + (m.name && m.name.text) + '"');
       console.log('  title             : ' + JSON.stringify(m.css.title) + '  "' + (m.title && m.title.text) + '"');
-      console.log('  state             : ' + JSON.stringify(m.css.state) + '  "' + (m.state && m.state.text) + '"');
+      console.log('  state word (.vh)  : "' + m.stateWord + '"  clipped=' + m.vhClipped);
+      console.log('  visible state text: "' + m.stateVisible + '"');
+      console.log('  row wash          : ' + m.wash);
       console.log('  GAP name -> title : ' + nameTitle + 'px');
-      console.log('  GAP title -> state: ' + titleState + 'px');
       console.log('');
 
-      /* 🛑 THE CONTROL. Every line must actually be on screen with text in it,
-         or the gaps below are measuring absence. A hidden .lstate would make the
-         stack look beautifully tight and mean nothing. */
+      /* 🛑 THE CONTROL. The two VISIBLE lines must actually be on screen with
+         text, or the leading below is measuring absence. */
       chk(!!(m.name && m.name.text), 'the name line has text', m.name && m.name.text);
       chk(!!(m.title && m.title.text), 'the title line has text', m.title && m.title.text);
-      chk(!!(m.state && m.state.text), 'the status line has text', m.state && m.state.text);
 
-      /* The claim. Leading between the three lines is what Josh asked to
-         tighten; these are the numbers the change has to move and keep. */
+      /* #3131 (Josh 6.70): the status WORD is no longer a visible line. It is
+         kept in a .vh span for screen readers (a11y, not deleted) but must NOT
+         show as text -- status is the ground colour now. This is the arm that
+         catches a revert of the .vh wrap in lrow(). */
+      chk(!!m.stateWord, 'the state word is kept for screen readers (a11y)', m.stateWord);
+      chk(m.vhClipped, 'the state word is visually hidden (.vh clipped), not a visible line', 'clipped=' + m.vhClipped);
+      chk(m.stateVisible === '', 'no waiting/idle/busy TEXT is visible in the row', JSON.stringify(m.stateVisible));
+
+      /* #3187 (Josh 6.70): status owns the GROUND -- the row carries a colour
+         wash (a linear-gradient) rather than a white ground, so the state reads
+         at a glance. april is 'working' (green wash). */
+      chk(/linear-gradient/.test(m.wash), 'the row carries a status ground colour (wash)', m.wash);
+
+      /* The remaining #1191 claim, now for the TWO visible lines: the name/title
+         leading Josh asked to tighten. Ceiling + floor so neither loose spacing
+         nor an overlap passes. */
       chk(nameTitle !== null && nameTitle <= 3.5, 'name to title leading is tight', nameTitle + 'px');
-      chk(titleState !== null && titleState <= 3.5, 'title to status leading is tight', titleState + 'px');
-      /* 🔑 THE STRONGEST OF THESE, and the one that names the actual defect.
-         The two gaps were 4px and 6px: a stack whose lines are spaced unevenly
-         reads as three things rather than one agent, and no single-gap ceiling
-         can see that. Both ceilings above would have passed at 3 and 6. */
-      chk(nameTitle !== null && titleState !== null && Math.abs(nameTitle - titleState) <= 1,
-        'the two gaps are even, so the stack reads as one agent',
-        nameTitle + 'px vs ' + titleState + 'px');
-      /* ⚠️ A FLOOR AS WELL AS A CEILING. Collapsing the lines onto each other
-         would pass a ceiling-only check and be worse than what it replaced. */
       chk(nameTitle !== null && nameTitle >= 0, 'name and title do not overlap', nameTitle + 'px');
-      chk(titleState !== null && titleState >= 0, 'title and status do not overlap', titleState + 'px');
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
