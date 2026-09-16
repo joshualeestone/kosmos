@@ -13006,8 +13006,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        this section on purpose: the address arrives from the service, and
        the name Josh has ruled durable is "Plus", not any hostname. -->
   <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Kosmos Plus" hidden>
-    <h2>Kosmos Plus</h2>
-    <p class="fhint">Use your Kosmos from anywhere.</p>
+    <!-- #3151 (Josh, 2026-09-15): the top "Kosmos Plus" heading and the
+         "Use your Kosmos from anywhere." subcopy are deleted so the
+         "Already have Kosmos+? Sign in" bar reflows to the top. The section
+         keeps aria-label="Kosmos Plus", so its accessible name is unchanged. -->
 
     <!-- #1615 blue reskin: the ambient star field behind the whole pane. It sits
          OUTSIDE #plus-state1 on purpose (web.plus-tab.test.js scopes its

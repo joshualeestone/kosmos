@@ -97,14 +97,25 @@ async function openPlus(page, remote) {
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
 
-      // The retitle: the section heading and its nav pill both read "Kosmos Plus".
+      // #3151 (Josh, 2026-09-15): the top-of-section "Kosmos Plus" heading and the
+      // "Use your Kosmos from anywhere." subcopy are DELETED so the sign-in bar
+      // reflows up. The section keeps aria-label="Kosmos Plus" (accessible name),
+      // and the Settings nav pill still reads "Kosmos Plus". Assert both the
+      // removal (heading gone, subcopy gone) and the survivors (nav pill, a11y name).
       await openPlus(page, UNENROLLED);
-      const titles = await page.evaluate(() => ({
-        h2: (document.querySelector('#s-sec-plus h2') || {}).textContent,
-        nav: (document.querySelector('#s-nav button[data-go="plus"] span') || {}).textContent,
-      }));
-      chk(titles.h2 === 'Kosmos Plus', `[${theme}] the section heading reads "Kosmos Plus"`, JSON.stringify(titles));
-      chk(titles.nav === 'Kosmos Plus', `[${theme}] the Settings nav pill reads "Kosmos Plus"`, JSON.stringify(titles));
+      const titles = await page.evaluate(() => {
+        const sec = document.querySelector('#s-sec-plus');
+        return {
+          h2: sec.querySelector('h2') ? sec.querySelector('h2').textContent : null,
+          subcopy: /Use your Kosmos from anywhere/.test(sec.innerText || ''),
+          ariaLabel: sec.getAttribute('aria-label'),
+          nav: (document.querySelector('#s-nav button[data-go="plus"] span') || {}).textContent,
+        };
+      });
+      chk(titles.h2 === null, `[${theme}] #3151: the top "Kosmos Plus" heading is removed`, JSON.stringify(titles));
+      chk(titles.subcopy === false, `[${theme}] #3151: the "Use your Kosmos from anywhere." subcopy is removed`, JSON.stringify(titles));
+      chk(titles.ariaLabel === 'Kosmos Plus', `[${theme}] the section keeps its "Kosmos Plus" accessible name`, JSON.stringify(titles));
+      chk(titles.nav === 'Kosmos Plus', `[${theme}] the Settings nav pill still reads "Kosmos Plus"`, JSON.stringify(titles));
 
       // UNENROLLED: state 1 is on screen, the connected flow (and its switch) is NOT.
       const un = await page.evaluate(() => {
