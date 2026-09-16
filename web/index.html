@@ -4774,20 +4774,22 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* #3130 (Josh 6.70): the bubble TAIL ("the little hatch thing") -- a small nub at
    the bottom corner, bottom-LEFT on an agent bubble, bottom-RIGHT on the person's.
    A rotated square poking out from under the bubble's bottom edge.
-   🔑 z-index -1 paints the nub behind `.msg-bd`'s OWN background (in front of
-   nothing, behind the bubble text) -- but only if the bubble owns a stacking
-   context, so `.msg-bd` sets `z-index: 0` alongside `position: relative`. Without
-   it the -1 resolves against the ambient context shared with `.thread`, whose
-   opaque ground then paints OVER the whole nub and hides it (the tail never
-   shows). With `z-index: 0` the poking-out half (below the bubble edge) shows and
-   the half that overlaps the bubble sits behind the bubble's own fill.
+   🔑 WHAT MAKES THE NUB VISIBLE is `.msg-bd` owning a stacking context
+   (`position: relative` + `z-index: 0`): the whole bubble unit then paints as one
+   layer OVER `.thread`'s opaque ground, so the nub's poking-out half (below the
+   bubble edge) shows. Without `z-index: 0` the nub's `z-index: -1` hoists to the
+   ambient context shared with `.thread`, whose ground paints over the nub and
+   hides it entirely (the tail never shows).
+   Within `.msg-bd`'s own context the `z-index: -1` nub paints in the CSS2.1 order:
+   just IN FRONT of `.msg-bd`'s background fill and BEHIND its text -- so in the
+   overlap region the nub composites OVER the bubble's fill.
    🔑 `background-color: inherit` so the nub matches the bubble's OWN resting
    background -- including the per-message [data-am] cream shade -- instead of a
-   fixed token that would seam against a shaded bubble. On the OPAQUE agent bubble
-   the overlap is invisible (same colour over same colour). On the person's
-   TRANSLUCENT tint the overlap shows through a touch darker (tint over tint); that
-   small op-side seam is his in-app nudge. Positioned inside the rounded corner
-   (9px in) so it sits under the flat part of the edge. */
+   fixed token that would seam against a shaded bubble. So on the OPAQUE agent
+   bubble that overlap is invisible (same colour over same colour); on the person's
+   TRANSLUCENT tint it shows a touch darker (tint over tint), the small op-side seam
+   that is his in-app nudge. Positioned inside the rounded corner (9px in) so it
+   sits under the flat part of the edge. */
 .msg-bd { position: relative; z-index: 0; }
 .msg-bd::after { content: ""; position: absolute; bottom: -3px; width: 11px; height: 11px;
                  transform: rotate(45deg); border-radius: 0 0 3px 0; z-index: -1;
@@ -41350,7 +41352,9 @@ function pjRoomRow(m, p, silent) {
   }
   const isOp = m.operator === true;
   const card = !isOp && (p.agents || []).find((a) => a.sessionName === m.from);
-  const name = isOp ? 'You' : pjNameOf(p, m.from);
+  // #3130: the operator's post carries no name (the header omits it), so there is
+  // no "You" to compute; only an agent's name is used, in the header's agent arm.
+  const name = isOp ? '' : pjNameOf(p, m.from);
   /* The person's own chip is NEUTRAL, never drawn from the agent face set
      (the pack's rule: "You" is not an agent). Agents get the shared disc,
      or their photo when the tied card carries one. */

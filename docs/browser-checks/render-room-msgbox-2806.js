@@ -133,6 +133,12 @@ const now = () => new Date().toISOString();
              z-index:auto reds it). */
           bdPos: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).position : null; })(),
           bdZ: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).zIndex : null; })(),
+          /* #3130: an operator post with a BODY but NO timestamp has nothing for
+             its header (no name, no time), so the empty `.msg-h` bar must be
+             OMITTED, not drawn. Rendered in isolation so it does not disturb the
+             three-row fixture above. */
+          noTimeHasHeader: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-h'); })(),
+          noTimeHasBody: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-bd'); })(),
         };
         host.remove();
         return out;
@@ -190,6 +196,12 @@ const now = () => new Date().toISOString();
       chk(m.bdPos === 'relative' && m.bdZ === '0',
         `${t} #3130: .msg-bd owns a stacking context (position:relative, z-index:0) so the tail is not hidden behind .thread`,
         `position=${m.bdPos} z-index=${m.bdZ}`);
+      // #3130: an operator post with a body but NO timestamp draws its bubble but
+      // OMITS the empty header bar (a control: the body IS present, so this is not
+      // just an empty render).
+      chk(m.noTimeHasBody && !m.noTimeHasHeader,
+        `${t} #3130: an operator post with no timestamp omits the empty header bar (bubble still drawn)`,
+        `hasBody=${m.noTimeHasBody} hasHeader=${m.noTimeHasHeader}`);
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
