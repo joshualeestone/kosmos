@@ -3391,7 +3391,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      ground back on these rows, so the strip is removed and the base .lrow washes
      above show through; the rounded rail look (border 0, radius, padding) stays. */
   html[data-layout="consolidated"] body.consolidated .lrow { border: 0; box-shadow: none; border-radius: 9px; padding: 6px 6px; }
-  html[data-layout="consolidated"] body.consolidated .lrow:hover { background: var(--k-surface); }
+  /* #3187: hover must NOT flatten the status wash to the plain surface -- that
+     erased the grey/green/red ground this view now depends on for as long as the
+     pointer sat on a row. A subtle inset ring is the hover cue instead, so the
+     ground colour stays and the affordance reads in both themes (--k-rule). */
+  html[data-layout="consolidated"] body.consolidated .lrow:hover { box-shadow: inset 0 0 0 1.5px var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .lrow.attn { border: 0; }
   html[data-layout="consolidated"] body.consolidated .pj-row { border: 0; background: none; box-shadow: none; border-radius: 9px; } /* #3126: padding removed here (dead - overridden by the .pj-row padding later in this block); single source below */
   html[data-layout="consolidated"] body.consolidated .pj-row:hover { background: var(--k-surface); box-shadow: none; }
@@ -3578,18 +3582,19 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      accident. `saidLine()` itself is unchanged and still backs the other
      surfaces. The state WORD is what survives. Every GLYPH is already `aria-hidden` (grep for the GLYPH map),
      so what is announced here is `copy.label` and nothing else. */
-  /* 🔑 THE STATE WORD IS VISIBLE AGAIN, AND THE BUBBLE IS STILL NOT (kosmos#1191).
-     Josh, 2026-08-27: "include a single text line that's the same font size as
-     their title to indicate what they're doing (if they're working, if they're
-     idle, etc.)"
-     ⚠️ THAT LOOKS LIKE A REVERSAL OF HIS 2026-08-26 RULING AND IS NOT, WHICH IS
-     WHY THIS IS NOT A DELETION. The note above records that ask precisely: "we
-     don't want to put a status bubble in there", and it was "about the EYE",
-     never the ear. He rejected the BUBBLE. He is now asking for the WORDS.
-     ⇒ So the line un-hides and every decorative glyph inside it stays hidden.
-     The eye gets a sentence at title size; it does not get the dot back.
-     📌 The glyphs are already `aria-hidden`, so hiding them visually costs the
-     ear nothing: `copy.label` was the only thing being announced anyway. */
+  /* 🛑 THE STATE WORD IS NO LONGER VISIBLE HERE (kosmos#3131 + #3187, Josh 6.70)
+     -- this SUPERSEDES the #1191 "single text line" ask (Josh 2026-08-27). Status
+     is the row's ground COLOUR now (the .lrow grey/green/red wash), not a word:
+     lrow() wraps `glyphOf(a) + copy.label` in a `<span class="vh">`, so the word
+     is kept for the ear (a11y) and hidden from the eye. The needs-you red-!
+     triangle (LROW_WARN, on .lav) is the only per-agent glyph that still shows.
+     Guarded by docs/browser-checks/render-agent-lines.js (state word present in
+     .vh, no visible state text, a colour wash on the row).
+     📌 THE GLYPH-HIDE RULES BELOW ARE NOT DEAD. The RUNNING row's glyph is now
+     inside `.vh` (so `.lstate > .act` no longer matches it), but the NOT-RUNNING
+     rows still put a glyph as a DIRECT `.lstate` child -- the needs-trust row's
+     `.haz` "!", the offline row's `.stop` -- and these rules keep those hidden in
+     the consolidated rail, where those rows carry their diagnostic word alone. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .act,
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .haz,
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .rest,

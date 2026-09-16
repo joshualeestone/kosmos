@@ -57,6 +57,10 @@ const chk = (ok, label, extra) => {
   fleet.install([
     fleet.agent('april', { state: 'working', displayName: 'April', role: 'Research Assistant' }),
     fleet.agent('mikey', { state: 'idle', displayName: 'Mikey', role: 'Bookkeeper' }),
+    /* #3187: a needs-you agent so the RED wash arm is exercised, not only
+       green (april) and grey (mikey). Without it the check could not tell the
+       .attn wash from a fallback grey. */
+    fleet.agent('raph', { state: 'needs_you', displayName: 'Raph', role: 'Fixer' }),
   ]);
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -108,6 +112,11 @@ const chk = (ok, label, extra) => {
       const stateVisible = lstate ? lstate.textContent.replace(stateWord, '').trim() : '';
       const wash = getComputedStyle(row).backgroundImage;
       const rows = [...document.querySelectorAll('#alist .lrow')];
+      /* #3187: the wash + class per agent, so the check can assert the RIGHT
+         wash for each state (green=working, red=needs-you, grey=everything else)
+         rather than merely "some gradient". */
+      const byAgent = {};
+      for (const r of rows) byAgent[r.dataset.agent || '?'] = { cls: r.className.trim(), wash: getComputedStyle(r).backgroundImage };
       const cs = (sel) => {
         const e = row.querySelector(sel);
         if (!e) return null;
@@ -117,6 +126,7 @@ const chk = (ok, label, extra) => {
       return {
         name, title,
         stateWord, vhClipped, stateVisible, wash,
+        byAgent,
         rowHeight: Math.round(row.getBoundingClientRect().height * 10) / 10,
         rowCount: rows.length,
         css: { name: cs('.lname b'), title: cs('.ltitle') },
@@ -150,10 +160,20 @@ const chk = (ok, label, extra) => {
       chk(m.vhClipped, 'the state word is visually hidden (.vh clipped), not a visible line', 'clipped=' + m.vhClipped);
       chk(m.stateVisible === '', 'no waiting/idle/busy TEXT is visible in the row', JSON.stringify(m.stateVisible));
 
-      /* #3187 (Josh 6.70): status owns the GROUND -- the row carries a colour
-         wash (a linear-gradient) rather than a white ground, so the state reads
-         at a glance. april is 'working' (green wash). */
-      chk(/linear-gradient/.test(m.wash), 'the row carries a status ground colour (wash)', m.wash);
+      /* #3187 (Josh 6.70): status owns the GROUND, and the ground must be the
+         RIGHT colour for the state, not just some gradient. Green=working,
+         red=needs-you, grey=everything else, reusing the .acard rgba values.
+         april=working, mikey=idle, raph=needs-you are the three fixtures. */
+      const GREEN = '47, 125, 90', RED = '179, 38, 30', GREY = '120, 120, 128';
+      const washOf = (a) => (m.byAgent[a] || {}).wash || '';
+      console.log('  washes            : ' + JSON.stringify(m.byAgent));
+      chk(washOf('april').includes(GREEN), 'a WORKING agent gets the green wash', washOf('april'));
+      chk(washOf('mikey').includes(GREY), 'an IDLE agent gets the grey wash', washOf('mikey'));
+      chk(washOf('raph').includes(RED), 'a NEEDS-YOU agent gets the red wash', washOf('raph'));
+      /* CONTROL: the three washes are distinct, or "matches GREEN/GREY/RED" could
+         pass on a single wash that happened to contain all three substrings. */
+      chk(washOf('april') !== washOf('mikey') && washOf('mikey') !== washOf('raph') && washOf('april') !== washOf('raph'),
+        'the three state washes are distinct', 'w/i/n differ');
 
       /* The remaining #1191 claim, now for the TWO visible lines: the name/title
          leading Josh asked to tighten. Ceiling + floor so neither loose spacing
