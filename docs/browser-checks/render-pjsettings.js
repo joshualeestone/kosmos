@@ -197,8 +197,37 @@ const PORT = freePort();
     const viewAfterTab = await p.evaluate(() => (typeof PJ_VIEW !== 'undefined' ? PJ_VIEW : null));
     if (viewAfterTab !== 'settings') die('#3134: the auto-advance fired while on another tab (PJ_VIEW=' + viewAfterTab + '); the panel-hidden guard did not suppress it');
 
+    // #3134 guard (re-opening settings): save -> leave settings -> deliberately
+    // re-open it within the ~1s window must CANCEL the pending advance (re-entering
+    // settings clears the timer), or the timer re-satisfies its fire-time guard and
+    // pulls the person off the settings they just re-opened. Get back to a project's
+    // settings in the tab view first, from whatever sub-view we are on.
+    await p.click('[data-tab="projects"]');
+    await p.waitForSelector('#panel-projects', { state: 'visible' });
+    if (await p.locator('#pj-one-view').isVisible()) { await p.click('#pj-back'); }   // to the list
+    await p.waitForSelector('#pj-list-view', { state: 'visible', timeout: 5000 });
+    await p.locator('#pj-list').getByText('Second Project').first().click();
+    await p.waitForSelector('#pj-one-view', { state: 'visible' });
+    await p.click('#pj-settings-link');
+    await p.waitForSelector('#pj-settings-view', { state: 'visible' });
+    await p.route('**/api/project/**', async (route) => {
+      if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 300)); }
+      await route.continue();
+    });
+    await p.fill('#pjs-desc', 're-open test unique change 987');    // a real change, so the save is not a no-op
+    await p.click('#pjs-save');
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-save-live'); return m && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
+    await p.unroute('**/api/project/**');
+    // leave settings, then deliberately re-open it, both within the window
+    await p.click('#pj-settings-back');
+    await p.waitForSelector('#pj-one-view', { state: 'visible' });
+    await p.click('#pj-settings-link');
+    await p.waitForSelector('#pj-settings-view', { state: 'visible' });
+    await p.waitForTimeout(1400);                                  // past the advance window
+    if (!(await p.locator('#pj-settings-view').isVisible())) die('#3134: re-opening settings within the window did not cancel the pending advance -- the timer pulled the person off the settings they re-opened');
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, back-link rename, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, the advance is suppressed on another tab, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
+    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, back-link rename, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, the advance is suppressed on another tab, re-opening settings cancels a pending advance, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();

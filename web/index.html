@@ -38837,6 +38837,14 @@ function pjPaintParentSelect(p) {
 }
 
 function paintProjectSettings(p) {
+  // #3134: showing the settings panel cancels any pending save auto-advance. A
+  // save schedules a ~1s timer that returns to the project; if the person comes
+  // BACK to settings within that window (the cog, a member change, any path that
+  // repaints settings) the fire-time guard would otherwise re-match and pull them
+  // off the settings they just re-opened. This is the one point every settings
+  // (re)paint passes through; the save's own paint runs BEFORE it schedules, so
+  // its advance is unaffected.
+  clearTimeout(document.getElementById('pjs-save').__navTimer);
   document.getElementById('pj-settings-backname').textContent = p.name;
   document.getElementById('pjs-name').value = p.name;
   document.getElementById('pjs-desc').value = p.description || '';
@@ -38960,7 +38968,7 @@ document.getElementById('pj-back').addEventListener('click', () => {
 document.getElementById('pj-settings-link').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
-  paintProjectSettings(p);
+  paintProjectSettings(p);   // #3134: this cancels any pending save auto-advance (see paintProjectSettings)
   pjView('settings');
   document.getElementById('pj-settings-back').focus();
 });
