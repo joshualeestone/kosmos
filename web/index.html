@@ -37994,6 +37994,15 @@ function paintProjectTasks(p) {
      back to this one project), so this project's hidden rows are always
      reachable through it and `behind`/`hiddenByCap` have no consumer and are
      gone. The cap itself is unchanged and still five. */
+  /* #3172 (Josh, 2026-09-16): newest task on top. `column` is in creation order
+     (oldest first), and the cap below shows only the first few, so without
+     sorting first the newest tasks would hide behind the oldest ones, which are
+     the ones most likely already done. Sort by task number DESC (server-issued
+     and monotonic, so it is the robust newest-created key; createdAt can be null
+     on older tasks) BEFORE the cap. `column` is a fresh array from .filter(), so
+     sorting it in place does not reorder p.tasks; this is display ordering only.
+     Covers the tab view and the consolidated view alike (both render here). */
+  column.sort((a, b) => Number(b.number) - Number(a.number));
   const TK_COLUMN_MAX = 5;
   const showing = column.slice(0, TK_COLUMN_MAX);
   // kosmos#1009 retired the reasoning that used to sit here ("an empty COLUMN

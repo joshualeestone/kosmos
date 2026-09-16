@@ -209,21 +209,22 @@ const MEMBER = 'taskmate';
     if (/\d/.test(doorText)) {
       die('the door carries a number again ("' + doorText + '"), which can disagree with the column above it and with the all-projects screen it opens');
     }
-    /* ⚠️ `.nth(0)`, NOT A BARE `.tkcard-who` (#1009). The column used to hold
-       ONE card, so a bare locator was unambiguous; now it holds both open
-       tasks and the same locator is a strict-mode violation that throws
-       before it can assert anything. The assertion two lines up was updated
-       for the new count and this one, three lines from it, was not. The
-       assigned card is first, which is why the unassigned check below already
-       says `.nth(1)`. */
-    const chip = (await shown(p.locator('.tkcard').nth(0).locator('.tkcard-who'))).trim();
-    if (!chip.includes(MEMBER)) die('the who chip does not name the member: ' + chip);
+    /* #3172 (Josh, 2026-09-16): the column sorts NEWEST task on top. "Check it
+       against the live flow" (task 2, unassigned) was created AFTER "Rewrite the
+       handoff checklist" (task 1, assigned), so newest-first puts task 2 at nth(0)
+       and task 1 at nth(1) -- the reverse of creation order. Assert the order
+       directly (the newer title is on top), then the who-chips by their new
+       positions. */
+    const firstTitle = (await shown(p.locator('.tkcard').nth(0).locator('.tkcard-t'))).trim();
+    if (!/Check it against the live flow/.test(firstTitle)) die('#3172: the newest task is not on top: ' + firstTitle);
+    /* ⚠️ `.nth(N)`, NOT A BARE `.tkcard-who` (#1009): the column holds both open
+       tasks, so a bare locator is a strict-mode violation. nth(0) is the newer
+       unassigned task, nth(1) the older assigned one. */
+    const nobody = (await shown(p.locator('.tkcard').nth(0).locator('.tkcard-who'))).trim();
+    if (nobody !== 'Nobody yet') die('the newest (unassigned) card state word: ' + nobody);
+    const chip = (await shown(p.locator('.tkcard').nth(1).locator('.tkcard-who'))).trim();
+    if (!chip.includes(MEMBER)) die('the assigned card who chip does not name the member: ' + chip);
     await p.screenshot({ path: path.join(OUT, 'tasks-column.png') });
-
-    // The unassigned card is IN the column now, and still says the one allowed
-    // state word. No door click needed to reach it.
-    const nobody = await shown(p.locator('.tkcard').nth(1).locator('.tkcard-who'));
-    if (nobody.trim() !== 'Nobody yet') die('unassigned state word: ' + nobody);
 
     // THE JOIN: the assignee reports holding "task 1" in the taught
     // spelling; the card grows the pack's says-line and the dialog's note
@@ -243,7 +244,11 @@ const MEMBER = 'taskmate';
     if ((await p.locator('.tksay').count()) !== 1) die('the says-line leaked onto unclaimed cards');
 
     // The view PAGE (#206): meta, the blessed close-note naming the agent.
-    await p.locator('.tkcard').first().click();
+    /* #3172: click the ASSIGNED task explicitly, not `.first()`. Newest-first
+       ordering now puts the unassigned task 2 on top, but the close-note assertion
+       below is about task 1 (the one the member reported holding), so target the
+       card carrying the says-line rather than a column position. */
+    await p.locator('.tkcard').filter({ has: p.locator('.tksay') }).first().click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });
     /* #768 THREE-COLUMN REFLOW: the task page takes the project page's room shape --
        three columns (who is on it / conversation / this task), not the old two-column
@@ -394,8 +399,36 @@ const MEMBER = 'taskmate';
     // An absence wait: DOM text is the stricter read here, hidden text included.
     await p.waitForFunction(() => document.getElementById('tk-done').textContent.trim() !== 'Reopen', null, { timeout: 10000 });
 
+    /* #3172 THE CAP CRUX. The column shows only the first five (TK_COLUMN_MAX),
+       so newest-first is only correct if the sort runs BEFORE the slice. Two
+       tasks cannot prove that (the cap is a no-op under five). Make a fresh
+       project with SIX tasks via the API and assert the column shows the newest
+       five (6..2), newest on top, with the OLDEST (task 1) hidden behind the
+       door. If the sort ran after the slice this shows tasks 5..1 and task 1
+       would be present -- which is exactly the bug this asserts against. */
+    const capId = await p.evaluate(async () => {
+      const r = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Sort Cap Check' }) });
+      const b = await r.json();
+      for (let i = 1; i <= 6; i++) {
+        await fetch('/api/project/' + b.project.id + '/tasks', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sentence: 'Sort task ' + i }) });
+      }
+      return b.project.id;
+    });
+    if (!capId) die('#3172: could not create the cap-test project');
+    await p.click('.tab[data-tab="projects"]');
+    await p.locator('#pj-list').getByText('Sort Cap Check').first().click();
+    await p.waitForSelector('#pj-one-view', { state: 'visible' });
+    await p.waitForSelector('#pj-tasklist .tkcard', { timeout: 10000 });
+    const capCards = await p.locator('#pj-tasklist .tkcard').count();
+    if (capCards !== 5) die('#3172: the column should cap at five, shows ' + capCards);
+    const capTitles = await p.locator('#pj-tasklist .tkcard .tkcard-t').allInnerTexts();
+    if (!/Sort task 6\b/.test(capTitles[0] || '')) die('#3172: the newest task (6) is not on top: ' + JSON.stringify(capTitles));
+    if (capTitles.some((t) => /Sort task 1\b/.test(t))) die('#3172: the OLDEST task (1) is shown, so the sort ran AFTER the slice: ' + JSON.stringify(capTitles));
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TASKS DRIVE OK: empty-box invitation centred (#2926), creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, fixture tmux only, 0 page errors; shots in ' + OUT);
+    console.log('TASKS DRIVE OK: empty-box invitation centred (#2926), creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, #3172 newest-first cap (6 tasks -> newest five, oldest hidden), fixture tmux only, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();
