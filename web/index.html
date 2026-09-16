@@ -44441,8 +44441,9 @@ setInterval(() => {
 // steps become unreachable (the clamp caps navigation and the loop never unhides
 // them). web.firstrun-panecount-9screen.test.js pins this against the DOM.
 // (History: 7 when #1214's Accessibility offer sat as a standalone step; 6 before
-// About-you; the flow is now Welcome/Access/Automation/Notifications/Model/Self-
-// improving/Success/About-you/Your-agents.)
+// About-you. The panes by NUMBER are Welcome(1)/Access(2)/Automation(3)/
+// Notifications(4)/Model(5)/Self-improving(6)/Success(7)/About-you(8)/Your-agents(9);
+// #3112 shows them in a different DISPLAY order, Model second, via frStepSequence.)
 const FR_STEPS = 9;
 // The return pane's step number, named and used by the generation bump and
 // every navigation into the step. (The paint branch is the clamped chain's
@@ -44473,27 +44474,48 @@ const FR_STEPS = 9;
 // which is why only that is corrected here.
 //
 // The constant keeps its name so the generation-guard pins keep reading.
-// install-flow-9screen: the setup flow is now 9 screens (Welcome, Access,
-// Automation, Notifications, Model, Self-improving, Success, About-you, Your
+// install-flow-9screen: the setup is 9 panes, fr-pane-1..9 (by NUMBER: Welcome,
+// Access, Automation, Notifications, Model, Self-improving, Success, About-you, Your
 // agents). These constants are the single source the step guards and their
-// "next step" reads read from. Success (the return/dock/reveal screen) is now
-// step 7; About-you is step 8. The ordered frGo if/else-if ladder is literal
-// 1..9.
+// "next step" reads read from. Success (the return/dock/reveal screen) is pane 7;
+// About-you is pane 8. The frGo if/else-if ladder is literal 1..9 by pane number.
+// #3112 changed only the DISPLAY order (frStepSequence puts Model second); the pane
+// numbers here are unchanged.
 const FR_STEP_YOU = 8;
 /* win32-board-copy (W-10, W-12): the steps THIS computer's wizard walks, in order. S2
    (a macOS folder-permission dialog) and S4 (a macOS background-activity notice) show
    Windows something Windows never asks, so a Windows wizard skips them. The pane ids
    stay put, because browser checks find panes by identity (lib-firstrun-steps.js);
-   only the hops between them and the progress follow this list. On a Mac the list is
-   1..FR_STEPS, so every hop and the progress are the numbers they always were. */
+   only the hops between them and the progress follow this list. #3112 sets the DISPLAY order
+   below (Model shown second), so on a Mac the list is [1,5,2,3,4,6,7,8,9], not ascending
+   1..FR_STEPS -- the pane NUMBERS are unchanged, but the hops and progress now follow the
+   display position. */
 function frStepSequence() {
-  const steps = [];
-  for (let i = 1; i <= FR_STEPS; i += 1) steps.push(i);
-  return onWindows() ? steps.filter((s) => s !== 2 && s !== 4) : steps;
+  // #3112 (Josh, 6.68+): Model (pane 5) is shown SECOND, right after Welcome, so a
+  // model is chosen before the permission/automation steps (which is what lets the
+  // tmux prompts fire). The pane IDS are STABLE -- browser checks and lib-firstrun-steps
+  // find panes by id and deep links open ?fr-step=N -> fr-pane-N -- so only the DISPLAY
+  // ORDER changes here, not the numbering. Windows still drops Access(2) + Notifications(4)
+  // by pane NUMBER, unaffected by the reorder.
+  const order = [1, 5, 2, 3, 4, 6, 7, 8, 9];   // Welcome, Model, Access, Automation, Notifications, Self-improving, Success, About-you, Your-agents
+  return onWindows() ? order.filter((s) => s !== 2 && s !== 4) : order;
 }
 function frStepAfter(step) {
-  const next = frStepSequence().find((s) => s > step);
-  return next === undefined ? FR_STEPS : next;
+  // #3112: advance by SEQUENCE POSITION, not numeric value. The old
+  // `find((s) => s > step)` walked pane NUMBERS, so once Model (5) is shown at
+  // position 2 it would jump 5 -> 6 and skip Access/Automation/Notifications. Walk the
+  // display order instead (frStepProgress already uses indexOf, so this aligns them).
+  const seq = frStepSequence();
+  const at = seq.indexOf(step);
+  if (at !== -1) return at + 1 < seq.length ? seq[at + 1] : seq[seq.length - 1];
+  // step is NOT in the display sequence (e.g. a Windows-filtered pane reached by a
+  // ?fr-step= deep link). Fall forward to the next pane BY NUMBER that is in the sequence --
+  // the SMALLEST element > step, not the first in array order (the array is no longer
+  // ascending after the reorder). This exactly preserves the pre-#3112 fallback: on Windows a
+  // deep link to the skipped Access(2) lands on Automation(3). A rare deep-link edge, never a
+  // normal Next hop.
+  const forward = seq.filter((s) => s > step);
+  return forward.length ? Math.min(...forward) : seq[seq.length - 1];
 }
 function frStepProgress(step) {
   const steps = frStepSequence();
@@ -44930,7 +44952,8 @@ function frGo(step) {
     frActions({ label: 'Next', go: () => frGo(frStepAfter(4)) });
   } else if (step === 5) {
     // S5 Model: the existing model-connect UI (reused). Its painters set their
-    // own primary (Next / Skip) and advance to step 6; a connect flow already
+    // own primary (Next / Skip) and advance via frStepAfter(5) (Access on macOS,
+    // Automation on Windows, since #3112 shows Model second); a connect flow already
     // running server-side is repainted by frConnResume once its answer arrives.
     frPaintSubscription();
     frPaintOpenai();
@@ -44938,13 +44961,13 @@ function frGo(step) {
   } else if (step === 6) {
     // S6 Self improving: one consent switch (the daily feedback report). #11
     // (0.6.39) removed the create-agent-ping switch from this screen.
-    frActions({ label: 'Next', go: () => frGo(7) });
+    frActions({ label: 'Next', go: () => frGo(frStepAfter(6)) });   // #3112: route through the sequence, not a hardcoded 7
     frRefreshFeedback();   // #2037: paint persisted/default-ON state on show
   } else if (step === 7) {
     // S7 Success: a static screen (#12, 0.6.39). The app-location reveal
     // subsystem was removed; the pane is fixed markup, so there is nothing to
     // paint here beyond wiring the single primary onward to step 8.
-    frActions({ label: 'Next', go: () => frGo(8) });
+    frActions({ label: 'Next', go: () => frGo(frStepAfter(7)) });   // #3112: route through the sequence, not a hardcoded 8
   } else if (step === 8) {
     // S8 About you: sets its own gated Next and advances to step 9.
     frPaintYou();
@@ -45142,7 +45165,7 @@ async function frPaintYou() {
         // a newer paint.
         if (entry !== FR_YOU_GEN) return;
       }
-      frGo(FR_STEP_YOU + 1);
+      frGo(frStepAfter(FR_STEP_YOU));   // #3112: route through the sequence, not FR_STEP_YOU + 1 (numeric)
     } catch {
       if (entry !== FR_YOU_GEN) return;
       saving = false;
@@ -46101,7 +46124,7 @@ function frPaintConnect(st) {
           + 'and follow its sign-in. Then come back and press Try again.</details>'
         : ''))
     + '</div>';
-    frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(6) });
+    frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(frStepAfter(5)) });
     return;
   }
 
@@ -46128,7 +46151,7 @@ function frPaintConnect(st) {
       title: 'A connection attempt was interrupted',
       detail: 'Kosmos was closed while it was ' + frConnBefore(before) + '. ' + afterSentence,
     });
-    frActions({ label: 'Start again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(6) });
+    frActions({ label: 'Start again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(frStepAfter(5)) });
     return;
   }
 
@@ -46988,12 +47011,12 @@ async function frPaintOpenai(known) {
        AND a connected OpenAI at once, and the OpenAI-only-first-run case Josh hit
        has no Claude connect record so frConnResume is a no-op there. */
     const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
-    if (!claudeConnected) frActions({ label: 'Next', go: () => frGo(6) }, null);
+    if (!claudeConnected) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
   } else {
     /* 📌 The not-connected branch deliberately does NOT reset the actions: there
        is no in-wizard way to disconnect OpenAI (the forget-provider handlers are
        Settings-only), so a connected->none transition on THIS screen is not
-       reachable, and Skip already routes to frGo(6) if it ever were. */
+       reachable, and Skip already routes to frGo(frStepAfter(5)) if it ever were. */
     // Leave `flow.hidden` alone: a person mid-typing should not have the
     // form yanked shut under them by an unrelated repaint. A positively
     // dead key names itself (its because), so the person knows why the row
@@ -47065,7 +47088,7 @@ function frPaintSubscription() {
        the Claude binary, so a screen asserting that every agent thinks with
        Claude describes a product that had one provider. The same sentence is
        corrected in the `none` arm below. */
-    frActions({ label: 'Next', go: () => frGo(6) },
+    frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) },
       { label: 'Check again', go: frRecheck });
     return;
   }
@@ -47133,7 +47156,7 @@ function frPaintSubscription() {
      ⚠️ Removing it strands nobody: every provider row carries its own Connect
      (#fr-llm-connect for Claude, #fr-openai-connect for GPT), which is where a
      person actually starts. Checked before deleting it. */
-  frActions(null, { label: 'Skip connecting a model', go: () => frGo(6), link: true });
+  frActions(null, { label: 'Skip connecting a model', go: () => frGo(frStepAfter(5)), link: true });
 }
 
 /* --------------------------------------------------------------------------

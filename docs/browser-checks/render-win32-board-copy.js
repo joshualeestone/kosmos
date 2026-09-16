@@ -217,7 +217,7 @@ async function readConnectCard(browser) {
     }
     check(`${engine}: win32 not-signed-in panel points at Kosmos.exe, with no Mac path`,
       /Kosmos\.exe/.test(win.got.signin) && !/~\/\.local|fix itself/.test(win.got.signin), win.got.signin.slice(0, 120));
-    check(`${engine}: win32 wizard skips S2 and S4`, JSON.stringify(win.got.steps) === '[1,3,5,6,7,8,9]', JSON.stringify(win.got.steps));
+    check(`${engine}: win32 wizard skips S2 and S4`, JSON.stringify(win.got.steps) === '[1,5,3,6,7,8,9]', JSON.stringify(win.got.steps));
     check(`${engine}: win32 page raised no errors`, win.errors.length === 0, win.errors.join(' | '));
 
     const mac = await readPage(browser, 'darwin');
@@ -228,7 +228,7 @@ async function readConnectCard(browser) {
     for (const [sel, want] of Object.entries(WORDS.darwin)) {
       check(`${engine}: CONTROL Mac ${sel} still reads "${want}"`, mac.got.text[sel] === want, JSON.stringify(mac.got.text[sel]));
     }
-    check(`${engine}: CONTROL Mac wizard walks all nine steps`, JSON.stringify(mac.got.steps) === '[1,2,3,4,5,6,7,8,9]', JSON.stringify(mac.got.steps));
+    check(`${engine}: CONTROL Mac wizard walks all nine steps`, JSON.stringify(mac.got.steps) === '[1,5,2,3,4,6,7,8,9]', JSON.stringify(mac.got.steps));
     check(`${engine}: CONTROL Mac not-signed-in panel is unchanged`, /fix itself the next/.test(mac.got.signin), mac.got.signin.slice(0, 120));
     check(`${engine}: Mac page raised no errors`, mac.errors.length === 0, mac.errors.join(' | '));
 

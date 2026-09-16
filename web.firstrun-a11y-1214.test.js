@@ -189,8 +189,9 @@ test('install-flow-9screen: the S3 Next go() guard reads fr-next.disabled and dr
      mechanism is the go() guard, asserted directly below. */
   assert.match(step3, /label: 'Next'/,
     "the S3 primary is no longer labelled 'Next'");
-  /* win32-board-copy: the hop is frStepAfter(3), which is S4 on a Mac and S5 on Windows (S4
-     is a macOS notice); the go() guard this pins is unchanged. */
+  /* win32-board-copy: the hop is frStepAfter(3), which is S4 (Notifications) on a Mac and,
+     since #3112 walks the display order, S6 on Windows (Access(2) + Notifications(4) are
+     macOS-only, so on Windows S3's next is pane 6); the go() guard this pins is unchanged. */
   assert.match(step3, /if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(frStepAfter\(3\)\);/,
     'the S3 Next go() still reads fr-next.disabled before advancing (the guard mechanism is intact)');
   /* #2647: and the Check-again control rides the nav's alt slot from here, which
