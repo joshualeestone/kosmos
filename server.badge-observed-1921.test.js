@@ -231,3 +231,35 @@ test('#3136 ROUTE: an unknown account dir is a 404, and no probe is fired', asyn
     assert.equal(probed, false, 'a 404 account should be rejected before the probe runs');
   } finally { create.setClaudeProbe(null); }
 });
+
+test('#3136 ROUTE: the DEFAULT account probes with null configDir (not its dir), matching the create gate (#1916), and greens', async () => {
+  // The create gate calls claudeAccountLive(acct.isDefault ? null : acct.dir): the default
+  // must probe with CLAUDE_CONFIG_DIR unset (claude's true default), NOT its dir. Passing the
+  // dir would diverge from that one tested caller. The observation is still keyed by the row's
+  // dir, so boss (the default) still greens. boss@ is the default in this fixture (born null).
+  const def = accounts.list().find((a) => a.isDefault);
+  assert.ok(def && def.dir, 'the fixture has a default account with a dir: ' + JSON.stringify(accounts.list().map((a) => ({ e: a.email, d: a.isDefault }))));
+  let gotConfigDir = 'UNSET_SENTINEL';
+  create.setClaudeProbe(async (configDir) => { gotConfigDir = configDir; return { exitCode: 0, out: 'ok' }; });
+  try {
+    const r = await checkNow(def.dir);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.state, 'connected');
+    assert.equal(gotConfigDir, null, 'the default account must probe with null configDir (create-gate #1916 pattern), got: ' + JSON.stringify(gotConfigDir));
+    const m = await badges();
+    assert.equal(m.get('boss@example.com').badge, 'working',
+      'a CONNECTED check-now on the default account did not green it: ' + JSON.stringify(m.get('boss@example.com')));
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('#3136 ROUTE: a LABELLED account probes with its own dir (not null)', async () => {
+  // The mirror of the above: a non-default account must pass its dir, so the probe runs
+  // against THAT account's config rather than the machine default. Control for the null-branch.
+  let gotConfigDir = 'UNSET_SENTINEL';
+  create.setClaudeProbe(async (configDir) => { gotConfigDir = configDir; return { exitCode: 0, out: 'ok' }; });
+  try {
+    const r = await checkNow(CLEO_DIR);
+    assert.equal(r.status, 200);
+    assert.equal(gotConfigDir, CLEO_DIR, 'a labelled account must probe with its own dir, got: ' + JSON.stringify(gotConfigDir));
+  } finally { create.setClaudeProbe(null); }
+});

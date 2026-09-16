@@ -6140,11 +6140,19 @@ const server = http.createServer((req, res) => {
         const acct = accounts.list().find((a) => a.dir === resolved);
         if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
         let state;
-        // A validator CRASH fails open (UNKNOWN), never a false "not connected" —
+        // Probe scoped EXACTLY as the create gate does (#1916, engine/create.js):
+        // the DEFAULT account with NO configDir (CLAUDE_CONFIG_DIR unset = claude`s
+        // true default), a labelled account by its dir. Passing the default`s dir
+        // explicitly would diverge from the one tested caller of claudeAccountLive
+        // and, under a sandbox HOME, point the probe at the wrong config. The
+        // OBSERVATION is still keyed by acct.dir below (the value the badge join
+        // reads off the row), for the default too, so it reaches the right badge.
+        const probeDir = acct.isDefault ? null : acct.dir;
+        // A validator CRASH fails open (UNKNOWN), never a false "not connected" --
         // the same #1916 rule the create gate states: a broken checker is not a
         // dead account. claudeAccountLive already returns UNKNOWN (not a throw)
         // for every environmental case, so a throw here is our own bug, logged.
-        try { state = await create.claudeAccountLive(acct.dir); }
+        try { state = await create.claudeAccountLive(probeDir); }
         catch (err) { console.error('#3136: claude check-now errored (failing open):', (err && err.stack) || err); state = subscription.STATE.UNKNOWN; }
         if (state === subscription.STATE.CONNECTED) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.OK);
         else if (state === subscription.STATE.NONE) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.REJECTED);
