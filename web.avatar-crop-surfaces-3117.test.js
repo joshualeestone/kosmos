@@ -16,10 +16,20 @@
  *   msg-av        34x125 -> 34x34   (bug fixed; the exact 34x125 #3110 traced)
  *   userpop-face  26x95  -> 26x26   (bug fixed)
  *   hub.haspic   104x381 -> 104x104 (bug fixed)
+ *   onode .face  44x161  -> 44x44   (bug fixed; the real org-chart avatar is an
+ *                                    HTML <img> in a .onode button, not the SVG
+ *                                    face() gauge - a blind reviewer caught the
+ *                                    wrong exclusion premise, re-measured here)
  *   detail-av     70x70  -> 70x70   (already square under its flex container;
  *                                    the rule is applied for uniformity, and
  *                                    aspect-ratio:1 keeps it square if the box
  *                                    ever becomes a grid like its siblings)
+ *
+ * NOT included: `.lav.youav img` (operator avatar). A reviewer flagged it as
+ * still pinning height:100%, but it measured 56x56 both arms (no bug): #3110's
+ * `.lav img { aspect-ratio: 1 }` cascades the aspect-ratio to youav's img
+ * (youav's own rule overrides height, not aspect-ratio), so it is already
+ * square. It is also a .lav surface, outside this card's non-.lav scope.
  *
  * This is the source-pin regression guard (the same shape web.consolidated-
  * avatar-crop.test.js uses for `.lav img`): it fails if any surface silently
@@ -41,6 +51,7 @@ const SURFACES = [
   ['detail-av',   /\.detail-av img \{ width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; \}/],
   ['userpop-face',/\.userpop-face img \{ width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; display: block; \}/],
   ['hub.haspic',  /\.hub\.haspic img \{ display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; \}/],
+  ['onode .face', /\.onode \.face img \{ display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; \}/],
 ];
 
 for (const [name, re] of SURFACES) {
@@ -60,6 +71,7 @@ test('none of the #3117 surfaces still carry the pre-fix `height: 100%` on their
     /\.detail-av img \{[^}]*height: 100%/,
     /\.userpop-face img \{[^}]*height: 100%/,
     /\.hub\.haspic img \{[^}]*height: 100%/,
+    /\.onode \.face img \{[^}]*height: 100%/,
   ]) {
     assert.doesNotMatch(PAGE, bad, `a #3117 avatar img rule still pins height: 100% (${bad})`);
   }
