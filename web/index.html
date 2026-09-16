@@ -105,7 +105,7 @@
      bluish inset is that world's own language, out of scope). The subtle
      per-message variation is a color-mix nudge of THIS token (see .dm.theirs
      .dm-b[data-am] below), so it stays theme-aware. */
-  --agent-msg: #f9f7f1;  /* #3130 (Josh 6.70): the agent message bubble, his "a bit lighter" pick (exact hex). The per-message [data-am] variation is a color-mix nudge of this token, so a stack of bubbles does not read as one flat block. */
+  --agent-msg: #f9f7f1;  /* #3130 (Josh 6.70): the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. The per-message [data-am] variation is a color-mix nudge of this token, so a stack of bubbles does not read as one flat block. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
@@ -4774,18 +4774,20 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* #3130 (Josh 6.70): the bubble TAIL ("the little hatch thing") -- a small nub at
    the bottom corner, bottom-LEFT on an agent bubble, bottom-RIGHT on the person's.
    A rotated square poking out from under the bubble's bottom edge.
-   🔑 z-index -1 tucks the nub's overlapping half behind THIS bubble, but only if
-   the bubble owns a stacking context -- so `.msg-bd` sets `z-index: 0` alongside
-   `position: relative`. Without it the -1 resolves against the ambient context
-   shared with `.thread`, whose opaque ground then paints OVER the whole nub and
-   hides it (the tail never shows). `z-index: 0` scopes the -1 to just behind
-   `.msg-bd`, so the poking-out half shows and the overlap tucks under the bubble.
+   🔑 z-index -1 paints the nub behind `.msg-bd`'s OWN background (in front of
+   nothing, behind the bubble text) -- but only if the bubble owns a stacking
+   context, so `.msg-bd` sets `z-index: 0` alongside `position: relative`. Without
+   it the -1 resolves against the ambient context shared with `.thread`, whose
+   opaque ground then paints OVER the whole nub and hides it (the tail never
+   shows). With `z-index: 0` the poking-out half (below the bubble edge) shows and
+   the half that overlaps the bubble sits behind the bubble's own fill.
    🔑 `background-color: inherit` so the nub matches the bubble's OWN resting
    background -- including the per-message [data-am] cream shade -- instead of a
-   fixed token that would seam against a shaded bubble. The person's bubble tint is
-   translucent, so its nub carries the same tint and the tiny overlap is his in-app
-   nudge. Positioned inside the rounded corner (9px in) so it sits under the flat
-   part of the edge. */
+   fixed token that would seam against a shaded bubble. On the OPAQUE agent bubble
+   the overlap is invisible (same colour over same colour). On the person's
+   TRANSLUCENT tint the overlap shows through a touch darker (tint over tint); that
+   small op-side seam is his in-app nudge. Positioned inside the rounded corner
+   (9px in) so it sits under the flat part of the edge. */
 .msg-bd { position: relative; z-index: 0; }
 .msg-bd::after { content: ""; position: absolute; bottom: -3px; width: 11px; height: 11px;
                  transform: rotate(45deg); border-radius: 0 0 3px 0; z-index: -1;
@@ -41398,13 +41400,19 @@ function pjRoomRow(m, p, silent) {
      up, so it is inert on the person's own (blue) bubble. Inlined, not a shared
      helper, for the same isolation-lift reason dmRow records. */
   const amSeed = String((m && (m.id || m.at)) || ''); let amH = 0; for (let ai = 0; ai < amSeed.length; ai++) amH = (amH * 31 + amSeed.charCodeAt(ai)) | 0; const amRoom = Math.abs(amH) % 5;
+  /* #3130 (Josh 6.70): the operator's OWN post has NO name and NO "You" -- his
+     words, "me as the user doesn't have my name or 'you' in the message". So the
+     header is the timestamp alone on the user side; an agent's keeps its name.
+     #3130 (Josh 6.68): the agent's title is NOT shown in the dialog either.
+     The header is built only when it HAS content: an agent always has a name, but
+     the operator's header is the timestamp alone, so with no timestamp there is
+     nothing to show and the empty .msg-h bar is omitted rather than drawn 4px tall. */
+  const whenStr = esc(pjWhen(m.at) || '');
+  const msgH = (!isOp || whenStr)
+    ? '<div class="msg-h">' + (isOp ? '' : '<b>' + esc(name) + '</b>') + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '') + '</div>'
+    : '';
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
-    /* #3130 (Josh 6.70): the operator's OWN post has NO name and NO "You" -- his
-       words, "me as the user doesn't have my name or 'you' in the message". So the
-       header is the timestamp alone on the user side; an agent's keeps its name.
-       #3130 (Josh 6.68): the agent's title is NOT shown in the dialog either. */
-    + '<div class="msg-b"><div class="msg-h">' + (isOp ? '' : '<b>' + esc(name) + '</b>')
-    + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
+    + '<div class="msg-b">' + msgH
     + (bd ? '<div class="msg-bd"' + (isOp ? '' : ' data-am="' + amRoom + '"') + '>' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
 }
 
