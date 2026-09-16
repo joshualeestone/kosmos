@@ -108,6 +108,29 @@ const MEMBER = 'taskmate';
     await p.locator('#pj-list').getByText('Task Drive').first().click();
     await p.waitForSelector('#pj-tasks-field', { state: 'visible', timeout: 10000 });
 
+    /* #2926 (Josh 6.59 QA): before any task exists the column shows its empty-state
+       invitation, and it must sit VERTICALLY CENTRED in the box. The old
+       `.tk-empty { margin: auto 0 }` relied on margin-bottom:auto to split the free
+       space, but `.panel p:last-child { margin-bottom: 0 }` (higher specificity)
+       zeroed it, so only the top auto-margin survived and the text bottom-aligned.
+       This asserts centring directly: it needs a genuinely taller box (free space,
+       the control that makes the test meaningful) and the gap above ~= the gap
+       below. On the pre-fix CSS the gap-below was 0 and this fails. */
+    await p.waitForSelector('#pj-tasklist .tk-empty', { state: 'visible', timeout: 10000 });
+    const emptyGeo = await p.evaluate(() => {
+      const list = document.getElementById('pj-tasklist');
+      const el = list.querySelector('.tk-empty');
+      const lr = list.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      return {
+        free: Math.round(lr.height - er.height),
+        above: Math.round(er.top - lr.top),
+        below: Math.round(lr.bottom - er.bottom),
+      };
+    });
+    if (emptyGeo.free < 20) die('the empty Tasks box is not taller than its text, so centring cannot be verified (#2926): ' + JSON.stringify(emptyGeo));
+    if (Math.abs(emptyGeo.above - emptyGeo.below) > 8) die('the empty Tasks invitation is not vertically centred (#2926): ' + JSON.stringify(emptyGeo));
+
     // The new-task PAGE (#383): + navigates, nothing pops over the project.
     await p.click('#pj-newtask');
     /* #766: New task is a dialog over the project page again. */
@@ -372,7 +395,7 @@ const MEMBER = 'taskmate';
     await p.waitForFunction(() => document.getElementById('tk-done').textContent.trim() !== 'Reopen', null, { timeout: 10000 });
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TASKS DRIVE OK: creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, fixture tmux only, 0 page errors; shots in ' + OUT);
+    console.log('TASKS DRIVE OK: empty-box invitation centred (#2926), creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, fixture tmux only, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();

@@ -6559,7 +6559,24 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 /* ---- task cards (the pack's .task, in this app's tokens) ---- */
 .tkcards { display: flex; flex-direction: column; gap: var(--space-4); min-height: 14rem; }
 /* #761: the empty Tasks box is taller and says what it is for, centred and quiet. */
-.tk-empty { margin: auto 0; padding: var(--space-7) var(--space-5); text-align: center; font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: 1.5; }
+/* #2926 (Josh 6.59 QA): centre the empty-state VERTICALLY via the flex container,
+   not the child's own margin. The old `.tk-empty { margin: auto 0 }` relied on
+   margin-bottom:auto to split the free space, but `.panel p:last-child { margin-bottom: 0 }`
+   (higher specificity) zeroes it, so only the top auto-margin survived and the text
+   bottom-aligned. justify-content on the container is immune to that override and
+   works in both the tab min-height:14rem box and the consolidated flex-filled box.
+   Scoped to the class, not one id, on purpose: BOTH `.tkcards` empty-state consumers
+   carried the same bug -- the per-project column (#pj-tasklist) and the all-tasks
+   screen (#alltasks-list, "No tasks on this project yet"). One rule fixes both; both
+   measured centred via pw-runtime (61/61 and 82/82). A populated list has no `.tk-empty`
+   child, so it keeps justify-content:normal and its cards stay top-aligned.
+   `safe center`, not plain `center`: in the consolidated layout .tkcards is overflow-y:auto
+   with min-height:0 (line ~4047), where plain centering can push overflow off the TOP
+   unreachably if the copy ever exceeds the shrunk track. `safe` centers when it fits and
+   falls back to start-alignment (scrollable, nothing clipped) when it would overflow -- the
+   old margin:auto had the same clip risk and no fallback, so this is strictly safer. */
+.tkcards:has(> .tk-empty) { justify-content: safe center; }
+.tk-empty { margin: 0; padding: var(--space-7) var(--space-5); text-align: center; font: var(--text-callout) var(--font-ui); color: var(--label-3); line-height: 1.5; }
 #pj-newtask { margin-bottom: var(--space-5); }
 .tkcard { display: block; width: 100%; text-align: left; cursor: pointer;
         background: var(--bg-elevated); border: 1px solid var(--border-strong);
