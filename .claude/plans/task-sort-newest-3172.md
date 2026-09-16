@@ -30,10 +30,23 @@ most likely already done. Josh wants the most recent task on top.
   the default rather than blocking. If he means most-recently-worked, it is a
   one-line key change (sort by `movedAt`/activity instead of number), same location.
 
-## Not in scope
+## Not in scope (and a residual to flag to Josh)
 - The All-tasks index screen (`#alltasks-list`, `openAllTasksView`) is a SEPARATE
-  render, already ordered open-before-closed by #3171. Josh's #3172 wording is the
-  project-page column, so this change is confined to `paintProjectTasks`.
+  render. Josh's #3172 wording is explicitly the project-page column ("on project
+  pages, either in the tab view or the consolidated view"), so this change is
+  confined to `paintProjectTasks`.
+- Precise about the residual, because the earlier justification here was not:
+  the index is NOT already newest-first. #3171 added open-before-closed grouping
+  and the Open/Closed pills, but WITHIN the open group the index still shows tasks
+  oldest-first, because `allTasks()` sorts `(isClosed) ASC, then number ASC`
+  (engine/tasks.js). So the View-All screen reproduces the same oldest-on-top
+  behavior for open tasks that #3172 fixes on the column. That is a deliberate,
+  reversible scope call (Josh asked for the project column, not the index), and it
+  is being flagged to Josh alongside the created-vs-worked question: should View
+  All match the column's newest-first direction? If yes, it is a one-line key
+  change in `allTasks()` (add `number DESC` as the within-group tiebreak), and
+  #3171's browser-check still holds (it pins open-above-closed, not within-group
+  order).
 
 ## Verification
 - `render-tasks.js` browser-check: updated for the newest-first order (the newer of
