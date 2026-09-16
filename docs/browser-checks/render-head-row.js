@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-room-search
+// Browser-check-surface: pj-room-search pj-settings-link pj-one-name
 /* #1043: Settings stays on the same line as the project title and the search.
  *
  * Josh, 2026-08-26 18:29 CT: "The 'settings' should still be visible then on
@@ -116,7 +116,7 @@ function sameLine(a, b) {
 
     /* ---- 2. NEGATIVE CONTROL, run not assumed ----
        🛑 A row check that cannot report "not one row" is decoration. The
-       stylesheet stacks this header under 760px on purpose, so a narrow window
+       stylesheet stacks this header under 960px (the 60rem breakpoint) on purpose, so a narrow window
        is a state where the honest answer is FALSE. If this arm reports the
        boxes still sharing a line, the measurement is broken and every PASS
        above is worthless. */
@@ -186,7 +186,7 @@ function sameLine(a, b) {
   else ok('no page errors');
 
   /* A population floor: a check that silently stops running its arms passes. */
-  if (ran < 9) { console.log('head-row: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 10) { console.log('head-row: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('head-row: ' + failures + ' FAILED'); process.exit(1); }
   console.log('head-row: all good, ' + ran + ' checks');
 })();
