@@ -114,6 +114,12 @@ const PORT = freePort();
     await p.waitForSelector('#pj-one-view', { state: 'visible', timeout: 10000 });
     if (await p.locator('#pj-settings-view').isVisible()) die('after Save Changes, still on the settings view (#3134: should auto-advance to the project)');
     if ((await shown(p.locator('#pj-one-name'))).trim() !== 'Settings Drive Renamed') die('the project page missed the rename after save');
+    // #3134 a11y: the timer-initiated advance moves focus to the settings cog on the
+    // detail (matching pj-settings-back), so a keyboard/screen-reader user is not
+    // dropped to <body>. On origin/main this path does not exist; a regression that
+    // dropped the focus() would leave activeElement on the hidden Save button or body.
+    const focusedId = await p.evaluate(() => (document.activeElement && document.activeElement.id) || '');
+    if (focusedId !== 'pj-settings-link') die('after the auto-advance, focus is not on the settings cog (activeElement=' + focusedId + ') -- a keyboard/SR user was dropped');
     await p.unroute('**/api/project/**');  // later saves need no delay
 
     // A no-change save says so instead of lying "Saved." -- and a no-op does NOT
@@ -227,7 +233,7 @@ const PORT = freePort();
     if (!(await p.locator('#pj-settings-view').isVisible())) die('#3134: re-opening settings within the window did not cancel the pending advance -- the timer pulled the person off the settings they re-opened');
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, back-link rename, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, the advance is suppressed on another tab, re-opening settings cancels a pending advance, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
+    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, back-link rename, save round trip (spinner in-flight + "Saved." left of button + #3134 auto-advance to the project + focus to the cog), honest no-op stays on settings, manual back works, no cross-project "Saved." leak, an interleaved second save cancels the pending advance, the advance is suppressed on another tab, re-opening settings cancels a pending advance, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();

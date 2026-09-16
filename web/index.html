@@ -39166,17 +39166,25 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
         // only advances while all of these still hold, so a navigation the person
         // made themselves in the meantime suppresses it: still on THIS project's
         // settings sub-view (PJ_VIEW / PJ_CURRENT), the project still exists, AND
-        // the Projects panel is still the visible tab. The last check matters
-        // because leaving for the Agents tab via showTab does not touch
-        // PJ_VIEW/PJ_CURRENT, so without it the advance would fire an invisible
-        // pjView('one') on another tab. (Returning to the Projects tab re-opens the
-        // current project's detail on its own via showTab -> pjView('one'); that is
-        // pre-existing tab behaviour, not this timer.) Any prior pending timer was
-        // already cleared at the top of this handler.
+        // the Projects panel is still the visible tab. The last check matters in
+        // the TAB layout, where leaving for the Agents tab via showTab does not
+        // touch PJ_VIEW/PJ_CURRENT, so without it the advance would fire an
+        // invisible pjView('one') on another tab. (In the CONSOLIDATED layout
+        // showTab treats agents+projects as one screen and calls pjView, which the
+        // PJ_VIEW check already catches; and returning to the Projects tab re-opens
+        // the detail on its own via showTab -> pjView('one'), pre-existing tab
+        // behaviour, not this timer.) Any prior pending timer was already cleared
+        // at the top of this handler. On advance, move focus to the settings cog on
+        // the detail, matching pj-settings-back (settings -> detail focuses the
+        // cog): a timer-initiated navigation must not leave focus on the now-hidden
+        // Save button and drop it to <body> for a keyboard/screen-reader user.
         const savedId = fresh.id;
         btn.__navTimer = setTimeout(() => {
           if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)
-              && !document.getElementById('panel-projects').hidden) pjView('one');
+              && !document.getElementById('panel-projects').hidden) {
+            pjView('one');
+            document.getElementById('pj-settings-link').focus();
+          }
         }, 1000);
       }
     }
