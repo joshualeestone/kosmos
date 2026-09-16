@@ -172,8 +172,11 @@ const ACCOUNTS = [
     // #3136: unver@ is EXACTLY Josh's state (signed in, not recently checked). It must
     // carry "Check now" so the person can positively verify a connected-but-idle account.
     { email: 'unver@example.com', cls: 'acct-unknown', text: /not recently checked/, honesty: true, checkNow: true },
-    { email: 'out@example.com', cls: 'acct-none' },
-    { email: 'unk@example.com', cls: 'acct-unknown' },
+    // #3136: signed_out and unchecked are still CLAUDE rows, so "Check now" must render on
+    // them too -- assert it, so the "every Claude row" claim is tested for every badge state
+    // and a future change that conditioned the button on `badge` would red here.
+    { email: 'out@example.com', cls: 'acct-none', checkNow: true },
+    { email: 'unk@example.com', cls: 'acct-unknown', checkNow: true },
     // #2568: the ChatGPT-subscription row. The VISIBLE pill must be the short shape
     // label; the long because sentence must live in the TITLE, never the visible span
     // (that overflow was the bug). notText pins that the long sentence is NOT rendered
