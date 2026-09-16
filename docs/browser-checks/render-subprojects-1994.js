@@ -3,7 +3,8 @@
 // (#2518) the distinctive web/index.html tokens this check asserts (the ancestry/parent
 // chip + the detail-page breadcrumb); a change to them must update this check at PR time.
 // #3133 (6.68) REMOVED the .pjsub "X sub-projects" list-row count from web/index.html, so
-// pjsub is dropped from this surface list; the check now asserts that count's ABSENCE. #2487 changed pj-parent to a full ancestry line; #3103/#3104
+// pjsub is dropped from this surface list; the check now asserts that count's ABSENCE.
+// #2487 changed pj-parent to a full ancestry line; #3103/#3104
 // (6.68) REMOVED the detail-page sub-projects section and the #2848 consolidated strip and
 // MOVED the breadcrumb to the top of #pj-one-view (hidden in the consolidated rail), so this
 // check now guards their ABSENCE + the new breadcrumb placement (see Layer 1e).
