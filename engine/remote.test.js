@@ -94,9 +94,10 @@ if (args[0] === 'signin') {
     const token = fs.readFileSync(0, 'utf8').trim();
     if (!token) { process.stderr.write('no token on stdin\\n'); process.exit(1); }
     const kind = flag('--kind');
-    // A 200 that omits the material the kind needs (no secret/otpauth/sent_to) --
-    // the engine must fail closed rather than show a blank enrol screen.
-    if (token === 'kst1.enrol-nomaterial') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', why_authenticator: 'why' })); process.exit(0); }
+    // A 200 whose material is present-but-EMPTY (secret:''/otpauth:'') -- the harder
+    // case: a typeof check would let it through, so this proves the guard uses
+    // truthiness and fails closed rather than showing a blank enrol screen.
+    if (token === 'kst1.enrol-nomaterial') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', secret: '', otpauth: '', why_authenticator: 'why' })); process.exit(0); }
     // The coordinator's answer carries a session-bearing token; the engine allowlist
     // must strip it so it never reaches the caller (asserted at the enrol boundary below).
     if (kind === 'totp') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', token: 'kst1.should-be-stripped', secret: 'JBSWY3DPEHPK3PXP', otpauth: 'otpauth://totp/x', why_authenticator: 'why' })); process.exit(0); }

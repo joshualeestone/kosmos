@@ -634,8 +634,10 @@ async function deviceRemove(id) {
    confirming existence. The kosmos-tunnel
    `signin {start,verify,second,enrol,confirm-enrol,register}` verbs each print
    one JSON object with a `stage` field; this module drives them and hands the
-   PAGE only the stage (plus, on the enrol stage, what the enrol screen renders --
-   sms_available and the why-authenticator copy, never a token).
+   PAGE only page-safe fields: the stage always; on the enrol_second_factor stage,
+   sms_available and the why-authenticator copy; and on the enrolment_started stage,
+   the kind and the material the enrol screen shows (a totp secret/otpauth, or the
+   masked sms sent_to tail) -- never a token, and never the full phone number.
 
    🔒 The bearer material stays HERE, never the browser. THREE bearer credentials
    pass through, all held the same way: `verify`/`second` return a 30-day session
@@ -845,10 +847,14 @@ async function signinEnrol(kind, phone) {
   // blank enrol screen presented as success. We validate the MATERIAL, not d.stage --
   // the tunnel forces stage: "enrolment_started" on this verb, so a stage check could
   // never fire; a missing field is the failure that can actually reach here.
-  if (kind === 'totp' && typeof d.secret !== 'string' && typeof d.otpauth !== 'string') {
+  // Truthiness, not typeof: an empty-string secret/sent_to is "no material" just as
+  // an absent one is, and it must fail closed the same way -- matching absorbSession's
+  // !token / !challenge convention. A typeof check would let secret:'' through and
+  // show the blank screen this guard exists to prevent.
+  if (kind === 'totp' && !d.secret && !d.otpauth) {
     return { ok: false, because: 'the coordinator did not return an authenticator secret to set up' };
   }
-  if (kind === 'sms' && typeof d.sent_to !== 'string') {
+  if (kind === 'sms' && !d.sent_to) {
     return { ok: false, because: 'the coordinator did not confirm where the code was sent' };
   }
   const out = {
