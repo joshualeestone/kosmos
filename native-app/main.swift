@@ -1204,7 +1204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Steady state is cheap: only a fileExists per request name. Resolve the install
         // (config load + disk path resolution) ONLY when a request is actually pending,
         // rather than every 1.5s tick for the app's whole idle lifetime.
-        let names = ["a11y-prompt-request", "file-access-prompt-request"]
+        let names = ["a11y-prompt-request", "file-access-prompt-request", "tmux-a11y-prompt-request"]
         let pending = names.contains { name in
             guard let u = storeFileURL(name) else { return false }
             return FileManager.default.fileExists(atPath: u.path)
@@ -1226,6 +1226,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // One hatch both fires the Files-and-Folders prompt and writes the verdict
             // (see fileAccessReading / --kosmos-app-fileaccessprompt).
             self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-fileaccessprompt")
+        }
+        consumeRequest(named: "tmux-a11y-prompt-request") { [weak self] in
+            // #2911/#3113: run an osascript automation op UNDER tmux so macOS prompts for tmux
+            // (the responsible process agents run under), securing it up front. No
+            // AXIsProcessTrusted here -- that would register the app; the whole point is to
+            // prompt for tmux so it acquires its own Accessibility TCC row.
+            self?.spawnTmuxAutomationPrompt(kosmosHome: home)
         }
     }
 
@@ -1276,6 +1283,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         logLine("prompt-request: consumed \(name); firing under tmux")
         fire()
+    }
+
+    /// #2911/#3113: fire the macOS accessibility/automation prompt attributed to TMUX, so the
+    /// user secures it UP FRONT instead of being ambushed mid-work (Josh's ruling), and so tmux
+    /// acquires its own Accessibility TCC row -- the row whose absence keeps the onboarding tmux
+    /// gate stuck on "Checking..." with no Turn On affordance (#3113).
+    ///
+    /// Unlike spawnAxHatchUnderTmux (which runs the app executable under tmux and calls
+    /// AXIsProcessTrusted as the APP -- the calling binary, #2451, so it registers Kosmos),
+    /// this runs an osascript automation op DIRECTLY under the bundled tmux, so the AppleEvents
+    /// / accessibility operation is attributed to the RESPONSIBLE process: the tmux server.
+    /// That mirrors the real runtime trigger -- engine/terminal.js drives Terminal.app via
+    /// osascript under an agent's tmux, which is what raises "tmux wants to control your
+    /// computer" the first time an agent acts. Pre-firing it here secures the tmux grant.
+    private func spawnTmuxAutomationPrompt(kosmosHome: String) {
+        guard let tmux = resolveBundledTmux(kosmosHome: kosmosHome) else {
+            logLine("tmux-a11y: no bundled tmux under \(kosmosHome) (AGENT_WORKFORCE_TMUX_BIN / tmux/bin/tmux); skipping (gate stays fail-safe)")
+            return
+        }
+        // ⚠️ THE ONE VERIFY-PINNED STRING (#2911/#3113). A fresh-install verify confirms which
+        // TCC service fires (Accessibility via System Events, Automation/AppleEvents via
+        // Terminal, or BOTH) and which binary macOS names. `System Events` UI-scripting raises
+        // the Accessibility ("control your computer") prompt Josh described; `get name of first
+        // process` is read-only, so it has NO side effect (no window, no state change). If the
+        // verify names a different op or a second service is needed, swap/extend this string.
+        let probe = "tell application \"System Events\" to get name of first process"
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tmux)
+        // Run osascript DIRECTLY under tmux so the responsible process is the tmux server.
+        // The command is one shell string tmux hands to /bin/sh; the probe carries double
+        // quotes and no single quote, so single-quoting the -e argument is safe.
+        p.arguments = ["-L", "kosmos-axcheck", "new-session", "-d", "/usr/bin/osascript -e '\(probe)'"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do {
+            try p.run()
+        } catch {
+            logLine("tmux-a11y: could not spawn tmux for the automation prompt: \(error.localizedDescription)")
+        }
     }
 
     private func spawnAxHatchUnderTmux(kosmosHome: String, hatch: String) {
