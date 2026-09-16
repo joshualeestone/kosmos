@@ -2,13 +2,32 @@
 pre_challenge: true
 method: challenge-loop
 branch: onboarding-reorder-3112
-diff_hash: 1b3180a316cb7b3fbd0f5236b430f1cfac17a8352d2057297a537d84ebfb2b78
+diff_hash: 037f0923b3a5300332e9b0c63c10b4ee6de17eb2a7b62c2c742d43dfcf13f2fd
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-15T23:40:00Z
-iterations: 8
+timestamp: 2026-09-16T00:00:00Z
+iterations: 9
 converged: true
 ---
+
+<!-- ITER 9 (CI red round 2 -> click-first-run had a REAL section-3 bug too, 2026-09-15
+18:56 CDT): the iter-8 call that click-first-run was "just a flake" was WRONG. CI failed it a
+2nd time. Diagnosed from the CI log: section 3 used FIXED #fr-next clicks (Welcome->Access->
+Automation), but #3112 puts Model at display step 2, and on a CLEAN machine (every CI runner)
+Model HIDES #fr-next and offers only #fr-alt Skip -> the fixed click times out (30s) = the
+THROW. It passed LOCALLY only because this box reports the subscription CONNECTED (Model shows
+#fr-next). The About-you retry-FAIL was a consequence of the retry running after that throw,
+not an independent bug. [BLOCKER] FIXED: section 3 now walks by content via
+advanceToAnchor('.s2-allow') -- the SAME content-walk section 1 uses (which passed on CI's
+clean machine in attempt 1), so it handles the Model skip on both connected and clean boxes.
+Also refreshed the stale flow-order header comment. render-win32-board-copy (iter 8) still
+PASS. Rebased onto current main 057304215; both checks PASS locally HEADLESS on the rebased
+tree. diff_hash 037f0923.
+⭐ LESSON: my box reports subscription CONNECTED, so a clean-machine-only browser-check failure
+(Model hides #fr-next) is INVISIBLE to a local run. advanceToAnchor's #fr-alt branch is the
+clean-machine path; any first-run walk touching the Model step must use it, never a fixed
+#fr-next click. -->
+
 
 <!-- ITER 8 (CI browser-checks red -> diagnosed + fixed, 2026-09-15 18:40 CDT): PR #3140 CI's
 browser-checks job went RED on two checks. Diagnosed both with the LOCAL harness (pinned
