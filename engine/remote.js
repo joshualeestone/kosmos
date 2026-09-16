@@ -821,6 +821,12 @@ async function signinEnrol(kind, phone) {
     if (typeof phone !== 'string' || !phone.trim()) {
       return { ok: false, because: 'a phone number is needed for a text message' };
     }
+    // The number goes straight through, not format-checked here (unlike the
+    // newline guard on --device-name): the coordinator OWNS phone normalization
+    // and accepts a spaced/dashed number the person types, so a guard here would
+    // wrongly reject valid input. The one argv-injection worry the device-name
+    // guard exists for cannot arise -- spawn takes the ARRAY form, so a character
+    // inside one element can never become a second argv entry.
     args.push('--phone', phone.trim());
   }
   const r = parseSaid(await setupRun(args, signinSession.enrolToken));
