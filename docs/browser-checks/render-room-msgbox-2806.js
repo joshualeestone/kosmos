@@ -116,6 +116,15 @@ const now = () => new Date().toISOString();
           agentDataAm: (agentRow && agentRow.querySelector('.msg-bd')) ? agentRow.querySelector('.msg-bd').getAttribute('data-am') : null,
           // The operator's own box must NOT carry data-am (emitted only for !isOp).
           opHasDataAm: !!(opRow && opRow.querySelector('.msg-bd') && opRow.querySelector('.msg-bd').hasAttribute('data-am')),
+          /* #3130 (Josh 6.70): the operator's OWN post has NO name/"You" in its
+             header; an agent's keeps its name. */
+          opHasName: !!(opRow && opRow.querySelector('.msg-h b')),
+          agentHasName: !!(agentRow && agentRow.querySelector('.msg-h b')),
+          /* #3130: both bubbles carry a TAIL (::after) -- agent bottom-LEFT (its
+             own left offset set, coloured warm cream = --agent-msg), operator
+             bottom-RIGHT (right offset set, blue). */
+          agentTail: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, right: cs.right, bg: cs.backgroundColor }; })(),
+          opTail: (() => { const bd = opRow && opRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, right: cs.right, bg: cs.backgroundColor }; })(),
         };
         host.remove();
         return out;
@@ -147,6 +156,22 @@ const now = () => new Date().toISOString();
       chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent cream are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
       // (e) a bodyless row draws NO box.
       chk(m.emptyRowIsYou && !m.emptyRowHasBox, `${t} a bodyless row draws a .msg row but NO .msg-bd (no empty tinted box)`, `isYou=${m.emptyRowIsYou} hasBox=${m.emptyRowHasBox}`);
+
+      // #3130 (Josh 6.70): the operator's OWN post shows NO name/"You" in the
+      // header; an agent's keeps its name. (The whole point of the user-side
+      // correction: "me as the user doesn't have my name or 'you' in the message".)
+      chk(m.opHasName === false, `${t} #3130: the operator's own post shows NO name/You`, `opHasName=${m.opHasName}`);
+      chk(m.agentHasName === true, `${t} #3130: an agent's post keeps its name`, `agentHasName=${m.agentHasName}`);
+      // #3130: both bubbles carry a TAIL (::after), agent bottom-LEFT, operator
+      // bottom-RIGHT. `left`/`right` resolve to the offset actually set on each side.
+      chk(!!(m.agentTail && m.agentTail.on) && parseInt(m.agentTail.left, 10) >= 0 && parseInt(m.agentTail.left, 10) < 20,
+        `${t} #3130: the agent bubble has a tail on the LEFT`, JSON.stringify(m.agentTail));
+      chk(!!(m.opTail && m.opTail.on) && parseInt(m.opTail.right, 10) >= 0 && parseInt(m.opTail.right, 10) < 20,
+        `${t} #3130: the operator bubble has a tail on the RIGHT`, JSON.stringify(m.opTail));
+      // #3130: the agent tail is the warm cream (--agent-msg = #f9f7f1), NOT the blue.
+      const atail = parse(m.agentTail && m.agentTail.bg);
+      chk(atail[0] >= atail[1] && atail[1] >= atail[2] && (atail[0] - atail[2]) >= 2 && blueLead(atail) < 20,
+        `${t} #3130: the agent tail is the warm cream, not blue`, m.agentTail && m.agentTail.bg);
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();

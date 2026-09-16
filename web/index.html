@@ -105,7 +105,7 @@
      bluish inset is that world's own language, out of scope). The subtle
      per-message variation is a color-mix nudge of THIS token (see .dm.theirs
      .dm-b[data-am] below), so it stays theme-aware. */
-  --agent-msg: #f7f4ec;
+  --agent-msg: #f9f7f1;  /* #3130 (Josh 6.70): the agent message bubble, his "a bit lighter" pick (exact hex). The per-message [data-am] variation is a color-mix nudge of this token, so a stack of bubbles does not read as one flat block. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
@@ -4771,6 +4771,19 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    instead of being cleared by a shorthand -- true even for a [data-am] shade,
    whose higher specificity would otherwise win the background-image too. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
+/* #3130 (Josh 6.70): the bubble TAIL ("the little hatch thing") -- a small nub at
+   the bottom corner, bottom-LEFT on an agent bubble, bottom-RIGHT on the person's.
+   A rotated square poking out from under the bubble's bottom edge, coloured to
+   match the bubble; z-index -1 tucks its overlapping half behind the bubble so it
+   reads as a tail rather than a floating diamond. The person's bubble tint is
+   translucent, so its nub carries the same token and the tiny overlap is his in-app
+   nudge, not a second colour. Positioned inside the rounded corner (9px in) so it
+   sits under the flat part of the edge. */
+.msg-bd { position: relative; }
+.msg-bd::after { content: ""; position: absolute; bottom: -3px; width: 11px; height: 11px;
+                 transform: rotate(45deg); border-radius: 0 0 3px 0; z-index: -1; }
+.msg:not(.you) .msg-bd::after { left: 9px; background-color: var(--agent-msg); }
+.msg.you .msg-bd::after { right: 9px; background-color: var(--usermsg-tint); }
 /* #2921 (Josh, 2026-09-12 6.59 QA): a very subtle darker active-state on hover, so
    a hovered post reads as "you are on this one" alongside the reaction bar that
    already fades in (.msg:hover .rxn-quick below, which this leaves untouched). The
@@ -41375,10 +41388,11 @@ function pjRoomRow(m, p, silent) {
      helper, for the same isolation-lift reason dmRow records. */
   const amSeed = String((m && (m.id || m.at)) || ''); let amH = 0; for (let ai = 0; ai < amSeed.length; ai++) amH = (amH * 31 + amSeed.charCodeAt(ai)) | 0; const amRoom = Math.abs(amH) % 5;
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
-    + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
-    /* #3130 (Josh 6.68): the agent's title is NOT shown in the dialog. The #1703
-       title span was removed here per Josh's feedback; roleLine/ROLE_TITLES stay
-       in use by the member roster (pj-member-role), only this surface drops it. */
+    /* #3130 (Josh 6.70): the operator's OWN post has NO name and NO "You" -- his
+       words, "me as the user doesn't have my name or 'you' in the message". So the
+       header is the timestamp alone on the user side; an agent's keeps its name.
+       #3130 (Josh 6.68): the agent's title is NOT shown in the dialog either. */
+    + '<div class="msg-b"><div class="msg-h">' + (isOp ? '' : '<b>' + esc(name) + '</b>')
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
     + (bd ? '<div class="msg-bd"' + (isOp ? '' : ' data-am="' + amRoom + '"') + '>' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
 }
