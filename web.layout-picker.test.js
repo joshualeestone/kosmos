@@ -225,7 +225,13 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
     'the agents + is not out in .railacts on the far right');
   assert.match(PAGE, /<span class="railacts">\s*<button class="fold plus" type="button" id="rail-projects-new"[^>]*>\+<\/button>\s*<\/span>/,
     'the projects + is not out in .railacts on the far right');
-  assert.match(block, /body\.consolidated \.lrow \{ border: 0; background: none;/);
+  /* #3187 (Josh 6.70): the consolidated .lrow no longer strips its ground
+     (background: none removed) -- status is a grey/green/red wash now, so the
+     base .lrow washes must show through the rail. The rounded borderless look
+     (border 0, box-shadow none, radius, padding) is unchanged. */
+  assert.match(block, /body\.consolidated \.lrow \{ border: 0; box-shadow: none; border-radius: 9px; padding: 6px 6px; \}/);
+  assert.doesNotMatch(block, /body\.consolidated \.lrow \{[^}]*background: none/,
+    'the consolidated rail row must NOT strip its ground -- #3187 shows the status wash there');
 });
 
 test('piece six: the board notice bars do not sit over the consolidated grid', () => {

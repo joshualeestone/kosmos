@@ -1,13 +1,22 @@
 'use strict';
 
 /**
- * The three lines of a rail agent, measured as TEXT rather than as boxes (#1303 A item 3).
+ * The lines of a rail agent, measured as TEXT rather than as boxes (#1303 A item 3).
  *
  * 🔑 Josh, 0.5.97 review: "for each agent let's tighten up the spacing between
  * lines between the agent name, its title, and its status". The rail row is a
- * three-row grid with a 2px row gap, so the gap is not what a reader sees: at
+ * multi-row grid with a 2px row gap, so the gap is not what a reader sees: at
  * .8125rem and .625rem the LINE BOXES are most of the height, and the leading
  * inside them is the spacing being complained about.
+ *
+ * 🛑 #3131 + #3187 (Josh 6.70) CHANGED WHAT THIS ROW SHOWS. The status is no
+ * longer a third TEXT line -- it is the row's ground COLOUR now (grey/green/red),
+ * and the state word is kept only in a .vh span for screen readers. So this check
+ * now measures the leading of the TWO visible lines (name, title), asserts the
+ * state word is present-but-visually-hidden, and asserts the row carries a colour
+ * wash. This supersedes the original three-line-stack contract (which came from
+ * #1191's "single text line to indicate what they're doing"); the leading claim
+ * for name->title is what carries over.
  *
  * 🛑 MEASURED WITH A RANGE, NOT `getBoundingClientRect` ON THE ELEMENT. An
  * element's box includes its leading, so reading element boxes reports the
@@ -48,6 +57,10 @@ const chk = (ok, label, extra) => {
   fleet.install([
     fleet.agent('april', { state: 'working', displayName: 'April', role: 'Research Assistant' }),
     fleet.agent('mikey', { state: 'idle', displayName: 'Mikey', role: 'Bookkeeper' }),
+    /* #3187: a needs-you agent so the RED wash arm is exercised, not only
+       green (april) and grey (mikey). Without it the check could not tell the
+       .attn wash from a fallback grey. */
+    fleet.agent('raph', { state: 'needs_you', displayName: 'Raph', role: 'Fixer' }),
   ]);
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -86,8 +99,45 @@ const chk = (ok, label, extra) => {
       if (!row) return { missing: true };
       const name = textRect(row.querySelector('.lname b')) || textRect(row.querySelector('.lname'));
       const title = textRect(row.querySelector('.ltitle'));
-      const state = textRect(row.querySelector('.lstate'));
+      /* #3131 + #3187 (Josh 6.70): the state WORD is no longer a visible third
+         line -- status is the row's ground colour now, and the word is kept only
+         in a .vh span for screen readers. So this reads the .vh word (must exist,
+         a11y) AND any state text left VISIBLE outside it (must be empty), instead
+         of measuring a state line's leading. */
+      const lstate = row.querySelector('.lstate');
+      const vh = lstate ? lstate.querySelector('.vh') : null;
+      const stateWord = vh ? vh.textContent.trim() : '';
+      const vhCs = vh ? getComputedStyle(vh) : null;
+      const vhClipped = vhCs ? (parseInt(vhCs.width) <= 2 && vhCs.overflow === 'hidden') : false;
+      const stateVisible = lstate ? lstate.textContent.replace(stateWord, '').trim() : '';
+      const wash = getComputedStyle(row).backgroundImage;
       const rows = [...document.querySelectorAll('#alist .lrow')];
+      /* #3187: the wash + class per agent, so the check can assert the RIGHT
+         wash for each state (green=working, red=needs-you, grey=everything else)
+         rather than merely "some gradient". */
+      const byAgent = {};
+      for (const r of rows) {
+        const ls = r.querySelector('.lstate');
+        const vhr = ls ? ls.querySelector('.vh') : null;
+        const vhrCs = vhr ? getComputedStyle(vhr) : null;
+        const rWord = vhr ? vhr.textContent.trim() : '';
+        /* the .lstate text with the .vh word removed = what the EYE sees in that
+           cell (an answerBtn / "Working now" label is legitimately here on some
+           rows; the state WORD must not be). */
+        const rLeftover = ls ? ls.textContent.replace(rWord, '').trim() : '';
+        byAgent[r.dataset.agent || '?'] = {
+          cls: r.className.trim(),
+          wash: getComputedStyle(r).backgroundImage,
+          /* the state WORD must not appear as visible text outside its .vh, on ANY
+             row -- robust to fixture order (does not care which row is first) and
+             to a needs-you row's visible answerBtn (that is not the state word). */
+          wordLeaked: rWord.length > 0 && rLeftover.includes(rWord),
+          /* the state word is kept in .vh AND that .vh is clipped -- checked on
+             EVERY row, not just the first, so a needs-you row (whose .lstate also
+             carries a visible answerBtn) is verified to still hide its WORD. */
+          wordHidden: !!vhr && vhr.textContent.trim().length > 0 && !!vhrCs && parseInt(vhrCs.width) <= 2 && vhrCs.overflow === 'hidden',
+        };
+      }
       const cs = (sel) => {
         const e = row.querySelector(sel);
         if (!e) return null;
@@ -95,10 +145,12 @@ const chk = (ok, label, extra) => {
         return { fontSize: s.fontSize, lineHeight: s.lineHeight };
       };
       return {
-        name, title, state,
+        name, title,
+        stateWord, vhClipped, stateVisible, wash,
+        byAgent,
         rowHeight: Math.round(row.getBoundingClientRect().height * 10) / 10,
         rowCount: rows.length,
-        css: { name: cs('.lname b'), title: cs('.ltitle'), state: cs('.lstate') },
+        css: { name: cs('.lname b'), title: cs('.ltitle') },
       };
     });
 
@@ -106,38 +158,61 @@ const chk = (ok, label, extra) => {
     else {
       const gap = (a, b) => (a && b ? Math.round((b.top - a.bottom) * 10) / 10 : null);
       const nameTitle = gap(m.name, m.title);
-      const titleState = gap(m.title, m.state);
       console.log('');
       console.log('  row height        : ' + m.rowHeight + 'px  (' + m.rowCount + ' rows)');
       console.log('  name              : ' + JSON.stringify(m.css.name) + '  "' + (m.name && m.name.text) + '"');
       console.log('  title             : ' + JSON.stringify(m.css.title) + '  "' + (m.title && m.title.text) + '"');
-      console.log('  state             : ' + JSON.stringify(m.css.state) + '  "' + (m.state && m.state.text) + '"');
+      console.log('  state word (.vh)  : "' + m.stateWord + '"  clipped=' + m.vhClipped);
+      console.log('  visible state text: "' + m.stateVisible + '"');
+      console.log('  row wash          : ' + m.wash);
       console.log('  GAP name -> title : ' + nameTitle + 'px');
-      console.log('  GAP title -> state: ' + titleState + 'px');
       console.log('');
 
-      /* 🛑 THE CONTROL. Every line must actually be on screen with text in it,
-         or the gaps below are measuring absence. A hidden .lstate would make the
-         stack look beautifully tight and mean nothing. */
+      /* 🛑 THE CONTROL. The two VISIBLE lines must actually be on screen with
+         text, or the leading below is measuring absence. */
       chk(!!(m.name && m.name.text), 'the name line has text', m.name && m.name.text);
       chk(!!(m.title && m.title.text), 'the title line has text', m.title && m.title.text);
-      chk(!!(m.state && m.state.text), 'the status line has text', m.state && m.state.text);
 
-      /* The claim. Leading between the three lines is what Josh asked to
-         tighten; these are the numbers the change has to move and keep. */
+      /* #3131 (Josh 6.70): the status WORD is no longer a visible line. It is
+         kept in a .vh span for screen readers (a11y, not deleted) but must NOT
+         show as text -- status is the ground colour now. This is the arm that
+         catches a revert of the .vh wrap in lrow(). */
+      chk(!!m.stateWord, 'the state word is kept for screen readers (a11y)', m.stateWord);
+      chk(m.vhClipped, 'the state word is visually hidden (.vh clipped), not a visible line', 'clipped=' + m.vhClipped);
+      /* Per-row and order-robust: no row shows its OWN state word as visible text
+         (an answerBtn / "Working now" label is allowed; the waiting/idle/busy word
+         is not). Replaces an earlier first-row-only check that a fixture reorder
+         could have false-failed on a needs-you row's visible answerBtn. */
+      chk(Object.values(m.byAgent).every((v) => !v.wordLeaked),
+        'no agent row shows its state word as visible text (word lives only in .vh)',
+        JSON.stringify(Object.fromEntries(Object.entries(m.byAgent).map(([k, v]) => [k, v.wordLeaked]))));
+
+      /* #3187 (Josh 6.70): status owns the GROUND, and the ground must be the
+         RIGHT colour for the state, not just some gradient. Green=working,
+         red=needs-you, grey=everything else, reusing the .acard rgba values.
+         april=working, mikey=idle, raph=needs-you are the three fixtures. */
+      const GREEN = '47, 125, 90', RED = '179, 38, 30', GREY = '120, 120, 128';
+      const washOf = (a) => (m.byAgent[a] || {}).wash || '';
+      console.log('  washes            : ' + JSON.stringify(m.byAgent));
+      chk(washOf('april').includes(GREEN), 'a WORKING agent gets the green wash', washOf('april'));
+      chk(washOf('mikey').includes(GREY), 'an IDLE agent gets the grey wash', washOf('mikey'));
+      chk(washOf('raph').includes(RED), 'a NEEDS-YOU agent gets the red wash', washOf('raph'));
+      /* CONTROL: the three washes are distinct, or "matches GREEN/GREY/RED" could
+         pass on a single wash that happened to contain all three substrings. */
+      chk(washOf('april') !== washOf('mikey') && washOf('mikey') !== washOf('raph') && washOf('april') !== washOf('raph'),
+        'the three state washes are distinct', 'w/i/n differ');
+      /* #3131: the WORD is hidden on EVERY row, not only the first (april). This
+         catches a needs-you row -- whose .lstate also carries a visible answerBtn
+         -- failing to wrap its state word in .vh. */
+      chk(Object.values(m.byAgent).length > 0 && Object.values(m.byAgent).every((v) => v.wordHidden),
+        'every agent row hides its state word in a .vh clip',
+        JSON.stringify(Object.fromEntries(Object.entries(m.byAgent).map(([k, v]) => [k, v.wordHidden]))));
+
+      /* The remaining #1191 claim, now for the TWO visible lines: the name/title
+         leading Josh asked to tighten. Ceiling + floor so neither loose spacing
+         nor an overlap passes. */
       chk(nameTitle !== null && nameTitle <= 3.5, 'name to title leading is tight', nameTitle + 'px');
-      chk(titleState !== null && titleState <= 3.5, 'title to status leading is tight', titleState + 'px');
-      /* 🔑 THE STRONGEST OF THESE, and the one that names the actual defect.
-         The two gaps were 4px and 6px: a stack whose lines are spaced unevenly
-         reads as three things rather than one agent, and no single-gap ceiling
-         can see that. Both ceilings above would have passed at 3 and 6. */
-      chk(nameTitle !== null && titleState !== null && Math.abs(nameTitle - titleState) <= 1,
-        'the two gaps are even, so the stack reads as one agent',
-        nameTitle + 'px vs ' + titleState + 'px');
-      /* ⚠️ A FLOOR AS WELL AS A CEILING. Collapsing the lines onto each other
-         would pass a ceiling-only check and be worse than what it replaced. */
       chk(nameTitle !== null && nameTitle >= 0, 'name and title do not overlap', nameTitle + 'px');
-      chk(titleState !== null && titleState >= 0, 'title and status do not overlap', titleState + 'px');
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

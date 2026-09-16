@@ -318,18 +318,19 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
      Josh's ask was visual ("we don't want to put a status bubble in there").
      The states he listed -- idle, working, needs you, is there a problem --
      are exactly what a screen-reader user has no glyph to fall back on for. */
-  /* 🔑 REWRITTEN FOR kosmos#1191, AND THE PROPERTY IS UNCHANGED. This used to
-     pin the visually-hidden CLIP, which was the MECHANISM. The property it was
-     protecting is that an agent's state reaches the accessibility tree, because
-     `display: none` on `.lstate` once left a rail row announcing its name and
-     role and then saying nothing about state at all.
-     Josh, 2026-08-27, asked for "a single text line ... to indicate what they're
-     doing", so the word is now VISIBLE, which satisfies that property more
-     strongly than the clip did: it reaches the eye AND the ear.
-     ⚠️ HIS 2026-08-26 RULING STILL HOLDS AND IS PINNED BELOW. He rejected the
-     BUBBLE ("we don't want to put a status bubble in there"), not the words, so
-     the decorative glyphs stay hidden while the sentence shows. Those glyphs are
-     `aria-hidden` already, so hiding them costs the ear nothing.
+  /* 🔑 THE PROPERTY IS UNCHANGED ACROSS kosmos#1191 -> #3131/#3187, ONLY THE
+     MECHANISM MOVED. The property this test protects is that an agent's state
+     reaches the ACCESSIBILITY TREE, because `display: none` on `.lstate` once
+     left a rail row announcing its name and role and then saying nothing about
+     state at all.
+     ⚠️ #1191 briefly made the state word VISIBLE to the eye; #3131/#3187 (Josh
+     6.70) superseded that -- status is the row's ground COLOUR now, and lrow()
+     wraps the word in a `<span class="vh">` so it is hidden from the eye and kept
+     for the ear. `.vh` is a CLIP, not `display: none`, so the word still reaches
+     the accessibility tree -- which is exactly the property below, now doing more
+     work than ever (the eye has only colour, so the ear must have the word).
+     ⚠️ His 2026-08-26 ruling still holds: he rejected the BUBBLE, and the
+     decorative glyphs (aria-hidden already) stay hidden either way.
      ⇒ What must never happen is `.lstate` itself becoming `display: none`. */
   /* 🛑 STRIP COMMENTS FIRST. This file discusses `.lrow > .lstate` at length
      directly above the rules, so an uncommented scan matches PROSE and fails for
