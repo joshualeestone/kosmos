@@ -8,12 +8,66 @@ else is required to continue.**
                            (#2714), the supervisor fixes #2722, #2728, #2731,
                            #2737, the launcher hand-off #2752, the agent's
                            kosmos command #2754, the zip text #2759, R8b's
-                           record #2823, the anchor swap #2825, and the
+                           record #2823, the anchor swap #2825, the
                            multi-Kosmos set for agents (#1704: #2845, #2852,
-                           #2874, #2877, #2879, #2886, #2892).
+                           #2874, #2877, #2879, #2886, #2892), AND the full
+                           Windows updater arc. VERIFIED in-tree at 6d1d225f:
+                           SELF_INSTALL=['darwin','win32'] is present, and the S4
+                           arm commit 43035808 (PR #3022) is an ancestor. The arc
+                           landed across several PRs. From the session handoff
+                           record (not each re-verified here): apply #3001, arm
+                           #3022, inbound #3024, rollback issue #3017, trust diag
+                           #3021, launcher serve-signal #3020, downgrade guard
+                           issue #3016. The code cites the ISSUE numbers #3017 and
+                           #3016, so grep those; numbers are not in stage order.
                            Windows v1 is SERVED as 0.6.55 (below)
     this file              .claude/plans/WINDOWS-ROADMAP.md   <- the whole road
     the keep-alive log     .claude/plans/win32-keepalive-570.md  <- that slice only
+
+## ⚑ RESUME NOW (2026-09-16) — the current front
+
+**A fresh Windows 0.6.69 build is ready; the only thing between it and prod is a staging
+publish (someone else's hands) then V-checks.** Read this, then "The one-line state"
+below for history.
+
+- **Build:** verified + boot-proven **0.6.69** zip on the box at
+  `C:\Users\joshu\win-build-0669\kosmos-win-x64.zip`, cut off clean origin/main
+  `6d1d225f`. That box artifact's sha256 is
+  `f639a587e0c3f92b72703f4d0dccf3e8822a45b99a458b03ccb75683f162c99e`.
+  ⚠️ **This sha is for the box-built zip only, NOT the artifact to publish.** Git Bash
+  here lacks Info-ZIP `zip`, so a bsdtar-backed shim built it; its container (hence sha)
+  differs from a Mac `zip` build, though the extracted contents match. So prefer Baron
+  rebuilding 0.6.69 from `6d1d225f` for the canonical publish — his zip will have a
+  DIFFERENT sha. Don't verify a published artifact against `f639a587…`; V1 checks whatever
+  is actually served against the staging pointer's own sha, which is the right anchor.
+- **Gate → prod:** publish 0.6.69 to STAGING (`latest-win-staging.json` is still 404) —
+  Baron/Mortals publish (this box has no dist access; 36 MiB too big for SendUserFile).
+  Then **V1** here (autonomous, read-only, no Josh go): from a repo worktree off main,
+  run `tools/win-staging-verify.js` with the anchored interpreter
+  `%LOCALAPPDATA%\Kosmos\runtime\node.exe` (smoke-tested, handles the 404). Then V2-V4
+  (need Josh go) → his per-sha prod-promote. Prod still 0.6.55.
+- **Updater arc S0-S5 is COMPLETE + armed on main** (SELF_INSTALL = `['darwin','win32']`).
+  Ships inert until a Windows build carries it AND a prod pointer bump. So it is no longer
+  a pure "fast-follow" — it is code-done, awaiting the staging→V-check→promote path above.
+  **✅ 0.6.69 CARRIES THE ARMED UPDATER (verified):** the S4 arm commit `43035808` (#3022)
+  is an ancestor of the build's source `6d1d225f`, and `engine/platform.js` at that sha has
+  `SELF_INSTALL = ['darwin','win32']`. So promoting 0.6.69 to prod gives a LIVE updater, not
+  an inert one — "no more code" is literal here. (The FIRST Windows build a user gets still
+  arrives by hand update, since prod 0.6.55 has no updater; a LATER staging build is what
+  proves in-app self-update — V3.)
+- **Clean-box first run is SCHEDULED:** a cheap Dell Latitude (Win11, 16GB) arrives ~Thu
+  2026-09-17 as a throwaway test rig; kit at `win-build-0669\THURSDAY-FIRST-RUN-KIT.md`.
+  This replaces the old "waits on Josh / Windows Sandbox needs admin+reboot" plan.
+- **First-run path CERTIFIED CLEAN on 0.6.69** (full win32 review, 2026-09-15): no
+  PR-worthy defect. Do NOT re-chase the `.plist` false-confident checks or the frClaude
+  "install Claude Code first" copy — both fixed on main. The `.ps1` execution-policy item
+  is a MEASURED NON-ISSUE for the agent path (agent runs Claude Code at Bypass; a `.cmd`
+  shim is a known regression). Design fact (not a bug): in-app Claude sign-in is OFF on
+  win32 (`WINDOWS_SIGNIN_HOST_ENABLED=false`), so first-run sign-in is a copy-paste
+  PowerShell line via the stuck-card hatch — Josh's product call whether v1 accepts that.
+- **DUNS filed for a new entity → Azure code-signing** (removes the SmartScreen warning;
+  addresses #3015). Seam ready (AUTHENTICODE-SEAM in win32update.js); blocked only on the
+  external cert timeline.
 
 ## The one-line state (2026-09-12, ~16:00 UTC)
 
@@ -47,11 +101,20 @@ source checkout (§2). The board and all 5 enabled agents came back unattended, 
 an agent started at logon ANSWERED on the board.
 
 BLOCKER 2 stays off the v1 path: Josh approved 2026-09-10 that v1 updates by hand,
-with a real updater as a fast-follow. What is still open:
-- a clean-box first run (capability 1, §5). It waits on Josh, because Windows
-  Sandbox needs admin and a reboot;
-- the real updater (capability 7, a fast-follow);
-- the `.ps1` execution-policy dependency (§3c);
+with a real updater as a fast-follow (that fast-follow has since SHIPPED to main as the
+S0-S5 arc — see ⚑ RESUME NOW; this line records the 09-10 decision, not current status).
+What was open at 09-12, and its 2026-09-16 status (see ⚑ RESUME NOW):
+- a clean-box first run (capability 1, §5) — no longer a blocker: SCHEDULED on the
+  Thursday 09-17 Dell Latitude test box (was the admin+reboot Windows Sandbox plan);
+- the real updater (capability 7) — no longer a blocker: arc S0-S5 is COMPLETE + armed on
+  main, awaiting the staging→V-check→prod-promote path, not more code;
+- the `.ps1` execution-policy dependency (§3c) — not a blocker: MEASURED NON-ISSUE for the
+  agent path (agent runs at Bypass); only bites a user typing `kosmos` in a stock
+  Restricted shell, and the `.cmd` "fix" is a known regression.
+
+Remaining ENGINEERING gaps (none of the above; separate from release/test work,
+which is the active front in ⚑ RESUME NOW — the staging→V1-V4→prod-promote of 0.6.69,
+and the Thursday clean-box first-run test):
 - a live Mac import-and-start, queued for a Mac tester (§5);
 - no way to delete a Kosmos, on any platform (§5).
 
@@ -333,7 +396,7 @@ That is the bar. Not "the tests pass".
 | 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5. **R3 PASSED** in the 7c-6 rehearsal: 3 of 3 agents `placed`, card working -> idle, and the reply is in each agent's transcript. ⚠️ **The answer did NOT reach the board**: R3 read the transcript, and an agent on the Windows zip had no `kosmos reply` (BLOCKER 5, §3c). ✅ Fixed by #2754 (merged 2026-09-11), verified live with the answer on the board, and again on the shipped 0.6.55 bytes and after a real logon (R8b). A crash-resumed agent reports again (#2722), and `/clear` keeps it on the board (#2728) |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
 | 6 | survive a reboot | ✅ **MEASURED AT A REAL LOGON, TWICE.** R8 (2026-09-11, the source checkout): the board and all 5 enabled agents came back unattended, with one `conhost --headless` supervisor each, no windows, every card idle, and one ownership row per agent (#2737). **R8b (2026-09-11, 13:01 UTC, the SHIPPING zip install, fbe246e0):** the same came back, and an agent started at logon ANSWERED. reh-a's two-line reply landed on the board intact, which proves the logon-started supervisor put the zip's `bin\` on the agent's PATH, and reh-a -> reh-b messaging worked |
-| 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH.** Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all. An update by hand has run twice (§5). ✅ Since #2825, an update whose zip changes the NODE RUNTIME can replace the anchored node.exe while the fleet runs on it. That is on main, not yet in a served zip (§5) |
+| 7 | **update the app** | ⚠️ **BLOCKER 2 OFF THE v1 PATH; the updater is now CODE-DONE on main (2026-09-16).** Josh approved 2026-09-10 that v1 updates by hand. Since then the full updater arc S0-S5 merged and armed (`SELF_INSTALL = ['darwin','win32']`): staged/verify/download/apply/rollback all exist and the updater CAN run on Windows — see the ⚑ RESUME NOW block. It ships INERT until a served Windows build carries it AND a prod pointer bump, so it awaits the staging → V-check → prod-promote path, not more code. The ANCHOR (#2825) that keeps a runtime-changing update from stranding the fleet is on main too. An update by hand has run twice (§5) |
 
 🛑 THAT IS FOUR BLOCKERS, NOT ONE (FIVE since 2026-09-11, §3c). This table said "one blocker" on 2026-09-09
 because capability 1 had never been looked at. It has now been traced end to end,
@@ -476,7 +539,15 @@ found by running the real thing, none by the unit suite.
 
 ---
 
-## 3a. BLOCKER 2 — the in-app updater cannot run on Windows
+## 3a. BLOCKER 2 — the in-app updater cannot run on Windows [✅ RESOLVED 2026-09-16 — historical; see banner]
+
+> ✅ **RESOLVED 2026-09-16 — the section below is the FORENSIC RECORD of the original
+> 2026-09-09 defect, kept as history, not the current state.** The full updater arc
+> S0-S5 has since merged and armed on main (`SELF_INSTALL = ['darwin','win32']`): the
+> Windows self-updater now stages, verifies, downloads, applies and rolls back. It ships
+> INERT until a served Windows build carries it plus a prod pointer bump, so it awaits the
+> staging → V-check → prod-promote path (see ⚑ RESUME NOW and §2 capability 7). Do not
+> re-implement it. The paragraphs below describe why it was a blocker at survey time.
 
 Found by survey 2026-09-09, then confirmed directly. `engine/update.js` contains
 **zero** references to `win32` or `process.platform`, and `beginInstall()` does:
@@ -524,8 +595,22 @@ Windows layout until a swap exists — that single line is what turns the button
 and live execution IS armed on win32, so the spawn would be real. The guard is
 what stands there if somebody does it anyway.
 
-📌 STILL OWED: rendering the "Up to date." lie honestly (`/api/update/check`
-already returns `source`; the page throws it away).
+> ✅ **RESOLVED — the swap now exists, so the offer is turned on deliberately
+> (verified on main `6d1d225f`, 2026-09-16).** `engine/update.js` no longer falls through
+> to "Up to date." on win32. The section headed "🛑 THIS IS WHAT REPLACES THE FALSE 'UP
+> TO DATE.'" (update.js ~174-259) computes a real win32 update offer: a normal-location
+> bundle shows the in-app [Update] button, and a bundle in an unusual location (OneDrive /
+> Program Files, gated by `windowsLocationRefusal()` wrapping
+> `win32update.unusualLocationRefusal`) shows a manual-download link instead. The offer
+> functions themselves are poll-cheap reads; the ACTION path is `beginInstall()` →
+> `win32update.begin()` (apply, S3) and rollback → `win32update.rollbackToPrevious()`
+> (S5, issue #3017). The ordering constraint held: the win32 layout was taught only once
+> the swap/rollback existed. So the item below is CLOSED for win32. (Exact function/stage
+> names are the code's, not re-derived here — read update.js for wiring; this notes only
+> that the false "Up to date." is gone.)
+
+📌 ~~STILL OWED: rendering the "Up to date." lie honestly~~ — CLOSED for win32 by the
+install-offer path above; the win32 status offer no longer falls through to "Up to date."
 
 ### What a real Windows updater costs
 
@@ -561,6 +646,13 @@ missing is the act of updating itself.
 ---
 
 ## 3b. The pattern the survey actually found
+
+> ✅ **FIXED on main (verified 2026-09-15) — the table below is the FORENSIC RECORD of
+> the original defect, not the current state.** All three `.plist` false-confident checks
+> now have win32 arms: `engine/register.js` asks `win32job`, `engine/delete-leftover.js`
+> takes the win32 (Scheduled Task) path rather than a plist, and `engine/status.js` no
+> longer answers from a plist on win32. Do NOT re-chase these; RESUME NOW says the same.
+> The paragraphs below describe why it was a defect at survey time.
 
 🛑 SEVERAL MODULES ASK "DOES THIS AGENT HAVE A STARTUP JOB?" BY LOOKING FOR A
 `.plist`. Windows never writes one — it registers a Scheduled Task — so these do
@@ -675,11 +767,14 @@ other reason: they answer different questions and neither replaces the other.
 call site quietly stopped consulting it.
 
 📌 LEFT ALONE, ON PURPOSE, AND NAMED SO IT IS NOT LOST:
-- **`frClaudeConfirmSentence` still says "we need to install Claude Code first"
-  on Windows**, before the doomed press. It is FALSE there — Kosmos will not.
-  Not touched here because it is a different screen with its own copy history
-  (#1556/#996) and its own three guard files, and the person meets the true
-  sentence one click later. Worth a small follow-up.
+- **`frClaudeConfirmSentence`** — ✅ FIXED on main (verified 2026-09-15). It used to
+  say "we need to install Claude Code first" on Windows, which is FALSE there. It now
+  has a win32 arm keyed on `onWindows(...)` + `canInstallClaude` (with `st` null-guards
+  for the early first-run render) that returns `windowsCopy('claudeConfirmSentence')`
+  instead, so the false sentence no longer renders on Windows. (Grep
+  `frClaudeConfirmSentence` in `web/index.html` for the current code — not quoting it
+  verbatim here, since that single file is edited constantly and a pasted line drifts.)
+  Do NOT re-chase this.
 - **`downloads.claude.ai` DOES publish `win32-x64` and `win32-arm64` builds** —
   read out of `install.ps1` directly. So `RUNNER_DOWNLOADS = ['darwin']` is a
   statement about `platformKey()` hard-coding `darwin-${arch}` and about the
@@ -921,7 +1016,9 @@ Honest gaps in this document:
     download (Mark of the Web on every file), Kosmos.exe exited 0 in 3.2s and
     handed off to the running board, and Z0-Z6 passed after.
 
-  The in-app updater (capability 7) is still unbuilt.
+  The in-app updater (capability 7) was still unbuilt AS OF THIS 09-11 measurement.
+  ✅ It has since been built and armed on main (arc S0-S5, 2026-09-14..16); see ⚑ RESUME
+  NOW and §2 capability 7. It ships inert until a served build carries it.
 - ✅ **RESOLVED ON MAIN by #2825 (03b99146, 2026-09-11): an update that changes
   the NODE RUNTIME can be handed off.** The anchored
   `%LOCALAPPDATA%\Kosmos\runtime\node.exe` is the running interpreter of the task
@@ -1034,15 +1131,19 @@ Honest gaps in this document:
            a named world's agents get its board token: the #1704 set #2845,
            #2852, #2874, #2877, #2879, #2886, #2892, live 18/18 on
            5aa75512 (§5)
+           THE UPDATER (capability 7): arc S0-S5 is CODE-DONE + armed on main
+           (2026-09-14..16), carried by 0.6.69; ships inert until served (§2 cap 7,
+           ⚑ RESUME NOW). It is code-complete, not future work.
+    NEXT   0.6.69 to STAGING (Baron/Mortals publish) -> V1 here (auto) ->
+           V2-V4 (Josh go) -> per-sha prod-promote. This is the current front.
+    THEN   clean-box first-run test on the Thursday 2026-09-17 Dell Latitude
+           (capability 1; replaces the old admin+reboot Windows Sandbox plan)
     FOLLOW-UP  deleting a Kosmos            (§5: no route and no engine
                                              function; cross-platform)
                a live Mac import-and-start  (§5: queued for a Mac tester)
-    THEN   first-run survey + fix           (capability 1, a clean box:
-                                            Windows Sandbox needs admin and a
-                                            reboot, so it waits on Josh)
-    LATER  a real updater                   (capability 7, a fast-follow)
-           the .ps1 execution-policy dependency (§3c: a PE shim alone would
-           mangle quotes)
+    NON-ISSUE  the .ps1 execution-policy dependency (§3c: MEASURED non-issue for
+               the agent path -- runs at Bypass; a .cmd/PE shim is a known
+               regression; not a v1 blocker, no task)
 
     Every cut that ships any of this goes to STAGING first, then PROD (see
     the handshake under "Do this next").
