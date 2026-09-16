@@ -11184,6 +11184,95 @@ test('the sign-up start refuses a non-email before anything spawns', async () =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// In-app sign-in routes (#3149 increment 3a): the engine<->server seam. The
+// bearer material is held engine-side; these assert the routes relay only the
+// stage (and the register route's public fields), and refuse malformed input.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('the in-app sign-in runs end to end through the routes, and the session token never crosses the HTTP boundary', async () => {
+  const sb = fs.realpathSync(mkTemp('signin-'));
+  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
+    "const fs = require('node:fs'); const path = require('node:path');",
+    'const a = process.argv.slice(2);',
+    "const flag = (n) => { const i = a.indexOf(n); return i === -1 ? null : a[i + 1]; };",
+    "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
+    // verify goes straight to a session here (the phone path is covered in the engine suite).
+    "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.route-fake' })); process.exit(0); }",
+    "if (a[0] === 'signin' && a[1] === 'register') {",
+    '  const token = fs.readFileSync(0, "utf8").trim();',
+    '  if (!token) { process.stderr.write("no token on stdin"); process.exit(1); }',
+    '  const d = flag("--state-dir"); fs.mkdirSync(d, { recursive: true });',
+    '  for (const f of ["mac_id", "tls.crt", "tls.key"]) fs.writeFileSync(path.join(d, f), "x");',
+    '  fs.writeFileSync(path.join(d, "address"), flag("--name") + ".kosmos.invalid\\n");',
+    '  console.log(JSON.stringify({ stage: "registered", mac_id: "m", name: flag("--name"), address: flag("--name") + ".kosmos.invalid", standing: "good", kept_certificate: false }));',
+    '  process.exit(0);',
+    '}',
+    'process.exit(0);', ''].join('\n'));
+  fs.chmodSync(fakeBin, 0o755);
+  const prev = {
+    bin: process.env.AGENT_WORKFORCE_TUNNEL_BIN,
+    relay: process.env.AGENT_WORKFORCE_TUNNEL_RELAY,
+    state: process.env.AGENT_WORKFORCE_TUNNEL_STATE,
+  };
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
+  try {
+    const started = await postJson('/api/remote/signin-start', { email: 'person@example.com' });
+    assert.equal(started.status, 200, started.body);
+    assert.equal(JSON.parse(started.body).stage, 'code_sent');
+
+    const verified = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    assert.equal(verified.status, 200, verified.body);
+    const vbody = JSON.parse(verified.body);
+    assert.equal(vbody.stage, 'session');
+    // The whole #874 point, asserted at the HTTP boundary: no credential crosses it.
+    assert.ok(!('token' in vbody), 'the session token crossed the HTTP boundary: ' + verified.body);
+    assert.ok(!('challenge' in vbody), 'a challenge crossed the HTTP boundary: ' + verified.body);
+
+    const done = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
+    assert.equal(done.status, 200, done.body);
+    const dbody = JSON.parse(done.body);
+    assert.equal(dbody.stage, 'registered');
+    assert.equal(dbody.address, 'srv-mac.kosmos.invalid');
+    assert.equal(dbody.name, 'srv-mac');
+    assert.equal(dbody.standing, 'good');
+    // The token reached the binary on stdin, off argv: the fake would have exited 1 without it.
+    assert.equal(fs.readFileSync(nodePath.join(sb, 'state', 'address'), 'utf8').trim(), 'srv-mac.kosmos.invalid');
+  } finally {
+    for (const [k, v] of [['AGENT_WORKFORCE_TUNNEL_BIN', prev.bin], ['AGENT_WORKFORCE_TUNNEL_RELAY', prev.relay], ['AGENT_WORKFORCE_TUNNEL_STATE', prev.state]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    const remoteEngine = require('./engine/remote');
+    try { remoteEngine.setOn(false); } catch { /* leave the sandbox off */ }
+    try {
+      const rj = JSON.parse(fs.readFileSync(remoteEngine.FILE, 'utf8'));
+      rj.email = '';
+      fs.writeFileSync(remoteEngine.FILE, JSON.stringify(rj));
+    } catch { /* nothing written means nothing to clear */ }
+  }
+});
+
+test('the sign-in routes refuse malformed input at the boundary before anything spawns', async () => {
+  const badEmail = await postJson('/api/remote/signin-start', { email: 'not-an-email' });
+  assert.equal(badEmail.status, 400);
+  assert.match(JSON.parse(badEmail.body).error, /does not look like an email/);
+
+  const noCode = await postJson('/api/remote/signin-verify', { email: 'a@b.co', code: '' });
+  assert.equal(noCode.status, 400);
+  assert.match(JSON.parse(noCode.body).error, /code from the email/);
+
+  const noPhoneCode = await postJson('/api/remote/signin-second', { code: '' });
+  assert.equal(noPhoneCode.status, 400);
+  assert.match(JSON.parse(noPhoneCode.body).error, /code from your phone/);
+
+  const noName = await postJson('/api/remote/signin-register', { name: '' });
+  assert.equal(noName.status, 400);
+  assert.match(JSON.parse(noName.body).error, /pick a name/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Styles (#480)
 // ─────────────────────────────────────────────────────────────────────────────
 

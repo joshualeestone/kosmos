@@ -5691,6 +5691,10 @@ const server = http.createServer((req, res) => {
           address: got.data.address,
           name: got.data.name,
           standing: got.data.standing,
+          // true when a surviving state dir at this name was recognised rather
+          // than freshly registered (#1010), so the wizard can say "already
+          // signed in" instead of "you're signed in". Absent (falsy) otherwise.
+          alreadySetUp: got.data.alreadySetUp === true,
           status: remote.status(),
         });
       })

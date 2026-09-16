@@ -114,6 +114,14 @@ const configured = () => Boolean(RELAY());
 const COORDINATOR = () =>
   process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || DEFAULT_COORDINATOR;
 
+/* The coordinator's two input shapes, ONE derivation each (repo convention:
+   two derivations of one rule drift the moment the coordinator changes one).
+   Both the setup flow and the sign-in flow (#3149) check these, so they live
+   here rather than inline in each function. CODE_RULE: the six-digit email/phone
+   code. NAME_RULE: the address label (the "hers" in hers.<domain>). */
+const CODE_RULE = /^[0-9]{6}$/;
+const NAME_RULE = /^[a-z0-9-]{3,32}$/;
+
 let child = null;
 let restartTimer = null;
 let restartBecause = null;
@@ -504,10 +512,10 @@ async function setupComplete(code, name) {
       return { ok: true, because: null, alreadySetUp: true, address: have };
     }
   }
-  if (!/^[0-9]{6}$/.test(String(code || ''))) {
+  if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
-  if (typeof name !== 'string' || !/^[a-z0-9-]{3,32}$/.test(name)) {
+  if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 lowercase letters, digits or hyphens' };
   }
   secureStateDir();
@@ -707,7 +715,7 @@ async function signinVerify(email, code, deviceName) {
   if (typeof email !== 'string' || !email.includes('@')) {
     return { ok: false, because: 'that does not look like an email address' };
   }
-  if (!/^[0-9]{6}$/.test(String(code || ''))) {
+  if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
   const args = ['signin', 'verify', '--coordinator', COORDINATOR(),
@@ -726,7 +734,7 @@ async function signinSecond(code) {
   if (!signinSession || typeof signinSession.challenge !== 'string') {
     return { ok: false, because: 'start the sign-in again: there is no phone step waiting' };
   }
-  if (!/^[0-9]{6}$/.test(String(code || ''))) {
+  if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
   const r = parseSaid(await setupRun(['signin', 'second', '--coordinator', COORDINATOR(),
@@ -745,7 +753,7 @@ async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
     return { ok: false, because: 'finish the code steps first' };
   }
-  if (typeof name !== 'string' || !/^[a-z0-9-]{3,32}$/.test(name)) {
+  if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 lowercase letters, digits or hyphens' };
   }
   // #1010/#1003: a surviving state dir already at this name IS this Mac. Do not
@@ -757,7 +765,11 @@ async function signinRegister(name) {
     if (have && have.split('.')[0] === name) {
       ensure(localPort);
       signinSession = null;
-      return { ok: true, because: null, data: { stage: 'registered', address: have, name, alreadySetUp: true } };
+      // standing is '' on this path, not omitted: the engine cannot know it
+      // without the coordinator round-trip this short-circuit skips, and a
+      // uniform shape (always a standing key) is easier for the wizard than a
+      // sometimes-absent field. 3b treats '' as "unknown, ask on next check".
+      return { ok: true, because: null, data: { stage: 'registered', address: have, name, standing: '', alreadySetUp: true } };
     }
   }
   secureStateDir();
