@@ -105,7 +105,9 @@ if (args[0] === 'signin') {
     if (token === 'kst1.enrol-badtype') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', secret: 123, otpauth: {}, why_authenticator: 'why' })); process.exit(0); }
     // The coordinator's answer carries a session-bearing token; the engine allowlist
     // must strip it so it never reaches the caller (asserted at the enrol boundary below).
-    if (kind === 'totp') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', token: 'kst1.should-be-stripped', secret: 'JBSWY3DPEHPK3PXP', otpauth: 'otpauth://totp/x', why_authenticator: 'why' })); process.exit(0); }
+    // The stray sent_to is wrong-kind material a misbehaving coordinator might send on
+    // a totp answer; the engine's kind-scoped copy must drop it (mirror of the sms case).
+    if (kind === 'totp') { console.log(JSON.stringify({ stage: 'enrolment_started', kind: 'totp', token: 'kst1.should-be-stripped', secret: 'JBSWY3DPEHPK3PXP', otpauth: 'otpauth://totp/x', sent_to: '*** *** 9999', why_authenticator: 'why' })); process.exit(0); }
     if (kind === 'sms') {
       const phone = flag('--phone');
       if (!phone) { process.stderr.write('the coordinator said no (400): phone required for sms\\n'); process.exit(1); }
@@ -652,6 +654,7 @@ test('signin enrol and confirm-enrol drive an in-app second-factor setup, token 
   assert.equal(started.ok, true, started.because);
   assert.equal(started.data.stage, 'enrolment_started');
   assert.equal(started.data.secret, 'JBSWY3DPEHPK3PXP', 'the totp secret the app shows is passed through');
+  assert.ok(!('sent_to' in started.data), 'sms material bled into a totp answer: ' + JSON.stringify(started.data));
   assert.ok(!('token' in started.data), 'the enrol token leaked through enrol');
   assert.ok(!JSON.stringify(started.data).includes('kst1.'), 'the token value leaked under some key: ' + JSON.stringify(started.data));
   // The enrol-only token reached the binary on STDIN, never argv.

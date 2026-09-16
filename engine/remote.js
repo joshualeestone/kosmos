@@ -837,6 +837,13 @@ async function signinEnrol(kind, phone) {
     // wrongly reject valid input. The one argv-injection worry the device-name
     // guard exists for cannot arise -- spawn takes the ARRAY form, so a character
     // inside one element can never become a second argv entry.
+    //
+    // The phone rides argv and is therefore visible in the local process list (`ps`)
+    // for the child's lifetime -- unlike the bearer tokens, which are kept on stdin.
+    // This is an ACCEPTED exposure, not an oversight: the phone is not a bearer
+    // credential (it cannot admit or authorise anyone), and every non-credential
+    // field in the sibling verbs -- email, code, device name -- rides argv the same
+    // way. The #874 boundary is about credentials, and no credential is on argv here.
     args.push('--phone', phone.trim());
   }
   const r = parseSaid(await setupRun(args, signinSession.enrolToken));
