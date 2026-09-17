@@ -6,7 +6,7 @@ Follow-up to removing the room delivery receipt ("placed with X... could not rea
 ## The change (web/index.html)
 - New glyph `LROW_REACH`: a neutral grey question-mark badge (`<span class="lreach">?`), NOT the red-! LROW_WARN (cannot-reach is informational, not an urgent needs-you alarm).
 - `pjMember`: `const reachMark = present ? '' : LROW_REACH;` added to the `.pj-face` in both avatar branches, alongside `warn`. Mutually exclusive with `warn` by construction (warn is gated on `m.present === true`).
-- `pjMember` caption: the `!present` "We cannot see this agent..." sentence is now gated `hideState ? '' : <small>...`. In the ROOM column (hideState, #3131) the badge carries the meaning so no status text prints; the Settings members list (hideState falsy) keeps the reason for the management view.
+- `pjMember` caption: the `!present` "We cannot see this agent..." sentence is now `<small' + (hideState ? ' class="vh"' : '') + '>...`. In the ROOM column (hideState, #3131) it is VISUALLY HIDDEN (.vh clip), not dropped -- sighted users see only the badge ("no status text") but the sentence stays in the DOM as the only screen-reader signal (the badge's aria-label is inside the aria-hidden .pj-face). The Settings members list (hideState falsy) shows the reason plainly.
 - CSS: `.lav .lreach { display: none }` (hidden by default, like `.lwarn`); `.pj-member .pj-face > .lreach { ... }` a small grey corner badge (bottom-right, --k-bg ring) so it annotates the face without hiding it.
 
 The "can't reach" signal is the live `!m.present` state (the board cannot see the agent) - the same state a room post reports as "could not reach". The `.unseen` dashed border is kept.
