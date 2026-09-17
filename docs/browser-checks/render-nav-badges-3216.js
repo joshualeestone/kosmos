@@ -5,9 +5,9 @@
  * Projects nav items. The counts already exist in app state, so this is a render on existing data:
  *   - Agents tab  = dmTotal, the fleet sum of a.dmUnread computed in tick() (same total the
  *                   #st-dm summary tile shows), so the tab and the tile cannot disagree.
- *   - Projects tab = the sum of p.unread across PROJECTS (the same p.unread the per-project list
- *                    badges use), excluding the open project, mirroring the list badge + the Agents
- *                    tab's open-thread exclusion.
+ *   - Projects tab = counts.projectsUnread, the server's always-polled raw unread sum over active
+ *                    projects. The open room excludes itself via /seen (pjMarkSeen on open), so the
+ *                    badge stays live cross-tab from one source, with no client subtraction/drift.
  * Both hide at zero and cap at 99+, via setNavBadge().
  *
  * HERMETIC (file://): asserts (a) the badge elements exist on both tabs, (b) the setNavBadge render
@@ -17,6 +17,7 @@
  * hermetic render. The source arms catch a regression that unwires either badge from its count.
  *   HEADED=0 NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-nav-badges-3216.js
  */
+// Browser-check-surface: navbadge
 const nodePath = require('path');
 const fs = require('fs');
 const ROOT = nodePath.resolve(__dirname, '..', '..');
@@ -74,9 +75,11 @@ const chk = (ok, label, extra) => {
 
     /* dark mode: the badge must swap to the family colour (#ff8c82 / #0c0d0f) like .dmbadge; a
        light-only badge silently disagrees with every other unread surface in dark mode (this
-       repo's documented "light mode hides a whole class"). Exercises the :root[data-theme="dark"]
-       rule directly so it does not depend on the app's theme-detection timing. */
-    const dout = await page.evaluate(() => {
+       repo's documented "light mode hides a whole class"). The diff added TWO dark rules, so test
+       BOTH: (1) the explicit toggle :root[data-theme="dark"] .navbadge, and (2) the OS/browser
+       auto-detect @media (prefers-color-scheme: dark) :root:not([data-theme="light"]) .navbadge --
+       a defect confined to the @media rule ships green if only the toggle path is exercised. */
+    const dToggle = await page.evaluate(() => {
       document.documentElement.setAttribute('data-theme', 'dark');
       setNavBadge('nav-badge-agents', 4);
       const cs = getComputedStyle(document.getElementById('nav-badge-agents'));
@@ -84,15 +87,28 @@ const chk = (ok, label, extra) => {
       document.documentElement.removeAttribute('data-theme');
       return r;
     });
-    const drgb = parse(dout.bg);
-    chk(drgb[0] === 255 && drgb[1] === 140 && drgb[2] === 130, 'in dark mode the badge swaps to the family red (#ff8c82), matching .dmbadge', dout.bg);
-    chk(dout.ink === 'rgb(12, 13, 15)', 'in dark mode the count ink is the family dark ink (#0c0d0f)', dout.ink);
+    let tg = parse(dToggle.bg);
+    chk(tg[0] === 255 && tg[1] === 140 && tg[2] === 130, 'dark via [data-theme=dark]: badge swaps to the family red (#ff8c82)', dToggle.bg);
+    chk(dToggle.ink === 'rgb(12, 13, 15)', 'dark via [data-theme=dark]: count ink is the family dark ink (#0c0d0f)', dToggle.ink);
+
+    const darkPage = await browser.newPage({ viewport: { width: 1000, height: 800 }, colorScheme: 'dark' });
+    await darkPage.addInitScript(() => { window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
+    await darkPage.goto(PAGE);
+    const dMedia = await darkPage.evaluate(() => {
+      setNavBadge('nav-badge-agents', 4);
+      const cs = getComputedStyle(document.getElementById('nav-badge-agents'));
+      return { bg: cs.backgroundColor, ink: cs.color };
+    });
+    await darkPage.close();
+    let md = parse(dMedia.bg);
+    chk(md[0] === 255 && md[1] === 140 && md[2] === 130, 'dark via @media prefers-color-scheme: badge swaps to the family red (#ff8c82)', dMedia.bg);
+    chk(dMedia.ink === 'rgb(12, 13, 15)', 'dark via @media prefers-color-scheme: count ink is the family dark ink (#0c0d0f)', dMedia.ink);
 
     /* (c) data wiring, by source: seeding real dmUnread/p.unread hermetically is not feasible. */
     const src = fs.readFileSync(nodePath.join(ROOT, 'web', 'index.html'), 'utf8');
     chk(/setNavBadge\('nav-badge-agents',\s*dmTotal\)/.test(src), 'the Agents badge is wired to the fleet dmTotal (tick), the same total as the #st-dm tile');
-    chk(/setNavBadge\('nav-badge-projects',\s*Math\.max\(0,\s*\(Number\(c\.projectsUnread\)/.test(src), 'the Projects badge is set in tick() from the always-polled counts.projectsUnread (live cross-tab), minus the open room');
-    chk(/const openProj = PJ_CURRENT \? pjById\(PJ_CURRENT\) : null;/.test(src) && /const openUnread = openProj \?/.test(src), 'the open room is subtracted from the server total (exact pjDmTotal parity, option i)');
+    chk(/setNavBadge\('nav-badge-projects',\s*c\.projectsUnread\)/.test(src), 'the Projects badge is set in tick() directly from the always-polled counts.projectsUnread (live cross-tab, single-source)');
+    chk(!/openUnread/.test(src), 'no client-side open-room subtraction (the open room excludes itself via /seen, so no cross-cadence drift/staleness)');
     chk(!/setNavBadge\('nav-badge-projects', pjDmTotal\)/.test(src), 'the stale paintProjects-based Projects badge is removed (no visibility-gated freeze)');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));

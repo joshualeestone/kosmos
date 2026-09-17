@@ -17080,24 +17080,17 @@ async function tick() {
     /* #3216: the Agents nav-tab badge reuses this same fleet unread-DM total, so the tab
        count and the summary tile cannot disagree (one derivation of "unread agent messages"). */
     setNavBadge('nav-badge-agents', dmTotal);
-    /* #3216: the Projects nav-tab badge is set HERE in tick() (the always-polled /api/status),
-       not in paintProjects, so it stays live even while you are on the Agents tab (the projects
-       poll is visibility-gated and would freeze it otherwise -- the blind-review blocker). The
-       server sends counts.projectsUnread = the RAW sum of p.unread over active (non-archived)
-       projects (engine projectsUnreadTotal, the same unreadAll() map as the client's pjDmTotal),
-       NOT PJ_CURRENT-adjusted (the server has no PJ_CURRENT). So the client applies the one thing
-       it alone knows: subtract the open room's own unread, exactly reproducing pjDmTotal from the
-       fresh always-polled total. Clamped >= 0 so a transient stale-subtract can't go negative. */
-    const openProj = PJ_CURRENT ? pjById(PJ_CURRENT) : null;
-    const openUnread = openProj ? Math.max(0, Number(openProj.unread) || 0) : 0;
-    /* Subtract the open room's own unread so the badge matches the per-project list (PJ_CURRENT is
-       client-only, so the always-polled server total can't exclude it). openProj.unread is zeroed
-       by pjMarkSeen the instant a room opens (~40981) and re-zeroed while it is watched (~41836),
-       so openUnread is ~0 in steady state and this equals the fresh server total. The only skew is
-       a self-healing one-tick OVER-count right after opening: openUnread is already 0 but
-       c.projectsUnread still counts that room until its /seen lands, so the badge briefly includes
-       it, then drops next poll. Both terms and the result are clamped >= 0 against any transient. */
-    setNavBadge('nav-badge-projects', Math.max(0, (Number(c.projectsUnread) || 0) - openUnread));
+    /* #3216: the Projects nav-tab badge is set HERE in tick() (the always-polled /api/status), not
+       in paintProjects, so it stays live while you are on the Agents tab (the projects poll is
+       visibility-gated and would freeze it). counts.projectsUnread is the server's raw unread sum
+       over active (non-archived) projects (engine projectsUnreadTotal, the same unreadAll() map as
+       pjDmTotal). No client-side subtraction for the open room: opening a room fires
+       /api/project/<id>/seen (pjMarkSeen ~40981, re-fired while the room is watched ~41836), so the
+       open room's own unread is already ~0 in this server total -- it excludes itself via /seen.
+       That keeps this single-source (one always-polled number) with no cross-cadence drift against
+       a client value the hidden-panel poll would freeze. The only transient is a one-tick
+       over-count right after opening, until that /seen lands; setNavBadge hides <=0/NaN. */
+    setNavBadge('nav-badge-projects', c.projectsUnread);
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
        line under the counts is gone and so is its slot. The facts it carried
@@ -17303,9 +17296,10 @@ async function tick() {
     document.getElementById('st-dm-tile').hidden = true;
     /* #3216: /api/status failed, so both nav-tab counts are unknowable this tick -- withdraw
        them (hide) exactly as the tiles do, rather than leaving a stale count asserting something
-       this failed read cannot stand behind. Both badges are driven from this same status read. */
-    setNavBadge('nav-badge-agents', 0);
-    setNavBadge('nav-badge-projects', 0);
+       this failed read cannot stand behind. null is the "unknown" input (per setNavBadge's
+       contract, never a guessed zero); both badges are driven from this same status read. */
+    setNavBadge('nav-badge-agents', null);
+    setNavBadge('nav-badge-projects', null);
     /* The residual summary is a claim from the last successful tick (or the
        boot "Loading…"): "N we could not read" beside the failure card is a
        count this poll cannot stand behind -- the same rule as the tiles
