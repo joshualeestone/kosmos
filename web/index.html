@@ -4739,7 +4739,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
           min-height: 26rem; max-height: min(62vh, 44rem); overflow-y: auto;
           border: 1px solid var(--k-rule); border-radius: 10px;
           background: var(--k-bg); }
-.msg { display: flex; align-items: center; gap: 14px; }
+/* #3134-followup (Josh 6.72): the avatar is BOTTOM-aligned with the bubble (not
+   centered), so it sits by the bubble's bottom corner where the tail wing points,
+   the iMessage read. */
+.msg { display: flex; align-items: flex-end; gap: 14px; }
 .msg-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; display: grid;
           place-items: center; background: rgba(20,22,26,.06); font-size: .875rem;
           font-weight: 600; color: var(--k-ink-2); overflow: hidden; }
@@ -4750,18 +4753,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    text-message conversation. Agent posts keep avatar+name on the LEFT with the
    message to the right (the default .msg row); the operator's own post is the
    mirror -- avatar+name on the RIGHT, message to the left of it, "in kind of the
-   opposite order". Three rules, all scoped to .msg.you so an agent's row is
+   opposite order". Two rules, both scoped to .msg.you so an agent's row is
    untouched: row-reverse floats the avatar to the right and the body to its left;
    the body becomes a flex column that right-aligns and shrinks each child (so the
    .msg-bd bubble hugs the right and wraps to its content instead of spanning the
-   full width); and reversing .msg-h puts the name nearest the avatar on the right,
-   mirroring the agent side where the name sits nearest the left avatar. Text inside
-   the bubble stays left-to-right (the p is not re-aligned). Both surfaces Josh named
-   -- the tab-view dialog and the consolidated project view -- share this same .msg
-   markup, so one rule set covers both. */
+   full width). Text inside the bubble stays left-to-right (the p is not re-aligned).
+   #3134-followup (Josh 6.72): the name now lives INSIDE the bubble, so the old third
+   rule that reversed the `.msg-h` header is gone with the header itself. Both surfaces
+   Josh named -- the tab-view dialog and the consolidated project view -- share this
+   same .msg markup, so one rule set covers both. */
 .msg.you { flex-direction: row-reverse; }
 .msg.you .msg-b { display: flex; flex-direction: column; align-items: flex-end; }
-.msg.you .msg-h { flex-direction: row-reverse; }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
    (.msg.you) wears the royal-blue --usermsg-tint; an agent's wears the light-gray
    --k-sunk -- the SAME two tokens the DM bubble already uses (.dm.mine / .dm.theirs),
@@ -4779,34 +4781,34 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    instead of being cleared by a shorthand -- true even for a [data-am] shade,
    whose higher specificity would otherwise win the background-image too. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
-/* #3130 (Josh 6.70): the bubble TAIL ("the little hatch thing") -- a small nub at
-   the bottom corner, bottom-LEFT on an agent bubble, bottom-RIGHT on the person's.
-   A rotated square poking out from under the bubble's bottom edge.
-   🔑 WHAT MAKES THE NUB VISIBLE is `.msg-bd` owning a stacking context
-   (`position: relative` + `z-index: 0`): the whole bubble unit then paints as one
-   layer OVER `.thread`'s opaque ground, so the nub's poking-out half (below the
-   bubble edge) shows. Without `z-index: 0` the nub's `z-index: -1` hoists to the
-   ambient context shared with `.thread`, whose ground paints over the nub and
-   hides it entirely (the tail never shows).
-   Within `.msg-bd`'s own context the `z-index: -1` nub paints in the CSS2.1 order:
-   just IN FRONT of `.msg-bd`'s background fill and BEHIND its text -- so in the
-   overlap region the nub composites OVER the bubble's fill.
-   🔑 `background-color: inherit` so the nub matches the bubble's OWN resting
-   background -- including the per-message [data-am] cream shade -- instead of a
-   fixed token that would seam against a shaded bubble. So on the OPAQUE agent
-   bubble that overlap is invisible (same colour over same colour); on the person's
-   TRANSLUCENT tint it shows a touch darker (tint over tint), the small op-side seam
-   that is his in-app nudge. Positioned inside the rounded corner (9px in) so it
-   sits under the flat part of the edge. */
+/* #3134-followup (Josh 6.72): the bubble TAIL is now a clean iMessage-style WING at
+   the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
+   bottom-RIGHT on the person's.
+   🛑 WHY THE OLD NUB WAS REPLACED, not tuned: the #3130 nub was a rotated square at
+   `z-index: -1` with `background-color: inherit` that OVERLAPPED the bubble box. On
+   the OPAQUE agent bubble that overlap was invisible (same colour over same colour),
+   but on the person's TRANSLUCENT `--usermsg-tint` it double-composited (tint over
+   tint) into a darker triangle -- Josh 6.72, "two transparent objects colliding
+   making a weird triangle". A translucent fill can only be made seamless by drawing
+   the wing ENTIRELY OUTSIDE the bubble box, so it composites exactly ONCE over the
+   thread ground and matches the bubble.
+   🔑 THE MASK TECHNIQUE: `::before` is the colored wing (`background-color: inherit`,
+   so it tracks the per-message [data-am] cream too), sitting flush just outside the
+   bubble's tail-side bottom corner; `::after` is a `--k-bg` (thread-ground) mask that
+   carves the wing's outer edge into a point. Neither overlaps the bubble body, so the
+   translucent user tint never doubles. Both are `z-index: -1` inside `.msg-bd`'s own
+   stacking context (kept below) so they tuck under the bubble's rounded corner and
+   read as one shape. Kept at the bubble's bottom (no extra row height) so the
+   message geometry does not shift -- the scroll-repin (#1147/#3200) is sensitive to
+   reflow, so this is deliberate; render-room-scroll.js is the oracle. */
 .msg-bd { position: relative; z-index: 0; }
-.msg-bd::after { content: ""; position: absolute; bottom: -3px; width: 11px; height: 11px;
-                 transform: rotate(45deg); border-radius: 0 0 3px 0; z-index: -1;
-                 background-color: inherit; }
-.msg:not(.you) .msg-bd::after { left: 9px; }
-.msg.you .msg-bd::after { right: 9px; }
-/* the hover overlay reaches the tail too, so the bubble and its nub darken
-   together on hover instead of the nub staying unshaded (kosmos#2921's overlay). */
-.msg:hover .msg-bd::after { background-image: linear-gradient(rgba(120,120,128,.08), rgba(120,120,128,.08)); }
+.msg-bd::before, .msg-bd::after { content: ""; position: absolute; bottom: 0; height: 13px; z-index: -1; }
+/* the colored wing, flush outside the tail-side corner */
+.msg:not(.you) .msg-bd::before { left: -5px; width: 14px; background-color: inherit; border-bottom-right-radius: 14px; }
+.msg.you .msg-bd::before { right: -5px; width: 14px; background-color: inherit; border-bottom-left-radius: 14px; }
+/* the thread-ground mask carving the wing to a point toward the avatar */
+.msg:not(.you) .msg-bd::after { left: -9px; width: 7px; background: var(--k-bg); border-bottom-right-radius: 10px; }
+.msg.you .msg-bd::after { right: -9px; width: 7px; background: var(--k-bg); border-bottom-left-radius: 10px; }
 /* #2921 (Josh, 2026-09-12 6.59 QA): a very subtle darker active-state on hover, so
    a hovered post reads as "you are on this one" alongside the reaction bar that
    already fades in (.msg:hover .rxn-quick below, which this leaves untouched). The
@@ -4821,9 +4823,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    josh-review call and is a one-number nudge. Only .msg-bd (the body box) takes it;
    a bodyless row has none. */
 .msg:hover .msg-bd { background-image: linear-gradient(rgba(120,120,128,.08), rgba(120,120,128,.08)); }
-.msg-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
-.msg-h b { font-size: .9375rem; }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
+/* #3134-followup (Josh 6.72): name + timestamp now live INSIDE the bubble. The agent
+   name is a bold heading at the TOP; the timestamp is a small muted line at the
+   bottom-RIGHT under the body. Scoped to .msg-bd so the .msg-valve inline timestamp
+   (a different, Kosmos-band surface) keeps its own inline style. */
+.msg-nm { display: block; font-size: .9375rem; font-weight: 700; line-height: 1.2; margin-bottom: 3px; }
+.msg-bd .msg-t { display: block; text-align: right; margin-top: 2px; }
+/* #3134-followup (Josh 6.72): the agent name and the agent avatar are ACTIVE -- click
+   either to go straight to that agent. No underline, no link look (Josh's rule), just
+   a pointer cursor on hover. The person's OWN avatar (.msg-av.mine) is not a target. */
+.msg-nm, .msg:not(.you) .msg-av { cursor: pointer; }
 /* #3130 (Josh 6.68): the #1703 `.msg-role` agent-title span is no longer rendered
    in the dialog (removed in pjRoomRow), so its CSS rule is removed with it. The
    member roster's own title styling (pj-member-role) is unaffected. */
@@ -40585,6 +40595,17 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   }
 });
 
+/* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble
+   opens that agent directly, the same openDetail path the members list uses (#2574),
+   passing PJ_CURRENT so detail-back returns to this project. Delegated on the thread
+   (every poll rebuilds the bubbles). A dedicated data-open-agent attr, set only on the
+   agent name + agent avatar (never the person's own avatar, never a reaction or the
+   body), so a click anywhere else in the bubble never triggers it. */
+document.getElementById('pj-room').addEventListener('click', (e) => {
+  const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;
+  if (t && t.dataset.openAgent) openDetail(t.dataset.openAgent, undefined, PJ_CURRENT);
+});
+
 /* ⚠️ DELEGATED ON THE THREAD, because every poll rebuilds the messages: a
    listener bound to a chip is bound to an element the next repaint destroys.
    The button carries the BASENAME, which is the only shape open-file accepts,
@@ -41392,57 +41413,40 @@ function pjRoomRow(m, p, silent) {
       ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
       : '<div class="msg-av mine" aria-hidden="true"></div>')
     : (card && card.hasAvatar
-      ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
-      : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>');
-  const states = Object.values(m.outcomes || {});
-  /* The receipt renders under the person's posts always, and under an
-     agent's post whenever any recipient did NOT simply receive it --
-     partial delivery in the room must never look like the full room heard. */
-  const showReceipt = isOp || states.some((v) => v !== 'placed');
-  /* #3130 (Josh 6.68): the pill reads pure DELIVERY again. The silence sentence
-     ("Nothing back from ...") is removed, so a post placed with everyone and no
-     failures now produces an EMPTY receipt sentence, and pjRoomRow's empty-pill
-     guard below draws no `delivery` pill at all for it. The old mismatch this
-     block used to weigh -- a green `placed` pill wrapped around a silence
-     sentence -- can no longer arise, because that sentence is gone. */
-  const cls = states.length && states.every((v) => v === 'placed') ? 'placed'
-    : (states.some((v) => v === 'could_not') ? 'failed' : 'unsure');
-  const receiptText = showReceipt && states.length ? pjReceiptSentence(m.outcomes, p, isOp ? silent : null) : '';
-  /* #3130: draw the delivery pill ONLY when there is a sentence. With the silence
-     clause removed (see pjReceiptSentence), an operator post placed with everyone
-     and no failures yields an empty sentence, and an empty `<span class="delivery
-     placed">` would render as a stray empty pill. Gate on the text, not just on
-     showReceipt/states. */
-  const receipt = receiptText ? '<span class="delivery ' + cls + '">' + esc(receiptText) + '</span>' : '';
+      ? '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
+      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>');
   /* #2806 (Josh, 2026-09-11): the message BODY wears a colored box in the room --
-     royal-blue for the person's own post (`.msg.you`), light-gray for an agent's --
-     the same two tokens the DM view already uses (`--usermsg-tint` / `--k-sunk`; see
-     the .msg-bd rules). The header (name/role/time) stays ABOVE the box and the
-     reactions + receipt stay BELOW it, so only the message content is boxed (the DM
-     boxes `.dm-b`, its text, the same way). The box is drawn only when there IS body
-     content -- a bodyless row (no words and no preview/attachment) emits none rather
-     than an empty tinted box. #2805 gave the DM its gray; the room uses a different
-     class (`.msg-b`) that never got either color, so both sides are new here. */
+     royal-blue for the person's own post (`.msg.you`), the cream `--agent-msg` for an
+     agent's (the same tokens the DM view uses; see the .msg-bd rules).
+     #3134-followup (Josh 6.72): the agent NAME now sits INSIDE the box at the top and
+     the TIMESTAMP inside at the bottom-right; the reactions stay BELOW the box and the
+     inline delivery receipt ("Placed with X ... could not be reached") is GONE, his
+     "I don't need to know who the message was pasted to or sent to". pjReceiptSentence
+     is still the single source for the delivery detail elsewhere (e.g. pjRoomAnnounce);
+     it is just no longer rendered inline in the thread. The box is drawn only when
+     there is a name or body -- a nameless, bodyless row emits none, not an empty box. */
   const bd = pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m);
   /* #2947: the same stable per-message cream shade the DM bubble uses (dmRow),
      for an agent's ROOM message. Only .msg:not(.you) .msg-bd[data-am] picks it
      up, so it is inert on the person's own (blue) bubble. Inlined, not a shared
      helper, for the same isolation-lift reason dmRow records. */
   const amSeed = String((m && (m.id || m.at)) || ''); let amH = 0; for (let ai = 0; ai < amSeed.length; ai++) amH = (amH * 31 + amSeed.charCodeAt(ai)) | 0; const amRoom = Math.abs(amH) % 5;
-  /* #3130 (Josh 6.70): the operator's OWN post has NO name and NO "You" -- his
-     words, "me as the user doesn't have my name or 'you' in the message". So the
-     header is the timestamp alone on the user side; an agent's keeps its name.
-     #3130 (Josh 6.68): the agent's title is NOT shown in the dialog either.
-     The header is built only when it HAS content: an agent always has a name, but
-     the operator's header is the timestamp alone, so with no timestamp there is
-     nothing to show and the empty .msg-h bar is omitted rather than drawn 4px tall. */
   const whenStr = esc(pjWhen(m.at) || '');
-  const msgH = (!isOp || whenStr)
-    ? '<div class="msg-h">' + (isOp ? '' : '<b>' + esc(name) + '</b>') + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '') + '</div>'
-    : '';
+  /* #3134-followup (Josh 6.72): name and timestamp move INSIDE the bubble. The agent's
+     name is a bold heading at the TOP (`.msg-nm`); the operator's OWN post still gets
+     NO name -- his standing #3130 6.70 rule, "me as the user doesn't have my name or
+     'you' in the message" -- so nameEl is empty on the operator side. The timestamp is
+     a small muted line at the bottom-RIGHT (`.msg-bd .msg-t`). The old `.msg-h` header
+     ABOVE the bubble is gone. Both live inside `.msg-bd`, so the bubble is drawn
+     whenever there is a name OR body; a nameless, bodyless row draws nothing. The name
+     also carries data-open-agent (click-to-open, wired on the thread). */
+  const nameEl = (!isOp && name) ? '<b class="msg-nm" data-open-agent="' + esc(m.from) + '">' + esc(name) + '</b>' : '';
+  const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
+  const hasBubble = nameEl || bd;
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
-    + '<div class="msg-b">' + msgH
-    + (bd ? '<div class="msg-bd"' + (isOp ? '' : ' data-am="' + amRoom + '"') + '>' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
+    + '<div class="msg-b">'
+    + (hasBubble ? '<div class="msg-bd"' + (isOp ? '' : ' data-am="' + amRoom + '"') + '>' + nameEl + bd + timeEl + '</div>' : '')
+    + pjReactions(m) + '</div></div>';
 }
 
 /**

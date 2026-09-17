@@ -21,6 +21,19 @@
  *   (e) a BODYLESS row (no words, no cards) draws a `.msg` row but NO `.msg-bd`
  *       -- so there is no empty tinted box.
  *
+ * #3134-followup (Josh 6.72) extends this to the bubble rework, all also measured on
+ * the real pjRoomRow output:
+ *   (f) the agent NAME is INSIDE the bubble as `.msg-nm`, the FIRST child (top); the
+ *       operator's OWN post carries no name;
+ *   (g) the TIMESTAMP is INSIDE the bubble (`.msg-bd .msg-t`), the LAST child
+ *       (bottom-right), on both bubbles;
+ *   (h) the inline delivery receipt (`.delivery`, "Placed with X ...") is GONE;
+ *   (i) the TAIL is a WING: the colored `::before` sits OUTSIDE the box (negative
+ *       offset, agent=cream on the left, operator=blue on the right) so a translucent
+ *       fill never double-tints, and the `::after` is the thread-ground mask;
+ *   (j) the agent name + agent avatar are click-to-open (`data-open-agent`), the
+ *       operator's own avatar is not; and the avatar is bottom-aligned (flex-end).
+ *
  * It renders REAL pjRoomRow output (never a copy) into the loaded page, so the
  * `:root` color tokens and the `.msg-bd` rules apply exactly as shipped. DOM +
  * computed-style only, so headless and headed agree.
@@ -116,15 +129,37 @@ const now = () => new Date().toISOString();
           agentDataAm: (agentRow && agentRow.querySelector('.msg-bd')) ? agentRow.querySelector('.msg-bd').getAttribute('data-am') : null,
           // The operator's own box must NOT carry data-am (emitted only for !isOp).
           opHasDataAm: !!(opRow && opRow.querySelector('.msg-bd') && opRow.querySelector('.msg-bd').hasAttribute('data-am')),
-          /* #3130 (Josh 6.70): the operator's OWN post has NO name/"You" in its
-             header; an agent's keeps its name. */
-          opHasName: !!(opRow && opRow.querySelector('.msg-h b')),
-          agentHasName: !!(agentRow && agentRow.querySelector('.msg-h b')),
-          /* #3130: both bubbles carry a TAIL (::after) -- agent bottom-LEFT (its
-             own left offset set, coloured warm cream = --agent-msg), operator
-             bottom-RIGHT (right offset set, blue). */
-          agentTail: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, right: cs.right, bg: cs.backgroundColor }; })(),
-          opTail: (() => { const bd = opRow && opRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, right: cs.right, bg: cs.backgroundColor }; })(),
+          /* #3134-followup (Josh 6.72): name is now INSIDE the bubble as .msg-nm (top).
+             The operator's OWN post still has NO name; an agent's keeps its name. */
+          opHasName: !!(opRow && opRow.querySelector('.msg-bd .msg-nm')),
+          agentHasName: !!(agentRow && agentRow.querySelector('.msg-bd .msg-nm')),
+          agentNameText: (agentRow && agentRow.querySelector('.msg-bd .msg-nm')) ? agentRow.querySelector('.msg-bd .msg-nm').textContent : null,
+          /* #3134-followup (Josh 6.72): the timestamp is now INSIDE the bubble at the
+             bottom-right (.msg-bd .msg-t), on BOTH the agent and the operator bubble,
+             and it is the LAST child of the bubble (after the body). */
+          agentTimeInBubble: !!(agentRow && agentRow.querySelector('.msg-bd .msg-t')),
+          opTimeInBubble: !!(opRow && opRow.querySelector('.msg-bd .msg-t')),
+          agentTimeIsLast: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return !!(bd && bd.lastElementChild && bd.lastElementChild.classList.contains('msg-t')); })(),
+          agentNameIsFirst: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return !!(bd && bd.firstElementChild && bd.firstElementChild.classList.contains('msg-nm')); })(),
+          /* #3134-followup (Josh 6.72): the inline delivery receipt (".delivery") is
+             gone from the room -- no "Placed with X ... could not be reached". */
+          hasReceipt: !!host.querySelector('.delivery'),
+          /* #3134-followup (Josh 6.72): the WING. The COLORED wing is now ::before
+             (background-color:inherit, so agent=cream, operator=blue), drawn OUTSIDE the
+             bubble box (negative left/right) so a translucent fill composites once and
+             never double-tints. ::after is the --k-bg thread-ground MASK that carves it. */
+          agentWing: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::before'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, bg: cs.backgroundColor }; })(),
+          opWing: (() => { const bd = opRow && opRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::before'); return { on: cs.content !== 'none' && cs.content !== '', right: cs.right, bg: cs.backgroundColor }; })(),
+          agentMask: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', bg: cs.backgroundColor }; })(),
+          /* #3134-followup (Josh 6.72): the agent NAME and the agent AVATAR are
+             click-to-open (data-open-agent = sessionName). The operator's OWN avatar is
+             NOT (never a target). */
+          agentNameOpen: (agentRow && agentRow.querySelector('.msg-nm')) ? agentRow.querySelector('.msg-nm').getAttribute('data-open-agent') : null,
+          agentAvOpen: (agentRow && agentRow.querySelector('.msg-av')) ? agentRow.querySelector('.msg-av').getAttribute('data-open-agent') : null,
+          opAvOpen: (opRow && opRow.querySelector('.msg-av')) ? opRow.querySelector('.msg-av').getAttribute('data-open-agent') : null,
+          /* #3134-followup (Josh 6.72): the avatar is bottom-aligned with the bubble
+             (.msg align-items: flex-end). */
+          rowAlign: (() => { const r = agentRow; return r ? getComputedStyle(r).alignItems : null; })(),
           /* #3130: `.msg-bd` MUST own a stacking context (position:relative +
              z-index:0) or the tail's z-index:-1 resolves against the ambient tree
              and `.thread`'s opaque ground paints OVER the whole nub -- an invisible
@@ -133,12 +168,12 @@ const now = () => new Date().toISOString();
              z-index:auto reds it). */
           bdPos: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).position : null; })(),
           bdZ: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).zIndex : null; })(),
-          /* #3130: an operator post with a BODY but NO timestamp has nothing for
-             its header (no name, no time), so the empty `.msg-h` bar must be
-             OMITTED, not drawn. Rendered in isolation so it does not disturb the
+          /* #3134-followup (Josh 6.72): an operator post with a BODY but NO timestamp
+             draws its bubble (body only) -- no name (operator side), and NO empty .msg-t
+             timestamp element inside. Rendered in isolation so it does not disturb the
              three-row fixture above. */
-          noTimeHasHeader: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-h'); })(),
           noTimeHasBody: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-bd'); })(),
+          noTimeHasTime: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-t'); })(),
         };
         host.remove();
         return out;
@@ -171,37 +206,55 @@ const now = () => new Date().toISOString();
       // (e) a bodyless row draws NO box.
       chk(m.emptyRowIsYou && !m.emptyRowHasBox, `${t} a bodyless row draws a .msg row but NO .msg-bd (no empty tinted box)`, `isYou=${m.emptyRowIsYou} hasBox=${m.emptyRowHasBox}`);
 
-      // #3130 (Josh 6.70): the operator's OWN post shows NO name/"You" in the
-      // header; an agent's keeps its name. (The whole point of the user-side
-      // correction: "me as the user doesn't have my name or 'you' in the message".)
-      chk(m.opHasName === false, `${t} #3130: the operator's own post shows NO name/You`, `opHasName=${m.opHasName}`);
-      chk(m.agentHasName === true, `${t} #3130: an agent's post keeps its name`, `agentHasName=${m.agentHasName}`);
-      // #3130: both bubbles carry a TAIL (::after), agent bottom-LEFT, operator
-      // bottom-RIGHT. `left`/`right` resolve to the offset actually set on each side.
-      chk(!!(m.agentTail && m.agentTail.on) && parseInt(m.agentTail.left, 10) >= 0 && parseInt(m.agentTail.left, 10) < 20,
-        `${t} #3130: the agent bubble has a tail on the LEFT`, JSON.stringify(m.agentTail));
-      chk(!!(m.opTail && m.opTail.on) && parseInt(m.opTail.right, 10) >= 0 && parseInt(m.opTail.right, 10) < 20,
-        `${t} #3130: the operator bubble has a tail on the RIGHT`, JSON.stringify(m.opTail));
-      // #3130: the agent tail inherits the bubble's warm cream, NOT the blue.
-      const atail = parse(m.agentTail && m.agentTail.bg);
-      chk(atail[0] >= atail[1] && atail[1] >= atail[2] && (atail[0] - atail[2]) >= 2 && blueLead(atail) < 20,
-        `${t} #3130: the agent tail is the warm cream, not blue`, m.agentTail && m.agentTail.bg);
-      // #3130: the operator tail inherits the blue user tint (blue channel leads),
-      // so an accidental swap of the two side rules would be caught on this side too.
-      const otail = parse(m.opTail && m.opTail.bg);
-      chk(blueLead(otail) >= 20, `${t} #3130: the operator tail is the blue user tint`, m.opTail && m.opTail.bg);
-      // #3130: the STRUCTURAL guard for the tail's visibility -- `.msg-bd` owns its
-      // own stacking context so the z-index:-1 tail tucks behind THIS bubble, not
-      // behind `.thread`'s opaque ground (which would hide it entirely).
+      // #3134-followup (Josh 6.72): name is INSIDE the bubble (.msg-nm) at the top. The
+      // operator's OWN post shows NO name; an agent's keeps its name and it is the FIRST
+      // child of the bubble ("me as the user doesn't have my name or 'you'", his rule).
+      chk(m.opHasName === false, `${t} the operator's own post shows NO name`, `opHasName=${m.opHasName}`);
+      chk(m.agentHasName === true, `${t} an agent's post keeps its name INSIDE the bubble`, `agentHasName=${m.agentHasName}`);
+      chk(m.agentNameText === 'April', `${t} the in-bubble name is the agent's name`, `name=${m.agentNameText}`);
+      chk(m.agentNameIsFirst === true, `${t} the name is the FIRST child of the bubble (top)`, `first=${m.agentNameIsFirst}`);
+      // #3134-followup (Josh 6.72): the timestamp is INSIDE the bubble (bottom-right) on
+      // both bubbles, and is the LAST child (under the body).
+      chk(m.agentTimeInBubble === true, `${t} the agent timestamp is INSIDE the bubble`, `in=${m.agentTimeInBubble}`);
+      chk(m.opTimeInBubble === true, `${t} the operator timestamp is INSIDE the bubble`, `in=${m.opTimeInBubble}`);
+      chk(m.agentTimeIsLast === true, `${t} the timestamp is the LAST child of the bubble (bottom)`, `last=${m.agentTimeIsLast}`);
+      // #3134-followup (Josh 6.72): the inline delivery receipt ("Placed with X ...") is GONE.
+      chk(m.hasReceipt === false, `${t} no inline "placed with" delivery receipt in the room`, `hasReceipt=${m.hasReceipt}`);
+      // #3134-followup (Josh 6.72): the WING. The COLORED wing is ::before, drawn OUTSIDE
+      // the box (negative offset) so a translucent fill composites once and never doubles;
+      // agent on the LEFT (cream), operator on the RIGHT (blue).
+      chk(!!(m.agentWing && m.agentWing.on) && parseInt(m.agentWing.left, 10) < 0,
+        `${t} the agent wing (::before) sits outside the LEFT edge`, JSON.stringify(m.agentWing));
+      chk(!!(m.opWing && m.opWing.on) && parseInt(m.opWing.right, 10) < 0,
+        `${t} the operator wing (::before) sits outside the RIGHT edge`, JSON.stringify(m.opWing));
+      // the agent wing inherits the warm cream, NOT blue; the operator wing is blue -- a
+      // swap of the side rules reds one of these.
+      const awing = parse(m.agentWing && m.agentWing.bg);
+      chk(awing[0] >= awing[1] && awing[1] >= awing[2] && (awing[0] - awing[2]) >= 2 && blueLead(awing) < 20,
+        `${t} the agent wing is the warm cream, not blue`, m.agentWing && m.agentWing.bg);
+      const owing = parse(m.opWing && m.opWing.bg);
+      chk(blueLead(owing) >= 20, `${t} the operator wing is the blue user tint`, m.opWing && m.opWing.bg);
+      // the ::after MASK carries the thread-ground fill (carving the wing to a point).
+      const amask = parse(m.agentMask && m.agentMask.bg);
+      chk(!!(m.agentMask && m.agentMask.on) && amask[3] > 0,
+        `${t} the wing MASK (::after) carries the thread-ground fill`, m.agentMask && m.agentMask.bg);
+      // the STRUCTURAL guard for the wing's visibility -- `.msg-bd` owns its own stacking
+      // context so the z-index:-1 wing tucks behind THIS bubble, not behind `.thread`.
       chk(m.bdPos === 'relative' && m.bdZ === '0',
-        `${t} #3130: .msg-bd owns a stacking context (position:relative, z-index:0) so the tail is not hidden behind .thread`,
+        `${t} .msg-bd owns a stacking context (position:relative, z-index:0) so the wing is not hidden behind .thread`,
         `position=${m.bdPos} z-index=${m.bdZ}`);
-      // #3130: an operator post with a body but NO timestamp draws its bubble but
-      // OMITS the empty header bar (a control: the body IS present, so this is not
-      // just an empty render).
-      chk(m.noTimeHasBody && !m.noTimeHasHeader,
-        `${t} #3130: an operator post with no timestamp omits the empty header bar (bubble still drawn)`,
-        `hasBody=${m.noTimeHasBody} hasHeader=${m.noTimeHasHeader}`);
+      // #3134-followup (Josh 6.72): the agent name + agent avatar are click-to-open
+      // (data-open-agent = sessionName); the operator's own avatar is NOT a target.
+      chk(m.agentNameOpen === 'april', `${t} the agent name is click-to-open (data-open-agent)`, `open=${m.agentNameOpen}`);
+      chk(m.agentAvOpen === 'april', `${t} the agent avatar is click-to-open (data-open-agent)`, `open=${m.agentAvOpen}`);
+      chk(!m.opAvOpen, `${t} the operator's own avatar is NOT a click-to-open target`, `open=${m.opAvOpen}`);
+      // #3134-followup (Josh 6.72): the avatar is bottom-aligned with the bubble.
+      chk(m.rowAlign === 'flex-end', `${t} the avatar is bottom-aligned (.msg align-items: flex-end)`, `align=${m.rowAlign}`);
+      // #3134-followup (Josh 6.72): an operator post with a body but NO timestamp draws
+      // its bubble (body present) with no stray empty timestamp inside.
+      chk(m.noTimeHasBody && !m.noTimeHasTime,
+        `${t} an operator post with no timestamp draws the bubble but no empty timestamp`,
+        `hasBody=${m.noTimeHasBody} hasTime=${m.noTimeHasTime}`);
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
