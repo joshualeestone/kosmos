@@ -18,6 +18,12 @@
  * #1191's "single text line to indicate what they're doing"); the leading claim
  * for name->title is what carries over.
  *
+ * 🛑 #3187-followup (Josh 6.72) added two more agents-list facts this check now pins:
+ * a NOT-RUNNING (stopped) row keeps the grey ground like idle but dims its own avatar +
+ * name to ~0.5 (with an idle control at full strength), and a FOLDED rail (fold-a) carries
+ * the status colour EDGE-TO-EDGE behind working (green) + needs-you (red) only while idle
+ * and not-running keep no wash.
+ *
  * 🛑 MEASURED WITH A RANGE, NOT `getBoundingClientRect` ON THE ELEMENT. An
  * element's box includes its leading, so reading element boxes reports the
  * spacing as unchanged when the leading is exactly what moved. This is the same
