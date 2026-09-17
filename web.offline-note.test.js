@@ -65,12 +65,13 @@ test('it is absent while the first poll is merely in flight', () => {
   const slot = { dataset: {}, innerHTML: '' };
   const painted = [];
   let asked = 0;
-  new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH',
+  new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'setNavBadge',
     `${page.lift(SCRIPT, 'tick')}\ntick();`)(
     (down) => painted.push(down),
     () => { asked += 1; return new Promise(() => {}); },
     { getElementById: () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: false, closest: () => null }) },
     0,
+    () => {},
   );
   /* ⚠️ THE POSITIVE CONTROL FIRST. An empty `painted` also describes a `tick`
      that threw on line one, which would make this assertion pass for a reason
@@ -96,12 +97,12 @@ test('a server that ANSWERED with a refusal is not "not answering": the note pai
     // The catch branch repaints the board's failure state; everything it
     // touches beyond the note is a stub, so the only thing measured here is
     // the one call this test is about.
-    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
+    await new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'setNavBadge',
       `${page.lift(SCRIPT, 'tick')}\nreturn tick();`)(
       (down) => painted.push(down),
       fetchImpl,
       { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] },
-      0, () => '', () => {}, null, null, false,
+      0, () => '', () => {}, null, null, false, () => {},
     );
     return painted;
   };
@@ -126,9 +127,9 @@ test('#2023: BOARD_NEEDS_SIGNIN does not latch -- a non-403 outcome after a 403 
      body is non-strict, so a bare assignment creates the global. */
   const stub = () => ({ dataset: {}, innerHTML: '', className: '', textContent: '', hidden: true, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
   let fetchImpl;
-  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE',
+  const tick = new Function('paintOfflineNote', 'fetch', 'document', 'INSTR_EPOCH', 'boardEmpty', 'paintAddAgents', 'ORG_HTML', 'BOARD_LOOK_FAILED', 'SIGNIN_SENTENCE', 'setNavBadge',
     `${page.lift(SCRIPT, 'tick')}\nreturn tick;`)(
-    () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'),
+    () => {}, (...a) => fetchImpl(...a), { getElementById: stub, querySelector: () => null, querySelectorAll: () => [] }, 0, () => '', () => {}, null, null, page.liftConst(SCRIPT, 'SIGNIN_SENTENCE'), () => {},
   );
   delete globalThis.BOARD_NEEDS_SIGNIN;
   const status403 = () => Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ error: 'this board belongs to the account that started it' }) });

@@ -2681,6 +2681,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tab:hover { color: var(--k-ink); }
 .tab.on { color: var(--k-ink); border-bottom-color: var(--gold); }
 .tab:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+/* #3216 (Josh 6.74): the red unread-count badge on the Agents/Projects tabs. Same red as the
+   card/list unread badges (.dmbadge #b3261e, white, tabular mono) so "unread" reads as one colour
+   across the app, and it swaps to the family's dark-mode #ff8c82/#0c0d0f alongside .dmbadge in
+   both dark blocks below, so that parity holds in dark mode too (not just light); inline after the
+   tab label (not the absolute-corner treatment the avatar badges use, since a tab is a text
+   button, not an avatar). Hidden at zero via the `hidden` attribute --
+   the page-wide `[hidden] { display: none !important }` (top of this stylesheet) beats this
+   display, so no per-selector re-hide is needed. */
+.navbadge { display: inline-flex; align-items: center; justify-content: center; margin-left: 6px;
+   min-width: 1.15rem; height: 1.15rem; padding: 0 .35rem; box-sizing: border-box;
+   font: 700 .6875rem var(--k-mono); font-variant-numeric: tabular-nums; line-height: 1;
+   color: #fff; background: #b3261e; border-radius: 100px; vertical-align: middle; }
 .panel { max-width: 720px; margin: 0 auto; background: var(--bg-elevated);
          border: 0.5px solid var(--separator); border-radius: var(--radius-card);
          box-shadow: var(--shadow-card); padding: var(--space-8); }
@@ -6920,6 +6932,7 @@ body.consolidated .tkcard:hover { border-color: transparent; }
   :root:not([data-theme="light"]) .haz { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .membadge { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .dmbadge { background: #ff8c82; color: #0c0d0f; }
+  :root:not([data-theme="light"]) .navbadge { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .astate.st-working { border-color: rgba(121,197,157,.62); }
   :root:not([data-theme="light"]) .astate.st-paused, :root:not([data-theme="light"]) .astate.st-stopped { border-color: rgba(245,245,244,.32); }
   :root:not([data-theme="light"]) .astate.st-idle { border-color: rgba(245,245,244,.32); }
@@ -7790,6 +7803,7 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 :root[data-theme="dark"] .haz { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .membadge { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .dmbadge { background: #ff8c82; color: #0c0d0f; }
+:root[data-theme="dark"] .navbadge { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .astate.st-working { border-color: rgba(121,197,157,.62); }
 :root[data-theme="dark"] .astate.st-paused, :root[data-theme="dark"] .astate.st-stopped { border-color: rgba(245,245,244,.32); }
 :root[data-theme="dark"] .astate.st-idle { border-color: rgba(245,245,244,.32); }
@@ -8059,8 +8073,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        drives address them); the LOOK is the pack's .apptabs/.apptab
        verbatim. -->
   <nav class="tabs closed" id="tabs" role="tablist">
-    <button class="tab on"  data-tab="agents"   role="tab" aria-selected="true">Agents</button>
-    <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects</button>
+    <button class="tab on"  data-tab="agents"   role="tab" aria-selected="true">Agents<span class="navbadge" id="nav-badge-agents" aria-hidden="true" hidden></span></button>
+    <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects<span class="navbadge" id="nav-badge-projects" aria-hidden="true" hidden></span></button>
     <!-- #3051 (Josh, 6.63 for 6.65): Settings left the top nav; it is reached from
          the user menu (avatar + name) in the upper-right .headright below. The
          #panel-settings panel and every showTab('settings') caller are unchanged;
@@ -17063,6 +17077,27 @@ async function tick() {
     }, 0);
     document.getElementById('st-dm').textContent = String(dmTotal);
     document.getElementById('st-dm-tile').hidden = dmTotal <= 0;
+    /* #3216: the Agents nav-tab badge reuses this same fleet unread-DM total, so the tab
+       count and the summary tile cannot disagree (one derivation of "unread agent messages"). */
+    setNavBadge('nav-badge-agents', dmTotal);
+    /* #3216: the Projects nav-tab badge is set HERE in tick() (the always-polled /api/status), not
+       in paintProjects, so it stays live while you are on the Agents tab (the projects poll is
+       visibility-gated and would freeze paintProjects). c.projectsUnread is the server's raw unread
+       sum over active (non-archived) projects (engine projectsUnreadTotal, the same unreadAll() map
+       as pjDmTotal). We subtract the OPEN room's own unread so the badge never counts the room you
+       are looking at -- the design agreed with Angel (status-projects-unread-3216.md, option i).
+       (ii) no-subtraction was REJECTED: /api/project/<id>/seen is async, so in the poll between a
+       new post landing in the open room and its /seen completing, the raw server total still counts
+       that room and the badge would flash a red count for the room on screen. Subtracting the
+       client's own p.unread (zeroed synchronously by pjMarkSeen on open, re-zeroed while watched)
+       covers that window. Guard: only an ACTIVE open project is subtracted -- the server total
+       already excludes archived, so subtracting an archived PJ_CURRENT would under-report. Parked
+       on the Agents tab the open project's p.unread is a frozen ~0, so the badge then counts every
+       active project's unread (correct: you are not viewing any room). Clamped >= 0; setNavBadge
+       hides <=0/NaN. */
+    const openProj = PJ_CURRENT ? pjById(PJ_CURRENT) : null;
+    const openUnread = (openProj && !openProj.archived) ? Math.max(0, Number(openProj.unread) || 0) : 0;
+    setNavBadge('nav-badge-projects', Math.max(0, (Number(c.projectsUnread) || 0) - openUnread));
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
        line under the counts is gone and so is its slot. The facts it carried
@@ -17266,6 +17301,12 @@ async function tick() {
        stand behind. */
     document.getElementById('st-dm').textContent = '?';
     document.getElementById('st-dm-tile').hidden = true;
+    /* #3216: /api/status failed, so both nav-tab counts are unknowable this tick -- withdraw
+       them (hide) exactly as the tiles do, rather than leaving a stale count asserting something
+       this failed read cannot stand behind. null is the "unknown" input (per setNavBadge's
+       contract, never a guessed zero); both badges are driven from this same status read. */
+    setNavBadge('nav-badge-agents', null);
+    setNavBadge('nav-badge-projects', null);
     /* The residual summary is a claim from the last successful tick (or the
        boot "Loading…"): "N we could not read" beside the failure card is a
        count this poll cannot stand behind -- the same rule as the tiles
@@ -37135,6 +37176,11 @@ function paintProjects() {
   }, 0);
   document.getElementById('st-pjdm').textContent = String(pjDmTotal);
   document.getElementById('st-pjdm-tile').hidden = pjDmTotal <= 0;
+  /* #3216: the Projects nav-tab badge is NOT set here anymore -- paintProjects is skipped when
+     the Projects panel is hidden (on the Agents tab), which would freeze the badge cross-tab.
+     It is set in tick() from the always-polled counts.projectsUnread instead. pjDmTotal still
+     drives the #st-pjdm tile above (that tile lives on the Projects panel, so paintProjects is
+     the right place for it). */
   if (!PROJECTS.length) {
     // #2929 slice 2: PJ_DRAGGING-gated like the other #pj-list writers -- another agent
     // emptying the board mid-drag must not detach the drag-source node (the self-heal
@@ -37626,6 +37672,19 @@ function unreadBadge(n) {
   if (!Number.isFinite(k) || k <= 0) return '';
   const s = k > 99 ? '99+' : String(k);
   return '<span class="pj-unread" aria-label="' + s + ' unread">' + s + '</span>';
+}
+/* #3216 (Josh 6.74): the red count badge on a top-nav tab (Agents / Projects). Same
+   hide-at-zero grammar as unreadBadge and the count tiles: a null/unknown or <=0 count
+   hides it, never a guessed zero-that-looks-like-data. 99+ cap like unreadBadge. The tab
+   text keeps its own accessible name; the badge is aria-hidden (the count is decorative
+   reinforcement of the list badges, which carry the per-item aria-labels). */
+function setNavBadge(id, n) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const k = Number(n);
+  if (!Number.isFinite(k) || k <= 0) { el.hidden = true; el.textContent = ''; return; }
+  el.textContent = k > 99 ? '99+' : String(k);
+  el.hidden = false;
 }
 /* #2487: the full ancestry name chain, root-first, for the tree "mouseprint".
    Walks parent ids up via pjById. When the immediate parent record is not yet
