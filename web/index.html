@@ -3420,7 +3420,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      and the rest of the fleet. Only emitted when a project is open in the consolidated view. A thin
      rule on the shared --k-rule token, so it tracks light/dark; small margins because #alist is a
      4px-gap flex column and the gap already spaces it from the rows either side. */
-  #alist .alist-sep { border: 0; border-top: 1px solid var(--k-rule); height: 0; margin: 2px 2px; flex: 0 0 auto; }
+  html[data-layout="consolidated"] body.consolidated #alist .alist-sep { border: 0; border-top: 1px solid var(--k-rule); height: 0; margin: 2px 2px; flex: 0 0 auto; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   /* #3187: the consolidated rail used to strip the row ground (background: none)
@@ -4124,34 +4124,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard + .pjcard,
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files {
     border-top: 1px solid var(--k-rule); padding-top: 14px; margin-top: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files::-webkit-scrollbar { display: none; }
-  /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
-     loop iteration 1, then MEASURED: with 30 rows stuffed into Tasks and
-     Files, %-caps against content-sized tracks let the two grow to ~460px
-     each and push Members clean off the bottom). A viewport cap cannot be
-     gamed by content: Tasks and Files each stop at 38vh and scroll inside;
-     Members' own row is 1fr-bounded by construction, so its 100% cap is
-     against a real track and holds.
-     🛑 THE TWO CAPS BOUND EACH CARD, NOT THEIR SUM, and that is what starved
-     the third row. 38vh + 38vh is 76vh, plus `.pj3`'s 16px row gaps and the
-     cards' own margins, so on a 700px window with both lists full Members
-     computed to roughly one row. Each cap was doing its job and the
-     arithmetic across them was nobody's.
-     ⇒ Members' track carries a 168px FLOOR. 120 was derived from the list
-     alone and did not count the card's OWN furniture: the head, the add-member
-     control and the add row with its confirm button do not scroll, so they
-     have to fit before a single member is visible. 168 is those plus about one
-     row. Below that the grid exceeds `.pj3` and the overflow chains out to
-     the body's own scroll -- the same escape hatch, and the same trade, as
-     the body grid's `minmax(200px, 1fr)`: in every window a person uses
-     nothing scrolls, and where the geometry cannot be honoured, reachability
-     wins over the no-scrollbar promise. */
-  /* #3218: the 38vh caps are GONE. They existed to stop Tasks and Files starving the Members row
-     (row 3) when both lists were full; Members is hidden here now, and the column is a clean 1fr 1fr,
-     so Tasks (top) and Files (bottom) each take exactly half and scroll inside their own track. A cap
-     would leave the bottom half empty on a tall window. */
-  /* #3218: the Members card's track-bounded max-height (calc(100% - 12px)) was removed with the
-     card. Tasks and Files sit in the two 1fr tracks and scroll inside themselves. */
+  /* #3218: the right column is a clean 1fr 1fr now -- Tasks (top) over Files (bottom), each filling
+     half and scrolling inside itself. The old machinery here (38vh caps on Tasks/Files, a 168px floor
+     and a track-bounded max-height on Members) existed only to stop the two lists starving the
+     Members row; Members is hidden in this view, so all of it was removed. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
   /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members.
@@ -4460,7 +4436,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      header grid so the label + View All sit in a fixed row and only the list scrolls beneath. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); align-items: center; column-gap: 8px; overflow: hidden; } /* #3218: rows are header / message / list, so the empty-state message sits right under the header instead of floating at the bottom over the empty 1fr list track */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > * { grid-column: 1 / -1; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { grid-column: 1; grid-row: 1; position: static; background: none; padding-bottom: 0; margin-bottom: 0; } /* #3218: the old sticky-label treatment (position:sticky + side background) was for the card-as-scroller model; the label is a fixed header cell now, so it is neutralized */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { grid-column: 1; grid-row: 1; position: static; top: auto; z-index: auto; background: none; padding-bottom: 0; margin-bottom: 0; } /* #3218: the old sticky-label treatment (position:sticky + top/z-index + side background) was for the card-as-scroller model; the label is a fixed header cell now, so it is fully neutralized here */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-all { grid-column: 2; grid-row: 1; margin: 0; justify-self: end; align-self: center; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-msg { grid-column: 1 / -1; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs { grid-column: 1 / -1; grid-row: 3; overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }

@@ -247,6 +247,19 @@ const path = require('path');
       return [...document.getElementById('alist').children].filter((k) => k.classList && k.classList.contains('alist-sep')).length;
     });
     say(flatSeps === 0, '#3218: with no project open the Agents list is flat (no rule)', String(flatSeps));
+
+    // #3218: paintAgentList() keeps the empty-board fallback -- with no agents it draws boardEmpty(),
+    // not a blank list. Drive LAST=[] through it (the pre-first-poll / removed-last-agent shape) and
+    // assert the empty-state markup, no rows, no rule. This is the runtime execution coverage the
+    // node source-regex test cannot give.
+    const emptyBoard = await pg.evaluate(() => {
+      LAST = [];
+      paintAgentList();
+      const al = document.getElementById('alist');
+      return { hasEmpty: !!al.querySelector('.pj-empty'), hasRows: !!al.querySelector('.lrow'), hasSep: !!al.querySelector('.alist-sep') };
+    });
+    say(emptyBoard.hasEmpty && !emptyBoard.hasRows && !emptyBoard.hasSep,
+      '#3218: paintAgentList with no agents draws the empty board, not a blank list', JSON.stringify(emptyBoard));
   } else {
     say(false, 'the board has a project to open (this check needs one)');
   }
