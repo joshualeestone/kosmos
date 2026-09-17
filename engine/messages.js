@@ -1842,8 +1842,16 @@ function sweepUnanswered(roster, now) {
    per ask, that (author, project) answer list. Roughly O(N) to index plus, per
    post, asks-per-author x answers-per-author-project -- far below the naive
    triple scan over the whole (append-only, unpruned) record that a per-post
-   re-derivation would cost, which matters because compileAll runs this once per
-   emitted day. */
+   re-derivation would cost.
+
+   ⚠️ The index is rebuilt PER CALL. compileAll calls this once per emitted day,
+   so a multi-day compile (a first backfill over months of chats/) is O(days x N)
+   over the full record, not O(N). Left as-is deliberately: at this product's
+   scale (one local board, a bounded record) that is sub-second, and a shared
+   index across days would add API surface (an index-builder plus a count-from-
+   index) and correctness risk to a function whose exactness is the point. The
+   lever if a long backfill ever proves slow is to build the index once in
+   compileAll and pass windows to a count-from-index variant. */
 function suspectedMisrouteCount(sinceMs, untilMs) {
   const rec = record();
   if (!rec.ok) return null;   // could-not-read, NOT empty: caller omits the line rather than showing 0
@@ -1873,6 +1881,9 @@ function suspectedMisrouteCount(sinceMs, untilMs) {
       if (!who || !m.project) continue;
       const at = Date.parse(m.at);
       if (!Number.isFinite(at)) continue;
+      // NUL delimiter (never a space): no session name or project id can contain
+      // it, so `${who}\0${project}` cannot collide across a name/project boundary
+      // -- the same reason pairKey uses NUL. Both build and lookup use it.
       const key = who + ' ' + m.project;
       if (!answersByKey.has(key)) answersByKey.set(key, []);
       answersByKey.get(key).push(at);

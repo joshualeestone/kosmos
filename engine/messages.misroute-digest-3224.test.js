@@ -77,6 +77,14 @@ test('a post to the SAME room owed is not a misroute', () => {
   assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 0);
 });
 
+test('an ask that arrives AFTER the post does not count (the debt did not exist when the post happened)', () => {
+  // Exercises the other half of the guard (ask.askAt >= postAt): post at 60000,
+  // the operator question in B only at 90000.
+  seed([ post('p1', 'projA', 'mara', 60000), ask('q1', 'projB', 'mara', 90000) ]);
+  assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 0,
+    'a post cannot be a misroute for a question asked only later');
+});
+
 test('only posts inside [since, until) are counted', () => {
   seed([ ask('q1', 'projB', 'mara', 0), post('p1', 'projA', 'mara', 60000) ]);
   // A window that starts after the post excludes it.

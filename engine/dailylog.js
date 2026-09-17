@@ -211,6 +211,10 @@ function groupByDay(rows) {
  * Render one day's rows as Markdown. Pure. Conversations are ordered by their
  * first message that day; messages within a conversation are ordered by time.
  * `timeOf` is injectable for the same timezone-determinism reason as `dayOf`.
+ * `misrouteCount` (#3224, optional): when a non-negative integer, appends one
+ * counts-only "suspected cross-project misroutes today" line; omitted otherwise,
+ * so the existing 3-arg callers are unchanged and a null/unavailable count never
+ * renders as a false zero.
  */
 function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount) {
   const sorted = [...rows].sort((a, b) => String(a.at).localeCompare(String(b.at)));
@@ -299,7 +303,9 @@ function readConversations(chatsDir) {
  * Compile the daily logs. Reads `chatsDir`, writes one `<day>.md` per day into
  * `outDir` (created if absent). Returns a summary. `onlyDay` restricts the write
  * to a single day (a targeted run); by default every day found is written.
- * `dayOf`/`timeOf` are injectable for deterministic tests. `prune` (default
+ * `dayOf`/`timeOf`/`misrouteCountForDay` are injectable for deterministic tests
+ * (`misrouteCountForDay(dayStr)` -> the per-day #3224 count, default derives the
+ * local day window and reads the message record). `prune` (default
  * true) enables removing stale day files from `outDir`; the CLI turns it OFF for
  * an operator-supplied `--out` dir, so pruning a day-named file the operator
  * happens to keep in an arbitrary directory is never a surprise -- only the
