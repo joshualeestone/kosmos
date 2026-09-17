@@ -670,8 +670,11 @@ function fetchText(url, redirects, track) {
   });
 }
 
-/** Stream a large file to disk, hashing as it lands, reporting progress. */
-function fetchFile(url, dest, onProgress, redirects, track) {
+/** Stream a large file to disk, hashing as it lands, reporting progress.
+ * #3229: with forceSingle, the accept-ranges detection below is skipped and the
+ * whole file is streamed in one request -- download()'s fallback for a service
+ * (or proxy) that advertised ranges then did not honour one on a segment. */
+function fetchFile(url, dest, onProgress, redirects, track, forceSingle) {
   const left = redirects === undefined ? 5 : redirects;
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('http:') ? http : https;
@@ -683,7 +686,7 @@ function fetchFile(url, dest, onProgress, redirects, track) {
           reject(new Error('the download service redirected to an insecure address, so we stopped'));
           return;
         }
-        resolve(fetchFile(new URL(res.headers.location, url).toString(), dest, onProgress, left - 1, track));
+        resolve(fetchFile(new URL(res.headers.location, url).toString(), dest, onProgress, left - 1, track, forceSingle));
         return;
       }
       if (res.statusCode !== 200) {
@@ -706,7 +709,8 @@ function fetchFile(url, dest, onProgress, redirects, track) {
        * races the delayed-reject path onto an already-resolved promise.
        */
       const advertised = Number(res.headers['content-length']);
-      const rangeOk = String(res.headers['accept-ranges'] || '').toLowerCase().includes('bytes')
+      const rangeOk = !forceSingle
+        && String(res.headers['accept-ranges'] || '').toLowerCase().includes('bytes')
         && Number.isFinite(advertised) && advertised > 0;
       if (rangeOk) {
         responded = true;
@@ -1106,7 +1110,23 @@ async function download(onProgress, track, platform = process.platform) {
   // start, exactly as before -- its createWriteStream(part) truncates any stale
   // partial. Both assemble into `part`, and the sha below is the single
   // correctness gate for either.
-  await fetchFile(url, part, onProgress, undefined, track);
+  try {
+    await fetchFile(url, part, onProgress, undefined, track);
+  } catch (err) {
+    // #3229: a service (or an intermediary proxy) can advertise accept-ranges on
+    // the plain GET and then ignore the Range on a segment (a non-206). Rather
+    // than fail permanently -- which pre-#3229 single-stream downloads did not --
+    // discard the partial and its segments and retry as ONE stream from the
+    // start. Only this specific range-not-honoured error falls back; a genuine
+    // network failure still propagates so installClaudeCode's retry/resume owns it.
+    if (/did not honour a byte range/.test(String((err && err.message) || err))) {
+      try { fs.unlinkSync(part); } catch { /* no partial to discard */ }
+      cleanupSegments(part);
+      await fetchFile(url, part, onProgress, undefined, track, true);
+    } else {
+      throw err;
+    }
+  }
   activeRequest = null;
   if (sha256File(part) !== want) {
     // A resumed or parallel-assembled file that does not verify is discarded

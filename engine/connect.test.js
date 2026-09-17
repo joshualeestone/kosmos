@@ -344,6 +344,56 @@ test('#3229: a range-capable download resumes a partial segment, and the sha gat
     `a corrupt resume left files behind instead of restarting clean: ${after2.join(', ')}`);
 });
 
+test('#3229: a service that advertises ranges then ignores them falls back to a single stream', async (t) => {
+  /**
+   * The regression guard for #3229's own risk: entering the parallel path on the
+   * plain GET's accept-ranges header, then meeting a service (or an intermediary
+   * proxy) that answers 200 to the actual Range request. Pre-#3229 that user
+   * single-streamed and succeeded; a naive parallel path would fail every
+   * segment and fail permanently. This stub advertises accept-ranges on every
+   * response but answers 200 (never 206) to a Range, so the segment fetch is
+   * refused and download() must fall back to one stream from the start and still
+   * verify + place the binary. Red-capable: remove the fallback and this rejects.
+   */
+  const version = '9.9.1';
+  const key = connect.platformKey();
+  const binary = crypto.randomBytes(300 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  let rangeRequests = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/latest') {
+      const b = Buffer.from(version); res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
+    }
+    if (req.url === `/${version}/manifest.json`) {
+      const b = Buffer.from(JSON.stringify({ platforms: { [key]: { checksum } } }));
+      res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
+    }
+    if (req.url === `/${version}/${key}/claude`) {
+      if (req.headers.range) rangeRequests++;
+      // Advertise ranges, but ALWAYS answer 200 (never 206) with the whole body,
+      // even to a Range request -- the "advertises ranges, does not honour them"
+      // service. The first plain GET switches download() to the parallel path;
+      // the 200 to the segment's Range forces the single-stream fallback.
+      res.writeHead(200, { 'content-length': String(binary.length), 'accept-ranges': 'bytes' });
+      res.end(binary);
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => { server.listen(0, '127.0.0.1', r); });
+  t.after(() => server.close());
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+
+  const seen = [];
+  const got = await connect.download((g, total) => seen.push([g, total]));
+  assert.equal(got.version, version);
+  assert.equal(crypto.createHash('sha256').update(fs.readFileSync(got.path)).digest('hex'), checksum,
+    'the single-stream fallback did not land the served bytes');
+  assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
+  assert.ok(rangeRequests > 0, 'the parallel path should have attempted at least one Range request before falling back');
+});
+
 test('a download service answering nonsense is an error, not a hang', async (t) => {
   const server = http.createServer((req, res) => { res.writeHead(200); res.end('<html>maintenance</html>'); });
   await new Promise((r) => { server.listen(0, '127.0.0.1', r); });
@@ -584,9 +634,14 @@ test('#3229: cancel mid parallel-range download aborts every segment and leaves 
    * they exercise only the pre-#3229 path. This one drives the RESUMABLE +
    * PARALLEL path: the stub advertises accept-ranges and trickles each 206
    * segment, so several segment requests are in flight at once when cancel()
-   * runs. It proves abortAllRequests() tears down EVERY in-flight segment (not
-   * just one) and the cancel sweep removes the `.part.<i>` segment files too --
-   * the coverage gap the parallel worker pool and activeRequests Set opened.
+   * runs, and it pins the USER-VISIBLE contract for that path -- a cancel mid
+   * parallel download ends IDLE and leaves nothing behind, `.part.<i>` segments
+   * included -- which the single-stream cancel tests never reached.
+   * NOTE what this does NOT isolate: cancel() has redundant teardown here
+   * (abortAllRequests(), the onProgress orphan self-destroy, AND the claude-*
+   * dir sweep), so a clean dir does not by itself prove any ONE of them fired.
+   * The empty-dir contract is the point; the mechanisms are asserted structurally
+   * in the code, not teased apart here.
    */
   connect.resetForTests();
   clearClaudeConfig();
