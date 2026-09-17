@@ -184,6 +184,12 @@ const machine = require('./engine/machine');
 const a11ystatus = require('./engine/a11ystatus');
 const fileaccessstatus = require('./engine/fileaccessstatus');
 const promptrequest = require('./engine/promptrequest');
+/* #3188 (launchd-ambient-env meta-sweep #3189): how long the scoped file-access
+   diagnostic waits before checking whether the native watcher consumed the request.
+   The native poll is 1.5s and its stale-drop is 30s, so 5s covers 3+ poll cycles and
+   stays well under the stale window -- a still-present file at this point is genuinely
+   not-consumed, not dropped-as-stale. */
+const FILE_ACCESS_CONSUME_PROBE_MS = 5000;
 const updates = require('./engine/update');
 const usage = require('./engine/usage');
 
@@ -8387,9 +8393,38 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/file-access-prompt' && req.method === 'POST') {
     let r;
-    try { r = promptrequest.request('file-access'); }
+    try { r = promptrequest.request('file-access', { diag: true }); }
     catch (err) { r = { ok: false, because: 'we could not record the file-access prompt request (' + String((err && err.message) || err) + ')' }; }
-    sendJson(res, 200, r);
+    /* #3188 (launchd-ambient-env meta-sweep #3189): scoped, server-log-only diagnostic to
+       localize WHICH rung of the file-access -> tmux prompt chain fails on the running
+       board. The defect is not visible in source (the resolvers are proven correct), so
+       this mirrors #3136: instrument the board, read the log, localize, ship the targeted
+       fix, strip the diag. No user surface and no token -- the wire response below is the
+       clean {ok, because} the caller already reads, with `diag` stripped so no store path
+       reaches the browser. A diagnostic must never affect the route, so every step is
+       swallowed. */
+    try {
+      const line = promptrequest.formatDiagLine(r);
+      if (line) {
+        process.stdout.write(line + '\n');
+        if (r.diag.wrote) {
+          /* Bounded post-drop check: did the native watcher (1.5s poll) consume (delete)
+             the request within the window? Not-consumed after this is the store-dir
+             divergence / app-not-running rung. unref so the probe never holds the process
+             open, and it is well under the native 30s stale-drop so a still-present file
+             means genuinely-not-consumed, not dropped-as-stale. The log CONTENT is built by
+             the tested promptrequest.formatConsumeLine; only the timer wiring lives here. */
+          const t = setTimeout(() => {
+            try {
+              const c = promptrequest.wasConsumed('file-access');
+              process.stdout.write(promptrequest.formatConsumeLine(c, FILE_ACCESS_CONSUME_PROBE_MS) + '\n');
+            } catch { /* a diagnostic must never throw into the timer */ }
+          }, FILE_ACCESS_CONSUME_PROBE_MS);
+          if (t && typeof t.unref === 'function') t.unref();
+        }
+      }
+    } catch { /* a diagnostic must never break the route */ }
+    sendJson(res, 200, { ok: !!(r && r.ok), because: r && r.because });
     return;
   }
 

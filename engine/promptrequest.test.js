@@ -116,3 +116,114 @@ test('CROSS-LANGUAGE CONTRACT: every request-file name is what the native app co
     );
   }
 });
+
+// ---- #3188 scoped diagnostic (launchd-ambient-env meta-sweep #3189) ----
+// The file-access -> tmux folder prompt chain is complete in source and the resolvers
+// are proven correct, so the failing rung is only observable on the running board. These
+// pin the engine-side instrument that localizes it: request(opts.diag) reporting the drop
+// rungs (root/nativePresent/wrote), wasConsumed reporting the consume rung, and -- the
+// load-bearing invariant -- that turning the diagnostic on does NOT change the return for
+// any existing caller.
+
+test('#3188 diag: opts.diag reports the drop rungs; NO opts stays byte-identical', () => {
+  clearRequests(); nativePresent();
+  // The inert-for-existing-callers guarantee: no diag key, exact same object.
+  assert.deepEqual(promptrequest.request('a11y'), { ok: true });
+  clearRequests(); nativePresent();
+  const r = promptrequest.request('file-access', { diag: true });
+  assert.equal(r.ok, true);
+  assert.ok(r.diag, 'diag is present only when opts.diag is set');
+  assert.equal(r.diag.name, 'file-access-prompt-request');
+  assert.equal(r.diag.nativePresent, true);
+  assert.equal(r.diag.wrote, true);
+  assert.equal(r.diag.root, store.ROOT, 'diag.root is the store.ROOT the file was dropped into');
+  assert.equal(r.diag.file, requestFile('file-access-prompt-request'));
+  assert.ok(fs.existsSync(r.diag.file), 'the reported file path is the one actually written');
+});
+
+test('#3188 diag: native absent -> nativePresent:false, wrote:false, ok:false, no file', () => {
+  clearRequests(); nativeAbsent();
+  const r = promptrequest.request('file-access', { diag: true });
+  assert.equal(r.ok, false);
+  assert.equal(r.diag.nativePresent, false);
+  assert.equal(r.diag.wrote, false);
+  // root/file null on the absent path proves store.ROOT was NOT resolved here -- the ordering
+  // that keeps store.ROOT's migration side-effect confined to the native-present drop path
+  // (#3188 review iter 2). If a refactor reads store.ROOT before the nativePresent gate again,
+  // this reds.
+  assert.equal(r.diag.root, null, 'native absent: store.ROOT must not be resolved');
+  assert.equal(r.diag.file, null);
+  assert.ok(!fs.existsSync(requestFile('file-access-prompt-request')),
+    'native absent: nothing written, matching the non-diag fallback contract');
+});
+
+test('#3188 diag: unknown kind -> diag.name null, wrote:false, disk untouched', () => {
+  clearRequests(); nativePresent();
+  const r = promptrequest.request('sleep', { diag: true });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /unknown prompt kind/i);
+  assert.equal(r.diag.name, null);
+  assert.equal(r.diag.wrote, false);
+});
+
+test('#3188 wasConsumed: present:true while the request sits, false once the native watcher deletes it', () => {
+  clearRequests(); nativePresent();
+  promptrequest.request('file-access');
+  assert.deepEqual(promptrequest.wasConsumed('file-access'),
+    { name: 'file-access-prompt-request', present: true });
+  // The native watcher consumes by DELETING the file (main.swift consumeRequest); model that.
+  fs.rmSync(requestFile('file-access-prompt-request'), { force: true });
+  assert.deepEqual(promptrequest.wasConsumed('file-access'),
+    { name: 'file-access-prompt-request', present: false });
+  // An unknown kind names nothing and is never "present".
+  assert.deepEqual(promptrequest.wasConsumed('sleep'), { name: null, present: false });
+});
+
+test('#3188 formatDiagLine: builds the drop-rung line, includes because only when set, null with no diag', () => {
+  // The log CONTENT is the diagnostic's whole deliverable (read off the board), so it is
+  // executed here, not just source-pinned. A typo in the format now reds a test.
+  const okLine = promptrequest.formatDiagLine({
+    ok: true, diag: { nativePresent: true, wrote: true, root: '/r', file: '/r/file-access-prompt-request' },
+  });
+  assert.equal(okLine,
+    'DIAG_DEBUG file-access-prompt #3188 diag: ok=true nativePresent=true wrote=true root=/r file=/r/file-access-prompt-request');
+  assert.ok(okLine.startsWith('DIAG_DEBUG '), 'the CLAUDE.md temporary-logging convention prefix');
+  assert.ok(!okLine.includes('because='), 'no because clause when the result carries none');
+
+  const failLine = promptrequest.formatDiagLine({
+    ok: false, because: 'no native app is present', diag: { nativePresent: false, wrote: false, root: '/r', file: '/r/x' },
+  });
+  assert.ok(failLine.includes('ok=false'));
+  assert.ok(failLine.includes('nativePresent=false'));
+  assert.ok(failLine.endsWith('because=no native app is present'), 'because appended when present');
+
+  assert.equal(promptrequest.formatDiagLine({ ok: true }), null, 'no diag -> null (nothing to log)');
+  assert.equal(promptrequest.formatDiagLine(null), null, 'no result -> null');
+});
+
+test('#3188 formatConsumeLine: consumed = NOT present, and carries the window', () => {
+  assert.equal(promptrequest.formatConsumeLine({ name: 'file-access-prompt-request', present: false }, 5000),
+    'DIAG_DEBUG file-access-prompt #3188 diag: consumedWithin5000ms=true', 'deleted by native watcher -> consumed');
+  assert.equal(promptrequest.formatConsumeLine({ name: 'file-access-prompt-request', present: true }, 5000),
+    'DIAG_DEBUG file-access-prompt #3188 diag: consumedWithin5000ms=false', 'still present -> NOT consumed (the divergence rung)');
+  // A missing/garbage result is treated as present:false -> consumed:true is wrong-safe here,
+  // but the route only calls this with a real wasConsumed() result; pin the coercion anyway.
+  assert.equal(promptrequest.formatConsumeLine(null, 5000),
+    'DIAG_DEBUG file-access-prompt #3188 diag: consumedWithin5000ms=true');
+});
+
+test('#3188 ROUTE: the file-access route wires the diag via the tested formatters and STRIPS it off the wire', () => {
+  // The store path must never reach the browser: the route logs diag server-side but
+  // sends a rebuilt {ok,because}, not the raw diag-bearing `r`. Pin the wiring (read-only).
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.ok(server.includes("promptrequest.request('file-access', { diag: true })"),
+    'the file-access route must request with the scoped diag enabled');
+  assert.ok(server.includes('promptrequest.formatDiagLine(r)'),
+    'the route must build the drop-rung line via the tested formatter');
+  assert.ok(server.includes('promptrequest.wasConsumed('),
+    'the consume-probe must read back the file-access request');
+  assert.ok(server.includes('promptrequest.formatConsumeLine('),
+    'the consume line must be built via the tested formatter');
+  assert.ok(server.includes('{ ok: !!(r && r.ok), because: r && r.because }'),
+    'the route must send a stripped {ok,because}, never the raw r (which carries diag.root/file)');
+});
