@@ -36,19 +36,13 @@ const FILE = path.join(store.ROOT, 'file-access-status.json');
 /* How long the native app's verdict is believed before it is treated as stale.
    Shares a11ystatus's stale window (the same 5min): the app refreshes on launch
    and on demand (the Allow-Access button, the first-run poll trigger), and a
-   verdict older than this means the app is not currently maintaining it, so we
-   fall back to "cannot check" rather than trust a possibly-days-old reading.
-   (The two seams no longer age IDENTICALLY: #3213 below lets file-access HOLD an
-   aged verdict while the app is up, where a11ystatus still expires; only the
-   window value matches.)
-
-   🛑 #3213: the age alone cannot tell "the app is gone" from "the app is up but
-   has not RE-PROBED" -- and it must not re-probe, because the file-access probe
-   IS the macOS permission prompt (permflood-2125), so any periodic/automatic
-   re-probe would burst prompts. The app therefore writes the verdict on-demand
-   only, so an aged verdict under a LIVE app is stale-by-design, not
-   stale-because-gone. `read` takes a `nativePresent` signal (proven live by the
-   a11y writer's own freshness, prompt-free) to distinguish the two: see below. */
+   verdict older than this normally means the app is not currently maintaining it,
+   so we fall back to "cannot check" rather than trust a possibly-days-old reading.
+   #3213 adds one exception -- a caller passing nativePresent HOLDS an aged verdict
+   while the app is up -- and the mechanism, plus the permflood-2125 reason the app
+   must not re-probe, is documented ONCE on `read` below rather than repeated here.
+   (So the two seams no longer age IDENTICALLY: file-access can hold, a11ystatus
+   still expires; only the window value matches.) */
 const STALE_AFTER_MS = 5 * 60 * 1000;
 
 /**
