@@ -17,7 +17,7 @@ Both sides of the DM already render through the same path: `dm mine` and `dm the
 - `#d-say` is a textarea; typing/pasting a multi-line message keeps its paragraph breaks; Enter sends, Shift+Enter newlines; the box grows and resets to one line after send; the sent bubble renders the paragraph breaks.
 
 ## Tests
-- docs/browser-checks/render-dm-multiline-3208.js (new, self-booting): asserts textarea, newline preservation, Enter/Shift+Enter split, autosize + reset, and multi-line render in `.dm-b`. 10 checks pass. Negative control: on the pre-fix `<input>`, 4 assertions FAIL (tag INPUT, newlines 0, autosize, Shift+Enter) and PASS after.
+- docs/browser-checks/render-dm-multiline-3208.js (new, self-booting): asserts textarea, newline preservation, Enter/Shift+Enter split, autosize + reset, and multi-line render in `.dm-b`. 11 checks pass. Negative control: on the pre-fix `<input>`, 4 assertions FAIL (tag INPUT, newlines 0, autosize, Shift+Enter) and PASS after.
 
 ## Collision
 Coordinated with Angel: his #3206 (branch wash-tokens-3206) touches only :root token defs + the 8 wash lines + a test; disjoint from the composer (#d-say ~8451, handlers ~42073-43600). No overlap. Merge order: whoever first, the other rebases.
