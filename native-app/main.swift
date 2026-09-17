@@ -524,15 +524,28 @@ func fileAccessReading() -> Bool {
         if v == "0" || v == "false" { return false }
     }
     let home = FileManager.default.homeDirectoryForCurrentUser
+    // #3188 DIAG (observation-only; the RETURN is unchanged). The fresh-ungranted test20 read
+    // showed granted:true with NO TCC event, which the enumerate-based verdict cannot explain.
+    // These lines pin the mechanism without changing behaviour: (1) the RESOLVED home, to catch a
+    // redirected/container home under the launchd/app-exe hatch (then the probe never touches the
+    // real protected trio); (2) the per-folder enumerate outcome; (3) a NON-MUTATING errno probe
+    // of a non-existent path in each folder. macOS evaluates TCC before existence, so errno
+    // EPERM(1)/EACCES(13) means a real READ would be DENIED here (the enumerate verdict is then a
+    // false positive), while ENOENT(2) means TCC allows the read (genuinely granted). The errno
+    // probe works on a fresh box's EMPTY folders, where no real file exists to head-read. Grep
+    // board.log for `DIAG_DEBUG fileaccess #3188`. Removed when the fix lands.
+    logLine("DIAG_DEBUG fileaccess #3188 resolvedHome=\(home.path)")
     // The three folders Screen 2's dialogs govern. Desktop/Documents/Downloads are the
     // TCC-protected trio agent files live in; enumerating each triggers ITS OWN prompt
     // and measures ITS grant -- they are three separate TCC services.
     var allGranted = true
     for folder in ["Documents", "Downloads", "Desktop"] {
         let dir = home.appendingPathComponent(folder)
+        var enumResult = "ok"
         do {
-            _ = try FileManager.default.contentsOfDirectory(atPath: dir.path)
-        } catch {
+            let entries = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            enumResult = "ok(entries=\(entries.count))"
+        } catch let err as NSError {
             // Not granted (or unreadable). Record it but KEEP PROBING the rest: each
             // enumerate is what fires that folder's prompt, so a single grant-button
             // click must attempt all three or the user sees only the first folder's
@@ -540,7 +553,20 @@ func fileAccessReading() -> Bool {
             // Josh's #1 ("fire the prompts one after another to hit Allow"). An early
             // return here would surface exactly one of three prompts per click.
             allGranted = false
+            enumResult = "THREW(domain=\(err.domain) code=\(err.code))"
         }
+        // #3188 DIAG: errno probe of a non-existent path (non-mutating; needs no real file). Read
+        // errno immediately after open(), before any other call can clobber it.
+        let probePath = dir.appendingPathComponent(".kosmos-tcc-probe-3188-nonexistent").path
+        let fd = open(probePath, O_RDONLY)
+        let probeResult: String
+        if fd >= 0 {
+            close(fd)
+            probeResult = "open-ok-unexpected"
+        } else {
+            probeResult = "errno=\(errno)"
+        }
+        logLine("DIAG_DEBUG fileaccess #3188 folder=\(folder) enumerate=\(enumResult) errnoProbe=\(probeResult)")
     }
     return allGranted
 }
