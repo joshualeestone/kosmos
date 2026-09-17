@@ -581,7 +581,6 @@ async function main() {
           agentChipFromFaceSet: agentChip ? Boolean(agentChip.getAttribute('style')) : null,
           youChipFromFaceSet: you ? Boolean(you.querySelector('.msg-av').getAttribute('style')) : null,
           receipt: receipt ? receipt.textContent : null,
-          receiptCls: receipt ? receipt.className : null,
           escaped: msgs[0] ? msgs[0].querySelector('p').textContent : null,
           bold: Boolean(box.querySelector('.msg p b')),
           valve: (box.querySelector('.msg-valve') || {}).textContent || null,

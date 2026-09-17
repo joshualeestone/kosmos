@@ -416,23 +416,21 @@ test('the sentence actually reaches the rendered row', () => {
 
   const post = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: ALL_PLACED, text: 'anyone there?' };
 
-  /* #3130: the row renders (anchored on the post's own text, since the healthy
-     receipt is empty), and it carries NO silence sentence whatever the silent
-     list -- placed-with-everyone is now a bodyless receipt, and the empty-pill
-     guard in pjRoomRow draws no stray `<span class="delivery">`. */
+  /* #3130: the row renders (anchored on the post's own text) and carries NO silence
+     sentence whatever the silent list.
+     #3134-followup (Josh 6.72): the room now renders NO inline delivery receipt at all --
+     `.delivery` is gone from pjRoomRow entirely -- so an all-placed operator post draws
+     no `.delivery` span (the old "empty pill" guard is subsumed: there is no pill to be
+     empty). Non-vacuous vs the pre-6.72 code, which rendered a `.delivery placed` span. */
   const withSilence = render(post, P, ['rick', 'bob']);
   assert.match(withSilence, /anyone there\?/, 'the row did not render at all');
   assert.doesNotMatch(withSilence, /Nothing back/, 'the removed silence sentence still reached the row');
-  // #3130 empty-pill guard: an all-placed operator post now yields an empty
-  // receipt sentence, and the pill must NOT render. The pill always carries a
-  // STATE class ('delivery placed'), so a stray empty pill is
-  // `class="delivery placed"></span>` -- match the state class then an immediate
-  // close, or this assertion is vacuous (the pre-fix bug renders exactly that).
-  assert.doesNotMatch(withSilence, /class="delivery[^"]*"><\/span>/, 'an empty delivery pill was drawn');
+  assert.doesNotMatch(withSilence, /class="delivery/, 'the room still renders a delivery receipt/pill (removed in #3134-followup)');
 
   const quiet = render(post, P, []);
   assert.match(quiet, /anyone there\?/, 'the row did not render at all');
   assert.doesNotMatch(quiet, /Nothing back/, 'a room where everyone answered still got the sentence');
+  assert.doesNotMatch(quiet, /class="delivery/, 'the room still renders a delivery receipt/pill (removed in #3134-followup)');
 });
 
 test('#3134-followup (Josh 6.72): a room post renders NO inline delivery receipt', () => {
