@@ -1693,8 +1693,16 @@ function setUnansweredAfterForTests(ms) {
  * never reached the pane is not silence, it is non-delivery, which the
  * post's own outcomes already report.
  */
-function unanswered(projectId, now) {
+function unanswered(projectId, now, afterMs) {
   const at = Number.isFinite(now) ? now : Date.now();
+  /* #3224: the age threshold is a PARAMETER (default the module constant) so the
+     misroute detector can ask for owed answers at ANY age (afterMs 0). A fast
+     misroute answers the wrong room WITHIN the nudge window, so the 10-minute
+     floor the nudge needs would blind the detector to exactly the common case.
+     Existing callers pass no third argument and are unchanged (floor falls back
+     to UNANSWERED_AFTER_MS). Number.isFinite, not truthiness: 0 is a legal floor
+     and `|| UNANSWERED_AFTER_MS` would silently restore the 10-minute default. */
+  const floor = Number.isFinite(afterMs) ? afterMs : UNANSWERED_AFTER_MS;
   const rec = record();
   if (!rec.ok) return {};
   const rows = rec.rows.filter((m) => m && m.project === projectId);
@@ -1702,7 +1710,7 @@ function unanswered(projectId, now) {
   for (const p of rows) {
     if (p.kind !== 'post' || p.operator !== true || !Array.isArray(p.mentioned) || !p.mentioned.length) continue;
     const age = at - Date.parse(p.at);
-    if (!Number.isFinite(age) || age < UNANSWERED_AFTER_MS) continue;
+    if (!Number.isFinite(age) || age < floor) continue;
     const silent = p.mentioned.filter((name) => {
       /* UNCONFIRMED counts as typed on purpose: chat's own semantics say
          the text may well have landed, and treating maybe-delivered as
@@ -1724,6 +1732,84 @@ function unanswered(projectId, now) {
     if (silent.length) out[p.id] = silent;
   }
   return out;
+}
+
+/* #3224: cross-project misroute DETECTOR -- observability ONLY, never blocks.
+   An agent on several projects sometimes answers into the WRONG project's room
+   (Josh, 2026-09-17: "if an agent is in multiple projects, they post the wrong
+   message in another project"). This cannot be fixed at the routing layer: the
+   post already carries a HARD, exact-validated project id (no inference), the
+   room envelope already hands the agent the project NAME + id + the exact
+   `kosmos post <id>` command (#3035), and the only cross-check signal
+   (stateProject, #2837) is produced BY posts, so it is circular. The forcing
+   fix is harness-level (auto-relay / fail-the-unsent-turn, kosmos#185), outside
+   Kosmos. What we CAN do, without a false REFUSE that would block legitimate
+   multi-project posting, is MEASURE it. */
+
+const MISROUTE_LOG = path.join(store.ROOT, 'misroute-suspects.jsonl');
+
+/**
+ * The projects (OTHER than the one just posted to) in which this agent OWES an
+ * unanswered, addressed operator question -- from the record alone. When an
+ * agent posts to project A while it owes an answer in project B, that post is a
+ * SUSPECTED misroute (the agent may have meant B).
+ *
+ * ⚠️ A SUSPECT IS A HEURISTIC, deliberately. An agent that is a member of both
+ * projects can post to A while legitimately owing B, so this is NOT proof of a
+ * misroute -- which is exactly why the caller only LOGS it and never refuses.
+ * The value is the AGGREGATE: how often, and correlated with what, so the
+ * un-reproduced premise can be confirmed and the harness fix (kosmos#185) sized.
+ *
+ * afterMs 0: an owed answer of ANY age counts. A fast misroute answers the wrong
+ * room inside the nudge window, so the nudge's 10-minute floor would hide the
+ * common case. Over-capturing here (and filtering by owed-age in analysis) beats
+ * missing the fast misroute the card is actually about.
+ *
+ * Pure and testable without a fleet, the same posture as `unanswered`.
+ */
+function misrouteSuspects(sessionName, targetProjectId, now) {
+  const who = String(sessionName == null ? '' : sessionName);
+  const target = String(targetProjectId == null ? '' : targetProjectId);
+  if (!who || !target) return [];
+  const at = Number.isFinite(now) ? now : Date.now();
+  const rec = record();
+  if (!rec.ok) return [];
+  /* Every project OTHER than the target that has an operator post mentioning
+     this agent -- the same enumeration sweepUnanswered uses, narrowed to this
+     agent so a large fleet's record is not walked once per project needlessly. */
+  const candidates = new Set(rec.rows.filter((m) => m && m.kind === 'post' && m.operator === true
+    && Array.isArray(m.mentioned) && m.mentioned.includes(who)
+    && m.project && m.project !== target).map((m) => m.project));
+  const owed = [];
+  for (const projectId of candidates) {
+    const silentByPost = unanswered(projectId, at, 0);
+    const posts = Object.keys(silentByPost).filter((postId) => silentByPost[postId].includes(who));
+    if (posts.length) owed.push({ project: projectId, posts });
+  }
+  return owed;
+}
+
+/**
+ * Best-effort: compute and LOG a suspected cross-project misroute for a post
+ * that reached its room. Returns the owed-project list (for the caller/test);
+ * writes a line only when non-empty. Swallows its own IO failure -- an
+ * observability write must never break a post, and the route wraps this in a
+ * try as well (the same best-effort posture #2837's attribution takes).
+ */
+function noteMisrouteSuspect(sessionName, targetProjectId, now) {
+  const owed = misrouteSuspects(sessionName, targetProjectId, now);
+  if (!owed.length) return owed;
+  try {
+    fs.mkdirSync(path.dirname(MISROUTE_LOG), { recursive: true });
+    fs.appendFileSync(MISROUTE_LOG, JSON.stringify({
+      kind: 'misroute-suspect',
+      from: String(sessionName == null ? '' : sessionName),
+      target: String(targetProjectId == null ? '' : targetProjectId),
+      owed,
+      at: new Date(Number.isFinite(now) ? now : Date.now()).toISOString(),
+    }) + '\n');
+  } catch { /* observability must never break a post */ }
+  return owed;
 }
 
 /**
@@ -1945,6 +2031,7 @@ module.exports = {
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
+  misrouteSuspects, noteMisrouteSuspect, MISROUTE_LOG,
   resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,

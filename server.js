@@ -10343,6 +10343,23 @@ const server = http.createServer((req, res) => {
             });
             if (poster && poster.ok && poster.card && poster.card.sessionName) {
               const who = poster.card.sessionName;
+              /* Resolve the target project id ONCE, hoisted above the #2837
+                 working gate: both the #3224 misroute detector and the #2837
+                 attribution key on the SAME resolved id (projects.get(...).id),
+                 so they cannot disagree about which project this post reached. */
+              let projectId = null;
+              try {
+                const pj = projects.get(String(body.project == null ? '' : body.project).trim(), roster);
+                projectId = pj && pj.id;
+              } catch { projectId = null; }
+              /* #3224: log a SUSPECTED cross-project misroute -- observability
+                 ONLY, never blocks the post and never refuses. Runs on ANY placed
+                 post, not only a 'working' one: owing an unanswered answer in
+                 ANOTHER room is what makes THIS post suspect, independent of how
+                 the board currently reads the agent's state. noteMisrouteSuspect
+                 swallows its own IO failure; this try is the same belt the #2837
+                 attribution below already wears. */
+              try { if (projectId) messages.noteMisrouteSuspect(who, projectId, Date.now()); } catch { /* observability must never break a post */ }
               /* Attribute the project ONLY when the poster is ALREADY working. The
                  overview lights 'working' tiles, so the project matters only then;
                  we carry it onto the SAME 'working' state (never forcing a state).
@@ -10357,24 +10374,17 @@ const server = http.createServer((req, res) => {
                  signal right now, and it re-ages-out on the same decay if no further
                  activity follows. */
               const current = selfreport.read(who);
-              if (current && current.found === true && current.state === 'working') {
-                let projectId = null;
-                try {
-                  const pj = projects.get(String(body.project == null ? '' : body.project).trim(), roster);
-                  projectId = pj && pj.id;
-                } catch { projectId = null; }
-                if (projectId) {
-                  /* Carry the poster's existing working CONTENT through unchanged
-                     (because/on/owner/until) -- only the project is being added, and
-                     selfreport.read reads those from the single latest line, so
-                     omitting them here would silently drop a `working --on/--owner`
-                     note the agent had set. */
-                  selfreport.record(who, {
-                    state: 'working', project: projectId,
-                    because: current.because, on: current.on, owner: current.owner, until: current.until,
-                    instance: poster.instance, auto: true,
-                  });
-                }
+              if (current && current.found === true && current.state === 'working' && projectId) {
+                /* Carry the poster's existing working CONTENT through unchanged
+                   (because/on/owner/until) -- only the project is being added, and
+                   selfreport.read reads those from the single latest line, so
+                   omitting them here would silently drop a `working --on/--owner`
+                   note the agent had set. */
+                selfreport.record(who, {
+                  state: 'working', project: projectId,
+                  because: current.because, on: current.on, owner: current.owner, until: current.until,
+                  instance: poster.instance, auto: true,
+                });
               }
             }
           }
