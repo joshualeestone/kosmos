@@ -5365,7 +5365,11 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
    room's own Send has the same gap and widening the fix is a change to every
    button in the app, which belongs in its own diff (flagged, not silently
    taken). */
-.dmbar .btn[disabled], .dmbar input[disabled] { opacity: .5; cursor: not-allowed; }
+/* #3208: `.dmbar input[disabled]` covered the composer only while #d-say was an
+   <input>; it is a <textarea> now, so the textarea arm keeps a closed box looking
+   closed (opacity .5 when the agent is off). Same input-only-selector gap this file
+   warns about at the `.composerbox textarea.cinput` note above. */
+.dmbar .btn[disabled], .dmbar input[disabled], .dmbar textarea[disabled] { opacity: .5; cursor: not-allowed; }
 /* The room valve's row: reassurance, not an error. */
 .msg-valve { font-size: .8125rem; color: var(--k-ink-2); border-left: 2px solid var(--k-rule);
              padding-left: 10px; }
@@ -8455,8 +8459,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            and an unnamed text input is a WCAG 4.1.2 failure on the one control
            this box exists for. The room's own box carries a static label for
            the same reason. -->
-      <input type="text" class="cinput" id="d-say" maxlength="2000"
-             aria-label="Type a message for this agent" placeholder="Message this agent…">
+      <textarea class="cinput" id="d-say" rows="1" maxlength="2000"
+             aria-label="Type a message for this agent" placeholder="Message this agent&hellip;"></textarea>
             <button class="btn uprime cpost" id="d-send" type="button">Send</button>
     </div>
     <!-- The attached-but-unsent files (#358, Josh 1:59 PM: "it just instantly
@@ -24594,7 +24598,9 @@ async function paintTalk(sessionName, agentName) {
     termSend.disabled = body.presence === 'off' || (TERM_SENDING && TERM_FLIGHT === sessionName);
   }
   // The parked draft comes back, and never over words already in the box.
-  if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) say.value = TALK_DRAFTS[sessionName];
+  // #3208: a restored multi-line draft must re-grow the textarea (the #1303-C rule:
+  // a value written BY THE PROGRAM regrows, or the box keeps a one-line height).
+  if (!say.disabled && !say.value && TALK_DRAFTS[sessionName]) { say.value = TALK_DRAFTS[sessionName]; pjGrowComposer(say); }
   // #967: the Terminal box's own draft comes back the same way, gated on its own
   // presence read so it is never restored into a box that cannot be sent from.
   if (termSay && !termSay.disabled && !termSay.value && TERM_DRAFTS[sessionName]) termSay.value = TERM_DRAFTS[sessionName];
@@ -24764,7 +24770,7 @@ async function sendTalk(text, chose, attachment) {
     const clearSent = () => {
       // Only the text THIS send took, and only if the box still holds exactly
       // it: anything typed on top belongs to the next message.
-      if (!flightMoved() && say.value.trim() === text) say.value = '';
+      if (!flightMoved() && say.value.trim() === text) { say.value = ''; pjGrowComposer(say); }
       if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
       /* The files follow the words' rule exactly: cleared for the agent they
          were sent to, on the same verdicts, so an unconfirmed-and-unrecorded
@@ -25256,7 +25262,7 @@ function openDetail(sessionName, section, fromProject) {
        paintTalk restores whichever draft belongs to the one being opened. The
        words are not lost: the input handler parks them under their own agent
        on every keystroke. */
-    document.getElementById('d-say').value = '';
+    pjComposerReset(document.getElementById('d-say'));
     /* #967: the Terminal-tab box belongs to the agent being LEFT exactly as the
        composer above does, so it is cleared on switch and paintTalk restores the
        one being opened from TERM_DRAFTS. Without this a reply typed for one agent
@@ -43582,6 +43588,7 @@ document.getElementById('d-term-say').addEventListener('input', (e) => {
 /* The park itself: every keystroke files the draft under the open agent, so no
    navigation order can lose it. */
 document.getElementById('d-say').addEventListener('input', (e) => {
+  pjGrowComposer(e.target);
   if (!CURRENT) return;
   const v = e.target.value;
   if (v.trim()) TALK_DRAFTS[CURRENT.sessionName] = v;
@@ -43593,8 +43600,12 @@ document.getElementById('d-say').addEventListener('keydown', (e) => {
   // ordinary Enter, so without this the first word somebody types is sent
   // half-composed. `isComposing` is the standard spelling; keyCode 229 is what
   // older WebKit reports for the same keystroke.
+  // #3208: this box is a textarea now (paragraph breaks used to be stripped by an
+  // <input>), so Shift+Enter inserts a newline and only a bare Enter sends -- the
+  // same split the room's #pj-post keydown uses.
   if (e.key !== 'Enter') return;
   if (e.isComposing || e.keyCode === 229) return;
+  if (e.shiftKey) return;
   e.preventDefault();
   const say = document.getElementById('d-say');
   /* ⚠️ THE TRIMMED TEXT IS WHAT IS SENT, matching pjSend's `box.value.trim()`
