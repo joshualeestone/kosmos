@@ -22125,16 +22125,17 @@ function paintOrg() {
   const cx = Math.round(size / 2 - (minX + maxX) / 2);
   const cy = Math.round(size / 2 - (minY + maxY) / 2);
 
-  /* ⚠️ NAMES AT REST ONLY WHILE THEY FIT, and the pack decides this by
-     example rather than by rule: its median-customer drawing (you and three
-     agents) labels every node, and its six-agent chains drawing labels none,
-     leaving the name to the hover callout. The reason is mechanical -- a
-     12px label is wider than the 44px node it sits under, so at any real
-     density the labels collide with each other long before the nodes do, and
-     a field of overlapping words is less readable than no words at all.
-     🔑 THE NAME IS NEVER ABSENT, only unlabelled: every node carries an
+  /* 🔑 NAMES ARE HOVER-ONLY, ALWAYS (Josh, 2026-09-17): the resting chart is
+     avatars only; the name and role pop in the hover callout. This overrides the
+     pack's earlier "label at rest while they fit" rule (which labelled <= 4 agents
+     and dropped to hover above that): Josh found the resting labels junky the
+     moment a fleet grew, and the reason is mechanical -- a 12px label is wider than
+     the 44px node it sits under, so at any real density the resting labels collide
+     with each other long before the nodes do. Hover-only for every count removes
+     that collision entirely.
+     🔑 THE NAME IS NEVER ABSENT, only never at rest: every node carries an
      aria-label and a callout, so hover and a screen reader both answer. */
-  const nameAtRest = placed.size <= 4;
+  const nameAtRest = false;
   const wires = [];
   const nodes = [];
   for (const [name, spot] of placed) {
@@ -31064,6 +31065,7 @@ window.addEventListener('resize', () => {
   const want = layoutConsolidated() && (URL_TAB === 'agents' || URL_TAB === 'projects');
   if (document.body.classList.contains('consolidated') !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
   else if (document.body.classList.contains('consolidated')) railFoldsApply();
+  pjMapFit();   // #3217: re-fit the projects map to the new panel width (no-op when the map is hidden)
 });
 function applyStyle(tokens) {
   const root = document.documentElement;
@@ -37394,6 +37396,58 @@ function paintProjectsMap() {
   setIfChanged(wrap, '<div class="pjorg"><ul><li>'
     + '<div class="pjonode top"><span class="pjonm">Kosmos</span>' + rootCount + '</div>'
     + kidsUl + '</li></ul></div>');
+  pjMapFit();
+}
+/* #3217 (Josh, 2026-09-17, investor-meeting screenshot: a wide fleet clipped
+   'Northstar Robotics' off the right edge -- "this thing still needs to fit on one
+   page"): scale the whole map down to the panel width so it never overflows
+   sideways. The tree lays out at its natural max-content width (min-width:max-content
+   on .pjorg, so siblings never wrap and the shape stays honest); when that exceeds
+   the panel we shrink it to fit.
+   🔑 zoom, not transform:scale. transform is visual-only -- it would shrink the
+   drawing but leave the layout box at full width, so #pj-map would still show a
+   horizontal scrollbar and the check would still measure an overflow. zoom reflows:
+   the box shrinks with the content, the sideways scroll goes away, and the vertical
+   space compensates on its own. Both engines Kosmos renders in (the app's WebKit and
+   the Playwright/Chromium browser-check) support zoom. Nodes here are static (no drag
+   math to divide), so a single container scale is safe. Recomputed on every paint and
+   on resize; measured at zoom:1 first so the natural width is read, never a
+   previously-shrunk one. Down-only: the guard `natural > avail` means the scale is
+   always < 1, so a small fleet is never touched (no Math.min needed).
+   🔑 clientWidth guard (blind-review WARNING): paintProjects repaints the map on every poll even
+   when the Projects panel is on ANOTHER tab (an ancestor is display:none), where clientWidth and
+   scrollWidth read 0. So we check clientWidth <= 0 BEFORE touching zoom and bail: without that we
+   would reset zoom to '' and then fail the measure, WIPING a correct fit -- a tab-return would then
+   briefly show the map overflowing again (the exact #3217 symptom). The same check covers a visible
+   frame that is not yet measurable. Only once we know we can measure do we reset and read `avail`
+   AT the natural size -- so a vertical scrollbar that only appears once the tree is back to full
+   height is reflected in the width we fit to (reading avail before the reset would size against the
+   previous zoom's scrollbar state, not the natural one). `avail` is clientWidth, the usable width
+   INSIDE any vertical scrollbar (clientWidth excludes the scrollbar): fitting to it guarantees no
+   horizontal overflow even when that scrollbar is present, where using the wider outer width would
+   under-fit and let the sideways scroll back in. */
+function pjMapFit() {
+  const wrap = document.getElementById('pj-map');
+  if (!wrap || wrap.hidden) return;
+  const org = wrap.querySelector('.pjorg');
+  if (!org) return;
+  if (wrap.clientWidth <= 0) return;           // off-tab (ancestor display:none -> 0) or not-yet-measurable -> keep any prior fit, don't wipe
+  org.style.zoom = '';                         // reset to read the natural width...
+  const natural = org.scrollWidth;
+  const avail = wrap.clientWidth;              // ...and read avail at the natural size, so a vertical scrollbar that only shows at full height is counted
+  if (natural > avail) {
+    let z = avail / natural;
+    org.style.zoom = String(z);
+    /* Correction: zoom's sub-pixel rounding + how min-width:max-content re-intrinsics under zoom
+       leave a few px of residual overflow, so avail/natural alone lands right at the panel edge.
+       Shrink by the measured excess ratio in a BOUNDED loop until the container no longer overflows
+       -- one pass often lands on the +1 boundary (fragile: a rounding difference reintroduces a
+       hairline scrollbar), a second clears it. Capped at 3 passes so it always terminates. */
+    for (let i = 0; i < 3 && wrap.scrollWidth > wrap.clientWidth; i++) {
+      z = z * (wrap.clientWidth / wrap.scrollWidth);
+      org.style.zoom = String(z);
+    }
+  }
 }
 
 /* #1994: order the active projects as a tree (a project may name a `parent`).

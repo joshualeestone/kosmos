@@ -249,6 +249,101 @@ function check(name, pass, detail) {
   check('folding KEEPS keyboard focus (re-homed onto the same fold button, not lost to body)', adds.focusKeptAfterFold, JSON.stringify(adds.focusKeptAfterFold));
   check('clicking a node opens that project (routes to openProject, not the fold)', adds.opened === 'a', 'opened=' + JSON.stringify(adds.opened));
   check('the map scrolls in BOTH directions (depth + width)', adds.scrollBoth, JSON.stringify(adds.scrollBoth));
+
+  // #3217 (Josh: the wide tree clipped 'Northstar Robotics' off the right edge, "fit on one
+  // page"): a fleet wider than the panel is scaled down to fit, no horizontal overflow. Non-
+  // vacuous: it first confirms the tree WOULD overflow unscaled (natural > panel), then that the
+  // zoom fit brings the rendered map within the panel width.
+  const fit = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    for (let i = 0; i < 16; i++) {
+      PROJECTS.push({ id: 'w' + i, name: 'Wide Project Number ' + (i + 1), parent: null, archived: false, summary: { total: 1 } });
+    }
+    LAST.length = 0; LAST.push({ sessionName: 's1' });
+    PJ_MAP_FOLDED.clear();
+    paintProjectsMap();                                  // paints + calls pjMapFit()
+    const map = document.getElementById('pj-map');
+    const org = map.querySelector('.pjorg');
+    org.style.zoom = '';                                 // read the natural (unscaled) width
+    const natural = org.scrollWidth;
+    pjMapFit();                                          // re-apply the fit
+    return { natural, clientWidth: map.clientWidth, scrollWidthAfter: map.scrollWidth,
+      zoom: org.style.zoom || '1', orgVisualW: Math.round(org.getBoundingClientRect().width) };
+  });
+  check('#3217: a wide fleet WOULD overflow the panel unscaled (precondition, not vacuous)',
+    fit.natural > fit.clientWidth, JSON.stringify(fit));
+  check('#3217: the map is scaled down to fit (zoom < 1)', parseFloat(fit.zoom) < 1, 'zoom=' + fit.zoom);
+  check('#3217: after the fit the map does NOT overflow the panel horizontally (scrollWidth <= clientWidth)',
+    fit.scrollWidthAfter <= fit.clientWidth + 1, JSON.stringify(fit));
+  // #3217 (blind-review WARNING): the map repaints on every poll even when the Projects
+  // panel is on ANOTHER tab (ancestor display:none), where clientWidth reads 0. pjMapFit must
+  // NOT reset-then-wipe a correct fit in that state -- the `clientWidth <= 0` bail (before the
+  // zoom reset) returns first. Simulate: with the wide fleet still fitted, hide the panel,
+  // repaint, assert the zoom survived (it is wiped to '' if that bail is removed).
+  const offtab = await page.evaluate(() => {
+    const map = document.getElementById('pj-map');
+    const before = map.querySelector('.pjorg').style.zoom;   // the live fit (zoom < 1)
+    const panel = document.getElementById('panel-projects');
+    const prev = panel ? panel.style.display : null;
+    if (panel) panel.style.display = 'none';                 // as if on the Agents tab
+    paintProjectsMap();                                      // the off-tab poll repaint
+    const org = map.querySelector('.pjorg');
+    const after = org ? org.style.zoom : null;
+    if (panel) panel.style.display = prev;
+    return { before, after, hadPanel: !!panel };
+  });
+  check('#3217: an off-tab repaint preserves the fit (clientWidth<=0 bail, does not wipe zoom)',
+    offtab.hadPanel && offtab.before !== '' && offtab.after === offtab.before, JSON.stringify(offtab));
+  // #3217 (blind-review WARNING): a tree that is BOTH wide AND deep enough to trip the wrap's own
+  // vertical scrollbar (max-height 620px) at natural size exercises the scrollbar-vs-fit
+  // interaction. avail is read at natural size (scrollbar present -> reduced), so the fit is
+  // computed against the true usable width; assert the scenario is real (tall at natural) and that
+  // the fit still lands inside the panel horizontally (no residual overflow).
+  const deep = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    for (let t = 0; t < 12; t++) {   // width: exceed the panel
+      PROJECTS.push({ id: 't' + t, name: 'Top Project ' + (t + 1), parent: null, archived: false, summary: { total: 1 } });
+    }
+    let parent = 't0';               // depth: a long chain to cross the 620px vertical cap
+    for (let d = 0; d < 16; d++) {
+      const id = 'd' + d;
+      PROJECTS.push({ id, name: 'Depth ' + (d + 1), parent, archived: false, summary: { total: 1 } });
+      parent = id;
+    }
+    LAST.length = 0; LAST.push({ sessionName: 's1' });
+    PJ_MAP_FOLDED.clear();
+    paintProjectsMap();
+    const map = document.getElementById('pj-map');
+    const org = map.querySelector('.pjorg');
+    org.style.zoom = '';                                        // natural size
+    const naturalTall = map.scrollHeight > map.clientHeight;    // vertical scrollbar present at natural?
+    pjMapFit();                                                 // apply the fit (reads avail at natural)
+    return { naturalTall, scrollWidthAfter: map.scrollWidth, clientWidthAfter: map.clientWidth,
+      zoom: org.style.zoom || '1' };
+  });
+  check('#3217: a deep tree trips the vertical scrollbar at natural size (deep+wide scenario is exercised)',
+    deep.naturalTall, JSON.stringify(deep));
+  check('#3217: a deep AND wide tree still fits horizontally after the fit (scrollbar interaction converges)',
+    deep.scrollWidthAfter <= deep.clientWidthAfter + 1, JSON.stringify(deep));
+  // #3217 (blind-review WARNING): the fit must REVERSE -- a fleet that was shrunk (zoom < 1) and then
+  // becomes small enough to fit naturally must un-fit (zoom back to '') on the next paint, not stay
+  // shrunk. pjMapFit resets zoom to '' every call before measuring, so it does; assert it.
+  const revert = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    for (let i = 0; i < 16; i++) PROJECTS.push({ id: 'r' + i, name: 'Wide Project Number ' + (i + 1), parent: null, archived: false, summary: { total: 1 } });
+    LAST.length = 0; LAST.push({ sessionName: 's1' });
+    PJ_MAP_FOLDED.clear();
+    paintProjectsMap();                                        // wide -> fitted
+    const shrunk = document.querySelector('#pj-map .pjorg').style.zoom;   // zoom < 1
+    PROJECTS.length = 0;                                       // now just two projects: fits naturally
+    PROJECTS.push({ id: 'a', name: 'Alpha', parent: null, archived: false, summary: { total: 1 } });
+    PROJECTS.push({ id: 'b', name: 'Beta', parent: null, archived: false, summary: { total: 1 } });
+    paintProjectsMap();                                        // should un-fit
+    const after = document.querySelector('#pj-map .pjorg').style.zoom;    // '' (or 1)
+    return { shrunk, after };
+  });
+  check('#3217: the fit reverses -- a now-small fleet un-fits (zoom cleared), not left shrunk',
+    parseFloat(revert.shrunk) < 1 && (revert.after === '' || parseFloat(revert.after) === 1), JSON.stringify(revert));
   check('the Map toggle is gated on sub-projects existing (flat=off, tree=on)',
     adds.flatHasTree === false && adds.treeHasTree === true, JSON.stringify({ flat: adds.flatHasTree, tree: adds.treeHasTree }));
 

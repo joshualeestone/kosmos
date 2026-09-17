@@ -376,6 +376,15 @@ test('the callout shows the name and the title small, with NO chevron; the verb 
   assert.doesNotMatch(node, /callout">Open /, 'the visible word Open is back');
 });
 
+test('#3222: org agent names are hover-only for EVERY count (no at-rest label under the avatar)', () => {
+  /* Josh, 2026-09-17: past ~4 agents the resting names collided and looked junky, so the
+     resting name is OFF for every count now (names live in the hover callout + aria-label,
+     asserted above). Guards the removal against a revert to the old count-based at-rest label
+     `nameAtRest = placed.size <= 4` (a-deletion-ships-with-an-absence-assertion). */
+  assert.match(SCRIPT, /const nameAtRest = false;/,
+    'org agent names are no longer hover-only: nameAtRest reverted from false to a count-based at-rest label');
+});
+
 test('#2683: the org callout is interactive ONLY while visible -- inert (so it cannot capture a neighbour hover) when hidden, pressable when shown (#284)', () => {
   /* The mis-targeting cause: the callout is opacity:0 until hover AND positioned
      above its node, and an opacity:0 element with pointer-events:auto STILL
