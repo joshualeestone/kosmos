@@ -56,11 +56,20 @@ definition. Rendering is unchanged (computed style resolves the token to the ide
   commit trailers because this is a copy-only, render-identical token refactor that updates no
   docs/browser-checks assertion:
   - #1720 coarse gate: `Browser-check:` trailer (a web/ change with no assertion update needs a reason).
-  - #2518 surface gate: `Browser-check-surface: render-member-modal.js <reason>` -- that check's
-    declared surface token is `pj-one-agents`, which my `.pj-member.pjm-working/.attn` edit touches,
-    but the check probes only the pjm-IDLE gray (#2920, rgba(120,120,128,.07)), which this refactor
-    does not change. Verified both gates pass after adding the trailers (ran browser-check-gate.sh +
-    browser-check-surface-gate.sh against the branch).
+  - #2518 surface gate: TWO checks are surface-mapped to tokens my diff touches, each with its own
+    named trailer:
+    - `Browser-check-surface: render-member-modal.js <reason>` -- token `pj-one-agents` (my
+      `.pj-member.pjm-working/.attn` edit); that check probes only the pjm-IDLE gray (#2920,
+      rgba(120,120,128,.07)), which this refactor does not change.
+    - `Browser-check-surface: render-dm-badges-2863.js <reason>` -- token `lrow` (my `.lrow.working/
+      .attn` base + folded edits); that check asserts DM-badge GEOMETRY over the `.lav` corner, not
+      the wash colour (its own header already records that the #3131/#3187 `.lrow` wash change does
+      not move/clip the badge). A render-identical var() swap leaves that placement untouched.
+    - No other check is surface-mapped to a token my diff hits (`acard`, `pj-member`, `pjm-*`,
+      `consolidated`, `fold-a` are declared by no check; verified by grepping every
+      docs/browser-checks Browser-check-surface annotation).
+    NOTE the surface gate diffs against `origin/main`, a SHARED ref other worktrees advance, so its
+    flagged set can shift as main moves; the two named trailers cover the deterministic token hits.
 - Render correctness: `.lrow` base + folded washes are computed-style-checked by
   render-agent-lines.js (unchanged, still green because var() resolves to the same rgba); the
   `.acard`/`.pj-member` washes rest on standard var() resolution + the node source tests (see the
