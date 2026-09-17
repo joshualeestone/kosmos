@@ -41,7 +41,7 @@ const selfreport = require('./engine/selfreport');
 // standing co-member; leo/lee/lou/liv are one-per-test posters.
 // `fixture` is the pane-path poster: the test fake-tmux resolves every pane's
 // session_name to `fixture-discord`, so a tokenless post from any pane resolves to it.
-const POSTERS = ['leo', 'lee', 'lou', 'liv', 'lex', 'fixture'];
+const POSTERS = ['leo', 'lee', 'lou', 'liv', 'lex', 'lyn', 'fixture'];
 let board;
 test.before(async () => {
   await start(0);
@@ -137,6 +137,50 @@ test('attribution preserves the existing working content (on/because), adding on
   assert.equal(rep.project, p.id, 'the project was not attributed');
   assert.equal(rep.on, 'the refactor', 'attribution dropped the working report\'s `on` content');
   assert.equal(rep.because, 'halfway through', 'attribution dropped the working report\'s note');
+});
+
+test('#3224: a post to project A while owing an addressed answer in project B logs a misroute suspect, and the post STILL succeeds (observability only)', async () => {
+  const tok = sendertoken.mint('lyn').token;
+  const a = room('Misroute A 3224', 'lyn');
+  const b = room('Misroute B 3224', 'lyn');
+  // The operator asks lyn in room B -> an unanswered addressed question lyn owes.
+  const ask = messagesEngine.sendPost(
+    { operator: true, project: b.id, projectName: b.name, text: '@lyn where is the draft?' },
+    board.agents, ['lyn', 'mara']);
+  assert.ok(['placed', 'unconfirmed'].includes(ask.state), 'the operator ask did not place: ' + (ask.because || ''));
+  // Start from a clean misroute log so the assertion is about THIS post alone.
+  try { fs.rmSync(messagesEngine.MISROUTE_LOG, { force: true }); } catch { /* fresh */ }
+  selfreport.record('lyn', { state: 'working' });
+  // lyn posts to a DIFFERENT room (A) while owing B -> a suspected misroute.
+  const r = await post({ project: a.id, text: 'answering over here', from_pane: '' }, { 'x-kosmos-agent-token': tok });
+  // The post is NEVER blocked or delayed by the detector: it still reaches the room.
+  assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state),
+    'the post to A must still succeed - the detector is observability only: ' + (r.json.delivery.because || ''));
+  // The route logged exactly one suspect line naming room B (same post-sendJson timing as
+  // the #2837 attribution the tests above read synchronously).
+  const raw = fs.readFileSync(messagesEngine.MISROUTE_LOG, 'utf8').trim().split('\n').filter(Boolean);
+  assert.equal(raw.length, 1, 'expected exactly one misroute-suspect line from the route');
+  const rec = JSON.parse(raw[0]);
+  assert.equal(rec.kind, 'misroute-suspect');
+  assert.equal(rec.from, 'lyn', 'the suspect was not attributed to the poster');
+  assert.equal(rec.target, a.id, 'the suspect target was not the room actually posted to');
+  assert.deepEqual(rec.owed.map((o) => o.project), [b.id], 'the suspect did not name the owed room B');
+});
+
+test('#3224: a post to the SAME room it owes is NOT a misroute suspect (no false positive from the route)', async () => {
+  const tok = sendertoken.mint('mara').token;
+  const p = room('Misroute same-room 3224', 'mara');
+  const ask = messagesEngine.sendPost(
+    { operator: true, project: p.id, projectName: p.name, text: '@mara any update?' },
+    board.agents, ['mara']);
+  assert.ok(['placed', 'unconfirmed'].includes(ask.state), 'the operator ask did not place: ' + (ask.because || ''));
+  try { fs.rmSync(messagesEngine.MISROUTE_LOG, { force: true }); } catch { /* fresh */ }
+  selfreport.record('mara', { state: 'working' });
+  // mara answers IN the room it owes -> not a misroute, so no line.
+  const r = await post({ project: p.id, text: 'here is the update', from_pane: '' }, { 'x-kosmos-agent-token': tok });
+  assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state), 'the post should still reach the room');
+  assert.equal(fs.existsSync(messagesEngine.MISROUTE_LOG), false,
+    'answering in the room you owe must not be logged as a misroute');
 });
 
 test('a post does NOT clobber a standing waiting state: a needs_you agent stays needs_you, unattributed', async () => {
