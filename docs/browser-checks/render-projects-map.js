@@ -325,6 +325,25 @@ function check(name, pass, detail) {
     deep.naturalTall, JSON.stringify(deep));
   check('#3217: a deep AND wide tree still fits horizontally after the fit (scrollbar interaction converges)',
     deep.scrollWidthAfter <= deep.clientWidthAfter + 1, JSON.stringify(deep));
+  // #3217 (blind-review WARNING): the fit must REVERSE -- a fleet that was shrunk (zoom < 1) and then
+  // becomes small enough to fit naturally must un-fit (zoom back to '') on the next paint, not stay
+  // shrunk. pjMapFit resets zoom to '' every call before measuring, so it does; assert it.
+  const revert = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    for (let i = 0; i < 16; i++) PROJECTS.push({ id: 'r' + i, name: 'Wide Project Number ' + (i + 1), parent: null, archived: false, summary: { total: 1 } });
+    LAST.length = 0; LAST.push({ sessionName: 's1' });
+    PJ_MAP_FOLDED.clear();
+    paintProjectsMap();                                        // wide -> fitted
+    const shrunk = document.querySelector('#pj-map .pjorg').style.zoom;   // zoom < 1
+    PROJECTS.length = 0;                                       // now just two projects: fits naturally
+    PROJECTS.push({ id: 'a', name: 'Alpha', parent: null, archived: false, summary: { total: 1 } });
+    PROJECTS.push({ id: 'b', name: 'Beta', parent: null, archived: false, summary: { total: 1 } });
+    paintProjectsMap();                                        // should un-fit
+    const after = document.querySelector('#pj-map .pjorg').style.zoom;    // '' (or 1)
+    return { shrunk, after };
+  });
+  check('#3217: the fit reverses -- a now-small fleet un-fits (zoom cleared), not left shrunk',
+    parseFloat(revert.shrunk) < 1 && (revert.after === '' || parseFloat(revert.after) === 1), JSON.stringify(revert));
   check('the Map toggle is gated on sub-projects existing (flat=off, tree=on)',
     adds.flatHasTree === false && adds.treeHasTree === true, JSON.stringify({ flat: adds.flatHasTree, tree: adds.treeHasTree }));
 

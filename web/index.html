@@ -37438,11 +37438,12 @@ function pjMapFit() {
   if (natural > avail) {
     let z = avail / natural;
     org.style.zoom = String(z);
-    /* One measured correction: at heavy scale zoom leaves a few px of residual
-       overflow (sub-pixel rounding + how min-width:max-content re-intrinsics under
-       zoom), so avail/natural alone is not exactly tight. Re-read the real result and
-       shrink by the leftover excess ratio -- one pass lands it inside the panel. */
-    if (wrap.scrollWidth > wrap.clientWidth) {
+    /* Correction: zoom's sub-pixel rounding + how min-width:max-content re-intrinsics under zoom
+       leave a few px of residual overflow, so avail/natural alone lands right at the panel edge.
+       Shrink by the measured excess ratio in a BOUNDED loop until the container no longer overflows
+       -- one pass often lands on the +1 boundary (fragile: a rounding difference reintroduces a
+       hairline scrollbar), a second clears it. Capped at 3 passes so it always terminates. */
+    for (let i = 0; i < 3 && wrap.scrollWidth > wrap.clientWidth; i++) {
       z = z * (wrap.clientWidth / wrap.scrollWidth);
       org.style.zoom = String(z);
     }
