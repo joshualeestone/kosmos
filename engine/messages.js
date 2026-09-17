@@ -1829,13 +1829,55 @@ function sweepUnanswered(roster, now) {
    left untouched.
 
    Heuristic (a member of both rooms can post to A while legitimately owing B), so
-   the digest frames it as "suspected" and reports only the aggregate. */
+   the digest frames it as "suspected" and reports only the aggregate.
+
+   Returns an integer count, or NULL when the record could NOT be read (rec.ok
+   false -- a genuine read failure, distinct from an empty record which returns
+   0). The null is deliberate: the digest caller maps it to an OMITTED line, so an
+   unreadable record never renders as a clean "0 today" (a false zero). ENOENT is
+   an empty record (0), not a read failure.
+
+   Cost: ONE pass to index operator asks by addressed agent and each agent's room
+   posts by project, then per in-window post a scan of ITS author's asks and,
+   per ask, that (author, project) answer list. Roughly O(N) to index plus, per
+   post, asks-per-author x answers-per-author-project -- far below the naive
+   triple scan over the whole (append-only, unpruned) record that a per-post
+   re-derivation would cost, which matters because compileAll runs this once per
+   emitted day. */
 function suspectedMisrouteCount(sinceMs, untilMs) {
   const rec = record();
-  if (!rec.ok) return 0;
+  if (!rec.ok) return null;   // could-not-read, NOT empty: caller omits the line rather than showing 0
   const from = Number.isFinite(sinceMs) ? sinceMs : -Infinity;
   const until = Number.isFinite(untilMs) ? untilMs : Infinity;
   const rows = rec.rows;
+  // One pass: operator asks indexed by each TYPED addressed agent, and each
+  // agent's own room posts indexed by (agent, project). Same predicates the
+  // inline double-scan used -- only the shape changes, not what qualifies.
+  const asksByAgent = new Map();      // agent -> [{ project, askAt }]
+  const answersByKey = new Map();     // `${agent} ${project}` -> [postAtMs]
+  for (const m of rows) {
+    if (!m || m.kind !== 'post') continue;
+    if (m.operator === true) {
+      if (!m.project || !Array.isArray(m.mentioned) || !m.outcomes) continue;
+      const askAt = Date.parse(m.at);
+      if (!Number.isFinite(askAt)) continue;
+      for (const name of m.mentioned) {
+        if (!name) continue;
+        const oc = m.outcomes[name];
+        if (!oc || oc === chat.DELIVERY.COULD_NOT) continue;   // typed for THIS agent only
+        if (!asksByAgent.has(name)) asksByAgent.set(name, []);
+        asksByAgent.get(name).push({ project: m.project, askAt });
+      }
+    } else {
+      const who = m.from;
+      if (!who || !m.project) continue;
+      const at = Date.parse(m.at);
+      if (!Number.isFinite(at)) continue;
+      const key = who + ' ' + m.project;
+      if (!answersByKey.has(key)) answersByKey.set(key, []);
+      answersByKey.get(key).push(at);
+    }
+  }
   let count = 0;
   for (const p of rows) {
     if (!p || p.kind !== 'post' || p.operator === true) continue;   // W's own room post
@@ -1844,17 +1886,12 @@ function suspectedMisrouteCount(sinceMs, untilMs) {
     const postAt = Date.parse(p.at);
     if (!who || !target || !Number.isFinite(postAt)) continue;
     if (postAt < from || postAt >= until) continue;
-    const owes = rows.some((q) => {
-      if (!q || q.kind !== 'post' || q.operator !== true) return false;
-      if (!Array.isArray(q.mentioned) || !q.mentioned.includes(who)) return false;
-      if (!q.project || q.project === target) return false;         // a DIFFERENT project
-      const askAt = Date.parse(q.at);
-      if (!Number.isFinite(askAt) || askAt >= postAt) return false; // the ask must precede this post
-      const typed = q.outcomes && q.outcomes[who] && q.outcomes[who] !== chat.DELIVERY.COULD_NOT;
-      if (!typed) return false;                                     // an undelivered ask is not owed
-      const answered = rows.some((a) => a && a.kind === 'post' && a.operator !== true
-        && a.from === who && a.project === q.project
-        && Date.parse(a.at) >= askAt && Date.parse(a.at) < postAt); // answered in [askAt, postAt)
+    const asks = asksByAgent.get(who);
+    if (!asks) continue;
+    const owes = asks.some((ask) => {
+      if (ask.project === target || ask.askAt >= postAt) return false;  // DIFFERENT project, ask precedes post
+      const times = answersByKey.get(who + ' ' + ask.project);
+      const answered = times && times.some((t) => t >= ask.askAt && t < postAt); // answered in [askAt, postAt)
       return !answered;
     });
     if (owes) count += 1;

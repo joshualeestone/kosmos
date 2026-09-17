@@ -65,6 +65,31 @@ test('dayWindowLocal: maps a day string to a local [start,end) spanning that day
   for (const bad of ['nope', '2026-9-3', '2026-09-13T00:00', '', null]) {
     assert.equal(dl.dayWindowLocal(bad), null, 'should refuse ' + String(bad));
   }
+  // Shape-valid but calendar-invalid refused (Date would silently normalize these
+  // into a DIFFERENT real day).
+  for (const bad of ['2026-13-01', '2026-02-30', '2026-00-10', '2026-01-32']) {
+    assert.equal(dl.dayWindowLocal(bad), null, 'should refuse calendar-invalid ' + bad);
+  }
+});
+
+test('defaultMisrouteCountForDay: the default path reads the real record (lazy require) and counts that local day', () => {
+  const messages = require('./messages');
+  // Local-time timestamps (no Z), so they fall in dayWindowLocal's local window.
+  const isoLocal = (h) => `2026-09-13T${String(h).padStart(2, '0')}:00:00`;
+  messages.resetForTests();
+  try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* fresh */ }
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const rec = [
+    { kind: 'post', id: 'q', from: 'you', project: 'projB', to: ['mara'], text: '@mara ?',
+      operator: true, mentioned: ['mara'], outcomes: { mara: 'placed' }, at: isoLocal(9) },
+    { kind: 'post', id: 'p', from: 'mara', project: 'projA', to: [], text: 'over here', outcomes: {}, at: isoLocal(10) },
+  ];
+  fs.writeFileSync(messages.LOG, rec.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  messages.resetForTests();
+  assert.equal(dl.defaultMisrouteCountForDay('2026-09-13'), 1, 'the misroute on that local day was not counted via the default path');
+  assert.equal(dl.defaultMisrouteCountForDay('2026-09-14'), 0, 'a day with no posts should be 0');
+  assert.equal(dl.defaultMisrouteCountForDay('not-a-day'), null, 'a bad day string yields null (line omitted)');
+  try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* cleanup */ }
 });
 
 test('compileAll: threads a per-day count into the written day file', () => {

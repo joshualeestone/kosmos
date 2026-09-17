@@ -113,17 +113,29 @@ function localTimeOf(at) {
   return `${h}:${min}`;
 }
 
-/* #3224: the local [start, end) millisecond window for a YYYY-MM-DD day string,
-   computed in the SAME local timezone `localDayOf` buckets by, so the misroute
-   window lines up with the day the rollup is filed under. `setDate(+1)` rolls the
-   month and absorbs a DST-length day correctly (unlike start + 24h). Returns null
-   for a string that is not a plain YYYY-MM-DD (an injected non-local dayOf), so
-   the caller omits the count rather than scanning a wrong window. */
+/* #3224: the LOCAL [start, end) millisecond window for a YYYY-MM-DD day string.
+   `setDate(+1)` rolls the month and absorbs a DST-length day correctly (unlike
+   start + 24h). Rejects (null) a string that is not a plain YYYY-MM-DD AND one
+   whose components do not round-trip (2026-13-01, 2026-02-30 -- Date would
+   silently normalize them into a different real day).
+
+   ⚠️ This window is ALWAYS local, so it lines up with the DEFAULT `localDayOf`
+   bucketing and with the default `misrouteCountForDay`. It does NOT reconcile
+   with a NON-local injected `dayOf` (e.g. a UTC `at.slice(0,10)`): the regex
+   accepts that string's shape but the window would then be a local-midnight span
+   offset from the UTC day the rows were bucketed under, mis-counting near
+   midnight. That mismatch is not reachable on the production path (default dayOf
+   is local); a caller that injects a non-local dayOf must inject a matching
+   `misrouteCountForDay` too. The guard protects shape and calendar validity, NOT
+   timezone agreement with an injected dayOf. */
 function dayWindowLocal(dayStr) {
   if (!DAY_STEM_RE.test(String(dayStr || ''))) return null;
   const [y, m, d] = dayStr.split('-').map(Number);
   const start = new Date(y, m - 1, d, 0, 0, 0, 0);
   if (isNaN(start.getTime())) return null;
+  // Reject a date the components did not round-trip to (Date normalized it away,
+  // e.g. month 13 -> next January): that is a different day than the string names.
+  if (start.getFullYear() !== y || start.getMonth() !== m - 1 || start.getDate() !== d) return null;
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   return { start: start.getTime(), end: end.getTime() };

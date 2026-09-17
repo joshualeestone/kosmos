@@ -44,7 +44,7 @@ function post(id, project, who, atMs) {
 /** Replace the whole message log with these rows, fresh cache. */
 function seed(rows) {
   messages.resetForTests();
-  try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ }
+  try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* fresh (file OR a leftover dir from the read-failure test) */ }
   fs.mkdirSync(require('node:path').dirname(messages.LOG), { recursive: true });
   fs.writeFileSync(messages.LOG, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
   messages.resetForTests();
@@ -106,7 +106,21 @@ test('multiple misroute posts by the same agent each count', () => {
   assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 2);
 });
 
-test('an empty/unreadable record yields 0, not a throw', () => {
+test('an EMPTY record yields 0 (distinct from unreadable)', () => {
   seed([]);
   assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 0);
+});
+
+test('a genuinely UNREADABLE record yields null, not 0 (so the digest omits the line, never a false zero)', () => {
+  const path = require('node:path');
+  messages.resetForTests();
+  try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* fresh */ }
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  // Make the log path a DIRECTORY so record()'s read fails (rec.ok false) -- the
+  // could-not-read state, which must NOT collapse to the empty-record 0.
+  fs.mkdirSync(messages.LOG, { recursive: true });
+  messages.resetForTests();
+  assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), null,
+    'an unreadable record must return null, not a false 0');
+  try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* cleanup */ }
 });
