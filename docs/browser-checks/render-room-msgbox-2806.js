@@ -107,14 +107,21 @@ const now = () => new Date().toISOString();
         const agentMsg = { from: 'april', at: ts, text: 'on it, board cleared.' };
         // A row with no words and no files: the body is empty, so no .msg-bd.
         const emptyMsg = { operator: true, at: ts, text: '' };
+        // #3134-followup (Josh 6.72): an AGENT bodyless post must ALSO draw no .msg-bd --
+        // the bubble is gated on body content, not on the name (`hasBubble = bd`), so a
+        // name+timestamp-only tinted box is never drawn. The agentRow finder below picks
+        // the FIRST agent row (agentMsg, which has a body); this fourth row is checked
+        // separately as agentEmptyRow.
+        const agentEmptyMsg = { from: 'april', at: ts, text: '' };
         const host = document.createElement('div');
         host.style.cssText = 'position:absolute;left:-9999px;top:0;width:640px;';
-        host.innerHTML = pjRoomRow(opMsg, p) + pjRoomRow(agentMsg, p) + pjRoomRow(emptyMsg, p);
+        host.innerHTML = pjRoomRow(opMsg, p) + pjRoomRow(agentMsg, p) + pjRoomRow(emptyMsg, p) + pjRoomRow(agentEmptyMsg, p);
         document.body.appendChild(host);
         const rows = Array.from(host.querySelectorAll('.msg'));
         const opRow = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
-        const agentRow = rows.find((r) => !r.classList.contains('you'));
+        const agentRow = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
         const emptyRow = rows.find((r) => r.classList.contains('you') && !r.querySelector('.msg-bd'));
+        const agentEmptyRow = rows.find((r) => !r.classList.contains('you') && !r.querySelector('.msg-bd'));
         const bg = (el) => (el ? getComputedStyle(el).backgroundColor : null);
         const out = {
           rowCount: rows.length,
@@ -123,6 +130,9 @@ const now = () => new Date().toISOString();
           // The bodyless row: it must be a .msg.you row that has NO .msg-bd at all.
           emptyRowIsYou: !!emptyRow,
           emptyRowHasBox: !!(emptyRow && emptyRow.querySelector('.msg-bd')),
+          // #3134-followup (Josh 6.72): the bodyless AGENT row also draws NO .msg-bd.
+          agentEmptyRowExists: !!agentEmptyRow,
+          agentEmptyHasBox: !!(agentEmptyRow && agentEmptyRow.querySelector('.msg-bd')),
           agentHasYou: agentRow ? agentRow.classList.contains('you') : null,
           // #2947: the data-am the REAL pjRoomRow render emitted on the agent
           // body box, so the room path never drops it or produces NaN/out-of-range.
@@ -182,8 +192,8 @@ const now = () => new Date().toISOString();
       const t = `[${theme}]`;
       if (m.error) { chk(false, `${t} render`, m.error); await page.close(); continue; }
 
-      // Positive controls: all three rows rendered, and the mine/theirs split is real.
-      chk(m.rowCount === 3, `${t} all three fixture rows rendered`, `count=${m.rowCount}`);
+      // Positive controls: all four rows rendered, and the mine/theirs split is real.
+      chk(m.rowCount === 4, `${t} all four fixture rows rendered`, `count=${m.rowCount}`);
       chk(m.agentHasYou === false, `${t} the agent row is NOT .you (mine/theirs split is real)`);
       // #2947: the REAL pjRoomRow render emits a valid data-am (0..4) on the agent
       // box and NONE on the operator's own box.
@@ -203,8 +213,11 @@ const now = () => new Date().toISOString();
         `${m.agentBd} rgb=[${ag.slice(0, 3).map((x) => x.toFixed(1)).join(', ')}]`);
       // (d) the two are distinct (blue vs cream differ well beyond the alpha).
       chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent cream are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
-      // (e) a bodyless row draws NO box.
-      chk(m.emptyRowIsYou && !m.emptyRowHasBox, `${t} a bodyless row draws a .msg row but NO .msg-bd (no empty tinted box)`, `isYou=${m.emptyRowIsYou} hasBox=${m.emptyRowHasBox}`);
+      // (e) a bodyless OPERATOR row draws NO box.
+      chk(m.emptyRowIsYou && !m.emptyRowHasBox, `${t} a bodyless operator row draws a .msg row but NO .msg-bd (no empty tinted box)`, `isYou=${m.emptyRowIsYou} hasBox=${m.emptyRowHasBox}`);
+      // (e2) #3134-followup: a bodyless AGENT row ALSO draws NO box (bubble gated on body,
+      // not name), so a name+timestamp-only tinted box is never drawn.
+      chk(m.agentEmptyRowExists && !m.agentEmptyHasBox, `${t} a bodyless agent row draws a .msg row but NO .msg-bd (no name-only box)`, `exists=${m.agentEmptyRowExists} hasBox=${m.agentEmptyHasBox}`);
 
       // #3134-followup (Josh 6.72): name is INSIDE the bubble (.msg-nm) at the top. The
       // operator's OWN post shows NO name; an agent's keeps its name and it is the FIRST
@@ -258,6 +271,63 @@ const now = () => new Date().toISOString();
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
+    }
+
+    /* #3134-followup (Josh 6.72): the WING NO-SEAM PIXEL ORACLE. The computed-style arms
+       above verify the wing's MECHANISM (::before colored + outside offset, ::after mask);
+       they cannot see the COMPOSITED OUTCOME. #3130's tail LOOKED right and still
+       double-tinted the translucent user bubble into a "colliding triangle" -- a defect
+       invisible to getComputedStyle and to the eye on a quick look, caught only by reading
+       pixels. So: render a real user bubble VISIBLE, screenshot it, decode the PNG in-browser
+       via a canvas (no node PNG dep needed), and assert no pixel in the wing region is more
+       blue than the bubble body (a double composite of the .10-alpha --usermsg-tint reads a
+       shade bluer). Light theme, where the tint alpha is lowest and a seam is hardest to see
+       by eye -- the case the human check is weakest on. */
+    const pxPage = await browser.newPage({ viewport: { width: 760, height: 400 }, colorScheme: 'light' });
+    try {
+      await pxPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await pxPage.goto(PAGE);
+      await pxPage.evaluate((ts) => {
+        const p = { agents: [] };
+        const host = document.createElement('div');
+        host.className = 'thread'; host.setAttribute('data-shot', '1');
+        host.style.cssText = 'position:fixed;left:0;top:0;width:760px;height:400px;z-index:99999;';
+        host.innerHTML = pjRoomRow({ operator: true, at: ts, text: 'can everyone enter a task of 100 character max, please and thanks.' }, p);
+        document.body.appendChild(host);
+      }, now());
+      await pxPage.waitForTimeout(120);
+      const box = await pxPage.evaluate(() => {
+        const bd = document.querySelector('.thread[data-shot="1"] .msg.you .msg-bd');
+        const r = bd.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom };
+      });
+      const shot = await pxPage.screenshot();
+      const px = await pxPage.evaluate(async ({ url, box }) => {
+        const img = new Image();
+        await new Promise((r) => { img.onload = r; img.src = url; });
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+        const at = (x, y) => { const d = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data; return [d[0], d[1], d[2]]; };
+        const blueLead = (rgb) => rgb[2] - Math.max(rgb[0], rgb[1]);
+        const bodyLead = blueLead(at(box.x + box.w * 0.5, box.y + box.h * 0.5));
+        let maxWingLead = -999;
+        for (let dx = -10; dx <= 8; dx++) for (let dy = -12; dy <= 3; dy++) {
+          const lead = blueLead(at(box.right + dx, box.bottom + dy));
+          if (lead > maxWingLead) maxWingLead = lead;
+        }
+        return { bodyLead: Math.round(bodyLead), maxWingLead: Math.round(maxWingLead) };
+      }, { url: 'data:image/png;base64,' + shot.toString('base64'), box });
+      // A single-composite wing matches the body; a double-tint seam reads several points
+      // bluer. Allow a small anti-aliasing margin.
+      chk(px.maxWingLead <= px.bodyLead + 4,
+        `[pixel] the wing has no double-tint seam on the translucent user bubble`,
+        `bodyLead=${px.bodyLead} maxWingLead=${px.maxWingLead}`);
+    } finally {
+      await pxPage.close();
     }
   } finally {
     await browser.close();
