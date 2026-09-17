@@ -91,11 +91,11 @@ const EXPECTED = {
       "count": 1
     },
     {
-      "pin": "assert.match(PAGE, new RegExp(cons + ' \\\\.pj3 > aside\\\\.pjcol:not\\\\(\\\\.pjsplit\\\\), ' + cons + ' \\\\.pj3 > \\\\.pjsplit > \\\\.pjcard-files \\\\{ max-height: 38vh;'),",
+      "pin": "assert.doesNotMatch(PAGE, new RegExp(cons + ' \\\\.pj3 > aside\\\\.pjcol:not\\\\(\\\\.pjsplit\\\\), ' + cons + ' \\\\.pj3 > \\\\.pjsplit > \\\\.pjcard-files \\\\{ max-height: 38vh;'),",
       "count": 1
     },
     {
-      "pin": "assert.match(PAGE, new RegExp(cons + ' \\\\.pj3 > \\\\.pjsplit > \\\\.pjcard-members \\\\{ max-height: calc\\\\(100% - 12px\\\\);'),",
+      "pin": "assert.match(PAGE, new RegExp(cons + ' \\\\.pj3 > \\\\.pjsplit > \\\\.pjcard-members \\\\{ display: none;'),",
       "count": 1
     }
   ],
@@ -123,7 +123,7 @@ const EXPECTED = {
       "count": 1
     },
     {
-      "pin": "assert.match(PAGE, /html\\[data-layout=\"consolidated\"\\] body\\.consolidated \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ grid-column: 2; grid-row: 3;/,",
+      "pin": "assert.match(PAGE, /html\\[data-layout=\"consolidated\"\\] body\\.consolidated \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ display: none;/,",
       "count": 1
     },
     {
@@ -147,7 +147,7 @@ const EXPECTED = {
       "count": 1
     },
     {
-      "pin": "assert.match(PAGE, /\\.pjsplit > \\.pjcard-members \\{ grid-column: 2; grid-row: 3;/,",
+      "pin": "assert.match(PAGE, /\\.pjsplit > \\.pjcard-members \\{ display: none;/,",
       "count": 1
     }
   ],
@@ -175,7 +175,7 @@ const EXPECTED = {
   ],
   "web.tab-column-order.test.js": [
     {
-      "pin": "assert.match(PAGE, /body\\.consolidated \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ grid-column: 2; grid-row: 3;/,",
+      "pin": "assert.match(PAGE, /body\\.consolidated \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ display: none;/,",
       "count": 1
     },
     {
