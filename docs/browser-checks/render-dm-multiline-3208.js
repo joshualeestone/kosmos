@@ -79,6 +79,13 @@ const chk = (ok, label, extra) => {
          rule: a programmatic value write regrows; the reset shrinks it back). */
       pjComposerReset(say);
       r.afterResetHeight = Math.round(say.getBoundingClientRect().height);
+      /* #3208: a disabled composer (agent off/unreachable) must still look closed.
+         The .dmbar disabled-dimming rule was input-only; the textarea arm keeps the
+         box at opacity .5 when disabled. Read it, then re-enable. */
+      r.enabledOpacity = getComputedStyle(say).opacity;
+      say.disabled = true;
+      r.disabledOpacity = getComputedStyle(say).opacity;
+      say.disabled = false;
       /* The bubble renders the paragraph break: pjRich fast path keeps the literal
          \n and .dm-b is white-space: pre-wrap, so a two-paragraph message is >1 line. */
       const probe = document.createElement('div'); probe.className = 'dm mine';
@@ -99,6 +106,7 @@ const chk = (ok, label, extra) => {
     chk(out.shiftEnterPrevented === false, 'Shift+Enter is NOT intercepted (it inserts a newline)', String(out.shiftEnterPrevented));
     chk(out.grewHeight > out.oneLine + 5, 'the composer autosizes: a multi-line message grows the box', 'one=' + out.oneLine + ' grown=' + out.grewHeight);
     chk(out.afterResetHeight <= out.oneLine + 2, 'pjComposerReset returns the box to one line', 'one=' + out.oneLine + ' afterReset=' + out.afterResetHeight);
+    chk(parseFloat(out.enabledOpacity) === 1 && Math.abs(parseFloat(out.disabledOpacity) - 0.5) < 0.05, 'a disabled composer stays dimmed (a closed box looks closed)', 'enabled=' + out.enabledOpacity + ' disabled=' + out.disabledOpacity);
     chk(out.dmbWhiteSpace === 'pre-wrap', 'the message bubble .dm-b is white-space: pre-wrap', out.dmbWhiteSpace);
     chk(out.dmbKeepsNewline === true, 'pjRich keeps the literal newline for a plain multi-line message', String(out.dmbKeepsNewline));
     chk(out.dmbLines >= 3, 'a two-paragraph message renders as multiple lines in the bubble', 'lines=' + out.dmbLines);

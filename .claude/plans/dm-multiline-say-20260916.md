@@ -11,6 +11,7 @@ Both sides of the DM already render through the same path: `dm mine` and `dm the
 - keydown handler: added `if (e.shiftKey) return;` so Shift+Enter inserts a newline and only a bare Enter sends, preserving the existing IME rule (`isComposing`/keyCode 229).
 - input handler: added `pjGrowComposer(e.target)` so the box autosizes.
 - The three programmatic `#d-say.value` writes now regrow the box (the #1303-C rule): the draft restore (`pjGrowComposer` after), the clear-on-switch (`pjComposerReset`), and the clear-after-send (`pjGrowComposer`). The Terminal box (`#d-term-say`) is left as an input (out of scope).
+- Disabled-dimming: the `.dmbar` disabled rule was `input`-only, so once `#d-say` became a textarea a disabled (agent-off) composer stopped looking closed. Added a `.dmbar textarea[disabled]` arm so it stays at opacity .5 (the "A CLOSED BOX HAS TO LOOK CLOSED" intent, #991). Same input-only-selector class the file warns about at the `.composerbox textarea.cinput` note.
 
 ## What "finished" looks like
 - `#d-say` is a textarea; typing/pasting a multi-line message keeps its paragraph breaks; Enter sends, Shift+Enter newlines; the box grows and resets to one line after send; the sent bubble renders the paragraph breaks.

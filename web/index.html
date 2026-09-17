@@ -5365,7 +5365,11 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
    room's own Send has the same gap and widening the fix is a change to every
    button in the app, which belongs in its own diff (flagged, not silently
    taken). */
-.dmbar .btn[disabled], .dmbar input[disabled] { opacity: .5; cursor: not-allowed; }
+/* #3208: `.dmbar input[disabled]` covered the composer only while #d-say was an
+   <input>; it is a <textarea> now, so the textarea arm keeps a closed box looking
+   closed (opacity .5 when the agent is off). Same input-only-selector gap this file
+   warns about at the `.composerbox textarea.cinput` note above. */
+.dmbar .btn[disabled], .dmbar input[disabled], .dmbar textarea[disabled] { opacity: .5; cursor: not-allowed; }
 /* The room valve's row: reassurance, not an error. */
 .msg-valve { font-size: .8125rem; color: var(--k-ink-2); border-left: 2px solid var(--k-rule);
              padding-left: 10px; }
