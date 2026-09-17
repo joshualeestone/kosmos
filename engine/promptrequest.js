@@ -74,32 +74,72 @@ function nativePresent() {
   try { return a11ystatus.read().checkable === true; } catch { return false; }
 }
 
+/*
+ * #3188 scoped diagnostic (launchd-ambient-env meta-sweep #3189). When a caller passes
+ * `opts.diag`, request() also returns a `diag` object naming the engine-observable rungs
+ * of the file-access -> tmux prompt chain, so a server-log-only line can localize WHICH
+ * rung fails on the RUNNING board -- the defect is not visible in source (Angel proved the
+ * resolvers are already correct: resolveBundledTmux has the right fallback, and store.ROOT
+ * drop vs the native storeFileURL watch resolve identically and are pinned by a
+ * cross-language test), so this mirrors #3136's approach: instrument the board, localize,
+ * fix, strip.
+ *
+ * INERT for every existing caller: with no `opts.diag`, the return is byte-identical to
+ * before ({ok:true} / {ok:false, because}), which promptrequest.test.js pins via
+ * assert.deepEqual. Only the file-access route passes it, and it strips `diag` off the
+ * wire so no store path reaches the browser.
+ */
+function withDiag(ret, opts, diag) {
+  if (opts && opts.diag) return Object.assign({}, ret, { diag });
+  return ret;
+}
+
 /**
  * Ask the native app to fire the `kind` prompt on demand. Never throws: the caller is
  * a route that must answer.
+ *
+ * @param {string} kind  one of REQUEST_FILE's keys.
+ * @param {{diag?:boolean}} [opts]  when diag is set, include a `diag` object (see withDiag).
  */
-function request(kind) {
+function request(kind, opts) {
   const name = REQUEST_FILE[kind];
-  if (!name) return { ok: false, because: 'unknown prompt kind: ' + kind };
-  if (!nativePresent()) {
-    return {
-      ok: false,
-      because: 'no native app is present to fire the prompt (a browser, or the app is not running)',
-    };
-  }
+  if (!name) return withDiag({ ok: false, because: 'unknown prompt kind: ' + kind }, opts, { name: null, root: null, file: null, nativePresent: null, wrote: false });
   // store.ROOT is read at CALL time, not frozen at require, so a test that points the
   // store elsewhere is honoured (the ~26 freeze-at-require modules are the hazard this
-  // avoids).
-  const file = path.join(store.ROOT, name);
+  // avoids). Read once so the drop path and the diag report the same root.
+  const root = store.ROOT;
+  const file = path.join(root, name);
+  const np = nativePresent();
+  if (!np) {
+    return withDiag({
+      ok: false,
+      because: 'no native app is present to fire the prompt (a browser, or the app is not running)',
+    }, opts, { name, root, file, nativePresent: false, wrote: false });
+  }
   try {
-    fs.mkdirSync(store.ROOT, { recursive: true });
+    fs.mkdirSync(root, { recursive: true });
     // Presence is the whole signal; the timestamp is only so an operator can see how
     // long an un-consumed request has sat (native deletes it the instant it fires).
     fs.writeFileSync(file, new Date().toISOString() + '\n');
-    return { ok: true };
+    return withDiag({ ok: true }, opts, { name, root, file, nativePresent: true, wrote: true });
   } catch (e) {
-    return { ok: false, because: 'could not record the prompt request (' + String((e && e.message) || e) + ')' };
+    return withDiag({ ok: false, because: 'could not record the prompt request (' + String((e && e.message) || e) + ')' }, opts, { name, root, file, nativePresent: true, wrote: false });
   }
 }
 
-module.exports = { request, nativePresent, REQUEST_FILE };
+/*
+ * #3188 diagnostic: is a `kind` request file still present in store.ROOT? The native
+ * watcher DELETES the file the instant it consumes it (polls every 1.5s, native-app
+ * checkPromptRequests), so `present:false` after a bounded post-drop window means it was
+ * consumed; `present:true` means the drop landed somewhere the watcher is not looking
+ * (the store-dir divergence rung) or the app is not running. Pure and never throws, like
+ * the rest of this module -- it is a read used only by the scoped file-access diagnostic.
+ */
+function wasConsumed(kind) {
+  const name = REQUEST_FILE[kind];
+  if (!name) return { name: null, present: false };
+  try { return { name, present: fs.existsSync(path.join(store.ROOT, name)) }; }
+  catch { return { name, present: false }; }
+}
+
+module.exports = { request, nativePresent, wasConsumed, REQUEST_FILE };
