@@ -1,14 +1,22 @@
-/* #3134 (Josh, 6.68): after "Create project", return to the projects LIST (his
- * ask: "return to the projects list / the view I was on - currently stuck on the
- * create-project view"), not into the new project's empty detail.
+/* #3134 (Josh 6.70, supersedes the 6.68 "return to the projects list"): after
+ * "Create project", land the person INSIDE the new project. Josh's 6.70
+ * verification: "once you create a project ... it should take you directly into
+ * that project." (The 6.68 behaviour -- return to the list -- was PR #3160; this
+ * check asserted that, and is rewritten here for the reversal.)
  *
  * Drives the SHIPPED #pj-create handler against a real server (sandboxed roots),
  * in BOTH the tab and consolidated views. Asserts that after a successful create
- * the LIST is shown (#pj-list-view visible), the create form (#pj-add-view) and
- * the project detail (#pj-one-view) are hidden, and the new project appears in
- * the list. Non-vacuous: on origin/main the handler dives into the new project
- * (openProject), so #pj-one-view would be VISIBLE and #pj-list-view hidden -- the
- * dangerous answer this guards against.
+ * the new project's DETAIL is shown (#pj-one-view visible, #pj-one-name is the new
+ * project's name) and the create form (#pj-add-view) is hidden. In the tab view
+ * the list (#pj-list-view) is hidden by the detail; in the consolidated view the
+ * list stays visible as the rail beside the detail, so that arm does not assert it
+ * hidden. Non-vacuous: on the 6.68 page (openProject replaced by pjView('list'))
+ * the detail would be HIDDEN and the list shown -- the dangerous answer this now
+ * guards against, in the opposite direction from before.
+ *
+ * The read-back-failure fallback (openProject's else branch: a created-but-
+ * unreadable project cannot be shown, so it returns to the list with the "could
+ * not read it back" notice) is UNCHANGED by the 6.70 reversal and still asserted.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-pjcreate-nav-3134.js
  *      (HEADED=0 on a machine with no console session)
@@ -48,13 +56,13 @@ const PORT = freePort();
     await p.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
 
-    // Reads the four view states + whether the named project shows in the list.
-    const stateAfter = async (name) => p.evaluate((nm) => ({
+    // Reads the view states + which project the detail is showing.
+    const stateAfter = async () => p.evaluate(() => ({
+      oneShown: !document.getElementById('pj-one-view').hidden,
       listShown: !document.getElementById('pj-list-view').hidden,
-      oneHidden: document.getElementById('pj-one-view').hidden,
       addHidden: document.getElementById('pj-add-view').hidden,
-      newInList: new RegExp(nm).test(document.getElementById('pj-list').textContent || ''),
-    }), name);
+      detailName: (document.getElementById('pj-one-name').textContent || '').trim(),
+    }));
 
     // ---- Tab view ----
     await p.click('[data-tab="projects"]');
@@ -63,11 +71,11 @@ const PORT = freePort();
     await p.fill('#pj-name', 'Tab Created Project');
     await p.click('#pj-create');
     await p.waitForSelector('#pj-add-view', { state: 'hidden', timeout: 10000 });
-    const tab = await stateAfter('Tab Created Project');
-    if (!tab.listShown) die('tab: after create the projects list is not shown (#3134)');
-    if (!tab.oneHidden) die('tab: after create the project detail is shown -- it dived into the new project instead of returning to the list (#3134 regression)');
+    const tab = await stateAfter();
+    if (!tab.oneShown) die('tab: after create the project detail (#pj-one-view) is not shown -- it did not land inside the new project (#3134, Josh 6.70)');
+    if (tab.detailName !== 'Tab Created Project') die('tab: the detail is not the newly-created project (#pj-one-name is ' + JSON.stringify(tab.detailName) + ')');
+    if (tab.listShown) die('tab: after create the projects list is still shown instead of the new project detail (the 6.68 return-to-list behaviour Josh reversed in 6.70)');
     if (!tab.addHidden) die('tab: after create the create form (#pj-add-view) is still shown');
-    if (!tab.newInList) die('tab: the new project does not appear in the list after create');
 
     // ---- Consolidated view ----
     await p.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
@@ -80,20 +88,23 @@ const PORT = freePort();
     await p.fill('#pj-name', 'Cons Created Project');
     await p.click('#pj-create');
     await p.waitForSelector('#pj-add-view', { state: 'hidden', timeout: 10000 });
-    const cons = await stateAfter('Cons Created Project');
-    if (!cons.listShown) die('consolidated: after create the projects list is not shown (#3134)');
-    if (!cons.oneHidden) die('consolidated: after create the project detail is shown -- dived into the new project instead of the list (#3134 regression)');
+    const cons = await stateAfter();
+    if (!cons.oneShown) die('consolidated: after create the project detail (#pj-one-view) is not shown -- it did not land inside the new project (#3134, Josh 6.70)');
+    if (cons.detailName !== 'Cons Created Project') die('consolidated: the detail is not the newly-created project (#pj-one-name is ' + JSON.stringify(cons.detailName) + ')');
     if (!cons.addHidden) die('consolidated: after create the create form (#pj-add-view) is still shown');
-    if (!cons.newInList) die('consolidated: the new project does not appear in the list after create');
-    // the consolidated layout must survive the create (a showTab-style navigation would drop it)
+    // In the consolidated layout the list stays visible as the rail beside the
+    // detail (pjView keeps #pj-list-view shown when which !== 'list'), so this arm
+    // does NOT assert the list hidden -- only that the detail is the new project.
+    // The consolidated layout must survive the create (a showTab-style navigation would drop it).
     if (!(await p.evaluate(() => document.body.classList.contains('consolidated')))) die('consolidated: the layout was dropped by the create navigation');
 
-    // ---- Read-back-failure fallback (the openProject else branch) ----
+    // ---- Read-back-failure fallback (openProject's internal else branch) ----
     // Route the create POST to the "created but read-back failed" shape
-    // (body.project null, only body.id) so pjById is false and the handler falls
-    // back to openProject, which surfaces its "created but we could not read it
-    // back" notice on #pj-list-msg and returns to the list rather than a silent
-    // empty screen. Covers the else branch the plan's Verification section names.
+    // (body.project null, only body.id) so the created id is not in PROJECTS.
+    // The handler always calls openProject(newProjectId); openProject's own
+    // pjById check is then false, so it surfaces the "created but we could not
+    // read it back" notice on #pj-list-msg and returns to the list rather than a
+    // silent empty screen. This path is unchanged by the 6.70 reversal.
     await p.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) }).then((r) => r.text()));
     await p.reload({ waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
@@ -121,7 +132,7 @@ const PORT = freePort();
     if (!/could not read it back|created, but/i.test(fallback.notice)) die('fallback: the "created but could not read it back" notice is missing from #pj-list-msg: ' + JSON.stringify(fallback.notice));
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJCREATE NAV OK (#3134): after Create project the projects LIST is shown (not the new project detail, not the create form), the new project is in the list, in both the tab and consolidated views; the read-back-failure fallback returns to the list with the "could not read it back" notice; no page errors.');
+    console.log('PJCREATE NAV OK (#3134, Josh 6.70): after Create project the new project DETAIL is shown (#pj-one-view, #pj-one-name is the new project; not the list, not the create form) in both the tab and consolidated views; the read-back-failure fallback still returns to the list with the "could not read it back" notice; no page errors.');
   } finally {
     await b.close();
     srv.kill();

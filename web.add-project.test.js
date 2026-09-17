@@ -69,3 +69,17 @@ test('the primary action is the big yellow Create project, right-aligned, and th
   assert.match(PAGE, /#pj-add-view \{ max-width: 34rem; margin: 0 auto; background: none; border: 0; box-shadow: none; padding: 0; \}/);
   assert.doesNotMatch(PAGE, /#pj-add-view, #pj-settings-view \{/);
 });
+
+test('#3134 (Josh 6.70): after a successful Create project, the person lands INSIDE the new project, not back on the list', () => {
+  // Josh's 6.68 ask was "return to the list" (PR #3160); his 6.70 verification
+  // reversed it: "once you create a project ... it should take you directly into
+  // that project." This behaviour has flip-flopped once already, so pin it to the
+  // source of the create handler rather than trust the prose comment.
+  const at = SCRIPT.indexOf("getElementById('pj-create').addEventListener");
+  assert.ok(at !== -1, 'the Create project click handler is on the page');
+  const handler = SCRIPT.slice(at, SCRIPT.indexOf('\n});', at));
+  assert.match(handler, /openProject\(newProjectId\)/,
+    'the create success path no longer opens the new project (it must land the person inside it)');
+  assert.doesNotMatch(handler, /pjView\('list'\)/,
+    'the create handler routes back to the projects list again, the 6.68 behaviour Josh reversed in 6.70');
+});
