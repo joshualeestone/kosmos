@@ -52,15 +52,15 @@ const chk = (ok, label, extra) => {
       setNavBadge('nav-badge-agents', 7); const cs = getComputedStyle(a);
       r.showsCount = a.textContent === '7' && a.hidden === false && cs.display !== 'none';
       r.red = cs.backgroundColor; r.ink = cs.color;
-      /* geometry (measured, not asserted): the shown badge must have real size, not overflow the
-         viewport horizontally (an oversized/mis-laid badge pushes the nav past the edge -> h-scroll),
-         and fit vertically within its tab row. NB the tab itself is inline-flex and GROWS to contain
-         the badge, so "within the tab" is vacuous (a 9999px badge still fits its grown tab) -- the
-         viewport is the container that does NOT grow, so it is what catches horizontal overflow. */
-      const tabEl = a.closest('.tab'); const br = a.getBoundingClientRect(); const tr = tabEl.getBoundingClientRect();
+      /* geometry (measured, not asserted): the shown badge must have real size and stay inside the
+         viewport. NB do NOT check "within its tab" -- the tab is inline-flex and GROWS to contain
+         the badge, so a 9999px badge still "fits" it (vacuous). The viewport is the container that
+         does NOT grow, so it is what actually catches an oversized/mis-laid badge overflowing the
+         nav (h-scroll) or dropping below the row. Bounds checked both axes against innerWidth/Height. */
+      const br = a.getBoundingClientRect();
       r.geo = { bw: Math.round(br.width), bh: Math.round(br.height),
-                inViewport: br.right <= window.innerWidth + 1 && br.left >= -1,
-                vFits: br.top >= tr.top - 1 && br.bottom <= tr.bottom + 1 };
+                inViewport: br.right <= window.innerWidth + 1 && br.left >= -1
+                            && br.bottom <= window.innerHeight + 1 && br.top >= -1 };
       setNavBadge('nav-badge-agents', 150); r.cap = a.textContent;
       setNavBadge('nav-badge-agents', null); r.nullHidden = a.hidden === true;
       setNavBadge('nav-badge-projects', 3); r.projShows = p.textContent === '3' && p.hidden === false;
@@ -74,7 +74,7 @@ const chk = (ok, label, extra) => {
       chk(out.onProjectsTab, 'the Projects tab carries a nav badge span', String(out.onProjectsTab));
       chk(out.zeroHidden, 'a zero count hides the badge (display:none)', String(out.zeroHidden));
       chk(out.showsCount, 'a positive count shows the badge with the number', String(out.showsCount));
-      chk(out.geo.bw > 0 && out.geo.bh > 0 && out.geo.inViewport && out.geo.vFits, 'the shown badge has real size, stays in the viewport (no h-overflow), and fits its tab row', JSON.stringify(out.geo));
+      chk(out.geo.bw > 0 && out.geo.bh > 0 && out.geo.inViewport, 'the shown badge has real size and stays within the viewport (no overflow of the nav row)', JSON.stringify(out.geo));
       chk(out.projShows, 'the Projects badge shows its count too', String(out.projShows));
       const rgb = parse(out.red);
       chk(rgb[0] === 179 && rgb[1] === 38 && rgb[2] === 30, 'the badge is the shared unread red (#b3261e)', out.red);
@@ -102,6 +102,7 @@ const chk = (ok, label, extra) => {
     chk(dToggle.ink === 'rgb(12, 13, 15)', 'dark via [data-theme=dark]: count ink is the family dark ink (#0c0d0f)', dToggle.ink);
 
     const darkPage = await browser.newPage({ viewport: { width: 1000, height: 800 }, colorScheme: 'dark' });
+    darkPage.on('pageerror', (e) => errs.push(e.message));
     await darkPage.addInitScript(() => { window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
     await darkPage.goto(PAGE);
     const dMedia = await darkPage.evaluate(() => {
@@ -117,8 +118,8 @@ const chk = (ok, label, extra) => {
     /* (c) data wiring, by source: seeding real dmUnread/p.unread hermetically is not feasible. */
     const src = fs.readFileSync(nodePath.join(ROOT, 'web', 'index.html'), 'utf8');
     chk(/setNavBadge\('nav-badge-agents',\s*dmTotal\)/.test(src), 'the Agents badge is wired to the fleet dmTotal (tick), the same total as the #st-dm tile');
-    chk(/setNavBadge\('nav-badge-projects',\s*c\.projectsUnread\)/.test(src), 'the Projects badge is set in tick() directly from the always-polled counts.projectsUnread (live cross-tab, single-source)');
-    chk(!/openUnread/.test(src), 'no client-side open-room subtraction (the open room excludes itself via /seen, so no cross-cadence drift/staleness)');
+    chk(/setNavBadge\('nav-badge-projects',\s*Math\.max\(0,\s*\(Number\(c\.projectsUnread\)\s*\|\|\s*0\)\s*-\s*openUnread\)\)/.test(src), 'the Projects badge is set in tick() from the always-polled counts.projectsUnread minus the open room (live cross-tab)');
+    chk(/const openProj = PJ_CURRENT \? pjById\(PJ_CURRENT\) : null;/.test(src) && /const openUnread = \(openProj && !openProj\.archived\) \?/.test(src), 'the open ACTIVE room is subtracted (option i, agreed w/ Angel: prevents the reading-a-room over-count glitch; archived open project not subtracted)');
     chk(!/setNavBadge\('nav-badge-projects', pjDmTotal\)/.test(src), 'the stale paintProjects-based Projects badge is removed (no visibility-gated freeze)');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));

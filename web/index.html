@@ -17082,15 +17082,22 @@ async function tick() {
     setNavBadge('nav-badge-agents', dmTotal);
     /* #3216: the Projects nav-tab badge is set HERE in tick() (the always-polled /api/status), not
        in paintProjects, so it stays live while you are on the Agents tab (the projects poll is
-       visibility-gated and would freeze it). counts.projectsUnread is the server's raw unread sum
-       over active (non-archived) projects (engine projectsUnreadTotal, the same unreadAll() map as
-       pjDmTotal). No client-side subtraction for the open room: opening a room fires
-       /api/project/<id>/seen (pjMarkSeen ~40981, re-fired while the room is watched ~41836), so the
-       open room's own unread is already ~0 in this server total -- it excludes itself via /seen.
-       That keeps this single-source (one always-polled number) with no cross-cadence drift against
-       a client value the hidden-panel poll would freeze. The only transient is a one-tick
-       over-count right after opening, until that /seen lands; setNavBadge hides <=0/NaN. */
-    setNavBadge('nav-badge-projects', c.projectsUnread);
+       visibility-gated and would freeze paintProjects). c.projectsUnread is the server's raw unread
+       sum over active (non-archived) projects (engine projectsUnreadTotal, the same unreadAll() map
+       as pjDmTotal). We subtract the OPEN room's own unread so the badge never counts the room you
+       are looking at -- the design agreed with Angel (status-projects-unread-3216.md, option i).
+       (ii) no-subtraction was REJECTED: /api/project/<id>/seen is async, so in the poll between a
+       new post landing in the open room and its /seen completing, the raw server total still counts
+       that room and the badge would flash a red count for the room on screen. Subtracting the
+       client's own p.unread (zeroed synchronously by pjMarkSeen on open, re-zeroed while watched)
+       covers that window. Guard: only an ACTIVE open project is subtracted -- the server total
+       already excludes archived, so subtracting an archived PJ_CURRENT would under-report. Parked
+       on the Agents tab the open project's p.unread is a frozen ~0, so the badge then counts every
+       active project's unread (correct: you are not viewing any room). Clamped >= 0; setNavBadge
+       hides <=0/NaN. */
+    const openProj = PJ_CURRENT ? pjById(PJ_CURRENT) : null;
+    const openUnread = (openProj && !openProj.archived) ? Math.max(0, Number(openProj.unread) || 0) : 0;
+    setNavBadge('nav-badge-projects', Math.max(0, (Number(c.projectsUnread) || 0) - openUnread));
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
        line under the counts is gone and so is its slot. The facts it carried
