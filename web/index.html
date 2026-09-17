@@ -3507,10 +3507,16 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      stands for them) so the strip is not a wall of grey. His words: "still put the color in
      but make it edge-to-edge behind them ... little green ones light up and little red ones
      light up ... leave the gray off". The red-! triangle over the face still shows (#3131).
-     Full-width because the folded .lrow box spans the strip; these override `background:none`
-     for the two coloured states only. */
-  html[data-layout="consolidated"] body.consolidated.fold-a .lrow.working { background: linear-gradient(rgba(47,125,90,.10), rgba(47,125,90,.10)), var(--k-surface); }
-  html[data-layout="consolidated"] body.consolidated.fold-a .lrow.attn { background: linear-gradient(rgba(179,38,30,.09), rgba(179,38,30,.09)), var(--k-surface); }
+     EDGE-TO-EDGE needs two things, both measured on the real folded rail: the base
+     consolidated .lrow carries border-radius 9px, which on the ~31px folded box read as a
+     rounded chip (29% of the width), and #alist's 8px side padding left an 8px grey gutter
+     each side. So the wash rows go square (border-radius 0) AND the folded #alist drops its
+     horizontal padding, letting every folded row fill the full strip width. Avatars stay
+     centred (justify-content: center) and the red-! triangle rides the .lav (position:
+     relative on .lav, .lwarn at left/top 50%), so neither moves when the row widens. */
+  html[data-layout="consolidated"] body.consolidated.fold-a > #alist { padding-left: 0; padding-right: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow.working { background: linear-gradient(rgba(47,125,90,.10), rgba(47,125,90,.10)), var(--k-surface); border-radius: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow.attn { background: linear-gradient(rgba(179,38,30,.09), rgba(179,38,30,.09)), var(--k-surface); border-radius: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
   /* #3126 (Josh, 6.68): the fold-p (folded-projects) CSS was REMOVED with the
      collapse control - the Projects column is no longer collapsible, so the

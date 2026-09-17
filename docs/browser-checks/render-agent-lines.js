@@ -253,16 +253,34 @@ const chk = (ok, label, extra) => {
          (set above), which the fold-a rules require. */
       const folded = await page.evaluate(() => {
         document.body.classList.add('fold-a');
-        const o = {};
-        for (const r of document.querySelectorAll('#alist .lrow[data-agent]')) o[r.dataset.agent] = getComputedStyle(r).backgroundImage;
+        const o = { wash: {} };
+        for (const r of document.querySelectorAll('#alist .lrow[data-agent]')) o.wash[r.dataset.agent] = getComputedStyle(r).backgroundImage;
+        /* #3187-followup (Josh 6.72): "edge-to-edge" is a GEOMETRY claim, not only a colour one,
+           and a background-image substring cannot see it. The base consolidated .lrow carries
+           border-radius 9px and #alist carries 8px side padding; left unhandled, a folded
+           green/red row renders as a rounded chip inset in an 8px grey gutter (measured: 9px
+           radius on a ~31px box, 29% of the width). So also read the washed row's radius and its
+           width against the strip, and assert square + full-bleed, or the colour is not
+           edge-to-edge. */
+        const alist = document.querySelector('#alist');
+        const wr = document.querySelector('#alist .lrow.working');
+        const cs = getComputedStyle(wr);
+        o.geom = {
+          radius: parseFloat(cs.borderTopLeftRadius) || 0,
+          rowW: Math.round(wr.getBoundingClientRect().width),
+          alistW: Math.round(alist.getBoundingClientRect().width),
+        };
         return o;
       });
-      console.log('  folded washes     : ' + JSON.stringify(folded));
-      chk((folded.april || '').includes(GREEN), 'FOLDED: a working agent keeps the green wash edge-to-edge', folded.april);
-      chk((folded.raph || '').includes(RED), 'FOLDED: a needs-you agent keeps the red wash edge-to-edge', folded.raph);
+      console.log('  folded washes     : ' + JSON.stringify(folded.wash));
+      console.log('  folded geom       : ' + JSON.stringify(folded.geom));
+      chk((folded.wash.april || '').includes(GREEN), 'FOLDED: a working agent keeps the green wash edge-to-edge', folded.wash.april);
+      chk((folded.wash.raph || '').includes(RED), 'FOLDED: a needs-you agent keeps the red wash edge-to-edge', folded.wash.raph);
       const noWash = (s) => !(s || '').includes(GREEN) && !(s || '').includes(RED) && !(s || '').includes(GREY);
-      chk(noWash(folded.mikey), 'FOLDED: an idle agent has NO wash (no wall of grey)', folded.mikey);
-      chk(noWash(folded.donnie), 'FOLDED: a not-running agent has NO wash', folded.donnie);
+      chk(noWash(folded.wash.mikey), 'FOLDED: an idle agent has NO wash (no wall of grey)', folded.wash.mikey);
+      chk(noWash(folded.wash.donnie), 'FOLDED: a not-running agent has NO wash', folded.wash.donnie);
+      chk(folded.geom.radius <= 1, 'FOLDED: the wash row is SQUARE, not a rounded chip (edge-to-edge)', 'radius=' + folded.geom.radius + 'px');
+      chk(folded.geom.rowW >= folded.geom.alistW - 2, 'FOLDED: the wash row fills the full strip width (no grey side gutter)', 'row=' + folded.geom.rowW + ' strip=' + folded.geom.alistW);
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
