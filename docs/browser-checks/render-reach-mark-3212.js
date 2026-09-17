@@ -10,27 +10,18 @@
  * post reports as "could not reach". In the room column (hideState) it replaces the status
  * sentence; the Settings members list keeps the reason.
  *
- * The check renders real pjMember() output for a present member and an unreachable one (a
- * deterministic `!present` member is not seedable through the live fleet, so the fixture calls
- * the real render function with the projects.describe member shape). Boots its own server for the
- * page + globals; run directly with:
+ * HERMETIC (file://), like render-project-needsyou-2699.js: it loads web/index.html directly and
+ * calls the real pjMember() row builder for present/unreachable/needs-you members (a deterministic
+ * `!present` member is not seedable through the live fleet). No server boot, so it installs no pane
+ * source and points no tmux binary anywhere (#1575).
  *   HEADED=0 NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-reach-mark-3212.js
  */
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+const nodePath = require('path');
+const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
-const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-reach-'));
-process.env.AGENT_WORKFORCE_DATA = SANDBOX;
-process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-reach-w-'));
-process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-reach-p-'));
-process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-reach-l-'));
-process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
-process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-reach-c-'));
-process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
-
-const { chromium } = require('playwright');
-const srv = require('../../server.js');
+let chromium;
+try { ({ chromium } = require('playwright')); }
+catch (e) { console.error('playwright not found; run with NODE_PATH=$HOME/work/pw-runtime/node_modules'); process.exit(2); }
 
 const fail = [];
 const chk = (ok, label, extra) => {
@@ -39,17 +30,15 @@ const chk = (ok, label, extra) => {
 };
 
 (async () => {
-  const server = await srv.start(0);
-  const URL = 'http://127.0.0.1:' + server.address().port;
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: 'light' });
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
-    await page.goto(URL, { waitUntil: 'networkidle' });
-    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
+    await page.goto('file://' + PAGE);
 
     const out = await page.evaluate(() => {
+      if (typeof pjMember !== 'function') return { error: 'pjMember is not a function (renamed? re-anchor this check)' };
       const mk = (over) => Object.assign({ sessionName: over.name.toLowerCase(), name: over.name, hasAvatar: false, told: {}, instructions: {} }, over);
       // Room column (hideState = true): the surface Josh's ruling is about.
       const room = document.createElement('div'); room.id = 'pj-one-agents';
@@ -83,19 +72,21 @@ const chk = (ok, label, extra) => {
       };
     });
 
-    console.log('  measured: ' + JSON.stringify(out));
-    chk(out.unreach.has && out.unreach.shown && out.unreach.text === '?', 'an UNREACHABLE member shows a question-mark badge over its avatar', JSON.stringify(out.unreach));
-    chk(out.unreach.unseen, 'an unreachable member is still marked .unseen (dashed border kept)', String(out.unreach.unseen));
-    chk(out.unreach.caption === '', 'in the ROOM column, the unreachable member prints NO status text (the badge speaks)', JSON.stringify(out.unreach.caption));
-    chk(!out.present.has, 'a REACHABLE (present) member has NO question-mark badge', JSON.stringify(out.present));
-    chk(out.needsYou.hasWarn && !out.needsYou.has, 'a needs-you member keeps the red-! triangle and does NOT get the reach badge (mutually exclusive)', JSON.stringify(out.needsYou));
-    chk(out.settingsUnreach.has && out.settingsUnreach.shown, 'the badge also shows in the Settings members list', JSON.stringify(out.settingsUnreach));
-    chk(/cannot see this agent/i.test(out.settingsUnreach.caption), 'the Settings members list KEEPS the reason sentence (management view)', JSON.stringify(out.settingsUnreach.caption));
+    if (out.error) { chk(false, out.error); }
+    else {
+      console.log('  measured: ' + JSON.stringify(out));
+      chk(out.unreach.has && out.unreach.shown && out.unreach.text === '?', 'an UNREACHABLE member shows a question-mark badge over its avatar', JSON.stringify(out.unreach));
+      chk(out.unreach.unseen, 'an unreachable member is still marked .unseen (dashed border kept)', String(out.unreach.unseen));
+      chk(out.unreach.caption === '', 'in the ROOM column, the unreachable member prints NO status text (the badge speaks)', JSON.stringify(out.unreach.caption));
+      chk(!out.present.has, 'a REACHABLE (present) member has NO question-mark badge', JSON.stringify(out.present));
+      chk(out.needsYou.hasWarn && !out.needsYou.has, 'a needs-you member keeps the red-! triangle and does NOT get the reach badge (mutually exclusive)', JSON.stringify(out.needsYou));
+      chk(out.settingsUnreach.has && out.settingsUnreach.shown, 'the badge also shows in the Settings members list', JSON.stringify(out.settingsUnreach));
+      chk(/cannot see this agent/i.test(out.settingsUnreach.caption), 'the Settings members list KEEPS the reason sentence (management view)', JSON.stringify(out.settingsUnreach.caption));
+    }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {
     await browser.close();
-    server.close();
   }
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
   console.log('\nall passed');
