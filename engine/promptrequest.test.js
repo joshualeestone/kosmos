@@ -147,6 +147,12 @@ test('#3188 diag: native absent -> nativePresent:false, wrote:false, ok:false, n
   assert.equal(r.ok, false);
   assert.equal(r.diag.nativePresent, false);
   assert.equal(r.diag.wrote, false);
+  // root/file null on the absent path proves store.ROOT was NOT resolved here -- the ordering
+  // that keeps store.ROOT's migration side-effect confined to the native-present drop path
+  // (#3188 review iter 2). If a refactor reads store.ROOT before the nativePresent gate again,
+  // this reds.
+  assert.equal(r.diag.root, null, 'native absent: store.ROOT must not be resolved');
+  assert.equal(r.diag.file, null);
   assert.ok(!fs.existsSync(requestFile('file-access-prompt-request')),
     'native absent: nothing written, matching the non-diag fallback contract');
 });
@@ -180,7 +186,8 @@ test('#3188 formatDiagLine: builds the drop-rung line, includes because only whe
     ok: true, diag: { nativePresent: true, wrote: true, root: '/r', file: '/r/file-access-prompt-request' },
   });
   assert.equal(okLine,
-    'file-access-prompt #3188 diag: ok=true nativePresent=true wrote=true root=/r file=/r/file-access-prompt-request');
+    'DIAG_DEBUG file-access-prompt #3188 diag: ok=true nativePresent=true wrote=true root=/r file=/r/file-access-prompt-request');
+  assert.ok(okLine.startsWith('DIAG_DEBUG '), 'the CLAUDE.md temporary-logging convention prefix');
   assert.ok(!okLine.includes('because='), 'no because clause when the result carries none');
 
   const failLine = promptrequest.formatDiagLine({
@@ -196,13 +203,13 @@ test('#3188 formatDiagLine: builds the drop-rung line, includes because only whe
 
 test('#3188 formatConsumeLine: consumed = NOT present, and carries the window', () => {
   assert.equal(promptrequest.formatConsumeLine({ name: 'file-access-prompt-request', present: false }, 5000),
-    'file-access-prompt #3188 diag: consumedWithin5000ms=true', 'deleted by native watcher -> consumed');
+    'DIAG_DEBUG file-access-prompt #3188 diag: consumedWithin5000ms=true', 'deleted by native watcher -> consumed');
   assert.equal(promptrequest.formatConsumeLine({ name: 'file-access-prompt-request', present: true }, 5000),
-    'file-access-prompt #3188 diag: consumedWithin5000ms=false', 'still present -> NOT consumed (the divergence rung)');
+    'DIAG_DEBUG file-access-prompt #3188 diag: consumedWithin5000ms=false', 'still present -> NOT consumed (the divergence rung)');
   // A missing/garbage result is treated as present:false -> consumed:true is wrong-safe here,
   // but the route only calls this with a real wasConsumed() result; pin the coercion anyway.
   assert.equal(promptrequest.formatConsumeLine(null, 5000),
-    'file-access-prompt #3188 diag: consumedWithin5000ms=true');
+    'DIAG_DEBUG file-access-prompt #3188 diag: consumedWithin5000ms=true');
 });
 
 test('#3188 ROUTE: the file-access route wires the diag via the tested formatters and STRIPS it off the wire', () => {

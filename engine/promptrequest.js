@@ -104,18 +104,25 @@ function withDiag(ret, opts, diag) {
 function request(kind, opts) {
   const name = REQUEST_FILE[kind];
   if (!name) return withDiag({ ok: false, because: 'unknown prompt kind: ' + kind }, opts, { name: null, root: null, file: null, nativePresent: null, wrote: false });
-  // store.ROOT is read at CALL time, not frozen at require, so a test that points the
-  // store elsewhere is honoured (the ~26 freeze-at-require modules are the hazard this
-  // avoids). Read once so the drop path and the diag report the same root.
-  const root = store.ROOT;
-  const file = path.join(root, name);
+  // nativePresent() FIRST, and read store.ROOT only on the native-present (drop) path -- the
+  // exact ordering this function had before the #3188 diagnostic. store.ROOT is a getter that
+  // triggers maybeMigrateLegacyStore(), a documented side-effect (store.js warns any
+  // un-sandboxed store.root() migrates the real operator store), so the diagnostic must NOT
+  // widen the set of paths that touch it: the native-absent / browser-only path returns
+  // without reading it, exactly as before (#3188 review, iter 2). Its diag reports root/file
+  // null there, which is honest -- no drop was attempted.
   const np = nativePresent();
   if (!np) {
     return withDiag({
       ok: false,
       because: 'no native app is present to fire the prompt (a browser, or the app is not running)',
-    }, opts, { name, root, file, nativePresent: false, wrote: false });
+    }, opts, { name, root: null, file: null, nativePresent: false, wrote: false });
   }
+  // store.ROOT is read at CALL time, not frozen at require, so a test that points the store
+  // elsewhere is honoured (the ~26 freeze-at-require modules are the hazard this avoids). Read
+  // once so the drop path and the diag report the same root.
+  const root = store.ROOT;
+  const file = path.join(root, name);
   try {
     fs.mkdirSync(root, { recursive: true });
     // Presence is the whole signal; the timestamp is only so an operator can see how
@@ -153,7 +160,7 @@ function wasConsumed(kind) {
 function formatDiagLine(r) {
   const d = r && r.diag;
   if (!d) return null;
-  return `file-access-prompt #3188 diag: ok=${r.ok} nativePresent=${d.nativePresent} wrote=${d.wrote} root=${d.root} file=${d.file}${r.because ? ' because=' + r.because : ''}`;
+  return `DIAG_DEBUG file-access-prompt #3188 diag: ok=${r.ok} nativePresent=${d.nativePresent} wrote=${d.wrote} root=${d.root} file=${d.file}${r.because ? ' because=' + r.because : ''}`;
 }
 
 /*
@@ -164,7 +171,7 @@ function formatDiagLine(r) {
  */
 function formatConsumeLine(consumeResult, windowMs) {
   const present = !!(consumeResult && consumeResult.present);
-  return `file-access-prompt #3188 diag: consumedWithin${windowMs}ms=${!present}`;
+  return `DIAG_DEBUG file-access-prompt #3188 diag: consumedWithin${windowMs}ms=${!present}`;
 }
 
 module.exports = { request, nativePresent, wasConsumed, formatDiagLine, formatConsumeLine, REQUEST_FILE };

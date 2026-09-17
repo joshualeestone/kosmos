@@ -39,10 +39,18 @@ follow (the #3136 arc).
     existing `assert.deepEqual` tests. Reads `store.ROOT` once so the drop and the diag agree.
   - new `wasConsumed(kind)` -> `{ name, present }`: whether the request file still sits in
     `store.ROOT` (the native watcher deletes on consume). Pure, never throws.
+  - the two diagnostic log lines are built by pure, unit-tested `formatDiagLine` /
+    `formatConsumeLine` (the log CONTENT is the deliverable read off the board, so a typo must
+    red a test, not ship silently). Both carry the CLAUDE.md `DIAG_DEBUG` prefix for temporary
+    diagnostic logging, so the follow-up strip is a grep.
+  - `request()` keeps its ORIGINAL ordering: `nativePresent()` first, `store.ROOT` read only on
+    the native-present drop path. store.ROOT's getter triggers a documented legacy-store
+    migration side-effect, so the diagnostic must not widen the paths that touch it; the
+    native-absent branch returns root/file null (honest: no drop attempted).
 - `server.js` `/api/file-access-prompt`:
-  - requests with `{ diag: true }`, logs a server-side-only line (root/nativePresent/wrote/
-    ok/because), and schedules a bounded (5s, unref) post-drop check that logs whether the
-    native watcher consumed the request (the store-dir-divergence / app-not-running rung).
+  - requests with `{ diag: true }`, logs the two server-stdout-only lines via the formatters,
+    and schedules a bounded (5s, unref) post-drop check that logs whether the native watcher
+    consumed the request (the store-dir-divergence / app-not-running rung).
   - STRIPS `diag` off the wire: sends the clean `{ok, because}` the caller already reads, so
     no store path reaches the browser. `FILE_ACCESS_CONSUME_PROBE_MS = 5000` (native poll 1.5s,
     stale-drop 30s, so 5s covers 3+ cycles and stays well under stale).
@@ -57,8 +65,8 @@ follow (the #3136 arc).
 - Temporary: stripped in a #3188 follow-up once the board log localizes the rung, per #3136.
 
 ## Test plan
-- `node --test engine/promptrequest.test.js` (12: 7 regression incl. the byte-identity
-  deepEqual guard, + 5 new: diag drop rungs, native-absent, unknown kind, wasConsumed,
-  route-strip). All green.
+- `node --test engine/promptrequest.test.js` (14: 7 regression incl. the byte-identity
+  deepEqual guard, + 7 new: diag drop rungs, native-absent, unknown kind, wasConsumed,
+  formatDiagLine, formatConsumeLine, route-strip). All green.
 - Post-deploy (Splinter routes): read the board stdout for the `file-access-prompt #3188 diag:`
   lines when Allow Access is clicked on a fresh-Mac install; localize the failing rung.
