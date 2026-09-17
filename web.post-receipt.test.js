@@ -435,33 +435,35 @@ test('the sentence actually reaches the rendered row', () => {
   assert.doesNotMatch(quiet, /Nothing back/, 'a room where everyone answered still got the sentence');
 });
 
-test('an agent’s own post renders no silence sentence, whatever it is handed', () => {
+test('#3134-followup (Josh 6.72): a room post renders NO inline delivery receipt', () => {
   /**
-   * 🛑 THE VERSION BEFORE THIS CERTIFIED NOTHING. Its fixture was an agent post
-   * whose outcomes were all `placed`, and `showReceipt` suppresses the entire
-   * receipt span for that — so `doesNotMatch(/Nothing back from/)` was
-   * satisfied by pre-existing delivery-pill logic, before any silence code ran.
+   * Josh 6.72: "I don't need to know who the message was pasted to or sent to."
+   * The inline delivery receipt ("Placed with X. Y could not be reached.") is
+   * removed from the ROOM entirely -- for an agent's post AND the person's own,
+   * whatever the outcomes. This SUPERSEDES the #3130 decision that kept the
+   * failure facts inline as "actionable"; pjReceiptSentence still exists and is
+   * still exercised for pjRoomAnnounce (see the tests above), it is just no longer
+   * rendered in the thread.
    *
-   * ⚠️ The shape that DOES render a receipt on an agent's post is a partly
-   * unreachable room, which is what the `/room` route emits when one recipient
-   * timed out. With that fixture and the old code, the room drew
-   * "Placed with Johnson. Bob could not be reached. Nothing back from Johnson."
-   * underneath a message RICK sent.
+   * ⚠️ NON-VACUOUS: the fixture is a partly-unreachable room (the `/room` route
+   * shape when one recipient timed out) -- the exact case that DID draw a
+   * receipt on the pre-6.72 code, so `doesNotMatch(/class="delivery/)` fails
+   * against that code and only passes once the receipt is gone.
    */
   const render = renderer();
   const agentPost = { kind: 'post', from: 'rick', at: ago(5), outcomes: { johnson: 'placed', bob: 'could_not' }, text: 'on it' };
 
   const html = render(agentPost, P, ['johnson']);
-  assert.match(html, /class="delivery/, 'no receipt rendered at all, so this tests nothing');
-  assert.match(html, /Bob could not be reached/, 'the delivery facts should still show');
-  assert.doesNotMatch(html, /Nothing back from/, 'the silence sentence should be gone (#3130)');
+  assert.match(html, /on it/, 'the row did not render at all');
+  assert.doesNotMatch(html, /class="delivery/, 'the inline delivery receipt should be gone from the room');
+  assert.doesNotMatch(html, /could not be reached/, 'the delivery facts should no longer render inline in the room');
 
-  // #3130: the same outcomes on the PERSON's own post ALSO carry no silence
-  // sentence now -- the clause is removed for every sender, not gated by one.
+  // The person's own post carries no inline receipt either (same removal, both senders).
   const ownPost = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: { johnson: 'placed', bob: 'could_not' }, text: 'anyone?' };
   const own = render(ownPost, P, ['johnson']);
-  assert.match(own, /Bob could not be reached/, 'the delivery facts should still show on the person’s own post');
-  assert.doesNotMatch(own, /Nothing back from/, 'the person’s own post still carried the removed silence sentence');
+  assert.match(own, /anyone\?/, 'the row did not render at all');
+  assert.doesNotMatch(own, /class="delivery/, 'the inline delivery receipt should be gone from the person’s own post too');
+  assert.doesNotMatch(own, /could not be reached/, 'the delivery facts should no longer render inline on the person’s own post');
 });
 
 test('#3130: the delivery facts stand alone, with no silence sentence appended', () => {

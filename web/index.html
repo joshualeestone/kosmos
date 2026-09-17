@@ -40595,17 +40595,6 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   }
 });
 
-/* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble
-   opens that agent directly, the same openDetail path the members list uses (#2574),
-   passing PJ_CURRENT so detail-back returns to this project. Delegated on the thread
-   (every poll rebuilds the bubbles). A dedicated data-open-agent attr, set only on the
-   agent name + agent avatar (never the person's own avatar, never a reaction or the
-   body), so a click anywhere else in the bubble never triggers it. */
-document.getElementById('pj-room').addEventListener('click', (e) => {
-  const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;
-  if (t && t.dataset.openAgent) openDetail(t.dataset.openAgent, undefined, PJ_CURRENT);
-});
-
 /* ⚠️ DELEGATED ON THE THREAD, because every poll rebuilds the messages: a
    listener bound to a chip is bound to an element the next repaint destroys.
    The button carries the BASENAME, which is the only shape open-file accepts,
@@ -40726,6 +40715,20 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn || !PJ_CURRENT) return;
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
+});
+
+/* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble opens
+   that agent directly, the same openDetail path the members list uses (#2574), passing
+   PJ_CURRENT so detail-back returns to this project. Delegated on the thread (every poll
+   rebuilds the bubbles). A dedicated data-open-agent attr, set only on the agent name +
+   agent avatar (never the person's own avatar, never a reaction or the body), so a click
+   anywhere else in the bubble never triggers it.
+   🛑 ORDER MATTERS: this listener is registered AFTER the file-open (refgo) listener
+   above, because web.win32-board-copy.test.js lifts the FIRST `#pj-room` click handler
+   as the file-open handler. Keep this one last among the room's click listeners. */
+document.getElementById('pj-room').addEventListener('click', (e) => {
+  const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;
+  if (t && t.dataset.openAgent) openDetail(t.dataset.openAgent, undefined, PJ_CURRENT);
 });
 
 /* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
