@@ -57,7 +57,7 @@ const row = (from, text, extra) => ({ id: 'r' + from, from, at: Date.now(), text
 test('positive control: a tagged verbatim requote draws .quoteb around exactly the tagged span, with the source named', () => {
   const text = 'Mara said: ' + QUOTE + ' I agree, and I would change the page too.';
   const start = text.indexOf(QUOTE);
-  const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'rmara', from: 'mara', start, end: start + QUOTE.length }] }), P, null);
+  const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'rmara', from: 'mara', start, end: start + QUOTE.length }] }), P);
   const blocks = html.match(/<blockquote class="quoteb">/g) || [];
   assert.equal(blocks.length, 1);
   assert.match(html, new RegExp('<blockquote class="quoteb">' + QUOTE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '<cite class="quoteb-from">Mara, earlier</cite></blockquote>'));
@@ -68,19 +68,19 @@ test('positive control: a tagged verbatim requote draws .quoteb around exactly t
 
 test('the operator as source reads "You, earlier"', () => {
   const text = QUOTE;
-  const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'm1', from: 'you', start: 0, end: text.length }] }), P, null);
+  const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'm1', from: 'you', start: 0, end: text.length }] }), P);
   assert.match(html, /<cite class="quoteb-from">You, earlier<\/cite>/);
   assert.doesNotMatch(html, /<p><\/p>/, 'an empty paragraph was drawn around a whole-post quote');
 });
 
 test('negative: the same words by their original author, untagged, draw no blockquote', () => {
-  const html = api.pjRoomRow(row('mara', QUOTE), P, null);
+  const html = api.pjRoomRow(row('mara', QUOTE), P);
   assert.doesNotMatch(html, /quoteb/);
   assert.match(html, /<p>Whichever number/);
 });
 
 test('negative: a leading ">" with no tag is text, not a quote (no styling path reads the text)', () => {
-  const html = api.pjRoomRow(row('leo', '> ' + QUOTE + '\nsee the diff'), P, null);
+  const html = api.pjRoomRow(row('leo', '> ' + QUOTE + '\nsee the diff'), P);
   assert.doesNotMatch(html, /quoteb/);
   assert.match(html, /&gt; Whichever/);
 });
@@ -94,7 +94,7 @@ test('negative: a tag the renderer cannot trust is the flat paragraph, never a p
     [{ of: 'r1', from: 'mara', start: 2, end: 40 }, { of: 'r2', from: 'mara', start: 30, end: 60 }],
     [{ of: 'r1', from: 'mara', start: 2, end: 40 }, null],
   ]) {
-    const html = api.pjRoomRow(row('leo', text, { quotes: bad }), P, null);
+    const html = api.pjRoomRow(row('leo', text, { quotes: bad }), P);
     assert.doesNotMatch(html, /quoteb/, 'styled on ' + JSON.stringify(bad));
     assert.match(html, /<p>x Whichever/);
   }
