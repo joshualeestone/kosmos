@@ -18,15 +18,15 @@ const rule = (needle) => {
   return PAGE.slice(PAGE.indexOf(needle), PAGE.indexOf('}', PAGE.indexOf(needle)) + 1);
 };
 
-test('item 3: the Files label is the column tone, not white', () => {
-  /* MEASURED: --k-surface is #ffffff and --k-side is #f3f1ec, and .pj3 (the
-     ground) is --k-side. So the sticky label was a white patch on a stone
-     column, which is exactly the phrase Josh used. */
-  const r = rule('.pjcard-files > .dlab { position: sticky');
-  assert.match(r, /background: var\(--k-side/, 'the Files label is painted white again');
-  assert.doesNotMatch(r, /background: var\(--k-surface/);
-  // The background itself must STAY: it is the ground scrolled rows slide under.
-  assert.match(r, /position: sticky/);
+test('item 3: the Files label is the column tone, not a white box (#3218: header cell)', () => {
+  /* #1303 B was "Files in this project have a big white box behind them that needs to go away" --
+     the fix kept the label showing the column ground (--k-side) rather than a white patch. #3218
+     made Files a header grid, so the label is a fixed header cell now (no card-as-scroller, no
+     sticky). `background: none` keeps the ground showing through, which is the same outcome by
+     transparency; the label must never paint its own (white) background. */
+  const r = rule('.pjcard-files > .dlab { grid-column: 1');
+  assert.match(r, /background: none/, 'the Files label paints its own background again (a box), instead of showing the column ground through');
+  assert.doesNotMatch(r, /background: var\(--k-surface/, 'the Files label is white again');
 });
 
 test('item 1: the head rule reaches the column edges', () => {

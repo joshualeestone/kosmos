@@ -4231,34 +4231,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
      this pass removes. The bordered composerbox inside it is unchanged. */
   html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-bg); }
-  /* #980 (iterations 5-6): Tasks' and Members' heads never move because
-     their LIST is the scroller (see the scroller-is-the-list rule above;
-     sticky was provably inert on grid items whose containing block is
-     their own row). Files, a plain card scroller, pins its label the
-     ordinary sticky way. */
-  /* ⚠️ THE INSET IS PADDING, NOT MARGIN, or the ground has a hole in it.
-     `.dlab` carries `margin: 0 0 10px`, and a sticky element's background stops
-     at its border box -- so scrolled rows passed through a 10px transparent
-     band directly beneath the pinned label, sliding under nothing. Folding the
-     inset into padding extends the ground to cover it. The projects rail header
-     already solved this the same way; this card had not. */
-  /* 🛑 THE GROUND IS THE COLUMN'S TONE, NOT `--k-surface` (kosmos#1303 B). Josh:
-     "Files in this project have a big white box behind them that needs to go
-     away." He is describing THIS, and it survived #1189 because #1189 un-boxed
-     the CARD and this is its LABEL.
-     MEASURED, and the two tokens are simply different colours:
-
-         --k-surface   #ffffff        the label was painted this
-         --k-side      #f3f1ec        .pj3, the ground it sits on, is this
-
-     ⇒ A white patch on a stone column, which is exactly the phrase he used.
-     ⚠️ THE BACKGROUND ITSELF STAYS, and the note above says why: it is the ground
-     that scrolled rows slide UNDER, and a transparent sticky label lets them
-     pass through it. The bug was the TONE, not the technique.
-     📌 `--k-side` is also what `#rail-projects` uses for the identical sticky
-     job twelve hundred lines up, so this matches the existing solution rather
-     than inventing a second one. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-side, #f3f1ec); margin-bottom: 0; padding-bottom: 10px; }
+  /* #3218: Files is a header grid now (increment 5), so its label is a fixed cell in the header row
+     -- it never scrolls, so it needs no sticky positioning and no background patch. `background: none`
+     keeps it showing the column ground (--k-side) through, which is the #1303 B fix (no white box
+     behind the Files label) achieved by transparency rather than a painted tone. Tasks/Members keep
+     their own treatment; this is the one rule for the Files label, no shadowing override. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { grid-column: 1; grid-row: 1; background: none; margin-bottom: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a
@@ -4436,7 +4414,6 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      header grid so the label + View All sit in a fixed row and only the list scrolls beneath. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); align-items: center; column-gap: 8px; overflow: hidden; } /* #3218: rows are header / message / list, so the empty-state message sits right under the header instead of floating at the bottom over the empty 1fr list track */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > * { grid-column: 1 / -1; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { grid-column: 1; grid-row: 1; position: static; top: auto; z-index: auto; background: none; padding-bottom: 0; margin-bottom: 0; } /* #3218: the old sticky-label treatment (position:sticky + top/z-index + side background) was for the card-as-scroller model; the label is a fixed header cell now, so it is fully neutralized here */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-all { grid-column: 2; grid-row: 1; margin: 0; justify-self: end; align-self: center; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-msg { grid-column: 1 / -1; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs { grid-column: 1 / -1; grid-row: 3; overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
