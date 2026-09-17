@@ -74,9 +74,8 @@ const chk = (ok, label, extra) => {
 
     /* (c) data wiring, by source: seeding real dmUnread/p.unread hermetically is not feasible. */
     const src = fs.readFileSync(nodePath.join(ROOT, 'web', 'index.html'), 'utf8');
-    chk(/setNavBadge\('nav-badge-agents',\s*dmTotal\)/.test(src), 'the Agents badge is wired to the fleet dmTotal (tick)');
-    chk(/setNavBadge\('nav-badge-projects',\s*PROJECTS\.reduce/.test(src), 'the Projects badge sums p.unread across PROJECTS');
-    chk(/if \(p && p\.id === PJ_CURRENT\) return n;/.test(src), 'the Projects sum excludes the open project (agrees with its list badge)');
+    chk(/setNavBadge\('nav-badge-agents',\s*dmTotal\)/.test(src), 'the Agents badge is wired to the fleet dmTotal (tick), the same total as the #st-dm tile');
+    chk(/setNavBadge\('nav-badge-projects',\s*pjDmTotal\)/.test(src), 'the Projects badge reuses pjDmTotal (the #st-pjdm tile total: active-only, open-room excluded, so it cannot drift from the tile or the per-project badges)');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

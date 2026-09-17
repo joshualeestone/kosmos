@@ -2684,13 +2684,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* #3216 (Josh 6.74): the red unread-count badge on the Agents/Projects tabs. Same red as the
    card/list unread badges (.dmbadge #b3261e, white, tabular mono) so "unread" reads as one colour
    across the app; inline after the tab label (not the absolute-corner treatment the avatar badges
-   use, since a tab is a text button, not an avatar). Hidden at zero via the `hidden` attribute,
-   which our display rule must restore since `display:inline-flex` overrides the UA [hidden]. */
+   use, since a tab is a text button, not an avatar). Hidden at zero via the `hidden` attribute --
+   the page-wide `[hidden] { display: none !important }` (top of this stylesheet) beats this
+   display, so no per-selector re-hide is needed. */
 .navbadge { display: inline-flex; align-items: center; justify-content: center; margin-left: 6px;
    min-width: 1.15rem; height: 1.15rem; padding: 0 .35rem; box-sizing: border-box;
    font: 700 .6875rem var(--k-mono); font-variant-numeric: tabular-nums; line-height: 1;
    color: #fff; background: #b3261e; border-radius: 100px; vertical-align: middle; }
-.navbadge[hidden] { display: none; }
 .panel { max-width: 720px; margin: 0 auto; background: var(--bg-elevated);
          border: 0.5px solid var(--separator); border-radius: var(--radius-card);
          box-shadow: var(--shadow-card); padding: var(--space-8); }
@@ -37148,6 +37148,11 @@ function paintProjects() {
   }, 0);
   document.getElementById('st-pjdm').textContent = String(pjDmTotal);
   document.getElementById('st-pjdm-tile').hidden = pjDmTotal <= 0;
+  /* #3216: the Projects nav-tab badge reuses this exact pjDmTotal, so the tab count, the
+     #st-pjdm tile, and the per-project list badges are one derivation and cannot disagree --
+     it already filters to `active` (archived projects show no unread anywhere) and excludes the
+     open room, which a separate re-sum would have to duplicate and could drift from. */
+  setNavBadge('nav-badge-projects', pjDmTotal);
   if (!PROJECTS.length) {
     // #2929 slice 2: PJ_DRAGGING-gated like the other #pj-list writers -- another agent
     // emptying the board mid-drag must not detach the drag-source node (the self-heal
@@ -37964,16 +37969,6 @@ async function loadProjects() {
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
-    /* #3216: the Projects nav-tab badge = the fleet total of per-project unread room posts,
-       summed from the same p.unread the per-project list badges use. null/unknown contributes 0
-       (never a guessed count), and the OPEN project is excluded exactly as its own list badge is
-       (unreadBadge(p.id === PJ_CURRENT ? 0 : ...)) and as the Agents tab excludes the open thread,
-       so the tab total and the per-item badges cannot disagree on what you are currently reading. */
-    setNavBadge('nav-badge-projects', PROJECTS.reduce((n, p) => {
-      if (p && p.id === PJ_CURRENT) return n;
-      const v = Number(p && p.unread);
-      return n + (Number.isFinite(v) && v > 0 ? v : 0);
-    }, 0));
     /* #2407: ring the bubble-pop if any project's unread rose since the last load.
        Placed on the fresh PROJECTS, before the first-load deep-link work below, and
        itself no-ops on the first load (it only baselines then). */
