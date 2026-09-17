@@ -47,8 +47,11 @@ test('the right column is expressed in the same units as the agents column', () 
 
 test('the agents column is still the thing being matched', () => {
   /* If this changes, the vw figure above is matching nothing and must be re-derived. */
-  assert.match(PAGE, /body\.consolidated \{ display: grid; grid-template-columns: minmax\(200px, 15%\)/,
-    'the agents column changed; the right column was tuned to 15% of the window and now tracks the wrong target');
+  /* #3218: the agents column moved from 15% (a percentage of the body) to 16.6vw
+     (viewport-absolute), and the right column matches it at the same 16.6vw -- so the two now
+     track each other by sharing the exact figure rather than by the old tuned 15vw+24px. */
+  assert.match(PAGE, /body\.consolidated \{ display: grid; grid-template-columns: minmax\(200px, 16\.6vw\)/,
+    'the agents column changed; the right column was tuned to match it and now tracks the wrong target');
 });
 
 test('all three panels lose their box, including the aside that holds Tasks', () => {

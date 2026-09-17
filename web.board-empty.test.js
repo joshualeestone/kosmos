@@ -170,5 +170,12 @@ test('both layouts paint the empty board, not just the one that happens to be op
      list view rendering nothing, and which view is resting is a preference the
      person set days ago. */
   assert.match(SCRIPT, /getElementById\('grid'\)\.innerHTML = shown\.length \? shown\.map\(card\)\.join\(''\) : boardEmpty\(\)/);
-  assert.match(SCRIPT, /getElementById\('alist'\)\.innerHTML = shown\.length \? shown\.map\(lrow\)\.join\(''\) : boardEmpty\(\)/);
+  // #3218: the agents-list render moved into paintAgentList() (so opening a project can re-group
+  // the list at once, not just on the next poll). It is called from the board tick on the SAME
+  // tick as #grid, and still falls back to the empty board when there are no agents -- both
+  // layouts, one tick.
+  assert.match(SCRIPT, /paintAgentList\(\);/,
+    'the agents list is no longer painted on the board tick');
+  assert.match(SCRIPT, /alist\.innerHTML = boardEmpty\(\);/,
+    'the agents list no longer falls back to the empty board when there are no agents');
 });

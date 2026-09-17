@@ -78,16 +78,16 @@ const ROW_COUNT = 'html[data-layout="consolidated"] body.consolidated .pj-row .p
 
    Full argument, counts and the four-arm proof: .claude/plans/css-brace-anchor-1430.md */
 
-test('the right column is ordered tasks, then files, then project members', () => {
-  // Re-ordered a THIRD time (Josh, 2026-08-26 08:31, #980): "put files in
-  // this project above project members". The split's first child is
-  // Members (row 3, last now), its last child is Files (row 2).
+test('the right column is Tasks over Files, with the Members card hidden (#3218)', () => {
+  // #3218 superseded the three-item order (Tasks/Files/Members). The separate Members card is
+  // hidden in the consolidated view now -- the project's agents moved to the top of the single
+  // Agents list -- so the right column is Tasks (row 1) over Files (row 2), and Members is gone.
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > aside\.pjcol:not\(\.pjsplit\) \{ grid-column: 2; grid-row: 1;/,
     'Tasks is not pinned to row 1 -- it should lead the right column');
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard-files \{ grid-column: 2; grid-row: 2;/,
-    'Files is not on row 2 -- it should follow Tasks, above Members');
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard-members \{ grid-column: 2; grid-row: 3;/,
-    'Project members is not on row 3, last');
+    'Files is not on row 2 -- it should follow Tasks');
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit > \.pjcard-members \{ display: none;/,
+    'the Members card is not hidden in the consolidated view -- it would list the project members twice');
 });
 
 test('the project cards keep their real border and background instead of a consolidated-only flat override', () => {
