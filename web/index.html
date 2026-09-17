@@ -2683,8 +2683,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tab:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 /* #3216 (Josh 6.74): the red unread-count badge on the Agents/Projects tabs. Same red as the
    card/list unread badges (.dmbadge #b3261e, white, tabular mono) so "unread" reads as one colour
-   across the app; inline after the tab label (not the absolute-corner treatment the avatar badges
-   use, since a tab is a text button, not an avatar). Hidden at zero via the `hidden` attribute --
+   across the app, and it swaps to the family's dark-mode #ff8c82/#0c0d0f alongside .dmbadge in
+   both dark blocks below, so that parity holds in dark mode too (not just light); inline after the
+   tab label (not the absolute-corner treatment the avatar badges use, since a tab is a text
+   button, not an avatar). Hidden at zero via the `hidden` attribute --
    the page-wide `[hidden] { display: none !important }` (top of this stylesheet) beats this
    display, so no per-selector re-hide is needed. */
 .navbadge { display: inline-flex; align-items: center; justify-content: center; margin-left: 6px;
@@ -6930,6 +6932,7 @@ body.consolidated .tkcard:hover { border-color: transparent; }
   :root:not([data-theme="light"]) .haz { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .membadge { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .dmbadge { background: #ff8c82; color: #0c0d0f; }
+  :root:not([data-theme="light"]) .navbadge { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .astate.st-working { border-color: rgba(121,197,157,.62); }
   :root:not([data-theme="light"]) .astate.st-paused, :root:not([data-theme="light"]) .astate.st-stopped { border-color: rgba(245,245,244,.32); }
   :root:not([data-theme="light"]) .astate.st-idle { border-color: rgba(245,245,244,.32); }
@@ -7800,6 +7803,7 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 :root[data-theme="dark"] .haz { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .membadge { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .dmbadge { background: #ff8c82; color: #0c0d0f; }
+:root[data-theme="dark"] .navbadge { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .astate.st-working { border-color: rgba(121,197,157,.62); }
 :root[data-theme="dark"] .astate.st-paused, :root[data-theme="dark"] .astate.st-stopped { border-color: rgba(245,245,244,.32); }
 :root[data-theme="dark"] .astate.st-idle { border-color: rgba(245,245,244,.32); }

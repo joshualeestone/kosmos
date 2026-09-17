@@ -72,6 +72,22 @@ const chk = (ok, label, extra) => {
       chk(out.nullHidden, 'a null/unknown count hides the badge (never a guessed zero)', String(out.nullHidden));
     }
 
+    /* dark mode: the badge must swap to the family colour (#ff8c82 / #0c0d0f) like .dmbadge; a
+       light-only badge silently disagrees with every other unread surface in dark mode (this
+       repo's documented "light mode hides a whole class"). Exercises the :root[data-theme="dark"]
+       rule directly so it does not depend on the app's theme-detection timing. */
+    const dout = await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      setNavBadge('nav-badge-agents', 4);
+      const cs = getComputedStyle(document.getElementById('nav-badge-agents'));
+      const r = { bg: cs.backgroundColor, ink: cs.color };
+      document.documentElement.removeAttribute('data-theme');
+      return r;
+    });
+    const drgb = parse(dout.bg);
+    chk(drgb[0] === 255 && drgb[1] === 140 && drgb[2] === 130, 'in dark mode the badge swaps to the family red (#ff8c82), matching .dmbadge', dout.bg);
+    chk(dout.ink === 'rgb(12, 13, 15)', 'in dark mode the count ink is the family dark ink (#0c0d0f)', dout.ink);
+
     /* (c) data wiring, by source: seeding real dmUnread/p.unread hermetically is not feasible. */
     const src = fs.readFileSync(nodePath.join(ROOT, 'web', 'index.html'), 'utf8');
     chk(/setNavBadge\('nav-badge-agents',\s*dmTotal\)/.test(src), 'the Agents badge is wired to the fleet dmTotal (tick), the same total as the #st-dm tile');
