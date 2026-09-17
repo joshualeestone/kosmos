@@ -2681,6 +2681,16 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tab:hover { color: var(--k-ink); }
 .tab.on { color: var(--k-ink); border-bottom-color: var(--gold); }
 .tab:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+/* #3216 (Josh 6.74): the red unread-count badge on the Agents/Projects tabs. Same red as the
+   card/list unread badges (.dmbadge #b3261e, white, tabular mono) so "unread" reads as one colour
+   across the app; inline after the tab label (not the absolute-corner treatment the avatar badges
+   use, since a tab is a text button, not an avatar). Hidden at zero via the `hidden` attribute,
+   which our display rule must restore since `display:inline-flex` overrides the UA [hidden]. */
+.navbadge { display: inline-flex; align-items: center; justify-content: center; margin-left: 6px;
+   min-width: 1.15rem; height: 1.15rem; padding: 0 .35rem; box-sizing: border-box;
+   font: 700 .6875rem var(--k-mono); font-variant-numeric: tabular-nums; line-height: 1;
+   color: #fff; background: #b3261e; border-radius: 100px; vertical-align: middle; }
+.navbadge[hidden] { display: none; }
 .panel { max-width: 720px; margin: 0 auto; background: var(--bg-elevated);
          border: 0.5px solid var(--separator); border-radius: var(--radius-card);
          box-shadow: var(--shadow-card); padding: var(--space-8); }
@@ -8059,8 +8069,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        drives address them); the LOOK is the pack's .apptabs/.apptab
        verbatim. -->
   <nav class="tabs closed" id="tabs" role="tablist">
-    <button class="tab on"  data-tab="agents"   role="tab" aria-selected="true">Agents</button>
-    <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects</button>
+    <button class="tab on"  data-tab="agents"   role="tab" aria-selected="true">Agents<span class="navbadge" id="nav-badge-agents" aria-hidden="true" hidden></span></button>
+    <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects<span class="navbadge" id="nav-badge-projects" aria-hidden="true" hidden></span></button>
     <!-- #3051 (Josh, 6.63 for 6.65): Settings left the top nav; it is reached from
          the user menu (avatar + name) in the upper-right .headright below. The
          #panel-settings panel and every showTab('settings') caller are unchanged;
@@ -17063,6 +17073,9 @@ async function tick() {
     }, 0);
     document.getElementById('st-dm').textContent = String(dmTotal);
     document.getElementById('st-dm-tile').hidden = dmTotal <= 0;
+    /* #3216: the Agents nav-tab badge reuses this same fleet unread-DM total, so the tab
+       count and the summary tile cannot disagree (one derivation of "unread agent messages"). */
+    setNavBadge('nav-badge-agents', dmTotal);
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
        line under the counts is gone and so is its slot. The facts it carried
@@ -37627,6 +37640,19 @@ function unreadBadge(n) {
   const s = k > 99 ? '99+' : String(k);
   return '<span class="pj-unread" aria-label="' + s + ' unread">' + s + '</span>';
 }
+/* #3216 (Josh 6.74): the red count badge on a top-nav tab (Agents / Projects). Same
+   hide-at-zero grammar as unreadBadge and the count tiles: a null/unknown or <=0 count
+   hides it, never a guessed zero-that-looks-like-data. 99+ cap like unreadBadge. The tab
+   text keeps its own accessible name; the badge is aria-hidden (the count is decorative
+   reinforcement of the list badges, which carry the per-item aria-labels). */
+function setNavBadge(id, n) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const k = Number(n);
+  if (!Number.isFinite(k) || k <= 0) { el.hidden = true; el.textContent = ''; return; }
+  el.textContent = k > 99 ? '99+' : String(k);
+  el.hidden = false;
+}
 /* #2487: the full ancestry name chain, root-first, for the tree "mouseprint".
    Walks parent ids up via pjById. When the immediate parent record is not yet
    loaded (a transient client-side sync gap) it falls back to the stored
@@ -37938,6 +37964,16 @@ async function loadProjects() {
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
+    /* #3216: the Projects nav-tab badge = the fleet total of per-project unread room posts,
+       summed from the same p.unread the per-project list badges use. null/unknown contributes 0
+       (never a guessed count), and the OPEN project is excluded exactly as its own list badge is
+       (unreadBadge(p.id === PJ_CURRENT ? 0 : ...)) and as the Agents tab excludes the open thread,
+       so the tab total and the per-item badges cannot disagree on what you are currently reading. */
+    setNavBadge('nav-badge-projects', PROJECTS.reduce((n, p) => {
+      if (p && p.id === PJ_CURRENT) return n;
+      const v = Number(p && p.unread);
+      return n + (Number.isFinite(v) && v > 0 ? v : 0);
+    }, 0));
     /* #2407: ring the bubble-pop if any project's unread rose since the last load.
        Placed on the fresh PROJECTS, before the first-load deep-link work below, and
        itself no-ops on the first load (it only baselines then). */
