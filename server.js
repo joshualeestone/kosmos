@@ -8558,9 +8558,6 @@ const server = http.createServer((req, res) => {
      app supplies the reading because folder access is a TCC fact the engine
      cannot definitively read (#1344); this route only surfaces it. */
   if (pathname === '/api/file-access-status' && (req.method === 'GET' || req.method === 'HEAD')) {
-    let reading;
-    try { reading = fileaccessstatus.read(); }
-    catch (err) { reading = { checkable: false, because: 'we could not read the file-access reading (' + String(err && err.message || err) + ')' }; }
     /* #2347 item C (Josh 0.6.41: "S2 Next should gray until folder access is
        allowed"): expose native-presence so the S2 gate can block Next when the
        native app is present but access is not yet granted, WITHOUT a file-access
@@ -8575,6 +8572,15 @@ const server = http.createServer((req, res) => {
        false on any error, so the fail-safe direction is preserved. */
     let nativePresent = false;
     try { nativePresent = promptrequest.nativePresent(); } catch { nativePresent = false; }
+    /* #3213: pass nativePresent so an EXISTING verdict aged past STALE_AFTER_MS is
+       HELD valid while the app process is up (it writes the verdict on-demand only --
+       the probe IS the macOS prompt, permflood-2125 -- so an aged reading under a
+       live app is stale-by-design, not stale-because-gone). Without this the S2
+       Access pill reverts to "cannot check" ~5min after the last fire even though
+       folder access is granted and the app is running. */
+    let reading;
+    try { reading = fileaccessstatus.read({ nativePresent }); }
+    catch (err) { reading = { checkable: false, because: 'we could not read the file-access reading (' + String(err && err.message || err) + ')' }; }
     sendJson(res, 200, { ...reading, nativePresent });
     return;
   }
