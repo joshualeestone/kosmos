@@ -276,10 +276,10 @@ function check(name, pass, detail) {
   check('#3217: after the fit the map does NOT overflow the panel horizontally (scrollWidth <= clientWidth)',
     fit.scrollWidthAfter <= fit.clientWidth + 1, JSON.stringify(fit));
   // #3217 (blind-review WARNING): the map repaints on every poll even when the Projects
-  // panel is on ANOTHER tab (ancestor display:none). pjMapFit must NOT reset-then-wipe a
-  // correct fit in that state (it reads 0 dimensions there) -- the offsetParent guard bails
-  // first. Simulate: with the wide fleet still fitted, hide the panel, repaint, assert the
-  // zoom survived (would be wiped to '' without the guard).
+  // panel is on ANOTHER tab (ancestor display:none), where clientWidth reads 0. pjMapFit must
+  // NOT reset-then-wipe a correct fit in that state -- the `clientWidth <= 0` bail (before the
+  // zoom reset) returns first. Simulate: with the wide fleet still fitted, hide the panel,
+  // repaint, assert the zoom survived (it is wiped to '' if that bail is removed).
   const offtab = await page.evaluate(() => {
     const map = document.getElementById('pj-map');
     const before = map.querySelector('.pjorg').style.zoom;   // the live fit (zoom < 1)
@@ -292,7 +292,7 @@ function check(name, pass, detail) {
     if (panel) panel.style.display = prev;
     return { before, after, hadPanel: !!panel };
   });
-  check('#3217: an off-tab repaint preserves the fit (offsetParent guard, does not wipe zoom)',
+  check('#3217: an off-tab repaint preserves the fit (clientWidth<=0 bail, does not wipe zoom)',
     offtab.hadPanel && offtab.before !== '' && offtab.after === offtab.before, JSON.stringify(offtab));
   // #3217 (blind-review WARNING): a tree that is BOTH wide AND deep enough to trip the wrap's own
   // vertical scrollbar (max-height 620px) at natural size exercises the scrollbar-vs-fit
