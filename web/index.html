@@ -5188,11 +5188,11 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
    the state line below it, because it is the least changing of the three. */
 .pj-member-role { display: block; color: var(--label-3); opacity: .9; }
 
-/* ⚠️ AN EMPTY RECEIPT TAKES NO ROOM. The healthy case now renders
-   `<span class="delivery placed"></span>` with nothing in it (Josh's ruling on
-   "Placed with…"), and an empty inline element still carries the rule's margin
-   and line box — a stray gap under every post, which is the noise the ruling
-   was about. */
+/* ⚠️ AN EMPTY RECEIPT TAKES NO ROOM. #3134-followup (Josh 6.72) removed the inline
+   `.delivery` receipt from the ROOM entirely, so this no longer governs any room path.
+   It still applies to the DM view, which renders `<span class="delivery ...">` from a
+   possibly-empty `v.said`: an empty inline element would still carry the rule's margin
+   and line box, a stray gap under a post, so an empty receipt collapses to nothing. */
 .delivery:empty { display: none; }
 
 /* ⚠️ THE GAP LIVED ON THE PER-AGENT WRAPPER, which the grouped line removed —
