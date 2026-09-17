@@ -1801,6 +1801,67 @@ function sweepUnanswered(roster, now) {
   return { ok: true, nudged };
 }
 
+/* #3224: count SUSPECTED cross-project misroutes in [sinceMs, untilMs), for the
+   daily digest. Josh (2026-09-17): an agent on several projects sometimes posts
+   into the WRONG project's room; he asked to SURFACE how often, in the daily
+   rollup (which forget.js already treats as a privacy-covered derived view),
+   rather than in a new tracking log.
+
+   DERIVED and READ-ONLY: this reads only the message record we ALREADY keep and
+   writes nothing. It adds no new log, no new persistence, and the digest emits
+   only the COUNT -- no agent names, project ids, or content. That is what keeps
+   it inside the covered surface (the privacy concern that a separate identifier
+   log raised does not attach to a bare count derived from records we already hold).
+
+   A room post by agent W to project A is a suspected misroute if, AT THE MOMENT W
+   POSTED IT, W owed an unanswered ADDRESSED OPERATOR question in a DIFFERENT
+   project B: an operator post in B before this post, with W in its `mentioned`,
+   delivered (TYPED, not could_not -- an undelivered ask is not owed), and NO room
+   post from W in B in [askAt, postAt). This mirrors `unanswered`'s own definition
+   of an owed answer (operator + mentioned + typed), bounded to the post's instant.
+
+   ⚠️ AS-OF-POST-TIME is deliberate, and it is why this does NOT reuse `unanswered`
+   (whose answer-check is unbounded, "answered ever after the ask"). A misroute
+   that HAPPENED still counts even if W later answered B -- the card measures how
+   often a post lands in the wrong room, not how many stay unresolved at digest
+   time. Using the unbounded check would silently UNDER-count every misroute that
+   was later followed by an answer. `unanswered`'s live callers (#185 nudge) are
+   left untouched.
+
+   Heuristic (a member of both rooms can post to A while legitimately owing B), so
+   the digest frames it as "suspected" and reports only the aggregate. */
+function suspectedMisrouteCount(sinceMs, untilMs) {
+  const rec = record();
+  if (!rec.ok) return 0;
+  const from = Number.isFinite(sinceMs) ? sinceMs : -Infinity;
+  const until = Number.isFinite(untilMs) ? untilMs : Infinity;
+  const rows = rec.rows;
+  let count = 0;
+  for (const p of rows) {
+    if (!p || p.kind !== 'post' || p.operator === true) continue;   // W's own room post
+    const who = p.from;
+    const target = p.project;
+    const postAt = Date.parse(p.at);
+    if (!who || !target || !Number.isFinite(postAt)) continue;
+    if (postAt < from || postAt >= until) continue;
+    const owes = rows.some((q) => {
+      if (!q || q.kind !== 'post' || q.operator !== true) return false;
+      if (!Array.isArray(q.mentioned) || !q.mentioned.includes(who)) return false;
+      if (!q.project || q.project === target) return false;         // a DIFFERENT project
+      const askAt = Date.parse(q.at);
+      if (!Number.isFinite(askAt) || askAt >= postAt) return false; // the ask must precede this post
+      const typed = q.outcomes && q.outcomes[who] && q.outcomes[who] !== chat.DELIVERY.COULD_NOT;
+      if (!typed) return false;                                     // an undelivered ask is not owed
+      const answered = rows.some((a) => a && a.kind === 'post' && a.operator !== true
+        && a.from === who && a.project === q.project
+        && Date.parse(a.at) >= askAt && Date.parse(a.at) < postAt); // answered in [askAt, postAt)
+      return !answered;
+    });
+    if (owes) count += 1;
+  }
+  return count;
+}
+
 /* #2255: Discord-style emoji REACTIONS on room posts. A reaction is mutable
    (toggle on/off), but the message log is append-only, so a reaction is a
    `kind:'reaction'` EVENT ({of: postId, emoji, from|operator, op:'add'|'remove'})
@@ -1945,6 +2006,7 @@ module.exports = {
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
+  suspectedMisrouteCount,
   resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
