@@ -670,6 +670,14 @@ function fetchText(url, redirects, track) {
   });
 }
 
+/* The absolute ceiling on a Claude Code download, ~5x the real ~214MB binary.
+   It bounds BOTH paths so a misbehaving or compromised service cannot fill the
+   disk before the sha256 verdict runs: the single stream aborts when it streams
+   past this, and the parallel path is only taken when the advertised size is at
+   or under it (a larger advertised size falls to the single stream, which then
+   applies the same abort). #3229 unified this from a single-stream-only inline. */
+const MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024;
+
 /** Stream a large file to disk, hashing as it lands, reporting progress.
  * #3229: with forceSingle, the accept-ranges detection below is skipped and the
  * whole file is streamed in one request -- download()'s fallback for a service
@@ -708,10 +716,15 @@ function fetchFile(url, dest, onProgress, redirects, track, forceSingle) {
        * clean. `responded` is set first so the tracked req's teardown here never
        * races the delayed-reject path onto an already-resolved promise.
        */
+      // The advertised <= MAX_DOWNLOAD_BYTES gate is the parallel path's absolute
+      // disk-fill ceiling: a larger advertised size takes the single stream
+      // below instead, which aborts at the same bound. Without it the parallel
+      // path would write up to `advertised` (each segment capped only at its own
+      // share) before the sha verdict, dropping the single stream's guarantee.
       const advertised = Number(res.headers['content-length']);
       const rangeOk = !forceSingle
         && String(res.headers['accept-ranges'] || '').toLowerCase().includes('bytes')
-        && Number.isFinite(advertised) && advertised > 0;
+        && Number.isFinite(advertised) && advertised > 0 && advertised <= MAX_DOWNLOAD_BYTES;
       if (rangeOk) {
         responded = true;
         res.on('error', () => { /* aborting this stream on purpose; ignore its teardown noise */ });
@@ -753,7 +766,7 @@ function fetchFile(url, dest, onProgress, redirects, track, forceSingle) {
         // The metadata fetch caps at 1MB; the binary gets a bound too. The
         // checksum already stops execution; this stops a misbehaving service
         // from filling the disk before the verdict ever runs.
-        if (got > 1024 * 1024 * 1024) {
+        if (got > MAX_DOWNLOAD_BYTES) {
           req.destroy(new Error('the download grew past any plausible size, so we stopped'));
           return;
         }
@@ -841,9 +854,12 @@ function fetchSegment(url, segPath, start, end, onChunk, track, redirects) {
       };
       // #3229: cap this segment at its requested range length. A 206 that then
       // streams past it (a broken or hostile service) is aborted here rather
-      // than filling the disk before any verdict runs -- the same guarantee the
-      // single-stream fetchFile gives with its 1GB bound. The Content-Range
-      // header itself is not validated against start-end: a mismatched-but-
+      // than overrunning its slice. This is ONE LAYER of the disk-fill defence,
+      // not the whole of it: summed across segments this bounds the write to the
+      // advertised size, and the ABSOLUTE ceiling is the advertised <=
+      // MAX_DOWNLOAD_BYTES gate in fetchFile that decides whether to take the
+      // parallel path at all. The Content-Range header itself is not validated
+      // against start-end: a mismatched-but-
       // bounded range still has to survive the whole-file sha256 gate, which is
       // the single correctness authority, so bounding SIZE is all this needs.
       const capBytes = end - start + 1;
@@ -953,6 +969,10 @@ async function fetchResumableParallel(url, part, total, onProgress, track) {
             currentRs = rs;
             rs.on('error', rej);
             rs.on('end', res);
+            // 'close' also settles this promise, so if fail() destroys rs on the
+            // outAll-error path (which emits 'close', not 'end'/'error') the await
+            // does not hang forever; the settled guard above then ends the loop.
+            rs.on('close', res);
             rs.pipe(outAll, { end: false });
           });
         }
