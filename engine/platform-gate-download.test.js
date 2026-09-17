@@ -11,30 +11,52 @@ process.env.AGENT_WORKFORCE_DATA = path.join(fs.mkdtempSync(path.join(os.tmpdir(
 const connect = require('./connect');
 const runners = require('./runners');
 
-/* kosmos: the macOS-only gate (Option A), extended to the provider-binary DOWNLOADS
- * at Splinter's ruling 2026-09-01. Both provider binaries are darwin builds -- the
- * Claude Code binary (connect.download, a `darwin-${arch}` fetch) and the Codex
- * runner (runners.install, a codex-...-darwin-arm64 tgz). On any other OS a
- * download would land a Mac binary that cannot run. The gate REFUSES before any
- * bytes move; it fetches no Windows build, so no part of Windows is made to look
- * functional. Each entry takes the platform as a seam (default process.platform)
- * so the refusal is testable on this Mac. */
+/* kosmos: the provider-binary DOWNLOAD gates. #3159 split them: Claude Code now
+ * publishes real Windows builds, so connect.download reads `canDownloadClaude` (darwin
+ * + win32) and win32 passes the gate; the Codex runner (runners.install) is still a
+ * single `codex-...-darwin-arm64` tgz, so it reads `canDownloadRunner` (darwin only) and
+ * win32 is refused there. On a platform with NO published build either gate refuses
+ * before any bytes move. Each entry takes the platform as a seam (default
+ * process.platform) so both the refusal and the pass-through are testable on this Mac. */
 
-test('connect.download REFUSES on any non-macOS platform, before any bytes move', async () => {
-  // Two different unsupported platforms, each refused with ITS OWN name -> the gate
-  // reads the platform parameter and fires for any unsupported OS (not a hardcoded
-  // win32), and it throws at the top before any network fetch. The darwin
-  // (supported) case is not exercised here on purpose: it would proceed past the
-  // gate into a real download service call; isSupported('darwin') === true is
-  // pinned in platform.test.js, so on macOS the gate is provably skipped.
-  await assert.rejects(
-    connect.download(() => {}, undefined, 'win32'),
-    (e) => /not supported/.test(e.message) && /win32/.test(e.message),
-    'win32 must refuse with a platform-specific message, not fetch a Mac binary');
+test('connect.download REFUSES a platform with no published Claude build, before any bytes move', async () => {
+  // win32 is deliberately NOT here anymore -- Claude publishes a Windows build (the
+  // #3159 test below proves win32 passes the gate). Two genuinely-unpublished platforms,
+  // each refused with ITS OWN name -> the gate reads the platform parameter and throws at
+  // the top before any network fetch. darwin is not exercised (it would proceed into a
+  // real download service call); canDownloadClaude('darwin') === true is pinned in
+  // platform.test.js, so on macOS the gate is provably skipped.
   await assert.rejects(
     connect.download(() => {}, undefined, 'linux'),
-    (e) => /not supported/.test(e.message) && /linux/.test(e.message),
-    'linux must refuse too, and name itself -- proving the gate reads the param');
+    (e) => /no published Claude Code build/.test(e.message) && /linux/.test(e.message),
+    'linux must refuse -- no Claude build is published for it');
+  await assert.rejects(
+    connect.download(() => {}, undefined, 'aix'),
+    (e) => /no published Claude Code build/.test(e.message) && /aix/.test(e.message),
+    'aix too, naming itself -- proving the gate reads the param, not a hardcoded platform');
+});
+
+test('#3159 connect.download PASSES win32 THROUGH the gate now (Claude publishes a Windows build)', async () => {
+  // If win32 were still refused, download() would throw at the gate BEFORE fetching
+  // /latest. Point the base at a fake that answers /latest with a non-version, and
+  // assert win32 REACHES the version check (and fails there) -- which it can only do by
+  // getting past the gate that used to stop it. Deterministic; no real network.
+  const http = require('node:http');
+  const server = http.createServer((req, res) => { res.writeHead(200); res.end('not-a-version'); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await assert.rejects(
+      connect.download(() => {}, undefined, 'win32'),
+      (e) => /did not answer with a version/.test(e.message)
+        && !/no published Claude Code build/.test(e.message),
+      'win32 reaches the download service (past the gate), then fails on the bad version');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    else process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = prev;
+    server.close();
+  }
 });
 
 test('runners.install REFUSES on a non-macOS platform, in the job shape the screen reads', () => {

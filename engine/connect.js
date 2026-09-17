@@ -613,7 +613,7 @@ function publicView(s, platform = process.platform) {
      * the process lives, so there is nothing to record and no stale record to
      * serve. That also means it is right on every phase, not just STUCK. */
     platform,
-    canInstallClaude: platformGate.canDownloadRunner(platform),
+    canInstallClaude: platformGate.canDownloadClaude(platform),
   };
 }
 
@@ -752,9 +752,29 @@ function fetchFile(url, dest, onProgress, redirects, track) {
 
 let activeRequest = null;
 
-function platformKey() {
+/* The manifest/URL key for the Claude Code build to fetch: `<os>-<arch>`, matching
+   downloads.claude.ai's manifest.platforms keys (darwin-x64/darwin-arm64/win32-x64/
+   win32-arm64). Takes the platform as a parameter (default process.platform), like
+   its callers and platformGate, so a win32 download is testable on a Mac. Only
+   reached for a platform canDownloadClaude() allows (darwin or win32); anything else
+   maps to darwin, but the gate never lets it through. ONE derivation of this key. */
+function platformKey(platform = process.platform) {
   const arch = os.arch() === 'arm64' ? 'arm64' : 'x64';
-  return `darwin-${arch}`;
+  return `${platform === 'win32' ? 'win32' : 'darwin'}-${arch}`;
+}
+
+/* The child environment for `claude install`. `claude install` places its launcher
+   under the user's HOME on the Mac; on Windows the same launcher lands under
+   USERPROFILE (Windows' home var), so we set BOTH to installHome (`runners.homeDir()`
+   -- the exact value resolveBin later reads). In production installHome IS the real
+   home, so this is a no-op-but-correct; under an AGENT_WORKFORCE_HOME sandbox it keeps
+   a live-verify inside its sandbox rather than writing the real profile. Pure and takes
+   the platform as a seam (default process.platform), like platformKey, so the win32 arm
+   is testable on a Mac -- the only production line that differs between the platforms. */
+function installEnvFor(installHome, platform = process.platform) {
+  const env = { TERM: 'dumb', HOME: installHome };
+  if (platform === 'win32') env.USERPROFILE = installHome;
+  return env;
 }
 
 /**
@@ -791,25 +811,19 @@ function sha256File(p) {
   return hash.digest('hex');
 }
 async function download(onProgress, track, platform = process.platform) {
-  /* kosmos macOS-only gate (Option A, extended to the provider-binary download at
-     Splinter's ruling 2026-09-01): the binary this fetches is a `darwin-${arch}`
-     build (see platformKey), so on any other OS it would download ~281MB of a Mac
-     binary that cannot run -- the exact "attempt a Mac-only action on the wrong OS
-     and half-succeed" this gate exists to prevent. Refuse BEFORE any bytes move.
-     This is the gate (refuse), NOT the Option C fix (it does not fetch a Windows
-     build, so it makes no part of Windows look functional). `platform` is a
-     parameter (default process.platform) so the refusal is testable on a Mac. The
-     polished user-facing wording is the operator's to refine (see engine/platform.js). */
-  /* #570: `canDownloadRunner`, NOT `isSupported`. win32 now RUNS agents (the
-     launch substrate landed), but the artifact this function fetches is still a
-     `darwin-${arch}` build -- so the question here is "do we publish a runner for
-     this platform", which is a different one. Reading `isSupported` would have
-     started downloading macOS binaries onto Windows the moment the substrate was
-     supported: the exact half-succeed this gate exists to prevent, turned on by
-     the change meant to make Windows work. The refusal below is unchanged and
-     still correct on win32; only the predicate is now the honest one. */
-  if (!platformGate.canDownloadRunner(platform)) {
-    throw new Error('this platform (' + platform + ') is not supported; the Claude Code binary is a macOS build and was not downloaded');
+  /* #3159: `canDownloadClaude`, NOT `canDownloadRunner`. This function fetches
+     CLAUDE Code specifically, which now publishes a `win32-${arch}` build with its
+     own manifest sha256 (see platformKey + engine/platform.js CLAUDE_DOWNLOADS), so
+     win32 is a real, checksum-verifiable download here -- unlike codex, which stays
+     darwin-only under the coarser canDownloadRunner. The artifact fetched IS the
+     platform's own build (darwin-* on a Mac, win32-* on Windows), so this is no
+     longer the "download a macOS binary onto the wrong OS" hazard the darwin-only
+     gate guarded; the checksum is verified BEFORE the binary is ever executed
+     (below). `platform` is a parameter (default process.platform) so a win32
+     download is testable on a Mac. A platform on neither list still refuses here
+     before any bytes move. */
+  if (!platformGate.canDownloadClaude(platform)) {
+    throw new Error('this platform (' + platform + ') has no published Claude Code build, so it was not downloaded');
   }
   const base = downloadBase();
   const version = (await fetchText(`${base}/latest`, undefined, track)).trim();
@@ -828,19 +842,25 @@ async function download(onProgress, track, platform = process.platform) {
   try { manifest = JSON.parse(await fetchText(`${base}/${version}/manifest.json`, undefined, track)); }
   catch { throw new Error('the download service answered with something we could not read'); }
   activeRequest = null;
-  const plat = platformKey();
+  const plat = platformKey(platform);
+  const isWin = platform === 'win32';
   // Case-normalised: SHA256 hex is hex whichever case the service prints it
-  // in, and rejecting uppercase would blame the Mac ("no build for this
+  // in, and rejecting uppercase would blame the build ("no build for this
   // kind") for what is really a formatting difference.
   const want = String((manifest && manifest.platforms && manifest.platforms[plat]
     && manifest.platforms[plat].checksum) || '').toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(want)) {
-    throw new Error(`the download service has no build for this kind of Mac (${plat})`);
+    throw new Error(`the download service has no build for this kind of computer (${plat})`);
   }
 
   const dir = path.join(store.ROOT, 'downloads');
   fs.mkdirSync(dir, { recursive: true });
-  const dest = path.join(dir, `claude-${version}-${plat}`);
+  /* ⚠️ The `.exe` on win32 is load-bearing, not cosmetic: Windows CreateProcess/
+     execFile will not run an extensionless file, so the installer step (and the
+     vendor's own install.ps1) name it `...-win32-${arch}.exe`. On darwin the binary
+     has no extension. The dir-sweep and reuse-if-verified below key on
+     path.basename(dest)/`claude-` and so handle either name unchanged. */
+  const dest = path.join(dir, `claude-${version}-${plat}${isWin ? '.exe' : ''}`);
   const part = `${dest}.part`;
   try { fs.unlinkSync(part); } catch { /* no partial to discard */ }
   /**
@@ -875,13 +895,15 @@ async function download(onProgress, track, platform = process.platform) {
     }
   } catch { /* any read/hash trouble: fall through to a fresh download */ }
 
-  const got = await fetchFile(`${base}/${version}/${plat}/claude`, part, onProgress, undefined, track);
+  const got = await fetchFile(`${base}/${version}/${plat}/${isWin ? 'claude.exe' : 'claude'}`, part, onProgress, undefined, track);
   activeRequest = null;
   if (got.sha256 !== want) {
     try { fs.unlinkSync(part); } catch { /* already gone */ }
     throw new Error('the downloaded file did not match its checksum, so it was not kept');
   }
-  fs.chmodSync(part, 0o755);
+  // chmod is a POSIX no-op on Windows (an .exe is runnable by extension); guard it
+  // off there so the code says what it means. On darwin the launcher must be +x.
+  if (!isWin) fs.chmodSync(part, 0o755);
   fs.renameSync(part, dest);
   return { path: dest, version };
 }
@@ -1814,9 +1836,15 @@ async function installClaudeCode(hooks) {
         + 'and the account has no passwd entry, which a service or container account can hit.'
     );
   }
+  /* `claude.exe install` (no args) is the same subcommand the Mac runs -- it sets up
+     the launcher + shell integration and places the launcher under the user's home.
+     ⚠️ The vendor's own install.ps1 passes at most a VERSION as `install <target>`
+     (validated `^(stable|latest|\d+\.\d+\.\d+...)$`), NEVER a directory, so we do NOT
+     pass a target dir -- doing so would hand a path where a version is expected. The
+     child env (installEnvFor) steers placement; see that helper for the win32 rule. */
   const inst = await run(downloaded.path, ['install'], {
     timeout: 180000,
-    env: { TERM: 'dumb', HOME: installHome },
+    env: installEnvFor(installHome),
     cancellable: true,
   });
   if (hooks.cancelled()) {
@@ -3134,7 +3162,7 @@ module.exports = {
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,
   classifyPane, extractOauthUrl, tailOf, validCode, redirectDowngrades,
-  download, platformKey, installClaudeCode,
+  download, platformKey, installEnvFor, installClaudeCode,
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
   STATE_FILE,
   willInstall, setProbeTtlForTests, claudeHatchAvailable,
