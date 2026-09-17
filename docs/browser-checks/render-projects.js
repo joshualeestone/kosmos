@@ -550,20 +550,21 @@ async function main() {
         const receipt = you && you.querySelector('.delivery');
         return {
           rows: msgs.length,
-          /* #3130 (Josh 6.68): the operator's own name is dropped from the dialog
-             ("no user name"): the render is `isOp ? '' : '<b>' + name + '</b>'`, so a "you"
-             post has no .msg-h b while an agent post does. youBold reads the <b> ELEMENT's
-             presence -- not its text -- so an empty <b> cannot read as absent; agentNamed
-             reads text so the agent's name must actually be there. */
-          youBold: !!(you && you.querySelector('.msg-h b')),
-          agentNamed: (box.querySelector('.msg:not(.you) .msg-h b') || {}).textContent || null,
+          /* #3130 (Josh 6.68): the operator's own name is dropped from the dialog.
+             #3134-followup (Josh 6.72): the name moved INSIDE the bubble as `.msg-bd .msg-nm`
+             (the old `.msg-h` header above the bubble is gone). So a "you" post has no
+             `.msg-bd .msg-nm` while an agent post does. youNamed reads the ELEMENT's presence
+             (an empty name cannot read as absent); agentNamed reads text so the agent's name
+             must actually be there. */
+          youBold: !!(you && you.querySelector('.msg-bd .msg-nm')),
+          agentNamed: (box.querySelector('.msg:not(.you) .msg-bd .msg-nm') || {}).textContent || null,
           /* #3130 (Josh 6.68): the agent title is REMOVED from the dialog. These
              fields read whatever .msg-role the render produced -- a profile role
              is seeded above -- so the assertions below can prove the span is
              ABSENT despite a role existing, not merely that no role was set. */
           agentRole: (box.querySelector('.msg:not(.you) .msg-role') || {}).textContent || null,
           agentRoleOrder: (() => {
-            const r = box.querySelector('.msg:not(.you) .msg-h .msg-role');
+            const r = box.querySelector('.msg:not(.you) .msg-role');
             if (!r) return null;
             const prev = r.previousElementSibling;
             const next = r.nextElementSibling;
@@ -590,10 +591,10 @@ async function main() {
       if (!seen.visible || seen.rows !== 2) throw new Error('the room did not render its two posts: ' + JSON.stringify(seen));
       /* #3130: assert both sides of the render above and stay RED-CAPABLE -- the agent post
          must be named (a stripped agent name reds here, so the operator check below is not
-         vacuous) and the operator post must carry no name <b> (a returned operator name reds).
+         vacuous) and the operator post must carry no name .msg-nm (a returned operator name reds).
          Replaces the pre-#3130 youNamed==='You'. */
-      if (!seen.agentNamed) throw new Error('the agent post has no name <b>, so the operator-name-absence check would be vacuous: ' + JSON.stringify(seen));
-      if (seen.youBold) throw new Error('#3130: the operator post still carries a name <b>, but the user name is removed from the dialog');
+      if (!seen.agentNamed) throw new Error('the agent post has no name .msg-nm, so the operator-name-absence check would be vacuous: ' + JSON.stringify(seen));
+      if (seen.youBold) throw new Error('#3130/#3134: the operator post still carries a name (.msg-nm), but the user name is removed from the dialog');
       /* #3130 (Josh 6.68): the agent's title is NOT shown in the dialog anymore
          (the #1703 .msg-role span was removed). The profile role is still seeded
          above, so this asserts the title is absent despite a role existing --
@@ -608,10 +609,12 @@ async function main() {
       if (seen.youHasRole) throw new Error('#3130: the operator’s own post carries a title span, but the title is removed');
       if (seen.agentChipFromFaceSet !== true) throw new Error('the disc mechanism moved (no inline tint on an agent chip), so the You-chip check below cannot mean anything');
       if (seen.youChipFromFaceSet) throw new Error('the person\u2019s chip was drawn from the agent face set (an inline disc style)');
-      if (!seen.receipt || !/could not be reached/.test(seen.receipt) || !/Placed with /.test(seen.receipt)) {
-        throw new Error('a post that reached one of two does not say so per recipient: ' + JSON.stringify(seen.receipt));
-      }
-      if (!/failed/.test(seen.receiptCls || '')) throw new Error('a partial post did not carry the failed weight: ' + seen.receiptCls);
+      /* #3134-followup (Josh 6.72): the inline delivery receipt ("Placed with X. Y could not
+         be reached.") is removed from the room -- "I don't need to know who the message was
+         pasted to or sent to". This fixture is a partial-delivery post (one of two reached),
+         the exact shape that DID render a `.delivery` receipt pre-6.72, so asserting its
+         ABSENCE here is non-vacuous. */
+      if (seen.receipt) throw new Error('#3134-followup: the inline delivery receipt should be gone from the room: ' + JSON.stringify(seen.receipt));
       if (seen.bold || !/<b>end to end<\/b>/.test(seen.escaped || '')) {
         throw new Error('post markup PARSED on the room thread: injection, not text');
       }

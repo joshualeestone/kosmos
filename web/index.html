@@ -41442,8 +41442,8 @@ function pjRoomRow(m, p, silent) {
      inline delivery receipt ("Placed with X ... could not be reached") is GONE, his
      "I don't need to know who the message was pasted to or sent to". pjReceiptSentence
      is still the single source for the delivery detail elsewhere (e.g. pjRoomAnnounce);
-     it is just no longer rendered inline in the thread. The box is drawn only when
-     there is a name or body -- a nameless, bodyless row emits none, not an empty box. */
+     it is just no longer rendered inline in the thread. The box is gated on BODY content
+     (see `hasBubble = bd` below) -- a bodyless row, agent or operator, draws no box. */
   const bd = pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m);
   /* #2947: the same stable per-message cream shade the DM bubble uses (dmRow),
      for an agent's ROOM message. Only .msg:not(.you) .msg-bd[data-am] picks it
