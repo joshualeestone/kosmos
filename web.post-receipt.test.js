@@ -1,14 +1,17 @@
 'use strict';
 
 /**
- * The second sentence under a room post: who has said nothing back.
+ * The room post receipt: the delivery facts under a room post (pjReceiptSentence)
+ * and the rendered room row (pjRoomRow).
  *
- * 🛑 WHY IT EXISTS. Josh posted into a room three times and got
- * "Placed with Johnson, Rick and Bob." every time while nothing came back. The
- * receipt was TRUE each time — the keystrokes were placed — and it was useless,
- * because it read identically whether the agents had answered or not. A true
- * sentence that cannot tell working from broken is the same failure as the CLI
- * saying everyone received it, and it cost him most of a morning (#145).
+ * 🛑 HISTORY. This file was born for the "Nothing back from <agent>" silence
+ * sentence (#145): Josh posted into a room and got "Placed with Johnson, Rick
+ * and Bob." while nothing came back, a receipt that was TRUE yet could not tell
+ * working from broken. #3130 (Josh 6.68) removed that silence sentence, #3134
+ * removed the inline delivery receipt from the room, and #3202 removed the dead
+ * silence-computation plumbing. What remains under test: the delivery clauses
+ * that still speak ("could not be reached", "may have it; not confirmed") and
+ * that no silence sentence reaches the screen.
  *
  * ⚠️ THE FUNCTIONS ARE EXECUTED, not grepped for. A test that reads index.html
  * as text can prove a sentence is present somewhere in a 15,000-line file and
@@ -79,7 +82,7 @@ function pageScope() {
     'document', 'window', 'navigator', 'fetch', 'setInterval', 'setTimeout',
     'clearInterval', 'EventSource', 'location', 'localStorage',
     src[1] + `
-    return { pjJoinNames, pjJoinOr, pjNameOf, pjSilentSince, pjSilences,
+    return { pjJoinNames, pjNameOf,
              pjReceiptSentence, pjOldEnoughToJudge, pjRoomRow, pjFoldRoomRows, PJ_SILENCE_AFTER_MS,
              paintRoom, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; } };`,
   )(document, window, {}, () => new Promise(() => {}), () => 0, () => 0, () => {},
@@ -153,21 +156,20 @@ const said = (who) => ({ kind: 'post', id: 'm-' + who, from: who, to: ['you'],
 /* ⚠️ SESSION NAMES, which is what the page passes now. It used to map them to
    display names first — and display names are not unique, so two agents both
    showing "Rick" merged into one match. */
-const sentence = (silentSessionNames) => api.pjReceiptSentence(ALL_PLACED, P, silentSessionNames || []);
+const sentence = () => api.pjReceiptSentence(ALL_PLACED, P);
 
 test('#3130 (Josh 6.68): the "Nothing back from ..." silence sentence is gone', () => {
   /**
    * Josh asked to remove the "nothing back from <agent>" / "nothing back from
    * any of them" messages entirely. `pjReceiptSentence` no longer emits them, so
-   * a post placed with everyone yields an EMPTY receipt whatever the silent list
-   * is -- the delivery facts (could-not-reach / unconfirmed) still speak; the
-   * silence clause does not. (The silence COMPUTATION plumbing -- pjSilences /
-   * pjSilentSince / the `silent` params / paintRoom's silences map -- is now
-   * unused and its removal is a separate cleanup follow-up.)
+   * a post placed with everyone yields an EMPTY receipt -- the delivery facts
+   * (could-not-reach / unconfirmed) still speak; the silence clause does not.
+   * (#3202 then removed the now-dead silence-computation plumbing -- pjSilences /
+   * pjSilentSince / pjJoinOr / the `silent` params -- that used to feed it.)
    */
-  assert.equal(sentence(['johnson', 'rick', 'bob']), '');
-  assert.equal(sentence(['rick']), '');
-  assert.equal(sentence(['rick', 'bob']), '');
+  assert.equal(sentence(), '');
+  assert.equal(sentence(), '');
+  assert.equal(sentence(), '');
 });
 
 test('a post that simply worked says nothing at all', () => {
@@ -183,23 +185,23 @@ test('a post that simply worked says nothing at all', () => {
    * and B" is what makes "C could not be reached" actionable — without it a
    * person cannot tell whether anybody got it.
    */
-  assert.equal(sentence([]), '');
-  assert.equal(sentence(undefined), '');
+  assert.equal(sentence(), '');
+  assert.equal(sentence(), '');
 
   const mixed = { johnson: 'placed', rick: 'placed', bob: 'could_not' };
-  assert.equal(api.pjReceiptSentence(mixed, P, []),
+  assert.equal(api.pjReceiptSentence(mixed, P),
     'Placed with Johnson and Rick. Bob could not be reached.',
     'the names of who DID get it went missing from the case that needs them');
 
   const unsure = { johnson: 'placed', rick: 'unconfirmed', bob: 'placed' };
-  assert.match(api.pjReceiptSentence(unsure, P, []), /^Placed with Johnson and Bob\./,
+  assert.match(api.pjReceiptSentence(unsure, P), /^Placed with Johnson and Bob\./,
     'an unconfirmed recipient should still leave the placed names on screen');
 });
 
 test('#3130: a placed-everywhere post with a silent recipient now yields an empty receipt', () => {
   // Was "Nothing back from Rick."; the silence clause is removed.
   const one = { rick: 'placed' };
-  assert.equal(api.pjReceiptSentence(one, P, ['rick']), '');
+  assert.equal(api.pjReceiptSentence(one, P), '');
 });
 
 test('#3130: delivery facts still speak, but no silence sentence is appended', () => {
@@ -209,82 +211,10 @@ test('#3130: delivery facts still speak, but no silence sentence is appended', (
    * receipt. Whatever the silent list, no "Nothing back from ..." is added.
    */
   const mixed = { johnson: 'placed', rick: 'could_not', bob: 'unconfirmed' };
-  const s = api.pjReceiptSentence(mixed, P, ['johnson', 'rick', 'bob']);
+  const s = api.pjReceiptSentence(mixed, P);
   assert.match(s, /Rick could not be reached\./);
   assert.match(s, /Bob may have it; not confirmed/);
   assert.doesNotMatch(s, /Nothing back/);
-});
-
-test('anything an agent says afterwards counts, and it does not have to be a reply', () => {
-  /**
-   * 🔑 THE RULING THIS PINS: "back" means ANY message from that agent in this
-   * room after this one, NOT an answer to this specific message. We cannot see
-   * intent and must not pretend to, and the wording matches exactly that —
-   * "nothing back from Rick" is true of "Rick has said nothing since".
-   *
-   * ⚠️ If this is ever tightened to reply-threading, the SENTENCE has to change
-   * with it, or it becomes a claim about whether somebody chose to answer.
-   */
-  const r = room([said('rick'), said('bob')]);
-  assert.deepEqual(api.pjSilentSince(r.post, r.rows, 0), ['johnson']);
-});
-
-test('the person talking to themselves is not an agent answering', () => {
-  const r = room([{ kind: 'post', operator: true, from: 'you', at: ago(4), text: 'anyone?' }]);
-  assert.deepEqual(api.pjSilentSince(r.post, r.rows, 0).sort(), ['bob', 'johnson', 'rick']);
-});
-
-test('an agent actually named "you" is not mistaken for the person', () => {
-  /**
-   * 🛑 THE ENGINE'S OWN WARNING, made into a test. `sendPost` writes
-   * `from: 'you'` for an operator post and adds an explicit `operator: true`
-   * "because a NAME alone cannot carry the distinction: 'you' is a legal tmux
-   * session name, and the one thing the screens must never do is promote an
-   * agent to operator on a string match."
-   *
-   * ⚠️ This runs it in the other direction. If the silence check keyed on the
-   * name rather than the flag, the PERSON's own follow-up post would count as
-   * this agent having answered, and a room where nobody replied would read as
-   * a working one. It is also what makes the test above able to fail at all.
-   */
-  const outcomes = { you: 'placed', rick: 'placed' };
-  const p = { agents: [member('you', 'You'), member('rick', 'Rick')] };
-  const post = { operator: true, from: 'you', at: ago(5), outcomes };
-  const rows = [post, { kind: 'post', operator: true, from: 'you', at: ago(4), text: 'anyone?' }];
-
-  assert.deepEqual(api.pjSilentSince(post, rows, 0).sort(), ['rick', 'you'],
-    'the person’s own post was read as the agent called "you" answering');
-  assert.equal(api.pjNameOf(p, 'you'), 'You');
-});
-
-test('a valve notice is not an agent answering', () => {
-  /**
-   * ⚠️ It carries no `from`, but a version of this that trusted the row shape
-   * rather than the kind would count it. The valve is the product speaking.
-   */
-  /* ⚠️ NO `from`, because the /room route drops it: valve rows are built as
-     `{ kind, project, because, at }`. An earlier fixture carried `from: 'rick'`
-     while the comment above it said "It carries no `from`" — the fixture and
-     its own docblock disagreeing, and the arm it exercised unreachable in
-     production because `if (r.from)` already skips a real valve row. */
-  const r = room([{ kind: 'valve', at: ago(4), because: 'held' }]);
-  assert.deepEqual(api.pjSilentSince(r.post, r.rows, 0).sort(), ['bob', 'johnson', 'rick']);
-});
-
-test('what an agent said BEFORE the post does not answer it', () => {
-  /**
-   * ⚠️ THE DIRECTION, and it is decided by POSITION rather than timestamps —
-   * two messages can land in the same millisecond, and a clock that steps
-   * backwards would otherwise turn an earlier remark into an answer.
-   */
-  const post = { operator: true, at: ago(5), outcomes: ALL_PLACED };
-  const rows = [said('rick'), post, said('bob')];
-  assert.deepEqual(api.pjSilentSince(post, rows, 1).sort(), ['johnson', 'rick']);
-});
-
-test('a post with no delivery record has nothing to be silent about', () => {
-  const m = { operator: true, at: ago(5) };
-  assert.deepEqual(api.pjSilentSince(m, [m], 0), []);
 });
 
 test('two minutes is a floor, and a message with no timestamp is not "long ago"', () => {
@@ -300,104 +230,6 @@ test('two minutes is a floor, and a message with no timestamp is not "long ago"'
   for (const bad of [undefined, null, '', 'not a date', {}]) {
     assert.equal(api.pjOldEnoughToJudge(bad), false, `${JSON.stringify(bad)} was treated as long ago`);
   }
-});
-
-test('the verdict is computed against the whole room, never a filtered view', () => {
-  /**
-   * 🛑 THE DEFECT THIS SHAPE EXISTS TO PREVENT. If the silence were computed
-   * from the rows currently on screen, typing in the search box would delete an
-   * agent's reply from the calculation and turn a working exchange into
-   * "nothing back from Rick" — the receipt lying because of what somebody typed
-   * somewhere else.
-   */
-  const r = room([said('rick'), said('bob'), said('johnson')]);
-  assert.deepEqual(api.pjSilentSince(r.post, r.rows, 0), [], 'everyone spoke');
-
-  const filtered = [r.post];        // what a search for something else would leave
-  assert.deepEqual(api.pjSilentSince(r.post, filtered, 0).sort(), ['bob', 'johnson', 'rick'],
-    'the control: against a filtered list the answer really is different, so paintRoom must pass the whole room');
-});
-
-test('the silence map is built from the whole room, and only under the person’s posts', () => {
-  /**
-   * 🛑 THE HOP THAT USED TO BE UNTESTABLE. This lived inline in `paintRoom`,
-   * so the two-minute gate at the point it is APPLIED was reachable only by
-   * rendering the screen — delete `pjOldEnoughToJudge` from the condition and
-   * every test stayed green while the sentence fired on a post one second old.
-   */
-  const post = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: ALL_PLACED };
-  const fresh = { kind: 'post', operator: true, from: 'you', at: ago(0), outcomes: ALL_PLACED };
-  const agentPost = { kind: 'post', from: 'rick', at: ago(5), outcomes: { johnson: 'placed' } };
-  const rows = [post, fresh, agentPost];
-
-  const map = api.pjSilences(rows, P);
-
-  /* ⚠️ Rick is NOT in this list, and that is the fixture doing two jobs: his
-     post comes after the person's, so he has spoken. An agent's message counts
-     as an answer even though it gets no verdict of its own. */
-  assert.deepEqual(map.get(post).sort(), ['bob', 'johnson'], 'an old post got no verdict');
-  assert.equal(map.has(fresh), false, 'a post seconds old was judged; the two-minute gate is not applied here');
-  assert.equal(map.has(agentPost), false,
-    'an agent’s own post got a silence verdict, so the room says "nothing back from Johnson" under something RICK said');
-});
-
-test('the map is keyed on the row, so a filtered view reads the same verdicts', () => {
-  /**
-   * ⚠️ The verdict is about the ROOM. Typing in the search box must not change
-   * what a receipt claims: filtering out an agent's reply would otherwise turn
-   * a working exchange into "nothing back from Rick".
-   */
-  const r = room([said('rick'), said('bob'), said('johnson')]);
-  const map = api.pjSilences(r.rows, P);
-  assert.deepEqual(map.get(r.post), [], 'everyone spoke and somebody was still called silent');
-
-  // THE CONTROL: the same function over only the surviving rows really does
-  // answer differently, so passing the whole room is what has to be right.
-  const filtered = [r.post];
-  assert.deepEqual(api.pjSilences(filtered, P).get(r.post).sort(), ['bob', 'johnson', 'rick']);
-});
-
-test('paintRoom indexes the silence against allRows and not against the filtered rows', () => {
-  /**
-   * ⚠️ AND THIS IS THE HALF THE UNIT TEST ABOVE CANNOT SEE. It proves the
-   * function is sensitive to which list it gets; only the CALL SITE decides
-   * which one it gets. Read structurally rather than by wording, because the
-   * comment beside it could be edited without the code changing.
-   */
-  const at = PAGE.indexOf('function paintRoom(');
-  assert.notEqual(at, -1);
-  /* 🛑 BOUNDED BY CONTENT, NOT BY A CHARACTER COUNT. This read `slice(at, at + 2000)`,
-     and the call it looks for sits 3142 characters into the function, so it was
-     inside the window only by luck. Adding comments to `paintRoom` for #1150 pushed
-     the call past 2000 and this test went red on a change that did not touch the
-     behaviour it guards.
-
-     ⭐ It failed CLOSED, which is why this is a repair and not an incident: a window
-     that misses the call makes `assert.match` fail rather than pass. But the next
-     person would have bumped the number, and the number would have gone stale again.
-     Slicing to the next top-level function is stable under edits of any size.
-
-     ⚠️ The `doesNotMatch` arm needs the window to stay INSIDE paintRoom, or it would
-     start policing a sibling function.
-
-     🛑 MY FIRST BOUNDARY DID NOT PROVIDE THAT, AND I WROTE THAT IT DID. I used
-     `indexOf('\nfunction ', at + 1)`, which SKIPS `async function`, so it ran on
-     past `loadRoom` and `pjPostSend` to the next plain `function`: a 12614-char
-     window over a 6503-char function. Measured. That is roughly twice paintRoom
-     and LARGER than the magic number I had just criticised for being arbitrary,
-     so the sentence claiming a guarantee was false in the direction of comfort.
-
-     ✅ `indexOf('\n}', at)` ends on paintRoom's own closing brace: 6503 chars,
-     contains the call, contains no other function declaration. Verified all three. */
-  const end = PAGE.indexOf('\n}', at);
-  assert.ok(end > at, 'paintRoom has no closing brace at column 0, so this window is unbounded');
-  /* The window must not have swallowed a neighbour, or the doesNotMatch arm below
-     would be policing somebody else's code. */
-  assert.doesNotMatch(PAGE.slice(at, end), /\n(?:async )?function /,
-    'the window ran past paintRoom into another function');
-  const body = PAGE.slice(at, end);
-  assert.match(body, /pjSilences\(allRows, p\)/, 'the silence is no longer computed from the whole room');
-  assert.doesNotMatch(body, /pjSilences\(shown/, 'the silence is computed from the filtered rows');
 });
 
 test('the room render carries no silence sentence and no delivery receipt', () => {
@@ -470,7 +302,7 @@ test('#3130: the delivery facts stand alone, with no silence sentence appended',
    * agent" test; that whole sentence is removed.)
    */
   const mixed = { johnson: 'placed', rick: 'placed', bob: 'could_not' };
-  const s = api.pjReceiptSentence(mixed, P, ['johnson', 'rick']);
+  const s = api.pjReceiptSentence(mixed, P);
   assert.match(s, /Placed with Johnson and Rick\. Bob could not be reached\./);
   assert.doesNotMatch(s, /Nothing back/);
   assert.doesNotMatch(s, /any of them/);
@@ -517,58 +349,6 @@ test('paintRoom leaves a fresh post alone, so the gate is applied on the way to 
 
   assert.match(html, /just now/, 'nothing rendered at all');
   assert.doesNotMatch(html, /Nothing back/, 'a post seconds old was already reported as unanswered');
-});
-
-test('a valve row carrying a name would still not count as an answer', () => {
-  /**
-   * ⚠️ THE FIXTURE ABOVE IS THE ONE THE ROUTE EMITS, and it never reaches the
-   * `kind === 'valve'` check because `if (r.from)` skips it first. This one is
-   * the hypothetical: a valve row that somehow carried a name. The guard is
-   * kept because the valve is the PRODUCT speaking, and a check that depends on
-   * a field being absent is a check that a route change can silently remove.
-   */
-  const post = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: ALL_PLACED };
-  const rows = [post, { kind: 'valve', from: 'rick', at: ago(4), because: 'held' }];
-  assert.deepEqual(api.pjSilentSince(post, rows, 0).sort(), ['bob', 'johnson', 'rick'],
-    'the product speaking was counted as an agent answering');
-});
-
-test('a one-agent room never says nobody came back, because the app forbids the answer', () => {
-  /**
-   * 🛑 THE FEATURE INVERTED. `sendPost` builds an agent's recipients as
-   * `members.filter(m => m !== from)`, so in a one-agent project that list is
-   * empty and the post is REFUSED: "nobody else is on that project yet, so
-   * there is no room to post to". The agent's own instruction block tells it to
-   * run `kosmos post`; it does; it is turned away.
-   *
-   * The old receipt said only "Placed with Rick", which claimed nothing. The
-   * new sentence would assert a silence the product manufactures and name the
-   * agent as its cause, permanently, on a working agent — which is exactly the
-   * failure this feature exists to remove, pointed the other way.
-   */
-  const solo = { agents: [member('rick', 'Rick')] };
-  const post = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: { rick: 'placed' } };
-  assert.equal(api.pjSilences([post], solo).size, 0,
-    'a sole agent was reported silent for a message it is not allowed to answer');
-
-  // ⚠️ THE CONTROL: two members and the same room does produce a verdict, so
-  // the carve-out is the case the engine refuses and not a blanket off-switch.
-  const pair = { agents: [member('rick', 'Rick'), member('bob', 'Bob')] };
-  const post2 = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: { rick: 'placed', bob: 'placed' } };
-  assert.deepEqual(api.pjSilences([post2], pair).get(post2).sort(), ['bob', 'rick']);
-});
-
-test('a row kind the route has not grown yet is not counted as an agent speaking', () => {
-  /**
-   * ⚠️ AN ALLOW-LIST, NOT A DENY-LIST. The scan used to skip valve rows and
-   * operator rows and count everything else, so any kind the /room route grows
-   * later — an agent-to-agent message, a refusal notice — would count as an
-   * answer and silently delete the sentence. Only a `post` is speech.
-   */
-  const post = { kind: 'post', operator: true, from: 'you', at: ago(5), outcomes: ALL_PLACED };
-  const rows = [post, { kind: 'notice', from: 'rick', at: ago(4), text: 'something new' }];
-  assert.deepEqual(api.pjSilentSince(post, rows, 0).sort(), ['bob', 'johnson', 'rick'],
-    'a row kind that is not a post was counted as Rick answering');
 });
 
 /* ── #2700: the refusal pile collapses to one band ─────────────────────────

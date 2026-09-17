@@ -7,9 +7,10 @@
  * implemented, exported and covered by twelve tests, and nothing called it: no
  * route, no payload field, no line. Fourth instance of that shape in a night.
  *
- * 🔑 IT IS THE MISSING HALF OF A SIGNAL THE ROOM ALREADY HAS. `pjSilentSince`
- * is gated on a project having two or more members, so a one-to-one thread had
- * no way to say an agent had gone quiet on you.
+ * 🔑 A ONE-TO-ONE THREAD HAS NO ROOM-STYLE SIGNAL that an agent has gone quiet.
+ * The room once carried a matching "Nothing back from ..." sentence; #3130
+ * removed it and #3202 its plumbing (pjSilentSince), but this one-to-one box is
+ * a distinct surface Josh kept.
  */
 
 const test = require('node:test');
@@ -100,9 +101,9 @@ test('a message that never reached the agent does not accuse it of silence', () 
    * received. Two sentences in one box contradicting each other.
    *
    * 🔑 `owes` is true whenever the RECORD says something was addressed to the
-   * agent, and a failed delivery is still recorded. The room already had the
-   * answer: `pjSilentSince` filters its recipients to `placed` before deciding
-   * anybody has gone quiet.
+   * agent, and a failed delivery is still recorded. Only a recipient a message
+   * actually reached (`placed`) can be said to have gone quiet -- the room's
+   * receipt enforced the same rule before #3130/#3202 removed that surface.
    */
   assert.equal(line({ state: 'owes', lastHeardAt: OLD }, [failed(OLD)]), '',
     'an undelivered message produced a line blaming the agent for not answering');
