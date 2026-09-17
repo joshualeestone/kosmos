@@ -678,6 +678,14 @@ function fetchText(url, redirects, track) {
    applies the same abort). #3229 unified this from a single-stream-only inline. */
 const MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024;
 
+/* #3229 resumable/parallel-range tuning. Concurrency defaults to 4 and is clamped
+   to [1, 8]; a file smaller than MIN_SPLITTABLE_BYTES is fetched as one segment
+   (parallelism buys nothing there and just adds requests). Overridable per the
+   AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY env. */
+const DEFAULT_DOWNLOAD_CONCURRENCY = 4;
+const MAX_DOWNLOAD_CONCURRENCY = 8;
+const MIN_SPLITTABLE_BYTES = 8 * 1024 * 1024;
+
 /** Stream a large file to disk, hashing as it lands, reporting progress.
  * #3229: with forceSingle, the accept-ranges detection below is skipped and the
  * whole file is streamed in one request -- download()'s fallback for a service
@@ -897,8 +905,8 @@ async function fetchResumableParallel(url, part, total, onProgress, track) {
   // Math.trunc so a non-integer override (e.g. "2.5") clamps to a whole segment
   // count rather than feeding a fraction into the loop bound and segLen.
   const envC = Math.trunc(Number(process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY));
-  const C = Math.max(1, Math.min(Number.isFinite(envC) && envC > 0 ? envC : 4, 8));
-  const segCount = total < 8 * 1024 * 1024 ? 1 : C;   // do not split a small file
+  const C = Math.max(1, Math.min(Number.isFinite(envC) && envC > 0 ? envC : DEFAULT_DOWNLOAD_CONCURRENCY, MAX_DOWNLOAD_CONCURRENCY));
+  const segCount = total < MIN_SPLITTABLE_BYTES ? 1 : C;   // do not split a small file
   const segLen = Math.ceil(total / segCount);
   const segs = [];
   for (let i = 0; i < segCount; i++) {
@@ -1024,10 +1032,13 @@ function installEnvFor(installHome, platform = process.platform) {
  * agrees; a mismatch deletes it and reports, because "we ran a binary we could
  * not verify" is not a state this product is allowed to reach.
  *
- * A leftover partial from an interrupted attempt is discarded and restarted
- * rather than resumed: a byte-range resume would hash clean or dirty the same
- * way, but restart is simpler to reason about and the file downloads once
- * (measured: 281MB, 9 seconds on this machine's connection).
+ * #3229: a leftover same-version partial (a `.part` and its `.part.<i>` byte-range
+ * segments) from an interrupted attempt is RESUMED, not restarted, when the
+ * service honours byte ranges (downloads.claude.ai does): each segment continues
+ * from what already landed and only the missing tail is fetched. The sha256 over
+ * the finally-assembled file is still the one gate, so a corrupt resume fails it
+ * and is discarded whole, and the next attempt restarts clean. A service that
+ * ignores ranges streams once from the start, exactly as before.
  *
  * #875: a COMPLETED, verified binary for the target version, on the other hand,
  * is REUSED, not re-fetched. A prior attempt whose download finished but whose
