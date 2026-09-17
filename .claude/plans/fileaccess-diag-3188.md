@@ -30,11 +30,25 @@ A diagnostic build in which every `fileAccessReading()` call logs, to board.log,
   SEPARATE follow-up change once this diag names the cause.
 
 ## Interpretation of the test20 re-run
-- resolvedHome != /Users/test20 -> (a): fix home resolution under the hatch.
-- resolvedHome ok, enumerate ok, errnoProbe EPERM/EACCES -> (b): switch the probe to a content
-  head-read matching the scan (main.swift:571-577), which IS the gated op.
-- resolvedHome ok, enumerate ok, errnoProbe ENOENT -> (c): granted:true is honest; the residual is
-  ICK's onboarding-auto-POST JS gap + cosmetics, not a native false-positive.
+resolvedHome and the enumerate outcome are the PRIMARY, premise-free signals. The errno probe is a
+weaker, premise-DEPENDENT signal (see the caveat below) -- read it as corroboration, not proof.
+- resolvedHome != /Users/test20 -> (a): fix home resolution under the hatch. (Premise-free.)
+- resolvedHome ok, enumerate ok, errnoProbe EPERM/EACCES -> (b) LIKELY: a real read would be denied,
+  so the enumerate verdict is a false positive; the fix switches the probe to a content head-read
+  matching the scan (main.swift:571-577), which IS the gated op.
+- resolvedHome ok, enumerate ok, errnoProbe ENOENT -> INCONCLUSIVE between (c) and (b): ENOENT proves
+  genuine access ONLY IF macOS evaluates TCC before existence. If macOS resolves existence first for
+  a missing file it returns ENOENT regardless of TCC, so a clean ENOENT does not by itself prove (c).
+  To settle it, read a REAL file placed in the folder (the definitive gated op) rather than trusting
+  the non-existent-path errno.
+
+### Caveat on the errno probe (challenge-loop iter 1, opus)
+The (b)-vs-(c) discrimination assumes macOS evaluates TCC before file existence, which is NOT
+verified here. The probe is deliberately on a NON-EXISTENT path (so it needs no real file and cannot
+mutate), which is why it is weaker than a head-read of a real file. Mitigations: the RAW errno is
+logged verbatim (a wrong premise is recoverable from the log), and resolvedHome + enumerate carry
+independent, premise-free signal. If the test20 run returns a clean ENOENT everywhere, do not
+conclude (c); place a real file in one protected folder and re-read to get the definitive verdict.
 
 ## Scope
 - Native-only (native-app/main.swift). No web/ change (browser-check gate chain does not fire), no

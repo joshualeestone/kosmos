@@ -529,11 +529,16 @@ func fileAccessReading() -> Bool {
     // These lines pin the mechanism without changing behaviour: (1) the RESOLVED home, to catch a
     // redirected/container home under the launchd/app-exe hatch (then the probe never touches the
     // real protected trio); (2) the per-folder enumerate outcome; (3) a NON-MUTATING errno probe
-    // of a non-existent path in each folder. macOS evaluates TCC before existence, so errno
-    // EPERM(1)/EACCES(13) means a real READ would be DENIED here (the enumerate verdict is then a
-    // false positive), while ENOENT(2) means TCC allows the read (genuinely granted). The errno
-    // probe works on a fresh box's EMPTY folders, where no real file exists to head-read. Grep
-    // board.log for `DIAG_DEBUG fileaccess #3188`. Removed when the fix lands.
+    // of a non-existent path in each folder, logged as the RAW errno. resolvedHome and the
+    // enumerate outcome are the PRIMARY, premise-free signals; the errno probe is a weaker,
+    // premise-DEPENDENT one, so do not over-read it: IF macOS evaluates TCC before existence then
+    // EPERM(1)/EACCES(13) means a real read would be DENIED (the enumerate verdict is a false
+    // positive) and ENOENT(2) means TCC allows the read; but if macOS resolves existence FIRST for
+    // a missing file it returns ENOENT regardless of TCC, so a clean ENOENT does NOT by itself
+    // prove genuine access. The raw errno is logged verbatim precisely so that premise stays
+    // checkable rather than assumed. The errno probe works on a fresh box's EMPTY folders, where no
+    // real file exists to head-read (the definitive gated op). Grep board.log for
+    // `DIAG_DEBUG fileaccess #3188`. Removed when the fix lands.
     logLine("DIAG_DEBUG fileaccess #3188 resolvedHome=\(home.path)")
     // The three folders Screen 2's dialogs govern. Desktop/Documents/Downloads are the
     // TCC-protected trio agent files live in; enumerating each triggers ITS OWN prompt
