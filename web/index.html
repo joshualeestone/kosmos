@@ -2584,7 +2584,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    The initials fallback (.lavtint) already carries its own border-radius
    and was never affected; the img needed the same self-sufficiency. */
 /* #520: drawn into every list row, shown only by the consolidated rail. */
-.lav .lring, .lav .lwarn { display: none; }
+.lav .lring, .lav .lwarn, .lav .lreach { display: none; }
 /* The tinted disc fallback fills its chip (the tint rides the inner span
    because the row builds the chip's INSIDE, not the chip). */
 .lavtint { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 50%; }
@@ -5718,6 +5718,11 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
    Scoped to .pj-member so no other .lav triangle or small is affected. */
 .pj-member .pj-face { position: relative; overflow: visible; }
 .pj-member .pj-face > .lwarn { display: block; position: absolute; left: 50%; top: 50%; width: 18px; height: 16px; transform: translate(-50%, -52%); }
+/* #3212 (Josh 6.72): the cannot-reach question mark. A neutral grey corner badge (not the
+   centred red-! LROW_WARN) so it annotates the face without hiding it and reads as
+   informational, not urgent. The --k-bg ring lifts it off the avatar, like the warn glyph's
+   built-in halo. */
+.pj-member .pj-face > .lreach { display: grid; place-items: center; position: absolute; right: -3px; bottom: -3px; width: 15px; height: 15px; border-radius: 50%; background: var(--k-ink-2); color: var(--k-bg); font: 700 10px/1 var(--font-ui); border: 1.5px solid var(--k-bg); box-sizing: border-box; }
 .pj-member small.pj-attn { color: #b3261e; }
 /* #b3261e is a ~2:1 whisper on the dark surface (under WCAG AA for this caption), the same
    reason .pjonode.attn lightens. Only the SYSTEM-dark @media rule is written by hand; the
@@ -15301,6 +15306,15 @@ function card(a) {
    stopped agent, and reading a field the route does not emit is the defect
    the roster fixture exists to throw on. */
 const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Issue"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
+/* #3212 (Josh, 6.72 follow-up, 2026-09-17): when a message cannot reach an agent, mark that
+   agent's avatar with a question mark instead of any delivery status TEXT ("if it can't reach
+   someone it puts a question mark icon over their avatar, then we stick with not having to print
+   any status text"). A neutral grey badge (not the red-! LROW_WARN, which means an urgent
+   needs-you): "cannot reach" is informational, not an alarm. Sits as a corner badge on the
+   .pj-face (CSS `.pj-face > .lreach`) so the face stays legible, the same in-avatar overlay
+   mechanism the warn triangle uses. Shown for a member the board cannot see (`!present`), which
+   is exactly the state a room post reports as "could not reach". */
+const LROW_REACH = '<span class="lreach" role="img" aria-label="Cannot reach this agent" title="Cannot reach this agent">?</span>';
 /* #2577: the org-chart node's needs-you corner badge is the SAME glyph as the
    list row, DERIVED from it by a class swap so the triangle, the exclamation and
    the built-in ground halo (stroke var(--k-bg)) can never drift apart -- only the
@@ -36764,6 +36778,10 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   const stClass = present
     ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(m).st] || '')
     : '';
+  /* #3212 (Josh 6.72): a member the board cannot see (`!present`) is one a room post could
+     not reach, so mark the avatar with the question-mark badge instead of a status sentence.
+     Mutually exclusive with `warn` by construction: warn is gated on `m.present === true`. */
+  const reachMark = present ? '' : LROW_REACH;
   const face = m.hasAvatar
     /* #2762: `?v=` the avatar version, same as tkFace above and the org chart
        (#2698). This row is painted through `setIfChanged` -> `setLive`, which is
@@ -36772,9 +36790,9 @@ function pjMember(m, suppressTold, withMinus, hideState) {
        and by the same mechanism. `m` is the member row from projects.describe,
        which carries avatarVer. */
     ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
-      + encodeURIComponent(m.sessionName) + '/avatar?v=' + (m.avatarVer || 0) + '" alt="">' + warn + '</span>'
+      + encodeURIComponent(m.sessionName) + '/avatar?v=' + (m.avatarVer || 0) + '" alt="">' + warn + reachMark + '</span>'
     : '<span class="lav pj-face" aria-hidden="true" style="background:' + discTint(m.name)
-      + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + warn + '</span>';
+      + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + warn + reachMark + '</span>';
   /* #2019: a restarting member is NOT "unseen" -- .unseen draws the dashed
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
@@ -36814,7 +36832,15 @@ function pjMember(m, suppressTold, withMinus, hideState) {
          does not -- honest either way). */
       ? (hideState ? '' : '<small' + (needsYou ? ' class="pj-attn"' : '') + '>' + esc(stateCopyOf(m).label)
         + (m.state === 'unknown' && m.because ? ': ' + esc(m.because) : '') + '</small>')
-      : '<small>' + esc(m.because || 'We cannot see this agent on this computer right now.') + '</small>')
+      /* #3212 (Josh 6.72): in the ROOM column (hideState) the question-mark badge on the avatar
+         carries "cannot reach" visually, so the sentence is VISUALLY HIDDEN (.vh clip) rather than
+         printed -- "we stick with not having to print any status text". It is kept in the DOM,
+         not dropped, because the badge's own aria-label sits inside the aria-hidden .pj-face and
+         is not exposed; the .vh sentence is the only thing a screen reader can read in this column,
+         so removing it entirely would make an unreachable member indistinguishable from a normal
+         one to assistive tech. The Settings members list (hideState falsy) shows the reason
+         plainly, where a person managing membership needs the why. */
+      : '<small' + (hideState ? ' class="vh"' : '') + '>' + esc(m.because || 'We cannot see this agent on this computer right now.') + '</small>')
     /* The removal action lives in PROJECT SETTINGS now (Josh's ruling
        2026-08-18: too easy to hit by accident here, and it took a third
        of the column; the 18e drawing places it with the other project-

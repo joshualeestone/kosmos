@@ -7292,6 +7292,10 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   // while quietly no longer exercising the branch that draws the face.
   const prelude = TOLD_PRELUDE
     + 'const STATE_COPY = { idle: { label: "Idle" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
+    // #3212: pjMember reads LROW_REACH for a !present member (the cannot-reach badge). String
+    // const, so pageConstSource cannot lift it; this test reads the verdict span, not the badge
+    // markup, so a stub is enough (same shape as the LROW_WARN stub in the wash test below).
+    + 'const LROW_REACH = "<span class=\\"lreach\\">?</span>";\n'
     + pageConstSource('DISC_TINTS') + '\n'
     + pageConstSource('DISC_INKS') + '\n'
     + pageFnSource('discIndex') + '\n'
@@ -7437,6 +7441,10 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
     // LROW_WARN is a string const (pageConstSource lifts only object/array consts),
     // and this test reads the wash CLASS, not the triangle markup, so a stub is enough.
     + 'const LROW_WARN = "<svg class=\\"lwarn\\"></svg>";\n'
+    // #3212: pjMember reads LROW_REACH for a !present member; this test constructs an unseen
+    // member (the "never on an unseen member" arm), so the badge const must be in scope. Stub,
+    // like LROW_WARN above -- this test reads the wash CLASS, not the badge markup.
+    + 'const LROW_REACH = "<span class=\\"lreach\\">?</span>";\n'
     + pageFnSource('discIndex') + '\n'
     + pageFnSource('discTint') + '\n'
     + pageFnSource('discInk') + '\n'
