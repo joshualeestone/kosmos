@@ -42,7 +42,7 @@ const chk = (ok, label, extra) => {
       const mk = (over) => Object.assign({ sessionName: over.name.toLowerCase(), name: over.name, hasAvatar: false, told: {}, instructions: {} }, over);
       // Room column (hideState = true): the surface Josh's ruling is about.
       const room = document.createElement('div'); room.id = 'pj-one-agents';
-      room.innerHTML = pjMember(mk({ name: 'April', present: false }), true, false, true)   // unreachable
+      room.innerHTML = pjMember(mk({ name: 'April', present: false, role: 'Ops' }), true, false, true)   // unreachable (role emits a .pj-member-role <small> before the caption)
         + pjMember(mk({ name: 'Mikey', present: true, state: 'idle' }), true, false, true)   // reachable
         + pjMember(mk({ name: 'Raph', present: true, state: 'needs_you' }), true, false, true); // needs-you (warn, not reach)
       document.body.appendChild(room);
@@ -58,8 +58,11 @@ const chk = (ok, label, extra) => {
         const cs = badge ? getComputedStyle(badge) : null;
         return { has: !!badge, shown: cs ? cs.display !== 'none' : false, text: badge ? badge.textContent.trim() : '', hasWarn: !!(face && face.querySelector('.lwarn')) };
       };
-      const capOf = (row) => { const s = row.querySelector('small'); return s ? s.textContent.trim() : ''; };
-      const capVh = (row) => { const s = row.querySelector('small'); return !!(s && s.classList.contains('vh')); };
+      /* the CAPTION small, not the role small: a member with a role emits
+         <small class="pj-member-role"> first, so scope past it to the status caption. */
+      const capEl = (row) => row.querySelector('small:not(.pj-member-role)');
+      const capOf = (row) => { const s = capEl(row); return s ? s.textContent.trim() : ''; };
+      const capVh = (row) => { const s = capEl(row); return !!(s && s.classList.contains('vh')); };
 
       const aprilRoom = rowOf(room, 'april');
       const mikeyRoom = rowOf(room, 'mikey');
@@ -69,7 +72,7 @@ const chk = (ok, label, extra) => {
         unreach: Object.assign(badgeInfo(aprilRoom), { caption: capOf(aprilRoom), captionVh: capVh(aprilRoom), unseen: aprilRoom.classList.contains('unseen') }),
         present: Object.assign(badgeInfo(mikeyRoom), { caption: capOf(mikeyRoom) }),
         needsYou: badgeInfo(raphRoom),
-        settingsUnreach: Object.assign(badgeInfo(donnieSettings), { caption: capOf(donnieSettings) }),
+        settingsUnreach: Object.assign(badgeInfo(donnieSettings), { caption: capOf(donnieSettings), captionVh: capVh(donnieSettings) }),
       };
     });
 
@@ -84,6 +87,7 @@ const chk = (ok, label, extra) => {
       chk(out.needsYou.hasWarn && !out.needsYou.has, 'a needs-you member keeps the red-! triangle and does NOT get the reach badge (mutually exclusive)', JSON.stringify(out.needsYou));
       chk(out.settingsUnreach.has && out.settingsUnreach.shown, 'the badge also shows in the Settings members list', JSON.stringify(out.settingsUnreach));
       chk(/cannot see this agent/i.test(out.settingsUnreach.caption), 'the Settings members list KEEPS the reason sentence (management view)', JSON.stringify(out.settingsUnreach.caption));
+      chk(out.settingsUnreach.captionVh === false, 'the Settings reason is VISIBLE (not .vh) -- catches a gate that hid it everywhere', String(out.settingsUnreach.captionVh));
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
