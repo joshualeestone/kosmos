@@ -61,6 +61,10 @@ const chk = (ok, label, extra) => {
        green (april) and grey (mikey). Without it the check could not tell the
        .attn wash from a fallback grey. */
     fleet.agent('raph', { state: 'needs_you', displayName: 'Raph', role: 'Fixer' }),
+    /* #3187-followup (Josh 6.72): a STOPPED (not-running) agent -> .lrow.off, so the
+       not-running arms below (grey ground like idle, but avatar+name knocked to ~50%) are
+       exercised, distinct from plain idle (mikey). */
+    fleet.agent('donnie', { state: 'stopped', displayName: 'Donnie', role: 'Ops' }),
   ]);
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -125,9 +129,14 @@ const chk = (ok, label, extra) => {
            cell (an answerBtn / "Working now" label is legitimately here on some
            rows; the state WORD must not be). */
         const rLeftover = ls ? ls.textContent.replace(rWord, '').trim() : '';
+        const lav = r.querySelector('.lav'); const lnm = r.querySelector('.lname');
         byAgent[r.dataset.agent || '?'] = {
           cls: r.className.trim(),
           wash: getComputedStyle(r).backgroundImage,
+          /* #3187-followup (Josh 6.72): a not-running (.lrow.off) row dims its own avatar
+             and name to ~0.5; every other state leaves them at 1. */
+          lavOpacity: lav ? getComputedStyle(lav).opacity : null,
+          lnameOpacity: lnm ? getComputedStyle(lnm).opacity : null,
           /* the state WORD must not appear as visible text outside its .vh, on ANY
              row -- robust to fixture order (does not care which row is first) and
              to a needs-you row's visible answerBtn (that is not the state word). */
@@ -197,6 +206,17 @@ const chk = (ok, label, extra) => {
       chk(washOf('april').includes(GREEN), 'a WORKING agent gets the green wash', washOf('april'));
       chk(washOf('mikey').includes(GREY), 'an IDLE agent gets the grey wash', washOf('mikey'));
       chk(washOf('raph').includes(RED), 'a NEEDS-YOU agent gets the red wash', washOf('raph'));
+      /* #3187-followup (Josh 6.72): a NOT-RUNNING (stopped) agent keeps the grey ground like
+         idle, but knocks its OWN avatar+name to ~0.5 so it reads as "asleep, click to see
+         why". mikey (idle) is the control: same grey ground, avatar/name at full strength. */
+      chk(washOf('donnie').includes(GREY), 'a NOT-RUNNING agent keeps the grey ground (like idle)', washOf('donnie'));
+      const opOf = (a, k) => parseFloat((m.byAgent[a] || {})[k]);
+      chk(Math.abs(opOf('donnie', 'lavOpacity') - 0.5) < 0.02 && Math.abs(opOf('donnie', 'lnameOpacity') - 0.5) < 0.02,
+        'a NOT-RUNNING agent dims its avatar and name to ~0.5',
+        `lav=${(m.byAgent.donnie || {}).lavOpacity} lname=${(m.byAgent.donnie || {}).lnameOpacity}`);
+      chk(opOf('mikey', 'lavOpacity') === 1 && opOf('donnie', 'lavOpacity') < 1,
+        'CONTROL: an IDLE agent avatar is full-strength while the not-running one is dimmed',
+        `idle=${(m.byAgent.mikey || {}).lavOpacity} stopped=${(m.byAgent.donnie || {}).lavOpacity}`);
       /* CONTROL: the three washes are distinct, or "matches GREEN/GREY/RED" could
          pass on a single wash that happened to contain all three substrings. */
       chk(washOf('april') !== washOf('mikey') && washOf('mikey') !== washOf('raph') && washOf('april') !== washOf('raph'),
@@ -213,6 +233,23 @@ const chk = (ok, label, extra) => {
          nor an overlap passes. */
       chk(nameTitle !== null && nameTitle <= 3.5, 'name to title leading is tight', nameTitle + 'px');
       chk(nameTitle !== null && nameTitle >= 0, 'name and title do not overlap', nameTitle + 'px');
+
+      /* #3187-followup (Josh 6.72): FOLD the rail to its 48px strip. The status colour goes
+         EDGE-TO-EDGE behind working (green) and needs-you (red) only; idle and not-running
+         lose their wash so the strip is not a wall of grey. The layout is already consolidated
+         (set above), which the fold-a rules require. */
+      const folded = await page.evaluate(() => {
+        document.body.classList.add('fold-a');
+        const o = {};
+        for (const r of document.querySelectorAll('#alist .lrow[data-agent]')) o[r.dataset.agent] = getComputedStyle(r).backgroundImage;
+        return o;
+      });
+      console.log('  folded washes     : ' + JSON.stringify(folded));
+      chk((folded.april || '').includes(GREEN), 'FOLDED: a working agent keeps the green wash edge-to-edge', folded.april);
+      chk((folded.raph || '').includes(RED), 'FOLDED: a needs-you agent keeps the red wash edge-to-edge', folded.raph);
+      const noWash = (s) => !(s || '').includes(GREEN) && !(s || '').includes(RED) && !(s || '').includes(GREY);
+      chk(noWash(folded.mikey), 'FOLDED: an idle agent has NO wash (no wall of grey)', folded.mikey);
+      chk(noWash(folded.donnie), 'FOLDED: a not-running agent has NO wash', folded.donnie);
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

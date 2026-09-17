@@ -2531,6 +2531,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .lrow.attn { border-color: rgba(179,38,30,.42); }
 .lrow.unk { border-style: dashed; }
 .lrow.off .lstate, .lrow.off .ltask { color: var(--k-ink-2); }
+/* #3187-followup (Josh 6.72): a NOT-RUNNING agent keeps the neutral grey ground (the base
+   .lrow wash, same as idle) but knocks its OWN avatar and name back to ~50%, so it reads as
+   "this one is asleep, click to see why" -- visibly distinct from a plain idle agent, which
+   is grey-ground but full-strength. His words: "it could get the idle gray background but
+   then also itself would be 50% grayed out". Only the avatar + name dim; the state/task text
+   already muted above. */
+.lrow.off .lav, .lrow.off .lname { opacity: .5; }
 /* #3187 (Josh 6.70): "show the grey/green/red backgrounds for agents under the
    agents list". Status owns the GROUND on the list the same way it already does
    on the grid card (grep .acard.working / .acard.attn), reusing those exact
@@ -3494,6 +3501,16 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      remains the surface where that distinction lives. */
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .pj-empty { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
+  /* #3187-followup (Josh 6.72): when the rail is FOLDED to its 48px strip, keep the status
+     colour EDGE-TO-EDGE behind a working (green) or needs-you (red) agent, so you can see
+     them light up at a glance; idle/offline get NO wash (the rule above's `background: none`
+     stands for them) so the strip is not a wall of grey. His words: "still put the color in
+     but make it edge-to-edge behind them ... little green ones light up and little red ones
+     light up ... leave the gray off". The red-! triangle over the face still shows (#3131).
+     Full-width because the folded .lrow box spans the strip; these override `background:none`
+     for the two coloured states only. */
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow.working { background: linear-gradient(rgba(47,125,90,.10), rgba(47,125,90,.10)), var(--k-surface); }
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow.attn { background: linear-gradient(rgba(179,38,30,.09), rgba(179,38,30,.09)), var(--k-surface); }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lname, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .ltitle, html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .lstate { display: none; }
   /* #3126 (Josh, 6.68): the fold-p (folded-projects) CSS was REMOVED with the
      collapse control - the Projects column is no longer collapsible, so the
