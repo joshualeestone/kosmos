@@ -4052,7 +4052,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      which is the signature of correct tracking and a wrong intercept, so the 24px is
      added back. Measured after: 200/200, 200/200, 240/240, 288/288 at 1100, 1280,
      1600 and 1920. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(200px, 16.6vw); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }   /* #3218: right col fixed 16.6vw (supersedes the #1189 15vw+24px agents-match tuning); conversation (1fr) is the residual == ~50vw. Right stays 16.6vw when Agents folds, so the freed width flows only to the conversation (fold-flex by construction, no fold-a override needed). */
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(200px, 16.6vw); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; }   /* #3218: right col fixed 16.6vw (supersedes the #1189 15vw+24px agents-match tuning); conversation (1fr) is the residual == ~50vw. Right stays 16.6vw when Agents folds, so the freed width flows only to the conversation (fold-flex by construction, no fold-a override needed). TWO rows now, 50/50: Tasks (top) over Files (bottom) -- the separate Members card is hidden here (increment 3), its agents having moved to the top of the single Agents list; member add/remove lives in project Settings. */
   /* 🛑 `stretch`, NOT `start`, AND THIS ONE OVERLAPPED CARDS ON A SMALL LAPTOP.
      With `start` a card is never sized to its track: its height is its own
      content clamped by the 38vh cap. But the two `minmax(0, auto)` tracks have a
@@ -4182,7 +4182,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      the body grid's `minmax(200px, 1fr)`: in every window a person uses
      nothing scrolls, and where the geometry cannot be honoured, reachability
      wins over the no-scrollbar promise. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit), html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { max-height: 38vh; }
+  /* #3218: the 38vh caps are GONE. They existed to stop Tasks and Files starving the Members row
+     (row 3) when both lists were full; Members is hidden here now, and the column is a clean 1fr 1fr,
+     so Tasks (top) and Files (bottom) each take exactly half and scroll inside their own track. A cap
+     would leave the bottom half empty on a tall window. */
   /* 🛑 `calc(100% - 12px)`, NOT `100%`, AND THIS ONE IS NOT WINDOW-DEPENDENT.
      `max-height` resolves against the grid AREA, but this card also carries
      `margin: 0 12px 12px` below, so at the cap its MARGIN BOX is 12px taller
@@ -4196,7 +4199,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      safe by contrast, because Tasks and Files sit in `auto` tracks, which size
      to the margin box rather than against it. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { max-height: calc(100% - 12px); }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
   /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members.
      ✅ THE ACCEPTED TRADE THAT USED TO BE RECORDED HERE IS PAID OFF (kosmos#1017).
@@ -4217,7 +4220,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      DOM order and visual order both read files-then-members, with a control
      confirming the consolidated rules were actually active in one run
      (`gridRow: 2`) and not the other (`auto`). */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { grid-column: 2; grid-row: 3; }
+  /* #3218: the separate Members card is GONE from the consolidated view -- the open project's
+     agents now sit at the top of the single Agents list (increment 2). Hidden, not deleted, because
+     the same markup still serves the TAB view, where it stays the project's member panel; add/remove
+     lives in project Settings (paintSettingsMembers) in both views. display:none frees grid-row 2,
+     so Tasks (row 1) and Files (row 2) split the column 50/50. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { grid-column: 2; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
