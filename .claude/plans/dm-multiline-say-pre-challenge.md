@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: dm-multiline-say
-diff_hash: ef214995d69ae638704dd7f3645e873d2ae99b0807f768d5f1b31a6f5016546a
+diff_hash: 8db87c978d6631f553e9d737423e659b5193acafe26f386eec73a2e682af8f46
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-17T04:50:25Z
@@ -68,3 +68,11 @@ surface browser-check gates RC=0. (A first run showed 12 release-gate failures f
 install harness holding the gate's fixed port on this shared Mac -- an environment collision,
 not this diff; tools.release-gate.test.js passes 26/0 in isolation once the harness exits, and
 the recorded clean run has 0 failures.)
+
+### Rebase (post-#3206)
+Angel's #3206 (wash-token dedup, PR #3209) merged first. This branch was rebased onto the new
+main (e0c63a602) with NO conflict -- #3206 touched :root token defs + the 8 wash lines +
+server.test.js, all disjoint from the composer (#d-say + handlers). The code changes are
+byte-identical; only context shifted the diff_hash (updated above). Gates re-verified against the
+new main (surface RC=0, coarse RC=0), the check still passes, and the force-pushed branch re-runs
+full CI against the true merge base.
