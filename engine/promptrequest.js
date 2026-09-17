@@ -142,4 +142,29 @@ function wasConsumed(kind) {
   catch { return { name, present: false }; }
 }
 
-module.exports = { request, nativePresent, wasConsumed, REQUEST_FILE };
+/*
+ * #3188: format the scoped file-access diagnostic line from a request() result that
+ * carries `diag`. The log CONTENT is the diagnostic's entire deliverable -- it is read
+ * off the running board to localize the failing rung -- so it is extracted here and
+ * unit-tested rather than only source-string-pinned inside the route (where a typo would
+ * pass every test and silently emit garbage the board read then wastes). Returns null when
+ * there is no diag, so the caller logs nothing.
+ */
+function formatDiagLine(r) {
+  const d = r && r.diag;
+  if (!d) return null;
+  return `file-access-prompt #3188 diag: ok=${r.ok} nativePresent=${d.nativePresent} wrote=${d.wrote} root=${d.root} file=${d.file}${r.because ? ' because=' + r.because : ''}`;
+}
+
+/*
+ * #3188: format the bounded post-drop consume-probe line from a wasConsumed() result and
+ * the probe window (ms). consumed = NOT present -- the native watcher deletes the request
+ * the instant it fires, so a file still present after the window is the drop-dir-divergence
+ * / app-not-running rung. Extracted and tested for the same reason as formatDiagLine.
+ */
+function formatConsumeLine(consumeResult, windowMs) {
+  const present = !!(consumeResult && consumeResult.present);
+  return `file-access-prompt #3188 diag: consumedWithin${windowMs}ms=${!present}`;
+}
+
+module.exports = { request, nativePresent, wasConsumed, formatDiagLine, formatConsumeLine, REQUEST_FILE };

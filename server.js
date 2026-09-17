@@ -8404,19 +8404,20 @@ const server = http.createServer((req, res) => {
        reaches the browser. A diagnostic must never affect the route, so every step is
        swallowed. */
     try {
-      const d = r && r.diag;
-      if (d) {
-        process.stdout.write(`file-access-prompt #3188 diag: ok=${r.ok} nativePresent=${d.nativePresent} wrote=${d.wrote} root=${d.root} file=${d.file}${r.because ? ' because=' + r.because : ''}\n`);
-        if (d.wrote) {
+      const line = promptrequest.formatDiagLine(r);
+      if (line) {
+        process.stdout.write(line + '\n');
+        if (r.diag.wrote) {
           /* Bounded post-drop check: did the native watcher (1.5s poll) consume (delete)
-             the request within the window? present:true after this is the store-dir
+             the request within the window? Not-consumed after this is the store-dir
              divergence / app-not-running rung. unref so the probe never holds the process
              open, and it is well under the native 30s stale-drop so a still-present file
-             means genuinely-not-consumed, not dropped-as-stale. */
+             means genuinely-not-consumed, not dropped-as-stale. The log CONTENT is built by
+             the tested promptrequest.formatConsumeLine; only the timer wiring lives here. */
           const t = setTimeout(() => {
             try {
               const c = promptrequest.wasConsumed('file-access');
-              process.stdout.write(`file-access-prompt #3188 diag: consumedWithin${FILE_ACCESS_CONSUME_PROBE_MS}ms=${!c.present}\n`);
+              process.stdout.write(promptrequest.formatConsumeLine(c, FILE_ACCESS_CONSUME_PROBE_MS) + '\n');
             } catch { /* a diagnostic must never throw into the timer */ }
           }, FILE_ACCESS_CONSUME_PROBE_MS);
           if (t && typeof t.unref === 'function') t.unref();

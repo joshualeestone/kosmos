@@ -173,14 +173,50 @@ test('#3188 wasConsumed: present:true while the request sits, false once the nat
   assert.deepEqual(promptrequest.wasConsumed('sleep'), { name: null, present: false });
 });
 
-test('#3188 ROUTE: the file-access route wires the diag and STRIPS it off the wire', () => {
+test('#3188 formatDiagLine: builds the drop-rung line, includes because only when set, null with no diag', () => {
+  // The log CONTENT is the diagnostic's whole deliverable (read off the board), so it is
+  // executed here, not just source-pinned. A typo in the format now reds a test.
+  const okLine = promptrequest.formatDiagLine({
+    ok: true, diag: { nativePresent: true, wrote: true, root: '/r', file: '/r/file-access-prompt-request' },
+  });
+  assert.equal(okLine,
+    'file-access-prompt #3188 diag: ok=true nativePresent=true wrote=true root=/r file=/r/file-access-prompt-request');
+  assert.ok(!okLine.includes('because='), 'no because clause when the result carries none');
+
+  const failLine = promptrequest.formatDiagLine({
+    ok: false, because: 'no native app is present', diag: { nativePresent: false, wrote: false, root: '/r', file: '/r/x' },
+  });
+  assert.ok(failLine.includes('ok=false'));
+  assert.ok(failLine.includes('nativePresent=false'));
+  assert.ok(failLine.endsWith('because=no native app is present'), 'because appended when present');
+
+  assert.equal(promptrequest.formatDiagLine({ ok: true }), null, 'no diag -> null (nothing to log)');
+  assert.equal(promptrequest.formatDiagLine(null), null, 'no result -> null');
+});
+
+test('#3188 formatConsumeLine: consumed = NOT present, and carries the window', () => {
+  assert.equal(promptrequest.formatConsumeLine({ name: 'file-access-prompt-request', present: false }, 5000),
+    'file-access-prompt #3188 diag: consumedWithin5000ms=true', 'deleted by native watcher -> consumed');
+  assert.equal(promptrequest.formatConsumeLine({ name: 'file-access-prompt-request', present: true }, 5000),
+    'file-access-prompt #3188 diag: consumedWithin5000ms=false', 'still present -> NOT consumed (the divergence rung)');
+  // A missing/garbage result is treated as present:false -> consumed:true is wrong-safe here,
+  // but the route only calls this with a real wasConsumed() result; pin the coercion anyway.
+  assert.equal(promptrequest.formatConsumeLine(null, 5000),
+    'file-access-prompt #3188 diag: consumedWithin5000ms=true');
+});
+
+test('#3188 ROUTE: the file-access route wires the diag via the tested formatters and STRIPS it off the wire', () => {
   // The store path must never reach the browser: the route logs diag server-side but
-  // sends a rebuilt {ok,because}, not the raw diag-bearing `r`. Pin both halves (read-only).
+  // sends a rebuilt {ok,because}, not the raw diag-bearing `r`. Pin the wiring (read-only).
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.ok(server.includes("promptrequest.request('file-access', { diag: true })"),
     'the file-access route must request with the scoped diag enabled');
-  assert.ok(server.includes("promptrequest.wasConsumed('file-access')"),
+  assert.ok(server.includes('promptrequest.formatDiagLine(r)'),
+    'the route must build the drop-rung line via the tested formatter');
+  assert.ok(server.includes('promptrequest.wasConsumed('),
     'the consume-probe must read back the file-access request');
+  assert.ok(server.includes('promptrequest.formatConsumeLine('),
+    'the consume line must be built via the tested formatter');
   assert.ok(server.includes('{ ok: !!(r && r.ok), because: r && r.because }'),
     'the route must send a stripped {ok,because}, never the raw r (which carries diag.root/file)');
 });
