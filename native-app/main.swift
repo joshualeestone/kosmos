@@ -517,25 +517,47 @@ func resolveBundledTmux(kosmosHome: String) -> String? {
 // hardening, IF the verify shows the call is async, is a bounded POST-CLICK re-probe
 // (never launch-time) with the measured timing -- deferred until the verify says it is
 // needed, because building it now needs that same fresh-Mac measurement.
+
+// #3188: the REAL user home, resolved from the password database (getpwuid(getuid())->pw_dir), NOT
+// FileManager.homeDirectoryForCurrentUser -- which, under a launchd-spawned / container context, can
+// return a redirected/sandbox-container home. The folder-access probe must target the real
+// ~/Documents (etc.) or it enumerates unprotected container folders and false-greens with no TCC
+// prompt (#3188). getuid() is the process's real uid, so the passwd lookup yields the actual login
+// home regardless of any container remap. Falls back to homeDirectoryForCurrentUser if the lookup
+// fails (a nil passwd entry or empty pw_dir), so the reading is never worse than before.
+func realUserHome() -> URL {
+    if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+        let path = String(cString: dir)
+        if !path.isEmpty { return URL(fileURLWithPath: path) }
+    }
+    return FileManager.default.homeDirectoryForCurrentUser
+}
+
 func fileAccessReading() -> Bool {
     if let forced = ProcessInfo.processInfo.environment["KOSMOS_FILEACCESS_FORCE_GRANTED"] {
         let v = forced.lowercased()
         if v == "1" || v == "true" { return true }
         if v == "0" || v == "false" { return false }
     }
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    // #3188 DIAG (observation-only; the RETURN is unchanged). The fresh-ungranted test20 read
-    // showed granted:true with NO TCC event, which the enumerate-based verdict cannot explain. This
-    // records the RESOLVED home (to catch a redirected/container home under the launchd/app-exe
-    // hatch, which would mean the probe never touches the real protected trio) and the per-folder
-    // enumerate outcome. Both are premise-free signals. It is written to a store-dir FILE (see
-    // writeFileAccessDiag), NOT via logLine(): logLine targets the app log, which does not exist on
-    // a real install, so those lines would be silently dropped; the store dir is the proven channel
-    // (file-access-status.json lands and is read there on test20). Removed when the fix lands.
-    var diag = ["#3188 fileAccessReading diag", "resolvedHome=\(home.path)"]
-    // The three folders Screen 2's dialogs govern. Desktop/Documents/Downloads are the
-    // TCC-protected trio agent files live in; enumerating each triggers ITS OWN prompt
-    // and measures ITS grant -- they are three separate TCC services.
+    // #3188 FIX: resolve the REAL user home, not homeDirectoryForCurrentUser. Under the launchd /
+    // app-exe hatch the latter can resolve to a redirected/container home, so the probe enumerates
+    // container Documents/Downloads/Desktop (which exist and need no TCC) and never touches the real
+    // protected trio -- granted:true with NO prompt, which is the fresh-box false-positive this
+    // fixes. realUserHome() reads the real home from the password DB, unaffected by that redirection.
+    let osHome = FileManager.default.homeDirectoryForCurrentUser
+    let home = realUserHome()
+    // #3188 DIAG (kept for the fresh-box fix-verify; removed in a follow-up once verified). Logs BOTH
+    // homes so the read is definitive about the cause: osHome != realHome confirms (a) the redirected
+    // home was the bug and this fix addresses it; osHome == realHome means the fix is a no-op there,
+    // and an enumerate that STILL does not gate against the real home is a distinct macOS finding to
+    // escalate, not a silent gap. Written to a store-dir FILE (see writeFileAccessDiag), the
+    // proven-readable channel; NOT logLine (its app-log target does not exist on a real install).
+    var diag = ["#3188 fileAccessReading diag",
+                "osHome=\(osHome.path)",
+                "realHome=\(home.path)"]
+    // The three folders Screen 2's dialogs govern. Desktop/Documents/Downloads are the TCC-protected
+    // trio agent files live in; enumerating each (against the REAL home) triggers ITS OWN prompt and
+    // measures ITS grant -- they are three separate TCC services.
     var allGranted = true
     for folder in ["Documents", "Downloads", "Desktop"] {
         let dir = home.appendingPathComponent(folder)
