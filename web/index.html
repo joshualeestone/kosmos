@@ -36833,10 +36833,14 @@ function pjMember(m, suppressTold, withMinus, hideState) {
       ? (hideState ? '' : '<small' + (needsYou ? ' class="pj-attn"' : '') + '>' + esc(stateCopyOf(m).label)
         + (m.state === 'unknown' && m.because ? ': ' + esc(m.because) : '') + '</small>')
       /* #3212 (Josh 6.72): in the ROOM column (hideState) the question-mark badge on the avatar
-         now carries "cannot reach", so drop the status sentence -- "we stick with not having to
-         print any status text". The Settings members list (hideState falsy) keeps the reason,
-         where a person managing membership needs the why, not just the mark. */
-      : (hideState ? '' : '<small>' + esc(m.because || 'We cannot see this agent on this computer right now.') + '</small>'))
+         carries "cannot reach" visually, so the sentence is VISUALLY HIDDEN (.vh clip) rather than
+         printed -- "we stick with not having to print any status text". It is kept in the DOM,
+         not dropped, because the badge's own aria-label sits inside the aria-hidden .pj-face and
+         is not exposed; the .vh sentence is the only thing a screen reader can read in this column,
+         so removing it entirely would make an unreachable member indistinguishable from a normal
+         one to assistive tech. The Settings members list (hideState falsy) shows the reason
+         plainly, where a person managing membership needs the why. */
+      : '<small' + (hideState ? ' class="vh"' : '') + '>' + esc(m.because || 'We cannot see this agent on this computer right now.') + '</small>')
     /* The removal action lives in PROJECT SETTINGS now (Josh's ruling
        2026-08-18: too easy to hit by accident here, and it took a third
        of the column; the 18e drawing places it with the other project-

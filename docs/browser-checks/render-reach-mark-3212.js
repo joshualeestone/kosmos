@@ -59,13 +59,14 @@ const chk = (ok, label, extra) => {
         return { has: !!badge, shown: cs ? cs.display !== 'none' : false, text: badge ? badge.textContent.trim() : '', hasWarn: !!(face && face.querySelector('.lwarn')) };
       };
       const capOf = (row) => { const s = row.querySelector('small'); return s ? s.textContent.trim() : ''; };
+      const capVh = (row) => { const s = row.querySelector('small'); return !!(s && s.classList.contains('vh')); };
 
       const aprilRoom = rowOf(room, 'april');
       const mikeyRoom = rowOf(room, 'mikey');
       const raphRoom = rowOf(room, 'raph');
       const donnieSettings = rowOf(settings, 'donnie');
       return {
-        unreach: Object.assign(badgeInfo(aprilRoom), { caption: capOf(aprilRoom), unseen: aprilRoom.classList.contains('unseen') }),
+        unreach: Object.assign(badgeInfo(aprilRoom), { caption: capOf(aprilRoom), captionVh: capVh(aprilRoom), unseen: aprilRoom.classList.contains('unseen') }),
         present: Object.assign(badgeInfo(mikeyRoom), { caption: capOf(mikeyRoom) }),
         needsYou: badgeInfo(raphRoom),
         settingsUnreach: Object.assign(badgeInfo(donnieSettings), { caption: capOf(donnieSettings) }),
@@ -77,7 +78,8 @@ const chk = (ok, label, extra) => {
       console.log('  measured: ' + JSON.stringify(out));
       chk(out.unreach.has && out.unreach.shown && out.unreach.text === '?', 'an UNREACHABLE member shows a question-mark badge over its avatar', JSON.stringify(out.unreach));
       chk(out.unreach.unseen, 'an unreachable member is still marked .unseen (dashed border kept)', String(out.unreach.unseen));
-      chk(out.unreach.caption === '', 'in the ROOM column, the unreachable member prints NO status text (the badge speaks)', JSON.stringify(out.unreach.caption));
+      chk(out.unreach.captionVh === true, 'in the ROOM column, the status sentence is VISUALLY HIDDEN (.vh), so the badge is the only visible signal', String(out.unreach.captionVh));
+      chk(/cannot see this agent/i.test(out.unreach.caption), 'the hidden sentence is still in the DOM for screen readers (the aria-hidden .pj-face swallows the badge label)', JSON.stringify(out.unreach.caption));
       chk(!out.present.has, 'a REACHABLE (present) member has NO question-mark badge', JSON.stringify(out.present));
       chk(out.needsYou.hasWarn && !out.needsYou.has, 'a needs-you member keeps the red-! triangle and does NOT get the reach badge (mutually exclusive)', JSON.stringify(out.needsYou));
       chk(out.settingsUnreach.has && out.settingsUnreach.shown, 'the badge also shows in the Settings members list', JSON.stringify(out.settingsUnreach));
