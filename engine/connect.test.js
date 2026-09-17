@@ -578,6 +578,104 @@ test('cancel mid-download aborts the stream and leaves nothing behind', async (t
   assert.deepEqual(leftovers, [], `the cancelled download left: ${leftovers.join(', ')}`);
 });
 
+test('#3229: cancel mid parallel-range download aborts every segment and leaves nothing behind', async (t) => {
+  /**
+   * The single-stream cancel tests above drive a stub that ignores Range, so
+   * they exercise only the pre-#3229 path. This one drives the RESUMABLE +
+   * PARALLEL path: the stub advertises accept-ranges and trickles each 206
+   * segment, so several segment requests are in flight at once when cancel()
+   * runs. It proves abortAllRequests() tears down EVERY in-flight segment (not
+   * just one) and the cancel sweep removes the `.part.<i>` segment files too --
+   * the coverage gap the parallel worker pool and activeRequests Set opened.
+   */
+  connect.resetForTests();
+  clearClaudeConfig();
+  subscription.resetCache();
+  const C = 4;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY = String(C);
+  const version = '9.9.2';
+  const key = connect.platformKey();
+  const total = 10 * 1024 * 1024;              // > 8MB, so it splits into C segments
+  const binary = crypto.randomBytes(total);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  const server = http.createServer((req, res) => {
+    if (req.url === '/latest') {
+      const b = Buffer.from(version);
+      res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
+    }
+    if (req.url === `/${version}/manifest.json`) {
+      const b = Buffer.from(JSON.stringify({ platforms: { [key]: { checksum } } }));
+      res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
+    }
+    if (req.url === `/${version}/${key}/claude`) {
+      const range = req.headers.range;
+      if (!range) {
+        // Plain GET: advertise ranges + the size; the client aborts and switches
+        // to parallel ranges without reading this body.
+        res.writeHead(200, { 'content-length': String(total), 'accept-ranges': 'bytes' });
+        res.end();
+        return;
+      }
+      const m = /^bytes=(\d+)-(\d+)$/.exec(range);
+      if (!m) { res.writeHead(416); res.end(); return; }
+      const start = Number(m[1]);
+      const end = Number(m[2]);
+      res.writeHead(206, {
+        'content-length': String(end - start + 1),
+        'content-range': `bytes ${start}-${end}/${total}`,
+        'accept-ranges': 'bytes',
+      });
+      // Trickle the slice so the cancel lands with several segments mid-stream.
+      let sent = start;
+      const drip = setInterval(() => {
+        if (sent > end) { clearInterval(drip); res.end(); return; }
+        const next = Math.min(sent + 16 * 1024, end + 1);
+        res.write(binary.subarray(sent, next));
+        sent = next;
+      }, 30);
+      res.on('close', () => clearInterval(drip));
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => { server.listen(0, '127.0.0.1', r); });
+  t.after(() => server.close());
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude-par');
+  connect.setRunner(() => ({ ok: true, stdout: '' }));
+  connect.setDryRun(false);
+  t.after(async () => {
+    await connect.cancel().catch(() => {});
+    connect.resetForTests();
+    connect.setRunner(null);
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY;
+  });
+
+  await connect.start();
+  await until(() => {
+    const st = connect.state();
+    return st.phase === connect.PHASE.DOWNLOADING && st.progress && st.progress.got > 0;
+  }, 10000);
+
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
+  // Precondition, waited-for not assumed (a segment file's open is an fs-thread
+  // op that can lag got>0): the parallel path really did open its per-segment
+  // `.part.<i>` files, so this is a mid-parallel-download cancel, not a vacuous one.
+  await until(() => {
+    try { return fs.readdirSync(dir).some((f) => f.includes('.part.')); } catch { return false; }
+  }, 10000);
+
+  const st = await connect.cancel();
+  assert.equal(st.phase, connect.PHASE.IDLE);
+  // Give any orphaned segment continuation a moment to do its worst, then look.
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(connect.state().phase, connect.PHASE.IDLE, 'something overwrote the cancel after the fact');
+  const leftovers = (() => { try { return fs.readdirSync(dir); } catch { return []; } })();
+  assert.deepEqual(leftovers, [], `the cancelled parallel download left: ${leftovers.join(', ')}`);
+});
+
 test('cancel while the part-file open is still queued leaves nothing behind (#458)', async (t) => {
   /**
    * ⚠️ THE FULL-SUITE-LOAD FLAKE, MADE DETERMINISTIC. Progress counts

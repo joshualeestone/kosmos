@@ -835,7 +835,20 @@ function fetchSegment(url, segPath, start, end, onChunk, track, redirects) {
         try { out.destroy(); } catch { /* already closed */ }
         if (out.closed) reject(e); else out.on('close', () => reject(e));
       };
-      res.on('data', (c) => { if (onChunk) onChunk(c.length); });
+      // #3229: cap this segment at its requested range length. A 206 that then
+      // streams past it (a broken or hostile service) is aborted here rather
+      // than filling the disk before any verdict runs -- the same guarantee the
+      // single-stream fetchFile gives with its 1GB bound. The Content-Range
+      // header itself is not validated against start-end: a mismatched-but-
+      // bounded range still has to survive the whole-file sha256 gate, which is
+      // the single correctness authority, so bounding SIZE is all this needs.
+      const capBytes = end - start + 1;
+      let seen = 0;
+      res.on('data', (c) => {
+        seen += c.length;
+        if (seen > capBytes) { req.destroy(new Error('the download service streamed past the requested byte range, so we stopped')); return; }
+        if (onChunk) onChunk(c.length);
+      });
       req.on('error', fail);
       res.on('error', fail);
       out.on('error', fail);
@@ -861,7 +874,9 @@ function fetchSegment(url, segPath, start, end, onChunk, track, redirects) {
  * AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY, and a small file is never split.
  */
 async function fetchResumableParallel(url, part, total, onProgress, track) {
-  const envC = Number(process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY);
+  // Math.trunc so a non-integer override (e.g. "2.5") clamps to a whole segment
+  // count rather than feeding a fraction into the loop bound and segLen.
+  const envC = Math.trunc(Number(process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY));
   const C = Math.max(1, Math.min(Number.isFinite(envC) && envC > 0 ? envC : 4, 8));
   const segCount = total < 8 * 1024 * 1024 ? 1 : C;   // do not split a small file
   const segLen = Math.ceil(total / segCount);
@@ -872,8 +887,15 @@ async function fetchResumableParallel(url, part, total, onProgress, track) {
     const end = Math.min(start + segLen, total) - 1;   // inclusive
     segs.push({ i, start, end, len: end - start + 1, file: `${part}.${i}` });
   }
+  // Seed progress from bytes already on disk. An OVERSIZED leftover segment
+  // (its file is bigger than this run's segLen, reachable when the concurrency
+  // override changed between attempts) contributes 0 here, because runOne
+  // truncates and re-fetches it in full and its bump() then counts the whole
+  // segment -- seeding min(size,len) as well would double-count and overshoot.
   let got = 0;
-  for (const s of segs) { try { got += Math.min(fs.statSync(s.file).size, s.len); } catch { /* none yet */ } }
+  for (const s of segs) {
+    try { const sz = fs.statSync(s.file).size; got += sz > s.len ? 0 : sz; } catch { /* none yet */ }
+  }
   const bump = (n) => { got += n; if (onProgress) { try { onProgress(got, total); } catch { /* best-effort */ } } };
   if (onProgress) { try { onProgress(got, total); } catch { /* best-effort */ } }
 
@@ -1890,14 +1912,15 @@ async function installClaudeCode(hooks) {
   let downloaded;
   try {
     /**
-     * ⚠️ THE FLOW HOLDS ITS OWN REQUEST HANDLE. The module-global
+     * ⚠️ THE FLOW HOLDS ITS OWN REQUEST HANDLES. The module-global
      * `activeRequest` carries no identity, and a first version of the
      * orphan-abort below destroyed "the active request" -- which, after a
      * cancel-then-restart, was the SUCCESSOR flow's request. Each flow
-     * tracks its own handle and only ever destroys that.
+     * tracks its own handles (the parallel path opens several at once) and only
+     * ever destroys those.
      */
-    const myReq = { current: null };
-    const track = (req) => { myReq.current = req; };
+    const myReqs = new Set();
+    const track = (req) => { myReqs.add(req); req.once('close', () => myReqs.delete(req)); };
     downloaded = await download((got, total) => {
       /**
        * ⚠️ A CANCELLED FLOW'S DOWNLOAD ABORTS ITSELF AT THE NEXT CHUNK.
@@ -1908,11 +1931,17 @@ async function installClaudeCode(hooks) {
        * progress callback (never throwing -- an exception in a 'data'
        * listener does not reject the promise, it kills the process)
        * closes the window at chunk granularity, and destroying OUR OWN
-       * handle can never hit anybody else's. Residual, documented as
+       * handles can never hit anybody else's. Residual, documented as
        * accepted: the chunkless milliseconds between the metadata GETs.
+       *
+       * #3229: the parallel path registers EVERY in-flight segment of this
+       * flow (myReqs is a Set, not one handle), so an orphaned flow aborts all
+       * of its own segments here, not just whichever one was tracked last. This
+       * is the driver-reassignment orphan path; an explicit cancel() goes
+       * through abortAllRequests(), which tears the module-global set down too.
        */
       if (hooks.cancelled()) {
-        if (myReq.current) { try { myReq.current.destroy(new Error('cancelled')); } catch { /* ending anyway */ } }
+        for (const r of myReqs) { try { r.destroy(new Error('cancelled')); } catch { /* ending anyway */ } }
         return;
       }
       if (!hooks.wantsProgress()) return;
