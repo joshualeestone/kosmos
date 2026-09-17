@@ -158,6 +158,26 @@ const path = require('path');
     await first.click(); await pg.waitForTimeout(700);
     say((await none()) === null, 'a project open: the sentence is gone');
     say(await up('#pj-one-view'), 'a project open: the project page is up');
+
+    // #3218: the four fixed columns are ~16.6 / 16.6 / 50 / 16.6 of the viewport (Agents /
+    // Projects / Conversation / right stack). Measured with a project open so all four are up.
+    const cw = await pg.evaluate(() => document.documentElement.clientWidth);
+    const rAgents = await rect('#alist'); const rProjects = await rect('#pj-list-view'); const rDialog = await rect('.pjmid');
+    const pct = (r) => (r ? Math.round((r.w / cw) * 1000) / 10 : null);
+    const fA = pct(rAgents), fP = pct(rProjects), fD = pct(rDialog);
+    const fR = (fA !== null && fP !== null && fD !== null) ? Math.round((100 - fA - fP - fD) * 10) / 10 : null;
+    say(fA !== null && Math.abs(fA - 16.6) <= 2, '#3218: Agents column ~16.6% of viewport', fA + '%');
+    say(fP !== null && Math.abs(fP - 16.6) <= 2, '#3218: Projects column ~16.6% of viewport', fP + '%');
+    say(fD !== null && Math.abs(fD - 50) <= 3, '#3218: Conversation column ~50% of viewport', fD + '%');
+    say(fR !== null && Math.abs(fR - 16.6) <= 2.5, '#3218: right (Tasks/Files) column ~16.6% of viewport (residual)', fR + '%');
+
+    // #3218 flex: folding the Agents column grows ONLY the dialog; Projects stays pinned.
+    const dBefore = (await rect('.pjmid') || {}).w; const pBefore = (await rect('#pj-list-view') || {}).w;
+    await pg.click('#rail-agents-fold'); await pg.waitForTimeout(320);
+    const dAfter = (await rect('.pjmid') || {}).w; const pAfter = (await rect('#pj-list-view') || {}).w;
+    await pg.click('#rail-agents-fold'); await pg.waitForTimeout(220);   // restore
+    say(dAfter > dBefore + 20 && Math.abs(pAfter - pBefore) <= 2,
+      '#3218: folding Agents grows ONLY the dialog (Projects pinned)', JSON.stringify({ dBefore, dAfter, pBefore, pAfter }));
   } else {
     say(false, 'the board has a project to open (this check needs one)');
   }
