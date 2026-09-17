@@ -10637,9 +10637,9 @@ const server = http.createServer((req, res) => {
       olderCount,
       historyBecause,
       historyUnfilable,
-      /* 🔑 THE MISSING HALF OF A SIGNAL THE ROOM ALREADY HAS. `pjSilentSince`
-         is gated on a project having two or more members, so a one-to-one
-         thread had nothing at all. This is that, for this box (#5).
+      /* 🔑 A ROOM-STYLE SIGNAL FOR A ONE-TO-ONE THREAD. The room once carried a
+         matching "Nothing back from ..." signal via `pjSilentSince`; #3130/#3202
+         removed it, but this box (#5) is a distinct one-to-one surface Josh kept.
          ⚠️ IT RIDES HERE RATHER THAN ON THE STATUS PAYLOAD: it is a fact about
          this conversation and the board has no line to draw it on.
          🛑 AND IT IS `owesReply` ON THE MODULE, WHICH IS SHADOWED IN THIS

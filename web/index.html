@@ -41013,67 +41013,8 @@ function pjJoinNames(list) {
   return list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
 }
 
-/* ⚠️ "OR", NOT "AND", and it is a different list from the one above. The base
-   receipt names who the message was PLACED with, which is an "and" list because
-   all of them got it. The silence clause names who has said nothing, and a
-   person reading "nothing back from Rick and Bob" hears one joint absence
-   rather than two separate ones. */
-function pjJoinOr(list) {
-  if (list.length <= 1) return list.join('');
-  return list.slice(0, -1).join(', ') + ' or ' + list[list.length - 1];
-}
-
-/**
- * Who this message was placed with and has said NOTHING since.
- *
- * 🛑 THE WHOLE REASON #145 EXISTS. Josh posted into a room three times and got
- * "Placed with Johnson, Rick and Bob." each time, while nothing came back — and
- * the receipt was TRUE every time. The keystrokes were placed. It just could not
- * be told apart from the case where they were placed and read. A true sentence
- * that cannot distinguish working from broken is the same failure as the CLI's
- * "everyone received it", and it cost him most of a morning.
- *
- * 🔑 WHAT "BACK" MEANS, AND WHAT IT DELIBERATELY DOES NOT (Mona Lisa's ruling):
- * ANY message from that agent in this room after this one. NOT a reply to this
- * specific message. We cannot see intent and must not pretend to — and the
- * wording is chosen to match exactly that. "Nothing back from Rick" is true of
- * "Rick has said nothing since", which is what we can actually observe.
- *
- * ⚠️ SO IF THIS IS EVER TIGHTENED TO REPLY-THREADING, THE SENTENCE HAS TO
- * CHANGE WITH IT, or it becomes a claim about whether somebody chose to answer.
- *
- * ⚠️ COMPUTED FROM THE WHOLE ROOM, never the filtered rows. A person typing in
- * the search box must not change what a receipt claims.
- *
- * ⚠️ AND FROM POSITION, WHICH BUYS LESS THAN AN EARLIER VERSION OF THIS
- * COMMENT CLAIMED. It said a clock that steps backwards could not turn an
- * answer into a silence. It can: the /room route sorts rows by `at` before the
- * page ever sees them, so array position IS timestamp order, and a reply
- * written with a backwards clock sorts above the post it answers.
- *
- * What position DOES buy is the same-millisecond case — `localeCompare` returns
- * 0 and the sort is stable, so two rows written in the same instant keep their
- * log order. That is the half that holds, and it is the half worth having: a
- * person and an agent posting at once is ordinary, and a clock stepping
- * backwards is not.
- */
-function pjSilentSince(m, allRows, idx) {
-  const placed = Object.entries(m.outcomes || {})
-    .filter(([, state]) => state === 'placed')
-    .map(([who]) => who);
-  if (!placed.length) return [];
-  const spoke = new Set();
-  for (let i = idx + 1; i < allRows.length; i++) {
-    const r = allRows[i];
-    /* ⚠️ AN ALLOW-LIST, NOT A DENY-LIST. This read `!== 'valve' && !operator`,
-       which counts as speech any row kind the /room route grows later — an
-       a2a message, a refusal notice — and silently deletes the sentence. Only
-       a `post` from an agent is an agent speaking. */
-    if (!r || r.kind !== 'post' || r.operator === true) continue;
-    if (r.from) spoke.add(r.from);
-  }
-  return placed.filter((who) => !spoke.has(who));
-}
+/* #3202: pjSilentSince (and its #145 docstring) removed -- dead since #3130 dropped
+   the room's "Nothing back from ..." silence sentence. */
 
 /* ⚠️ A RENDER CONDITION, NOT A TIMER. Nothing is scheduled and nothing is
    stored: the sentence appears on the first paint after two minutes and
@@ -41094,10 +41035,10 @@ const PJ_SILENCE_AFTER_MS = 2 * 60 * 1000;
 /**
  * "Nothing back yet", under the last thing you said (#5).
  *
- * 🔑 THE ROOM ALREADY HAS THIS AND THIS BOX DID NOT. `pjSilentSince` is gated
- * on a project having two or more members, so a one-to-one thread had no signal
- * at all that an agent had gone quiet on you. This is the missing half, and it
- * is deliberately shaped like the thing it completes.
+ * 🔑 A ONE-TO-ONE THREAD OTHERWISE HAS NO SIGNAL that an agent has gone quiet
+ * on you. The room once carried a matching "Nothing back from ..." signal;
+ * #3130 removed that room sentence and #3202 its plumbing, but this one-to-one
+ * box is a distinct surface Josh kept, so it stands on its own.
  *
  * ⚠️ THE SAME GRACE PERIOD, FROM THE SAME CONSTANT. Two surfaces disagreeing
  * about how long silence is normal would show a person two claims about one
@@ -41125,10 +41066,10 @@ function dmOwesLine(owes, rows) {
      addressed to the agent; saying "nothing back yet" over a row already
      reading "Could not deliver" blames it for silence about a message it never
      received. Two sentences, one moment, contradicting each other.
-     🔑 THE ROOM ALREADY DOES THIS: `pjSilentSince` filters its recipients to
-     `state === 'placed'` before deciding anybody has gone quiet. Same rule,
-     and finding it there rather than inventing one is why the two surfaces
-     agree. */
+     🔑 THE SAME RULE THE ROOM'S RECEIPT USED: only a recipient a message
+     actually reached (`state === 'placed'`) can be said to have gone quiet.
+     The room enforced this before #3130/#3202 removed that surface; it is kept
+     here because it is correct, not because the room still runs it. */
   const landed = rows.filter((m) => m && m.delivery && m.delivery.state === 'placed');
   if (!landed.length) return '';
   /* ⚠️ THE GRACE IS MEASURED ON THE MESSAGE THAT LANDED, not on the state and
@@ -41155,11 +41096,9 @@ function pjOldEnoughToJudge(at) {
 }
 
 /** The receipt, in the operator's words, one clause per real state. */
-function pjReceiptSentence(outcomes, p, silent) {
+function pjReceiptSentence(outcomes, p) {
   const groups = { placed: [], unconfirmed: [], could_not: [] };
-  const placedWho = [];
   for (const [who, state] of Object.entries(outcomes || {})) {
-    if (state === 'placed') placedWho.push(who);
     /* An UNKNOWN state lands in the not-confirmed clause: "could not be
        reached" is a definite failure claim that licenses a free re-send,
        which an unknown state does not -- and the pill's weight already
@@ -41198,60 +41137,15 @@ function pjReceiptSentence(outcomes, p, silent) {
      of them" silence sentences are REMOVED from the room dialog. Josh asked to
      drop that noise; the real delivery facts above ("could not be reached",
      "may have it; not confirmed") stay, since those are actionable, not noise.
-     The `silent` param is kept in the signature so pjRoomRow's call site is
-     unchanged; `placedWho` (a now-unused local) and the now-orphaned `pjJoinOr`
-     helper fall out of the same removal. All fold into the deferred
-     silence-plumbing cleanup (pjSilences / pjSilentSince / paintRoom's silences
-     map / pjJoinOr). */
+     #3202 then removed the now-dead silence-computation plumbing that fed the
+     removed sentence -- pjSilences / pjSilentSince / pjJoinOr and the unused
+     `silent` params on this function and pjRoomRow. */
   return bits.join(' ');
 }
 
-/**
- * Who is silent under each post in a room, as a Map keyed by the row.
- *
- * ⚠️ IT IS A FUNCTION SO THAT THE TWO-MINUTE GATE IS TESTABLE. Inline in
- * `paintRoom` it was reachable only by rendering the whole screen, so deleting
- * `pjOldEnoughToJudge` from the condition left every test green while the
- * sentence fired on a post one second old — the "render condition, not a timer"
- * rule certified by nothing at the point it is applied.
- *
- * ⚠️ INDEXED AGAINST THE WHOLE ROOM, never the filtered rows. A person typing
- * in the search box must not be able to change what a receipt claims: filtering
- * out an agent's reply would otherwise turn a working exchange into "nothing
- * back from Rick".
- *
- * ⚠️ AND ONLY UNDER THE PERSON'S OWN POSTS. An agent's post carries outcomes
- * too, so without `m.operator === true` the room told the person "nothing back
- * from Johnson" underneath something RICK said — a receipt about somebody
- * else's message, which is not what a receipt is.
- */
-function pjSilences(allRows, p) {
-  const out = new Map();
-
-  /* 🛑 A SOLE MEMBER CANNOT ANSWER, AND SAYING THEY DID NOT IS BLAMING THEM FOR
-     A RULE WE ENFORCE. `sendPost` builds an agent's recipients as
-     `members.filter(m => m !== from)`, so in a one-agent project that list is
-     empty and the post is REFUSED: "nobody else is on that project yet, so
-     there is no room to post to". The agent's own instructions tell it to run
-     `kosmos post`, it does, it is turned away, and the room would say "Nothing
-     back from Rick." forever.
-     🔑 That is this feature inverted. The old receipt said only "Placed with
-     Rick", which claimed nothing; the new sentence would assert a silence the
-     app manufactures and name the agent as its cause.
-     ⚠️ THE SUPPRESSION IS THE NARROW FIX, NOT THE RIGHT ONE. The right one is
-     for an agent to be able to answer in a room the person is sitting in; that
-     is an engine change with its own blast radius, and it is filed rather than
-     smuggled in here. Two or more members and every agent can post, so the
-     carve-out is exactly the case the engine refuses. */
-  if ((p && p.agents ? p.agents.length : 0) < 2) return out;
-
-  (allRows || []).forEach((m, i) => {
-    if (m && m.operator === true && m.outcomes && pjOldEnoughToJudge(m.at)) {
-      out.set(m, pjSilentSince(m, allRows, i));
-    }
-  });
-  return out;
-}
+/* #3202: pjSilences removed -- it computed the per-post room silence map that fed
+   the "Nothing back from ..." sentence; nothing consumes that map since #3130
+   dropped the sentence. */
 
 /* #460: the body of a room post, with quoted spans drawn as the pack's
    .quoteb. The ONLY input that can produce a blockquote is the engine's
@@ -41410,7 +41304,7 @@ function pjAvatarVer(from) {
   const c = (LAST || []).find((a) => a && a.sessionName === from);
   return (c && c.avatarVer) || 0;
 }
-function pjRoomRow(m, p, silent) {
+function pjRoomRow(m, p) {
   /* A refusal the room can see (#315): Scarlett tried to answer, was stopped,
      and the only record was inside her own window, so from the outside she
      read as broken. The engine's refusal contract already dedups (one row per
@@ -41714,8 +41608,8 @@ function paintRoom(body) {
      ⇒ Bounded (it hides rather than fabricates) and still wrong, and no arm
      constructed it because every fixture passes a real room id. */
   /* 🛑 SCOPED TO THE STAMPING, NOT THE PAINT, AND MY FIRST ATTEMPT GOT THAT
-     WRONG. An early `return` here would have skipped `pjRoomFilterRows`,
-     `pjSilences` and the render below - the whole point of the function - and
+     WRONG. An early `return` here would have skipped `pjRoomFilterRows` and
+     the render below - the whole point of the function - and
      THE TEST WOULD NOT HAVE NOTICED, because it slices out this block and drives
      it alone. A harness that reads a fragment cannot see what the fragment's
      control flow does to its function. */
@@ -41802,22 +41696,21 @@ function paintRoom(body) {
   if (PJ_CURRENT && body.ok !== false) ROOM_SPOKE_SEEDED.add(PJ_CURRENT);
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
-  const silences = pjSilences(allRows, p);
   /* #2700: fold consecutive same-reason refusals AFTER filtering, so the fold
      sees exactly what is on screen -- a search that isolates one held agent
      leaves a run of one, which does not collapse and renders as its own band.
-     silences and unanswered lines are keyed on posts only, so a synthetic
-     refused-group row (kind !== 'post') draws neither, and nothing is lost.
+     Unanswered lines are keyed on posts only, so a synthetic refused-group row
+     (kind !== 'post') draws none, and nothing is lost.
      🔑 THE FOLD MUST STAY DOWNSTREAM OF THE UNFOLDED-allRows CONSUMERS, and
      that ordering is the reason refused-group is NOT in ROOM_NOT_SPEECH. The
-     speech-stamping loop and pjSilences both run earlier and both iterate the
-     raw allRows, so no refused-group ever reaches a ROOM_NOT_SPEECH deny-test
-     or a `ROOM_SPOKE_AT.get(m.from)` lookup. That matters because a
-     refused-group's `from` is an ARRAY of held agents, not a session-name
-     string: were the fold ever hoisted above those loops, the group would read
-     as a single speaker keyed on an array. Keep this the last transform before
-     the render, and those consumers keep seeing only real message kinds. */
-  const rows = pjFoldRoomRows(shown).map((m) => pjRoomRow(m, p, silences.get(m)) + pjUnansweredLine(m, p, body.unanswered)).join('');
+     speech-stamping loop runs earlier and iterates the raw allRows, so no
+     refused-group ever reaches a ROOM_NOT_SPEECH deny-test or a
+     `ROOM_SPOKE_AT.get(m.from)` lookup. That matters because a refused-group's
+     `from` is an ARRAY of held agents, not a session-name string: were the fold
+     ever hoisted above that loop, the group would read as a single speaker
+     keyed on an array. Keep this the last transform before the render, and
+     those consumers keep seeing only real message kinds. */
+  const rows = pjFoldRoomRows(shown).map((m) => pjRoomRow(m, p) + pjUnansweredLine(m, p, body.unanswered)).join('');
   /* An unreadable record is SAID, ahead of whatever could be read --
      no-state-as-silence, the same rule as every list on this app. */
   const note = body.ok === false
