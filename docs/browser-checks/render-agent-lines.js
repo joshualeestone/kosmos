@@ -230,9 +230,10 @@ const chk = (ok, label, extra) => {
       chk(Math.abs(opOf('donnie', 'lavOpacity') - 0.5) < 0.02 && Math.abs(opOf('donnie', 'lnameOpacity') - 0.5) < 0.02,
         'a NOT-RUNNING agent dims its avatar and name to ~0.5',
         `lav=${(m.byAgent.donnie || {}).lavOpacity} lname=${(m.byAgent.donnie || {}).lnameOpacity}`);
-      chk(opOf('mikey', 'lavOpacity') === 1 && opOf('donnie', 'lavOpacity') < 1,
-        'CONTROL: an IDLE agent avatar is full-strength while the not-running one is dimmed',
-        `idle=${(m.byAgent.mikey || {}).lavOpacity} stopped=${(m.byAgent.donnie || {}).lavOpacity}`);
+      chk(opOf('mikey', 'lavOpacity') === 1 && opOf('donnie', 'lavOpacity') < 1
+        && opOf('mikey', 'lnameOpacity') === 1 && opOf('donnie', 'lnameOpacity') < 1,
+        'CONTROL: an IDLE agent avatar+name are full-strength while the not-running one is dimmed',
+        `idle lav=${(m.byAgent.mikey || {}).lavOpacity} name=${(m.byAgent.mikey || {}).lnameOpacity} / stopped lav=${(m.byAgent.donnie || {}).lavOpacity} name=${(m.byAgent.donnie || {}).lnameOpacity}`);
       /* CONTROL: the three washes are distinct, or "matches GREEN/GREY/RED" could
          pass on a single wash that happened to contain all three substrings. */
       chk(washOf('april') !== washOf('mikey') && washOf('mikey') !== washOf('raph') && washOf('april') !== washOf('raph'),
@@ -267,24 +268,30 @@ const chk = (ok, label, extra) => {
            width against the strip, and assert square + full-bleed, or the colour is not
            edge-to-edge. */
         const alist = document.querySelector('#alist');
-        const wr = document.querySelector('#alist .lrow.working');
-        const cs = getComputedStyle(wr);
-        o.geom = {
-          radius: parseFloat(cs.borderTopLeftRadius) || 0,
-          rowW: Math.round(wr.getBoundingClientRect().width),
-          alistW: Math.round(alist.getBoundingClientRect().width),
+        const geomOf = (sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          const cs = getComputedStyle(el);
+          return { radius: parseFloat(cs.borderTopLeftRadius) || 0, rowW: Math.round(el.getBoundingClientRect().width) };
         };
+        o.alistW = Math.round(alist.getBoundingClientRect().width);
+        /* Both washed rows, green (.working) AND red (.attn), are measured: the two
+           border-radius:0 declarations are separate, so reading only .working would let a
+           copy-paste slip that squares one and not the other pass silently. */
+        o.geom = { working: geomOf('#alist .lrow.working'), attn: geomOf('#alist .lrow.attn') };
         return o;
       });
       console.log('  folded washes     : ' + JSON.stringify(folded.wash));
-      console.log('  folded geom       : ' + JSON.stringify(folded.geom));
+      console.log('  folded geom       : ' + JSON.stringify({ alistW: folded.alistW, working: folded.geom.working, attn: folded.geom.attn }));
       chk((folded.wash.april || '').includes(GREEN), 'FOLDED: a working agent keeps the green wash edge-to-edge', folded.wash.april);
       chk((folded.wash.raph || '').includes(RED), 'FOLDED: a needs-you agent keeps the red wash edge-to-edge', folded.wash.raph);
       const noWash = (s) => !(s || '').includes(GREEN) && !(s || '').includes(RED) && !(s || '').includes(GREY);
       chk(noWash(folded.wash.mikey), 'FOLDED: an idle agent has NO wash (no wall of grey)', folded.wash.mikey);
       chk(noWash(folded.wash.donnie), 'FOLDED: a not-running agent has NO wash', folded.wash.donnie);
-      chk(folded.geom.radius <= 1, 'FOLDED: the wash row is SQUARE, not a rounded chip (edge-to-edge)', 'radius=' + folded.geom.radius + 'px');
-      chk(folded.geom.rowW >= folded.geom.alistW - 2, 'FOLDED: the wash row fills the full strip width (no grey side gutter)', 'row=' + folded.geom.rowW + ' strip=' + folded.geom.alistW);
+      for (const [k, g] of [['green working', folded.geom.working], ['red needs-you', folded.geom.attn]]) {
+        chk(!!g && g.radius <= 1, 'FOLDED: the ' + k + ' wash row is SQUARE, not a rounded chip (edge-to-edge)', g ? 'radius=' + g.radius + 'px' : '(row missing)');
+        chk(!!g && g.rowW >= folded.alistW - 2, 'FOLDED: the ' + k + ' wash row fills the full strip width (no grey side gutter)', g ? 'row=' + g.rowW + ' strip=' + folded.alistW : '(row missing)');
+      }
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

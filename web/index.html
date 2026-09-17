@@ -2536,7 +2536,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    "this one is asleep, click to see why" -- visibly distinct from a plain idle agent, which
    is grey-ground but full-strength. His words: "it could get the idle gray background but
    then also itself would be 50% grayed out". Only the avatar + name dim; the state/task text
-   already muted above. */
+   already muted above.
+   DELIBERATE a11y tradeoff, do not "fix" without Josh: the .5 opacity is his explicit ruling,
+   and it drops the light-theme name contrast to ~3.4:1 (below WCAG AA 4.5:1); dark theme
+   stays ~4.9:1. The de-emphasis IS the intent (an asleep agent recedes; the row stays
+   click-to-open to wake it), so this is built to his words rather than reinterpreted to hit
+   the ratio. If Josh wants it softened, dropping the NAME to ~.65 clears AA while the avatar
+   keeps the .5 "asleep" read; flagged to him as an FYI, not a blocker. */
 .lrow.off .lav, .lrow.off .lname { opacity: .5; }
 /* #3187 (Josh 6.70): "show the grey/green/red backgrounds for agents under the
    agents list". Status owns the GROUND on the list the same way it already does
