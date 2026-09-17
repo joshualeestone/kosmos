@@ -794,10 +794,14 @@ function abortAllRequests() {
 /**
  * #3229: fetch one inclusive byte range [start,end] to `segPath`, APPENDING, so
  * a resumed segment continues from what already landed instead of restarting.
- * The caller asks only for the missing tail. Expects 206; a 200 (range ignored,
- * whole body) is treated as an error so the caller can fall back rather than
- * append an oversized body. Redirects carry the Range header. onChunk(n) reports
- * bytes for the shared total.
+ * The caller asks only for the missing tail. Expects 206; anything else --
+ * including a 200 where a service that advertised accept-ranges then ignored the
+ * Range -- rejects BEFORE any write, so a mid-download switch to range-ignoring
+ * surfaces as a clean download failure (there is no per-segment fallback; the
+ * whole download() rejects and the next attempt starts over) rather than
+ * appending an oversized whole body onto one segment. downloads.claude.ai answers
+ * 206 in practice; this is the safety net for a service that does not. Redirects
+ * carry the Range header. onChunk(n) reports bytes for the shared total.
  */
 function fetchSegment(url, segPath, start, end, onChunk, track, redirects) {
   const left = redirects === undefined ? 5 : redirects;
@@ -805,6 +809,12 @@ function fetchSegment(url, segPath, start, end, onChunk, track, redirects) {
     let u, lib;
     try { u = new URL(url); lib = u.protocol === 'http:' ? http : https; }
     catch (e) { reject(e); return; }
+    // `responded` gates the outer req 'error': once the write stream is open a
+    // request error must reject only AFTER that stream has closed (so "did a
+    // partial segment land" has an answer and no fd leaks), exactly as fetchFile
+    // does. Before the stream opens, no file exists and the outer handler rejects
+    // immediately.
+    let responded = false;
     const req = lib.get(u, { headers: { Range: `bytes=${start}-${end}` } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && left > 0) {
         res.resume();
@@ -818,6 +828,7 @@ function fetchSegment(url, segPath, start, end, onChunk, track, redirects) {
         return;
       }
       const out = fs.createWriteStream(segPath, { flags: 'a' });
+      responded = true;
       let settled = false;
       const fail = (e) => {
         if (settled) return; settled = true;
@@ -825,13 +836,14 @@ function fetchSegment(url, segPath, start, end, onChunk, track, redirects) {
         if (out.closed) reject(e); else out.on('close', () => reject(e));
       };
       res.on('data', (c) => { if (onChunk) onChunk(c.length); });
+      req.on('error', fail);
       res.on('error', fail);
       out.on('error', fail);
       res.pipe(out);
       out.on('finish', () => { if (settled) return; settled = true; resolve(); });
     });
     req.setTimeout(600000, () => { req.destroy(new Error('the download stalled')); });
-    req.on('error', reject);
+    req.on('error', (e) => { if (!responded) reject(e); });
     trackReq(req);
     if (track) track(req);
   });
@@ -1939,6 +1951,13 @@ async function installClaudeCode(hooks) {
       try {
         const dir = path.join(store.ROOT, 'downloads');
         for (const f of fs.readdirSync(dir)) {
+          // #3229: this sweeps the single-stream `.part` but DELIBERATELY leaves
+          // the resumable path's `.part.<i>` segments in place -- they are exactly
+          // what a same-version retry resumes from instead of re-fetching ~214MB.
+          // Their cross-version and every-fresh-download cleanup is download()'s
+          // own top-of-dir sweep on the next attempt (which keeps only THIS
+          // version's segments); a truly abandoned partial is the bounded cost the
+          // resume feature accepts, the same tradeoff any resumable download makes.
           if (f.endsWith('.part')) fs.unlinkSync(path.join(dir, f));
         }
       } catch { /* nothing partial to clean */ }
