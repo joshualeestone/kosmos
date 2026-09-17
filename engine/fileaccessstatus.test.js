@@ -86,11 +86,13 @@ test('a verdict with no readable time -> uncheckable (cannot judge freshness)', 
    process is up (nativePresent) the last-known verdict is HELD so the S2 Access pill
    can keep showing "granted" without any new probe. It only ever extends an EXISTING
    valid reading -- never manufactures one (Angel's caveat a). */
-test('#3213: a stale verdict is HELD while nativePresent -> checkable:true, real verdict, and the SAME input expires without a live app', () => {
-  write({ granted: true, at: new Date(Date.now() - (fa.STALE_AFTER_MS + 1000)).toISOString() });
+test('#3213: a stale verdict is HELD while nativePresent -> checkable:true, real verdict, honest at, and the SAME input expires without a live app', () => {
+  const agedAt = new Date(Date.now() - (fa.STALE_AFTER_MS + 1000)).toISOString();
+  write({ granted: true, at: agedAt });
   const held = fa.read({ nativePresent: true });
   assert.equal(held.checkable, true, 'a live app holds the last-known verdict so the pill can keep showing granted');
   assert.equal(held.granted, true, 'the held verdict is the real one, not manufactured');
+  assert.equal(held.at, agedAt, 'the held reading reports the REAL aged measurement time, not a fresh Date.now() stamp');
   // NON-VACUOUS CONTROL: the SAME aged input with no live app must still expire.
   const gone = fa.read({ nativePresent: false });
   assert.equal(gone.checkable, false, 'with no live app the same aged reading genuinely cannot be trusted');
