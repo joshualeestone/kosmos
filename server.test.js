@@ -7550,6 +7550,32 @@ test('#2711 item 16: the working/needs-you member washes stay pinned to the agen
     'the needs-you member wash drifted from .acard.attn; re-pin them or the two reds disagree');
 });
 
+test('#3206: all four status-wash surfaces reference the shared --wash token (no re-hardcoded copy)', () => {
+  // The card's invariant is that every working/needs-you wash is ONE source
+  // (--wash-working / --wash-attn), so a surface re-hardcoding a raw rgba would be drift.
+  // The #2711 item 16 pin above only covers .pj-member <-> .acard; this covers all four --
+  // adding the .lrow base and the folded rail -- so a re-hardcode of any single surface is
+  // caught, which is what "collapse ALL copies to one source" requires.
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  // The `background:` of a rule. `page.match` returns the FIRST hit, and the base
+  // `.lrow.working` rule precedes the folded `fold-a .lrow.working` one, so the base pattern
+  // (which does not carry the fold-a prefix) lands on the base rule; the folded pattern is
+  // more specific and lands on the folded rule.
+  const bgOf = (sel) => {
+    const rule = page.match(new RegExp(sel.replace(/[.[\]]/g, '\\$&') + ' \\{[^}]*background:[^}]*\\}'));
+    assert.ok(rule, 'wash rule not found: ' + sel);
+    return rule[0].match(/background:[^;}]*/)[0];
+  };
+  const working = ['.acard.working', '.lrow.working', 'body.consolidated.fold-a .lrow.working', '#pj-one-agents .pj-member.pjm-working'];
+  const attn = ['.acard.attn', '.lrow.attn', 'body.consolidated.fold-a .lrow.attn', '#pj-one-agents .pj-member.pjm-attn'];
+  for (const sel of working) {
+    assert.match(bgOf(sel), /var\(--wash-working\)/, sel + ' no longer references --wash-working (re-hardcoded literal?)');
+  }
+  for (const sel of attn) {
+    assert.match(bgOf(sel), /var\(--wash-attn\)/, sel + ' no longer references --wash-attn (re-hardcoded literal?)');
+  }
+});
+
 test('#2804: the three washed member states drop the box stroke (colour only), keeping the base stroke and the unseen dashed border', () => {
   // Josh, testing 0.6.56: "I do not want to have the 1px stroke around these agents,
   // whether they're active, inactive, or need help. It should only be the color".
