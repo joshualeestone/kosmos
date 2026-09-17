@@ -198,9 +198,15 @@ const chk = (ok, label, extra) => {
          (an answerBtn / "Working now" label is allowed; the waiting/idle/busy word
          is not). Replaces an earlier first-row-only check that a fixture reorder
          could have false-failed on a needs-you row's visible answerBtn. */
-      chk(Object.values(m.byAgent).every((v) => !v.wordLeaked),
-        'no agent row shows its state word as visible text (word lives only in .vh)',
-        JSON.stringify(Object.fromEntries(Object.entries(m.byAgent).map(([k, v]) => [k, v.wordLeaked]))));
+      /* #3187-followup (Josh 6.72): the hide-the-word contract is a RUNNING-STATE contract.
+         A NOT-RUNNING (.lrow.off) row deliberately shows "Not running" as visible text (no
+         .vh) -- that state was never migrated to the colour-only treatment and Josh's ruling
+         is grey ground + dimmed avatar/name, not a hidden word. So both word sweeps scope to
+         non-off rows; a stopped row is exercised by the dim + folded arms above, not here. */
+      const runningRows = Object.entries(m.byAgent).filter(([, v]) => !/\boff\b/.test(v.cls));
+      chk(runningRows.length > 0 && runningRows.every(([, v]) => !v.wordLeaked),
+        'no running-state agent row shows its state word as visible text (word lives only in .vh)',
+        JSON.stringify(Object.fromEntries(runningRows.map(([k, v]) => [k, v.wordLeaked]))));
 
       /* #3187 (Josh 6.70): status owns the GROUND, and the ground must be the
          RIGHT colour for the state, not just some gradient. Green=working,
@@ -227,12 +233,13 @@ const chk = (ok, label, extra) => {
          pass on a single wash that happened to contain all three substrings. */
       chk(washOf('april') !== washOf('mikey') && washOf('mikey') !== washOf('raph') && washOf('april') !== washOf('raph'),
         'the three state washes are distinct', 'w/i/n differ');
-      /* #3131: the WORD is hidden on EVERY row, not only the first (april). This
-         catches a needs-you row -- whose .lstate also carries a visible answerBtn
-         -- failing to wrap its state word in .vh. */
-      chk(Object.values(m.byAgent).length > 0 && Object.values(m.byAgent).every((v) => v.wordHidden),
-        'every agent row hides its state word in a .vh clip',
-        JSON.stringify(Object.fromEntries(Object.entries(m.byAgent).map(([k, v]) => [k, v.wordHidden]))));
+      /* #3131: the WORD is hidden on EVERY RUNNING row, not only the first (april). This
+         catches a needs-you row -- whose .lstate also carries a visible answerBtn -- failing
+         to wrap its state word in .vh. Scoped to non-off rows (see the note above): a
+         not-running row shows "Not running" as visible text by design. */
+      chk(runningRows.length > 0 && runningRows.every(([, v]) => v.wordHidden),
+        'every running-state agent row hides its state word in a .vh clip',
+        JSON.stringify(Object.fromEntries(runningRows.map(([k, v]) => [k, v.wordHidden]))));
 
       /* The remaining #1191 claim, now for the TWO visible lines: the name/title
          leading Josh asked to tighten. Ceiling + floor so neither loose spacing
