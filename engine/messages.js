@@ -1801,6 +1801,118 @@ function sweepUnanswered(roster, now) {
   return { ok: true, nudged };
 }
 
+/* #3224: count SUSPECTED cross-project misroutes in [sinceMs, untilMs), for the
+   daily digest. Josh (2026-09-17): an agent on several projects sometimes posts
+   into the WRONG project's room; he asked to SURFACE how often, in the daily
+   rollup (which forget.js already treats as a privacy-covered derived view),
+   rather than in a new tracking log.
+
+   DERIVED and READ-ONLY: this reads only the message record we ALREADY keep and
+   writes nothing. It adds no new log, no new persistence, and the digest emits
+   only the COUNT -- no agent names, project ids, or content. That is what keeps
+   it inside the covered surface (the privacy concern that a separate identifier
+   log raised does not attach to a bare count derived from records we already hold).
+
+   A room post by agent W to project A is a suspected misroute if, AT THE MOMENT W
+   POSTED IT, W owed an unanswered ADDRESSED OPERATOR question in a DIFFERENT
+   project B: an operator post in B before this post, with W in its `mentioned`,
+   delivered (TYPED, not could_not -- an undelivered ask is not owed), and NO room
+   post from W in B in [askAt, postAt). This mirrors `unanswered`'s own definition
+   of an owed answer (operator + mentioned + typed), bounded to the post's instant.
+
+   ⚠️ AS-OF-POST-TIME is deliberate, and it is why this does NOT reuse `unanswered`
+   (whose answer-check is unbounded, "answered ever after the ask"). A misroute
+   that HAPPENED still counts even if W later answered B -- the card measures how
+   often a post lands in the wrong room, not how many stay unresolved at digest
+   time. Using the unbounded check would silently UNDER-count every misroute that
+   was later followed by an answer. `unanswered`'s live callers (#185 nudge) are
+   left untouched.
+
+   Heuristic (a member of both rooms can post to A while legitimately owing B), so
+   the digest frames it as "suspected" and reports only the aggregate.
+
+   Returns an integer count, or NULL when the record could NOT be read (rec.ok
+   false -- a genuine read failure, distinct from an empty record which returns
+   0). The null is deliberate: the digest caller maps it to an OMITTED line, so an
+   unreadable record never renders as a clean "0 today" (a false zero). ENOENT is
+   an empty record (0), not a read failure.
+
+   Cost: ONE pass to index operator asks by addressed agent and each agent's room
+   posts by project, then per in-window post a scan of ITS author's asks and,
+   per ask, that (author, project) answer list. Roughly O(N) to index plus, per
+   post, asks-per-author x answers-per-author-project -- far below the naive
+   triple scan over the whole (append-only, unpruned) record that a per-post
+   re-derivation would cost.
+
+   ⚠️ The index is rebuilt PER CALL. compileAll calls this once per emitted day,
+   so a multi-day compile (a first backfill over months of chats/) is O(days x N)
+   over the full record, not O(N). Left as-is deliberately: at this product's
+   scale (one local board, a bounded record) that is sub-second, and a shared
+   index across days would add API surface (an index-builder plus a count-from-
+   index) and correctness risk to a function whose exactness is the point. The
+   lever if a long backfill ever proves slow is to build the index once in
+   compileAll and pass windows to a count-from-index variant. */
+function suspectedMisrouteCount(sinceMs, untilMs) {
+  const rec = record();
+  if (!rec.ok) return null;   // could-not-read, NOT empty: caller omits the line rather than showing 0
+  const from = Number.isFinite(sinceMs) ? sinceMs : -Infinity;
+  const until = Number.isFinite(untilMs) ? untilMs : Infinity;
+  const rows = rec.rows;
+  // One pass: operator asks indexed by each TYPED addressed agent, and each
+  // agent's own room posts indexed by agent then project. Same predicates the
+  // inline double-scan used -- only the shape changes, not what qualifies.
+  const asksByAgent = new Map();      // agent -> [{ project, askAt }]
+  // agent -> (project -> [postAtMs]). A NESTED map, deliberately NOT a joined
+  // string key: with no delimiter there is no way for two distinct
+  // (agent, project) pairs to collide, and no delimiter byte to get wrong.
+  const answersByAgent = new Map();
+  for (const m of rows) {
+    if (!m || m.kind !== 'post') continue;
+    if (m.operator === true) {
+      if (!m.project || !Array.isArray(m.mentioned) || !m.outcomes) continue;
+      const askAt = Date.parse(m.at);
+      if (!Number.isFinite(askAt)) continue;
+      for (const name of m.mentioned) {
+        if (!name) continue;
+        const oc = m.outcomes[name];
+        if (!oc || oc === chat.DELIVERY.COULD_NOT) continue;   // typed for THIS agent only
+        if (!asksByAgent.has(name)) asksByAgent.set(name, []);
+        asksByAgent.get(name).push({ project: m.project, askAt });
+      }
+    } else {
+      const who = m.from;
+      if (!who || !m.project) continue;
+      const at = Date.parse(m.at);
+      if (!Number.isFinite(at)) continue;
+      let byProject = answersByAgent.get(who);
+      if (!byProject) { byProject = new Map(); answersByAgent.set(who, byProject); }
+      let times = byProject.get(m.project);
+      if (!times) { times = []; byProject.set(m.project, times); }
+      times.push(at);
+    }
+  }
+  let count = 0;
+  for (const p of rows) {
+    if (!p || p.kind !== 'post' || p.operator === true) continue;   // W's own room post
+    const who = p.from;
+    const target = p.project;
+    const postAt = Date.parse(p.at);
+    if (!who || !target || !Number.isFinite(postAt)) continue;
+    if (postAt < from || postAt >= until) continue;
+    const asks = asksByAgent.get(who);
+    if (!asks) continue;
+    const owes = asks.some((ask) => {
+      if (ask.project === target || ask.askAt >= postAt) return false;  // DIFFERENT project, ask precedes post
+      const byProject = answersByAgent.get(who);
+      const times = byProject && byProject.get(ask.project);
+      const answered = times && times.some((t) => t >= ask.askAt && t < postAt); // answered in [askAt, postAt)
+      return !answered;
+    });
+    if (owes) count += 1;
+  }
+  return count;
+}
+
 /* #2255: Discord-style emoji REACTIONS on room posts. A reaction is mutable
    (toggle on/off), but the message log is append-only, so a reaction is a
    `kind:'reaction'` EVENT ({of: postId, emoji, from|operator, op:'add'|'remove'})
@@ -1945,6 +2057,7 @@ module.exports = {
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
+  suspectedMisrouteCount,
   resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,

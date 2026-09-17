@@ -113,6 +113,51 @@ function localTimeOf(at) {
   return `${h}:${min}`;
 }
 
+/* #3224: the LOCAL [start, end) millisecond window for a YYYY-MM-DD day string.
+   `setDate(+1)` rolls the month and absorbs a DST-length day correctly (unlike
+   start + 24h). Rejects (null) a string that is not a plain YYYY-MM-DD AND one
+   whose components do not round-trip (2026-13-01, 2026-02-30 -- Date would
+   silently normalize them into a different real day).
+
+   ⚠️ This window is ALWAYS local, so it lines up with the DEFAULT `localDayOf`
+   bucketing and with the default `misrouteCountForDay`. It does NOT reconcile
+   with a NON-local injected `dayOf` (e.g. a UTC `at.slice(0,10)`): the regex
+   accepts that string's shape but the window would then be a local-midnight span
+   offset from the UTC day the rows were bucketed under, mis-counting near
+   midnight. That mismatch is not reachable on the production path (default dayOf
+   is local); a caller that injects a non-local dayOf must inject a matching
+   `misrouteCountForDay` too. The guard protects shape and calendar validity, NOT
+   timezone agreement with an injected dayOf. */
+function dayWindowLocal(dayStr) {
+  if (!DAY_STEM_RE.test(String(dayStr || ''))) return null;
+  const [y, m, d] = dayStr.split('-').map(Number);
+  const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+  if (isNaN(start.getTime())) return null;
+  // Reject a date the components did not round-trip to (Date normalized it away,
+  // e.g. month 13 -> next January): that is a different day than the string names.
+  if (start.getFullYear() !== y || start.getMonth() !== m - 1 || start.getDate() !== d) return null;
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start: start.getTime(), end: end.getTime() };
+}
+
+/* #3224: the default per-day suspected-misroute count for the digest. Read-only,
+   derived from the message record we already keep (no new log/persistence); the
+   digest surfaces only this integer. Lazy-required so dailylog keeps its light
+   top-level dependency set and so no load-order coupling to the messaging engine
+   is introduced. Any failure yields null (the line is omitted), never a throw
+   that would fail the whole rollup. Injectable via compileAll's
+   `misrouteCountForDay` opt for deterministic tests. */
+function defaultMisrouteCountForDay(dayStr) {
+  const win = dayWindowLocal(dayStr);
+  if (!win) return null;
+  try {
+    const messages = require('./messages');
+    const n = messages.suspectedMisrouteCount(win.start, win.end);
+    return (Number.isInteger(n) && n >= 0) ? n : null;
+  } catch { return null; }
+}
+
 /**
  * Flatten parsed conversations into per-message rows. Pure: no IO.
  * `conversations` is an array of `{ desc, parsed }`. A message with no usable
@@ -166,8 +211,12 @@ function groupByDay(rows) {
  * Render one day's rows as Markdown. Pure. Conversations are ordered by their
  * first message that day; messages within a conversation are ordered by time.
  * `timeOf` is injectable for the same timezone-determinism reason as `dayOf`.
+ * `misrouteCount` (#3224, optional): when a non-negative integer, appends one
+ * counts-only "suspected cross-project misroutes today" line; omitted otherwise,
+ * so the existing 3-arg callers are unchanged and a null/unavailable count never
+ * renders as a false zero.
  */
-function renderDay(dayStr, rows, timeOf = localTimeOf) {
+function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount) {
   const sorted = [...rows].sort((a, b) => String(a.at).localeCompare(String(b.at)));
   const order = [];
   const groups = new Map();
@@ -179,6 +228,17 @@ function renderDay(dayStr, rows, timeOf = localTimeOf) {
   lines.push(`# Kosmos conversations - ${dayStr}`);
   lines.push('');
   lines.push('_Compiled from the per-conversation Chats files. Originals are kept unchanged. Times are local._');
+  /* #3224: a single COUNTS-ONLY operational line -- how many room posts that day
+     were suspected cross-project misroutes. No identifiers, no content: just the
+     number, which is what keeps it inside this already-covered digest. Omitted
+     (not "0") when the count is unavailable -- an injected non-local dayOf, or a
+     record that could not be read -- so a missing count never reads as a clean
+     zero. A caller that passes no count at all (the existing signature) is
+     unchanged. */
+  if (Number.isInteger(misrouteCount) && misrouteCount >= 0) {
+    lines.push('');
+    lines.push(`_Suspected cross-project misroutes today: ${misrouteCount} (heuristic, see kosmos#3224)._`);
+  }
   lines.push('');
   for (const label of order) {
     lines.push(`## ${label}`);
@@ -243,7 +303,9 @@ function readConversations(chatsDir) {
  * Compile the daily logs. Reads `chatsDir`, writes one `<day>.md` per day into
  * `outDir` (created if absent). Returns a summary. `onlyDay` restricts the write
  * to a single day (a targeted run); by default every day found is written.
- * `dayOf`/`timeOf` are injectable for deterministic tests. `prune` (default
+ * `dayOf`/`timeOf`/`misrouteCountForDay` are injectable for deterministic tests
+ * (`misrouteCountForDay(dayStr)` -> the per-day #3224 count, default derives the
+ * local day window and reads the message record). `prune` (default
  * true) enables removing stale day files from `outDir`; the CLI turns it OFF for
  * an operator-supplied `--out` dir, so pruning a day-named file the operator
  * happens to keep in an arbitrary directory is never a surprise -- only the
@@ -256,6 +318,9 @@ function compileAll(opts = {}) {
   const timeOf = opts.timeOf || localTimeOf;
   const onlyDay = opts.onlyDay || null;
   const prune = opts.prune !== false;
+  /* #3224: injectable for deterministic tests, same pattern as dayOf/timeOf.
+     Default derives a read-only count from the already-kept message record. */
+  const misrouteCountForDay = opts.misrouteCountForDay || defaultMisrouteCountForDay;
 
   const { conversations, readable, readErrors } = readConversations(chatsDir);
   const { rows, undated } = flattenMessages(conversations, dayOf);
@@ -267,7 +332,7 @@ function compileAll(opts = {}) {
   }
   for (const [day, dayRows] of byDay) {
     if (onlyDay && day !== onlyDay) continue;
-    const md = renderDay(day, dayRows, timeOf);
+    const md = renderDay(day, dayRows, timeOf, misrouteCountForDay(day));
     fs.writeFileSync(path.join(outDir, dayFileName(day)), md);
     written.push(day);
   }
@@ -325,6 +390,8 @@ module.exports = {
   conversationLabel,
   localDayOf,
   localTimeOf,
+  dayWindowLocal,
+  defaultMisrouteCountForDay,
   flattenMessages,
   groupByDay,
   renderDay,
