@@ -50,9 +50,21 @@ definition. Rendering is unchanged (computed style resolves the token to the ide
   added :root comment carries no `<script>` token, so it cannot break an HTML-slice test.
 
 ## Test plan
-- Full pre-PR validation (validation_log_run_or_skip) green in the worktree.
-- CI `test` job (runs the browser-checks server-side) is the authoritative render confirmation:
-  the .acard / .lrow / folded-rail / .pj-member washes still compute to the same green/red.
+- Node suite (validation_log_run_or_skip) green in the worktree. NOTE this does NOT run the
+  browser-check GATE CHAIN; that is separate (below) and was the thing that actually needed handling.
+- Browser-check gate chain (run via CI's `tools/run-tests.sh`, `test.yml`), both satisfied by
+  commit trailers because this is a copy-only, render-identical token refactor that updates no
+  docs/browser-checks assertion:
+  - #1720 coarse gate: `Browser-check:` trailer (a web/ change with no assertion update needs a reason).
+  - #2518 surface gate: `Browser-check-surface: render-member-modal.js <reason>` -- that check's
+    declared surface token is `pj-one-agents`, which my `.pj-member.pjm-working/.attn` edit touches,
+    but the check probes only the pjm-IDLE gray (#2920, rgba(120,120,128,.07)), which this refactor
+    does not change. Verified both gates pass after adding the trailers (ran browser-check-gate.sh +
+    browser-check-surface-gate.sh against the branch).
+- Render correctness: `.lrow` base + folded washes are computed-style-checked by
+  render-agent-lines.js (unchanged, still green because var() resolves to the same rgba); the
+  `.acard`/`.pj-member` washes rest on standard var() resolution + the node source tests (see the
+  CI-safe section above).
 - Merge-as-green (Kosmos beta, no human reviewer).
 
 Addresses #3206
