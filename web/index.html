@@ -17084,7 +17084,15 @@ async function tick() {
        NOT PJ_CURRENT-adjusted (the server has no PJ_CURRENT). So the client applies the one thing
        it alone knows: subtract the open room's own unread, exactly reproducing pjDmTotal from the
        fresh always-polled total. Clamped >= 0 so a transient stale-subtract can't go negative. */
-    const openUnread = (PJ_CURRENT && pjById(PJ_CURRENT)) ? (Number(pjById(PJ_CURRENT).unread) || 0) : 0;
+    const openProj = PJ_CURRENT ? pjById(PJ_CURRENT) : null;
+    const openUnread = openProj ? (Number(openProj.unread) || 0) : 0;
+    /* Known transient (accepted, option i): c.projectsUnread (server, always-polled) and
+       openProj.unread (client, from the visibility-gated projects poll) are the same store on two
+       cadences. In the ~1 poll after you open a room, the server total may already exclude that
+       room while the client's openUnread is still stale-high, so this can briefly under-count (a
+       genuine other-room badge could clamp to 0 for one tick). It self-heals next poll, and the
+       clamp keeps it non-negative. Option ii (no subtraction) instead over-counts the open room
+       transiently; we chose i (agreed w/ Angel) so steady state is exact pjDmTotal parity. */
     setNavBadge('nav-badge-projects', Math.max(0, (Number(c.projectsUnread) || 0) - openUnread));
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose

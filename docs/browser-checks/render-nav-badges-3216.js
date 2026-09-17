@@ -76,7 +76,7 @@ const chk = (ok, label, extra) => {
     const src = fs.readFileSync(nodePath.join(ROOT, 'web', 'index.html'), 'utf8');
     chk(/setNavBadge\('nav-badge-agents',\s*dmTotal\)/.test(src), 'the Agents badge is wired to the fleet dmTotal (tick), the same total as the #st-dm tile');
     chk(/setNavBadge\('nav-badge-projects',\s*Math\.max\(0,\s*\(Number\(c\.projectsUnread\)/.test(src), 'the Projects badge is set in tick() from the always-polled counts.projectsUnread (live cross-tab), minus the open room');
-    chk(/const openUnread = \(PJ_CURRENT && pjById\(PJ_CURRENT\)\)/.test(src), 'the open room is subtracted from the server total (exact pjDmTotal parity, option i)');
+    chk(/const openProj = PJ_CURRENT \? pjById\(PJ_CURRENT\) : null;/.test(src) && /const openUnread = openProj \?/.test(src), 'the open room is subtracted from the server total (exact pjDmTotal parity, option i)');
     chk(!/setNavBadge\('nav-badge-projects', pjDmTotal\)/.test(src), 'the stale paintProjects-based Projects badge is removed (no visibility-gated freeze)');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
