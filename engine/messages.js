@@ -59,6 +59,12 @@ const limits = require('./limits');
 
 const LOG = path.join(store.ROOT, 'messages.jsonl');
 
+/* #3224: the cross-project misroute detector's own log (see misrouteSuspects). A
+   DEDICATED file, not a new message-record `kind`, so it can never perturb an
+   existing count or render. Declared here with LOG/SEEN so cross-module constants
+   sit in one place, per this file's convention. */
+const MISROUTE_LOG = path.join(store.ROOT, 'misroute-suspects.jsonl');
+
 /* #670: the per-project read cursor. One person per Kosmos install, so the
    cursor is keyed by project alone. "Unread" is every post to that room
    after the moment the person last opened it: agent-to-agent chatter counts
@@ -1744,9 +1750,14 @@ function unanswered(projectId, now, afterMs) {
    (stateProject, #2837) is produced BY posts, so it is circular. The forcing
    fix is harness-level (auto-relay / fail-the-unsent-turn, kosmos#185), outside
    Kosmos. What we CAN do, without a false REFUSE that would block legitimate
-   multi-project posting, is MEASURE it. */
+   multi-project posting, is MEASURE it. (MISROUTE_LOG is declared up top with the
+   other cross-module log constants.) */
 
-const MISROUTE_LOG = path.join(store.ROOT, 'misroute-suspects.jsonl');
+/* #3224: the detector asks `unanswered` for owed answers at ANY age. A fast
+   misroute answers the wrong room INSIDE the nudge window, which the 10-minute
+   UNANSWERED_AFTER_MS floor would hide, so 0 is the deliberate value here rather
+   than a bug. Named per this file's no-raw-domain-literals convention. */
+const MISROUTE_OWED_AT_ANY_AGE_MS = 0;
 
 /**
  * The projects (OTHER than the one just posted to) in which this agent OWES an
@@ -1760,10 +1771,10 @@ const MISROUTE_LOG = path.join(store.ROOT, 'misroute-suspects.jsonl');
  * The value is the AGGREGATE: how often, and correlated with what, so the
  * un-reproduced premise can be confirmed and the harness fix (kosmos#185) sized.
  *
- * afterMs 0: an owed answer of ANY age counts. A fast misroute answers the wrong
- * room inside the nudge window, so the nudge's 10-minute floor would hide the
- * common case. Over-capturing here (and filtering by owed-age in analysis) beats
- * missing the fast misroute the card is actually about.
+ * MISROUTE_OWED_AT_ANY_AGE_MS (0): an owed answer of ANY age counts. A fast
+ * misroute answers the wrong room inside the nudge window, so the nudge's
+ * 10-minute floor would hide the common case. Over-capturing here (and filtering
+ * by owed-age in analysis) beats missing the fast misroute the card is about.
  *
  * Pure and testable without a fleet, the same posture as `unanswered`.
  */
@@ -1782,7 +1793,7 @@ function misrouteSuspects(sessionName, targetProjectId, now) {
     && m.project && m.project !== target).map((m) => m.project));
   const owed = [];
   for (const projectId of candidates) {
-    const silentByPost = unanswered(projectId, at, 0);
+    const silentByPost = unanswered(projectId, at, MISROUTE_OWED_AT_ANY_AGE_MS);
     const posts = Object.keys(silentByPost).filter((postId) => silentByPost[postId].includes(who));
     if (posts.length) owed.push({ project: projectId, posts });
   }
@@ -1792,9 +1803,12 @@ function misrouteSuspects(sessionName, targetProjectId, now) {
 /**
  * Best-effort: compute and LOG a suspected cross-project misroute for a post
  * that reached its room. Returns the owed-project list (for the caller/test);
- * writes a line only when non-empty. Swallows its own IO failure -- an
- * observability write must never break a post, and the route wraps this in a
- * try as well (the same best-effort posture #2837's attribution takes).
+ * writes a line only when non-empty. A write failure must never break a post
+ * (the route wraps this in a try too), so it is caught -- but NOT silently: a
+ * detector whose log stopped writing has silently stopped measuring, which
+ * defeats its whole purpose, so the failure is surfaced on stderr. `console.error`
+ * cannot itself break the post (the response is already sent by the time the
+ * route calls this), so the guarantee holds.
  */
 function noteMisrouteSuspect(sessionName, targetProjectId, now) {
   const owed = misrouteSuspects(sessionName, targetProjectId, now);
@@ -1808,7 +1822,10 @@ function noteMisrouteSuspect(sessionName, targetProjectId, now) {
       owed,
       at: new Date(Number.isFinite(now) ? now : Date.now()).toISOString(),
     }) + '\n');
-  } catch { /* observability must never break a post */ }
+  } catch (err) {
+    // Surfaced, not swallowed: a silently unwritable log = silently unmeasured.
+    console.error('#3224: could not write the misroute-suspect log (the post is unaffected, but this suspect went unrecorded):', (err && err.message) || err);
+  }
   return owed;
 }
 
