@@ -6714,6 +6714,31 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
   };
 }
 
+/* #3216: the RAW total of project DM-unread across ACTIVE (non-archived) projects, for the
+   always-polled /api/status so a cross-tab Projects nav badge stays fresh without the
+   visibility-gated projects poll. ONE derivation with the client's pjDmTotal (web/index.html):
+   both sum the SAME `messages.unreadAll()` map over the SAME active set. `projects` is
+   projects.readAll() (list() is readAll().map(describe), a 1:1 map, so readAll's non-archived
+   rows are exactly the client's `active` rows, sub-projects included); `unreadMap` is
+   messages.unreadAll() (id -> n, or null when the record/cursor is unreadable). Pure and total.
+
+   RAW, deliberately: the client's pjDmTotal EXCLUDES the open project (PJ_CURRENT), but the
+   server cannot know which project is open (client UI state), so it sends the honest raw total
+   and the client subtracts the open room's unread in tick() (clamped >= 0) for exact parity.
+   Unknown -> 0: a null unreadMap (unreadable messages) sums to 0, matching pjDmTotal's
+   `Number.isFinite(v) && v>0 ? v : 0`, so a missing bubble never shows a phantom badge. */
+function projectsUnreadTotal(projects, unreadMap) {
+  if (!unreadMap || typeof unreadMap !== 'object') return 0;
+  if (!Array.isArray(projects)) return 0;
+  let total = 0;
+  for (const p of projects) {
+    if (!p || p.archived === true) continue;
+    const v = Number(unreadMap[p.id]);
+    if (Number.isFinite(v) && v > 0) total += v;
+  }
+  return total;
+}
+
 // `transcriptFor` is exported for the instructions module, which needs a
 // session start time. It resolves by session id rather than by guessing a
 // directory from the agent's name, for the reason its own comment gives: a
@@ -6810,7 +6835,7 @@ module.exports = {
   NO_READING,
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
-  countAgents, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
+  countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   codexLastCompletionAt,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
