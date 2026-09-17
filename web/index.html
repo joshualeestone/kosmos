@@ -4372,7 +4372,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      the "Remove a member" door. The buttons are the ones already wired
      (#pj-add-member, #pj-newtask); only their place and their size change,
      and the accessible name keeps the words. */
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+  /* #3218: these header-grid rules used to also target .pjcard-members, but the Members card is
+     display:none in the consolidated view now, so that half was dead. Scoped to #pj-tasks-field only
+     (the tab view keeps its own .pjcard-members rules under body:not(.consolidated)). */
+  html[data-layout="consolidated"] body.consolidated #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
   /* 🔑 THE PLUS GOES LEFT OF THE TASKS LABEL (kosmos#1303 H). Josh: "On the tasks
      let's put the plus on the left side of the tasks label so it matches agents
      and projects."
@@ -4398,12 +4401,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      rail is 48px of column and the label is gone, so a + still sitting there is
      an action with nothing visible to act on. The arrow that unfolds it stays. */
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents-new { display: none; } /* #3126: was a shared rule with fold-p #rail-projects-new; projects no longer folds */
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > *, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .dlab, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
+  html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
   html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem > span, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
   html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem:hover, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .pj-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
+  html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
   /* #3218 increment 5: View All rides the section HEADER, pinned far-right and always visible (Josh),
      instead of sitting under the list where it scrolled away. The base .pj-viewall (full-width,
      centered, shared with the tab view) is left untouched; these consolidated-only rules right-align
@@ -11549,8 +11552,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <!-- Josh, 2026-09-10 (#2711 item 13): just "Files". Still the
              project folder, top level, newest first, as the comment above says. -->
         <h3 class="dlab">Files</h3>
-        <div id="pj-docs" class="pj-docs"></div>
-        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
+        <!-- #3218: View-All sits right after the header (before the list) so keyboard focus reaches
+             it in reading order. The consolidated view grids it into the header row far-right; being
+             DOM-early keeps tab order matching that visual position (WCAG 2.4.3). The tab view then
+             shows it just under the header rather than at the bottom. -->
         <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
              view-all that opens a SCREEN listing everything. That screen is a
              later slice; this control does something real and says exactly what
@@ -11559,6 +11564,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              opened the in-app Documents view since #134 landed, while the
              words still promised Finder. Finder lives INSIDE that view. -->
         <button class="linkish pj-viewall" id="pj-docs-all" type="button" hidden>View All</button>
+        <div id="pj-docs" class="pj-docs"></div>
+        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
       </div>
     </aside>
 
@@ -11790,7 +11797,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="field" id="pj-tasks-field">
       <h3 class="dlab">Tasks</h3>
       <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
-      <div class="tkcards" id="pj-tasklist"></div>
+      <!-- #3218: the View-All door sits in the DOM right after the header controls (before the
+           list), so keyboard focus reaches it in reading order. The consolidated view grids it into
+           the header row (top-right); DOM-early keeps tab order matching that visual position (WCAG
+           2.4.3, the kosmos#1017 class). In the tab view it then shows just under the header rather
+           than at the bottom -- consistent with the consolidated header placement. -->
       <!-- The door, pack rule: the column is a task with somebody on it that
            is not finished; finished and unpicked are both real and both
            behind this. v1's door reveals them in place (there is no
@@ -11798,6 +11809,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            same-project Back-and-return (the page's round-31 rule) and
            resets on a project SWITCH. -->
       <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
+      <div class="tkcards" id="pj-tasklist"></div>
     </div>
     </aside>
     </div>
