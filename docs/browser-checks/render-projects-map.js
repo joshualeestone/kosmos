@@ -294,6 +294,37 @@ function check(name, pass, detail) {
   });
   check('#3217: an off-tab repaint preserves the fit (offsetParent guard, does not wipe zoom)',
     offtab.hadPanel && offtab.before !== '' && offtab.after === offtab.before, JSON.stringify(offtab));
+  // #3217 (blind-review WARNING): a tree that is BOTH wide AND deep enough to trip the wrap's own
+  // vertical scrollbar (max-height 620px) at natural size exercises the scrollbar-vs-fit
+  // interaction. avail is read at natural size (scrollbar present -> reduced), so the fit is
+  // computed against the true usable width; assert the scenario is real (tall at natural) and that
+  // the fit still lands inside the panel horizontally (no residual overflow).
+  const deep = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    for (let t = 0; t < 12; t++) {   // width: exceed the panel
+      PROJECTS.push({ id: 't' + t, name: 'Top Project ' + (t + 1), parent: null, archived: false, summary: { total: 1 } });
+    }
+    let parent = 't0';               // depth: a long chain to cross the 620px vertical cap
+    for (let d = 0; d < 16; d++) {
+      const id = 'd' + d;
+      PROJECTS.push({ id, name: 'Depth ' + (d + 1), parent, archived: false, summary: { total: 1 } });
+      parent = id;
+    }
+    LAST.length = 0; LAST.push({ sessionName: 's1' });
+    PJ_MAP_FOLDED.clear();
+    paintProjectsMap();
+    const map = document.getElementById('pj-map');
+    const org = map.querySelector('.pjorg');
+    org.style.zoom = '';                                        // natural size
+    const naturalTall = map.scrollHeight > map.clientHeight;    // vertical scrollbar present at natural?
+    pjMapFit();                                                 // apply the fit (reads avail at natural)
+    return { naturalTall, scrollWidthAfter: map.scrollWidth, clientWidthAfter: map.clientWidth,
+      zoom: org.style.zoom || '1' };
+  });
+  check('#3217: a deep tree trips the vertical scrollbar at natural size (deep+wide scenario is exercised)',
+    deep.naturalTall, JSON.stringify(deep));
+  check('#3217: a deep AND wide tree still fits horizontally after the fit (scrollbar interaction converges)',
+    deep.scrollWidthAfter <= deep.clientWidthAfter + 1, JSON.stringify(deep));
   check('the Map toggle is gated on sub-projects existing (flat=off, tree=on)',
     adds.flatHasTree === false && adds.treeHasTree === true, JSON.stringify({ flat: adds.flatHasTree, tree: adds.treeHasTree }));
 
