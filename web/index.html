@@ -3161,7 +3161,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
    tests anchor on the media line being immediately followed by the body
    rule. */
 @media (min-width: 960px) {
-  html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 15%) minmax(0, 1fr);
+  html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 16.6%) minmax(0, 1fr);   /* #3218: Agents col fixed 16.6% of viewport */
     /* Zero gap, not 18px: the agents and projects rails sit flush at their
        shared rule, the way two columns of one surface should -- the
        discussion gets its breathing room from its own padding instead. */
@@ -3712,7 +3712,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      both run the panel's full height, so the columns and their rules
      reach the bottom edge. The height chain (min-height:0 at every rung)
      is what lets each region scroll inside itself instead of pushing. */
-  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 19.9%) minmax(0, 1fr); column-gap: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); }   /* #3218: Projects 19.9% of the 83.4% panel == 16.6% viewport; gap 0 so the fraction is exact (dialog gets breathing room from its own padding, like the body rails) */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   /* The webkit companion, same as #alist's: the app ships in a WKWebView
      and older WebKit ignores scrollbar-width alone. */
@@ -4047,7 +4047,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      which is the signature of correct tracking and a wrong intercept, so the 24px is
      added back. Measured after: 200/200, 200/200, 240/240, 288/288 at 1100, 1280,
      1600 and 1920. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(224px, calc(15vw + 24px)); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(200px, 24.85%); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }   /* #3218: right col 24.85% of the 66.8% pj3 == 16.6% viewport (supersedes the #1189 15vw+24px agents-match tuning); conversation (1fr) lands ~50% viewport */
   /* 🛑 `stretch`, NOT `start`, AND THIS ONE OVERLAPPED CARDS ON A SMALL LAPTOP.
      With `start` a card is never sized to its track: its height is its own
      content clamped by the 38vh cap. But the two `minmax(0, auto)` tracks have a
