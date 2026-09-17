@@ -394,6 +394,64 @@ test('#3229: a service that advertises ranges then ignores them falls back to a 
   assert.ok(rangeRequests > 0, 'the parallel path should have attempted at least one Range request before falling back');
 });
 
+test('#3229: an assembly write error rejects cleanly instead of crashing the process', async (t) => {
+  /**
+   * The concat step that assembles the `.part.<i>` segments into `part` writes
+   * ~214MB; a write error there (ENOSPC/EIO) must REJECT, never emit an
+   * unhandled 'error' that takes the whole board process down. Triggered
+   * deterministically by pre-creating `part` as a DIRECTORY, so the concat
+   * createWriteStream fails -- reached only via the range/parallel path, so the
+   * stub honours ranges. Red-capable: without a persistent error listener on the
+   * assembly stream, the unhandled 'error' crashes the test runner rather than
+   * failing this assertion.
+   */
+  const version = '9.9.0';
+  const key = connect.platformKey();
+  const total = 9 * 1024 * 1024;               // > 8MB so it splits and assembles
+  const binary = crypto.randomBytes(total);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  const server = http.createServer((req, res) => {
+    if (req.url === '/latest') {
+      const b = Buffer.from(version); res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
+    }
+    if (req.url === `/${version}/manifest.json`) {
+      const b = Buffer.from(JSON.stringify({ platforms: { [key]: { checksum } } }));
+      res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
+    }
+    if (req.url === `/${version}/${key}/claude`) {
+      const range = req.headers.range;
+      if (!range) { res.writeHead(200, { 'content-length': String(total), 'accept-ranges': 'bytes' }); res.end(); return; }
+      const m = /^bytes=(\d+)-(\d+)$/.exec(range);
+      if (!m) { res.writeHead(416); res.end(); return; }
+      const start = Number(m[1]); const end = Number(m[2]);
+      const slice = binary.subarray(start, end + 1);
+      res.writeHead(206, { 'content-length': String(slice.length), 'content-range': `bytes ${start}-${end}/${total}`, 'accept-ranges': 'bytes' });
+      res.end(slice);
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => { server.listen(0, '127.0.0.1', r); });
+  t.after(() => server.close());
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
+  fs.mkdirSync(dir, { recursive: true });
+  const partDir = nodePath.join(dir, `claude-${version}-${key}.part`);
+  // Occupy `part`'s path with a DIRECTORY so the assembly write stream fails.
+  fs.mkdirSync(partDir, { recursive: true });
+  // A directory cannot be unlinked by any later test's dir-sweep, so clean it
+  // (and any segment files) here rather than leaking it across tests.
+  t.after(() => {
+    try { fs.rmSync(partDir, { recursive: true, force: true }); } catch { /* gone */ }
+    try { for (const f of fs.readdirSync(dir)) if (f.includes(version)) fs.rmSync(nodePath.join(dir, f), { recursive: true, force: true }); } catch { /* gone */ }
+  });
+
+  await assert.rejects(() => connect.download(), /EISDIR|illegal operation on a directory|did not match its checksum/,
+    'an assembly write failure must reject, not crash');
+});
+
 test('a download service answering nonsense is an error, not a hang', async (t) => {
   const server = http.createServer((req, res) => { res.writeHead(200); res.end('<html>maintenance</html>'); });
   await new Promise((r) => { server.listen(0, '127.0.0.1', r); });

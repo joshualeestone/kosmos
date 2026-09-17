@@ -931,15 +931,34 @@ async function fetchResumableParallel(url, part, total, onProgress, track) {
   // Concatenate the segments in order into `part` (truncating any prior `part`).
   const outAll = fs.createWriteStream(part);
   try {
-    for (const s of segs) {
-      await new Promise((resolve, reject) => {
-        const rs = fs.createReadStream(s.file);
-        rs.on('error', reject);
-        rs.on('end', resolve);
-        rs.pipe(outAll, { end: false });
-      });
-    }
-    await new Promise((resolve, reject) => { outAll.on('error', reject); outAll.end(resolve); });
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      let currentRs = null;
+      // ONE persistent error handler for the whole assembly. A write error
+      // (ENOSPC/EIO while writing ~214MB) must REJECT here, never surface as an
+      // unhandled 'error' on outAll -- which, with no listener attached during
+      // the per-segment pipe loop, would crash the whole board process. Mirrors
+      // fetchFile/fetchSegment's destroy-and-settle-once discipline.
+      const fail = (e) => {
+        if (settled) return; settled = true;
+        if (currentRs) { try { currentRs.destroy(); } catch { /* already closed */ } }
+        reject(e);
+      };
+      outAll.on('error', fail);
+      (async () => {
+        for (const s of segs) {
+          if (settled) return;
+          await new Promise((res, rej) => {
+            const rs = fs.createReadStream(s.file);   // autoClose closes rs's own fd
+            currentRs = rs;
+            rs.on('error', rej);
+            rs.on('end', res);
+            rs.pipe(outAll, { end: false });
+          });
+        }
+        if (!settled) outAll.end(() => { if (!settled) { settled = true; resolve(); } });
+      })().catch(fail);
+    });
   } finally { try { outAll.destroy(); } catch { /* already closed */ } }
 }
 
