@@ -691,6 +691,31 @@ function fetchFile(url, dest, onProgress, redirects, track) {
         reject(new Error(`the download service answered ${res.statusCode}`));
         return;
       }
+      /**
+       * #3229: if the service advertises byte-range support with a known size,
+       * abort this single stream and fetch RESUMABLE + PARALLEL ranges instead
+       * -- downloads.claude.ai (GCS) honours accept-ranges, so an interrupted
+       * ~214MB fetch continues its `.part.<i>` segments rather than restarting
+       * from zero. A service that does NOT advertise ranges -- and every test
+       * stub, none of which send accept-ranges -- falls straight through to the
+       * single stream below, byte-for-byte the pre-#3229 behaviour (one GET, the
+       * `.part` open queued at the same moment). The sha over the assembled file
+       * is the single correctness gate for either path, so a corrupt resume
+       * fails it and (download() discarding `part` + its segments) restarts
+       * clean. `responded` is set first so the tracked req's teardown here never
+       * races the delayed-reject path onto an already-resolved promise.
+       */
+      const advertised = Number(res.headers['content-length']);
+      const rangeOk = String(res.headers['accept-ranges'] || '').toLowerCase().includes('bytes')
+        && Number.isFinite(advertised) && advertised > 0;
+      if (rangeOk) {
+        responded = true;
+        res.on('error', () => { /* aborting this stream on purpose; ignore its teardown noise */ });
+        res.resume();
+        try { req.destroy(); } catch { /* already ending */ }
+        resolve(fetchResumableParallel(url, dest, advertised, onProgress, track));
+        return;
+      }
       const total = Number(res.headers['content-length']) || null;
       const hash = crypto.createHash('sha256');
       const out = fs.createWriteStream(dest);
@@ -751,6 +776,143 @@ function fetchFile(url, dest, onProgress, redirects, track) {
 }
 
 let activeRequest = null;
+
+/**
+ * #3229: parallel range fetches register their live request handles here so a
+ * cancel aborts EVERY in-flight segment, not just the single-stream
+ * activeRequest. Each request adds itself on start and removes itself on close.
+ */
+const activeRequests = new Set();
+function trackReq(req) { activeRequests.add(req); req.once('close', () => activeRequests.delete(req)); }
+function abortAllRequests() {
+  // #3229: abort the single stream AND every parallel segment.
+  if (activeRequest) { try { activeRequest.destroy(); } catch { /* already ended */ } activeRequest = null; }
+  for (const r of activeRequests) { try { r.destroy(); } catch { /* already ended */ } }
+  activeRequests.clear();
+}
+
+/**
+ * #3229: fetch one inclusive byte range [start,end] to `segPath`, APPENDING, so
+ * a resumed segment continues from what already landed instead of restarting.
+ * The caller asks only for the missing tail. Expects 206; a 200 (range ignored,
+ * whole body) is treated as an error so the caller can fall back rather than
+ * append an oversized body. Redirects carry the Range header. onChunk(n) reports
+ * bytes for the shared total.
+ */
+function fetchSegment(url, segPath, start, end, onChunk, track, redirects) {
+  const left = redirects === undefined ? 5 : redirects;
+  return new Promise((resolve, reject) => {
+    let u, lib;
+    try { u = new URL(url); lib = u.protocol === 'http:' ? http : https; }
+    catch (e) { reject(e); return; }
+    const req = lib.get(u, { headers: { Range: `bytes=${start}-${end}` } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && left > 0) {
+        res.resume();
+        if (redirectDowngrades(url, res.headers.location)) { reject(new Error('the download service redirected to an insecure address, so we stopped')); return; }
+        resolve(fetchSegment(new URL(res.headers.location, url).toString(), segPath, start, end, onChunk, track, left - 1));
+        return;
+      }
+      if (res.statusCode !== 206) {
+        res.resume();
+        reject(new Error(`the download service did not honour a byte range (answered ${res.statusCode})`));
+        return;
+      }
+      const out = fs.createWriteStream(segPath, { flags: 'a' });
+      let settled = false;
+      const fail = (e) => {
+        if (settled) return; settled = true;
+        try { out.destroy(); } catch { /* already closed */ }
+        if (out.closed) reject(e); else out.on('close', () => reject(e));
+      };
+      res.on('data', (c) => { if (onChunk) onChunk(c.length); });
+      res.on('error', fail);
+      out.on('error', fail);
+      res.pipe(out);
+      out.on('finish', () => { if (settled) return; settled = true; resolve(); });
+    });
+    req.setTimeout(600000, () => { req.destroy(new Error('the download stalled')); });
+    req.on('error', reject);
+    trackReq(req);
+    if (track) track(req);
+  });
+}
+
+/**
+ * #3229: resumable + parallel-range download of `url` into `part`, using the
+ * total fetchFile read from the response's content-length. The file is split
+ * into up to N contiguous segments,
+ * each its own APPEND-ONLY `.part.<i>` (so a drop resumes per-segment with no
+ * holes); segments run with bounded concurrency, then concatenate in order into
+ * `part`. The caller verifies sha256 over `part` -- the single correctness gate
+ * -- so a corrupt resume fails there and (the caller discarding `part`) restarts
+ * clean. Concurrency defaults to 4, overridable via
+ * AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY, and a small file is never split.
+ */
+async function fetchResumableParallel(url, part, total, onProgress, track) {
+  const envC = Number(process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY);
+  const C = Math.max(1, Math.min(Number.isFinite(envC) && envC > 0 ? envC : 4, 8));
+  const segCount = total < 8 * 1024 * 1024 ? 1 : C;   // do not split a small file
+  const segLen = Math.ceil(total / segCount);
+  const segs = [];
+  for (let i = 0; i < segCount; i++) {
+    const start = i * segLen;
+    if (start >= total) break;
+    const end = Math.min(start + segLen, total) - 1;   // inclusive
+    segs.push({ i, start, end, len: end - start + 1, file: `${part}.${i}` });
+  }
+  let got = 0;
+  for (const s of segs) { try { got += Math.min(fs.statSync(s.file).size, s.len); } catch { /* none yet */ } }
+  const bump = (n) => { got += n; if (onProgress) { try { onProgress(got, total); } catch { /* best-effort */ } } };
+  if (onProgress) { try { onProgress(got, total); } catch { /* best-effort */ } }
+
+  const runOne = async (s) => {
+    let have = 0;
+    try { have = fs.statSync(s.file).size; } catch { /* none yet */ }
+    if (have > s.len) { try { fs.truncateSync(s.file, 0); } catch { try { fs.unlinkSync(s.file); } catch { /* gone */ } } have = 0; }
+    if (have >= s.len) return;   // this segment already complete
+    await fetchSegment(url, s.file, s.start + have, s.end, bump, track);
+    const after = (() => { try { return fs.statSync(s.file).size; } catch { return 0; } })();
+    if (after !== s.len) throw new Error('a download segment did not arrive complete');
+  };
+
+  const queue = segs.slice();
+  const width = Math.min(C, queue.length);
+  let failed = null;
+  const workers = [];
+  for (let w = 0; w < width; w++) {
+    workers.push((async () => {
+      while (queue.length && !failed) {
+        const s = queue.shift();
+        try { await runOne(s); } catch (e) { failed = failed || e; }
+      }
+    })());
+  }
+  await Promise.all(workers);
+  if (failed) throw failed;
+
+  // Concatenate the segments in order into `part` (truncating any prior `part`).
+  const outAll = fs.createWriteStream(part);
+  try {
+    for (const s of segs) {
+      await new Promise((resolve, reject) => {
+        const rs = fs.createReadStream(s.file);
+        rs.on('error', reject);
+        rs.on('end', resolve);
+        rs.pipe(outAll, { end: false });
+      });
+    }
+    await new Promise((resolve, reject) => { outAll.on('error', reject); outAll.end(resolve); });
+  } finally { try { outAll.destroy(); } catch { /* already closed */ } }
+}
+
+/* #3229: remove a download's segment files (`<part>.0`, `<part>.1`, ...). */
+function cleanupSegments(part) {
+  try {
+    const d = path.dirname(part);
+    const prefix = path.basename(part) + '.';
+    for (const f of fs.readdirSync(d)) if (f.startsWith(prefix)) fs.unlinkSync(path.join(d, f));
+  } catch { /* nothing to clean */ }
+}
 
 /* The manifest/URL key for the Claude Code build to fetch: `<os>-<arch>`, matching
    downloads.claude.ai's manifest.platforms keys (darwin-x64/darwin-arm64/win32-x64/
@@ -862,16 +1024,23 @@ async function download(onProgress, track, platform = process.platform) {
      path.basename(dest)/`claude-` and so handle either name unchanged. */
   const dest = path.join(dir, `claude-${version}-${plat}${isWin ? '.exe' : ''}`);
   const part = `${dest}.part`;
-  try { fs.unlinkSync(part); } catch { /* no partial to discard */ }
+  // #3229: DO NOT discard a same-version partial here any more -- a `.part` (and
+  // its `.part.<i>` segments) is exactly what the resumable path continues from.
+  // The sweep below still removes every OTHER version's leftovers; the
+  // single-stream fallback discards the partial itself when it cannot resume,
+  // and the final sha gate discards a corrupt resume so the next attempt is clean.
   /**
    * ⚠️ And every OTHER version's leftovers. A server death between a
    * download's rename and its install strands a verified binary that only a
    * same-version retry or a cancel would clean -- a version bump before the
    * retry stranded ~281MB permanently. Every fresh download owns the dir.
    */
+  const keepDuringSweep = new Set([path.basename(dest), path.basename(part)]);
+  const partSegPrefix = path.basename(part) + '.';   // `.part.<i>` segment files
   try {
     for (const f of fs.readdirSync(dir)) {
-      if ((f.startsWith('claude-') || f.endsWith('.part')) && f !== path.basename(dest)) {
+      if (keepDuringSweep.has(f) || f.startsWith(partSegPrefix)) continue;
+      if (f.startsWith('claude-') || f.endsWith('.part')) {
         fs.unlinkSync(path.join(dir, f));
       }
     }
@@ -895,16 +1064,29 @@ async function download(onProgress, track, platform = process.platform) {
     }
   } catch { /* any read/hash trouble: fall through to a fresh download */ }
 
-  const got = await fetchFile(`${base}/${version}/${plat}/${isWin ? 'claude.exe' : 'claude'}`, part, onProgress, undefined, track);
+  const url = `${base}/${version}/${plat}/${isWin ? 'claude.exe' : 'claude'}`;
+  // #3229: fetchFile self-selects on the response headers. A service that
+  // advertises byte ranges (downloads.claude.ai / GCS) downloads RESUMABLE +
+  // PARALLEL, continuing any `.part.<i>` segments an interrupted attempt left;
+  // a service that ignores ranges (and every test stub) streams once from the
+  // start, exactly as before -- its createWriteStream(part) truncates any stale
+  // partial. Both assemble into `part`, and the sha below is the single
+  // correctness gate for either.
+  await fetchFile(url, part, onProgress, undefined, track);
   activeRequest = null;
-  if (got.sha256 !== want) {
+  if (sha256File(part) !== want) {
+    // A resumed or parallel-assembled file that does not verify is discarded
+    // WHOLE -- with its segments -- so the next attempt restarts clean rather
+    // than resuming a corrupt tail.
     try { fs.unlinkSync(part); } catch { /* already gone */ }
+    cleanupSegments(part);
     throw new Error('the downloaded file did not match its checksum, so it was not kept');
   }
   // chmod is a POSIX no-op on Windows (an .exe is runnable by extension); guard it
   // off there so the code says what it means. On darwin the launcher must be +x.
   if (!isWin) fs.chmodSync(part, 0o755);
   fs.renameSync(part, dest);
+  cleanupSegments(part);   // #3229: the assembled binary is placed; drop segments
   return { path: dest, version };
 }
 
@@ -3016,7 +3198,7 @@ function becomeStuck(owner, because, tail) {
      parked on the await that brought it here. */
   flowDir = owner.configDir || null;
   if (d && d.timer) clearInterval(d.timer);
-  if (activeRequest) { try { activeRequest.destroy(); } catch { /* already ended */ } activeRequest = null; }
+  abortAllRequests();   // #3229: aborts the single stream AND every parallel segment
   if (activeChild) { try { activeChild.kill(); } catch { /* already exited */ } activeChild = null; }
   killSession(owner); // fire-and-forget: neither host's kill ever rejects
   /**
@@ -3110,7 +3292,7 @@ async function cancel() {
      CLAIMED the driver stops the write entirely via the guard below.) */
   flowDir = null;
   if (d && d.timer) clearInterval(d.timer);
-  if (activeRequest) { try { activeRequest.destroy(); } catch { /* already ended */ } activeRequest = null; }
+  abortAllRequests();   // #3229: aborts the single stream AND every parallel segment
   if (activeChild) { try { activeChild.kill(); } catch { /* already exited */ } activeChild = null; }
   await killSession(d);
   /**

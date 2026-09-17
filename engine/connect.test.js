@@ -238,6 +238,112 @@ test('a checksum mismatch is refused, and nothing runnable is kept', async (t) =
   assert.deepEqual(leftovers, [], `the unverified download survived: ${leftovers.join(', ')}`);
 });
 
+test('#3229: a range-capable download resumes a partial segment, and the sha gate discards a corrupt resume', async (t) => {
+  /**
+   * #3229 END TO END for the RESUMABLE + PARALLEL path. `serveRelease` above
+   * ignores Range (200, no accept-ranges), so every other download test drives
+   * the single-stream fallback. This stub is the OTHER half: it advertises
+   * accept-ranges and answers 206 to a Range, exactly as downloads.claude.ai
+   * (GCS) does, so download() splits the fetch into parallel byte-range
+   * segments. Two things are proven against it:
+   *   1. RESUME: a fully-downloaded segment left on disk is NOT re-fetched --
+   *      the server serves only the missing bytes -- and the assembled file
+   *      still verifies and lands executable at dest.
+   *   2. THE SHA GATE IS RED-CAPABLE: a segment of the right LENGTH but WRONG
+   *      bytes (a corrupt resume) is skipped by the per-segment resume, so only
+   *      the final sha over the whole file catches it; download() then rejects
+   *      and discards the partial AND its segments, so the next attempt is clean.
+   */
+  const C = 4;
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY = String(C);
+  const version = '9.9.3';
+  const key = connect.platformKey();
+  const total = 10 * 1024 * 1024;              // > 8MB, so it splits into C segments
+  const binary = crypto.randomBytes(total);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+
+  let served = 0;                              // bytes the server actually sent as ranges
+  const server = http.createServer((req, res) => {
+    if (req.url === '/latest') {
+      const b = Buffer.from(version);
+      res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
+    }
+    if (req.url === `/${version}/manifest.json`) {
+      const b = Buffer.from(JSON.stringify({ platforms: { [key]: { checksum } } }));
+      res.writeHead(200, { 'content-length': b.length }); res.end(b); return;
+    }
+    if (req.url === `/${version}/${key}/claude`) {
+      const range = req.headers.range;
+      if (!range) {
+        // Plain GET: advertise ranges and the size, then let the client abort
+        // and switch to parallel ranges. GCS would send the whole body here; the
+        // client reads only the headers before aborting, so an empty body is a
+        // faithful enough stand-in for what download() actually consumes.
+        res.writeHead(200, { 'content-length': String(total), 'accept-ranges': 'bytes' });
+        res.end();
+        return;
+      }
+      const m = /^bytes=(\d+)-(\d+)$/.exec(range);
+      if (!m) { res.writeHead(416); res.end(); return; }
+      const start = Number(m[1]);
+      const end = Number(m[2]);
+      const slice = binary.subarray(start, end + 1);
+      served += slice.length;
+      res.writeHead(206, {
+        'content-length': String(slice.length),
+        'content-range': `bytes ${start}-${end}/${total}`,
+        'accept-ranges': 'bytes',
+      });
+      res.end(slice);
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => { server.listen(0, '127.0.0.1', r); });
+  t.after(() => server.close());
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+  t.after(() => {
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_CONCURRENCY;
+  });
+
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
+  fs.mkdirSync(dir, { recursive: true });
+  const part = nodePath.join(dir, `claude-${version}-${key}.part`);
+  // The segment layout download() will use, replicated here so we can pre-seed
+  // ONE segment. It is coupled to the implementation on purpose: a wrong layout
+  // seeds wrong bytes, and the sha gate then FAILS this test loudly rather than
+  // passing it -- the assertion cannot silently rot into vacuity.
+  const segLen = Math.ceil(total / C);
+  const seg0 = binary.subarray(0, Math.min(segLen, total));
+
+  // --- 1. RESUME: pre-seed segment 0 in full; the server must serve only the rest.
+  fs.writeFileSync(`${part}.0`, seg0);
+  const got = await connect.download();
+  assert.equal(got.version, version);
+  const onDisk = fs.readFileSync(got.path);
+  assert.equal(crypto.createHash('sha256').update(onDisk).digest('hex'), checksum,
+    'the resumed + assembled binary is not what was served');
+  assert.ok(fs.statSync(got.path).mode & 0o100, 'the binary is not executable');
+  assert.equal(served, total - seg0.length,
+    'resume must fetch only the missing bytes, not re-download the seeded segment');
+  const after1 = fs.readdirSync(dir).filter((f) => f.includes('.part'));
+  assert.deepEqual(after1, [], `segments/partials survived a successful download: ${after1.join(', ')}`);
+
+  // --- 2. SHA GATE RED-CAPABLE: seed segment 0 with the right LENGTH but wrong
+  // bytes. Per-segment resume skips a full-length segment, so ONLY the final sha
+  // catches the corruption; download() must reject and discard everything.
+  fs.rmSync(got.path, { force: true });
+  served = 0;
+  const corrupt = Buffer.from(seg0); corrupt[0] ^= 0xff;   // same length, wrong content
+  fs.writeFileSync(`${part}.0`, corrupt);
+  await assert.rejects(() => connect.download(), /did not match its checksum/,
+    'a corrupt resume must fail the sha gate');
+  const after2 = fs.readdirSync(dir).filter((f) => f.includes(version));
+  assert.deepEqual(after2, [],
+    `a corrupt resume left files behind instead of restarting clean: ${after2.join(', ')}`);
+});
+
 test('a download service answering nonsense is an error, not a hang', async (t) => {
   const server = http.createServer((req, res) => { res.writeHead(200); res.end('<html>maintenance</html>'); });
   await new Promise((r) => { server.listen(0, '127.0.0.1', r); });
