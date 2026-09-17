@@ -525,28 +525,21 @@ func fileAccessReading() -> Bool {
     }
     let home = FileManager.default.homeDirectoryForCurrentUser
     // #3188 DIAG (observation-only; the RETURN is unchanged). The fresh-ungranted test20 read
-    // showed granted:true with NO TCC event, which the enumerate-based verdict cannot explain.
-    // These lines pin the mechanism without changing behaviour: (1) the RESOLVED home, to catch a
-    // redirected/container home under the launchd/app-exe hatch (then the probe never touches the
-    // real protected trio); (2) the per-folder enumerate outcome; (3) a NON-MUTATING errno probe
-    // of a non-existent path in each folder, logged as the RAW errno. resolvedHome and the
-    // enumerate outcome are the PRIMARY, premise-free signals; the errno probe is a weaker,
-    // premise-DEPENDENT one, so do not over-read it: IF macOS evaluates TCC before existence then
-    // EPERM(1)/EACCES(13) means a real read would be DENIED (the enumerate verdict is a false
-    // positive) and ENOENT(2) means TCC allows the read; but if macOS resolves existence FIRST for
-    // a missing file it returns ENOENT regardless of TCC, so a clean ENOENT does NOT by itself
-    // prove genuine access. The raw errno is logged verbatim precisely so that premise stays
-    // checkable rather than assumed. The errno probe works on a fresh box's EMPTY folders, where no
-    // real file exists to head-read (the definitive gated op). Grep board.log for
-    // `DIAG_DEBUG fileaccess #3188`. Removed when the fix lands.
-    logLine("DIAG_DEBUG fileaccess #3188 resolvedHome=\(home.path)")
+    // showed granted:true with NO TCC event, which the enumerate-based verdict cannot explain. This
+    // records the RESOLVED home (to catch a redirected/container home under the launchd/app-exe
+    // hatch, which would mean the probe never touches the real protected trio) and the per-folder
+    // enumerate outcome. Both are premise-free signals. It is written to a store-dir FILE (see
+    // writeFileAccessDiag), NOT via logLine(): logLine targets the app log, which does not exist on
+    // a real install, so those lines would be silently dropped; the store dir is the proven channel
+    // (file-access-status.json lands and is read there on test20). Removed when the fix lands.
+    var diag = ["#3188 fileAccessReading diag", "resolvedHome=\(home.path)"]
     // The three folders Screen 2's dialogs govern. Desktop/Documents/Downloads are the
     // TCC-protected trio agent files live in; enumerating each triggers ITS OWN prompt
     // and measures ITS grant -- they are three separate TCC services.
     var allGranted = true
     for folder in ["Documents", "Downloads", "Desktop"] {
         let dir = home.appendingPathComponent(folder)
-        var enumResult = "ok"
+        let enumResult: String
         do {
             let entries = try FileManager.default.contentsOfDirectory(atPath: dir.path)
             enumResult = "ok(entries=\(entries.count))"
@@ -560,19 +553,9 @@ func fileAccessReading() -> Bool {
             allGranted = false
             enumResult = "THREW(domain=\(err.domain) code=\(err.code))"
         }
-        // #3188 DIAG: errno probe of a non-existent path (non-mutating; needs no real file). Read
-        // errno immediately after open(), before any other call can clobber it.
-        let probePath = dir.appendingPathComponent(".kosmos-tcc-probe-3188-nonexistent").path
-        let fd = open(probePath, O_RDONLY)
-        let probeResult: String
-        if fd >= 0 {
-            close(fd)
-            probeResult = "open-ok-unexpected"
-        } else {
-            probeResult = "errno=\(errno)"
-        }
-        logLine("DIAG_DEBUG fileaccess #3188 folder=\(folder) enumerate=\(enumResult) errnoProbe=\(probeResult)")
+        diag.append("folder=\(folder) path=\(dir.path) enumerate=\(enumResult)")
     }
+    writeFileAccessDiag(diag.joined(separator: "\n"))
     return allGranted
 }
 
@@ -595,6 +578,22 @@ func writeFileAccessStatus(granted: Bool) -> Bool {
         logLine("fileaccess: could not write file-access-status (\(error.localizedDescription))")
         return false
     }
+}
+
+// #3188 DIAG (temporary): write the fileAccessReading detail to a store-dir file the test20 re-run
+// can read. logLine() targets the app log ($KOSMOS_APP_LOG, else /tmp/kosmos-app-test/app.log),
+// which does not exist on a real install (createFile fails silently), so the diagnostic must use the
+// SAME store-dir channel writeFileAccessStatus uses -- file-access-status.json lands and is read
+// there on test20. Best-effort; never throws. Read it with:
+//   cat "$HOME/Library/Application Support/Kosmos/file-access-diag-3188.txt"
+// Removed when the fix lands.
+func writeFileAccessDiag(_ text: String) {
+    guard let url = storeFileURL("file-access-diag-3188.txt") else { return }
+    let at = ISO8601DateFormatter().string(from: Date())
+    let body = "at=\(at)\n\(text)\n"
+    try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                             withIntermediateDirectories: true)
+    try? body.write(to: url, atomically: true, encoding: .utf8)
 }
 
 // MARK: - #3 / #2125 follow-up: the import-scan TCC-root walk, done by the APP identity

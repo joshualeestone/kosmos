@@ -13,47 +13,50 @@ Three candidate causes, and the fix differs per cause, so we must pin it before 
 - (c) the hatch genuinely has access on test20 (granted:true honest).
 
 ## What finished looks like
-A diagnostic build in which every `fileAccessReading()` call logs, to board.log, enough to pin
-(a)/(b)/(c) from a single test20 re-run, WITHOUT changing the file-access verdict or behaviour.
+A diagnostic build in which `fileAccessReading()` writes, to a store-dir FILE the test20 re-run can
+read, the resolved home + per-folder enumerate outcome -- enough to distinguish cause (a) from
+not-(a) -- WITHOUT changing the file-access verdict or behaviour.
 
 ## Change (native-app/main.swift, `fileAccessReading()`, observation-only)
-- Log the RESOLVED home path once: `DIAG_DEBUG fileaccess #3188 resolvedHome=<path>` (catches (a):
-  a home != /Users/<user> explains everything).
-- Per folder (Documents/Downloads/Desktop), log: the enumerate outcome (`ok(entries=N)` or
-  `THREW(domain,code)`) and a NON-MUTATING errno probe of a non-existent path
-  (`open(<dir>/.kosmos-tcc-probe-3188-nonexistent, O_RDONLY)`): errno EPERM(1)/EACCES(13) => a real
-  READ would be DENIED here (enumerate verdict is a false positive => (b)); ENOENT(2) => TCC allows
-  the read, genuinely granted => (c). The errno probe works on a fresh box's EMPTY folders (no real
-  file needed), reading errno immediately after open() before any call can clobber it.
+- Record the RESOLVED home path (`resolvedHome=<path>`): catches (a), a home != /Users/<user> under
+  the launchd/app-exe hatch, which alone explains granted:true with no real protected-folder access.
+- Per folder (Documents/Downloads/Desktop), record the enumerate outcome: `ok(entries=N)` or
+  `THREW(domain,code)`.
+- Write it to a store-dir file via `writeFileAccessDiag` (`file-access-diag-3188.txt`), NOT via
+  `logLine()`. logLine targets the app log ($KOSMOS_APP_LOG, else /tmp/kosmos-app-test/app.log),
+  which does NOT exist on a real install, so those lines are silently dropped. The store dir is the
+  proven channel: `file-access-status.json` lands and is read there on test20.
 - The RETURN value is unchanged (still `allGranted` from the enumerate), so the current false-green
-  is preserved and measured; the fix (switch the probe to a read, or fix home resolution) is a
-  SEPARATE follow-up change once this diag names the cause.
+  is preserved and measured; the fix is a SEPARATE follow-up once the cause is named.
+- The errno-probe idea (open() on a non-existent path) was DROPPED after challenge-loop review: its
+  (b)-vs-(c) discrimination depended on an unverified premise (does macOS evaluate TCC before
+  existence), and open() on an undecided protected folder could itself block on a headless process
+  or fire extra TCC prompts. resolvedHome + enumerate are the premise-free, side-effect-free signals
+  that matter; (b) vs (c) is settled instead by placing a REAL file in a folder and reading it (the
+  definitive gated op) if the design still needs that distinction.
 
 ## Interpretation of the test20 re-run
-resolvedHome and the enumerate outcome are the PRIMARY, premise-free signals. The errno probe is a
-weaker, premise-DEPENDENT signal (see the caveat below) -- read it as corroboration, not proof.
-- resolvedHome != /Users/test20 -> (a): fix home resolution under the hatch. (Premise-free.)
-- resolvedHome ok, enumerate ok, errnoProbe EPERM/EACCES -> (b) LIKELY: a real read would be denied,
-  so the enumerate verdict is a false positive; the fix switches the probe to a content head-read
-  matching the scan (main.swift:571-577), which IS the gated op.
-- resolvedHome ok, enumerate ok, errnoProbe ENOENT -> INCONCLUSIVE between (c) and (b): ENOENT proves
-  genuine access ONLY IF macOS evaluates TCC before existence. If macOS resolves existence first for
-  a missing file it returns ENOENT regardless of TCC, so a clean ENOENT does not by itself prove (c).
-  To settle it, read a REAL file placed in the folder (the definitive gated op) rather than trusting
-  the non-existent-path errno.
+Read `file-access-diag-3188.txt` from the store dir alongside `file-access-status.json`:
+- resolvedHome != /Users/test20 -> (a): the hatch reads a redirected/container home and never
+  touches the real protected trio; fix home resolution under the hatch. (Premise-free.)
+- resolvedHome == /Users/test20 AND every enumerate `ok` with granted:true and an empty TCC log ->
+  the app-exe enumerate succeeds on the REAL folders without prompting. That is the core finding
+  (the app-exe path does not prompt), which is the evidence for switching to the under-tmux-agent
+  subject-flip fix (Josh's Approve-Access design) rather than tuning the app-exe probe. Whether that
+  is (b) enumerate-not-gated or (c) genuinely-granted is secondary once we switch subjects; if it
+  must be settled, place a real file in one folder and read it.
 
-### Caveat on the errno probe (challenge-loop iter 1, opus)
-The (b)-vs-(c) discrimination assumes macOS evaluates TCC before file existence, which is NOT
-verified here. The probe is deliberately on a NON-EXISTENT path (so it needs no real file and cannot
-mutate), which is why it is weaker than a head-read of a real file. Mitigations: the RAW errno is
-logged verbatim (a wrong premise is recoverable from the log), and resolvedHome + enumerate carry
-independent, premise-free signal. If the test20 run returns a clean ENOENT everywhere, do not
-conclude (c); place a real file in one protected folder and re-read to get the definitive verdict.
+## Design note (2026-09-17)
+Josh's direction settled on a real agent running UNDER tmux performing the actual folder + a11y
+access on the user's tap (tmux becomes the genuine TCC subject). So this diag's role is to CONFIRM
+the app-exe path false-greens (evidence to switch subjects), not to choose among app-exe probe
+patches. #3188 (folders) and #3113 (a11y) share that one subject-flip fix.
 
 ## Scope
 - Native-only (native-app/main.swift). No web/ change (browser-check gate chain does not fire), no
-  engine/JS change. Non-mutating (the errno probe opens O_RDONLY on a non-existent path; creates
-  nothing, reads no user data, logs no file contents -- only errno and entry counts).
+  engine/JS change. Side-effect-free: writes only to the app's own store dir (Application Support,
+  not a TCC-protected user folder), logs no file contents or user data (only the home path, folder
+  names, and entry counts).
 - Ships via the cut (tools/build-kosmos-bundle.sh:235 swiftc + codesign on the release machine);
   Splinter routes a fast staging build to test20. I do not distribute locally.
 
@@ -61,6 +64,7 @@ conclude (c); place a real file in one protected folder and re-read to get the d
 - LOCAL compile-check at the floor target (done): `swiftc -target arm64-apple-macos13.5 -O
   native-app/main.swift` -> exit 0, no warnings, binary produced. This is the pre-PR safeguard so
   the cut never fails on a Swift error; it does not exercise the diag (that needs the fresh box).
-- The real measurement is the test20 re-run after Baron's diag build; that pins (a)/(b)/(c).
+- The real measurement is the test20 re-run after Baron's diag build. After clicking Approve/grant
+  once, read: `cat "$HOME/Library/Application Support/Kosmos/file-access-diag-3188.txt"`.
 
 Addresses #3188
