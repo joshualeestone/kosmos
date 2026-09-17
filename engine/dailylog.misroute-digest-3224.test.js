@@ -8,7 +8,7 @@
  * [start,end) window (and refuses a non-YYYY-MM-DD string), and compileAll
  * threads a per-day count through to the written file.
  *
- *   node --test engine/dailylog.misroute-3224.test.js
+ *   node --test engine/dailylog.misroute-digest-3224.test.js
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

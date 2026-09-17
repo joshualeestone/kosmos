@@ -1859,10 +1859,13 @@ function suspectedMisrouteCount(sinceMs, untilMs) {
   const until = Number.isFinite(untilMs) ? untilMs : Infinity;
   const rows = rec.rows;
   // One pass: operator asks indexed by each TYPED addressed agent, and each
-  // agent's own room posts indexed by (agent, project). Same predicates the
+  // agent's own room posts indexed by agent then project. Same predicates the
   // inline double-scan used -- only the shape changes, not what qualifies.
   const asksByAgent = new Map();      // agent -> [{ project, askAt }]
-  const answersByKey = new Map();     // `${agent} ${project}` -> [postAtMs]
+  // agent -> (project -> [postAtMs]). A NESTED map, deliberately NOT a joined
+  // string key: with no delimiter there is no way for two distinct
+  // (agent, project) pairs to collide, and no delimiter byte to get wrong.
+  const answersByAgent = new Map();
   for (const m of rows) {
     if (!m || m.kind !== 'post') continue;
     if (m.operator === true) {
@@ -1881,12 +1884,11 @@ function suspectedMisrouteCount(sinceMs, untilMs) {
       if (!who || !m.project) continue;
       const at = Date.parse(m.at);
       if (!Number.isFinite(at)) continue;
-      // NUL delimiter (never a space): no session name or project id can contain
-      // it, so `${who}\0${project}` cannot collide across a name/project boundary
-      // -- the same reason pairKey uses NUL. Both build and lookup use it.
-      const key = who + ' ' + m.project;
-      if (!answersByKey.has(key)) answersByKey.set(key, []);
-      answersByKey.get(key).push(at);
+      let byProject = answersByAgent.get(who);
+      if (!byProject) { byProject = new Map(); answersByAgent.set(who, byProject); }
+      let times = byProject.get(m.project);
+      if (!times) { times = []; byProject.set(m.project, times); }
+      times.push(at);
     }
   }
   let count = 0;
@@ -1901,7 +1903,8 @@ function suspectedMisrouteCount(sinceMs, untilMs) {
     if (!asks) continue;
     const owes = asks.some((ask) => {
       if (ask.project === target || ask.askAt >= postAt) return false;  // DIFFERENT project, ask precedes post
-      const times = answersByKey.get(who + ' ' + ask.project);
+      const byProject = answersByAgent.get(who);
+      const times = byProject && byProject.get(ask.project);
       const answered = times && times.some((t) => t >= ask.askAt && t < postAt); // answered in [askAt, postAt)
       return !answered;
     });

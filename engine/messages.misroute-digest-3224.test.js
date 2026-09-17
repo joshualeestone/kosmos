@@ -114,6 +114,22 @@ test('multiple misroute posts by the same agent each count', () => {
   assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 2);
 });
 
+test('no cross-(agent, project) collision even with space-bearing names/projects (nested map, no delimiter)', () => {
+  // Under a space-joined string key this would FALSE-CLEAR: agent 'a' owes project
+  // 'b c', and a DIFFERENT agent 'a b' answering in project 'c' both map to the key
+  // "a b c". The nested map keeps ('a','b c') and ('a b','c') distinct, so agent a's
+  // debt is not cleared and its later post elsewhere still counts. (Agent names /
+  // project ids cannot actually contain spaces, so this guards a future charset
+  // relaxation, not a reachable production case -- but it pins the fix.)
+  seed([
+    ask('q1', 'b c', 'a', 0),            // operator asks agent 'a' in project 'b c'
+    post('ans', 'c', 'a b', 30000),      // different agent 'a b' posts in project 'c'
+    post('p1', 'projX', 'a', 60000),     // agent 'a' posts elsewhere while still owing 'b c'
+  ]);
+  assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 1,
+    "agent 'a b' answering project 'c' must not clear agent 'a' debt in project 'b c'");
+});
+
 test('an EMPTY record yields 0 (distinct from unreadable)', () => {
   seed([]);
   assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 0);

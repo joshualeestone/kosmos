@@ -34,7 +34,7 @@ raised does not attach.
    The default count fn lazy-requires messages and fails soft to null (line
    omitted, never a throw that fails the rollup).
 3. Tests: `engine/messages.misroute-digest-3224.test.js` (the count, incl. the
-   as-of-post-time case) and `engine/dailylog.misroute-3224.test.js` (line
+   as-of-post-time case) and `engine/dailylog.misroute-digest-3224.test.js` (line
    present/absent/zero, dayWindowLocal, compileAll threading).
 
 ### Why the daily digest is a privacy-safe home
