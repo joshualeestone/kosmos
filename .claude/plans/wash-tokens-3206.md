@@ -31,14 +31,23 @@ definition. Rendering is unchanged (computed style resolves the token to the ide
   did. If #3131/#3187 later wants the unfolded-rail wash to diverge, it defines its own token then;
   today all four are the same value, so collapsing is correct per the convention class.
 
-## Why this is CI-safe (measured)
-- The wash browser-checks read the COMPUTED style, not the CSS source literal:
-  render-member-modal.js:198 reads `getComputedStyle(probe).backgroundImage` (the .pj-member
-  surface); render-projects.js / render-fields.js read computed backgroundImage/backgroundColor.
-  `var(--wash-*)` resolves to the identical `rgba(47, 125, 90, 0.1)`, so every comparison passes
-  unchanged.
-- No node test or browser-check greps web/index.html source for the wash literal (grep-confirmed).
-- The added :root comment carries no `<script>` token, so it cannot break an HTML-slice test.
+## Why this is CI-safe (verified against the files, not assumed)
+- Tokenization changes a literal into `var(--wash-*)`; standard CSS resolves a custom property
+  to its defined value, so the COMPUTED background is byte-identical to the old literal. That is
+  the primary basis, and it does not depend on a repo browser-check.
+- Two of the four surfaces are additionally covered by a computed-style browser-check:
+  `docs/browser-checks/render-agent-lines.js` reads `getComputedStyle(row).backgroundImage`
+  (:123 and :141) and asserts the RIGHT wash per state -- green for working, red for needs-you
+  (#3187) -- for the `.lrow` base and folded rail. Since it reads computed style, `var(--wash-*)`
+  resolving to the same rgba is positively verified there.
+- The other two surfaces (`.acard.working/.attn`, `#pj-one-agents .pj-member.pjm-working/.attn`)
+  have NO computed-style browser-check for their wash: `render-member-modal.js:237` probes only
+  the pjm-IDLE gray (#2920), not the working/attn wash. Those two rest on standard var()
+  resolution plus the node source tests below (the #2711 pin + the new #3206 test), which assert
+  the SOURCE references the token and the token is defined -- not that a browser renders it. This
+  is a pre-existing computed-style gap for those two surfaces, low-risk, not introduced here.
+- No node test greps web/index.html source for the raw wash literal (grep-confirmed), and the
+  added :root comment carries no `<script>` token, so it cannot break an HTML-slice test.
 
 ## Test plan
 - Full pre-PR validation (validation_log_run_or_skip) green in the worktree.
