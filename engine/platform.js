@@ -52,22 +52,28 @@
 const SUPPORTED = Object.freeze(['darwin', 'win32']);
 
 /* 🛑 AND THE SECOND QUESTION, WHICH THIS MODULE USED TO CONFLATE WITH THE FIRST.
- * Two gates read `isSupported` to refuse a DOWNLOAD, not to refuse running an
- * agent: `connect.js` fetches Claude Code as `darwin-${arch}` (line ~719), and
- * `runners.js` pins codex to `vendor/aarch64-apple-darwin/bin/codex` in a
- * `-darwin-arm64` tarball. Those artifacts are macOS builds and no port changes
- * that -- publishing Windows builds is somebody's real work, not this list's.
+ * Two gates read a DOWNLOAD predicate to refuse fetching a runner binary, not to
+ * refuse running an agent: `connect.js` fetches Claude Code, and `runners.js` pins
+ * codex to `vendor/aarch64-apple-darwin/bin/codex` in a `-darwin-arm64` tarball.
  *
- * So adding win32 to SUPPORTED without splitting these would have armed Kosmos to
- * download MACOS BINARIES ONTO WINDOWS: exactly the "attempt a Mac-only action on
- * the wrong OS and half-succeed" the original gate was written to prevent, turned
- * on by the very change that was supposed to make Windows work.
+ * 🔑 BUT THE TWO RUNNERS DO NOT PUBLISH THE SAME PLATFORMS, so one flat list was a
+ * conflation of its own. Codex ships only that macOS tarball -- on any other OS an
+ * install would download a Mac binary -- so its gate stays darwin-only here. Claude
+ * Code, by contrast, NOW publishes real Windows builds: downloads.claude.ai's
+ * manifest carries `win32-x64` and `win32-arm64` alongside `darwin-*`, each with its
+ * own sha256 (verified 2026-09-16, manifest for 2.1.273). connect.js downloads the
+ * win32-${arch} artifact (claude.exe) and checksum-verifies it against that manifest
+ * BEFORE it is ever executed -- the identical trust posture as the Mac, and NOT the
+ * "download a MACOS binary onto Windows" hazard, because the artifact fetched IS the
+ * Windows build. So Claude gets its own list, and win32 is on it because the vendor
+ * build happened -- the same discipline SUPPORTED and SELF_INSTALL state.
  *
- * ⇒ One name per question. A Windows user installs Claude Code themselves (as the
- * measured box did: claude.exe already on disk, installedCheck reports it
- * present); Kosmos uses the runner that is there and says honestly that it cannot
- * fetch one. */
+ * ⇒ One list per runner. `RUNNER_DOWNLOADS` is the codex/vendored-runner gate
+ * (darwin only, unchanged); `CLAUDE_DOWNLOADS` is Claude Code's, which win32 joins
+ * because a checksum-verifiable Windows build is published. A platform on neither
+ * list fetches nothing and says so honestly. */
 const RUNNER_DOWNLOADS = Object.freeze(['darwin']);
+const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32']);
 
 /* 🛑 AND THE THIRD QUESTION, WHICH NOTHING ASKED UNTIL #570 WENT LOOKING FOR IT.
  * `engine/update.js` is the SELF-updater. On the Mac it answers "install the new
@@ -106,10 +112,22 @@ function isSupported(platform = process.platform) {
   return SUPPORTED.includes(platform);
 }
 
-/** True only where Kosmos publishes a runner build it could fetch. Same
- *  fail-closed shape as isSupported: anything not on the list is false. */
+/** True only where the codex/vendored runner publishes a build Kosmos could fetch.
+ *  Same fail-closed shape as isSupported: anything not on the list is false.
+ *  ⚠️ This is the CODEX gate; Claude Code has its own (`canDownloadClaude`), because
+ *  the two runners publish different platforms. runners.js's codex download reads
+ *  this; connect.js's Claude download reads canDownloadClaude. */
 function canDownloadRunner(platform = process.platform) {
   return RUNNER_DOWNLOADS.includes(platform);
+}
+
+/** True only where Claude Code publishes a checksum-verifiable build Kosmos can
+ *  fetch (darwin and, since the vendor shipped Windows builds, win32). Same
+ *  fail-closed shape as its siblings. connect.js's download gate and the
+ *  `canInstallClaude` web capability both read this -- NOT canDownloadRunner, which
+ *  is codex-only and would wrongly refuse Claude on Windows. */
+function canDownloadClaude(platform = process.platform) {
+  return CLAUDE_DOWNLOADS.includes(platform);
 }
 
 /** True only where Kosmos can replace its own running copy. Same fail-closed
@@ -121,15 +139,21 @@ function canSelfInstall(platform = process.platform) {
 }
 
 /** Machine facts for the API / a future gate screen. No user-facing copy.
- *  `runnerDownloads` is reported separately because a platform can now run
- *  agents while being unable to fetch a runner for itself, and a screen that
- *  says only "supported" cannot express that. */
+ *  Each capability is reported SEPARATELY because they diverge: a platform can run
+ *  agents (`supported`) while being unable to fetch the codex runner
+ *  (`runnerDownloads`, darwin-only), yet still able to fetch Claude Code
+ *  (`claudeDownloads`, darwin+win32). A screen that read only one of these could not
+ *  express win32, where claudeDownloads is true but runnerDownloads is false -- and a
+ *  consumer that reused runnerDownloads to decide "can Kosmos install Claude here"
+ *  would silently suppress the win32 auto-install. `claudeDownloads` is the one to
+ *  read for that; it is the same value `connect.publicView`'s `canInstallClaude` uses. */
 function describe(platform = process.platform) {
   return {
     platform,
     supported: isSupported(platform),
     runnerDownloads: canDownloadRunner(platform),
+    claudeDownloads: canDownloadClaude(platform),
   };
 }
 
-module.exports = { SUPPORTED, RUNNER_DOWNLOADS, SELF_INSTALL, isSupported, canDownloadRunner, canSelfInstall, describe };
+module.exports = { SUPPORTED, RUNNER_DOWNLOADS, CLAUDE_DOWNLOADS, SELF_INSTALL, isSupported, canDownloadRunner, canDownloadClaude, canSelfInstall, describe };

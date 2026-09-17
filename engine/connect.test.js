@@ -151,13 +151,18 @@ test('codes are one clean token or they are refused', () => {
 
 /* ── the download ────────────────────────────────────────────────────────── */
 
-function serveRelease(t, { version, binary, checksum }) {
+function serveRelease(t, { version, binary, checksum, platform }) {
+  // `platform` (default this process's) picks the manifest key and the binary leaf:
+  // darwin fetches `.../claude`, win32 fetches `.../claude.exe` (#3159). platformKey
+  // takes the same seam download() does, so the fake and the code agree on the key.
+  const key = connect.platformKey(platform);
+  const leaf = platform === 'win32' ? 'claude.exe' : 'claude';
   const paths = {
     '/latest': () => version,
     [`/${version}/manifest.json`]: () => JSON.stringify({
-      platforms: { [connect.platformKey()]: { checksum } },
+      platforms: { [key]: { checksum } },
     }),
-    [`/${version}/${connect.platformKey()}/claude`]: () => binary,
+    [`/${version}/${key}/${leaf}`]: () => binary,
   };
   const server = http.createServer((req, res) => {
     const answer = paths[req.url];
@@ -194,6 +199,29 @@ test('a verified download lands executable, with progress that adds up', async (
   const [lastGot, lastTotal] = seen[seen.length - 1];
   assert.equal(lastGot, binary.length, 'progress never reached the full size');
   assert.equal(lastTotal, binary.length, 'the total did not come from Content-Length');
+});
+
+test('#3159 a win32 download fetches the Windows build (claude.exe), verified, no chmod', async (t) => {
+  // The win32 arm of download(): same fetch->checksum->place path as the Mac, but it
+  // pulls `.../claude.exe`, names the file `.exe` (so Windows can execute it), and skips
+  // the POSIX chmod. Driven with the `win32` platform seam so it runs on this Mac CI.
+  const binary = crypto.randomBytes(200 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.6', binary, checksum, platform: 'win32' });
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+
+  const seen = [];
+  const got = await connect.download((g, total) => seen.push([g, total]), undefined, 'win32');
+
+  assert.equal(got.version, '9.9.6');
+  assert.ok(got.path.endsWith('.exe'), 'the win32 download must be named .exe so Windows can execute it');
+  assert.equal(nodePath.basename(got.path), `claude-9.9.6-${connect.platformKey('win32')}.exe`,
+    'on-disk name is claude-<version>-<win32-arch>.exe -- the vendor installer names it the same way');
+  const onDisk = fs.readFileSync(got.path);
+  assert.equal(crypto.createHash('sha256').update(onDisk).digest('hex'), checksum,
+    'what landed is not what was served');
+  assert.ok(seen.length > 0 && seen[seen.length - 1][0] === binary.length,
+    'progress must reach the full size');
 });
 
 test('a checksum mismatch is refused, and nothing runnable is kept', async (t) => {
