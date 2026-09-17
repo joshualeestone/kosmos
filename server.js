@@ -41,7 +41,7 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
 const {
-  snapshot, paneRoster, countAgents, STATE, modelDisplayName,
+  snapshot, paneRoster, countAgents, projectsUnreadTotal, STATE, modelDisplayName,
   /* #1304: the tier vocabulary, imported rather than hand-written. A literal
      'structured' beside a value read off a process command line is exactly the
      two-copies-of-one-fact habit this file criticises elsewhere. */
@@ -3346,6 +3346,18 @@ const server = http.createServer((req, res) => {
         }
       })();
       const counts = countAgents(agents, snap.counts && snap.counts.unreadableLines, snap.counts && snap.counts.unreadableSamples);
+      /* #3216: the RAW active-projects DM-unread total, so a cross-tab Projects nav badge can
+         read a FRESH number every /api/status tick (the projects poll that refreshes p.unread is
+         visibility-gated, so a Projects badge is stale on the Agents tab). One derivation with the
+         client's pjDmTotal: both sum messages.unreadAll() over the non-archived projects. RAW here
+         (the client subtracts the open project's unread in tick(), which only it knows). Best-effort
+         and never 500s the status read: projects.readAll() throws UNREADABLE and unreadAll() returns
+         null on an unreadable store/cursor, both of which projectsUnreadTotal folds to 0 (unknown is
+         not a phantom badge). This adds one messages-record pass + one projects-file read per tick;
+         both are already paid by the projects poll, and unreadAll is a single pass. */
+      try {
+        counts.projectsUnread = projectsUnreadTotal(projects.readAll(), messages.unreadAll());
+      } catch { counts.projectsUnread = 0; }
       /* ⚠️ COUNTED SEPARATELY, and the row still adds up: Working plus Idle
          plus the rest is what is RUNNING, and `notRunning` is the remainder of
          `total`. A single "Agents" number covering both would put a figure on
