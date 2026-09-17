@@ -400,17 +400,15 @@ test('paintRoom indexes the silence against allRows and not against the filtered
   assert.doesNotMatch(body, /pjSilences\(shown/, 'the silence is computed from the filtered rows');
 });
 
-test('the sentence actually reaches the rendered row', () => {
+test('the room render carries no silence sentence and no delivery receipt', () => {
   /**
-   * 🛑 NOTHING IN THIS FILE EXECUTED `pjRoomRow`, so the one hop that makes the
-   * feature VISIBLE was uncovered: change its call to
-   * `pjReceiptSentence(m.outcomes, p)` — dropping the silence argument — and
-   * every other test here still passes while the second sentence never renders.
-   * That is the "ships dead" failure this file's own header claims to prevent,
-   * and it was live in the file that claimed it.
-   *
-   * ⚠️ So the renderer is executed, with its helpers taken from the page rather
-   * than stubbed, and the assertion is on the HTML a person would receive.
+   * 🛑 THIS DRIVES THE REAL `pjRoomRow`, not a stub, and reads the HTML a person
+   * would receive. The file's "ships dead" lesson: nothing here executed pjRoomRow
+   * once, so a dead render path stayed green. #3130 removed the "Nothing back ..."
+   * silence sentence and #3134-followup (Josh 6.72) removed the inline delivery
+   * receipt from the room entirely, so this asserts BOTH are absent from the
+   * rendered row -- driving the real renderer so a stray receipt or sentence would
+   * be caught rather than shipping unnoticed.
    */
   const render = renderer();
 
@@ -478,20 +476,17 @@ test('#3130: the delivery facts stand alone, with no silence sentence appended',
   assert.doesNotMatch(s, /any of them/);
 });
 
-test('paintRoom actually puts the sentence on the screen', () => {
+test('paintRoom renders the post with no silence sentence reaching the screen', () => {
   /**
-   * 🛑 THE HOP THAT WAS STILL UNCOVERED AFTER TWO ROUNDS OF FIXING THIS. Every
-   * other test here calls `pjRoomRow` directly with a silence list, so
-   * rewriting the ONE call site from `pjRoomRow(m, p, silences.get(m))` to
-   * `pjRoomRow(m, p)` deleted the feature from the product and the suite stayed
-   * green. The structural check only looked for `pjSilences(allRows)`, which
-   * that rewrite leaves untouched.
-   *
-   * ⚠️ So this drives `paintRoom` itself and reads what it wrote into the room,
-   * through a DOM stub that records `innerHTML` rather than swallowing it.
-   * Everything from the room payload to the rendered HTML is in the path:
-   * `pjSilences`, the two-minute gate, the map lookup, `pjRoomRow`, and
-   * `pjReceiptSentence`.
+   * 🛑 THIS DRIVES `paintRoom` END TO END and reads what it wrote into the room,
+   * through a DOM stub that records `innerHTML` rather than swallowing it -- the
+   * hop that stays uncovered when tests call `pjRoomRow` directly. It asserts the
+   * post renders and NO "Nothing back ..." silence sentence reaches the screen
+   * (#3130 removed that clause). NOTE: since #3134-followup (Josh 6.72) the room
+   * render no longer calls `pjReceiptSentence` at all -- the inline receipt is gone
+   * -- so the render path here is the room payload -> `pjRoomRow` -> HTML;
+   * `pjReceiptSentence` now feeds only the `pjRoomAnnounce` aria-live line, tested
+   * separately above.
    */
   const scope = pageScope();
   scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
