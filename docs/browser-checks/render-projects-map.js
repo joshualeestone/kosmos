@@ -249,6 +249,32 @@ function check(name, pass, detail) {
   check('folding KEEPS keyboard focus (re-homed onto the same fold button, not lost to body)', adds.focusKeptAfterFold, JSON.stringify(adds.focusKeptAfterFold));
   check('clicking a node opens that project (routes to openProject, not the fold)', adds.opened === 'a', 'opened=' + JSON.stringify(adds.opened));
   check('the map scrolls in BOTH directions (depth + width)', adds.scrollBoth, JSON.stringify(adds.scrollBoth));
+
+  // #3217 (Josh: the wide tree clipped 'Northstar Robotics' off the right edge, "fit on one
+  // page"): a fleet wider than the panel is scaled down to fit, no horizontal overflow. Non-
+  // vacuous: it first confirms the tree WOULD overflow unscaled (natural > panel), then that the
+  // zoom fit brings the rendered map within the panel width.
+  const fit = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    for (let i = 0; i < 16; i++) {
+      PROJECTS.push({ id: 'w' + i, name: 'Wide Project Number ' + (i + 1), parent: null, archived: false, summary: { total: 1 } });
+    }
+    LAST.length = 0; LAST.push({ sessionName: 's1' });
+    PJ_MAP_FOLDED.clear();
+    paintProjectsMap();                                  // paints + calls pjMapFit()
+    const map = document.getElementById('pj-map');
+    const org = map.querySelector('.pjorg');
+    org.style.zoom = '';                                 // read the natural (unscaled) width
+    const natural = org.scrollWidth;
+    pjMapFit();                                          // re-apply the fit
+    return { natural, clientWidth: map.clientWidth, scrollWidthAfter: map.scrollWidth,
+      zoom: org.style.zoom || '1', orgVisualW: Math.round(org.getBoundingClientRect().width) };
+  });
+  check('#3217: a wide fleet WOULD overflow the panel unscaled (precondition, not vacuous)',
+    fit.natural > fit.clientWidth, JSON.stringify(fit));
+  check('#3217: the map is scaled down to fit (zoom < 1)', parseFloat(fit.zoom) < 1, 'zoom=' + fit.zoom);
+  check('#3217: after the fit the map does NOT overflow the panel horizontally (scrollWidth <= clientWidth)',
+    fit.scrollWidthAfter <= fit.clientWidth + 1, JSON.stringify(fit));
   check('the Map toggle is gated on sub-projects existing (flat=off, tree=on)',
     adds.flatHasTree === false && adds.treeHasTree === true, JSON.stringify({ flat: adds.flatHasTree, tree: adds.treeHasTree }));
 

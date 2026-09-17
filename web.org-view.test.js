@@ -371,6 +371,10 @@ test('the callout shows the name and the title small, with NO chevron; the verb 
   assert.match(node, /aria-label="Open ' \+ esc\(shown\)/, 'the accessible name lost its verb');
   assert.match(node, /class="co-name">' \+ esc\(shown\)/, 'the name is not in the callout');
   assert.match(node, /class="co-role">' \+ esc\(roleLine\(a, ROLE_TITLES\)\)/, 'the title is not in the callout');
+  // #3222 (Josh, 2026-09-17): the resting name is OFF for EVERY count -- names are hover-only
+  // (the callout above), never auto-displayed under the avatar. Guards the removal against a revert
+  // to the old count-based at-rest label (`nameAtRest = placed.size <= 4`), which Josh found junky.
+  assert.match(SCRIPT, /const nameAtRest = false;/, 'org agent names must be hover-only for every count (#3222): nameAtRest reverted from false to a count-based at-rest label');
   assert.doesNotMatch(node, /co-go/, 'the chevron (.co-go) is back; #2683 removed it');
   assert.doesNotMatch(node, /&rsaquo;/, 'the chevron glyph is back in the callout; #2683 removed it');
   assert.doesNotMatch(node, /callout">Open /, 'the visible word Open is back');
