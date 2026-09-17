@@ -37420,19 +37420,23 @@ function paintProjectsMap() {
    fail the measure, WIPING a correct fit -- a tab-return would then briefly show the map
    overflowing again (the exact #3217 symptom). offsetParent === null means an ancestor is
    display:none, so bail BEFORE touching zoom; the prior fit survives and the return-to-tab
-   repaint re-fits. And `avail` is deliberately the real clientWidth (a present vertical
-   scrollbar's width included): fitting to that guarantees no horizontal overflow even with
-   the scrollbar, where measuring without it would under-fit and let the sideways scroll
-   back in -- a small over-shrink on a tall-narrow tree is the safe side. */
+   repaint re-fits. We also read `avail` FIRST and bail if it is 0, so a visible-but-not-yet-
+   measurable frame can never reset-then-fail either. `avail` is clientWidth, the usable width
+   INSIDE any vertical scrollbar (clientWidth excludes the scrollbar): fitting to it guarantees
+   no horizontal overflow even when that scrollbar is present, where using the wider outer width
+   would under-fit and let the sideways scroll back in -- a small over-shrink on a tall-narrow
+   tree is the safe side. (offsetParent === null covers the element or an ancestor being
+   display:none, or detached.) */
 function pjMapFit() {
   const wrap = document.getElementById('pj-map');
   if (!wrap || wrap.hidden || wrap.offsetParent === null) return;
   const org = wrap.querySelector('.pjorg');
   if (!org) return;
-  org.style.zoom = '';                       // measure the natural (unscaled) width
-  const natural = org.scrollWidth;
   const avail = wrap.clientWidth;
-  if (natural > 0 && avail > 0 && natural > avail) {
+  if (avail <= 0) return;                      // visible but not yet measurable -> keep any prior fit
+  org.style.zoom = '';                         // now safe to reset, to read the natural width
+  const natural = org.scrollWidth;
+  if (natural > avail) {
     let z = avail / natural;
     org.style.zoom = String(z);
     /* One measured correction: at heavy scale zoom leaves a few px of residual
