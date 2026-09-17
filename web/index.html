@@ -3416,6 +3416,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      the agents side already wins against that shared rule; the projects side
      joins it here rather than growing a third mechanism. */
   html[data-layout="consolidated"] body.consolidated > #alist#alist { padding-top: 4px; }
+  /* #3218: the divider in the single grouped Agents list, between the open project's agents (top)
+     and the rest of the fleet. Only emitted when a project is open in the consolidated view. A thin
+     rule on the shared --k-rule token, so it tracks light/dark; small margins because #alist is a
+     4px-gap flex column and the gap already spaces it from the rows either side. */
+  #alist .alist-sep { border: 0; border-top: 1px solid var(--k-rule); height: 0; margin: 2px 2px; flex: 0 0 auto; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   /* #3187: the consolidated rail used to strip the row ground (background: none)
@@ -16638,6 +16643,34 @@ function ageCheckedStamp() {
   checked.innerHTML = '<span>Agent status</span><b>' + freshWords(age) + '</b>';
 }
 
+/* #3218: paint the single Agents list (#alist) from the last board sample (LAST). Called by tick()
+   every poll AND by pjMarkOpen() the instant a project opens or closes, so the grouping tracks
+   PJ_CURRENT without a ~5s lag. In the CONSOLIDATED view with a project open, that project's agents
+   sort to the TOP (then a plain rule, then the rest) -- one grouped Agents list, no separate Members
+   block, no agent shown twice, header stays "Agents". Flat everywhere else (tab view, no project
+   open, or none of the fleet is on the open project). Joined to the open project's roster by
+   sessionName -- the same key lrow(a) and pjMember(m) share. boardEmpty() honours BOARD_SEEN, so a
+   pre-first-poll call (LAST still []) draws the honest "Looking..." state, never a false empty. */
+function paintAgentList() {
+  const alist = document.getElementById('alist');
+  if (!alist) return;
+  const lim = new URLSearchParams(location.search).get('limit');
+  const src = Array.isArray(LAST) ? LAST : [];
+  const shown = lim ? src.slice(0, Number(lim)) : src;
+  if (!shown.length) { alist.innerHTML = boardEmpty(); return; }
+  const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
+  const inProj = (openProj && Array.isArray(openProj.agents))
+    ? new Set(openProj.agents.map((m) => m && m.sessionName).filter(Boolean)) : null;
+  const members = (inProj && inProj.size) ? shown.filter((a) => inProj.has(a.sessionName)) : [];
+  if (members.length) {
+    const rest = shown.filter((a) => !inProj.has(a.sessionName));
+    alist.innerHTML = members.map(lrow).join('')
+      + (rest.length ? '<hr class="alist-sep" aria-hidden="true">' : '')
+      + rest.map(lrow).join('');
+  } else {
+    alist.innerHTML = shown.map(lrow).join('');
+  }
+}
 async function tick() {
   const checked = document.getElementById('checked');
   let answered = false;   // set when the server replied, even with a refusal (#268)
@@ -16995,7 +17028,11 @@ async function tick() {
     // The list is the SAME agents through the same derivations, painted on
     // the same tick -- hidden or not. Painting only the visible layout would
     // hand the toggle a stale copy of whichever view was resting.
-    document.getElementById('alist').innerHTML = shown.length ? shown.map(lrow).join('') : boardEmpty();
+    /* #3218: the Agents list is painted by paintAgentList() (defined just above tick), which reads
+       the same LAST sample this poll just wrote. Extracted so a project open/close can re-group it AT
+       ONCE via pjMarkOpen rather than waiting for the next ~5s poll. In the consolidated view with a
+       project open it sorts that project's agents to the TOP, then a rule, then the rest. */
+    paintAgentList();
     /* ⚠️ THE THIRD VIEW REPAINTS ON THE SAME TICK, but through its own guard
        rather than an unconditional innerHTML write. The two above can be
        rewritten every five seconds because nothing in them holds focus that
@@ -41009,6 +41046,11 @@ function pjMarkOpen(id) {
     r.classList.toggle('open', on);
     if (on) r.setAttribute('aria-current', 'true'); else r.removeAttribute('aria-current');
   });
+  /* #3218: PJ_CURRENT is already written before every call to this (open sets it then marks; the
+     back/close paths null it then mark), so re-grouping the Agents list here makes the open
+     project's agents jump to the top the instant it opens, not on the next ~5s poll. Inert in tab
+     view (paintAgentList gates the grouping on layoutConsolidated()). */
+  paintAgentList();
 }
 function openProject(id) {
   // ⚠️ Only opens a project we actually HAVE. `paintOneProject` bails back to
