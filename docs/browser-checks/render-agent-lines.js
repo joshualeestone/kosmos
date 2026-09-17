@@ -18,6 +18,12 @@
  * #1191's "single text line to indicate what they're doing"); the leading claim
  * for name->title is what carries over.
  *
+ * 🛑 #3187-followup (Josh 6.72) added two more agents-list facts this check now pins:
+ * a NOT-RUNNING (stopped) row keeps the grey ground like idle but dims its own avatar +
+ * name to ~0.5 (with an idle control at full strength), and a FOLDED rail (fold-a) carries
+ * the status colour EDGE-TO-EDGE behind working (green) + needs-you (red) only while idle
+ * and not-running keep no wash.
+ *
  * 🛑 MEASURED WITH A RANGE, NOT `getBoundingClientRect` ON THE ELEMENT. An
  * element's box includes its leading, so reading element boxes reports the
  * spacing as unchanged when the leading is exactly what moved. This is the same
@@ -61,6 +67,10 @@ const chk = (ok, label, extra) => {
        green (april) and grey (mikey). Without it the check could not tell the
        .attn wash from a fallback grey. */
     fleet.agent('raph', { state: 'needs_you', displayName: 'Raph', role: 'Fixer' }),
+    /* #3187-followup (Josh 6.72): a STOPPED (not-running) agent -> .lrow.off, so the
+       not-running arms below (grey ground like idle, but avatar+name knocked to ~50%) are
+       exercised, distinct from plain idle (mikey). */
+    fleet.agent('donnie', { state: 'stopped', displayName: 'Donnie', role: 'Ops' }),
   ]);
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -125,9 +135,14 @@ const chk = (ok, label, extra) => {
            cell (an answerBtn / "Working now" label is legitimately here on some
            rows; the state WORD must not be). */
         const rLeftover = ls ? ls.textContent.replace(rWord, '').trim() : '';
+        const lav = r.querySelector('.lav'); const lnm = r.querySelector('.lname');
         byAgent[r.dataset.agent || '?'] = {
           cls: r.className.trim(),
           wash: getComputedStyle(r).backgroundImage,
+          /* #3187-followup (Josh 6.72): a not-running (.lrow.off) row dims its own avatar
+             and name to ~0.5; every other state leaves them at 1. */
+          lavOpacity: lav ? getComputedStyle(lav).opacity : null,
+          lnameOpacity: lnm ? getComputedStyle(lnm).opacity : null,
           /* the state WORD must not appear as visible text outside its .vh, on ANY
              row -- robust to fixture order (does not care which row is first) and
              to a needs-you row's visible answerBtn (that is not the state word). */
@@ -182,8 +197,18 @@ const chk = (ok, label, extra) => {
       /* Per-row and order-robust: no row shows its OWN state word as visible text
          (an answerBtn / "Working now" label is allowed; the waiting/idle/busy word
          is not). Replaces an earlier first-row-only check that a fixture reorder
-         could have false-failed on a needs-you row's visible answerBtn. */
-      chk(Object.values(m.byAgent).every((v) => !v.wordLeaked),
+         could have false-failed on a needs-you row's visible answerBtn.
+         #3187-followup (Josh 6.72): this covers EVERY row, the stopped one included. A
+         state-'stopped' agent (.lrow.off, donnie) renders through the SAME row template as
+         the running states and wraps its "Not running" label in a clipped .vh -- measured,
+         it hides the word exactly like the others (wordHidden true, wordLeaked false). An
+         earlier version of this check scoped both sweeps to non-off rows on the belief that a
+         stopped row prints "Not running" as a visible line; that was measured FALSE and only
+         dropped coverage, so the scoping is gone. (A genuinely-offline agent -- server-side
+         running:false -- does use a different template that prints "Not running" visibly, but
+         that state is not in this fixture.) */
+      const allRows = Object.values(m.byAgent);
+      chk(allRows.length > 0 && allRows.every((v) => !v.wordLeaked),
         'no agent row shows its state word as visible text (word lives only in .vh)',
         JSON.stringify(Object.fromEntries(Object.entries(m.byAgent).map(([k, v]) => [k, v.wordLeaked]))));
 
@@ -197,14 +222,27 @@ const chk = (ok, label, extra) => {
       chk(washOf('april').includes(GREEN), 'a WORKING agent gets the green wash', washOf('april'));
       chk(washOf('mikey').includes(GREY), 'an IDLE agent gets the grey wash', washOf('mikey'));
       chk(washOf('raph').includes(RED), 'a NEEDS-YOU agent gets the red wash', washOf('raph'));
+      /* #3187-followup (Josh 6.72): a NOT-RUNNING (stopped) agent keeps the grey ground like
+         idle, but knocks its OWN avatar+name to ~0.5 so it reads as "asleep, click to see
+         why". mikey (idle) is the control: same grey ground, avatar/name at full strength. */
+      chk(washOf('donnie').includes(GREY), 'a NOT-RUNNING agent keeps the grey ground (like idle)', washOf('donnie'));
+      const opOf = (a, k) => parseFloat((m.byAgent[a] || {})[k]);
+      chk(Math.abs(opOf('donnie', 'lavOpacity') - 0.5) < 0.02 && Math.abs(opOf('donnie', 'lnameOpacity') - 0.5) < 0.02,
+        'a NOT-RUNNING agent dims its avatar and name to ~0.5',
+        `lav=${(m.byAgent.donnie || {}).lavOpacity} lname=${(m.byAgent.donnie || {}).lnameOpacity}`);
+      chk(opOf('mikey', 'lavOpacity') === 1 && opOf('donnie', 'lavOpacity') < 1
+        && opOf('mikey', 'lnameOpacity') === 1 && opOf('donnie', 'lnameOpacity') < 1,
+        'CONTROL: an IDLE agent avatar+name are full-strength while the not-running one is dimmed',
+        `idle lav=${(m.byAgent.mikey || {}).lavOpacity} name=${(m.byAgent.mikey || {}).lnameOpacity} / stopped lav=${(m.byAgent.donnie || {}).lavOpacity} name=${(m.byAgent.donnie || {}).lnameOpacity}`);
       /* CONTROL: the three washes are distinct, or "matches GREEN/GREY/RED" could
          pass on a single wash that happened to contain all three substrings. */
       chk(washOf('april') !== washOf('mikey') && washOf('mikey') !== washOf('raph') && washOf('april') !== washOf('raph'),
         'the three state washes are distinct', 'w/i/n differ');
-      /* #3131: the WORD is hidden on EVERY row, not only the first (april). This
-         catches a needs-you row -- whose .lstate also carries a visible answerBtn
-         -- failing to wrap its state word in .vh. */
-      chk(Object.values(m.byAgent).length > 0 && Object.values(m.byAgent).every((v) => v.wordHidden),
+      /* #3131: the WORD is hidden on EVERY row, not only the first (april). This catches a
+         needs-you row -- whose .lstate also carries a visible answerBtn -- failing to wrap its
+         state word in .vh, and (per the note above) the stopped row too, which hides "Not
+         running" in a clipped .vh like the rest. */
+      chk(allRows.length > 0 && allRows.every((v) => v.wordHidden),
         'every agent row hides its state word in a .vh clip',
         JSON.stringify(Object.fromEntries(Object.entries(m.byAgent).map(([k, v]) => [k, v.wordHidden]))));
 
@@ -213,6 +251,47 @@ const chk = (ok, label, extra) => {
          nor an overlap passes. */
       chk(nameTitle !== null && nameTitle <= 3.5, 'name to title leading is tight', nameTitle + 'px');
       chk(nameTitle !== null && nameTitle >= 0, 'name and title do not overlap', nameTitle + 'px');
+
+      /* #3187-followup (Josh 6.72): FOLD the rail to its 48px strip. The status colour goes
+         EDGE-TO-EDGE behind working (green) and needs-you (red) only; idle and not-running
+         lose their wash so the strip is not a wall of grey. The layout is already consolidated
+         (set above), which the fold-a rules require. */
+      const folded = await page.evaluate(() => {
+        document.body.classList.add('fold-a');
+        const o = { wash: {} };
+        for (const r of document.querySelectorAll('#alist .lrow[data-agent]')) o.wash[r.dataset.agent] = getComputedStyle(r).backgroundImage;
+        /* #3187-followup (Josh 6.72): "edge-to-edge" is a GEOMETRY claim, not only a colour one,
+           and a background-image substring cannot see it. The base consolidated .lrow carries
+           border-radius 9px and #alist carries 8px side padding; left unhandled, a folded
+           green/red row renders as a rounded chip inset in an 8px grey gutter (measured: 9px
+           radius on a ~31px box, 29% of the width). So also read the washed row's radius and its
+           width against the strip, and assert square + full-bleed, or the colour is not
+           edge-to-edge. */
+        const alist = document.querySelector('#alist');
+        const geomOf = (sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          const cs = getComputedStyle(el);
+          return { radius: parseFloat(cs.borderTopLeftRadius) || 0, rowW: Math.round(el.getBoundingClientRect().width) };
+        };
+        o.alistW = Math.round(alist.getBoundingClientRect().width);
+        /* Both washed rows, green (.working) AND red (.attn), are measured: the two
+           border-radius:0 declarations are separate, so reading only .working would let a
+           copy-paste slip that squares one and not the other pass silently. */
+        o.geom = { working: geomOf('#alist .lrow.working'), attn: geomOf('#alist .lrow.attn') };
+        return o;
+      });
+      console.log('  folded washes     : ' + JSON.stringify(folded.wash));
+      console.log('  folded geom       : ' + JSON.stringify({ alistW: folded.alistW, working: folded.geom.working, attn: folded.geom.attn }));
+      chk((folded.wash.april || '').includes(GREEN), 'FOLDED: a working agent keeps the green wash edge-to-edge', folded.wash.april);
+      chk((folded.wash.raph || '').includes(RED), 'FOLDED: a needs-you agent keeps the red wash edge-to-edge', folded.wash.raph);
+      const noWash = (s) => !(s || '').includes(GREEN) && !(s || '').includes(RED) && !(s || '').includes(GREY);
+      chk(noWash(folded.wash.mikey), 'FOLDED: an idle agent has NO wash (no wall of grey)', folded.wash.mikey);
+      chk(noWash(folded.wash.donnie), 'FOLDED: a not-running agent has NO wash', folded.wash.donnie);
+      for (const [k, g] of [['green working', folded.geom.working], ['red needs-you', folded.geom.attn]]) {
+        chk(!!g && g.radius <= 1, 'FOLDED: the ' + k + ' wash row is SQUARE, not a rounded chip (edge-to-edge)', g ? 'radius=' + g.radius + 'px' : '(row missing)');
+        chk(!!g && g.rowW >= folded.alistW - 2, 'FOLDED: the ' + k + ' wash row fills the full strip width (no grey side gutter)', g ? 'row=' + g.rowW + ' strip=' + folded.alistW : '(row missing)');
+      }
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
