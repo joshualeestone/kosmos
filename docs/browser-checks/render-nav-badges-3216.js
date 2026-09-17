@@ -52,12 +52,15 @@ const chk = (ok, label, extra) => {
       setNavBadge('nav-badge-agents', 7); const cs = getComputedStyle(a);
       r.showsCount = a.textContent === '7' && a.hidden === false && cs.display !== 'none';
       r.red = cs.backgroundColor; r.ink = cs.color;
-      /* geometry (measured, not asserted): the shown badge must have real size and sit within its
-         tab button -- an inline-flex badge that overflowed or was clipped by the nav row would pass
-         every text/colour arm above. Contained = badge rect inside the tab rect (1px tolerance). */
+      /* geometry (measured, not asserted): the shown badge must have real size, not overflow the
+         viewport horizontally (an oversized/mis-laid badge pushes the nav past the edge -> h-scroll),
+         and fit vertically within its tab row. NB the tab itself is inline-flex and GROWS to contain
+         the badge, so "within the tab" is vacuous (a 9999px badge still fits its grown tab) -- the
+         viewport is the container that does NOT grow, so it is what catches horizontal overflow. */
       const tabEl = a.closest('.tab'); const br = a.getBoundingClientRect(); const tr = tabEl.getBoundingClientRect();
       r.geo = { bw: Math.round(br.width), bh: Math.round(br.height),
-                within: br.left >= tr.left - 1 && br.right <= tr.right + 1 && br.top >= tr.top - 1 && br.bottom <= tr.bottom + 1 };
+                inViewport: br.right <= window.innerWidth + 1 && br.left >= -1,
+                vFits: br.top >= tr.top - 1 && br.bottom <= tr.bottom + 1 };
       setNavBadge('nav-badge-agents', 150); r.cap = a.textContent;
       setNavBadge('nav-badge-agents', null); r.nullHidden = a.hidden === true;
       setNavBadge('nav-badge-projects', 3); r.projShows = p.textContent === '3' && p.hidden === false;
@@ -71,7 +74,7 @@ const chk = (ok, label, extra) => {
       chk(out.onProjectsTab, 'the Projects tab carries a nav badge span', String(out.onProjectsTab));
       chk(out.zeroHidden, 'a zero count hides the badge (display:none)', String(out.zeroHidden));
       chk(out.showsCount, 'a positive count shows the badge with the number', String(out.showsCount));
-      chk(out.geo.bw > 0 && out.geo.bh > 0 && out.geo.within, 'the shown badge has real size and sits within its tab (not clipped/overflowing the nav row)', JSON.stringify(out.geo));
+      chk(out.geo.bw > 0 && out.geo.bh > 0 && out.geo.inViewport && out.geo.vFits, 'the shown badge has real size, stays in the viewport (no h-overflow), and fits its tab row', JSON.stringify(out.geo));
       chk(out.projShows, 'the Projects badge shows its count too', String(out.projShows));
       const rgb = parse(out.red);
       chk(rgb[0] === 179 && rgb[1] === 38 && rgb[2] === 30, 'the badge is the shared unread red (#b3261e)', out.red);
