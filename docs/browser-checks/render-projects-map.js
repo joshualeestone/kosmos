@@ -275,6 +275,25 @@ function check(name, pass, detail) {
   check('#3217: the map is scaled down to fit (zoom < 1)', parseFloat(fit.zoom) < 1, 'zoom=' + fit.zoom);
   check('#3217: after the fit the map does NOT overflow the panel horizontally (scrollWidth <= clientWidth)',
     fit.scrollWidthAfter <= fit.clientWidth + 1, JSON.stringify(fit));
+  // #3217 (blind-review WARNING): the map repaints on every poll even when the Projects
+  // panel is on ANOTHER tab (ancestor display:none). pjMapFit must NOT reset-then-wipe a
+  // correct fit in that state (it reads 0 dimensions there) -- the offsetParent guard bails
+  // first. Simulate: with the wide fleet still fitted, hide the panel, repaint, assert the
+  // zoom survived (would be wiped to '' without the guard).
+  const offtab = await page.evaluate(() => {
+    const map = document.getElementById('pj-map');
+    const before = map.querySelector('.pjorg').style.zoom;   // the live fit (zoom < 1)
+    const panel = document.getElementById('panel-projects');
+    const prev = panel ? panel.style.display : null;
+    if (panel) panel.style.display = 'none';                 // as if on the Agents tab
+    paintProjectsMap();                                      // the off-tab poll repaint
+    const org = map.querySelector('.pjorg');
+    const after = org ? org.style.zoom : null;
+    if (panel) panel.style.display = prev;
+    return { before, after, hadPanel: !!panel };
+  });
+  check('#3217: an off-tab repaint preserves the fit (offsetParent guard, does not wipe zoom)',
+    offtab.hadPanel && offtab.before !== '' && offtab.after === offtab.before, JSON.stringify(offtab));
   check('the Map toggle is gated on sub-projects existing (flat=off, tree=on)',
     adds.flatHasTree === false && adds.treeHasTree === true, JSON.stringify({ flat: adds.flatHasTree, tree: adds.treeHasTree }));
 
