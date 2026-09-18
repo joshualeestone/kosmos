@@ -48,9 +48,11 @@ const REQUEST_FILE = {
      prompt to the RESPONSIBLE process (tmux) -- the binary agents actually run under, which
      is what gets prompted at runtime when engine/terminal.js drives Terminal.app. Firing it
      lets tmux acquire its own Accessibility TCC row (so the gate row can eventually flip to
-     Activated). It is fired from the tmux gate row's Turn On on the S3 Automation step, not on
-     step entry (an entry-time fire hung a Playwright networkidle wait, so #3113 makes the
-     not-yet-listed state actionable in the render instead; see .claude/plans/fix-3113-tmux-a11y.md).
+     Activated). #3221: it is fired UP FRONT when the S3 Automation step is ENTERED (client
+     frFireTmuxA11yRegister), so tmux is listed by the time the person reaches its Turn On, which
+     now only deep-links to the Accessibility pane. (#3113 had fired it from Turn On instead,
+     having rejected an entry-time fire over a Playwright networkidle hang; that was re-measured
+     for #3221 and does not reproduce -- see .claude/plans/ick-3221-tmux-a11y.md.)
      (The exact osascript payload + which TCC service(s) fire is pinned by a fresh-install
      verify; the native hatch owns that string.) */
   'tmux-a11y': 'tmux-a11y-prompt-request',

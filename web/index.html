@@ -45110,9 +45110,9 @@ async function frPollGates(screenEl, gen) {
     // #3113: an uncheckable-but-ACTIONABLE row (tmux not yet listed on a real Mac) paints the
     // DEFAULT "Not activated" + Turn On affordance rather than a dead "Checking..." spinner, so
     // the user can act. (#3221: the register runs UP FRONT at S3 entry, not from this Turn On;
-    // the tmux Turn On now only deep-links to the Accessibility pane.) It STILL never gates Next
-    // -- the reading is uncheckable, so the #2912
-    // fail-safe holds and only a definite 'blocked' sets anyBlocked below. A non-actionable
+    // the tmux Turn On now only deep-links to the Accessibility pane.) It STILL never gates Next:
+    // the reading is uncheckable, so the #2912 fail-safe holds and only a definite 'blocked' sets
+    // anyBlocked below. A non-actionable
     // uncheckable (a browser / no-FDA box) keeps the honest "Checking..." (nothing to grant).
     else if (st === 'uncheckable' && !reads[i].actionable) { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
