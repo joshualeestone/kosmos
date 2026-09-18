@@ -203,7 +203,7 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # the script with a raw sleep-usage error instead of a Kosmos refusal; a clamped
    # value is always a legal sleep argument.
    # 🛑 EMPTY-PATTERN MUST BE "" NOT '' HERE (kosmos, 0.6.77 installer P0). This whole
-   # block is a SINGLE-QUOTED `/bin/sh -c '...'` argument, so a literal '' is read by the
+   # block is a SINGLE-QUOTED /bin/sh -c argument, so a literal '' is read by the
    # OUTER shell as close-quote+open-quote and VANISHES from the string the inner sh gets,
    # leaving `case "$_rmax" in |*[!0-9]*)` = "syntax error near |" -> the install aborts.
    # "" is literal inside the outer single-quote, passes through, and matches empty the same.

@@ -17,6 +17,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 PI="$REPO/install/pkg-scripts/postinstall"
 fails=0
+# Clean up the per-iteration stderr-capture file even on interruption (the loop
+# rm's it each pass, but a SIGINT/SIGTERM mid-run would otherwise leak it).
+trap 'rm -f "/tmp/pi-inner-err.$$"' EXIT INT TERM
 [ -f "$PI" ] || { echo "FAIL  postinstall not found at $PI"; exit 1; }
 
 # Independent oracle for the anti-vacuity guard: how many inline `/bin/sh -c`
@@ -25,7 +28,7 @@ fails=0
 # `/bin/sh -c '` (the opening single-quote is the last char, body starts next
 # line). This is EOL-anchored, so a prose mention like `... `/bin/sh -c '...'` ...`
 # does NOT count (it continues past `-c '`). The extractor below must emit exactly
-# this many blocks; `n -eq expected` catches a block whose trigger fired but whose
+# this many blocks; `n -eq opens` catches a block whose trigger fired but whose
 # close logic never emitted it (the old `n -ge 1` was blind to that).
 opens=$(/usr/bin/grep -cE '/bin/sh -c[[:space:]]+('\''|\\)[[:space:]]*$' "$PI")
 
@@ -44,7 +47,12 @@ blocks="$(/usr/bin/awk '
   grab {
     line=$0
     if (first) { sub(/^[[:space:]]*'\''/, "", line); first=0 }   # strip leading  '\''
-    # closing: a line that has  '\'' followed by whitespace + an arg ("$...)
+    # closing: a line that has  '\'' followed by whitespace + an arg ("$...).
+    # This assumes the closing quote is trailed by a double-quoted "$var" arg,
+    # which holds for both real blocks (postinstall :138 and :244). A block that
+    # closed with no args, or a differently-quoted arg, would not match and would
+    # run to EOF unclosed -- but that is caught loud downstream by the
+    # `n -eq opens` guard ("the extractor dropped a block"), not a false pass.
     if (line ~ /'\''[[:space:]]+"\$/) {
       # cut at the closing quote that precedes the args
       idx=index(line, "'\'' ")
