@@ -145,6 +145,12 @@ test('the right cards sit on the side tone; the discussion is a full-bleed colum
      the ground token flipped. The composer and both tail carves flip in lockstep (see #3267). */
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-surface\); border: 0; border-radius: 0; border-right: 1px solid var\(--k-rule\);/,
     'the discussion is boxed again (or lost the rule that separates it from the right column), or the white ground reverted to #980 cream');
+  /* #3267: the sticky composer must flip to the white ground in LOCKSTEP with the .pjmid ground
+     above. #980 had repainted the composer to --k-bg to hide its band; if the ground goes white
+     but the composer stays --k-bg, the band returns (glaring in dark). Open-tail match (no closing
+     brace) per the #1430/#1469 convention. */
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjmid \.composer \{ background: var\(--k-surface\);/,
+    'the consolidated composer ground is not white -- the #980 cream band returns under a white .pjmid');
 });
 
 test('each project row in the rail shows its agent count as a subtitle, without the face icons the narrow rail has no room for', () => {

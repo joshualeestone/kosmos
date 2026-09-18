@@ -8580,6 +8580,17 @@ test('every bubble-fill token is opaque: the Option A overlap wing double-compos
   }
 });
 
+test('the room message bubble is width-capped so it does not span both edges (#3267, Josh: too wide on both sides)', () => {
+  // #3267 (Josh, 2026-09-18): the room bubble had no inner width cap, so messages spanned the
+  // full column on both views. .msg-bd now carries max-width: 52ch, the literal fix for "it's
+  // still too wide on both sides". Guard the rule so a future edit cannot silently drop it -- the
+  // browser-check-gate is satisfied by other assertions in the touched file, so this needs its own
+  // pin. Open-tail match (no closing brace) per the #1430/#1469 convention.
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(raw, /\.msg-bd \{ padding:[^}]*max-width: 52ch/,
+    '.msg-bd lost its max-width: 52ch cap -- room messages will span both edges again (Josh: too wide on both sides)');
+});
+
 test('a composer that cannot send looks like it cannot send', () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const at = raw.indexOf('.dmbar .btn[disabled]');

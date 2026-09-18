@@ -117,7 +117,7 @@
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
      source and a future opacity change is one edit per theme, not four scattered
      rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
-  --usermsg-tint: #e8ebf5; /* #3267: SOLID (pre-composited from rgba(65,113,227,.10) over --k-bg). The bubble fill is now opaque so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once. Visually identical to the prior translucent .10 over the standard ground. */
+  --usermsg-tint: #e8ebf5; /* #3267: SOLID (opaque), so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once -- that fix is ground-independent. This exact hex is the value Josh approved on the white render (2026-09-18). Derived as ~.10 royal blue baked over --k-bg: exact for the cream-ground consumers (.dm.mine .dm-b, .pj-msg) and within a few RGB of the room bubble's --k-surface ground (imperceptible in light). One opaque token cannot byte-match every ground it serves; the approved appearance is the anchor. */
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings

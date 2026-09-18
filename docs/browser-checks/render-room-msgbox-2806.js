@@ -178,11 +178,12 @@ const now = () => new Date().toISOString();
              (.msg align-items: flex-end). */
           rowAlign: (() => { const r = agentRow; return r ? getComputedStyle(r).alignItems : null; })(),
           /* #3130: `.msg-bd` MUST own a stacking context (position:relative +
-             z-index:0) or the tail's z-index:-1 resolves against the ambient tree
-             and `.thread`'s opaque ground paints OVER the whole nub -- an invisible
-             tail that every getComputedStyle-only tail assertion above still reads
-             as present. This is the structural pin for that (a regression to
-             z-index:auto reds it). */
+             z-index:0) or the tail's negative-z-index pseudo-elements (#3267:
+             ::before wing z-index:-2, ::after mask z-index:-1) resolve against the
+             ambient tree and `.thread`'s opaque ground paints OVER the whole tail --
+             an invisible tail that every getComputedStyle-only tail assertion above
+             still reads as present. This is the structural pin for that (a regression
+             to z-index:auto reds it). */
           bdPos: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).position : null; })(),
           bdZ: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).zIndex : null; })(),
           /* #3134-followup (Josh 6.72): an operator post with a BODY but NO timestamp
@@ -271,7 +272,8 @@ const now = () => new Date().toISOString();
       chk(!!(m.agentMask && m.agentMask.on) && amask[3] > 0,
         `${t} the wing MASK (::after) carries the thread-ground fill`, m.agentMask && m.agentMask.bg);
       // the STRUCTURAL guard for the wing's visibility -- `.msg-bd` owns its own stacking
-      // context so the z-index:-1 wing tucks behind THIS bubble, not behind `.thread`.
+      // context so the negative-z-index wing (::before) and mask (::after) tuck behind THIS
+      // bubble, not behind `.thread`.
       chk(m.bdPos === 'relative' && m.bdZ === '0',
         `${t} .msg-bd owns a stacking context (position:relative, z-index:0) so the wing is not hidden behind .thread`,
         `position=${m.bdPos} z-index=${m.bdZ}`);
@@ -336,12 +338,15 @@ const now = () => new Date().toISOString();
         const blueLead = (rgb) => rgb[2] - Math.max(rgb[0], rgb[1]);
         const bodyLead = blueLead(at(box.x + box.w * 0.5, box.y + box.h * 0.5));
         let maxWingLead = -999;
-        // #3267: window matched to the Option A curved wing -- ::before is right:-8/width:20/height:20
-        // and the ::after mask is right:-14/width:14/height:22, so the wing footprint is
-        // box.right-12..box.right+14 horizontally and box.bottom-22..box.bottom vertically. Sample the
-        // whole footprint: dx<0 is the body/edge (where a double-tint seam would show, since the wing
-        // now OVERLAPS back into the box), dx>0 is the outward wing itself.
-        for (let dx = -12; dx <= 14; dx++) for (let dy = -22; dy <= 3; dy++) {
+        // #3267: this samples the OPERATOR bubble (.msg.you), whose tail is on the RIGHT: ::before
+        // wing is right:-8/width:20/height:20 (spans box.right-12 to box.right+8, overlapping the
+        // body from box.right-12 to box.right) and the ::after mask is right:-14/width:14/height:22
+        // (spans box.right to box.right+14). So the footprint is box.right-14..box.right+14
+        // horizontally (the -14 low bound over-covers the overlap/seam side by 2px) and
+        // box.bottom-22..box.bottom vertically. Sample the whole footprint: dx<0 is the body/overlap
+        // (where a double-tint seam would show, since the wing overlaps back INTO the box), dx>0 is
+        // the outward wing + mask.
+        for (let dx = -14; dx <= 14; dx++) for (let dy = -22; dy <= 3; dy++) {
           const lead = blueLead(at(box.right + dx, box.bottom + dy));
           if (lead > maxWingLead) maxWingLead = lead;
         }
