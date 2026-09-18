@@ -30,7 +30,13 @@ if [ -n "$_pr_tmp" ] && /bin/cp "$PAGE_SRC" "$_pr_tmp" 2>/dev/null && /bin/chmod
   _PAGE_READABLE="$_pr_tmp"
 fi
 ```
-Then pass `$_PAGE_READABLE` (not `$PAGE_SRC`) as the render source, and remove the temp after.
+Then pass `$_PAGE_READABLE` (not `$PAGE_SRC`) as the render source, and remove the temp after. An
+`EXIT` trap (`trap '[ -n "$_pr_tmp" ] && /bin/rm -f "$_pr_tmp" 2>/dev/null' EXIT`) is armed after
+staging as a cleanup backstop for an early-exit path, then disarmed with `trap - EXIT` once the
+explicit rm has run, so it is not left live through the long real-install block. It is EXIT-only,
+so it does not change the postinstall's signal handling; a hard SIGKILL/SIGTERM can still leak the
+one small world-readable /tmp page, the same inherent limit as the existing trap in the
+setup.sh-invoking block, and macOS purges /tmp.
 
 Decisions:
 - **Explicit `/tmp` path, NOT mktemp's default dir.** Under installd, `$TMPDIR` IS the root-owned
