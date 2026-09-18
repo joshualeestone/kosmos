@@ -907,8 +907,42 @@ install_kosmos() {
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"
-    curl -fL --progress-bar "$url" -o "$stage/kosmos.tar.gz" || { rm -rf "$stage"; return 1; }
+    # kosmos#3233 (the open half of #920): emit determinate download progress
+    # for the install page. BEST-EFFORT and fully isolated from the download --
+    # every step below is guarded so a failure here can neither abort nor alter
+    # the curl, its checksum gate, or its error handling. A file:// page cannot
+    # fetch, so we write a tiny JS file (window.__kosmosInstallProgress) the page
+    # re-includes; there is NO server and NO runtime dependency (a server would
+    # need node, which arrives WITH this bundle, or /usr/bin/python3, which is
+    # only the Command Line Tools stub on a fresh box -- see the note near the
+    # settings verify below). The page shows the SHAPE of the wait (a determinate
+    # bar), never a megabytes figure (#920's deliberate stance).
+    _kp_dir="$HOME/Library/Caches/Kosmos"
+    _kp_js="$_kp_dir/install-progress.js"
+    _kp_total=$(curl -fsIL -m 15 "$url" 2>/dev/null \
+      | awk 'tolower($1)=="content-length:"{v=$2} END{gsub(/[^0-9]/,"",v);print v}')
+    case "$_kp_total" in ''|*[!0-9]*) _kp_total="";; esac
+    _kp_emit() {  # $1 = phase; best-effort, always returns 0
+      [ -d "$_kp_dir" ] || mkdir -p "$_kp_dir" 2>/dev/null || return 0
+      _kp_b=$(stat -f%z "$stage/kosmos.tar.gz" 2>/dev/null || echo 0)
+      case "$_kp_b" in ''|*[!0-9]*) _kp_b=0;; esac
+      _kp_t=null; [ -n "$_kp_total" ] && _kp_t="$_kp_total"
+      _kp_tmp="$_kp_js.$$.tmp"
+      printf 'window.__kosmosInstallProgress={bytes:%s,total:%s,phase:"%s",ts:%s};\n' \
+        "$_kp_b" "$_kp_t" "$1" "$(date +%s 2>/dev/null || echo 0)" > "$_kp_tmp" 2>/dev/null \
+        && mv -f "$_kp_tmp" "$_kp_js" 2>/dev/null
+      return 0
+    }
+    _kp_sentinel="$stage/.kp-active"
+    : > "$_kp_sentinel" 2>/dev/null || true
+    ( while [ -f "$_kp_sentinel" ]; do _kp_emit downloading; sleep 1; done ) &
+    _kp_watcher=$!
+    curl -fL --progress-bar "$url" -o "$stage/kosmos.tar.gz" \
+      || { rm -f "$_kp_sentinel" 2>/dev/null; kill "$_kp_watcher" 2>/dev/null; rm -rf "$stage"; return 1; }
+    rm -f "$_kp_sentinel" 2>/dev/null; kill "$_kp_watcher" 2>/dev/null; wait "$_kp_watcher" 2>/dev/null
+    _kp_emit downloaded
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    _kp_emit installing
     tar -xzf "$stage/kosmos.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/kosmos.tar.gz"
   fi
