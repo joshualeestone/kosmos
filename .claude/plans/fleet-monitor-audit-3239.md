@@ -56,6 +56,13 @@ Turn silent monitor-loss into a CAUGHT signal, without touching the running moni
 - Step 3: an idempotent installer that provisions all manifest monitors on a fresh box.
 - Per-host `scope` on the manifest (a host that legitimately lacks a monitor); documented as a
   refinement, deferred.
+- HEALTH, not just presence: this audit keys on a label being LOADED (`launchctl list`), not on the
+  Status column, so a loaded-but-crash-looping monitor reads "present". The card's scope is DROPPED
+  monitors (label absent); surfacing Status (loaded-but-failing) is a #3243 refinement. The success
+  line is worded "loaded (presence only; health/status not checked)" so an operator does not
+  over-read it as all-healthy.
+- CLI polish (deferred NIT): unknown flags fall through to the human report and there is no --help;
+  harmless for a read-only on-demand tool, folded into #3243.
 
 ## Weakest premise
 The manifest declares the monitors observed on THIS fleet box as the expected set for the fleet box.

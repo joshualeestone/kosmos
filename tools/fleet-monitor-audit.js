@@ -104,7 +104,11 @@ function run(argv, loader = loadedLabels) {
   if (asJson) {
     console.log(JSON.stringify({ ...v, readable: true }, null, 2));
   } else if (v.ok) {
-    console.log(`fleet-monitor-audit: all ${v.expectedCount} declared fleet monitors are present`);
+    /* "loaded", not "healthy": this keys on label presence in `launchctl list`, NOT
+       the Status column, so a loaded-but-crash-looping monitor still reads present.
+       The card's scope is DROPPED monitors (label absent); surfacing Status is the
+       #3243 refinement. Word it so an operator does not over-read this as all-healthy. */
+    console.log(`fleet-monitor-audit: all ${v.expectedCount} declared fleet monitors are loaded (presence only; health/status not checked)`);
   } else {
     console.error(`fleet-monitor-audit: ${v.missing.length} of ${v.expectedCount} declared fleet monitors MISSING from this box:`);
     for (const m of v.missing) {

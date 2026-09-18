@@ -157,7 +157,9 @@ test('tool: human-readable output NAMES a missing monitor + its reinstall source
 test('tool: human-readable all-present output says so (control for the missing arm)', () => {
   const r = callRun([], { rawText: launchctlText(FLEET_MONITORS) });
   assert.equal(r.code, EXIT_ALL_PRESENT);
-  assert.match(r.out, /all \d+ declared fleet monitors are present/);
+  assert.match(r.out, /all \d+ declared fleet monitors are loaded/);
+  // The success line must NOT over-claim health - it checks presence, not Status.
+  assert.match(r.out, /presence only; health\/status not checked/);
 });
 
 test('tool: default loader (no injection) reads REAL launchctl -> exit in {0,1,2} (in-process, proves the shipped path has no env seam)', () => {
