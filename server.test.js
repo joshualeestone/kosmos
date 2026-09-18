@@ -8532,10 +8532,11 @@ test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
   // per-theme definition silently wears the light cream on a dark ground. Tie
   // completeness to --k-sunk (its own test guarantees it is per-theme): drop
   // --agent-msg from any dark block --k-sunk defines and the counts diverge.
-  // Unlike --usermsg-tint this does NOT assert the dark values agree, because
-  // the plus-active (navy) block intentionally sets --agent-msg: var(--k-sunk)
-  // while the other dark blocks use the opaque cream -- presence parity is the
-  // guarantee, not value-agreement.
+  // Unlike --usermsg-tint this does NOT assert the dark values agree, because navy
+  // intentionally differs (its own bluish inset, now baked opaque per #3267) while the
+  // other dark blocks use the cream -- presence parity is this test's guarantee, not
+  // value-agreement. Opacity of every bubble-fill value is guarded separately below
+  // ("every bubble-fill token is opaque"), which the Option A overlap wing requires.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const declsIn = (token, text) => text.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [];
   const darkAt = raw.indexOf('@media (prefers-color-scheme: dark)');
@@ -8551,6 +8552,32 @@ test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
     `--agent-msg has ${agentDark.length} dark-side definition(s) but its sibling --k-sunk has ${sunkDark.length}; `
     + 'it must be defined in every dark theme block --k-sunk is (system-dark, forced-dark, navy/plus-active), '
     + 'or the missing ground wears the light cream');
+});
+
+test('every bubble-fill token is opaque: the Option A overlap wing double-composites a translucent one (#3267)', () => {
+  // #3267: the room bubble tail is an Option A wing (.msg-bd::before) drawn with
+  // background-color:inherit that OVERLAPS the bubble box. In the overlap region a TRANSLUCENT
+  // bubble fill composites twice -> the #3130 "colliding triangle" (Josh 6.72). The wing inherits
+  // whichever fill the bubble wears: --usermsg-tint (.msg.you) or --agent-msg (.msg:not(.you)).
+  // So EVERY definition of BOTH tokens, in EVERY theme block, must be opaque. This is the guard
+  // that would have caught navy --agent-msg still being var(--k-sunk) (translucent) after the
+  // operator tint was made solid: light/dark were solid, navy was not, and the browser-check runs
+  // only light+dark colorSchemes so it could not see the navy world. An opaque 6-digit hex is the
+  // only form that cannot double-composite; rgba(), an 8-digit #RRGGBBAA, or a var(--k-sunk)-style
+  // translucent alias all fail here.
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const valuesIn = (token) => (raw.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [])
+    .map((d) => d.replace(new RegExp('^--' + token + ':\\s*'), '').replace(/;$/, '').trim());
+  const OPAQUE_HEX = /^#[0-9a-fA-F]{6}$/;
+  for (const token of ['usermsg-tint', 'agent-msg']) {
+    const vals = valuesIn(token);
+    assert.ok(vals.length >= 3,
+      `CONTROL: --${token} has only ${vals.length} definition(s); expected at least light + dark + navy, so this opacity guard is not vacuous`);
+    for (const v of vals) {
+      assert.ok(OPAQUE_HEX.test(v),
+        `--${token} has a non-opaque value "${v}": the Option A overlap wing (background-color:inherit) would double-composite it into the #3130 triangle. Pre-composite it to a solid #RRGGBB hex over that theme's ground.`);
+    }
+  }
 });
 
 test('a composer that cannot send looks like it cannot send', () => {

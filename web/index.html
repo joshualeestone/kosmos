@@ -117,7 +117,7 @@
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
      source and a future opacity change is one edit per theme, not four scattered
      rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
-  --usermsg-tint: #e8ebf5; /* #3267: solid (pre-composited from rgba .10 over --k-bg) so the Option A overlap wing does not double-composite into a dark triangle on the translucent bubble; visually identical over the standard ground */
+  --usermsg-tint: #e8ebf5; /* #3267: SOLID (pre-composited from rgba(65,113,227,.10) over --k-bg). The bubble fill is now opaque so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once. Visually identical to the prior translucent .10 over the standard ground. */
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings
@@ -4779,10 +4779,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    🛑 WHY THE TINT IS SOLID, and it is load-bearing: the Option A wing OVERLAPS the box, and an
    overlapping wing on a TRANSLUCENT fill double-composites (tint over tint) into a darker
    triangle -- Josh 6.72, "two transparent objects colliding making a weird triangle" (#3130).
-   So `--usermsg-tint` was made SOLID (opaque, pre-composited per theme -- see its def), so the
-   overlap composites exactly ONCE (opaque over opaque) and there is no triangle. The agent
-   bubble fill was always opaque, so its overlap was always safe. render-room-msgbox-2806.js is
-   the pixel oracle that MEASURES no double-tint seam. */
+   So EVERY bubble fill the wing can inherit is opaque: `--usermsg-tint` and `--agent-msg` are
+   solid hexes in every theme (light, dark, forced-dark, and navy -- navy `--agent-msg` was
+   translucent `var(--k-sunk)` until #3267 made it solid too), each pre-composited per theme, so
+   the overlap composites exactly ONCE (opaque over opaque) and there is no triangle. That
+   "every bubble fill is opaque" invariant is guarded by server.test.js (the overlap wing needs
+   it); render-room-msgbox-2806.js is the pixel oracle that MEASURES no double-tint seam in
+   light and dark. */
 .msg-bd { position: relative; z-index: 0; }
 /* #3244 -> #3247 -> #3267 (Josh picked Option A, the iMessage curved wing). #3247 dodged the
    translucent double-composite by shrinking the wing onto a small NO-OVERLAP mask (12x17 + 7x18),
@@ -7796,7 +7799,7 @@ body.plus-active {
   --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
-  --agent-msg: var(--k-sunk);  /* #2947: navy keeps its bluish inset, cream is out of scope for this world */
+  --agent-msg: #1b2a4b;  /* #3267: was var(--k-sunk) = rgba(120,150,200,.08), TRANSLUCENT. The Option A wing (::before, background-color:inherit) OVERLAPS the bubble box, and a translucent fill double-composites in the overlap into the #3130 dark triangle -- the same defect this change fixed for --usermsg-tint. Made SOLID here too: .08 of rgb(120,150,200) pre-composited over navy --k-bg #132140 (mirrors --usermsg-tint navy). #2947 history: navy keeps its bluish inset, cream is out of scope for this world. */
   --usermsg-tint: #1a2d58; /* #3267: solid navy (pre-composited from rgba .15 over --k-bg #132140); was #2660 15% */
   --k-optline: #5f7099;
   /* --label/--bg system */
