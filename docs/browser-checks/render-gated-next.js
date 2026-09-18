@@ -47,6 +47,13 @@ async function routeGates(page, { fileAccess, sleep, tmux, tmuxA11y }) {
   if (sleep !== undefined) await page.route('**/api/sleep-status', (r) => r.fulfill({ json: sleep }));
   if (tmux !== undefined) await page.route('**/api/a11y-status', (r) => r.fulfill({ json: tmux }));
   if (tmuxA11y !== undefined) await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: tmuxA11y }));
+  // #3221: entering S3 fires the tmux-a11y REGISTER (/api/tmux-a11y-prompt) up front (client
+  // frFireTmuxA11yRegister), fire-and-forget, during this gotoGate navigation. Mock it so it
+  // resolves deterministically instead of hitting the real board mid-goto -- the same reason the
+  // *-status polls above are routed. #3113 had recorded an entry-time fire hanging this check's
+  // networkidle wait; that no longer reproduces (the served endpoint answers fast), and this
+  // route removes the dependency on that timing entirely.
+  await page.route('**/api/tmux-a11y-prompt', (r) => r.fulfill({ json: { ok: true } }));
 }
 
 /* Deep-link to the screen holding `anchorSel`, discovering its step number. Loads

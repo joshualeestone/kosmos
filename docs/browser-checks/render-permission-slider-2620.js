@@ -44,6 +44,11 @@ async function gotoS3(page, tmuxTrusted) {
   // #2911: the tmux-a11y row is a sibling gating row on S3; route it deterministically so
   // it never reads the real board while this check exercises the app row's switch.
   await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }));
+  // #3221: entering S3 fires the tmux-a11y register up front (client frFireTmuxA11yRegister),
+  // fire-and-forget, during this goto. Mock it so it resolves deterministically rather than
+  // hitting the real board mid-navigation (the entry-fire hang #3113 recorded no longer
+  // reproduces, and this removes the dependency on that timing).
+  await page.route('**/api/tmux-a11y-prompt', (r) => r.fulfill({ json: { ok: true } }));
   await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(700); // let the gate poll settle + frSyncSwitchOverlays run
 }
