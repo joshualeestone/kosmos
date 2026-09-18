@@ -39,11 +39,11 @@
   /* #2363: the .go button rules were dropped with the taken-branch manual link they
      styled (the only class="go" consumer, verified repo-wide) - dead under #2073. */
   @media (prefers-color-scheme:dark){body{background:#151412;color:#ece9e2}.muted{color:#a29e95}.bar{background:#3a3833}}
-  @media (prefers-reduced-motion:reduce){.bar>i{animation:none}}
+  @media (prefers-reduced-motion:reduce){.bar>i{animation:none;transition:none}}
 </style></head>
 <body><main>
   <canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"></canvas>
-  <div class="bar" id="bar" role="progressbar" aria-label="Installing"><i></i></div>
+  <div class="bar" id="bar" role="progressbar" aria-label="Installing" aria-valuemin="0" aria-valuemax="100"><i></i></div>
   <h1 id="title">Installing Kosmos</h1>
   <!-- 🔑 WHAT THE WAIT IS MADE OF, SAID AT THE START (kosmos#920). Josh, mid
        install: "Do we know when or how much of it has been installed?" This line
@@ -365,7 +365,11 @@
     window.__kpStop = function(){
       kpStopped = true;
       if (fillEl) fillEl.style.width = "";
-      if (barEl) barEl.classList.remove("determinate");
+      if (barEl) {
+        barEl.classList.remove("determinate");
+        // settle() renders the bar full (.settled = width:100%); mirror that to AT.
+        barEl.setAttribute("aria-valuenow", "100");
+      }
     };
     function apply(p){
       if (kpStopped || !barEl || !fillEl || !p) return;
@@ -375,6 +379,9 @@
         if (pct > 100) pct = 100;
         barEl.classList.add("determinate");
         fillEl.style.width = pct.toFixed(1) + "%";
+        // kosmos#3233 a11y: expose the determinate value so a screen reader hears
+        // the progress, not just "Installing". Unset while indeterminate (swoosh).
+        barEl.setAttribute("aria-valuenow", String(Math.round(pct)));
       }
       // no total -> leave the indeterminate swoosh as-is (no baked number).
     }

@@ -29,7 +29,7 @@ test('the mark is the real K loader canvas, and the progress bar exists, both al
   // replaced it with the same 155-dot canvas loader the create-an-agent
   // screen uses. Same dimensions, so the badge reads as one identity.
   assert.match(HTML, /<canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"><\/canvas>/, 'the K loader canvas is gone');
-  assert.match(HTML, /<div class="bar" id="bar" role="progressbar" aria-label="Installing"><i><\/i><\/div>/, 'the progress bar is gone');
+  assert.match(HTML, /<div class="bar" id="bar" role="progressbar" aria-label="Installing" aria-valuemin="0" aria-valuemax="100"><i><\/i><\/div>/, 'the progress bar is gone');
   // Neither carries its own display:none the way #late/#taken do -- they
   // are meant to be visible from the very first paint.
   assert.doesNotMatch(HTML, /\.mark\s*{[^}]*display:\s*none/, 'the mark starts hidden');
@@ -178,7 +178,9 @@ test('reduced motion turns off both animations, and dark mode is accounted for',
   // prefers-reduced-motion itself and draws one still frame instead of
   // animating), so there is nothing left for a CSS rule to disable on
   // .mark -- pinned in the loader's own `slow` branch instead.
-  assert.match(HTML, /@media \(prefers-reduced-motion:reduce\)\{\.bar>i\{animation:none\}\}/);
+  // kosmos#3233 a11y: the determinate bar adds a width transition, so the
+  // reduced-motion rule must disable transition too, not only the swoosh animation.
+  assert.match(HTML, /@media \(prefers-reduced-motion:reduce\)\{\.bar>i\{animation:none;transition:none\}\}/);
   assert.match(HTML, /var slow = window\.matchMedia && window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches;/,
     'the K loader stopped reading reduced-motion itself');
   assert.match(HTML, /if \(slow\) \{/, 'the loader lost its reduced-motion branch (one still frame instead of animating)');
@@ -243,6 +245,17 @@ test('#3233: a determinate bar style exists and stops the indeterminate swoosh',
     'the determinate bar rule (which stops the swoosh) is gone');
   assert.match(CODE, /\.bar\.determinate>i\{[^}]*width:0/,
     'the determinate bar no longer starts empty before the first progress reading');
+});
+
+test('#3233 a11y: the determinate bar exposes aria-valuenow to assistive tech', () => {
+  // Bounds live in the static markup; the live value is set in JS as the bar
+  // fills, and mirrored to 100 at settle (when .settled renders the bar full).
+  assert.match(HTML, /aria-valuemin="0" aria-valuemax="100"/,
+    'the progressbar lost its aria-valuemin/max bounds');
+  assert.match(CODE, /setAttribute\("aria-valuenow", String\(Math\.round\(pct\)\)\)/,
+    'the determinate branch no longer sets aria-valuenow -- progress is not exposed to a screen reader');
+  assert.match(CODE, /setAttribute\("aria-valuenow", "100"\)/,
+    'settle() no longer mirrors the full bar (100) to assistive tech');
 });
 
 test('#3233: the page re-includes install-progress.js cache-busted, because a file:// page cannot fetch', () => {
