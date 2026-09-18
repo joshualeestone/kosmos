@@ -7,9 +7,10 @@ Addresses kosmos#3230.
 The macOS .pkg success pane (`install/pkg-resources/conclusion.html`) tells the
 person Kosmos is installed and how to reopen it, but says nothing about the large
 provider-tool download that happens later. The first time a person connects an
-agent, Kosmos downloads the terminal agent it needs (Claude Code is roughly a
-couple of hundred megabytes). A download of that size with no prior mention is
-alarming, and the success pane is the natural place to set the expectation.
+agent, Kosmos downloads the terminal agent it needs (Claude Code measures
+roughly 281MB, a few hundred megabytes). A download of that size with no prior
+mention is alarming, and the success pane is the natural place to set the
+expectation.
 
 ## Change
 
