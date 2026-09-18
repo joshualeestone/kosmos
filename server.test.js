@@ -8504,8 +8504,18 @@ test('--usermsg-tint is DEFINED in every theme, tied to its --k-sunk sibling', (
     `--usermsg-tint has ${tintDark.length} dark-side definition(s) but its sibling --k-sunk has ${sunkDark.length}; `
     + 'it must be defined in every dark theme block --k-sunk is (system-dark, forced-dark, navy), '
     + 'or the missing ground wears the light 10%');
-  assert.ok(tintDark.every((v) => v === tintDark[0]),
-    `the dark --usermsg-tint definitions disagree (${tintDark.join(', ')}); every dark theme should use the same 15%`);
+  // #3267: --usermsg-tint is now SOLID, pre-composited from 15% #4171E3 over EACH theme's
+  // own ground so the Option A overlap wing cannot double-composite into a dark triangle.
+  // The system-dark block and its generated forced-dark twin bake over the same ground
+  // (#0c0d0f) so they share one value (#141c2f); navy bakes over its own ground (#132140)
+  // and is legitimately different (#1a2d58). So this no longer requires ALL dark values to
+  // agree (that held only while the token was ONE translucent value composited live per
+  // ground). It requires at most TWO distinct dark values -- the shared twin value plus
+  // navy's -- so a THIRD distinct value (a drifted twin, or a mistyped opacity) still reds.
+  // Mirrors the --agent-msg sibling below, where navy also differs by design.
+  const tintDarkDistinct = [...new Set(tintDark)];
+  assert.ok(tintDarkDistinct.length <= 2,
+    `the dark --usermsg-tint has ${tintDarkDistinct.length} distinct values (${tintDark.join(', ')}); expected at most two -- the system-dark/forced-dark twins share one solid value (15% over #0c0d0f) and navy bakes 15% over its own ground. A third distinct value means a twin drifted or an opacity was mistyped`);
   assert.notEqual(tintLight[0], tintDark[0],
     `light and dark --usermsg-tint are the same value (${tintLight[0]}); light should be 10%, dark 15%`);
 });
