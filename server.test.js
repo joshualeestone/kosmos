@@ -3274,68 +3274,28 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'an emptied diagram with no sentence reads as "you have no agents"');
 });
 
-test('the detail panel carries the explanation the card gave up', () => {
-  /* ⚠️ The pack split moved the why-line off the card ("the card carries
-     signals, the panel carries explanation") -- so the panel MUST carry it,
-     or `because`, the board's stated reason for its belief about an agent,
-     appears nowhere in the UI at all while the server still ships it. */
+test('#3272: NO reported-reason status line under the agent name (do not re-add #d-why)', () => {
+  /* Josh, 2026-09-18 (#chaoskosmos-design), with a screenshot of the agent detail page:
+     "there's not supposed to be anything up there around what their status is getting reported
+     ... 'finished responding' is not supposed to be there ... we don't want a status line up
+     there. They keep popping back in." This REVERSES #3043, which had relocated the reported
+     reason (a.because, rendered "Finished responding.") to a #d-why / .detail-why note under
+     the agent name. This test is the lock Josh asked for ("fix this and then lock it in").
+     🛑 IF YOU ARE RE-ADDING A REASON/STATUS LINE UNDER THE AGENT NAME because an older card or
+     test (e.g. #3043/#1841/#2833) asked for it: STOP. Josh's 2026-09-18 ruling supersedes them.
+     The reported reason (a.because) intentionally has NO dedicated header line now. Actionable
+     info still has surfaces: the state badge (#d-state), the short engine-state sentences
+     (#d-task: restart/auth/rate-limit), the screen-said evidence (#d-said), the re-auth action
+     (#d-reauth). If a genuine need for the reason resurfaces, take it to Josh, do not re-add here. */
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const drive = (because, stateReported, state) => {
-    // Seeded shown-and-full (presence before absence): the empty case must
-    // demonstrably CLEAR and HIDE a line that was carrying a sentence.
-    const el = { textContent: 'seeded', hidden: false };
-    const from = script.indexOf("const why = document.getElementById('d-why');");
-    /* #1841/#2833 anchored WITHOUT the trailing semicolon: the write hides on a reported
-       single-line state and on needs_you, so pinning the exact line would break on a change
-       this file exists to allow. */
-    const write = script.indexOf('why.hidden = !why.textContent');
-    const end = script.indexOf('\n', write) + 1;
-    assert.ok(from > -1 && write > from && write < end,
-      'the why write fell outside the extracted slice');
-    // eslint-disable-next-line no-new-func
-    new Function('document', 'a', script.slice(from, end))(
-      { getElementById: () => el }, { because, stateReported, state });
-    return el;
-  };
-  const told = drive('we could not read the pane');
-  // Capitalised and finished with a full stop on the way to the screen (run-
-  // through 2026-08-23): the engine writes it to follow "because", the page
-  // shows it alone under a name. The words themselves are untouched.
-  assert.equal(told.textContent, 'We could not read the pane.',
-    'the panel does not show the reason the board holds for its belief');
-  assert.equal(told.hidden, false, 'a present explanation must be visible');
-  const healthy = drive(undefined);
-  assert.equal(healthy.textContent, '', 'a missing because must clear the seeded text, not keep it');
-  assert.equal(healthy.hidden, true, 'an empty explanation must hide its line, not sit as a grey gap');
-  /* #3043 (Josh, 2026-09-14): the reported quote no longer prints beside the bubble
-     (#d-task), so this lower explanation note is now the reported reason's surface -- it
-     SHOWS it (single or multi line) rather than hiding as a duplicate. Under #1841 a
-     reported single-line reason hid here because d-task carried it beside the bubble;
-     #3043 dropped that header quote, so the suppression lifts and the reason relocates
-     here. needs_you stays the exception (below). */
-  const reported = drive('finished responding', true);
-  assert.equal(reported.hidden, false,
-    'a reported single-line reason must show in the explanation note now that #3043 dropped it from beside the bubble');
-  assert.equal(reported.textContent, 'Finished responding.',
-    'the relocated reported reason renders as the panel explanation sentence');
-  /* #1996 / #3043: a reported MULTI-LINE because also shows here in full -- for reported
-     states OTHER than needs_you (see #2833 below). Since #3043 the single-line case above
-     shows too, so this is no longer the only reported case this surface carries. */
-  const reportedMulti = drive('blocked on the deploy\n\nwaiting for the cert to be signed', true);
-  assert.equal(reportedMulti.hidden, false,
-    'a reported non-needs_you MULTI-LINE because must stay visible (d-task truncates it): #1996');
-  assert.ok(reportedMulti.textContent.includes('\n'),
-    'the full multi-line because must reach the surface with its breaks, not flattened');
-  /* #2833 (Josh, 2026-09-11): needs_you is the exception. Its self-reported message is shown by
-     the Talk "waiting on an answer" box and removed from #d-task, so this line hides for
-     needs_you whether the because is single- or multi-line -- otherwise a multi-line needs_you
-     because would reappear here. Keyed to the STATE, not stateReported: the reportedMulti case
-     above (non-needs_you) stays visible, so the clause is not vacuous. */
-  const needsSingle = drive('waiting on your answer', true, 'needs_you');
-  assert.equal(needsSingle.hidden, true, 'needs_you must hide the lower because (single-line)');
-  const needsMulti = drive('waiting on your answer\n\non the second question too', true, 'needs_you');
-  assert.equal(needsMulti.hidden, true, 'needs_you must hide the lower because (multi-line too), #2833');
+  assert.ok(!/id="d-why"/.test(raw) && !/class="detail-why"/.test(raw),
+    'a #d-why / .detail-why reason line was re-added to the agent-detail header -- Josh 2026-09-18: no status line under the agent name (#3272)');
+  assert.ok(!/getElementById\((['"])d-why\1\)/.test(raw),
+    'the render still paints a #d-why reason line under the agent name -- removed per #3272 (Josh 2026-09-18)');
+  /* Non-vacuity control: the surfaces that DO remain must still be present, so this test is
+     "the reason line is gone", not "the header is gone". */
+  assert.ok(/id="d-meta"/.test(raw) && /id="d-said"/.test(raw),
+    'CONTROL: the kept header surfaces (#d-meta, #d-said) are missing -- the header itself changed shape, re-read before trusting the absence checks above');
 });
 
 test('the settings screen renders the engine\'s three answers', () => {
@@ -9034,14 +8994,15 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   assert.equal(needs.task.textContent, '', 'needs_you still showed the frozen title as its task');
   assert.equal(needs.task.hidden, true, 'the empty task line was not hidden');
 
-  /* #3043 (Josh, 2026-09-14): a REPORTED state's self-reported quote no longer prints beside
-     the bubble in the header -- it relocates to the explanation note (#d-why), which this
-     SLICED block does not paint (the relocation is asserted in
-     docs/browser-checks/render-detail-header-1841.js, which drives real openDetail and sees
-     both elements). Here we pin the d-task side: a reported state, needs_you or not, shows
-     nothing on this line. The non-reported `paused` (rate_limited) control below DOES still
-     show its engine-state sentence, so this is not a vacuous "d-task is always empty" test --
-     #2833's carve-out for the SHORT non-reported reasons is preserved by that control. */
+  /* #3043 (Josh, 2026-09-14) then #3272 (Josh, 2026-09-18): a REPORTED state's self-reported
+     quote does not print beside the bubble in the header (#3043 dropped it from #d-task). #3043
+     had relocated it to a #d-why note under the name; #3272 REMOVED that note entirely (Josh: no
+     status line up there), so the reported quote now shows on NO header line at all. This block
+     still pins the d-task side: a reported state, needs_you or not, shows nothing on this line.
+     The non-reported `paused` (rate_limited) control below DOES still show its engine-state
+     sentence, so this is not a vacuous "d-task is always empty" test -- #2833's carve-out for the
+     SHORT non-reported reasons is preserved by that control. The absence of the #d-why note is
+     guarded by the '#3272: NO reported-reason status line under the agent name' test above. */
   const reportedNeeds = drive({ state: 'needs_you', because: 'Research Kerry Pickrell: two location details', stateReported: true });
   assert.equal(reportedNeeds.task.textContent, '',
     'a reported needs_you printed its self-reported quote beside the bubble (#3043)');
@@ -9049,8 +9010,8 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
 
   const reportedBlocked = drive({ state: 'blocked', because: 'waiting on the cert to be signed', stateReported: true });
   assert.equal(reportedBlocked.task.textContent, '',
-    'a reported non-needs_you state printed its quote beside the bubble instead of relocating it to #d-why (#3043)');
-  assert.equal(reportedBlocked.task.hidden, true, 'the relocated task line was not hidden');
+    'a reported non-needs_you state printed its quote beside the bubble instead of dropping it (#3043/#3272)');
+  assert.equal(reportedBlocked.task.hidden, true, 'the dropped task line was not hidden');
 
   /**
    * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Both derive the task line from

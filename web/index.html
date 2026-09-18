@@ -734,16 +734,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    `.acard`; the detail panel inherits the same. `#d-state` is the only user of
    this class and is always given `astate` too. */
 .detail-state { font: var(--text-body) var(--font-ui); margin-top: var(--space-4); }
-/* The panel's half of the pack split ("the card carries signals, the panel
-   carries explanation"): the board's stated reason for its belief about
-   this agent. A sentence to read, so label-2 — no longer "like the state line
-   above", which became a badge and gave up its colour in the same change. */
-.detail-why { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px;
-  /* #1996 / #3043: a reported "because" may be MULTI-LINE (the server keeps paragraph
-     breaks), and since #3043 this note is the SOLE surface for a reported reason
-     (the header task line no longer carries it at all). So preserve the breaks rather
-     than collapsing them to spaces. */
-  white-space: pre-line; }
+/* #3272 (Josh, 2026-09-18): the .detail-why reason line under the agent name was removed
+   (no status line up there). Its CSS is gone with it; do not re-add the class or the element. */
 .field { border-top: 0.5px solid var(--separator); padding-top: var(--space-6); margin-top: var(--space-6); }
 .flabel { font: 600 var(--text-body) var(--font-ui); display: block; margin-bottom: 2px; }
 .fhint { font: var(--text-callout) var(--font-ui); color: var(--label-3); margin-bottom: var(--space-4); }
@@ -8207,7 +8199,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            "Add Instructions & Restart" button, and the Instructions tab dot
            lights while it shows. Header is quieter for it. See #d-sec-instr. -->
       <div class="detail-meta" id="d-meta"></div>
-      <div class="detail-why" id="d-why" hidden></div>
+      <!-- #3272 (Josh, 2026-09-18): NO status/reason line under the agent name. The
+           reported reason (`a.because`, e.g. "Finished responding.") used to render here as
+           #d-why (added by #3043); Josh: "there's not supposed to be anything up there around
+           what their status is getting reported ... we don't want a status line up there."
+           The element and its paint are removed. Actionable info still has surfaces: the state
+           badge (#d-state), the short engine-state sentences (#d-task), the screen-said evidence
+           (#d-said) and the re-auth action (#d-reauth). Locked by a guard in server.test.js that
+           reds if a #d-why / .detail-why reason line is re-added here. Do not re-add it. -->
       <!-- 🔑 WHAT THE SCREEN SAID, not what we concluded from it (Josh,
            2026-08-21: "is there any way we could show that her usage is full").
            Kosmos cannot know an account is spent; it saw a sentence. So the
@@ -25061,14 +25060,15 @@ function openDetail(sessionName, section, fromProject) {
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
      title, so the two surfaces no longer diverge on what "no task" looks like. */
-  /* #3043 (Josh, 2026-09-14): the agent's own self-reported sentence no longer prints
-     beside the status bubble in the header. Josh, on the agent view: "I only want to show
-     the status bubble ... it prints out really long stuff that I don't need. I just need to
-     know if it's idle, or if it's working, or if it needs something." So the reported quote
-     is dropped from this line and relocates to the explanation note (#d-why) below the name,
-     which keeps a reported agent's reason on a surface (#2833) without printing it beside the
-     badge. The SHORT engine-state reassurances stay here (restarting "Nothing was lost" #2019,
-     auth #874, rate-limit #215): those are not the long self-reported text Josh flagged, and
+  /* #3043 (Josh, 2026-09-14) then #3272 (Josh, 2026-09-18): the agent's own self-reported
+     sentence no longer prints beside the status bubble in the header. Josh, on the agent view:
+     "I only want to show the status bubble ... it prints out really long stuff that I don't
+     need. I just need to know if it's idle, or if it's working, or if it needs something." So
+     the reported quote is dropped from this line. #3043 had relocated it to a #d-why note below
+     the name; #3272 removed that note entirely (Josh: no status line up there), so the reported
+     reason now shows on no header line at all. The SHORT engine-state reassurances stay here
+     (restarting "Nothing was lost" #2019, auth #874, rate-limit #215): those are not the long
+     self-reported text Josh flagged, and
      dropping them would silently undo those prior rulings.
      (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it.)
      taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected.
@@ -25103,27 +25103,13 @@ function openDetail(sessionName, section, fromProject) {
   paintProviderPicker(a);
   paintAccountPicker(a);
   paintReportsTo(a);
-  /* The explanation's landing place after it left the card with the
-     why-line (the pack split: the card carries signals, the panel carries
-     explanation). `because` is the board's stated reason for its belief
-     about this agent -- why a pane reads unknown, what could not be read.
-     Empty hides: a healthy working agent has no reason sentence to show,
-     and an empty grey line would read as something failing to load. */
-  const why = document.getElementById('d-why');
-  /* The engine's sentence is written to follow "because", so it arrives
-     lowercase and unpunctuated ("it is sitting at its prompt"). Under a name,
-     on its own line, that reads as a fragment; a capital and a full stop make
-     it the sentence it is. Nothing else about the words changes. */
-  const reason = String(a.because || '').trim();
-  why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
-  /* #3043 (Josh, 2026-09-14): the reported reason now shows HERE (the explanation note below
-     the name) for every reported state except needs_you. It used to be suppressed for a
-     single-line reported because #d-task carried it beside the bubble (#1841); with #3043
-     dropping that header quote, this note is now its surface, so a reported agent's reason
-     (single or multi line, #1996) still has somewhere to live (#2833). needs_you stays hidden:
-     the Talk "waiting on an answer" box carries it. The NON-reported "why we cannot vouch"
-     line (#569) is untouched: it is the sole surface for that. */
-  why.hidden = !why.textContent || (a.state === 'needs_you');
+  /* #3272 (Josh, 2026-09-18): NO reported-reason line under the agent name. `a.because`
+     (e.g. "Finished responding.") used to paint into #d-why here, added by #3043; Josh
+     reversed that -- "we don't want a status line up there ... nothing up there around what
+     their status is getting reported." The element and this paint are removed. `a.because`
+     now has no dedicated header line by design; the actionable surfaces remain (the state
+     badge #d-state, the short engine-state sentences #d-task, the screen-said evidence
+     #d-said, the re-auth action #d-reauth). Guarded in server.test.js so a re-add reds. */
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
