@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: 3233-installer-progress
-diff_hash: 475a2be47aaee449f1b7899298312ad1c782c8b76eaf155f0ef8d57ad99db364
+diff_hash: 05cffd8577a413ae935e3654856b1756abee395f4e09aa87d240abf9b11c9695
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-18T07:26:54Z
@@ -15,7 +15,8 @@ converged: true
 **Iterations:** 3
 **Converged:** Yes
 **Total findings:** 11 (0 BLOCKERs, 7 WARNINGs, 2 CONVENTIONs, plus NITs)
-**Fixed:** 8 | **Deferred:** 3 (1 CONVENTION + NITs) | **Asked (awaiting user):** 0
+**Fixed:** 9 | **Deferred:** 2 (NITs only) | **Asked (awaiting user):** 0
+(The plan-file CONVENTION was initially deferred as out-of-scope for a handoff gate run, then FIXED at PR time: the pre-PR plan-file gate enforces it, so a plan file was added and this proof's hash recomputed to include it.)
 
 ### Per-Iteration Breakdown
 
@@ -26,7 +27,7 @@ converged: true
 - [WARNING] setup.sh:942 — bare `wait`/`kill` teardown returns non-zero (143/kill-of-dead) and would abort under set -e; isolation was extrinsic (only the `|| die` call site saved it), contradicting the block's own "fully isolated" comment --> FIXED (5f3b453): `|| true` on the success-path teardown.
 - [WARNING] setup.sh:922 — unguarded `_kp_total=$(curl … | awk …)` aborts under pipefail on a failed HEAD --> FIXED (5f3b453): `|| _kp_total=""`.
 - [WARNING] setup.sh:_kp_emit (self-surfaced while fixing) — the `# always returns 0` contract was false under set -e (active inside the background watcher subshell): `[ -n "$_kp_total" ] && …` returns 1 on the common empty-total case, and the `printf && mv` write could too --> FIXED (5f3b453): `case` instead of `[ -n ] &&`, and `|| true` on the write.
-- [CONVENTION] .claude/plans/ — no plan file for this branch --> DEFERRED (see Deferred below).
+- [CONVENTION] .claude/plans/ — no plan file for this branch --> FIXED (47bb8f4): initially deferred, then a plan file was added at PR time because the pre-PR plan-file gate enforces it.
 - [CONVENTION] setup.sh / installing.html — behavioral change with no test (CLAUDE.md: no size exemption) --> FIXED (5f3b453): added 5 mechanism tests to install.installing-page.test.js and a new tools/test-install-progress-emit-3233.sh (drives the REAL extracted _kp_emit under set -euo pipefail, evals the emitted JS), wired into test:shell.
 
 #### Iteration 2
@@ -52,7 +53,7 @@ converged: true
 | 1 | 1 | WARNING | setup.sh:942 | BRANCH | teardown wait/kill aborts under set -e | FIXED | 5f3b453 |
 | 2 | 1 | WARNING | setup.sh:922 | BRANCH | unguarded cmd-subst aborts under pipefail | FIXED | 5f3b453 |
 | 3 | 1 | WARNING | setup.sh:_kp_emit | BRANCH | "always returns 0" false under set -e | FIXED | 5f3b453 |
-| 4 | 1 | CONVENTION | .claude/plans/ | BRANCH | no plan file for branch | DEFERRED | gate on pre-committed handoff; rationale in commits/PR |
+| 4 | 1 | CONVENTION | .claude/plans/ | BRANCH | no plan file for branch | FIXED | 47bb8f4 (plan gate enforces it) |
 | 5 | 1 | CONVENTION | setup.sh / installing.html | BRANCH | behavioral change, no test | FIXED | 5f3b453 |
 | 6 | 2 | WARNING | setup.sh:951 | BRANCH | failure-branch teardown unguarded | FIXED | 0bac806 |
 | 7 | 2 | WARNING | setup.sh:927 | BRANCH | blocking HEAD up to 15s latency | FIXED | 0bac806 |
@@ -63,7 +64,6 @@ converged: true
 None.
 
 ### Deferred (with reasoning, so the operator can override)
-- [CONVENTION] .claude/plans/ — no plan file. This branch was authored and committed before this gate run (a handoff to run the pre-PR gate on already-written work); the design rationale lives in the two fix commits, the PR body, and this proof file, where a plan file's content would otherwise live. Retrofitting a plan file adds no reviewable value. Surfaced for the operator to override if a plan file is required.
 - [NIT] setup.sh:927 — the content-length HEAD is a second round-trip to a URL reachable() just fetched; a fully-async fetch (write total to a file the watcher reads) would remove even the bounded 5s worst case. Deferred as a perf refinement with near-zero practical impact (reachable() success makes it ~1 RTT); would change _kp_emit's interface.
 - [NIT] installing.html:36 (reduced-motion) — `.bar.determinate>i` keeps `transition:width` which is not suppressed under `@media (prefers-reduced-motion:reduce)`. Deferred to Mona's bar visual/reduced-motion refinement (documented ownership split); a11y polish, not a mechanism defect.
 - [NIT] installing.html — no `aria-valuenow`/`min`/`max` on the determinate bar. Pairs with Mona's bar-presentation refinement; deferred there.
