@@ -19,9 +19,15 @@ empty TCC log:
   folders. Enumerate of ~/Documents normally DOES gate, so this is secondary.
 
 ## Fix
-- New `realUserHome()`: resolve the home from the password DB (`getpwuid(getuid())->pw_dir`), which is
-  the actual login home regardless of any container remap, falling back to
-  `homeDirectoryForCurrentUser` if the lookup fails (never worse than before).
+- New `realUserHome()`: REUSES the mechanism resolveInstall() already relies on and this file
+  empirically validated -- `ProcessInfo...["KOSMOS_APP_TEST_HOME"] ?? NSHomeDirectory()` (mirrors the
+  `realHome` expression in resolveInstall). NSHomeDirectory() is resolved against the REAL running
+  identity and does NOT honor an inherited/spoofable $HOME (the redirect source), and
+  KOSMOS_APP_TEST_HOME is the same testing-only override resolveInstall uses. Chosen over a new
+  getpwuid path (challenge-loop iter 2) so there is ONE "real home" mechanism that cannot diverge
+  from resolveInstall's, and so no new untested resolution logic is introduced (the reused expression
+  is already exercised by resolveInstall's tests; the KOSMOS_APP_TEST_HOME seam also lets a future
+  test spoof the home for fileAccessReading/scanUnderGrant without a fresh box).
 - `fileAccessReading()` probes `realUserHome()` instead of `homeDirectoryForCurrentUser`, so the
   enumerate hits the REAL protected folders -> triggers TCC -> the verdict reflects real access. This
   addresses (a), the leading cause.

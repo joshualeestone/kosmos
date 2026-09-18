@@ -518,19 +518,17 @@ func resolveBundledTmux(kosmosHome: String) -> String? {
 // (never launch-time) with the measured timing -- deferred until the verify says it is
 // needed, because building it now needs that same fresh-Mac measurement.
 
-// #3188: the REAL user home, resolved from the password database (getpwuid(getuid())->pw_dir), NOT
-// FileManager.homeDirectoryForCurrentUser -- which, under a launchd-spawned / container context, can
-// return a redirected/sandbox-container home. The folder-access probe must target the real
-// ~/Documents (etc.) or it enumerates unprotected container folders and false-greens with no TCC
-// prompt (#3188). getuid() is the process's real uid, so the passwd lookup yields the actual login
-// home regardless of any container remap. Falls back to homeDirectoryForCurrentUser if the lookup
-// fails (a nil passwd entry or empty pw_dir), so the reading is never worse than before.
+// #3188: the REAL user home, NOT FileManager.homeDirectoryForCurrentUser -- which, under the
+// launchd/app-exe hatch, can resolve to a redirected home (an inherited $HOME) so the folder-access
+// probe and the scan-hatch clamp touch the wrong tree and false-green with no TCC prompt. This
+// REUSES the exact mechanism resolveInstall() already relies on and this file empirically validated
+// (see the KOSMOS_APP_TEST_HOME header note and resolveInstall's `realHome` at the same expression):
+// NSHomeDirectory() is resolved against the REAL running identity and does NOT honor an inherited/
+// spoofable $HOME, and KOSMOS_APP_TEST_HOME is the same testing-only override resolveInstall uses.
+// One named place chooses "the real home" for #3188 so it cannot diverge from resolveInstall's copy.
 func realUserHome() -> URL {
-    if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
-        let path = String(cString: dir)
-        if !path.isEmpty { return URL(fileURLWithPath: path) }
-    }
-    return FileManager.default.homeDirectoryForCurrentUser
+    let path = ProcessInfo.processInfo.environment["KOSMOS_APP_TEST_HOME"] ?? NSHomeDirectory()
+    return URL(fileURLWithPath: path)
 }
 
 func fileAccessReading() -> Bool {
