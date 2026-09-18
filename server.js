@@ -8537,6 +8537,13 @@ const server = http.createServer((req, res) => {
      memo (GRANT_TTL_MS), so the 750ms poll elides most spawns; a single combined read
      serving both rows is a possible follow-up if the doubled spawn ever shows on S3. */
   if (pathname === '/api/tmux-a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* #2559: is a NATIVE APP maintaining the a11y readings on this box? A prompt-free
+       presence signal (the SAME one /api/file-access-status uses), so a checkable:false that
+       is really "a real Mac whose board has no Full Disk Access yet" can be told apart from a
+       checkable:false that is really "a browser tester, nothing to grant". Defaults false on
+       any error, so the fail-safe direction (a browser keeps the honest "Checking...") holds. */
+    let nativePresent = false;
+    try { nativePresent = promptrequest.nativePresent(); } catch { nativePresent = false; }
     let reading;
     try {
       const g = a11ystatus.tmuxGrant();
@@ -8547,11 +8554,35 @@ const server = http.createServer((req, res) => {
         // `actionable:true` so the gate row paints "Not activated" + Turn On (an affordance the
         // user can act on) instead of a dead "Checking..." spinner (Josh's #3113). Clicking
         // Turn On fires /api/tmux-a11y-prompt (which registers tmux) or, if no native app
-        // answers, falls back to opening the Accessibility pane. A browser / no-FDA box (db
-        // unreadable) is a DIFFERENT verdict from tmuxGrant
-        // (checkable:false with no present field), so it is NOT flagged actionable and keeps the
-        // honest "Checking..." advisory -- there is genuinely nothing to grant there.
+        // answers, falls back to opening the Accessibility pane.
         reading = { checkable: false, actionable: true, because: 'tmux is not yet listed in Accessibility; turn it on to grant it' };
+      } else if (g && g.checkable === false && nativePresent) {
+        // #2559: tmux's grant is not confirmed for THIS install, but a native app IS present, so
+        // this is a real Mac in onboarding (NOT a browser), and the dead "Checking..." spinner is
+        // exactly what strands the user -- Josh's fresh-Mac repro is the tmux row never resolving
+        // and no Turn On ever appearing. Flag `actionable:true` so the row paints "Not activated"
+        // + Turn On. Turn On fires /api/tmux-a11y-prompt -> the osascript-under-tmux prompt
+        // (spawnTmuxAutomationPrompt), which registers tmux and does NOT itself need Full Disk
+        // Access to run. Stays checkable:false, so the S3 Next gate remains non-blocking (#2912):
+        // this only turns a dead spinner into an affordance, it never blocks.
+        //
+        // TWO checkable:false sub-cases enter here, and Turn On is the right action for BOTH (so
+        // the branch keys on nativePresent + checkable:false, not on which sub-case), which is why
+        // the `because` is worded to cover both rather than asserting one:
+        //   (1) TCC db UNREADABLE -- the fresh-Mac no-FDA case (tmux's grant is only readable via
+        //       the system TCC db, which needs Full Disk Access a fresh install lacks). We could
+        //       not read it, so we cannot confirm the grant; Turn On grants it.
+        //   (2) PATH-KEY MISMATCH -- the db WAS readable and some tmux is granted, but not the
+        //       exact bundled binary this install runs (a11ystatus.js). Our tmux is still not
+        //       granted, and Turn On registers the correct (bundled) binary.
+        // A BROWSER (nativePresent false) does not enter this branch and keeps the honest advisory
+        // below -- nothing to grant, no native app to fire the prompt.
+        //
+        // WEAKEST PREMISE: which sub-case Josh's fresh-Mac stuck row is (no-FDA is the inferred
+        // one) is not measured on a fresh box; the fresh-Mac verify confirms both that Turn On now
+        // appears and that firing it yields a tmux-keyed grant. The fix does not depend on the
+        // sub-case -- it covers whichever checkable:false path fires.
+        reading = { checkable: false, actionable: true, because: 'tmux is not confirmed granted for this install; turn it on to grant tmux' };
       } else {
         reading = g;
       }
