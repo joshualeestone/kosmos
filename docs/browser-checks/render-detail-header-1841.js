@@ -136,9 +136,9 @@ function chk(ok, label, extra) {
     chk(!/<b>/.test(roleless), 'Part 4: a role-less agent does not bold the model', roleless);
     chk(/Claude Sonnet 5/i.test(roleless), 'Part 4 CONTROL: the model still renders for a role-less agent', roleless);
 
-    // ── Part 3 (#3043 -> #3272, Josh 2026-09-18): the agent's self-reported quote does not
+    // ── Part 3 (#3043 -> #3271, Josh 2026-09-18): the agent's self-reported quote does not
     // print beside the bubble (#d-task), AND there is NO reason line under the name. #3043 had
-    // relocated the reason to a #d-why note below the name; #3272 REMOVED that note entirely
+    // relocated the reason to a #d-why note below the name; #3271 REMOVED that note entirely
     // (Josh, with a screenshot: "we don't want a status line up there ... nothing up there
     // around what their status is getting reported"). So for a REPORTED state #d-task is empty
     // and #d-why does not exist; a reported + rate_limited agent still keeps the engine sentence
@@ -169,7 +169,7 @@ function chk(ok, label, extra) {
     chk(dup.reported.taskHidden === true && dup.reported.taskText === '',
       'Part 3 (#3043): the reported quote is dropped from the task line beside the bubble', JSON.stringify(dup.reported));
     chk(dup.reported.whyExists === false,
-      'Part 3 (#3272): NO #d-why reason line under the agent name (Josh 2026-09-18: no status line up there)', JSON.stringify(dup.reported));
+      'Part 3 (#3271): NO #d-why reason line under the agent name (Josh 2026-09-18: no status line up there)', JSON.stringify(dup.reported));
     chk(dup.reportedLimited.taskHidden === false && /usage limit/i.test(dup.reportedLimited.taskText),
       'Part 3 (#3043): a reported + rate_limited agent keeps the engine sentence beside the bubble', JSON.stringify(dup.reportedLimited));
 

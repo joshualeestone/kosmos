@@ -3274,7 +3274,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'an emptied diagram with no sentence reads as "you have no agents"');
 });
 
-test('#3272: NO reported-reason status line under the agent name (do not re-add #d-why)', () => {
+test('#3271: NO reported-reason status line under the agent name (do not re-add #d-why)', () => {
   /* Josh, 2026-09-18 (#chaoskosmos-design), with a screenshot of the agent detail page:
      "there's not supposed to be anything up there around what their status is getting reported
      ... 'finished responding' is not supposed to be there ... we don't want a status line up
@@ -3289,9 +3289,9 @@ test('#3272: NO reported-reason status line under the agent name (do not re-add 
      (#d-reauth). If a genuine need for the reason resurfaces, take it to Josh, do not re-add here. */
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.ok(!/id="d-why"/.test(raw) && !/class="detail-why"/.test(raw),
-    'a #d-why / .detail-why reason line was re-added to the agent-detail header -- Josh 2026-09-18: no status line under the agent name (#3272)');
+    'a #d-why / .detail-why reason line was re-added to the agent-detail header -- Josh 2026-09-18: no status line under the agent name (#3271)');
   assert.ok(!/getElementById\((['"])d-why\1\)/.test(raw),
-    'the render still paints a #d-why reason line under the agent name -- removed per #3272 (Josh 2026-09-18)');
+    'the render still paints a #d-why reason line under the agent name -- removed per #3271 (Josh 2026-09-18)');
   /* Non-vacuity control: the surfaces that DO remain must still be present, so this test is
      "the reason line is gone", not "the header is gone". */
   assert.ok(/id="d-meta"/.test(raw) && /id="d-said"/.test(raw),
@@ -8994,15 +8994,15 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   assert.equal(needs.task.textContent, '', 'needs_you still showed the frozen title as its task');
   assert.equal(needs.task.hidden, true, 'the empty task line was not hidden');
 
-  /* #3043 (Josh, 2026-09-14) then #3272 (Josh, 2026-09-18): a REPORTED state's self-reported
+  /* #3043 (Josh, 2026-09-14) then #3271 (Josh, 2026-09-18): a REPORTED state's self-reported
      quote does not print beside the bubble in the header (#3043 dropped it from #d-task). #3043
-     had relocated it to a #d-why note under the name; #3272 REMOVED that note entirely (Josh: no
+     had relocated it to a #d-why note under the name; #3271 REMOVED that note entirely (Josh: no
      status line up there), so the reported quote now shows on NO header line at all. This block
      still pins the d-task side: a reported state, needs_you or not, shows nothing on this line.
      The non-reported `paused` (rate_limited) control below DOES still show its engine-state
      sentence, so this is not a vacuous "d-task is always empty" test -- #2833's carve-out for the
      SHORT non-reported reasons is preserved by that control. The absence of the #d-why note is
-     guarded by the '#3272: NO reported-reason status line under the agent name' test above. */
+     guarded by the '#3271: NO reported-reason status line under the agent name' test above. */
   const reportedNeeds = drive({ state: 'needs_you', because: 'Research Kerry Pickrell: two location details', stateReported: true });
   assert.equal(reportedNeeds.task.textContent, '',
     'a reported needs_you printed its self-reported quote beside the bubble (#3043)');
@@ -9010,7 +9010,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
 
   const reportedBlocked = drive({ state: 'blocked', because: 'waiting on the cert to be signed', stateReported: true });
   assert.equal(reportedBlocked.task.textContent, '',
-    'a reported non-needs_you state printed its quote beside the bubble instead of dropping it (#3043/#3272)');
+    'a reported non-needs_you state printed its quote beside the bubble instead of dropping it (#3043/#3271)');
   assert.equal(reportedBlocked.task.hidden, true, 'the dropped task line was not hidden');
 
   /**

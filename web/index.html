@@ -734,7 +734,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    `.acard`; the detail panel inherits the same. `#d-state` is the only user of
    this class and is always given `astate` too. */
 .detail-state { font: var(--text-body) var(--font-ui); margin-top: var(--space-4); }
-/* #3272 (Josh, 2026-09-18): the .detail-why reason line under the agent name was removed
+/* #3271 (Josh, 2026-09-18): the .detail-why reason line under the agent name was removed
    (no status line up there). Its CSS is gone with it; do not re-add the class or the element. */
 .field { border-top: 0.5px solid var(--separator); padding-top: var(--space-6); margin-top: var(--space-6); }
 .flabel { font: 600 var(--text-body) var(--font-ui); display: block; margin-bottom: 2px; }
@@ -8199,7 +8199,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            "Add Instructions & Restart" button, and the Instructions tab dot
            lights while it shows. Header is quieter for it. See #d-sec-instr. -->
       <div class="detail-meta" id="d-meta"></div>
-      <!-- #3272 (Josh, 2026-09-18): NO status/reason line under the agent name. The
+      <!-- #3271 (Josh, 2026-09-18): NO status/reason line under the agent name. The
            reported reason (`a.because`, e.g. "Finished responding.") used to render here as
            #d-why (added by #3043); Josh: "there's not supposed to be anything up there around
            what their status is getting reported ... we don't want a status line up there."
@@ -25060,12 +25060,12 @@ function openDetail(sessionName, section, fromProject) {
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
      title, so the two surfaces no longer diverge on what "no task" looks like. */
-  /* #3043 (Josh, 2026-09-14) then #3272 (Josh, 2026-09-18): the agent's own self-reported
+  /* #3043 (Josh, 2026-09-14) then #3271 (Josh, 2026-09-18): the agent's own self-reported
      sentence no longer prints beside the status bubble in the header. Josh, on the agent view:
      "I only want to show the status bubble ... it prints out really long stuff that I don't
      need. I just need to know if it's idle, or if it's working, or if it needs something." So
      the reported quote is dropped from this line. #3043 had relocated it to a #d-why note below
-     the name; #3272 removed that note entirely (Josh: no status line up there), so the reported
+     the name; #3271 removed that note entirely (Josh: no status line up there), so the reported
      reason now shows on no header line at all. The SHORT engine-state reassurances stay here
      (restarting "Nothing was lost" #2019, auth #874, rate-limit #215): those are not the long
      self-reported text Josh flagged, and
@@ -25103,7 +25103,7 @@ function openDetail(sessionName, section, fromProject) {
   paintProviderPicker(a);
   paintAccountPicker(a);
   paintReportsTo(a);
-  /* #3272 (Josh, 2026-09-18): NO reported-reason line under the agent name. `a.because`
+  /* #3271 (Josh, 2026-09-18): NO reported-reason line under the agent name. `a.because`
      (e.g. "Finished responding.") used to paint into #d-why here, added by #3043; Josh
      reversed that -- "we don't want a status line up there ... nothing up there around what
      their status is getting reported." The element and this paint are removed. `a.because`
