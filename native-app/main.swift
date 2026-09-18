@@ -802,8 +802,9 @@ func scanUnderGrant() -> Bool {
     // passwd home; node is not sandboxed), so a redirected/container homeDirectoryForCurrentUser here
     // would build a container-home allowlist that REFUSES the engine's real-home roots ("refusing
     // non-TCC-root") -> the scan walks nothing and finds no agents even after the check flips green.
-    // realUserHome() (getpwuid) matches os.homedir(), so the clamp aligns with what the engine sends;
-    // it still restricts to exactly the three real-home TCC roots, so the confused-deputy guard holds.
+    // realUserHome() (NSHomeDirectory) matches os.homedir(), so the clamp aligns with what the engine
+    // sends; it still restricts to exactly the three real-home TCC roots, so the confused-deputy guard
+    // holds.
     let home = realUserHome()
     // Test seam, mirroring the engine's AGENT_WORKFORCE_SCAN_ROOTS override: a path-delimited list
     // REPLACES the allowlist so a fixture tree can be walked under test. Unset in production ->
