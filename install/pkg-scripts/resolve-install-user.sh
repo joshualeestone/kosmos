@@ -98,6 +98,12 @@ resolve_install_user() {
   # printed and captured either way.
   _riu_owner_count=$(printf '%s\n' "$_riu_owners" | /usr/bin/grep -c . || true)
 
+  # kosmos#3258: log the raw resolution inputs to stderr (-> /var/log/install.log
+  # under the pkg) so a future mis-install pins WHICH branch fired -- the owner
+  # count (0 / 1 / >1), the owner set, and the console user. This regression cost a
+  # diagnosis precisely because the install log did not carry them.
+  echo "resolve_install_user: console='${_riu_console}' owner_count=${_riu_owner_count} owners=[$(printf '%s\n' "$_riu_owners" | /usr/bin/paste -sd, -)]" >&2
+
   # candidate 1 (PREFERRED INVOKER): exactly one GUI Installer owner is the person
   # who double-clicked. Install for them -- this beats /dev/console and closes the
   # #1880 silent-misinstall arm (install for whoever DRIVES Installer, not the
@@ -135,6 +141,12 @@ resolve_install_user() {
   # because a REFUSED install (an investor who cannot install at all) is the worse
   # failure. The single-owner invoker PREFERENCE above still wins whenever it
   # resolves, so the ordinary case keeps #1880's behavior.
+  # 🛑 kosmos#3108 DELIBERATELY does NOT prefer a non-console owner here (see
+  # tools/test-resolve-install-user.sh #3108 guard): a root/installd-detached
+  # script cannot reliably pick THE invoker among multiple owners, and when the
+  # console holder is itself an owner the physical-console pick is the safe default.
+  # Do NOT re-introduce a "prefer the non-console owner" heuristic without reversing
+  # that decision explicitly.
   case "$_riu_console" in
     ''|root|loginwindow) : ;;
     *)

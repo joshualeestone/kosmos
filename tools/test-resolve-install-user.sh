@@ -269,5 +269,31 @@ owners="$(_riu_installer_owners)"
   && pass "parse: only the exact /System/Library/CoreServices path matches; a third-party Installer.app, a bare /tmp/Installer, and a user-writable .../CoreServices/... are all ignored" \
   || fail "parse: expected only 'josh', got '$owners'"
 
+# --- DIAGNOSTIC LOGGING (#3258) -------------------------------------------
+# The resolver echoes the raw resolution inputs (console, owner_count, owners) to
+# stderr so a future mis-install can be pinned from /var/log/install.log -- the
+# old resolver logged only on REFUSAL, so a mis-install SUCCESS left nothing. Pin
+# the log CONTRACT so a later edit cannot silently drop it. Self-contained: it
+# re-stubs the owner sensor because the parse tests above overrode _riu_ps.
+_riu_console_user()     { printf '%s\n' "$STUB_CONSOLE"; }
+_riu_installer_owners() { printf '%s\n' "$STUB_OWNERS" | /usr/bin/grep -v '^$' | /usr/bin/sort -u; }
+_riu_uid_for() { case "$1" in alice) echo 501;; bob) echo 502;; carol) echo 503;; josh) echo 504;; *) echo "";; esac; }
+STUB_CONSOLE="alice"; STUB_OWNERS=$'bob\ncarol'; STUB_SESSIONS=""
+_diag="$( { resolve_install_user; } 2>&1 1>/dev/null )"
+if has "$_diag" "owner_count=2" && has "$_diag" "console='alice'" && has "$_diag" "owners=[bob,carol]"; then
+  pass "#3258 diagnostic: resolver logs console + owner_count + owners to stderr"
+else
+  fail "#3258 diagnostic: expected the resolution-inputs log line, got '$_diag'"
+fi
+# negative control: a DIFFERENT input must produce a DIFFERENT logged count, so
+# the assertion above is not matching a constant.
+STUB_CONSOLE="alice"; STUB_OWNERS="bob"; STUB_SESSIONS=""
+_diag0="$( { resolve_install_user; } 2>&1 1>/dev/null )"
+if has "$_diag0" "owner_count=1" && ! has "$_diag0" "owner_count=2"; then
+  pass "#3258 diagnostic control: a single owner logs owner_count=1, not 2"
+else
+  fail "#3258 diagnostic control: expected owner_count=1, got '$_diag0'"
+fi
+
 if [ "$fails" -ne 0 ]; then echo "$fails check(s) failed"; exit 1; fi
 echo "all checks passed"
