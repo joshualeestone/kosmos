@@ -12,6 +12,18 @@
 # is the block with its single-quotes removed) and runs `/bin/sh -n` THROUGH that -
 # exactly the gate the file-level check missed (kosmos "a guard from the same
 # mental model certifies the blind spot").
+#
+# SCOPE, stated so a future maintainer is not misled: this guard recognizes ONLY
+# the shape both real blocks use - a SINGLE-QUOTED `/bin/sh -c` argument whose body
+# spans following lines, opened by either `/bin/sh -c '` or `/bin/sh -c \` at
+# end-of-line. A differently-shaped inline invocation would escape it silently and
+# `n -eq opens` would NOT flag it, because the `opens` oracle and the awk extractor
+# share the exact same trigger regex (they stay internally consistent on a shape
+# neither one sees). Uncovered shapes include: a DOUBLE-quoted `-c "..."` (a
+# distinct hazard - the outer shell interpolates $vars/backticks there), a
+# single-line `-c 'oneliner'`, or a body that begins on the opener line after the
+# quote. If such a block is ever added, EXTEND both the trigger regex and this
+# docstring - do not assume the guard covers it.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
