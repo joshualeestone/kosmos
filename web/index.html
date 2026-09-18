@@ -4822,7 +4822,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    layout that ground is now WHITE (--k-surface), so the carve must be white there too, or a cream
    (--k-bg) sliver shows at the tail tip. Consolidated-scoped so the non-consolidated ground (which
    keeps --k-bg) is untouched. */
-html[data-layout="consolidated"] body.consolidated .msg:not(.you) .msg-bd::after { background: var(--k-surface); }
+html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid .msg:not(.you) .msg-bd::after { background: var(--k-surface); }
 .msg.you .msg-bd::after { right: -12px; width: 7px; height: 18px; background: var(--k-bg); border-bottom-right-radius: 14px 16px; }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
