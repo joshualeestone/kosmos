@@ -2,17 +2,15 @@
 <html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><style>
 body{font:14px -apple-system,Helvetica,sans-serif;color:#1c1b19;margin:0;background:#fff}
 h1{font-size:19px;margin:0 0 10px} p{margin:0 0 12px;line-height:1.5}
-.wait{background:#f3f1ec;border-radius:8px;padding:12px 14px} b{font-weight:600}
-/* #3232: the installer themes for dark mode (background-darkAqua.png), and this page had dark text
-   on no background, so on a dark-appearance Mac the text sat on the dark pane and was unreadable
-   (Josh 2026-09-17). Give the page its OWN background in both appearances so the text always has a
-   matching ground: an explicit light bg as the floor, and a dark override for dark mode. */
-@media (prefers-color-scheme: dark){ body{ color:#f2f0ea; background:#1c1b19 } .wait{ background:#2c2b28 } }
+/* #3232 + #3256: the installer themes for dark mode, so this page keeps its own background in both
+   appearances (a light floor, a dark override) rather than sitting on the installer's dark pane.
+   The old .wait callout set its OWN explicit light background, and the installer webview does NOT
+   reliably honour prefers-color-scheme even with the meta opt-in: Josh 2026-09-18 still saw the
+   callout light-on-light in dark mode while the plain paragraphs adapted and read fine. So the fix
+   is by construction, not another media query -- the copy no longer uses a callout and NO element
+   sets its own background, so every line renders like the plain paragraphs that already read. */
+@media (prefers-color-scheme: dark){ body{ color:#f2f0ea; background:#1c1b19 } }
 </style></head><body>
 <h1>Setting up Kosmos</h1>
-<p>This downloads the latest Kosmos and sets it up in your home folder. There is nothing to type and no Terminal to open.</p>
-<div class="wait">
-<p style="margin:0"><b>The bar will sit still for a minute or two</b> while Kosmos downloads. That is normal, so please do not quit or restart.</p>
-</div>
-<p>When it is done, Kosmos opens in your browser on its own.</p>
+<p>The latest version of Kosmos will be downloaded and installed.<br>This may take a minute or two.<br>When setup is complete, the Kosmos app will open automatically.</p>
 </body></html>
