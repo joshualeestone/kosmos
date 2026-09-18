@@ -4193,7 +4193,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      inherited border. A cascade defect is invisible to every text pin in this
      branch, which is the same blind spot the stray-terminator scanner exists
      for. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); }
+  /* #3264 (Josh, brand-owner: "the background is supposed to be white just like it is on the tab
+     view"): the consolidated message ground is WHITE (--k-surface), reversing #980 iter-5's cream
+     (--k-bg) tuning. LOCKSTEP with the sticky .composer below and the tail-mask carve, all flipped
+     to --k-surface in this one change so no mismatched band or cream tail sliver returns. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-surface); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
   /* 🔑 THE RULES REACH THE COLUMN EDGES (kosmos#1303 B item 2). Josh: "The
      horizontal rule below Tasks is also not going all the way to the edges."
@@ -4228,7 +4232,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      keeping the base surface drew a mismatched band across the bottom
      (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
      this pass removes. The bordered composerbox inside it is unchanged. */
-  html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-bg); }
+  html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-surface); }  /* #3264 lockstep: match the white pjmid ground (was --k-bg for #980's cream band) */
   /* #3218: Files is a header grid now (increment 5), so its label is a fixed cell in the header row
      -- it never scrolls, so it needs no sticky positioning and no background patch. `background: none`
      keeps it showing the column ground (--k-side) through, which is the #1303 B fix (no white box
@@ -4814,6 +4818,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg.you .msg-bd::before { right: -12px; width: 12px; height: 17px; background-color: inherit; border-bottom-right-radius: 16px 15px; }
 /* the thread-ground mask carving the wing's OUTER half to a curved point toward the avatar */
 .msg:not(.you) .msg-bd::after { left: -12px; width: 7px; height: 18px; background: var(--k-bg); border-bottom-left-radius: 14px 16px; }
+/* #3264: the wing-carve mask matches the message GROUND so the tail blends. On the consolidated
+   layout that ground is now WHITE (--k-surface), so the carve must be white there too, or a cream
+   (--k-bg) sliver shows at the tail tip. Consolidated-scoped so the non-consolidated ground (which
+   keeps --k-bg) is untouched. */
+html[data-layout="consolidated"] body.consolidated .msg:not(.you) .msg-bd::after { background: var(--k-surface); }
 .msg.you .msg-bd::after { right: -12px; width: 7px; height: 18px; background: var(--k-bg); border-bottom-right-radius: 14px 16px; }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
