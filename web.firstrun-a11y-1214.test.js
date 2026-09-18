@@ -168,17 +168,36 @@ test('#2911: S3 asks for tmux\'s OWN Accessibility grant (data-gate="tmux-a11y")
   assert.match(rcode, /a11ystatus\.tmuxGrant\(\)/, 'the tmux-a11y route serves tmuxGrant()');
   assert.match(rcode, /present === false/, 'the route maps present:false (tmux not yet listed) to a non-blocking reading (never a trap, #2912)');
 
-  // #3113: the Turn On for the tmux row now FIRES the tmux registration prompt
-  // (/api/tmux-a11y-prompt) AND falls back to opening the Accessibility pane (shared with the
-  // app row). The native trigger is what lets tmux acquire its OWN Accessibility TCC row, so
-  // the row can leave the not-yet-listed "Checking..." state and offer a real Turn On. This
-  // row had no trigger before #3113 (it sat stuck on "Checking..." with no affordance).
+  // #3221: the tmux row's "Turn On" NO LONGER fires the osascript register trigger. On Josh's
+  // 0.6.78 fresh box that op surfaced the wrong (System Events / Open-Terminal) Automation
+  // prompt. The register now fires UP FRONT at S3 entry (frFireTmuxA11yRegister), so "Turn On"
+  // only DEEP-LINKS to the Accessibility pane where tmux is already listed. Lands with the
+  // native honest-copy half (#3113/#3274). Three arms pin the moved behavior:
   const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
   const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));
-  assert.match(handler, /gate === 'tmux-a11y'\s*\?\s*'\/api\/tmux-a11y-prompt'/,
-    'the tmux-a11y Turn On fires the native tmux-a11y-prompt trigger (#3113)');
+  // (1) the s3PermissionTargets map's trigger arm no longer FIRES tmux-a11y-prompt (the
+  // osascript register is gone from the click path -- moved to S3 entry). Pinned on the map's
+  // executable arm rather than the whole slice, so the history comments may still name the
+  // endpoint without tripping this.
+  const targetsMap = handler.slice(handler.indexOf('const s3PermissionTargets'), handler.indexOf('});', handler.indexOf('const s3PermissionTargets')));
+  assert.doesNotMatch(targetsMap, /tmux-a11y-prompt/,
+    'the s3PermissionTargets map no longer wires any gate to /api/tmux-a11y-prompt (#3221 -- register moved to S3 entry)');
+  assert.match(targetsMap, /trigger:\s*gate === 'tmux' \? '\/api\/a11y-prompt' : null/,
+    'only the app row (data-gate="tmux") keeps a trigger; every other gate (incl. tmux-a11y) is trigger-null (#3221)');
+  // (2) the tmux-a11y Turn On deep-links to the Accessibility pane (shared fallback, app row).
   assert.match(handler, /gate === 'tmux' \|\| gate === 'tmux-a11y'\)\s*\?\s*'\/api\/open-accessibility-settings'/,
-    'the tmux-a11y Turn On falls back to opening the Accessibility pane (shared with the app row)');
+    'the tmux-a11y Turn On deep-links to the Accessibility pane (shared fallback with the app row)');
+  // (3) the register moved UP FRONT: frFireTmuxA11yRegister POSTs the register, and entering
+  // the S3 step calls it (so tmux is listed by the time the person reaches "Turn On").
+  assert.match(PAGE, /async function frFireTmuxA11yRegister\(\)\s*\{[\s\S]*?fetch\('\/api\/tmux-a11y-prompt'/,
+    'frFireTmuxA11yRegister POSTs /api/tmux-a11y-prompt up front (#3221)');
+  const s3start = PAGE.indexOf('} else if (step === 3) {');
+  const s3block = PAGE.slice(s3start, PAGE.indexOf('} else if (step === 4) {', s3start));
+  assert.match(s3block, /frFireTmuxA11yRegister\(\)/,
+    'entering the S3 Automation step calls frFireTmuxA11yRegister (register up front, not on Turn On -- #3221)');
+  // and the register is macOS-only + at-most-once (the tmux-a11y row is data-win-hide).
+  assert.match(PAGE, /function frFireTmuxA11yRegister\(\)\s*\{\s*if \(FR_TMUX_A11Y_REGISTER_FIRED \|\| onWindows\(\)\) return;/,
+    'the up-front register is macOS-only and fires at most once per session (#3221)');
 });
 
 test('#3113: the not-yet-listed tmux row is ACTIONABLE (Not activated + Turn On), never a dead "Checking..."', () => {
