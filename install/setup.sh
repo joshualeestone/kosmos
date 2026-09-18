@@ -3106,7 +3106,7 @@ build_app_bundle() {
        0.6.78 fresh-box hit this as a confusing "control System Events / Open
        Terminal" prompt on the Accessibility Turn On; the copy is reworded to be
        honest for BOTH uses. Do NOT re-narrow it to Open-Terminal only. -->
-  <key>NSAppleEventsUsageDescription</key><string>Kosmos uses this during setup to register its terminal tool (tmux) so you can allow it in Accessibility, and to open a Terminal window with your agent's session when you choose Open Terminal.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Kosmos uses this so you can allow tmux (the tool that runs your agents) in your Accessibility settings, and to open a Terminal window with your agent's session when you choose Open Terminal.</string>
 </dict></plist>
 PLIST
 
