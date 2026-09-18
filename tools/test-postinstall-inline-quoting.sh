@@ -19,13 +19,28 @@ PI="$REPO/install/pkg-scripts/postinstall"
 fails=0
 [ -f "$PI" ] || { echo "FAIL  postinstall not found at $PI"; exit 1; }
 
-# Extract each inline `/bin/sh -c '...'` block: from the first line whose content
-# begins the single-quoted argument (the line after `/bin/sh -c \`, or the same
-# line's trailing quote), through the line that closes it with `' <args>`.
+# Independent oracle for the anti-vacuity guard: how many inline `/bin/sh -c`
+# invocations OPEN in the file. An invocation opens when a line ends in either
+# `/bin/sh -c \` (backslash line-continuation, arg opens on the next line) or
+# `/bin/sh -c '` (the opening single-quote is the last char, body starts next
+# line). This is EOL-anchored, so a prose mention like `... `/bin/sh -c '...'` ...`
+# does NOT count (it continues past `-c '`). The extractor below must emit exactly
+# this many blocks; `n -eq expected` catches a block whose trigger fired but whose
+# close logic never emitted it (the old `n -ge 1` was blind to that).
+opens=$(/usr/bin/grep -cE '/bin/sh -c[[:space:]]+('\''|\\)[[:space:]]*$' "$PI")
+
+# Extract each inline `/bin/sh -c '...'` block. Two open forms exist and BOTH are
+# handled: the backslash line-continuation (`/bin/sh -c \`, body on the next line
+# beginning with the opening `'`) and the same-line open (`/bin/sh -c '` at EOL,
+# body on the next line with no leading quote). Capture runs through the line that
+# closes the arg with `' <args>`. An earlier version triggered only on the
+# backslash form, so the same-line block silently went unchecked while the
+# docstring claimed to cover "each inline block".
 # AWK emits one block per record, blocks separated by a NUL-ish marker.
 blocks="$(/usr/bin/awk '
-  # a line ending in `/bin/sh -c \` opens a continued -c arg on the NEXT line
-  /\/bin\/sh -c \\[[:space:]]*$/ { grab=1; buf=""; first=1; next }
+  # a line ending in `/bin/sh -c \` (backslash) or `/bin/sh -c '\''` (same-line
+  # open quote) begins a -c arg whose body is on the following line(s).
+  /\/bin\/sh -c[[:space:]]+('\''|\\)[[:space:]]*$/ { grab=1; buf=""; first=1; next }
   grab {
     line=$0
     if (first) { sub(/^[[:space:]]*'\''/, "", line); first=0 }   # strip leading  '\''
@@ -43,7 +58,11 @@ blocks="$(/usr/bin/awk '
 ' "$PI")"
 
 n=0
-# split on the 0x1e record separator
+# split on the 0x1e record separator. `set -f` disables pathname expansion for the
+# unquoted `$blocks` word-split: block bodies contain glob metacharacters (e.g.
+# `*[!0-9]*`), and without it an unlucky cwd or a `failglob`/`nullglob` shell option
+# could expand or drop them. IFS-splitting on \036 is all we want here.
+set -f
 IFS=$'\036'
 for blk in $blocks; do
   [ -n "$blk" ] || continue
@@ -62,8 +81,10 @@ for blk in $blocks; do
   rm -f /tmp/pi-inner-err.$$
 done
 unset IFS
+set +f
 
-[ "$n" -ge 1 ] || { echo "FAIL  no inline /bin/sh -c blocks were extracted - the extractor is broken (a false pass)"; exit 1; }
+[ "$opens" -ge 1 ] || { echo "FAIL  no inline /bin/sh -c invocations found in $PI - the oracle is broken (a false pass)"; exit 1; }
+[ "$n" -eq "$opens" ] || { echo "FAIL  extracted $n inline -c block(s) but $opens invocation(s) open in the file - the extractor dropped a block (a false pass)"; exit 1; }
 
 if [ "$fails" -ne 0 ]; then echo "$fails inline-block(s) failed"; exit 1; fi
 echo "all $n inline -c block(s) parse through the shell"
