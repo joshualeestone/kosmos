@@ -158,6 +158,108 @@ const path = require('path');
     await first.click(); await pg.waitForTimeout(700);
     say((await none()) === null, 'a project open: the sentence is gone');
     say(await up('#pj-one-view'), 'a project open: the project page is up');
+
+    // #3218: the four fixed columns are ~16.6 / 16.6 / 50 / 16.6 of the viewport (Agents /
+    // Projects / Conversation / right stack). Measured with a project open so all four are up.
+    const cw = await pg.evaluate(() => document.documentElement.clientWidth);
+    const rAgents = await rect('#alist'); const rProjects = await rect('#pj-list-view'); const rDialog = await rect('.pjmid');
+    const pct = (r) => (r ? Math.round((r.w / cw) * 1000) / 10 : null);
+    const fA = pct(rAgents), fP = pct(rProjects), fD = pct(rDialog);
+    const fR = (fA !== null && fP !== null && fD !== null) ? Math.round((100 - fA - fP - fD) * 10) / 10 : null;
+    say(fA !== null && Math.abs(fA - 16.6) <= 2, '#3218: Agents column ~16.6% of viewport', fA + '%');
+    say(fP !== null && Math.abs(fP - 16.6) <= 2, '#3218: Projects column ~16.6% of viewport', fP + '%');
+    say(fD !== null && Math.abs(fD - 50) <= 3, '#3218: Conversation column ~50% of viewport', fD + '%');
+    say(fR !== null && Math.abs(fR - 16.6) <= 2.5, '#3218: right (Tasks/Files) column ~16.6% of viewport (residual)', fR + '%');
+
+    // #3218 flex: folding the Agents column grows ONLY the dialog; Projects stays pinned.
+    const dBefore = (await rect('.pjmid') || {}).w; const pBefore = (await rect('#pj-list-view') || {}).w;
+    await pg.click('#rail-agents-fold'); await pg.waitForTimeout(320);
+    const dAfter = (await rect('.pjmid') || {}).w; const pAfter = (await rect('#pj-list-view') || {}).w;
+    await pg.click('#rail-agents-fold'); await pg.waitForTimeout(220);   // restore
+    say(dAfter > dBefore + 20 && Math.abs(pAfter - pBefore) <= 2,
+      '#3218: folding Agents grows ONLY the dialog (Projects pinned)', JSON.stringify({ dBefore, dAfter, pBefore, pAfter }));
+
+    /* #3218 increment 3: the separate Members card is GONE from the consolidated view -- its agents
+       moved to the top of the Agents list. This is a deletion, so it ships with an absence assertion.
+       rect() returns null for an element that EXISTS but is display:none, and the string 'missing'
+       when the selector matches nothing at all -- so `=== null` is a positive control in one line:
+       it passes only when the card is still in the DOM (the tab view needs it) AND hidden here. A
+       markup deletion would read 'missing' and fail; a broken hide would read a rect and fail. */
+    const membersRect = await rect('.pjcard-members');
+    say(membersRect === null, '#3218: the Members card is in the DOM but hidden in the consolidated view', JSON.stringify(membersRect));
+
+    /* #3218 increment 4: with Members gone the right column is Tasks (top) over Files (bottom), 50/50.
+       Both fill their 1fr track by construction, so the heights are ~equal even with empty lists. */
+    const rTasks = await rect('.pj3 > aside.pjcol:not(.pjsplit)');
+    const rFiles = await rect('.pj3 > .pjsplit > .pjcard-files');
+    const okRects = rTasks && rFiles && typeof rTasks === 'object' && typeof rFiles === 'object' && rTasks.h > 40 && rFiles.h > 40;
+    const skew = okRects ? Math.abs(rTasks.h - rFiles.h) / Math.max(rTasks.h, rFiles.h) : null;
+    say(skew !== null && skew <= 0.15, '#3218: Tasks and Files split the right column ~50/50',
+      JSON.stringify({ tasks: okRects ? rTasks.h : rTasks, files: okRects ? rFiles.h : rFiles, skew }));
+
+    /* #3218 increment 5: View All rides the section HEADER, pinned top-right and always visible,
+       instead of sitting under the list. The controls are `hidden` until the runtime has an overflow
+       to reveal, so force them visible and measure each against its own card: a small gap from the
+       card's top and right edge means it is in the header row at the far right. */
+    const va = await pg.evaluate(() => {
+      const out = {};
+      const test = (cardSel, btnSel, key) => {
+        const card = document.querySelector(cardSel); const btn = document.querySelector(btnSel);
+        if (!card || !btn) { out[key] = 'missing'; return; }
+        btn.hidden = false; if (!btn.textContent) btn.textContent = 'View All';
+        const c = card.getBoundingClientRect(); const r = btn.getBoundingClientRect();
+        out[key] = { topGap: Math.round(r.top - c.top), rightGap: Math.round(c.right - r.right) };
+      };
+      test('#pj-tasks-field', '#pj-alltasks', 'tasks');
+      test('.pjcard-files', '#pj-docs-all', 'files');
+      return out;
+    });
+    const headerTR = (o) => o && typeof o === 'object' && o.topGap >= -2 && o.topGap <= 44 && o.rightGap >= -2 && o.rightGap <= 44;
+    say(headerTR(va.tasks), '#3218: Tasks View All sits in the header, top-right', JSON.stringify(va.tasks));
+    say(headerTR(va.files), '#3218: Files View All sits in the header, top-right', JSON.stringify(va.files));
+
+    /* #3218 increment 2: the open project's agents sort to the TOP of the single Agents list, then a
+       rule, then the rest. Drive paintAgentList directly with a known roster + board sample so the
+       ordering is deterministic without live tmux. running:false rows render from record fields only
+       (the branch lrow keeps for a stopped agent), so the fixture cannot take a field-hungry path. */
+    const grouping = await pg.evaluate(() => {
+      const proj = pjById(PJ_CURRENT);
+      proj.agents = [{ sessionName: 'mem-1' }, { sessionName: 'mem-2' }];
+      const mk = (s) => ({ sessionName: s, name: s, role: '', running: false, state: 'stopped', context: null });
+      LAST = [mk('out-a'), mk('mem-1'), mk('out-b'), mk('mem-2')];
+      paintAgentList();
+      const kids = [...document.getElementById('alist').children];
+      const seps = kids.filter((k) => k.classList && k.classList.contains('alist-sep'));
+      const sepAt = kids.findIndex((k) => k.classList && k.classList.contains('alist-sep'));
+      return { total: kids.length, sepCount: seps.length, sepAt };
+    });
+    // 4 rows + 1 rule; the two project members are the two rows above the rule (index 0,1), the rule
+    // is at index 2, the two non-members below it.
+    say(grouping.sepCount === 1 && grouping.sepAt === 2 && grouping.total === 5,
+      '#3218: the Agents list groups project members first, then a rule, then the rest', JSON.stringify(grouping));
+
+    // negative control: no project open -> a flat list with no rule (proves the rule is conditional).
+    const flatSeps = await pg.evaluate(() => {
+      PJ_CURRENT = null;
+      const mk = (s) => ({ sessionName: s, name: s, role: '', running: false, state: 'stopped', context: null });
+      LAST = [mk('x'), mk('y')];
+      paintAgentList();
+      return [...document.getElementById('alist').children].filter((k) => k.classList && k.classList.contains('alist-sep')).length;
+    });
+    say(flatSeps === 0, '#3218: with no project open the Agents list is flat (no rule)', String(flatSeps));
+
+    // #3218: paintAgentList() keeps the empty-board fallback -- with no agents it draws boardEmpty(),
+    // not a blank list. Drive LAST=[] through it (the pre-first-poll / removed-last-agent shape) and
+    // assert the empty-state markup, no rows, no rule. This is the runtime execution coverage the
+    // node source-regex test cannot give.
+    const emptyBoard = await pg.evaluate(() => {
+      LAST = [];
+      paintAgentList();
+      const al = document.getElementById('alist');
+      return { hasEmpty: !!al.querySelector('.pj-empty'), hasRows: !!al.querySelector('.lrow'), hasSep: !!al.querySelector('.alist-sep') };
+    });
+    say(emptyBoard.hasEmpty && !emptyBoard.hasRows && !emptyBoard.hasSep,
+      '#3218: paintAgentList with no agents draws the empty board, not a blank list', JSON.stringify(emptyBoard));
   } else {
     say(false, 'the board has a project to open (this check needs one)');
   }

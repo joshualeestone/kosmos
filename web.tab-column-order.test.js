@@ -93,12 +93,14 @@ test('Members and Files are the LEFT column, Tasks is the RIGHT one', () => {
     'the tab view columns are out of order. Josh asked for Members and Files on the left, Tasks far right, and the tab view has no CSS reorder: DOM order IS the screen order here');
 });
 
-test('the consolidated view keeps its own opposite order', () => {
-  /* The control on the control. If someone unifies the two views again, the
-     assertion above stays green while the screen he reported goes back to
-     wrong, so the disagreement itself has to be pinned. */
-  assert.match(PAGE, /body\.consolidated \.pj3 > \.pjsplit > \.pjcard-members \{ grid-column: 2; grid-row: 3;/,
-    'the consolidated view stopped placing Members last, so the two views have been unified again');
+test('the consolidated view hides the Members card the tab view still shows (#3218)', () => {
+  /* The control on the control. The two views must stay DIFFERENT: the tab view shows the Members
+     card (asserted above), the consolidated view hides it (#3218 -- the project's agents moved to
+     the top of the single Agents list). If someone unifies the two views again, the tab assertion
+     above stays green while the consolidated screen regresses, so the disagreement itself is pinned:
+     Members hidden here, Tasks still leading the right column. */
+  assert.match(PAGE, /body\.consolidated \.pj3 > \.pjsplit > \.pjcard-members \{ display: none;/,
+    'the consolidated view stopped hiding the Members card, so the two views have been unified again');
   assert.match(PAGE, /body\.consolidated \.pj3 > aside\.pjcol:not\(\.pjsplit\) \{ grid-column: 2; grid-row: 1;/,
     'the consolidated view stopped placing Tasks first');
 });

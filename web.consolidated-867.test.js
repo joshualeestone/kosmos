@@ -130,9 +130,10 @@ test('the right column is dissolved into independent grid rows, so its cards can
   // web.consolidated-match-mock.test.js, not duplicated here.
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjsplit \{ display: contents; \}/,
     '.pjsplit no longer dissolves, so members and files cannot be placed independently');
-  // The conversation column spans all three rows, not the old two.
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{[^}]*grid-row: 1 \/ span 3;/s,
-    'the conversation column does not span the new third row');
+  // #3218: the right column is TWO rows now (Tasks over Files, 50/50) since the Members card was
+  // hidden, so the conversation column spans 2 rows, not the old 3.
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{[^}]*grid-row: 1 \/ span 2;/s,
+    'the conversation column does not span both right-column rows');
 });
 
 test('the conversation box fills the available height instead of leaving a gap above the composer', () => {

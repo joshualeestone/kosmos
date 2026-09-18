@@ -105,11 +105,13 @@ test('nothing selects the split cards by position', () => {
       + bad.map(([n, l]) => '  ' + n + ': ' + l.trim()).join('\n'));
 });
 
-/* The grid rows must still put Files above Members, or the markup fix would
-   have "aligned" the two orders by moving the VISUAL one to the wrong place. */
-test('the consolidated rows still paint Files above Members', () => {
+/* #3218: in the consolidated view the Members card is now HIDDEN (its agents moved to the top of
+   the single Agents list), so there is no Files-vs-Members order left to keep there. Files stays on
+   its own row; Members is display:none. The TAB view still shows both, in the markup order pinned by
+   the tab-view test above. */
+test('the consolidated view keeps Files on its row and hides the Members card (#3218)', () => {
   assert.match(PAGE, /\.pjsplit > \.pjcard-files \{ grid-column: 2; grid-row: 2;/,
-    'the files card left row 2, so Josh\'s Files-above-Members order is gone');
-  assert.match(PAGE, /\.pjsplit > \.pjcard-members \{ grid-column: 2; grid-row: 3;/,
-    'the members card left row 3');
+    'the files card left row 2');
+  assert.match(PAGE, /\.pjsplit > \.pjcard-members \{ display: none;/,
+    'the members card is no longer hidden in the consolidated view');
 });

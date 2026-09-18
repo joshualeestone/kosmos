@@ -551,16 +551,17 @@ test('the right-column cards stretch into their tracks, or they overlap each oth
     'the right-column cards no longer stretch into their tracks: below ~770px they overflow and cover each other, and the page-scroll safety valve cannot fire because the tracks shrink rather than grow');
 });
 
-test('the two auto-row cards carry viewport caps a tall list cannot game', () => {
-  // Measured in review: with 30 rows in Tasks and Files, %-caps against
-  // content-sized tracks let both grow ~460px and push Members off-screen.
-  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\), ' + cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-files \\{ max-height: 38vh;'),
-    'Tasks/Files lost their viewport caps; tall content can push Members off the bottom again');
-  /* ⚠️ `calc(100% - 12px)`, and the 12px is the card's own bottom margin.
-     `max-height` resolves against the grid AREA, so a plain 100% makes the
-     margin box 12px taller than its track and a full Members list spills out
-     to the body scroll -- a page scrollbar in the exact state this branch
-     removes, and one that does not need a short window to appear. */
-  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ max-height: calc\\(100% - 12px\\);'),
-    'Members lost its track-bounded cap');
+test('#3218: with Members hidden the right column is a clean 1fr 1fr, Tasks over Files 50/50', () => {
+  /* #3218 superseded the old design this test used to pin (38vh caps on Tasks/Files + a
+     track-bounded cap on Members). The separate Members card is hidden in the consolidated view
+     now -- its agents moved to the top of the single Agents list -- so the right column is two
+     equal rows (Tasks row 1, Files row 2) with no caps: each half fills and scrolls inside itself.
+     The caps existed only to stop the two lists starving the Members row, which no longer exists. */
+  assert.match(PAGE, new RegExp(cons + ' \\.pj3 \\{ grid-template-columns: minmax\\(0, 1fr\\) minmax\\(200px, 16\\.6vw\\); grid-template-rows: minmax\\(0, 1fr\\) minmax\\(0, 1fr\\);'),
+    'the right column is no longer a clean 1fr 1fr (Tasks over Files, 50/50)');
+  assert.match(PAGE, new RegExp(cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-members \\{ display: none;'),
+    'the Members card is no longer hidden in the consolidated view (it would list the project members twice)');
+  // and the caps are gone, so a tall window is not left with an empty bottom half.
+  assert.doesNotMatch(PAGE, new RegExp(cons + ' \\.pj3 > aside\\.pjcol:not\\(\\.pjsplit\\), ' + cons + ' \\.pj3 > \\.pjsplit > \\.pjcard-files \\{ max-height: 38vh;'),
+    'the old 38vh caps are back; with Members gone they would leave the bottom half empty on a tall window');
 });

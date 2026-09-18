@@ -3161,7 +3161,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
    tests anchor on the media line being immediately followed by the body
    rule. */
 @media (min-width: 960px) {
-  html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 15%) minmax(0, 1fr);
+  html[data-layout="consolidated"] body.consolidated { display: grid; grid-template-columns: minmax(200px, 16.6vw) minmax(0, 1fr);   /* #3218: Agents col fixed 16.6vw (viewport-absolute, so the fraction is exact at every nesting level and the fold-flex works by construction -- see #panel-projects/.pj3 below) */
     /* Zero gap, not 18px: the agents and projects rails sit flush at their
        shared rule, the way two columns of one surface should -- the
        discussion gets its breathing room from its own padding instead. */
@@ -3416,6 +3416,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      the agents side already wins against that shared rule; the projects side
      joins it here rather than growing a third mechanism. */
   html[data-layout="consolidated"] body.consolidated > #alist#alist { padding-top: 4px; }
+  /* #3218: the divider in the single grouped Agents list, between the open project's agents (top)
+     and the rest of the fleet. Only emitted when a project is open in the consolidated view. A thin
+     rule on the shared --k-rule token, so it tracks light/dark; small margins because #alist is a
+     4px-gap flex column and the gap already spaces it from the rows either side. */
+  html[data-layout="consolidated"] body.consolidated #alist .alist-sep { border: 0; border-top: 1px solid var(--k-rule); height: 0; margin: 2px 2px; flex: 0 0 auto; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   /* #3187: the consolidated rail used to strip the row ground (background: none)
@@ -3712,7 +3717,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      both run the panel's full height, so the columns and their rules
      reach the bottom edge. The height chain (min-height:0 at every rung)
      is what lets each region scroll inside itself instead of pushing. */
-  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 17%) minmax(0, 1fr); column-gap: 18px; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated #panel-projects { display: grid; grid-template-columns: minmax(180px, 16.6vw) minmax(0, 1fr); column-gap: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); }   /* #3218: Projects fixed 16.6vw (viewport-absolute, not parent-relative); gap 0 so nothing eats the fraction (dialog gets breathing room from its own padding, like the body rails). Stays 16.6vw when Agents folds -> only the dialog grows. */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   /* The webkit companion, same as #alist's: the app ships in a WKWebView
      and older WebKit ignores scrollbar-width alone. */
@@ -4047,7 +4052,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      which is the signature of correct tracking and a wrong intercept, so the 24px is
      added back. Measured after: 200/200, 200/200, 240/240, 288/288 at 1100, 1280,
      1600 and 1920. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(224px, calc(15vw + 24px)); grid-template-rows: minmax(0, auto) minmax(0, auto) minmax(168px, 1fr); height: 100%; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(200px, 16.6vw); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; }   /* #3218: right col fixed 16.6vw (supersedes the #1189 15vw+24px agents-match tuning); conversation (1fr) is the residual == ~50vw. Right stays 16.6vw when Agents folds, so the freed width flows only to the conversation (fold-flex by construction, no fold-a override needed). TWO rows now, 50/50: Tasks (top) over Files (bottom) -- the separate Members card is hidden here (increment 3), its agents having moved to the top of the single Agents list; member add/remove lives in project Settings. */
   /* 🛑 `stretch`, NOT `start`, AND THIS ONE OVERLAPPED CARDS ON A SMALL LAPTOP.
      With `start` a card is never sized to its track: its height is its own
      content clamped by the 38vh cap. But the two `minmax(0, auto)` tracks have a
@@ -4087,35 +4092,17 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      scrolling list, and that child sets `align-self: stretch` on itself
      immediately below, with its own measured reason. Setting the property on
      the PARENT to fix ONE child is what reached the head row as well. */
-  /* 🛑 `overflow-y: auto`, NOT `hidden`, AND THE LIST IS STILL THE SCROLLER.
-     Only `.pj-members` gets a scroller below; the card's FOUR OTHER children --
-     the add-member control, remove, the add row carrying its confirm button,
-     and the aria-live result message -- sit outside it. With Tasks and Files
-     both at their 38vh caps the third track lands on its floor, the card clamps,
-     and those four are clipped with no scrollbar and no wheel target: a confirm
-     button a person cannot reach.
-     ⚠️ THIS IS THE SAME FAILURE THE BRANCH ALREADY TREATS AS BLOCKING for the
-     four projects sub-views, and those were given `overflow-y: auto`. This card
-     was given `hidden`, which is the inconsistency rather than a considered
-     difference.
-     📌 `auto` does not weaken "the scroller is the list": at every size the
-     content fits, nothing scrolls here and the list scrolls inside its own
-     track exactly as before. The card scroll engages only in the clamp, which
-     is the same escape-hatch shape as the body grid -- reachability wins where
-     the geometry cannot be honoured. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { overflow-y: auto; grid-template-rows: auto minmax(0, 1fr); }
-  /* align-self: stretch, or the list sizes to its CONTENT instead of its
-     bounded track and the scroll never engages (measured: 1314px of rows
-     rendering into a 301px track, clipped unreachable). */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members > .pj-members { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members > .pj-members::-webkit-scrollbar { display: none; }
+  /* #3218: the Members card is hidden in the consolidated view (its agents moved to the top of the
+     Agents list), so its consolidated-only scroller rules -- the card overflow and the .pj-members
+     inner scroller -- were removed as dead. The members-hidden state is guarded in the tests. */
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { overflow: hidden; display: flex; flex-direction: column; }
   /* Same removal, same reason, for Tasks: (1,3,2) outranked (1,2,2), and
      `.tkcards` sets its own `align-self: stretch` on the next line. */
-  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { flex: 1 1 auto; min-height: 0; grid-template-rows: auto minmax(0, 1fr); } /* #3218: two rows now -- header + list; View All rode up into the header (row 1), so the old 3rd row is gone */
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards { overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .tkcards::-webkit-scrollbar { display: none; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  /* #3218: the Files card used to be the scroller (overflow-y: auto here); it is a header grid now,
+     with overflow: hidden and the .pj-docs list scrolling inside its own row (rules further down). */
   /* 🔑 THE THREE PANELS COME OUT OF THEIR FLOATING BOXES (kosmos#1189). Josh:
      "I want those to come out of those boxes and be in those container areas and
      be the same width as agents and projects."
@@ -4129,69 +4116,19 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol,
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field {
     border: 0; border-radius: 0; background: none; padding: 0; }
-  /* One rule between the sections, matching the vertical rule between columns. */
+  /* #3218: the divider between Tasks (row 1) and Files (row 2), matching the vertical rule between
+     columns. With Members hidden this is the only horizontal rule in the right column. Files is a
+     .pjcard preceded in DOM order by the hidden members .pjcard, so `.pjcard + .pjcard` matches it;
+     `.pjcard-files` names it explicitly for the same rule. (The old members border-top -- the rule
+     that used to sit between Files and Members -- was removed with the Members card.) */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard + .pjcard,
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files,
-  /* 🛑 MEMBERS NAMED EXPLICITLY, AND THE REASON IS THE INTERESTING PART
-     (kosmos#1303 B). Josh: "We're missing a horizontal rule between Files in
-     this project and Project Members."
-
-     MEASURED DOM, after guessing wrong twice:
-
-         aside.pjcol.pjsplit
-           +- div.pjcard.pjcard-members     <- FIRST child
-           +- div.pjcard.pjcard-files       <- second
-
-     ⇒ THE DOM ORDER IS THE OPPOSITE OF THE VISUAL ORDER. Files is drawn above
-     Members, but Members comes first in the markup, so `.pjcard + .pjcard`
-     matches FILES and the rule lands above the TOP card rather than between the
-     two. `.pjcard-members` computed `border-top: 0px` and Files computed 1px,
-     which reads as backwards until you look at the DOM.
-     ⚠️ AND MY FIRST FIX WAS OUTRANKED. `.pj3 .pjcard-members` is one class
-     short of the un-box rule above (`.pj3 > .pjsplit > .pjcard { border: 0 }`),
-     so `border: 0` kept winning and the measurement did not move. Matching that
-     selector's shape is what makes it apply.
-     📌 The rule ABOVE Files is not spurious: it is the one below Tasks, which
-     is item 2 of this same group. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members {
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files {
     border-top: 1px solid var(--k-rule); padding-top: 14px; margin-top: 2px; }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files::-webkit-scrollbar { display: none; }
-  /* ⚠️ vh CAPS ON THE TWO auto-ROW CARDS, NOT max-height: 100% (challenge-
-     loop iteration 1, then MEASURED: with 30 rows stuffed into Tasks and
-     Files, %-caps against content-sized tracks let the two grow to ~460px
-     each and push Members clean off the bottom). A viewport cap cannot be
-     gamed by content: Tasks and Files each stop at 38vh and scroll inside;
-     Members' own row is 1fr-bounded by construction, so its 100% cap is
-     against a real track and holds.
-     🛑 THE TWO CAPS BOUND EACH CARD, NOT THEIR SUM, and that is what starved
-     the third row. 38vh + 38vh is 76vh, plus `.pj3`'s 16px row gaps and the
-     cards' own margins, so on a 700px window with both lists full Members
-     computed to roughly one row. Each cap was doing its job and the
-     arithmetic across them was nobody's.
-     ⇒ Members' track carries a 168px FLOOR. 120 was derived from the list
-     alone and did not count the card's OWN furniture: the head, the add-member
-     control and the add row with its confirm button do not scroll, so they
-     have to fit before a single member is visible. 168 is those plus about one
-     row. Below that the grid exceeds `.pj3` and the overflow chains out to
-     the body's own scroll -- the same escape hatch, and the same trade, as
-     the body grid's `minmax(200px, 1fr)`: in every window a person uses
-     nothing scrolls, and where the geometry cannot be honoured, reachability
-     wins over the no-scrollbar promise. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit), html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { max-height: 38vh; }
-  /* 🛑 `calc(100% - 12px)`, NOT `100%`, AND THIS ONE IS NOT WINDOW-DEPENDENT.
-     `max-height` resolves against the grid AREA, but this card also carries
-     `margin: 0 12px 12px` below, so at the cap its MARGIN BOX is 12px taller
-     than its own track. A full Members list then spills 12px past `.pj3`
-     (height: 100%, no overflow) and out through #pj-one-view and
-     #panel-projects, neither of which has a bottom padding to absorb it --
-     straight to the body scroll.
-     ⚠️ That is a page scrollbar in exactly the state this branch exists to
-     remove, and unlike the two documented escape hatches it does not need a
-     short window: it fires whenever Members overflows. The sibling caps are
-     safe by contrast, because Tasks and Files sit in `auto` tracks, which size
-     to the margin box rather than against it. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { max-height: calc(100% - 12px); }
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 3; }
+  /* #3218: the right column is a clean 1fr 1fr now -- Tasks (top) over Files (bottom), each filling
+     half and scrolling inside itself. The old machinery here (38vh caps on Tasks/Files, a 168px floor
+     and a track-bounded max-height on Members) existed only to stop the two lists starving the
+     Members row; Members is hidden in this view, so all of it was removed. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { grid-column: 1; grid-row: 1 / span 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit { display: contents; }
   /* #980 (Josh, 2026-08-26 08:31): Files ABOVE Project members.
      ✅ THE ACCEPTED TRADE THAT USED TO BE RECORDED HERE IS PAID OFF (kosmos#1017).
@@ -4212,7 +4149,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      DOM order and visual order both read files-then-members, with a control
      confirming the consolidated rules were actually active in one run
      (`gridRow: 2`) and not the other (`auto`). */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { grid-column: 2; grid-row: 3; }
+  /* #3218: the separate Members card is GONE from the consolidated view -- the open project's
+     agents now sit at the top of the single Agents list (increment 2). Hidden, not deleted, because
+     the same markup still serves the TAB view, where it stays the project's member panel; add/remove
+     lives in project Settings (paintSettingsMembers) in both views. display:none frees grid-row 2,
+     so Tasks (row 1) and Files (row 2) split the column 50/50. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { grid-column: 2; grid-row: 2; }
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
@@ -4267,8 +4209,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      first version was ~100 lines earlier with identical specificity, so
      `margin: 0 12px 12px` won on order alone. The measurement showed padding
      applied and margin unchanged, which is what a lost tie looks like. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files,
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members {
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files {
     margin-left: 0; margin-right: 0; padding-left: 12px; padding-right: 12px; }
   /* 🔑 AND THE TASKS COLUMN COMES UP TO MEET THEM (kosmos#1303 A item 2).
      MEASURED: this margin put the aside at 45 + 12 = 57, and its label 6px inside
@@ -4289,39 +4230,17 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
      this pass removes. The bordered composerbox inside it is unchanged. */
   html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-bg); }
-  /* #980 (iterations 5-6): Tasks' and Members' heads never move because
-     their LIST is the scroller (see the scroller-is-the-list rule above;
-     sticky was provably inert on grid items whose containing block is
-     their own row). Files, a plain card scroller, pins its label the
-     ordinary sticky way. */
-  /* ⚠️ THE INSET IS PADDING, NOT MARGIN, or the ground has a hole in it.
-     `.dlab` carries `margin: 0 0 10px`, and a sticky element's background stops
-     at its border box -- so scrolled rows passed through a 10px transparent
-     band directly beneath the pinned label, sliding under nothing. Folding the
-     inset into padding extends the ground to cover it. The projects rail header
-     already solved this the same way; this card had not. */
-  /* 🛑 THE GROUND IS THE COLUMN'S TONE, NOT `--k-surface` (kosmos#1303 B). Josh:
-     "Files in this project have a big white box behind them that needs to go
-     away." He is describing THIS, and it survived #1189 because #1189 un-boxed
-     the CARD and this is its LABEL.
-     MEASURED, and the two tokens are simply different colours:
-
-         --k-surface   #ffffff        the label was painted this
-         --k-side      #f3f1ec        .pj3, the ground it sits on, is this
-
-     ⇒ A white patch on a stone column, which is exactly the phrase he used.
-     ⚠️ THE BACKGROUND ITSELF STAYS, and the note above says why: it is the ground
-     that scrolled rows slide UNDER, and a transparent sticky label lets them
-     pass through it. The bug was the TONE, not the technique.
-     📌 `--k-side` is also what `#rail-projects` uses for the identical sticky
-     job twelve hundred lines up, so this matches the existing solution rather
-     than inventing a second one. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { position: sticky; top: 0; z-index: 3; background: var(--k-side, #f3f1ec); margin-bottom: 0; padding-bottom: 10px; }
+  /* #3218: Files is a header grid now (increment 5), so its label is a fixed cell in the header row
+     -- it never scrolls, so it needs no sticky positioning and no background patch. `background: none`
+     keeps it showing the column ground (--k-side) through, which is the #1303 B fix (no white box
+     behind the Files label) achieved by transparency rather than a painted tone. Tasks keeps its own
+     head treatment; this is the one rule for the Files label, no shadowing override. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { grid-column: 1; grid-row: 1; background: none; margin-bottom: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a
      full button, so the panel reads like the mock. */
-  html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { font-size: .8125rem; padding: 6px 10px; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { font-size: .8125rem; padding: 6px 10px; }
   /* #867 (Josh, 2026-08-25 11:02): "make the dialog box fit the height
      of the page. Right now you can see it has a big empty gap... match
      up with the design that we did yesterday" -- the 2026-08-19 pass
@@ -4444,7 +4363,6 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      fought this rule's 28px width/height and the disc rendered as a
      34x28 ellipse. Basis re-pinned to match, 1:1 held explicitly. */
   html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1; }
-  html[data-layout="consolidated"] body.consolidated .pj-addmem { font-size: .8125rem; padding: 6px 10px; margin-top: 4px; }
   /* #520 piece ten (the mock's controls; Josh, 14:10 and 14:14): the small +
      at the head of Members and Tasks, the same 22px control the rail heads
      use, instead of a full button under the list; and a minus at each
@@ -4452,7 +4370,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      the "Remove a member" door. The buttons are the ones already wired
      (#pj-add-member, #pj-newtask); only their place and their size change,
      and the accessible name keeps the words. */
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+  /* #3218: these header-grid rules used to also target .pjcard-members, but the Members card is
+     display:none in the consolidated view now, so that half was dead. Scoped to #pj-tasks-field only
+     (the tab view keeps its own .pjcard-members rules under body:not(.consolidated)). */
+  html[data-layout="consolidated"] body.consolidated #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
   /* 🔑 THE PLUS GOES LEFT OF THE TASKS LABEL (kosmos#1303 H). Josh: "On the tasks
      let's put the plus on the left side of the tasks label so it matches agents
      and projects."
@@ -4470,7 +4391,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      text is still in the DOM, so the button is still named "New task" for a
      screen reader; only the glyph is drawn, which is what matching the rails
      means. A `display: none` on the text would have taken the name with it. */
-  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { grid-template-columns: auto minmax(0, 1fr); }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { grid-template-columns: auto minmax(0, 1fr) auto; } /* #3218: 3rd far-right track for View All in the header */
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-newtask { grid-column: 1; grid-row: 1; order: 0; font-size: 0; width: 22px; height: 22px; padding: 0; border: 1px solid var(--k-rule); border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-newtask > span { font-size: 15px; font-weight: 600; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .dlab { grid-column: 2; grid-row: 1; }
@@ -4478,12 +4399,26 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      rail is 48px of column and the label is gone, so a + still sitting there is
      an action with nothing visible to act on. The arrow that unfolds it stays. */
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents-new { display: none; } /* #3126: was a shared rule with fold-p #rail-projects-new; projects no longer folds */
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > *, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .dlab, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
-  html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem > span, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
-  html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem:hover, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
-  html[data-layout="consolidated"] body.consolidated .pjsplit .pjcard-members > .pj-members, html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
+  html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
+  html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
+  /* #3218 increment 5: View All rides the section HEADER, pinned far-right and always visible (Josh),
+     instead of sitting under the list where it scrolled away. The base .pj-viewall (full-width,
+     centered, shared with the tab view) is left untouched; these consolidated-only rules right-align
+     the control in the header grid.
+     TASKS already grids its header (+ in col 1, label col 2); #pj-alltasks takes the new 3rd track. */
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-alltasks { grid-column: 3; grid-row: 1; margin: 0; justify-self: end; align-self: center; }
+  /* FILES was a plain card that scrolled as a whole with a sticky label; convert it to the same
+     header grid so the label + View All sit in a fixed row and only the list scrolls beneath. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); align-items: center; column-gap: 8px; overflow: hidden; } /* #3218: rows are header / message / list, so the empty-state message sits right under the header instead of floating at the bottom over the empty 1fr list track */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > * { grid-column: 1 / -1; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-all { grid-column: 2; grid-row: 1; margin: 0; justify-self: end; align-self: center; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-msg { grid-column: 1 / -1; grid-row: 2; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs { grid-column: 1 / -1; grid-row: 3; overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-remove-member { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-minus { display: grid; place-items: center; margin-left: auto; width: 24px; height: 24px; flex: none; border: 1px solid var(--k-rule); border-radius: 6px; background: var(--k-surface); color: var(--k-ink-2); font: 600 14px/1 var(--font-ui); padding: 0; cursor: pointer; opacity: 0; }
   html[data-layout="consolidated"] body.consolidated .pj-member:hover .pj-minus, html[data-layout="consolidated"] body.consolidated .pj-minus:focus-visible { opacity: 1; }
@@ -11484,26 +11419,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            `:last-child` rules with `.pjcard-members` / `.pjcard-files`. Reorder
            these two while anything still selects them by position and you
            silently repoint the members scroller onto Files. -->
-      <!-- 🛑 MEMBERS FIRST IN THE MARKUP, FILES BELOW, AND THE TWO VIEWS
-           DELIBERATELY DISAGREE (Josh, 2026-08-26 22:05, item 3):
-             tab view      Members top left, Files under it, Tasks far right
-             consolidated  Tasks, then Files, then Members down one column
-           He confirmed the consolidated order is right and the TAB view was the
-           one out of order, which is the half kosmos#1017 got wrong.
-           ⚠️ #1017 WAS MINE AND ITS PREMISE WAS WRONG. I unified the two views
-           on the argument that "two views of one project showing the same panels
-           in opposite orders is itself a defect". He wants them different, and
-           he is the one who uses both. The unification is undone; what survives
-           from that branch is the part that mattered -- the cards are selected
-           BY NAME, so the consolidated grid rows below hold whatever order the
-           markup is in, and swapping this back could not silently repoint the
-           members scroller onto Files.
-           ⚠️ THE TRADE #1017 EXISTED TO REMOVE IS BACK, KNOWINGLY: in the
-           consolidated view the eye reads Files then Members while the keyboard
-           tabs Members then Files (WCAG 2.4.3 / 1.3.2). One DOM cannot match two
-           opposite visual orders. The tab view now agrees with itself; the
-           consolidated one does not, and that is a decision rather than an
-           oversight. -->
+      <!-- 🛑 MEMBERS FIRST IN THE MARKUP, FILES BELOW -- this ORDER now serves the TAB view only
+           (Josh, 2026-08-26 22:05 item 3: tab view = Members top left, Files under it, Tasks far
+           right). #3218 HIDES the Members card in the CONSOLIDATED view (its agents moved to the top
+           of the single Agents list), so the old "consolidated shows Tasks/Files/Members down one
+           column" order -- and the WCAG tab-order tension kosmos#1017 wrestled with there -- no
+           longer applies in that view: a display:none card is not in the tab order at all. The
+           consolidated grid places Files/Tasks BY NAME (grid-row below), so the markup order here is
+           free to serve the tab view.
+           ⚠️ Do NOT reintroduce position selectors (:first-child/:last-child): the commit before
+           kosmos#1017 replaced fifteen of them with .pjcard-members / .pjcard-files (by name) exactly
+           so this order could change safely. Swapping cards by position would silently repoint the
+           members scroller onto Files. -->
 <div class="pjcard pjcard-members">
       <!-- Josh, 2026-09-10 (#2711 item 14): the column heading is just
            "Members" now. "Project members" restated the page it sits on. -->
@@ -11615,8 +11542,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <!-- Josh, 2026-09-10 (#2711 item 13): just "Files". Still the
              project folder, top level, newest first, as the comment above says. -->
         <h3 class="dlab">Files</h3>
-        <div id="pj-docs" class="pj-docs"></div>
-        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
+        <!-- #3218: View-All sits right after the header (before the list) so keyboard focus reaches
+             it in reading order. The consolidated view grids it into the header row far-right; being
+             DOM-early keeps tab order matching that visual position (WCAG 2.4.3). The tab view then
+             shows it just under the header rather than at the bottom. -->
         <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
              view-all that opens a SCREEN listing everything. That screen is a
              later slice; this control does something real and says exactly what
@@ -11625,6 +11554,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              opened the in-app Documents view since #134 landed, while the
              words still promised Finder. Finder lives INSIDE that view. -->
         <button class="linkish pj-viewall" id="pj-docs-all" type="button" hidden>View All</button>
+        <!-- #3218: the message sits BEFORE the list in the DOM, matching its visual position (the
+             consolidated Files grid places it in the row directly under the header, above the list),
+             so reading/tab order and visual order agree. In the tab view (no grid) it also reads as
+             an empty-state line above the list. -->
+        <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
+        <div id="pj-docs" class="pj-docs"></div>
       </div>
     </aside>
 
@@ -11856,7 +11791,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="field" id="pj-tasks-field">
       <h3 class="dlab">Tasks</h3>
       <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
-      <div class="tkcards" id="pj-tasklist"></div>
+      <!-- #3218: the View-All door sits in the DOM right after the header controls (before the
+           list), so keyboard focus reaches it in reading order. The consolidated view grids it into
+           the header row (top-right); DOM-early keeps tab order matching that visual position (WCAG
+           2.4.3, the kosmos#1017 class). In the tab view it then shows just under the header rather
+           than at the bottom -- consistent with the consolidated header placement. -->
       <!-- The door, pack rule: the column is a task with somebody on it that
            is not finished; finished and unpicked are both real and both
            behind this. v1's door reveals them in place (there is no
@@ -11864,6 +11803,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            same-project Back-and-return (the page's round-31 rule) and
            resets on a project SWITCH. -->
       <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
+      <div class="tkcards" id="pj-tasklist"></div>
     </div>
     </aside>
     </div>
@@ -16638,6 +16578,34 @@ function ageCheckedStamp() {
   checked.innerHTML = '<span>Agent status</span><b>' + freshWords(age) + '</b>';
 }
 
+/* #3218: paint the single Agents list (#alist) from the last board sample (LAST). Called by tick()
+   every poll AND by pjMarkOpen() the instant a project opens or closes, so the grouping tracks
+   PJ_CURRENT without a ~5s lag. In the CONSOLIDATED view with a project open, that project's agents
+   sort to the TOP (then a plain rule, then the rest) -- one grouped Agents list, no separate Members
+   block, no agent shown twice, header stays "Agents". Flat everywhere else (tab view, no project
+   open, or none of the fleet is on the open project). Joined to the open project's roster by
+   sessionName -- the same key lrow(a) and pjMember(m) share. boardEmpty() honours BOARD_SEEN, so a
+   pre-first-poll call (LAST still []) draws the honest "Looking..." state, never a false empty. */
+function paintAgentList() {
+  const alist = document.getElementById('alist');
+  if (!alist) return;
+  const lim = new URLSearchParams(location.search).get('limit');
+  const src = Array.isArray(LAST) ? LAST : [];
+  const shown = lim ? src.slice(0, Number(lim)) : src;
+  if (!shown.length) { alist.innerHTML = boardEmpty(); return; }
+  const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
+  const inProj = (openProj && Array.isArray(openProj.agents))
+    ? new Set(openProj.agents.map((m) => m && m.sessionName).filter(Boolean)) : null;
+  const members = (inProj && inProj.size) ? shown.filter((a) => inProj.has(a.sessionName)) : [];
+  if (members.length) {
+    const rest = shown.filter((a) => !inProj.has(a.sessionName));
+    alist.innerHTML = members.map(lrow).join('')
+      + (rest.length ? '<hr class="alist-sep" aria-hidden="true">' : '')
+      + rest.map(lrow).join('');
+  } else {
+    alist.innerHTML = shown.map(lrow).join('');
+  }
+}
 async function tick() {
   const checked = document.getElementById('checked');
   let answered = false;   // set when the server replied, even with a refusal (#268)
@@ -16995,7 +16963,11 @@ async function tick() {
     // The list is the SAME agents through the same derivations, painted on
     // the same tick -- hidden or not. Painting only the visible layout would
     // hand the toggle a stale copy of whichever view was resting.
-    document.getElementById('alist').innerHTML = shown.length ? shown.map(lrow).join('') : boardEmpty();
+    /* #3218: the Agents list is painted by paintAgentList() (defined just above tick), which reads
+       the same LAST sample this poll just wrote. Extracted so a project open/close can re-group it AT
+       ONCE via pjMarkOpen rather than waiting for the next ~5s poll. In the consolidated view with a
+       project open it sorts that project's agents to the TOP, then a rule, then the rest. */
+    paintAgentList();
     /* ⚠️ THE THIRD VIEW REPAINTS ON THE SAME TICK, but through its own guard
        rather than an unconditional innerHTML write. The two above can be
        rewritten every five seconds because nothing in them holds focus that
@@ -41009,6 +40981,11 @@ function pjMarkOpen(id) {
     r.classList.toggle('open', on);
     if (on) r.setAttribute('aria-current', 'true'); else r.removeAttribute('aria-current');
   });
+  /* #3218: PJ_CURRENT is already written before every call to this (open sets it then marks; the
+     back/close paths null it then mark), so re-grouping the Agents list here makes the open
+     project's agents jump to the top the instant it opens, not on the next ~5s poll. Inert in tab
+     view (paintAgentList gates the grouping on layoutConsolidated()). */
+  paintAgentList();
 }
 function openProject(id) {
   // ⚠️ Only opens a project we actually HAVE. `paintOneProject` bails back to
