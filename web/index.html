@@ -117,7 +117,7 @@
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
      source and a future opacity change is one edit per theme, not four scattered
      rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
-  --usermsg-tint: rgba(65,113,227,.10);
+  --usermsg-tint: #e8ebf5; /* #3267: solid (pre-composited from rgba .10 over --k-bg) so the Option A overlap wing does not double-composite into a dark triangle on the translucent bubble; visually identical over the standard ground */
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings
@@ -327,7 +327,7 @@
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #221f1a;  /* #2947: the dark-mode cream (warm, a touch above the surface) */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
-    --usermsg-tint: rgba(65,113,227,.15);
+    --usermsg-tint: #141c2f; /* #3267: solid dark (pre-composited from rgba .15 over --k-bg #0c0d0f); see light note */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
     --k-side:   #111316;
     --k-side-2: #1c1f23;
@@ -4193,7 +4193,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      inherited border. A cascade defect is invisible to every text pin in this
      branch, which is the same blind spot the stray-terminator scanner exists
      for. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-surface); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); } /* #3267 (Josh): consolidated dialogue ground WHITE too (reverses #980's cream); composer + tail-mask move with it */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
   /* 🔑 THE RULES REACH THE COLUMN EDGES (kosmos#1303 B item 2). Josh: "The
      horizontal rule below Tasks is also not going all the way to the edges."
@@ -4228,7 +4228,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      keeping the base surface drew a mismatched band across the bottom
      (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
      this pass removes. The bordered composerbox inside it is unchanged. */
-  html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-bg); }
+  html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-surface); } /* #3267: lockstep with the white pjmid ground above (was --k-bg for #980's cream) */
   /* #3218: Files is a header grid now (increment 5), so its label is a fixed cell in the header row
      -- it never scrolls, so it needs no sticky positioning and no background patch. `background: none`
      keeps it showing the column ground (--k-side) through, which is the #1303 B fix (no white box
@@ -4720,7 +4720,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .thread { padding: 14px 16px; display: flex; flex-direction: column; gap: 18px;
           min-height: 26rem; max-height: min(62vh, 44rem); overflow-y: auto;
           border: 1px solid var(--k-rule); border-radius: 10px;
-          background: var(--k-bg); }
+          background: var(--k-surface); } /* #3267 (Josh): the message dialogue ground is WHITE (--k-surface), not the cream --k-bg, in the tab view (and consolidated below) */
 /* #3134-followup (Josh 6.72): the avatar is BOTTOM-aligned with the bubble (not
    centered), so it sits by the bubble's bottom corner where the tail wing points,
    the iMessage read. */
@@ -4755,7 +4755,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.dm-b). Padding
    and radius match the DM bubble. A bodyless row draws no .msg-bd at all (pjMsg emits
    the wrapper only for non-empty body content), so there is no empty tinted box. */
-.msg-bd { padding: 8px 12px; border-radius: 12px; }
+.msg-bd { padding: 8px 12px; border-radius: 12px; max-width: 52ch; }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
@@ -4792,29 +4792,32 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    /tmp wing-pixel-oracle) MEASURED that overlap seam on the first geometry and now measures
    it gone. So: `left:-W; width:W` (agent) / `right:-W; width:W` (user) puts the wing's inner
    edge flush AT the bubble edge, never inside it. The tail-side bottom corner is squared
-   (radius 5, #3244) so the wing meets a near-straight edge, not a gap under a 12px round corner. */
-/* #3244 (Josh picked Option A, iMessage curved wing): the old geometry (10x12, circular radii) read
-   as a small square-ish NOTCH; Josh asked for the classic Apple curved flick. Enlarged to 12x17
-   with ELLIPTICAL bottom radii (declared 16px 15px), so the wing is a soft curve growing from the
-   bottom corner toward the avatar, and the --k-bg mask (7x18, declared 14px 16px) carves its outer
-   edge into that curve. The horizontal radii are declared LARGER than the box width on purpose: CSS
-   clamps a corner radius to the box, so this asks for a full-corner round and the rendered curve is
-   the clamp (the numbers are the request, not the literal pixels; the shape is fixed by the render
-   below, not by the exact radius). Everything stays ENTIRELY OUTSIDE the bubble box (left/right:-W; width:W, inner
-   edge flush AT the edge) -- the load-bearing no-overlap invariant above, so the translucent user
-   tint never double-composites. The wing is absolutely positioned and bottom-anchored, so the taller
-   size adds NO row height and does not reflow (render-room-scroll.js still holds). Verified against a
-   headless render of both a sent (translucent tint) and received bubble: reads as the curved wing,
-   no double-tint seam. */
-.msg-bd::before, .msg-bd::after { content: ""; position: absolute; bottom: 0; z-index: -1; }
-.msg:not(.you) .msg-bd { border-bottom-left-radius: 5px; }
-.msg.you .msg-bd { border-bottom-right-radius: 5px; }
-/* the colored wing, flush at and extending OUTSIDE the tail-side edge (never inside it) */
-.msg:not(.you) .msg-bd::before { left: -12px; width: 12px; height: 17px; background-color: inherit; border-bottom-left-radius: 16px 15px; }
-.msg.you .msg-bd::before { right: -12px; width: 12px; height: 17px; background-color: inherit; border-bottom-right-radius: 16px 15px; }
-/* the thread-ground mask carving the wing's OUTER half to a curved point toward the avatar */
-.msg:not(.you) .msg-bd::after { left: -12px; width: 7px; height: 18px; background: var(--k-bg); border-bottom-left-radius: 14px 16px; }
-.msg.you .msg-bd::after { right: -12px; width: 7px; height: 18px; background: var(--k-bg); border-bottom-right-radius: 14px 16px; }
+   (radius 7, #3267) so the wing meets a near-straight edge, not a gap under a 12px round corner. */
+/* #3244 -> #3247 -> #3267 (Josh picked Option A, the iMessage curved wing). #3247 shrank the wing
+   onto a small no-overlap mask (12x17 + 7x18) to dodge the translucent double-composite, and it read
+   as a squished NOTCH -- Josh 2026-09-18: "not the right iMessage thing you showed yesterday". #3267
+   rebuilds the approved Option A curve at the mockup's external scale while KEEPING the no-overlap
+   invariant: the colored ::before wing is 13x21 (elliptical bottom radius 20px 18px) and the --k-bg
+   ground mask ::after is 9x23 (radius 16px 20px), carving the wing's outer edge into the full Apple
+   curve. The horizontal radii are declared LARGER than the box on purpose: CSS clamps a corner radius
+   to the box, so this asks for a full-corner round and the render is the clamp (numbers are the
+   request, not literal pixels; the shape is fixed by the render, not the exact radius). Everything
+   stays ENTIRELY OUTSIDE the bubble box (left/right:-W; width:W; inner edge flush AT the edge) -- the
+   load-bearing no-overlap invariant above -- so the translucent --usermsg-tint never double-composites
+   into the "colliding triangle" (#3130/6.72) that overlapping the mockup's original geometry would.
+   The wing is absolutely positioned + bottom-anchored, so the taller size adds NO row height and does
+   not reflow (render-room-scroll.js is the oracle). Verified against a headless render of both a sent
+   (translucent tint) and received (opaque cream) bubble vs the approved Option A mockup: reads as the
+   full curved wing, no double-tint seam. */
+.msg-bd::before, .msg-bd::after { content: ""; position: absolute; bottom: 0; }
+.msg:not(.you) .msg-bd { border-bottom-left-radius: 6px; }
+.msg.you .msg-bd { border-bottom-right-radius: 6px; }
+/* the colored wing (Option A geometry, tucks under the corner) */
+.msg:not(.you) .msg-bd::before { left: -8px; width: 20px; height: 20px; background-color: inherit; border-bottom-right-radius: 18px 16px; z-index: -2; }
+.msg.you .msg-bd::before { right: -8px; width: 20px; height: 20px; background-color: inherit; border-bottom-left-radius: 18px 16px; z-index: -2; }
+/* the thread-ground mask carving the wing's outer edge into the curve */
+.msg:not(.you) .msg-bd::after { left: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-right-radius: 12px 16px; z-index: -1; }
+.msg.you .msg-bd::after { right: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-left-radius: 12px 16px; z-index: -1; }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
    mask must stay the pure thread ground or it would stop carving. */
@@ -7655,7 +7658,7 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #221f1a;  /* #2947: the dark-mode cream (warm, a touch above the surface) */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
-    --usermsg-tint: rgba(65,113,227,.15);
+    --usermsg-tint: #141c2f; /* #3267: solid dark (pre-composited from rgba .15 over --k-bg #0c0d0f); see light note */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
     --k-side:   #111316;
     --k-side-2: #1c1f23;
@@ -7800,7 +7803,7 @@ body.plus-active {
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
   --agent-msg: var(--k-sunk);  /* #2947: navy keeps its bluish inset, cream is out of scope for this world */
-  --usermsg-tint: rgba(65,113,227,.15); /* #2660: 15% on the navy ground, as in dark */
+  --usermsg-tint: #1a2d58; /* #3267: solid navy (pre-composited from rgba .15 over --k-bg #132140); was #2660 15% */
   --k-optline: #5f7099;
   /* --label/--bg system */
   --bg: #132140; --bg-elevated: #1c2c4f; --bg-sunken: #0b1428;
