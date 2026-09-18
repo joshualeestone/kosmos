@@ -541,7 +541,7 @@ func fileAccessReading() -> Bool {
     // app-exe hatch the latter can resolve to a redirected/container home, so the probe enumerates
     // container Documents/Downloads/Desktop (which exist and need no TCC) and never touches the real
     // protected trio -- granted:true with NO prompt, which is the fresh-box false-positive this
-    // fixes. realUserHome() reads the real home from the password DB, unaffected by that redirection.
+    // fixes. realUserHome() resolves the real home via NSHomeDirectory, unaffected by that redirection.
     let osHome = FileManager.default.homeDirectoryForCurrentUser
     let home = realUserHome()
     // #3188 DIAG (kept for the fresh-box fix-verify; removed in a follow-up once verified). Logs BOTH

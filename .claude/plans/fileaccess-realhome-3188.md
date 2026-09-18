@@ -43,7 +43,7 @@ empty TCC log:
   `os.homedir()` (engine/discover.js:968, 1018 -- the real passwd home), so a redirected
   `homeDirectoryForCurrentUser` allowlist would REFUSE the engine's real-home roots ("refusing
   non-TCC-root") and the scan would walk nothing even after the check flips green. `realUserHome()`
-  (getpwuid) matches `os.homedir()`, so the clamp aligns with the engine and still restricts to the
+  (NSHomeDirectory) matches `os.homedir()`, so the clamp aligns with the engine and still restricts to the
   three real-home TCC roots (the confused-deputy guard is preserved, not weakened). Fixing only the
   check without this would make the verdict truthful while the actual agent import stayed broken
   (found via challenge-loop iter 1).
