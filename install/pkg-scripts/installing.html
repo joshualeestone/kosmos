@@ -35,7 +35,7 @@
      set inline from the progress data; the swoosh animation is stopped. */
   .bar.determinate>i{animation:none;margin-left:0;width:0;transition:width .35s ease-out}
   #steps{font-variant-numeric:tabular-nums}
-  #late,#taken{display:none}
+  #late,#taken,#stuck{display:none}
   /* #2363: the .go button rules were dropped with the taken-branch manual link they
      styled (the only class="go" consumer, verified repo-wide) - dead under #2073. */
   @media (prefers-color-scheme:dark){body{background:#151412;color:#ece9e2}.muted{color:#a29e95}.bar{background:#3a3833}}
@@ -86,6 +86,15 @@
        repeating it here is the thing Josh cuts out of everything. What is left is
        the part that is only true once it HAS been slow, plus where to look. -->
   <p id="late">Still going. A slow one can take a few minutes; the installer window will say if something went wrong.</p>
+  <!-- #3114 recovery: after the same 3-minute mark, add a soft, advisory path for when the board
+       never comes up. It is cause-AGNOSTIC on purpose: the observed roots are an install that did
+       not finish (a postinstall abort) OR an install set up for a DIFFERENT account, and this page
+       cannot tell which -- both leave the same "no board" symptom, and both are helped by the same
+       two paths (open the app, or reinstall). Purely reassuring -- never says "failed" or "error"
+       (the ~214MB runtime download is genuinely slow on a fresh Mac, so a still-working install
+       must not be told it broke), and the spinner keeps going (no settle()), so a board that
+       arrives late still resolves normally. Under-alarm > false-alarm. -->
+  <p id="stuck">If Kosmos has not opened yet, it may not have finished installing, or it may have been set up for a different account on this computer. You can open Kosmos from your Applications folder, or install your own copy from installkosmos.com.</p>
   <div id="taken">
     <!-- #867 (Josh, 2026-08-25 15:20): "the odds of something else actually
          running on that Mac address are probably astronomically low... we
@@ -435,6 +444,13 @@
     n++;
     var img = new Image();
     img.onload = function(){
+      // #3114: a board answered, so an ending (taken or ready) has arrived -- hide the "still
+      // waiting" advisories (#late/#stuck) the 180s timeout may have shown, so a board that comes
+      // up LATE never shows "Kosmos is ready" / "already running" directly above the "may have
+      // been set up for a different account" advisory (they would contradict). No-op if the
+      // advisories were never shown.
+      document.getElementById("late").style.display = "none";
+      document.getElementById("stuck").style.display = "none";
       if (first) {
         // Answering BEFORE the install could have started it means the port
         // is someone else's (another account's Kosmos, or any other program).
@@ -478,6 +494,7 @@
       var s = Math.round((Date.now() - started) / 1000);
       if (s >= 45) document.getElementById("steps").textContent = "Setting up. " + s + " seconds so far.";
       if (s >= 180) show("late");
+      if (s >= 180) show("stuck");   // #3114: the soft mis-install recovery path (spinner stays alive; kept as its own line -- install.installing-page.test.js pins the `show("late")` form)
       setTimeout(tick, 2000);
     };
     img.src = base + "/icons/kosmos-16.png?t=" + Date.now();

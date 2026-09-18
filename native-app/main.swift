@@ -1472,7 +1472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // refusal without needing to click the dialog it is about to
             // block on (see the modal note on showStartupFailureAlert below).
             logLine("resolveInstall: refused, no own install for this account")
-            // #664's dialog, bash launcher's wording verbatim.
+            // #664's dialog (see showForeignAccountAlert; #3114 gave it a Download button and
+            // trimmed the wording, so it is no longer the bash launcher's text verbatim).
             showForeignAccountAlert()
             return
         } catch {
@@ -1608,16 +1609,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.runModal()
     }
 
-    // #664's dialog, bash launcher's wording verbatim (install/setup.sh):
-    // never sends anyone to a terminal, always points at the .pkg for
+    // #664's dialog. The wording tracked the bash launcher's (install/setup.sh) verbatim until
+    // #3114 gave it an actionable "Download Kosmos" button and trimmed the now-redundant "open
+    // installkosmos.com and click Download" sentence, so it no longer matches the launcher text
+    // 1:1. Still never sends anyone to a terminal; the button points at the .pkg download for
     // their own copy.
     private func showForeignAccountAlert() {
         let alert = NSAlert()
         alert.messageText = "Kosmos is installed on this computer for another user"
-        alert.informativeText = "It was set up by a different account on this computer, and it runs for that account. To use Kosmos here, install your own copy: open installkosmos.com and click Download for macOS. Yours will be separate, with your own agents and settings."
+        alert.informativeText = "It was set up by a different account on this computer, and it runs for that account. To use Kosmos here, install your own copy. Yours will be separate, with your own agents and settings."
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        // #3114 recovery: this alert used to carry only an "OK" button, so the one thing the
+        // user could do was dismiss it -- onto a blank window (resolveInstall correctly refused
+        // to open a foreign account's install, and the caller `return`s straight after this, so
+        // nothing else fills the window). That dead-end is Josh's blocker. Give a real path:
+        //   Download Kosmos (default) -> open installkosmos.com so the user lands on their own
+        //     download, THEN quit -- the foreign-account app cannot run here, so leaving it up is
+        //     exactly the blank window we are removing.
+        //   Quit -> just close it.
+        // Either button quits, so the foreign-account app never sits on a blank window. (Baron's
+        // pkg-script fix prevents the mis-install at the root; this rescues a mis-install that
+        // ALREADY happened -- Josh's current state and any user who hit it before that ships.)
+        let downloadButton = alert.addButton(withTitle: "Download Kosmos")   // the default button
+        alert.addButton(withTitle: "Quit")
+        // Compare the clicked response against Download's ACTUAL index in alert.buttons, never a
+        // hardcoded 0 -- so reordering the addButton calls moves the check WITH the button. This
+        // is the genuinely swap-safe form of showQuitDialog's discipline (compare a semantic
+        // index, not the literal .alertFirstButtonReturn): a future reorder cannot silently send
+        // the Download action to the wrong button.
+        let clickedIndex = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let downloadIndex = alert.buttons.firstIndex(of: downloadButton) ?? 0
+        // Set isActuallyQuitting BEFORE terminate (the dedup discipline this file uses at its
+        // Cmd-Q / #2124 sites): NSApp.terminate re-enters applicationShouldTerminate, which with
+        // this flag false shows the "Your agents keep running" quit dialog -- nonsensical here
+        // (resolveInstall refused before any agent started), and a Cancel/Escape there returns
+        // .terminateCancel, leaving the exact blank-window dead end this alert exists to remove.
+        // Nothing is running to confirm, so quit cleanly.
+        isActuallyQuitting = true
+        if clickedIndex == downloadIndex, let url = URL(string: "https://installkosmos.com") {
+            // Download: open the page ASYNC and quit in the completion handler -- exactly as the
+            // #2094 relaunch path does (NSWorkspace.openApplication there) -- so the app does not
+            // exit before LaunchServices has launched the browser. A bare open(url) + immediate
+            // terminate could kill this process mid-handoff and the download page would never
+            // appear, defeating the one thing this button exists to do. The handler fires on
+            // success OR failure, so the app always quits; on failure it leaves a log trace (there
+            // is no window left to show an error, and quitting still beats the old blank dead-end).
+            NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration()) { app, err in
+                DispatchQueue.main.async {
+                    if app == nil || err != nil {
+                        logLine("showForeignAccountAlert: could not open \(url.absoluteString): \(err?.localizedDescription ?? "no browser launched") -- quitting anyway")
+                    }
+                    NSApp.terminate(nil)
+                }
+            }
+        } else {
+            // Quit, or the URL could not be built: nothing to open, quit now.
+            NSApp.terminate(nil)
+        }
     }
 
     // MARK: The webView, and the file picker (kosmos#1032)

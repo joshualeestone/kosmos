@@ -324,3 +324,29 @@ test('#3233: each poll removes the script node it injected, so the DOM does not 
   assert.equal((fn.match(/s\.parentNode\.removeChild\(s\)/g) || []).length, 2,
     'the injected progress <script> is not removed on both onload and onerror -- it would accumulate one node per second');
 });
+
+test('#3114: after the 3-minute mark with no board, the soft mis-install recovery (#stuck) shows -- advisory only, gated, spinner alive', () => {
+  // Starts hidden, exactly like #late/#taken.
+  assert.match(HTML, /#late,#taken,#stuck\{display:none\}/, 'the #stuck recovery element is not hidden by default the way #late/#taken are');
+  assert.match(HTML, /<p id="stuck">/, 'the #stuck recovery element is gone');
+  const stuck = HTML.slice(HTML.indexOf('<p id="stuck">'), HTML.indexOf('</p>', HTML.indexOf('<p id="stuck">')) + 4);
+  // It is a REAL path forward (the whole point -- the old dead end offered none): Applications + download.
+  assert.match(stuck, /Applications folder/, 'the #stuck recovery does not point the user at their own Applications folder');
+  assert.match(stuck, /installkosmos\.com/, 'the #stuck recovery does not offer the download-your-own-copy path');
+  // Purely reassuring -- it must NEVER claim failure. The ~214MB runtime download is genuinely
+  // slow on a fresh Mac, so a still-working install must not be told it broke (under-alarm > false-alarm).
+  assert.doesNotMatch(stuck, /\bfailed\b|\berror\b|\bbroke(n)?\b|\bcould ?n.?t\b/i, 'the #stuck recovery claims failure -- it must stay advisory');
+  // Gated behind the SAME 180s timeout as #late, so it does NOT fire before three minutes.
+  const onerror = HTML.slice(HTML.indexOf('img.onerror = function(){'), HTML.indexOf('img.src', HTML.indexOf('img.onerror = function(){')));
+  assert.match(onerror, /if \(s >= 180\)/, 'the #stuck recovery is not gated behind the 180s timeout -- it must not fire before then');
+  assert.match(onerror, /show\("stuck"\)/, 'the #stuck recovery is not shown on the timeout path');
+  // The spinner must STAY ALIVE on the timeout path -- the recovery does NOT settle(), so a board
+  // that comes up late still resolves to "ready"/"taken" normally.
+  assert.doesNotMatch(onerror, /settle\(\)/, 'the onerror timeout path calls settle() -- the spinner must stay alive so a late board still resolves');
+  // When a board ANSWERS (img.onload), both advisories are hidden -- so a board that comes up LATE
+  // (after the 180s mark showed #late/#stuck) never displays "Kosmos is ready" directly above the
+  // "may have been set up for a different account" advisory (they would contradict).
+  const onload = HTML.slice(HTML.indexOf('img.onload = function(){'), HTML.indexOf('img.onerror'));
+  assert.match(onload, /getElementById\("late"\)\.style\.display = "none"/, 'img.onload does not hide the #late advisory when a board answers');
+  assert.match(onload, /getElementById\("stuck"\)\.style\.display = "none"/, 'img.onload does not hide the #stuck advisory when a board answers -- a late board would show a success message above the mis-install advisory');
+});
