@@ -8591,6 +8591,25 @@ test('the room message bubble is width-capped so it does not span both edges (#3
     '.msg-bd lost its max-width: 52ch cap -- room messages will span both edges again (Josh: too wide on both sides)');
 });
 
+test('the message tail is the Option A OVERLAP wing, not the rejected notch (#3267)', () => {
+  // #3267: Josh approved the Option A curved wing and explicitly rejected #3247's squished NOTCH
+  // (a small no-overlap mask). The distinguishing feature is that the colored ::before wing
+  // OVERLAPS the box (width 20 at offset 8 -> extends 12px INSIDE the bubble) with a 14x22 ground
+  // mask. render-room-msgbox-2806.js only checks presence/offset-sign/color/no-seam, so a silent
+  // revert to the notch geometry (a ~12x17 + ~7x18 no-overlap mask) would pass it -- this pins the
+  // geometry itself so that revert reds. Open-tail matches (no closing brace) per #1430/#1469;
+  // red-capable (reverting either width reds this).
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(raw, /\.msg:not\(\.you\) \.msg-bd::before \{ left: -8px; width: 20px; height: 20px;/,
+    'the agent tail wing is not the Option A overlap geometry (20px wing at -8) -- a revert to the #3247 notch?');
+  assert.match(raw, /\.msg\.you \.msg-bd::before \{ right: -8px; width: 20px; height: 20px;/,
+    'the operator tail wing is not the Option A overlap geometry (20px wing at -8)');
+  assert.match(raw, /\.msg:not\(\.you\) \.msg-bd::after \{ left: -14px; width: 14px; height: 22px;/,
+    'the agent tail mask is not the Option A geometry (14x22 at -14)');
+  assert.match(raw, /\.msg\.you \.msg-bd::after \{ right: -14px; width: 14px; height: 22px;/,
+    'the operator tail mask is not the Option A geometry (14x22 at -14)');
+});
+
 test('a composer that cannot send looks like it cannot send', () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const at = raw.indexOf('.dmbar .btn[disabled]');

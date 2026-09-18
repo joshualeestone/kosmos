@@ -4720,7 +4720,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .thread { padding: 14px 16px; display: flex; flex-direction: column; gap: 18px;
           min-height: 26rem; max-height: min(62vh, 44rem); overflow-y: auto;
           border: 1px solid var(--k-rule); border-radius: 10px;
-          background: var(--k-surface); } /* #3267 (Josh): the message dialogue ground is WHITE (--k-surface), not the cream --k-bg, in the tab view (and consolidated below) */
+          background: var(--k-bg); }
 /* #3134-followup (Josh 6.72): the avatar is BOTTOM-aligned with the bubble (not
    centered), so it sits by the bubble's bottom corner where the tail wing points,
    the iMessage read. */
@@ -4809,7 +4809,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-bd::before, .msg-bd::after { content: ""; position: absolute; bottom: 0; }
 .msg:not(.you) .msg-bd { border-bottom-left-radius: 6px; }
 .msg.you .msg-bd { border-bottom-right-radius: 6px; }
-/* the colored wing (Option A geometry, tucks under the corner) */
+/* the colored wing (Option A geometry, tucks under the corner). It OVERLAPS the box: at
+   left:-8/width:20 (agent) the wing spans 8px OUTSIDE the tail-side edge to 12px INSIDE it, and
+   the inner 12px sits behind the opaque bubble (z-index:-2), hidden. The wing's own bottom radius
+   is on the INNER (bubble-side) corner -- that is deliberate, not a bug: the VISIBLE curved flick
+   is NOT this radius, it is carved by the ::after ground-mask below (its rounded corner uncovers a
+   crescent of this colored wing right where the wing meets the bubble). So the visible shape is a
+   two-pseudo composite: do not "fix" this radius onto the outward tip -- that recreates the
+   rejected squished notch. The rendered shape is the source of truth (verified vs the approved
+   Option A mockup); render-room-msgbox-2806.js is the pixel oracle and the geometry is pinned in
+   server.test.js so a revert to the notch reds. */
 .msg:not(.you) .msg-bd::before { left: -8px; width: 20px; height: 20px; background-color: inherit; border-bottom-right-radius: 18px 16px; z-index: -2; }
 .msg.you .msg-bd::before { right: -8px; width: 20px; height: 20px; background-color: inherit; border-bottom-left-radius: 18px 16px; z-index: -2; }
 /* the thread-ground mask carving the wing's outer edge into the curve */
