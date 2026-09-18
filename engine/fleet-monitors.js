@@ -12,10 +12,11 @@
  * set is circular and can never report a loss.
  *
  * 📌 SCOPE (bounded first step of #3239). This declares the monitors and audits
- * their presence. It does NOT install them: these 7 monitors have no common
- * source (measured 2026-09-17 - see the `source` field: four relay monitors under
- * ~/.local/libexec/kosmos-relay/, one committed here, one in Josh-Brain, one in
- * ~/.claude/bin), so a unified installer needs a cross-repo source consolidation
+ * their presence. It does NOT install them: these 8 monitors have no common
+ * source (measured 2026-09-17, board-served-tree-check added 2026-09-18 for #3250 -
+ * see the `source` field: four relay monitors under ~/.local/libexec/kosmos-relay/,
+ * one committed here, two in Josh-Brain, one in ~/.claude/bin), so a unified
+ * installer needs a cross-repo source consolidation
  * first. That consolidation + an idempotent installer are the #3239 follow-up
  * (#3243).
  *
@@ -63,6 +64,14 @@ const FLEET_MONITORS = Object.freeze([
     label: 'com.stonesyndicate.fleet-drift-check',
     purpose: 'fleet sync drift',
     source: 'Josh-Brain/Tools/fleet/sync-drift-alert.sh',
+  }),
+  /* #3250: a LIVE loaded fleet monitor that was missing from this registry, so
+   * the audit could not have caught its loss. Deploying-repo-owned per the #3243
+   * seam (source committed in Josh-Brain/Tools/fleet, like fleet-drift-check). */
+  Object.freeze({
+    label: 'com.stonesyndicate.board-served-tree-check',
+    purpose: 'the board main checkout is serving an unmerged or dirty tree (the #1051 worktree-violation guard)',
+    source: 'Josh-Brain/Tools/fleet/board-served-tree-guard.sh',
   }),
 ]);
 
