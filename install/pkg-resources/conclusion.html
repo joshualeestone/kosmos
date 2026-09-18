@@ -1,8 +1,11 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><style>
-body{font:14px -apple-system,Helvetica,sans-serif;color:#1c1b19;margin:0}
+<html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><style>
+body{font:14px -apple-system,Helvetica,sans-serif;color:#1c1b19;margin:0;background:#fff}
 h1{font-size:19px;margin:0 0 10px} p{margin:0 0 12px;line-height:1.5}
 b{font-weight:600} code{background:#f3f1ec;border-radius:4px;padding:1px 5px}
+/* #3232: same dark-mode readability fix as welcome.html -- give the page its own background in both
+   appearances so the text is never dark-on-dark on the installer's dark pane. */
+@media (prefers-color-scheme: dark){ body{ color:#f2f0ea; background:#1c1b19 } code{ background:#2c2b28 } }
 </style></head><body>
 <h1>Kosmos is ready</h1>
 <p>Kosmos is installed and running, and your dashboard should have opened in your browser.</p>
