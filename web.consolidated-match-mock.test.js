@@ -138,7 +138,13 @@ test('the right cards sit on the side tone; the discussion is a full-bleed colum
      accepts the same trade, and several carry an absence promise. The counts
      live in #1430's plan, once. The general statement is in this
      file's #1430 header; this note is the local instance, not the only record. */
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-bg\); border: 0; border-radius: 0; border-right: 1px solid var\(--k-rule\);/,
+  // #3264 (Josh, brand owner, 2026-09-18) supersedes #980's cream ground for the
+  // discussion column: "the background is supposed to be white just like it is on
+  // the tab view." So the ground token is now --k-surface (white), NOT --k-bg. The
+  // structural pins below (border: 0; border-radius: 0; the border-right separator)
+  // are unchanged -- #980's full-bleed, not-boxed column still holds; only its fill
+  // moved from cream to white.
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-surface\); border: 0; border-radius: 0; border-right: 1px solid var\(--k-rule\);/,
     'the discussion is boxed again (or lost the rule that separates it from the right column)');
 });
 
