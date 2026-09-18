@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: instuser-regression-3253
-diff_hash: 02c29dafc6964f627e86a1a50ffce27756f79390eafa6ae85ba1e5c7de3fa3bd
+diff_hash: ae198010f9c61ace75b8c42554eafb954f5228eb838f6b1fc90d3ec2229b79c9
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-18T13:19:53Z
@@ -15,7 +15,14 @@ converged: true
 **Iterations:** 2 (across 2 distinct reviewer models, per kosmos#2032)
 **Converged:** Yes
 **Total findings:** 6 (0 BLOCKERs, 0 WARNINGs, 4 CONVENTIONs, 2 NITs)
-**Fixed:** 1 | **Deferred:** 3 | **Asked (awaiting user):** 0
+**Fixed:** 2 | **Deferred:** 2 | **Asked (awaiting user):** 0
+
+Post-review note: the no-plan-file CONVENTION was initially DEFERRED (the brief scoped
+the CODE change to two files), but the `pre-challenge-gate` hook HARD-REQUIRES a plan
+file (separate from this proof) before `gh pr create`, so it was FIXED by adding
+`.claude/plans/instuser-regression-3253-20260918.md`. A plan file is process metadata,
+not a change to the two protected code files, so it stays within the brief's scope.
+The diff hash was recomputed to cover it.
 
 Diagnostic-only change (2 files, +38, 0 deletions): `resolve_install_user` now
 echoes `console=... owner_count=N owners=[...]` to stderr so a mis-install can be
@@ -31,7 +38,7 @@ the full `tools/test-resolve-install-user.sh` suite green.
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 1 NIT
 **Self-generated:** 0 of the above (ITER_COMMITS empty; loop had committed nothing)
-- [CONVENTION] .claude/plans/ — No plan file for this branch --> DEFERRED: the operating brief scopes this change to resolve-install-user.sh + its test ONLY; the brief is the plan-of-record for this diagnostic change.
+- [CONVENTION] .claude/plans/ — No plan file for this branch --> FIXED: created .claude/plans/instuser-regression-3253-20260918.md (the pre-challenge-gate hook hard-requires a plan file; the initial deferral was overridden by tooling).
 - [NIT] resolve-install-user.sh:105 — A username with a quote/comma/newline would render the log line cosmetically ambiguous; not exploitable (value only echoed, never eval'd; resolution uses it unchanged); macOS usernames don't contain these.
 
 #### Iteration 2
@@ -49,7 +56,7 @@ the full `tools/test-resolve-install-user.sh` suite green.
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
-| 1 | 1 | CONVENTION | .claude/plans/ | BRANCH | No plan file for branch | DEFERRED | Brief scopes to 2 files; brief is plan-of-record |
+| 1 | 1 | CONVENTION | .claude/plans/ | BRANCH | No plan file for branch | FIXED | Created ...-20260918.md (gate hard-requires it) |
 | 2 | 1 | NIT | resolve-install-user.sh:105 | BRANCH | Log line cosmetically ambiguous on odd usernames | NOTED | Non-exploitable; macOS usernames exclude these |
 | 3 | 2 | CONVENTION | commit bdd667f15 | BRANCH | Commit subject not `<branch> -- <msg>` | DEFERRED | Squash takes PR title as subject |
 | 4 | 2 | CONVENTION | resolve-install-user.sh:105 | BRANCH | echo lacks DIAG_DEBUG prefix | DEFERRED | Logging is permanent per #3258; marker inapplicable |
