@@ -111,7 +111,7 @@
      theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
      bluish inset is that world's own language, out of scope). #3260: this is now
      ONE fixed color per theme -- the earlier per-message variation was removed. */
-  --agent-msg: #f9f7f1;  /* #3130 (Josh 6.70): the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
+  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single

@@ -138,8 +138,13 @@ test('the right cards sit on the side tone; the discussion is a full-bleed colum
      accepts the same trade, and several carry an absence promise. The counts
      live in #1430's plan, once. The general statement is in this
      file's #1430 header; this note is the local instance, not the only record. */
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-bg\); border: 0; border-radius: 0; border-right: 1px solid var\(--k-rule\);/,
-    'the discussion is boxed again (or lost the rule that separates it from the right column)');
+  /* #3267 (Josh, 2026-09-18): the discussion ground is now WHITE (--k-surface), matching the
+     tab view, reversing #980's cream (--k-bg) tuning of the consolidated column. Verbatim: "the
+     background... whether it's on the consolidated view or the tab view, to be white." The
+     full-bleed columns-not-boxes shape (border: 0, no radii, right-edge rule) is unchanged; only
+     the ground token flipped. The composer and both tail carves flip in lockstep (see #3267). */
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 > \.pjmid \{ background: var\(--k-surface\); border: 0; border-radius: 0; border-right: 1px solid var\(--k-rule\);/,
+    'the discussion is boxed again (or lost the rule that separates it from the right column), or the white ground reverted to #980 cream');
 });
 
 test('each project row in the rail shows its agent count as a subtitle, without the face icons the narrow rail has no room for', () => {
