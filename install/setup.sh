@@ -907,8 +907,66 @@ install_kosmos() {
       rm -rf "$stage"; return 1
     fi
     info "downloading from $url"
-    curl -fL --progress-bar "$url" -o "$stage/kosmos.tar.gz" || { rm -rf "$stage"; return 1; }
+    # kosmos#3233 (the open half of #920): emit determinate download progress
+    # for the install page. BEST-EFFORT and fully isolated from the download --
+    # every step below is guarded so a failure here can neither abort nor alter
+    # the curl, its checksum gate, or its error handling. A file:// page cannot
+    # fetch, so we write a tiny JS file (window.__kosmosInstallProgress) the page
+    # re-includes; there is NO server and NO runtime dependency (a server would
+    # need node, which arrives WITH this bundle, or /usr/bin/python3, which is
+    # only the Command Line Tools stub on a fresh box -- see the note near the
+    # settings verify below). The page shows the SHAPE of the wait (a determinate
+    # bar), never a megabytes figure (#920's deliberate stance).
+    _kp_dir="$HOME/Library/Caches/Kosmos"
+    _kp_js="$_kp_dir/install-progress.js"
+    # Guarded assignment: under this file's set -euo pipefail a failing HEAD (a timeout,
+    # a 4xx/5xx under -f, a host that refuses HEAD) propagates through pipefail as the
+    # pipeline's status, so a bare assignment would abort the install here. Fall back to
+    # an empty total -> the page keeps its indeterminate swoosh. Same idiom the
+    # reachable()/_kosmos_data_root() comments document for this file.
+    # -m 5 (not 15): reachable() a few lines up already round-tripped this exact $url and
+    # succeeded, so this HEAD answers in ~1 RTT in practice; the short cap bounds the
+    # pathological "answered the probe, hangs on the second HEAD" host so it cannot add a
+    # visible stall before the download starts.
+    _kp_total=$(curl -fsIL -m 5 "$url" 2>/dev/null \
+      | awk 'tolower($1)=="content-length:"{v=$2} END{gsub(/[^0-9]/,"",v);print v}') || _kp_total=""
+    case "$_kp_total" in ''|*[!0-9]*) _kp_total="";; esac
+    _kp_emit() {  # $1 = phase; best-effort, always returns 0
+      [ -d "$_kp_dir" ] || mkdir -p "$_kp_dir" 2>/dev/null || return 0
+      _kp_b=$(stat -f%z "$stage/kosmos.tar.gz" 2>/dev/null || echo 0)
+      case "$_kp_b" in ''|*[!0-9]*) _kp_b=0;; esac
+      # case, not `[ -n ] && ...`: the AND-list returns 1 when total is empty (the
+      # common no-content-length case), which under set -e -- active inside the
+      # background watcher subshell -- would abort the watcher before the write.
+      _kp_t=null; case "$_kp_total" in ?*) _kp_t="$_kp_total";; esac
+      _kp_tmp="$_kp_js.$$.tmp"
+      # `|| true` so a failed write cannot abort under set -e either: the function's
+      # contract is best-effort and always returns 0, so it can never take the install down.
+      printf 'window.__kosmosInstallProgress={bytes:%s,total:%s,phase:"%s",ts:%s};\n' \
+        "$_kp_b" "$_kp_t" "$1" "$(date +%s 2>/dev/null || echo 0)" > "$_kp_tmp" 2>/dev/null \
+        && mv -f "$_kp_tmp" "$_kp_js" 2>/dev/null || true
+      return 0
+    }
+    _kp_sentinel="$stage/.kp-active"
+    _kp_ppid=$$
+    : > "$_kp_sentinel" 2>/dev/null || true
+    # Bounded watcher: exits when the sentinel is removed (normal teardown below) OR when
+    # its parent -- this installer -- has died, so a hard `kill -9` of setup.sh cannot
+    # orphan a process that rewrites install-progress.js once a second forever. kill -0
+    # tests liveness without signalling; $_kp_ppid is captured before the fork (in a
+    # backgrounded ( ) subshell $$ is the parent's PID, so it is captured explicitly).
+    ( while [ -f "$_kp_sentinel" ] && kill -0 "$_kp_ppid" 2>/dev/null; do _kp_emit downloading; sleep 1; done ) &
+    _kp_watcher=$!
+    curl -fL --progress-bar "$url" -o "$stage/kosmos.tar.gz" \
+      || { rm -f "$_kp_sentinel" 2>/dev/null || true; kill "$_kp_watcher" 2>/dev/null || true; rm -rf "$stage"; return 1; }
+    # Guarded teardown: killing an already-exited watcher, and wait returning the
+    # watcher's 143 (128+SIGTERM), are non-zero trailing simple commands that would
+    # abort under set -e. || true keeps this isolation INTRINSIC, not merely inherited
+    # from the `install_kosmos ... || die` call site that suspends errexit today.
+    rm -f "$_kp_sentinel" 2>/dev/null || true; kill "$_kp_watcher" 2>/dev/null || true; wait "$_kp_watcher" 2>/dev/null || true
+    _kp_emit downloaded
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    _kp_emit installing
     tar -xzf "$stage/kosmos.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/kosmos.tar.gz"
   fi
