@@ -65,16 +65,22 @@ test('the declared manifest is well-formed: non-empty, each has label/purpose/so
   assert.equal(new Set(labels).size, labels.length, 'monitor labels must be unique');
 });
 
-/* Tool integration: exercise the launchctl-parsing + wiring via the
- * AUDIT_LOADED_CMD seam (a PATH launchctl stub cannot inject a controlled set),
- * spawning the real script exactly as an operator would run it. */
+/* Tool integration: exercise the launchctl-parsing + three-state wiring via the
+ * non-shell seams (AUDIT_LOADED_RAW injects launchctl-shaped text; AUDIT_LOADED_FAIL
+ * forces the could-not-read branch), spawning the real script as an operator would.
+ * No shell command runs from env - the earlier AUDIT_LOADED_CMD seam was removed. */
 const TOOL = path.join(__dirname, '..', 'tools', 'fleet-monitor-audit.js');
 
-function runTool(args, loadedCmd) {
+function launchctlText(monitors) {
+  // launchctl-list shape: header then `PID<tab>Status<tab>Label` rows.
+  return ['PID\tStatus\tLabel', ...monitors.map((m) => `-\t0\t${m.label}`)].join('\n');
+}
+
+function runTool(args, env) {
   try {
     const out = execFileSync('node', [TOOL, ...args], {
       encoding: 'utf8',
-      env: { ...process.env, AUDIT_LOADED_CMD: loadedCmd },
+      env: { ...process.env, ...env },
     });
     return { code: 0, out };
   } catch (e) {
@@ -83,21 +89,43 @@ function runTool(args, loadedCmd) {
 }
 
 test('tool: all declared monitors loaded -> exit 0, ok:true (parses launchctl-shaped output)', () => {
-  // Emit a launchctl-list-shaped table (PID Status Label) with every declared label present.
-  const lines = ['PID\tStatus\tLabel', ...FLEET_MONITORS.map((m) => `-\t0\t${m.label}`)];
-  const r = runTool(['--json'], `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(' ')}`);
+  const r = runTool(['--json'], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS) });
   assert.equal(r.code, 0, 'all present -> exit 0');
   const v = JSON.parse(r.out);
   assert.equal(v.ok, true);
+  assert.equal(v.readable, true);
   assert.equal(v.missing.length, 0);
 });
 
 test('tool: one declared monitor absent from launchctl -> exit 1 and it is named missing', () => {
   const dropped = FLEET_MONITORS[0].label;
-  const lines = ['PID\tStatus\tLabel', ...FLEET_MONITORS.slice(1).map((m) => `-\t0\t${m.label}`)];
-  const r = runTool(['--json'], `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(' ')}`);
+  const r = runTool(['--json'], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS.slice(1)) });
   assert.equal(r.code, 1, 'a missing monitor -> exit 1');
   const v = JSON.parse(r.out);
   assert.equal(v.ok, false);
   assert.ok(v.missing.some((m) => m.label === dropped), `${dropped} must be reported missing`);
+});
+
+test('tool: launchctl unreadable -> exit 2 and could-not-read, NOT reported as all-missing (three answers)', () => {
+  const r = runTool(['--json'], { AUDIT_LOADED_FAIL: '1' });
+  assert.equal(r.code, 2, 'a read failure -> exit 2, distinct from missing (1) and present (0)');
+  const v = JSON.parse(r.out);
+  assert.equal(v.ok, false);
+  assert.equal(v.readable, false, 'must report it could not READ, not that monitors are missing');
+  assert.ok(!('missing' in v) || v.missing === undefined, 'a read failure must NOT emit a missing list (would read as a rebuild signal)');
+});
+
+test('tool: human-readable output NAMES a missing monitor + its reinstall source (the mode an operator runs)', () => {
+  const dropped = FLEET_MONITORS[0];
+  const r = runTool([], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS.slice(1)) });
+  assert.equal(r.code, 1);
+  assert.match(r.out, new RegExp('MISSING'), 'human output must flag MISSING');
+  assert.ok(r.out.includes(dropped.label), 'human output must name the missing label');
+  assert.ok(r.out.includes(dropped.source), 'human output must name where to reinstall from');
+});
+
+test('tool: human-readable all-present output says so (control for the missing arm)', () => {
+  const r = runTool([], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS) });
+  assert.equal(r.code, 0);
+  assert.match(r.out, /all \d+ declared fleet monitors are present/);
 });

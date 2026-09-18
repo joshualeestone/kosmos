@@ -12,11 +12,12 @@
  * set is circular and can never report a loss.
  *
  * 📌 SCOPE (bounded first step of #3239). This declares the monitors and audits
- * their presence. It does NOT install them: the ~8 monitors have no common
+ * their presence. It does NOT install them: these 7 monitors have no common
  * source (measured 2026-09-17 - see the `source` field: four relay monitors under
  * ~/.local/libexec/kosmos-relay/, one committed here, one in Josh-Brain, one in
  * ~/.claude/bin), so a unified installer needs a cross-repo source consolidation
- * first. That consolidation + an idempotent installer are the #3239 follow-up.
+ * first. That consolidation + an idempotent installer are the #3239 follow-up
+ * (#3243).
  *
  * ⚠️ PER-HOST APPLICABILITY is a documented refinement, not yet modelled. These
  * are the monitors observed on the fleet box (where agents + the board run). A

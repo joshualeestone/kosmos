@@ -16,44 +16,73 @@
  * (the "one settings.json serves all 18 agents" hazard). Additive + reversible by
  * construction - it only reads and reports.
  *
- * Usage:
- *   node tools/fleet-monitor-audit.js            human-readable; exit 0 all present, 1 any missing
- *   node tools/fleet-monitor-audit.js --json     the verdict as JSON; same exit code (also --check)
+ * 🛑 THREE ANSWERS, NEVER TWO (the fleet's own liveness discipline). "could not
+ * read launchctl" must be distinguishable from "every monitor is missing": a
+ * launchctl exec failure (not on PATH, permission, a stripped launchd env) is a
+ * re-run/fix-the-environment signal, while all-missing is a rebuild-the-monitors
+ * signal - opposite operator actions. Folding the exec failure into "all missing"
+ * (the naive fail-to-empty) would raise a false fleet-wide-rebuild alarm on a
+ * transient read error. So a read failure is its own verdict + exit code.
  *
- * SEAM (a PATH-based launchctl stub cannot inject a controlled loaded-set):
- *   AUDIT_LOADED_CMD   a shell command whose stdout replaces `launchctl list` (tests)
+ * Usage / exit codes:
+ *   node tools/fleet-monitor-audit.js            human-readable
+ *   node tools/fleet-monitor-audit.js --json     the verdict as JSON (also --check)
+ *   exit 0 = all present, 1 = one or more missing, 2 = could not read launchctl
+ *
+ * SEAMS (test-only; no shell is executed, so nothing arbitrary runs from env in
+ * the shipped tool - the earlier AUDIT_LOADED_CMD shell-exec seam was removed):
+ *   AUDIT_LOADED_RAW    raw text to parse in place of `launchctl list` output (tests parsing)
+ *   AUDIT_LOADED_FAIL   if set, force the could-not-read branch (tests the exit-2 path)
  */
 
 const { execFileSync } = require('child_process');
 const { FLEET_MONITORS } = require('../engine/fleet-monitors');
 const { auditVerdict } = require('../engine/fleet-monitor-audit');
 
-/* The launchd labels loaded on this box. `launchctl list` prints
- * `PID<tab>Status<tab>Label`; the label is the last field. A header row and
- * blank lines yield non-matching tokens, which is harmless (they cannot equal a
- * declared label). Fails to the EMPTY set on any error, which makes every
- * expected monitor read as missing - the loud direction, correct for a monitor
- * whose whole job is to not fail quiet. */
+/* The launchd labels loaded on this box, as { ok:true, labels:[...] }, or
+ * { ok:false, error } when launchctl could not be read at all. `launchctl list`
+ * prints `PID<tab>Status<tab>Label`; the label is the last field, and a header
+ * row + blank lines yield non-matching tokens (harmless - they cannot equal a
+ * declared label). A read FAILURE is reported as such, NOT as an empty set, so
+ * the caller can tell it apart from a genuine all-missing (three-answers). */
 function loadedLabels() {
-  let out = '';
-  try {
-    const cmd = process.env.AUDIT_LOADED_CMD;
-    out = cmd
-      ? execFileSync('/bin/sh', ['-c', cmd], { encoding: 'utf8' })
-      : execFileSync('launchctl', ['list'], { encoding: 'utf8' });
-  } catch { out = ''; }
-  return out
+  if (process.env.AUDIT_LOADED_FAIL) {
+    return { ok: false, error: 'forced read failure (AUDIT_LOADED_FAIL test seam)' };
+  }
+  let out;
+  if (process.env.AUDIT_LOADED_RAW != null) {
+    out = process.env.AUDIT_LOADED_RAW; // injected launchctl-shaped text (tests)
+  } else {
+    try {
+      out = execFileSync('launchctl', ['list'], { encoding: 'utf8' });
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  }
+  const labels = out
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => line.split(/\s+/).pop());
+  return { ok: true, labels };
 }
 
 function run(argv) {
   const asJson = argv.includes('--json') || argv.includes('--check');
-  const v = auditVerdict(FLEET_MONITORS, loadedLabels());
+  const read = loadedLabels();
+  if (!read.ok) {
+    /* could-not-read: distinct from all-missing. Cannot tell present from
+       missing, so do NOT claim a rebuild is needed - point at the environment. */
+    if (asJson) {
+      console.log(JSON.stringify({ ok: false, readable: false, error: read.error, expectedCount: FLEET_MONITORS.length }, null, 2));
+    } else {
+      console.error(`fleet-monitor-audit: could NOT read launchctl (${read.error}) - cannot tell present from missing; re-run or check the environment (this is NOT a signal that monitors were lost)`);
+    }
+    return 2;
+  }
+  const v = auditVerdict(FLEET_MONITORS, read.labels);
   if (asJson) {
-    console.log(JSON.stringify(v, null, 2));
+    console.log(JSON.stringify({ ...v, readable: true }, null, 2));
   } else if (v.ok) {
     console.log(`fleet-monitor-audit: all ${v.expectedCount} declared fleet monitors are present`);
   } else {
