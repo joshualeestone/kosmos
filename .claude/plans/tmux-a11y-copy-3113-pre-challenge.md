@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tmux-a11y-copy-3113
-diff_hash: 532c2c4c107ac40c4373fc64f361354c6377566dafc0bb97b36e097eb5bbf650
+diff_hash: f647e350beafa31f3673abc89179da81eae7e95591752ffab086479d94858324
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-18T22:23:40Z
@@ -57,3 +57,6 @@ is scoped to exactly one file/one hunk.
 The wording WARNINGs are the only findings; both addressed in the final commit. No BLOCKER/CONVENTION.
 Per the challenge-loop rule this converges. Josh is the final wording authority (Splinter is offering
 him the copy); the honest default ships if he does not reword.
+
+### Post-convergence reconcile (comment-only, no behavior change)
+During the joint-merge window, ICK flagged a stale comment in native-app/main.swift ("fired by Turn On, not entry"). Her #3221 client half fires the register at S3 entry, so the comment was updated to match (register requested up front on S3 entry; Turn On then just deep-links). Comment-only; diff_hash refreshed to cover it.
