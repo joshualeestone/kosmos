@@ -15,9 +15,11 @@
  *   2. The hand-edited stale case keeps a redesigned HEADER card: short,
  *      "[name] needs to be restarted", a [Restart] button (never "Restart it"),
  *      one short idle line.
- *   3. (#3043) The reported self-quote is dropped from the task line beside the
- *      bubble and relocated to the #d-why explanation note; a non-reported state
- *      keeps its honest why-line there.
+ *   3. (#3043 -> #3271) The reported self-quote is dropped from the task line beside
+ *      the bubble. #3043 relocated it to a #d-why explanation note under the name;
+ *      #3271 (Josh 2026-09-18) REMOVED that note, so no reason line renders in the
+ *      header at all. Part 3 below asserts, via real openDetail, that #d-why does not
+ *      exist (while the #d-task engine-state sentence is kept).
  *   4. The role in #d-meta is bold; the model is not.
  *   5. No "it" for an agent in the restart copy: the header card and the idle
  *      line say the name / "them", asserted in Part 2 below.
