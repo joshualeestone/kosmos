@@ -41,10 +41,11 @@ const { auditVerdict } = require('../engine/fleet-monitor-audit');
 
 /* The launchd labels loaded on this box, as { ok:true, labels:[...] }, or
  * { ok:false, error } when launchctl could not be read at all. `launchctl list`
- * prints `PID<tab>Status<tab>Label`; the label is the last field, and a header
- * row + blank lines yield non-matching tokens (harmless - they cannot equal a
- * declared label). A read FAILURE is reported as such, NOT as an empty set, so
- * the caller can tell it apart from a genuine all-missing (three-answers). */
+ * prints `PID<tab>Status<tab>Label`; the label is the last field. Blank lines are
+ * dropped by the .filter(Boolean) before the label-mapping; the header row does
+ * yield one token ("Label"), which is harmless (it cannot equal a declared label).
+ * A read FAILURE is reported as such, NOT as an empty set, so the caller can tell
+ * it apart from a genuine all-missing (three-answers). */
 function loadedLabels() {
   if (process.env.AUDIT_LOADED_FAIL) {
     return { ok: false, error: 'forced read failure (AUDIT_LOADED_FAIL test seam)' };
