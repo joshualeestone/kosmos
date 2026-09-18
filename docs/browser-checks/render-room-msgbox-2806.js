@@ -315,7 +315,11 @@ const now = () => new Date().toISOString();
         const blueLead = (rgb) => rgb[2] - Math.max(rgb[0], rgb[1]);
         const bodyLead = blueLead(at(box.x + box.w * 0.5, box.y + box.h * 0.5));
         let maxWingLead = -999;
-        for (let dx = -10; dx <= 8; dx++) for (let dy = -12; dy <= 3; dy++) {
+        // #3244: window matched to the enlarged curved wing -- ::before is right:-12/width:12/height:17
+        // and the ::after mask is height:18, so the wing footprint is box.right-12..box.right+12
+        // horizontally and box.bottom-18..box.bottom vertically. Sample the whole footprint: dx<0 is
+        // the body/edge (where a double-tint seam would show), dx 0..12 is the outward wing itself.
+        for (let dx = -12; dx <= 12; dx++) for (let dy = -18; dy <= 3; dy++) {
           const lead = blueLead(at(box.right + dx, box.bottom + dy));
           if (lead > maxWingLead) maxWingLead = lead;
         }
