@@ -15,9 +15,11 @@
  *   2. The hand-edited stale case keeps a redesigned HEADER card: short,
  *      "[name] needs to be restarted", a [Restart] button (never "Restart it"),
  *      one short idle line.
- *   3. (#3043) The reported self-quote is dropped from the task line beside the
- *      bubble and relocated to the #d-why explanation note; a non-reported state
- *      keeps its honest why-line there.
+ *   3. (#3043 -> #3271) The reported self-quote is dropped from the task line beside
+ *      the bubble. #3043 relocated it to a #d-why explanation note under the name;
+ *      #3271 (Josh 2026-09-18) REMOVED that note, so no reason line renders in the
+ *      header at all. Part 3 below asserts, via real openDetail, that #d-why does not
+ *      exist (while the #d-task engine-state sentence is kept).
  *   4. The role in #d-meta is bold; the model is not.
  *   5. No "it" for an agent in the restart copy: the header card and the idle
  *      line say the name / "them", asserted in Part 2 below.
@@ -136,53 +138,42 @@ function chk(ok, label, extra) {
     chk(!/<b>/.test(roleless), 'Part 4: a role-less agent does not bold the model', roleless);
     chk(/Claude Sonnet 5/i.test(roleless), 'Part 4 CONTROL: the model still renders for a role-less agent', roleless);
 
-    // ── Part 3 (#3043, Josh 2026-09-14): the agent's self-reported quote no longer
-    // prints beside the bubble (#d-task) in the header -- it RELOCATES to the
-    // explanation note (#d-why) below the name. So for a REPORTED state, #d-task is
-    // now empty and #d-why carries the reason; a NON-reported state keeps its honest
-    // why-line in #d-why exactly as before. Driven through the real openDetail on a
-    // real card whose stateReported/because are flipped, reading BOTH elements so the
-    // relocation is proven (the reason MOVED, it did not vanish). ────────────────
+    // ── Part 3 (#3043 -> #3271, Josh 2026-09-18): the agent's self-reported quote does not
+    // print beside the bubble (#d-task), AND there is NO reason line under the name. #3043 had
+    // relocated the reason to a #d-why note below the name; #3271 REMOVED that note entirely
+    // (Josh, with a screenshot: "we don't want a status line up there ... nothing up there
+    // around what their status is getting reported"). So for a REPORTED state #d-task is empty
+    // and #d-why does not exist; a reported + rate_limited agent still keeps the engine sentence
+    // in #d-task. Driven through the real openDetail on a real card. ────────────────
     const dup = await page.evaluate(() => {
       // The only fixture card; take its real sessionName rather than guessing.
       const real = LAST[0];
       const sn = real.sessionName;
       const read = () => {
-        const why = document.getElementById('d-why');
         const task = document.getElementById('d-task');
         return {
-          whyHidden: why.hidden, whyText: why.textContent,
+          whyExists: !!document.getElementById('d-why'),
           taskHidden: task.hidden, taskText: task.textContent,
         };
       };
-      // Reported idle: the quote is GONE from the task line and shows in #d-why instead.
+      // Reported idle: the quote is GONE from the task line, and there is NO #d-why note.
       LAST[0] = { ...real, stateReported: true, because: 'finished responding' };
       openDetail(sn);
       const reported = read();
-      // Not reported: the honest "why" explanation stays in #d-why.
-      LAST[0] = { ...real, stateReported: false, because: 'it is sitting at its prompt' };
-      openDetail(sn);
-      const inferred = read();
-      // Reported AND rate_limited: the noQuote path keeps the engine sentence beside the
-      // bubble (#d-task), and the agent's own self-report still relocates to #d-why. Both
-      // surfaces speak, and they say different things -- the one combo where that happens.
+      // Reported AND rate_limited: the noQuote path keeps the engine sentence beside the bubble.
       LAST[0] = { ...real, stateReported: true, because: 'finished the analysis',
                   state: 'rate_limited', stateConfidence: 'scraped' };
       openDetail(sn);
       const reportedLimited = read();
       LAST[0] = real;
-      return { sn, reported, inferred, reportedLimited };
+      return { sn, reported, reportedLimited };
     });
     chk(dup.reported.taskHidden === true && dup.reported.taskText === '',
       'Part 3 (#3043): the reported quote is dropped from the task line beside the bubble', JSON.stringify(dup.reported));
-    chk(dup.reported.whyHidden === false && /finished responding/i.test(dup.reported.whyText),
-      'Part 3 (#3043): the reported reason relocated to the #d-why explanation note', JSON.stringify(dup.reported));
+    chk(dup.reported.whyExists === false,
+      'Part 3 (#3271): NO #d-why reason line under the agent name (Josh 2026-09-18: no status line up there)', JSON.stringify(dup.reported));
     chk(dup.reportedLimited.taskHidden === false && /usage limit/i.test(dup.reportedLimited.taskText),
       'Part 3 (#3043): a reported + rate_limited agent keeps the engine sentence beside the bubble', JSON.stringify(dup.reportedLimited));
-    chk(dup.reportedLimited.whyHidden === false && /finished the analysis/i.test(dup.reportedLimited.whyText),
-      'Part 3 (#3043): a reported + rate_limited agent still shows its self-report in #d-why', JSON.stringify(dup.reportedLimited));
-    chk(dup.inferred.whyHidden === false && /sitting at its prompt/i.test(dup.inferred.whyText),
-      'Part 3: a NON-reported state keeps the honest why-line', JSON.stringify(dup.inferred));
 
     // ── Part 2: the hand-edited stale case is the redesigned HEADER card. ────
     const handEdited = await page.evaluate(() => {

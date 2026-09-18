@@ -46,8 +46,10 @@ test('the card and row do NOT show the agent\'s quoted sentence', () => {
 
 test('stateReason still PRODUCES the quote when asked (the shared derivation is unchanged)', () => {
   /* #986 scoped the card/list to noQuote; the detail HEADER used to render the full quote.
-     #3043 (Josh, 2026-09-14) stops the header rendering it beside the bubble too -- the header
-     now takes the noQuote path like the cards, and the reported reason relocates to #d-why.
+     #3043 (Josh, 2026-09-14) stopped the header rendering it beside the bubble too -- the header
+     takes the noQuote path like the cards. #3043 had relocated the reported reason to a #d-why
+     note under the name; #3271 (Josh, 2026-09-18) REMOVED that note, so the reported reason is
+     dropped from the header entirely (no status line under the name).
      stateReason itself is UNCHANGED: called with NO options it still returns the agent's own
      words, quoted. That quoted branch is now a retained library contract that no current render
      path reaches (cards and header both take the noQuote FALL-THROUGH, which strips it); this
@@ -83,10 +85,12 @@ test('the two views Josh named ask for it without the quote, and #3043 drops it 
   assert.match(grid[0], /noQuote/, 'the GRID card is asking for the quoted line again');
   assert.match(list[0], /noQuote/, 'the LIST row is asking for the quoted line again');
   /* #3043: the detail header drops the reported quote from the task line beside the bubble by
-     using the SAME noQuote derivation the cards use (it relocates to #d-why). Pin the call site,
-     so an edit that puts the quote back beside the bubble -- or re-derives the "is this the
-     reported quote" test inline instead of sharing taskLine's one source -- is caught here. The
-     noQuote BEHAVIOR (reported -> '', rate_limited/auth still speak) is asserted directly above. */
+     using the SAME noQuote derivation the cards use. (#3043 relocated it to a #d-why note; #3271
+     removed that note, so the reported reason now shows on no header line -- guarded by the
+     '#3271: NO reported-reason status line' test in server.test.js.) Pin the call site, so an
+     edit that puts the quote back beside the bubble -- or re-derives the "is this the reported
+     quote" test inline instead of sharing taskLine's one source -- is caught here. The noQuote
+     BEHAVIOR (reported -> '', rate_limited/auth still speak) is asserted directly above. */
   assert.match(PAGE, /dtask\.textContent = taskLine\(a, \{ noQuote: true \}\);/,
     'the detail header no longer shares the cards’ noQuote derivation for the task line (#3043)');
 });
