@@ -17,9 +17,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 PI="$REPO/install/pkg-scripts/postinstall"
 fails=0
-# Clean up the per-iteration stderr-capture file even on interruption (the loop
-# rm's it each pass, but a SIGINT/SIGTERM mid-run would otherwise leak it).
-trap 'rm -f "/tmp/pi-inner-err.$$"' EXIT INT TERM
+# One reusable stderr-capture file for the inner `sh -n`, cleaned even on
+# interruption. mktemp keeps it out of a predictable /tmp path.
+errf="$(mktemp)"
+trap 'rm -f "$errf"' EXIT INT TERM
 [ -f "$PI" ] || { echo "FAIL  postinstall not found at $PI"; exit 1; }
 
 # Independent oracle for the anti-vacuity guard: how many inline `/bin/sh -c`
@@ -66,6 +67,7 @@ blocks="$(/usr/bin/awk '
 ' "$PI")"
 
 n=0
+allinner=""
 # split on the 0x1e record separator. `set -f` disables pathname expansion for the
 # unquoted `$blocks` word-split: block bodies contain glob metacharacters (e.g.
 # `*[!0-9]*`), and without it an unlucky cwd or a `failglob`/`nullglob` shell option
@@ -79,20 +81,35 @@ for blk in $blocks; do
   # delimiters removed (there are no escaped single quotes inside a single-quoted
   # word, so every '\'' is a delimiter).
   inner="$(printf '%s' "$blk" | /usr/bin/tr -d "'")"
-  if printf '%s\n' "$inner" | /bin/sh -n 2>/tmp/pi-inner-err.$$; then
+  allinner="${allinner}${inner}
+"
+  if printf '%s\n' "$inner" | /bin/sh -n 2>"$errf"; then
     echo "PASS  inline -c block $n parses through the shell (sh -n on the reconstructed inner)"
   else
     echo "FAIL  inline -c block $n has a syntax error in the string the shell BUILDS for -c:"
-    sed 's/^/        /' /tmp/pi-inner-err.$$ >&2
+    sed 's/^/        /' "$errf" >&2
     fails=$((fails+1))
   fi
-  rm -f /tmp/pi-inner-err.$$
 done
 unset IFS
 set +f
 
 [ "$opens" -ge 1 ] || { echo "FAIL  no inline /bin/sh -c invocations found in $PI - the oracle is broken (a false pass)"; exit 1; }
 [ "$n" -eq "$opens" ] || { echo "FAIL  extracted $n inline -c block(s) but $opens invocation(s) open in the file - the extractor dropped a block (a false pass)"; exit 1; }
+
+# Positive coverage anchor. `n -eq opens` proves every OPENED block was emitted, but
+# it is blind to a block that closes TOO EARLY: a future body line matching the close
+# heuristic ('\'' + ws + "$arg) would truncate a block before its real end, dropping
+# the very lines this guard protects while n still equals opens - a silent false pass.
+# So assert the specific empty-pattern case lines the P0 lived on were actually part
+# of a reconstructed+checked block. If a refactor moves or renames them, this fails
+# loud and a human re-confirms coverage rather than the guard quietly going vacuous.
+for _anchor in 'case "$_rmax" in' 'case "$_rsleep" in'; do
+  case "$allinner" in
+    *"$_anchor"*) : ;;
+    *) echo "FAIL  guarded line [$_anchor] was not inside any checked inline block - the extractor closed a block too early, or the line moved out of the -c block (a false pass)"; exit 1 ;;
+  esac
+done
 
 if [ "$fails" -ne 0 ]; then echo "$fails inline-block(s) failed"; exit 1; fi
 echo "all $n inline -c block(s) parse through the shell"
