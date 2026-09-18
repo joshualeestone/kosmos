@@ -45764,10 +45764,10 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
    honest. Firing it up front is what lets tmux be LISTED in Accessibility by the time the
    person reaches its "Turn On", so that button can simply deep-link to the pane instead of
    surfacing the confusing Automation prompt -- and it prevents the "empty pane" regression that
-   trigger:null would cause on its own. macOS-only (the tmux-a11y row is data-win-hide, and the
-   register is an osascript op); fired at most once per session (best-effort, never blocks the
-   gate poll or the paint). Unlatches on a failed/unavailable attempt so a genuine failure can
-   retry on a later S3 entry rather than leaving tmux unregistered. */
+   trigger:null would cause on its own. macOS-only (the tmux accessibility row is hidden on
+   Windows, and the register is an osascript op); fired at most once per session (best-effort,
+   never blocks the gate poll or the paint). Unlatches on a failed/unavailable attempt so a
+   genuine failure can retry on a later S3 entry rather than leaving tmux unregistered. */
 let FR_TMUX_A11Y_REGISTER_FIRED = false;
 async function frFireTmuxA11yRegister() {
   if (FR_TMUX_A11Y_REGISTER_FIRED || onWindows()) return;
