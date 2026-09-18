@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: consolidated-white-bg-3264
-diff_hash: 48468547d0626cf205c15c659a089f8ae530c5a0a8741ef5ef4786f7be65a80a
+diff_hash: 2f4629188055025a713c598d4241d5fb637e3318dfd55ca23bdce551ad72abff
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-18T14:50:10Z
-iterations: 2
+timestamp: 2026-09-18T15:16:56Z
+iterations: 4
 converged: true
 ---
 
@@ -17,72 +17,89 @@ WHITE (`--k-surface`), matching the tab view. Verbatim: "the background is suppo
 just like it is on the tab view." This reverses the #980 iter-5 cream (`--k-bg`) tuning for the
 consolidated layout only.
 
-The change is three lockstep CSS flips in `web/index.html`, all scoped to the consolidated
-layout so the tab view is untouched:
-1. `html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid` ground: `--k-bg` -> `--k-surface`.
-2. `html[data-layout="consolidated"] body.consolidated .pjmid .composer` (the sticky composer #980
-   repainted to `--k-bg` to hide the band): `--k-bg` -> `--k-surface`, kept as an explicit lockstep
-   pin against future drift.
-3. A new consolidated-scoped wing-carve override
-   `html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid .msg:not(.you) .msg-bd::after`:
-   `--k-surface`, so no cream tail sliver shows on the white ground. The global
-   `.msg:not(.you) .msg-bd::after` carve (used by the tab view) stays `--k-bg`, untouched.
+The change is FOUR lockstep CSS flips in `web/index.html`, all scoped to
+`html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid` so the tab view is untouched.
+The masks/composer must move together with the ground, or a mismatched band or a tail sliver
+returns (glaring in dark):
+1. `.pj3 > .pjmid` ground (`:4200`): `--k-bg` -> `--k-surface`.
+2. `.pjmid .composer` sticky band (`:4235`): `--k-bg` -> `--k-surface` (kept as an explicit
+   lockstep pin against future drift).
+3. Agent wing-carve `.msg:not(.you) .msg-bd::after` (`:4825`): a new consolidated-scoped
+   `--k-surface` override so no cream tail sliver shows on the white ground.
+4. Operator's-OWN wing-carve `.msg.you .msg-bd::after` (`:4832`): the symmetric override. The
+   carve masks against the GROUND behind the bubble (not the bubble tint), so the own-message
+   tail must go white too, or a `--k-bg` sliver shows at its tail tip (an 11/channel darker
+   sliver in dark). The room renderer mounts the operator's own posts as `.msg.you` inside the
+   consolidated discussion, so this surface is real.
 
-**Iterations:** 2 (validation + 1 blind reviewer pass)
-**Converged:** Yes (the blind pass found zero BLOCKER/WARNING/CONVENTION; 2 NITs + strengths)
-**Total findings:** 0 actionable; 2 NITs; strengths noted
-**Fixed:** 1 (NIT #2, selector scoping) | **Deferred:** 1 (NIT #1, kept as deliberate pin) | **Asked:** 0
+The global (tab-view) `.msg:not(.you)`/`.msg.you` carves and composer stay `--k-bg`, untouched.
+
+**Iterations:** 4 (validation + 3 blind reviewer passes across two models)
+**Converged:** Yes (the final blind pass found zero BLOCKER/WARNING/CONVENTION)
+**Total findings:** 1 WARNING (fixed), 2 CI-caught wiring gaps (fixed), NITs
+**Fixed:** 3 (own-message carve WARNING; runner wiring; slice-test token) | **Deferred:** 1 (composer redundancy, kept as a deliberate pin) | **Asked:** 0
 
 ### Validation
 
-- New browser-check `docs/browser-checks/render-consolidated-white-3264.js` passes 6/6 in each of
-  light and dark (12/12 total): the computed background of the consolidated `.pjmid` ground, its
-  sticky `.composer`, and the wing-carve `::after` all resolve to `--k-surface` and are DISTINCT
-  from `--k-bg`; a no-leak control confirms the NON-consolidated (tab) carve stays `--k-bg`. It
-  pins the TOKEN, not an exact rgb, so a Josh retune of `--k-surface` stays green while a
-  regression of any of the three back to `--k-bg` reds it.
-- `browser-checks-indexed.test.js` passes: the new check is named in `docs/browser-checks/README.md`.
-- `web.consolidated-867.test.js` passes (8 tests incl. the #2711 "tab-view dialog is white" pin,
-  confirming no tab-view regression). Full node run: tests 8, pass 8, fail 0.
+- Browser-check `docs/browser-checks/render-consolidated-white-3264.js` passes 8/8 per theme
+  (16/16 light+dark): computed background of the consolidated `.pjmid` ground, sticky
+  `.composer`, agent wing-carve `::after`, AND the operator's-own (`.msg.you`) wing-carve all
+  resolve to `--k-surface` and are DISTINCT from `--k-bg`; two no-leak controls confirm the
+  NON-consolidated (tab) agent and `.msg.you` carves stay `--k-bg`. It pins the TOKEN, not an
+  exact rgb, so a Josh retune of `--k-surface` stays green while a regression of any surface
+  back to `--k-bg` reds it. A blind reviewer proved it non-vacuous by reverting the `.pjmid`
+  rule and watching the check go red, then restoring it clean.
+- `browser-checks-indexed.test.js` + `tools.browser-checks-wired.test.js` pass: the check is
+  named in `docs/browser-checks/README.md` AND wired into the runner's explicit `run_one` loop
+  in `tools/browser-checks.sh` (the runner does not glob; a check must be listed to run).
+- `web.consolidated-match-mock.test.js` passes (incl. the full-bleed pin) and
+  `web.consolidated-867.test.js` (the #2711 tab-view-white pin) passes -> no tab regression.
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1 (validation)
-**Reviewer model:** n/a
-The browser-check + index test + consolidated slice tests all PASSED on the tree (diff hash
-48468547). The token-pinned assertions agree headed and headless.
+**Reviewer model:** n/a. Browser-check + index + consolidated slice tests PASSED on the tree.
 
 #### Iteration 2 (blind review)
 **Reviewer model:** sonnet
-**New findings:** 0 BLOCKER / 0 WARNING / 0 CONVENTION; 2 NITs; strengths
-**Self-generated:** 0
-**Converged.** The blind reviewer independently ran the browser-check (12/12 verified),
-confirmed the tab-view-is-white premise from source (the tab `.pjcol` ground is `--k-surface`),
-confirmed the assertions are non-vacuous (the two tokens are distinct in both themes), and
-verified the override does not leak to the tab view. Zero actionable findings.
+**New findings:** 0 BLOCKER/WARNING/CONVENTION; 2 NITs.
+- NIT (composer override now equals the base rule): DEFERRED, kept as a deliberate lockstep pin.
+- NIT (carve override scoped by layout only, not `.pj3 > .pjmid`): FIXED, tightened so the
+  "does not leak" property is true by construction.
 
-The two NITs and their disposition:
-- **NIT (web/index.html composer override):** after this flip the consolidated `.pjmid .composer`
-  override equals the base composer rule (`--k-surface`), so it is functionally redundant.
-  DEFERRED: kept deliberately as an explicit lockstep pin. Mona's spec called to flip it, and an
-  explicit `--k-surface` here keeps the composer pinned to the ground if a future change re-diverges
-  the base. Reversible; keeping it is the conservative, spec-faithful choice.
-- **NIT (web/index.html carve override):** the wing-carve override was scoped only via the
-  html/body layout selectors, not via `.pj3 > .pjmid` like the other two flips; harmless today
-  (`.msg-bd` only mounts under `.pjmid` in the consolidated layout) but "does not leak" was true by
-  current-markup coincidence rather than by construction. FIXED: tightened to
-  `.pj3 > .pjmid .msg:not(.you) .msg-bd::after`, matching the scoping of the ground and composer
-  flips. Browser-check re-run green 12/12 after the tightening (both the consolidated carve = surface
-  and the tab control = bg still hold).
+#### Iteration 3 (blind review)
+**Reviewer model:** opus
+**New findings:** 1 WARNING.
+- WARNING (`web/index.html`): the consolidated carve override was scoped to `.msg:not(.you)`
+  only, so the operator's OWN message tail (`.msg.you .msg-bd::after`) still painted `--k-bg` --
+  a visibly dark sliver on the white ground in dark mode (11/channel delta). The reviewer
+  confirmed `.msg.you` mounts inside the consolidated discussion (room renderer, `:41517`) and
+  that the browser-check shared the blind spot (injected only agent messages).
+  FIXED: added the symmetric `.msg.you` consolidated override AND a `.msg.you` arm to the
+  browser-check (now 16/16). This is the fourth surface above.
 
-**Strengths:** token-pinned (retune-safe) assertions; explicit no-leak control; light+dark coverage;
-consolidated-only scoping keeps the tab view untouched; the load-bearing three-way coupling
-(ground + composer + carve) is asserted together so a partial regression cannot pass.
+#### Iteration 4 (blind review)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKER/WARNING/CONVENTION; 1 NIT (this proof text, which iteration 3's fix
+made stale -- resolved by this rewrite).
+**Converged.** The reviewer exhaustively grepped every `--k-bg` and every `.pjmid`-scoped
+background rule and confirmed all four surfaces are `--k-surface` with no missed fifth surface
+(the `.att` attachment fill at `:4479` is tab-view-scoped and a pre-existing #2711 decision, out
+of scope), confirmed no leak into the tab or DM threads, proved the check red-able, verified the
+wiring, and found no em dashes on added lines.
+
+### CI-caught wiring gaps (fixed between iterations)
+
+CI's first `test` run surfaced two real gaps the isolated node/browser runs did not:
+- `tools/browser-checks.sh`: the runner uses an explicit check list, not a glob, so the new
+  check was never invoked (#1387 `tools.browser-checks-wired.test.js`). Added it to the loop.
+- `web.consolidated-match-mock.test.js`: its `.pj3 > .pjmid` pin encoded #980's cream ground;
+  Josh's #3264 white ruling supersedes it. Updated the token `--k-bg` -> `--k-surface`, keeping
+  the structural pins (`border: 0; border-radius: 0; border-right: 1px solid var(--k-rule)`).
 
 ### Convergence
 
-Iteration 2 (the blind pass) returned zero BLOCKER/WARNING/CONVENTION findings. Per the
-challenge-loop convergence rule, one iteration with zero actionable NEW findings after
-deduplication and no unresolved ASKED findings = CONVERGED. The two NITs do not block (one fixed,
-one deferred as a deliberate pin). No user decision was required; the loop finished on its own
-authority.
+Iteration 4 returned zero BLOCKER/WARNING/CONVENTION. Per the challenge-loop rule, one pass with
+zero actionable NEW findings after deduplication and no unresolved ASKED findings = CONVERGED.
+The WARNING (iteration 3) was found by an opus pass after two sonnet passes missed it, which is
+exactly the model-variation value the loop is built on. No user decision was required.
