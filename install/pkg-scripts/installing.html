@@ -39,11 +39,11 @@
   /* #2363: the .go button rules were dropped with the taken-branch manual link they
      styled (the only class="go" consumer, verified repo-wide) - dead under #2073. */
   @media (prefers-color-scheme:dark){body{background:#151412;color:#ece9e2}.muted{color:#a29e95}.bar{background:#3a3833}}
-  @media (prefers-reduced-motion:reduce){.bar>i{animation:none}}
+  @media (prefers-reduced-motion:reduce){.bar>i,.bar.determinate>i{animation:none;transition:none}}
 </style></head>
 <body><main>
   <canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"></canvas>
-  <div class="bar" id="bar" role="progressbar" aria-label="Installing"><i></i></div>
+  <div class="bar" id="bar" role="progressbar" aria-label="Installing" aria-valuemin="0" aria-valuemax="100"><i></i></div>
   <h1 id="title">Installing Kosmos</h1>
   <!-- 🔑 WHAT THE WAIT IS MADE OF, SAID AT THE START (kosmos#920). Josh, mid
        install: "Do we know when or how much of it has been installed?" This line
@@ -361,20 +361,42 @@
     var barEl = document.getElementById("bar");
     var fillEl = barEl ? barEl.querySelector("i") : null;
     var kpStopped = false;
+    // Whether the bar ever went determinate (a known download total arrived). Gates the
+    // settle=100 below: on the taken branch (a foreign board answered the first poll, so
+    // nothing installed) the bar never went determinate, so asserting 100 to a screen reader
+    // there would announce a completion that never happened -- it stays indeterminate.
+    // KNOWN, DELIBERATE TRADEOFF (kosmos#3233 review): a no-content-length success (the
+    // download reported no total, so the bar was the swoosh the whole run) ALSO stays
+    // indeterminate here. That matches what it showed throughout AND the pre-#3233 behaviour
+    // (there was no aria-valuenow at all before). Announcing 100 only on a genuine success
+    // would mean threading a success-vs-taken flag through settle(), out of scope for this
+    // a11y pass; the sighted 100% is Baron's existing .settled visual either way.
+    var kpDeterminate = false;
     // Cleared on settle() so the bar's inline width does not override .settled's 100%.
     window.__kpStop = function(){
       kpStopped = true;
       if (fillEl) fillEl.style.width = "";
-      if (barEl) barEl.classList.remove("determinate");
+      if (barEl) {
+        barEl.classList.remove("determinate");
+        if (kpDeterminate) barEl.setAttribute("aria-valuenow", "100");
+      }
     };
     function apply(p){
       if (kpStopped || !barEl || !fillEl || !p) return;
       if (typeof p.total === "number" && p.total > 0 && typeof p.bytes === "number") {
         var pct = p.bytes / p.total * 100;
-        if (pct < 0) pct = 0;
+        // NaN guard: typeof NaN === "number" passes the check above, and NaN fails every
+        // comparison, so without this a malformed byte count would write aria-valuenow="NaN".
+        if (!(pct >= 0)) pct = 0;
         if (pct > 100) pct = 100;
         barEl.classList.add("determinate");
+        kpDeterminate = true;
         fillEl.style.width = pct.toFixed(1) + "%";
+        // kosmos#3233 a11y: expose the determinate value so a screen reader hears the
+        // progress, not just "Installing". Unset while indeterminate (swoosh). Math.floor,
+        // not round, so AT never announces more progress than achieved (no early "100%"
+        // at 99.6%); settle mirrors the true 100 when the install actually completes.
+        barEl.setAttribute("aria-valuenow", String(Math.floor(pct)));
       }
       // no total -> leave the indeterminate swoosh as-is (no baked number).
     }

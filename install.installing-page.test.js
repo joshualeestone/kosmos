@@ -29,7 +29,7 @@ test('the mark is the real K loader canvas, and the progress bar exists, both al
   // replaced it with the same 155-dot canvas loader the create-an-agent
   // screen uses. Same dimensions, so the badge reads as one identity.
   assert.match(HTML, /<canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"><\/canvas>/, 'the K loader canvas is gone');
-  assert.match(HTML, /<div class="bar" id="bar" role="progressbar" aria-label="Installing"><i><\/i><\/div>/, 'the progress bar is gone');
+  assert.match(HTML, /<div class="bar" id="bar" role="progressbar" aria-label="Installing" aria-valuemin="0" aria-valuemax="100"><i><\/i><\/div>/, 'the progress bar is gone');
   // Neither carries its own display:none the way #late/#taken do -- they
   // are meant to be visible from the very first paint.
   assert.doesNotMatch(HTML, /\.mark\s*{[^}]*display:\s*none/, 'the mark starts hidden');
@@ -178,7 +178,16 @@ test('reduced motion turns off both animations, and dark mode is accounted for',
   // prefers-reduced-motion itself and draws one still frame instead of
   // animating), so there is nothing left for a CSS rule to disable on
   // .mark -- pinned in the loader's own `slow` branch instead.
-  assert.match(HTML, /@media \(prefers-reduced-motion:reduce\)\{\.bar>i\{animation:none\}\}/);
+  // kosmos#3233 a11y: the determinate bar adds a width transition, so the
+  // reduced-motion rule must disable transition too, not only the swoosh animation.
+  // The override must name BOTH .bar>i (the swoosh animation) AND .bar.determinate>i (the
+  // width transition): the determinate rule is more specific, and media queries add no
+  // specificity, so a bare .bar>i override never reaches the determinate transition.
+  // KNOWN TEST-QUALITY GAP (string check): this asserts the rule TEXT, not the runtime
+  // cascade. It cannot catch a future <style> reorder, or a new equal/higher-specificity
+  // rule inserted after this one, that would silently break the override again -- catching
+  // that needs a jsdom/computed-style check, which this string-extraction test file does not run.
+  assert.match(HTML, /@media \(prefers-reduced-motion:reduce\)\{\.bar>i,\.bar\.determinate>i\{animation:none;transition:none\}\}/);
   assert.match(HTML, /var slow = window\.matchMedia && window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches;/,
     'the K loader stopped reading reduced-motion itself');
   assert.match(HTML, /if \(slow\) \{/, 'the loader lost its reduced-motion branch (one still frame instead of animating)');
@@ -245,6 +254,35 @@ test('#3233: a determinate bar style exists and stops the indeterminate swoosh',
     'the determinate bar no longer starts empty before the first progress reading');
 });
 
+test('#3233 a11y: aria-valuenow is exposed determinately and stays absent while indeterminate', () => {
+  // Bounds live in static markup; the live value is set in JS only inside the known-total
+  // (determinate) branch, and mirrored to 100 at settle ONLY if the bar went determinate.
+  assert.match(HTML, /aria-valuemin="0" aria-valuemax="100"/,
+    'the progressbar lost its aria-valuemin/max bounds');
+  assert.match(CODE, /setAttribute\("aria-valuenow", String\(Math\.floor\(pct\)\)\)/,
+    'the determinate branch no longer sets aria-valuenow (floor, so AT never overstates progress)');
+  // The settle=100 must be GATED on the bar having gone determinate, or the taken branch
+  // (a foreign board answered first, nothing installed) would announce "100%" to a screen reader.
+  assert.match(CODE, /if \(kpDeterminate\) barEl\.setAttribute\("aria-valuenow", "100"\)/,
+    'settle() no longer gates the 100 mirror on kpDeterminate -- it would falsely announce 100% on the taken branch');
+  // Indeterminate must stay indeterminate: the pct set lives inside the total>0 branch, and
+  // nothing sets a static aria-valuenow that would make the swoosh falsely determinate.
+  const applyAt = CODE.indexOf('function apply(');
+  const pollAt = CODE.indexOf('function poll(');
+  assert.ok(applyAt > -1 && pollAt > applyAt, 'apply()/poll() structure changed -- re-check the aria gating');
+  const applyBody = CODE.slice(applyAt, pollAt);
+  const totalAt = applyBody.indexOf('p.total');
+  const ariaAt = applyBody.indexOf('aria-valuenow", String(Math.floor(pct))');
+  assert.ok(totalAt > -1 && ariaAt > totalAt,
+    'aria-valuenow(pct) must sit inside the known-total branch, so no-total (swoosh) stays indeterminate');
+  assert.doesNotMatch(CODE, /aria-valuenow",\s*"0"/,
+    'a static aria-valuenow="0" would make the indeterminate swoosh falsely announce 0% progress');
+  // NaN-safe clamp: typeof NaN === "number" slips past the branch guard, and NaN fails every
+  // comparison, so a malformed byte count must be forced to 0 rather than written as "NaN".
+  assert.match(CODE, /if \(!\(pct >= 0\)\) pct = 0/,
+    'the NaN-safe clamp is gone -- a malformed byte count could write aria-valuenow="NaN"');
+});
+
 test('#3233: the page re-includes install-progress.js cache-busted, because a file:// page cannot fetch', () => {
   assert.match(CODE, /install-progress\.js\?t=" \+ Date\.now\(\)/,
     'the cache-busted install-progress.js re-include is gone -- the bar can never read new bytes');
@@ -258,7 +296,9 @@ test('#3233: the bar goes determinate only on a known positive total, and the pe
   const fn = CODE.slice(at, CODE.indexOf('function poll(', at));
   assert.match(fn, /typeof p\.total === "number" && p\.total > 0 && typeof p\.bytes === "number"/,
     'apply() no longer requires a known positive total before driving the bar (a null/0 total must keep the swoosh)');
-  assert.match(fn, /if \(pct < 0\) pct = 0/, 'the lower clamp on the percentage is gone');
+  // NaN-safe lower clamp (`!(pct >= 0)` also catches NaN, unlike `pct < 0`), so a malformed
+  // byte count is forced to 0 rather than written as aria-valuenow="NaN".
+  assert.match(fn, /if \(!\(pct >= 0\)\) pct = 0/, 'the lower clamp on the percentage is gone');
   assert.match(fn, /if \(pct > 100\) pct = 100/, 'the upper clamp on the percentage is gone');
   assert.match(fn, /classList\.add\("determinate"\)/, 'apply() no longer switches the bar to determinate');
 });
