@@ -91,3 +91,41 @@ test('#2911 route: an UNREADABLE db (sqlite fails) -> checkable:false (advisory 
   const body = await tmuxA11y();
   assert.equal(body.checkable, false, 'an unreadable TCC db must never block Next: ' + JSON.stringify(body));
 });
+
+// #2559: nativePresent is a11ystatus.read().checkable === true (a fresh a11y-status.json the
+// native app maintains), so drive it by writing / removing that file. present:true = a real
+// Mac with the app running; false = a browser tester (no native writer).
+function setNativePresent(present) {
+  try {
+    if (present) {
+      fs.mkdirSync(nodePath.dirname(a11ystatus.FILE), { recursive: true });
+      fs.writeFileSync(a11ystatus.FILE, JSON.stringify({ trusted: false, at: new Date().toISOString() }));
+    } else {
+      fs.rmSync(a11ystatus.FILE, { force: true });
+    }
+  } catch { /* best effort; the assertions below prove which state took effect */ }
+}
+
+test('#2559 route: UNREADABLE db + a NATIVE APP present -> checkable:false + ACTIONABLE (Turn On, not a dead "Checking...")', async () => {
+  // The Josh fresh-Mac case: the board has no Full Disk Access so tmuxGrant cannot read the
+  // TCC db (checkable:false), but the native app IS running. The row must offer Turn On (which
+  // fires the osascript-under-tmux prompt, no FDA needed), not strand the user on a spinner.
+  setNativePresent(true);
+  a11ystatus.setSqliteRunner(() => ({ ok: false, because: 'no access' }));
+  a11ystatus.resetGrantCache();
+  const body = await tmuxA11y();
+  assert.equal(body.checkable, false, 'must stay checkable:false so the S3 Next gate is not blocked (#2912): ' + JSON.stringify(body));
+  assert.equal(body.actionable, true, 'an unreadable grant on a real Mac (native present) must be actionable, not a dead spinner: ' + JSON.stringify(body));
+});
+
+test('#2559 CONTROL: UNREADABLE db + NO native app (a browser) -> checkable:false and NOT actionable (honest advisory, nothing to grant)', async () => {
+  // The discriminator that keeps the fix from painting Turn On for a browser tester, where
+  // there is genuinely nothing to grant and no native app to fire the prompt. If this control
+  // trips, the fix would show a dead Turn On in a browser.
+  setNativePresent(false);
+  a11ystatus.setSqliteRunner(() => ({ ok: false, because: 'no access' }));
+  a11ystatus.resetGrantCache();
+  const body = await tmuxA11y();
+  assert.equal(body.checkable, false, JSON.stringify(body));
+  assert.notEqual(body.actionable, true, 'a browser (no native app) must keep the advisory "Checking...", never a Turn On: ' + JSON.stringify(body));
+});
