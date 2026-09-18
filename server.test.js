@@ -8513,6 +8513,12 @@ test('--usermsg-tint is DEFINED in every theme, tied to its --k-sunk sibling', (
   // ground). It requires at most TWO distinct dark values -- the shared twin value plus
   // navy's -- so a THIRD distinct value (a drifted twin, or a mistyped opacity) still reds.
   // Mirrors the --agent-msg sibling below, where navy also differs by design.
+  // The one gap this count leaves -- a forced-dark value corrupted to coincidentally equal
+  // navy while diverging from its system-dark twin -- is closed elsewhere by construction:
+  // the forced-dark block is GENERATED from system-dark (tools/sync-forced-theme.js) and
+  // web.theme.test.js ("the forced theme is in step with the system theme") asserts the page
+  // equals that regeneration byte-for-byte, so a forced-dark twin that diverged from
+  // system-dark reds there regardless of this count. This check is the presence/opacity guard.
   const tintDarkDistinct = [...new Set(tintDark)];
   assert.ok(tintDarkDistinct.length <= 2,
     `the dark --usermsg-tint has ${tintDarkDistinct.length} distinct values (${tintDark.join(', ')}); expected at most two -- the system-dark/forced-dark twins share one solid value (15% over #0c0d0f) and navy bakes 15% over its own ground. A third distinct value means a twin drifted or an opacity was mistyped`);

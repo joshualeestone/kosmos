@@ -4762,53 +4762,47 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    .msg-bd -- composites on top of the cream instead of being cleared by a
    shorthand. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
-/* #3134-followup (Josh 6.72): the bubble TAIL is now a clean iMessage-style WING at
-   the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
+/* #3134-followup (Josh 6.72) -> #3267: the bubble TAIL is a clean iMessage-style Option A
+   WING at the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
    bottom-RIGHT on the person's.
-   🛑 WHY THE OLD NUB WAS REPLACED, not tuned: the #3130 nub was a rotated square at
-   `z-index: -1` with `background-color: inherit` that OVERLAPPED the bubble box. On
-   the OPAQUE agent bubble that overlap was invisible (same colour over same colour),
-   but on the person's TRANSLUCENT `--usermsg-tint` it double-composited (tint over
-   tint) into a darker triangle -- Josh 6.72, "two transparent objects colliding
-   making a weird triangle". A translucent fill can only be made seamless by drawing
-   the wing ENTIRELY OUTSIDE the bubble box, so it composites exactly ONCE over the
-   thread ground and matches the bubble.
-   🔑 THE MASK TECHNIQUE: `::before` is the colored wing (`background-color: inherit`,
-   so it tracks the bubble's own cream fill), sitting flush just outside the
-   bubble's tail-side bottom corner; `::after` is a `--k-bg` (thread-ground) mask that
-   carves the wing's outer edge into a point. Neither overlaps the bubble body, so the
-   translucent user tint never doubles. Both are `z-index: -1` inside `.msg-bd`'s own
-   stacking context (kept below) so they tuck under the bubble's rounded corner and
-   read as one shape. Kept at the bubble's bottom (no extra row height) so the
-   message geometry does not shift -- the scroll-repin (#1147/#3200) is sensitive to
-   reflow, so this is deliberate; render-room-scroll.js is the oracle. */
+   🔑 THE TECHNIQUE (two pseudo-elements): `::before` is the colored wing
+   (`background-color: inherit`, so it tracks the bubble's own fill) and it OVERLAPS the bubble
+   box (Option A geometry) so the curve tucks under the corner and reads as one shape, the Apple
+   flick. `::after` is a thread-ground mask (`--k-surface`) sitting just outside the tail-side
+   bottom corner, carving the wing's outer edge into the curve; because it is the SAME colour as
+   the thread ground (white in light, the dark surface in dark, on both the tab and consolidated
+   views), the carve is invisible on the ground. Both sit at negative z-index inside `.msg-bd`'s
+   own stacking context (kept below) so they tuck under the bubble's rounded corner. Kept at the
+   bubble's bottom (absolutely positioned, no extra row height) so the message geometry does not
+   shift -- the scroll-repin (#1147/#3200) is sensitive to reflow, so this is deliberate;
+   render-room-scroll.js is the oracle.
+   🛑 WHY THE TINT IS SOLID, and it is load-bearing: the Option A wing OVERLAPS the box, and an
+   overlapping wing on a TRANSLUCENT fill double-composites (tint over tint) into a darker
+   triangle -- Josh 6.72, "two transparent objects colliding making a weird triangle" (#3130).
+   So `--usermsg-tint` was made SOLID (opaque, pre-composited per theme -- see its def), so the
+   overlap composites exactly ONCE (opaque over opaque) and there is no triangle. The agent
+   bubble fill was always opaque, so its overlap was always safe. render-room-msgbox-2806.js is
+   the pixel oracle that MEASURES no double-tint seam. */
 .msg-bd { position: relative; z-index: 0; }
-/* 🛑 THE WING SITS ENTIRELY OUTSIDE THE BUBBLE BOX -- ZERO horizontal overlap -- and that
-   is load-bearing, not cosmetic. The colored ::before uses `background-color: inherit`, i.e.
-   the SAME translucent tint as the bubble (--usermsg-tint is rgba .10/.15). If the wing
-   overlapped the painted body, the two translucent layers would composite twice and the
-   overlap would read a shade bluer -- the exact double-tint "colliding triangle" #3130
-   produced and Josh 6.72 rejected. A pixel oracle (in-browser canvas decode of a screenshot,
-   /tmp wing-pixel-oracle) MEASURED that overlap seam on the first geometry and now measures
-   it gone. So: `left:-W; width:W` (agent) / `right:-W; width:W` (user) puts the wing's inner
-   edge flush AT the bubble edge, never inside it. The tail-side bottom corner is squared
-   (radius 7, #3267) so the wing meets a near-straight edge, not a gap under a 12px round corner. */
-/* #3244 -> #3247 -> #3267 (Josh picked Option A, the iMessage curved wing). #3247 shrank the wing
-   onto a small no-overlap mask (12x17 + 7x18) to dodge the translucent double-composite, and it read
-   as a squished NOTCH -- Josh 2026-09-18: "not the right iMessage thing you showed yesterday". #3267
-   rebuilds the approved Option A curve at the mockup's external scale while KEEPING the no-overlap
-   invariant: the colored ::before wing is 13x21 (elliptical bottom radius 20px 18px) and the --k-bg
-   ground mask ::after is 9x23 (radius 16px 20px), carving the wing's outer edge into the full Apple
-   curve. The horizontal radii are declared LARGER than the box on purpose: CSS clamps a corner radius
-   to the box, so this asks for a full-corner round and the render is the clamp (numbers are the
-   request, not literal pixels; the shape is fixed by the render, not the exact radius). Everything
-   stays ENTIRELY OUTSIDE the bubble box (left/right:-W; width:W; inner edge flush AT the edge) -- the
-   load-bearing no-overlap invariant above -- so the translucent --usermsg-tint never double-composites
-   into the "colliding triangle" (#3130/6.72) that overlapping the mockup's original geometry would.
-   The wing is absolutely positioned + bottom-anchored, so the taller size adds NO row height and does
-   not reflow (render-room-scroll.js is the oracle). Verified against a headless render of both a sent
-   (translucent tint) and received (opaque cream) bubble vs the approved Option A mockup: reads as the
-   full curved wing, no double-tint seam. */
+/* #3244 -> #3247 -> #3267 (Josh picked Option A, the iMessage curved wing). #3247 dodged the
+   translucent double-composite by shrinking the wing onto a small NO-OVERLAP mask (12x17 + 7x18),
+   which read as a squished NOTCH -- Josh 2026-09-18: "not the right iMessage thing you showed
+   yesterday". #3267 rebuilds the approved Option A curve at the mockup's scale by going back to the
+   OVERLAP geometry the mockup uses (the overlap is what makes the curve connect under the corner)
+   and making the tint SOLID so that overlap is safe (see the tint note above). The shipped rules
+   below:
+     colored ::before wing 20x20 at offset -8 (spans 8px OUTSIDE the edge to 12px INSIDE it, i.e.
+       it overlaps the box by 12px), bottom radius 18px 16px;
+     --k-surface ground mask ::after 14x22 at offset -14 (spans entirely OUTSIDE, from -14 to the
+       box edge), bottom radius 12px 16px, carving the wing's outer edge into the full Apple curve.
+   The horizontal radii are declared larger than the element on purpose: CSS clamps a corner radius
+   to the box, so this asks for a full-corner round and the render is the clamp (the numbers are the
+   request, not literal pixels; the shape is fixed by the render). The tail-side bottom corner is 6px
+   (below) so the wing meets a near-straight edge, not a gap under a round corner. Absolutely
+   positioned + bottom-anchored, so the size adds NO row height and does not reflow
+   (render-room-scroll.js is the oracle). Verified against a headless render of both a sent (SOLID
+   blue tint) and received (SOLID cream) bubble vs the approved Option A mockup: reads as the full
+   curved wing, no double-tint seam (render-room-msgbox-2806.js is the pixel oracle). */
 .msg-bd::before, .msg-bd::after { content: ""; position: absolute; bottom: 0; }
 .msg:not(.you) .msg-bd { border-bottom-left-radius: 6px; }
 .msg.you .msg-bd { border-bottom-right-radius: 6px; }
