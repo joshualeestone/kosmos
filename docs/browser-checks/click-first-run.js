@@ -677,6 +677,35 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
       'a refused S3 "Turn On" is spoken in #fr-s3-msg, not swallowed');
     await ctx.close();
   }
+  {
+    // #3221: tmux's OWN Accessibility row. Josh's 0.6.78 fresh box: the tmux "Turn On" fired an
+    // osascript register UNDER tmux that surfaced the wrong (System Events / Open Terminal)
+    // Automation prompt. The fix moves the register UP FRONT to S3 entry and makes the tmux
+    // "Turn On" a plain DEEP-LINK to the Accessibility pane. This section clicks it like a
+    // person and pins both halves against mocked routes: (a) the register (/api/tmux-a11y-prompt)
+    // fires ONCE the moment S3 is reached, before any click; (b) the tmux row's "Turn On" opens
+    // /api/open-accessibility-settings and does NOT re-fire the register.
+    const { ctx, page } = await fresh(browser, { gates: false });
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    let registerPosts = 0; let tmuxSettingsPosts = 0;
+    await page.route('**/api/tmux-a11y-prompt', (r) => { registerPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/open-accessibility-settings', (r) => { tmuxSettingsPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await advanceToAnchor(page, '.s3-gate-row');
+    await page.waitForTimeout(250);
+    // (a) the register fired UP FRONT on entering S3 -- before any "Turn On" is clicked.
+    ok(registerPosts === 1, `#3221: entering S3 registers tmux up front exactly once (saw ${registerPosts})`);
+    ok(tmuxSettingsPosts === 0, `#3221: no Accessibility pane opened yet, before any click (saw ${tmuxSettingsPosts})`);
+    // (b) the tmux row's "Turn On" deep-links to the Accessibility pane and does NOT re-fire
+    // the osascript register (trigger:null).
+    await page.click('[data-gate="tmux-a11y"] .s3-on');
+    await page.waitForTimeout(250);
+    ok(tmuxSettingsPosts === 1, `#3221: tmux "Turn On" deep-links to the Accessibility pane (saw ${tmuxSettingsPosts})`);
+    ok(registerPosts === 1, `#3221: tmux "Turn On" does NOT re-fire the osascript register (still ${registerPosts})`);
+    await ctx.close();
+  }
 
   } catch (e) {
     // Named as a THROW, not folded into an ordinary ok(): a section that died
