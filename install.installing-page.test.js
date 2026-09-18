@@ -224,3 +224,63 @@ test('item 4 -- "Nothing to do." stays deleted, and only that sentence went', ()
   assert.match(CODE, /id="hint"/,
     'the #hint element is gone; the finish path hides it by id and would null-deref');
 });
+
+/**
+ * kosmos#3233 (the open half of #920): the "Setting up" page showed an
+ * indeterminate swoosh for the whole ~50MB bundle download, so a slow download
+ * looked identical to a stalled one. setup.sh now emits live bytes/total to
+ * install-progress.js (window.__kosmosInstallProgress); this page RE-INCLUDES
+ * that file (a file:// page cannot fetch) and drives the bar determinately when
+ * a total is known -- the SHAPE of the wait, with NO megabytes figure (#920's
+ * stance, already guarded by the "no size in megabytes" test above, which runs
+ * against the whole page and so also covers this addition).
+ *
+ * These assertions run against CODE (comments stripped) so the wiring cannot be
+ * satisfied by the explanatory prose that names the same tokens.
+ */
+test('#3233: a determinate bar style exists and stops the indeterminate swoosh', () => {
+  assert.match(CODE, /\.bar\.determinate>i\{[^}]*animation:none/,
+    'the determinate bar rule (which stops the swoosh) is gone');
+  assert.match(CODE, /\.bar\.determinate>i\{[^}]*width:0/,
+    'the determinate bar no longer starts empty before the first progress reading');
+});
+
+test('#3233: the page re-includes install-progress.js cache-busted, because a file:// page cannot fetch', () => {
+  assert.match(CODE, /install-progress\.js\?t=" \+ Date\.now\(\)/,
+    'the cache-busted install-progress.js re-include is gone -- the bar can never read new bytes');
+  assert.doesNotMatch(CODE, /fetch\(\s*["']install-progress\.js/,
+    'a fetch() of install-progress.js crept in -- a file:// page cannot fetch, so the bar would never update');
+});
+
+test('#3233: the bar goes determinate only on a known positive total, and the percentage is clamped', () => {
+  const at = CODE.indexOf('function apply(');
+  assert.notEqual(at, -1, 'the progress apply() function is gone');
+  const fn = CODE.slice(at, CODE.indexOf('function poll(', at));
+  assert.match(fn, /typeof p\.total === "number" && p\.total > 0 && typeof p\.bytes === "number"/,
+    'apply() no longer requires a known positive total before driving the bar (a null/0 total must keep the swoosh)');
+  assert.match(fn, /if \(pct < 0\) pct = 0/, 'the lower clamp on the percentage is gone');
+  assert.match(fn, /if \(pct > 100\) pct = 100/, 'the upper clamp on the percentage is gone');
+  assert.match(fn, /classList\.add\("determinate"\)/, 'apply() no longer switches the bar to determinate');
+});
+
+test('#3233: settling stops the poll and clears the inline width so .settled wins', () => {
+  // settle() adds .settled (width:100%); an inline fillEl.style.width left by
+  // apply() would override that by specificity, so __kpStop() must clear it.
+  const settleAt = CODE.indexOf('function settle(){');
+  const settleFn = CODE.slice(settleAt, CODE.indexOf('}', settleAt) + 1);
+  assert.match(settleFn, /__kpStop\(\)/, 'settle() no longer stops the #3233 progress poll');
+  const stopAt = CODE.indexOf('__kpStop = function');
+  assert.notEqual(stopAt, -1, 'the __kpStop teardown is gone');
+  const stopFn = CODE.slice(stopAt, CODE.indexOf('};', stopAt));
+  assert.match(stopFn, /fillEl\.style\.width = ""/,
+    "__kpStop() no longer clears the inline width, so a stale inline width could override .settled's 100%");
+  assert.match(stopFn, /classList\.remove\("determinate"\)/, '__kpStop() no longer drops the determinate class');
+});
+
+test('#3233: each poll removes the script node it injected, so the DOM does not accumulate one per second', () => {
+  const at = CODE.indexOf('function poll(');
+  assert.notEqual(at, -1, 'the progress poll() function is gone');
+  const fn = CODE.slice(at, CODE.indexOf('poll();', at));
+  assert.equal((fn.match(/s\.parentNode\.removeChild\(s\)/g) || []).length, 2,
+    'the injected progress <script> is not removed on both onload and onerror -- it would accumulate one node per second');
+});

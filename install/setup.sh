@@ -919,18 +919,28 @@ install_kosmos() {
     # bar), never a megabytes figure (#920's deliberate stance).
     _kp_dir="$HOME/Library/Caches/Kosmos"
     _kp_js="$_kp_dir/install-progress.js"
+    # Guarded assignment: under this file's set -euo pipefail a failing HEAD (a -m 15
+    # timeout, a 4xx/5xx under -f, a host that refuses HEAD) propagates through pipefail
+    # as the pipeline's status, so a bare assignment would abort the install here. Fall
+    # back to an empty total -> the page keeps its indeterminate swoosh. Same idiom the
+    # reachable()/_kosmos_data_root() comments document for this file.
     _kp_total=$(curl -fsIL -m 15 "$url" 2>/dev/null \
-      | awk 'tolower($1)=="content-length:"{v=$2} END{gsub(/[^0-9]/,"",v);print v}')
+      | awk 'tolower($1)=="content-length:"{v=$2} END{gsub(/[^0-9]/,"",v);print v}') || _kp_total=""
     case "$_kp_total" in ''|*[!0-9]*) _kp_total="";; esac
     _kp_emit() {  # $1 = phase; best-effort, always returns 0
       [ -d "$_kp_dir" ] || mkdir -p "$_kp_dir" 2>/dev/null || return 0
       _kp_b=$(stat -f%z "$stage/kosmos.tar.gz" 2>/dev/null || echo 0)
       case "$_kp_b" in ''|*[!0-9]*) _kp_b=0;; esac
-      _kp_t=null; [ -n "$_kp_total" ] && _kp_t="$_kp_total"
+      # case, not `[ -n ] && ...`: the AND-list returns 1 when total is empty (the
+      # common no-content-length case), which under set -e -- active inside the
+      # background watcher subshell -- would abort the watcher before the write.
+      _kp_t=null; case "$_kp_total" in ?*) _kp_t="$_kp_total";; esac
       _kp_tmp="$_kp_js.$$.tmp"
+      # `|| true` so a failed write cannot abort under set -e either: the function's
+      # contract is best-effort and always returns 0, so it can never take the install down.
       printf 'window.__kosmosInstallProgress={bytes:%s,total:%s,phase:"%s",ts:%s};\n' \
         "$_kp_b" "$_kp_t" "$1" "$(date +%s 2>/dev/null || echo 0)" > "$_kp_tmp" 2>/dev/null \
-        && mv -f "$_kp_tmp" "$_kp_js" 2>/dev/null
+        && mv -f "$_kp_tmp" "$_kp_js" 2>/dev/null || true
       return 0
     }
     _kp_sentinel="$stage/.kp-active"
@@ -939,7 +949,11 @@ install_kosmos() {
     _kp_watcher=$!
     curl -fL --progress-bar "$url" -o "$stage/kosmos.tar.gz" \
       || { rm -f "$_kp_sentinel" 2>/dev/null; kill "$_kp_watcher" 2>/dev/null; rm -rf "$stage"; return 1; }
-    rm -f "$_kp_sentinel" 2>/dev/null; kill "$_kp_watcher" 2>/dev/null; wait "$_kp_watcher" 2>/dev/null
+    # Guarded teardown: killing an already-exited watcher, and wait returning the
+    # watcher's 143 (128+SIGTERM), are non-zero trailing simple commands that would
+    # abort under set -e. || true keeps this isolation INTRINSIC, not merely inherited
+    # from the `install_kosmos ... || die` call site that suspends errexit today.
+    rm -f "$_kp_sentinel" 2>/dev/null || true; kill "$_kp_watcher" 2>/dev/null || true; wait "$_kp_watcher" 2>/dev/null || true
     _kp_emit downloaded
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
     _kp_emit installing
