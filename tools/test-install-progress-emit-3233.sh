@@ -123,6 +123,20 @@ has "$body" '|| _kp_total=""' \
 has "$body" 'wait "$_kp_watcher" 2>/dev/null || true' \
   && pass "the watcher teardown wait is guarded (|| true)" \
   || fail "the watcher teardown 'wait' lost its || true guard (143 aborts under set -e)"
+has "$body" 'kill "$_kp_watcher" 2>/dev/null || true; rm -rf "$stage"' \
+  && pass "the curl-failure-branch teardown kill is guarded (|| true), same as the success path" \
+  || fail "the curl-failure-branch kill lost its || true guard -- isolation is not intrinsic there"
+has "$body" 'kill -0 "$_kp_ppid" 2>/dev/null' \
+  && pass "the watcher is bounded by parent liveness (kill -0), so a killed installer cannot orphan it" \
+  || fail "the watcher lost its parent-liveness bound -- a hard kill of setup.sh orphans it, rewriting the file forever"
+
+# --- ARM 6: postinstall clears a stale install-progress.js before the page opens ---
+POSTINSTALL="$REPO/install/pkg-scripts/postinstall"
+if [ -f "$POSTINSTALL" ] && has "$(cat "$POSTINSTALL")" 'rm -f "$1/install-progress.js"'; then
+  pass "postinstall clears a stale install-progress.js at page setup (no leftover percentage on a repeat install)"
+else
+  fail "postinstall no longer clears the stale install-progress.js -- a repeat install can briefly show an old percentage"
+fi
 
 # --- summary -----------------------------------------------------------------
 if [ "$fails" -eq 0 ]; then

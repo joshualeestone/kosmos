@@ -111,6 +111,10 @@ if [ -f "$PAGE_SRC" ] && [ -d "$USER_HOME" ]; then
   /usr/bin/sudo -u "$CONSOLE_USER" -H /bin/sh -c '
     set -e
     mkdir -p "$1" "$(dirname "$3")"
+    # kosmos#3233: clear any stale install-progress.js from a previous run so this
+    # fresh page reads "no data" (its swoosh) until the current setup.sh writes live
+    # bytes, rather than briefly rendering a leftover percentage (e.g. an old 100%).
+    rm -f "$1/install-progress.js" 2>/dev/null || true
     sed "s/__KOSMOS_PORT__/$5/" "$0" > "$2"
     /bin/launchctl bootout "gui/$(/usr/bin/id -u)/$4" >/dev/null 2>&1 || true
     cat > "$3" <<PLIST

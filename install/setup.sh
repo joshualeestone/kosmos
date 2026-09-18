@@ -919,12 +919,16 @@ install_kosmos() {
     # bar), never a megabytes figure (#920's deliberate stance).
     _kp_dir="$HOME/Library/Caches/Kosmos"
     _kp_js="$_kp_dir/install-progress.js"
-    # Guarded assignment: under this file's set -euo pipefail a failing HEAD (a -m 15
-    # timeout, a 4xx/5xx under -f, a host that refuses HEAD) propagates through pipefail
-    # as the pipeline's status, so a bare assignment would abort the install here. Fall
-    # back to an empty total -> the page keeps its indeterminate swoosh. Same idiom the
+    # Guarded assignment: under this file's set -euo pipefail a failing HEAD (a timeout,
+    # a 4xx/5xx under -f, a host that refuses HEAD) propagates through pipefail as the
+    # pipeline's status, so a bare assignment would abort the install here. Fall back to
+    # an empty total -> the page keeps its indeterminate swoosh. Same idiom the
     # reachable()/_kosmos_data_root() comments document for this file.
-    _kp_total=$(curl -fsIL -m 15 "$url" 2>/dev/null \
+    # -m 5 (not 15): reachable() a few lines up already round-tripped this exact $url and
+    # succeeded, so this HEAD answers in ~1 RTT in practice; the short cap bounds the
+    # pathological "answered the probe, hangs on the second HEAD" host so it cannot add a
+    # visible stall before the download starts.
+    _kp_total=$(curl -fsIL -m 5 "$url" 2>/dev/null \
       | awk 'tolower($1)=="content-length:"{v=$2} END{gsub(/[^0-9]/,"",v);print v}') || _kp_total=""
     case "$_kp_total" in ''|*[!0-9]*) _kp_total="";; esac
     _kp_emit() {  # $1 = phase; best-effort, always returns 0
@@ -944,11 +948,17 @@ install_kosmos() {
       return 0
     }
     _kp_sentinel="$stage/.kp-active"
+    _kp_ppid=$$
     : > "$_kp_sentinel" 2>/dev/null || true
-    ( while [ -f "$_kp_sentinel" ]; do _kp_emit downloading; sleep 1; done ) &
+    # Bounded watcher: exits when the sentinel is removed (normal teardown below) OR when
+    # its parent -- this installer -- has died, so a hard `kill -9` of setup.sh cannot
+    # orphan a process that rewrites install-progress.js once a second forever. kill -0
+    # tests liveness without signalling; $_kp_ppid is captured before the fork (in a
+    # backgrounded ( ) subshell $$ is the parent's PID, so it is captured explicitly).
+    ( while [ -f "$_kp_sentinel" ] && kill -0 "$_kp_ppid" 2>/dev/null; do _kp_emit downloading; sleep 1; done ) &
     _kp_watcher=$!
     curl -fL --progress-bar "$url" -o "$stage/kosmos.tar.gz" \
-      || { rm -f "$_kp_sentinel" 2>/dev/null; kill "$_kp_watcher" 2>/dev/null; rm -rf "$stage"; return 1; }
+      || { rm -f "$_kp_sentinel" 2>/dev/null || true; kill "$_kp_watcher" 2>/dev/null || true; rm -rf "$stage"; return 1; }
     # Guarded teardown: killing an already-exited watcher, and wait returning the
     # watcher's 143 (128+SIGTERM), are non-zero trailing simple commands that would
     # abort under set -e. || true keeps this isolation INTRINSIC, not merely inherited
