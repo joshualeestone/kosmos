@@ -8504,8 +8504,24 @@ test('--usermsg-tint is DEFINED in every theme, tied to its --k-sunk sibling', (
     `--usermsg-tint has ${tintDark.length} dark-side definition(s) but its sibling --k-sunk has ${sunkDark.length}; `
     + 'it must be defined in every dark theme block --k-sunk is (system-dark, forced-dark, navy), '
     + 'or the missing ground wears the light 10%');
-  assert.ok(tintDark.every((v) => v === tintDark[0]),
-    `the dark --usermsg-tint definitions disagree (${tintDark.join(', ')}); every dark theme should use the same 15%`);
+  // #3267: --usermsg-tint is now SOLID, pre-composited from 15% #4171E3 over EACH theme's
+  // own ground so the Option A overlap wing cannot double-composite into a dark triangle.
+  // The system-dark block and its generated forced-dark twin bake over the same ground
+  // (#0c0d0f) so they share one value (#141c2f); navy bakes over its own ground (#132140)
+  // and is legitimately different (#1a2d58). So this no longer requires ALL dark values to
+  // agree (that held only while the token was ONE translucent value composited live per
+  // ground). It requires at most TWO distinct dark values -- the shared twin value plus
+  // navy's -- so a THIRD distinct value (a drifted twin, or a mistyped opacity) still reds.
+  // Mirrors the --agent-msg sibling below, where navy also differs by design.
+  // The one gap this count leaves -- a forced-dark value corrupted to coincidentally equal
+  // navy while diverging from its system-dark twin -- is closed elsewhere by construction:
+  // the forced-dark block is GENERATED from system-dark (tools/sync-forced-theme.js) and
+  // web.theme.test.js ("the forced theme is in step with the system theme") asserts the page
+  // equals that regeneration byte-for-byte, so a forced-dark twin that diverged from
+  // system-dark reds there regardless of this count. This check is the presence/opacity guard.
+  const tintDarkDistinct = [...new Set(tintDark)];
+  assert.ok(tintDarkDistinct.length <= 2,
+    `the dark --usermsg-tint has ${tintDarkDistinct.length} distinct values (${tintDark.join(', ')}); expected at most two -- the system-dark/forced-dark twins share one solid value (15% over #0c0d0f) and navy bakes 15% over its own ground. A third distinct value means a twin drifted or an opacity was mistyped`);
   assert.notEqual(tintLight[0], tintDark[0],
     `light and dark --usermsg-tint are the same value (${tintLight[0]}); light should be 10%, dark 15%`);
 });
@@ -8516,10 +8532,11 @@ test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
   // per-theme definition silently wears the light cream on a dark ground. Tie
   // completeness to --k-sunk (its own test guarantees it is per-theme): drop
   // --agent-msg from any dark block --k-sunk defines and the counts diverge.
-  // Unlike --usermsg-tint this does NOT assert the dark values agree, because
-  // the plus-active (navy) block intentionally sets --agent-msg: var(--k-sunk)
-  // while the other dark blocks use the opaque cream -- presence parity is the
-  // guarantee, not value-agreement.
+  // Unlike --usermsg-tint this does NOT assert the dark values agree, because navy
+  // intentionally differs (its own bluish inset, now baked opaque per #3267) while the
+  // other dark blocks use the cream -- presence parity is this test's guarantee, not
+  // value-agreement. Opacity of every bubble-fill value is guarded separately below
+  // ("every bubble-fill token is opaque"), which the Option A overlap wing requires.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const declsIn = (token, text) => text.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [];
   const darkAt = raw.indexOf('@media (prefers-color-scheme: dark)');
@@ -8535,6 +8552,62 @@ test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
     `--agent-msg has ${agentDark.length} dark-side definition(s) but its sibling --k-sunk has ${sunkDark.length}; `
     + 'it must be defined in every dark theme block --k-sunk is (system-dark, forced-dark, navy/plus-active), '
     + 'or the missing ground wears the light cream');
+});
+
+test('every bubble-fill token is opaque: the Option A overlap wing double-composites a translucent one (#3267)', () => {
+  // #3267: the room bubble tail is an Option A wing (.msg-bd::before) drawn with
+  // background-color:inherit that OVERLAPS the bubble box. In the overlap region a TRANSLUCENT
+  // bubble fill composites twice -> the #3130 "colliding triangle" (Josh 6.72). The wing inherits
+  // whichever fill the bubble wears: --usermsg-tint (.msg.you) or --agent-msg (.msg:not(.you)).
+  // So EVERY definition of BOTH tokens, in EVERY theme block, must be opaque. This is the guard
+  // that would have caught navy --agent-msg still being var(--k-sunk) (translucent) after the
+  // operator tint was made solid: light/dark were solid, navy was not, and the browser-check runs
+  // only light+dark colorSchemes so it could not see the navy world. An opaque 6-digit hex is the
+  // only form that cannot double-composite; rgba(), an 8-digit #RRGGBBAA, or a var(--k-sunk)-style
+  // translucent alias all fail here.
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const valuesIn = (token) => (raw.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [])
+    .map((d) => d.replace(new RegExp('^--' + token + ':\\s*'), '').replace(/;$/, '').trim());
+  const OPAQUE_HEX = /^#[0-9a-fA-F]{6}$/;
+  for (const token of ['usermsg-tint', 'agent-msg']) {
+    const vals = valuesIn(token);
+    assert.ok(vals.length >= 3,
+      `CONTROL: --${token} has only ${vals.length} definition(s); expected at least light + dark + navy, so this opacity guard is not vacuous`);
+    for (const v of vals) {
+      assert.ok(OPAQUE_HEX.test(v),
+        `--${token} has a non-opaque value "${v}": the Option A overlap wing (background-color:inherit) would double-composite it into the #3130 triangle. Pre-composite it to a solid #RRGGBB hex over that theme's ground.`);
+    }
+  }
+});
+
+test('the room message bubble is width-capped so it does not span both edges (#3267, Josh: too wide on both sides)', () => {
+  // #3267 (Josh, 2026-09-18): the room bubble had no inner width cap, so messages spanned the
+  // full column on both views. .msg-bd now carries max-width: 52ch, the literal fix for "it's
+  // still too wide on both sides". Guard the rule so a future edit cannot silently drop it -- the
+  // browser-check-gate is satisfied by other assertions in the touched file, so this needs its own
+  // pin. Open-tail match (no closing brace) per the #1430/#1469 convention.
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(raw, /\.msg-bd \{ padding:[^}]*max-width: 52ch/,
+    '.msg-bd lost its max-width: 52ch cap -- room messages will span both edges again (Josh: too wide on both sides)');
+});
+
+test('the message tail is the Option A OVERLAP wing, not the rejected notch (#3267)', () => {
+  // #3267: Josh approved the Option A curved wing and explicitly rejected #3247's squished NOTCH
+  // (a small no-overlap mask). The distinguishing feature is that the colored ::before wing
+  // OVERLAPS the box (width 20 at offset 8 -> extends 12px INSIDE the bubble) with a 14x22 ground
+  // mask. render-room-msgbox-2806.js only checks presence/offset-sign/color/no-seam, so a silent
+  // revert to the notch geometry (a ~12x17 + ~7x18 no-overlap mask) would pass it -- this pins the
+  // geometry itself so that revert reds. Open-tail matches (no closing brace) per #1430/#1469;
+  // red-capable (reverting either width reds this).
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(raw, /\.msg:not\(\.you\) \.msg-bd::before \{ left: -8px; width: 20px; height: 20px;/,
+    'the agent tail wing is not the Option A overlap geometry (20px wing at -8) -- a revert to the #3247 notch?');
+  assert.match(raw, /\.msg\.you \.msg-bd::before \{ right: -8px; width: 20px; height: 20px;/,
+    'the operator tail wing is not the Option A overlap geometry (20px wing at -8)');
+  assert.match(raw, /\.msg:not\(\.you\) \.msg-bd::after \{ left: -14px; width: 14px; height: 22px;/,
+    'the agent tail mask is not the Option A geometry (14x22 at -14)');
+  assert.match(raw, /\.msg\.you \.msg-bd::after \{ right: -14px; width: 14px; height: 22px;/,
+    'the operator tail mask is not the Option A geometry (14x22 at -14)');
 });
 
 test('a composer that cannot send looks like it cannot send', () => {

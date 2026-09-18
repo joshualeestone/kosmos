@@ -1067,14 +1067,19 @@ function unreachableStates() {
          which `dmRow` emits when `m.from` is set, since #175) takes the
          transparent `.dm-b` default. So read the MINE bubble specifically:
          reading the first `.dm-b` (which may be a transparent theirs row) would
-         false-fire. Assert the royal-blue channels (65,113,227), alpha-agnostic
-         so it holds in BOTH themes (light .1, dark .15). `null` when no mine
-         bubble is on screen in this state; the post-loop counter refuses a run
-         where none ever was. */
+         false-fire. #3267: `--usermsg-tint` is now SOLID (opaque), so this reads
+         the painted pixel (light rgb(232,235,245), dark rgb(20,28,47)), not the
+         old translucent rgba(65,113,227,...). Assert the blue channel LEADS
+         (>=8), theme-agnostic, matching render-room-msgbox-2806.js's recalibrated
+         floor -- it confirms the bubble reads as the royal-blue tint without
+         pinning the exact opacity. `null` when no mine bubble is on screen in this
+         state; the post-loop counter refuses a run where none ever was. */
       if (m.mineBubbleBg !== null) {
         measuredMineBubble += 1;
-        if (!/^rgba\(65, 113, 227,/.test(m.mineBubbleBg)) {
-          problems.push(`${tag}: the person's own message bubble is not the royal-blue tint: ${m.mineBubbleBg}`);
+        const mineCh = (m.mineBubbleBg.match(/[\d.]+/g) || []).map(Number);
+        const mineBlueLead = mineCh.length >= 3 ? mineCh[2] - Math.max(mineCh[0], mineCh[1]) : -999;
+        if (mineBlueLead < 8) {
+          problems.push(`${tag}: the person's own message bubble is not the royal-blue tint: ${m.mineBubbleBg} (blueLead ${mineBlueLead})`);
         }
       }
       /* #1927: the bubble must preserve paragraph breaks. `pre-wrap` is what

@@ -111,13 +111,13 @@
      theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
      bluish inset is that world's own language, out of scope). #3260: this is now
      ONE fixed color per theme -- the earlier per-message variation was removed. */
-  --agent-msg: #f9f7f1;  /* #3130 (Josh 6.70): the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
+  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
      source and a future opacity change is one edit per theme, not four scattered
      rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
-  --usermsg-tint: rgba(65,113,227,.10);
+  --usermsg-tint: #e8ebf5; /* #3267: SOLID (opaque), so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once -- that fix is ground-independent. This exact hex is the value Josh approved on the white render (2026-09-18). Derived as ~.10 royal blue baked over --k-bg: exact for the cream-ground consumers (.dm.mine .dm-b, .pj-msg) and within a few RGB of the room bubble's --k-surface ground (imperceptible in light). One opaque token cannot byte-match every ground it serves; the approved appearance is the anchor. */
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings
@@ -327,7 +327,7 @@
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #221f1a;  /* #2947: the dark-mode cream (warm, a touch above the surface) */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
-    --usermsg-tint: rgba(65,113,227,.15);
+    --usermsg-tint: #141c2f; /* #3267: solid dark (pre-composited from rgba .15 over --k-bg #0c0d0f); see light note */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
     --k-side:   #111316;
     --k-side-2: #1c1f23;
@@ -4193,7 +4193,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      inherited border. A cascade defect is invisible to every text pin in this
      branch, which is the same blind spot the stray-terminator scanner exists
      for. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-bg); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-surface); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); } /* #3267 (Josh): consolidated dialogue ground WHITE too (reverses #980's cream); composer + tail-mask move with it */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
   /* 🔑 THE RULES REACH THE COLUMN EDGES (kosmos#1303 B item 2). Josh: "The
      horizontal rule below Tasks is also not going all the way to the edges."
@@ -4228,7 +4228,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      keeping the base surface drew a mismatched band across the bottom
      (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
      this pass removes. The bordered composerbox inside it is unchanged. */
-  html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-bg); }
+  html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-surface); } /* #3267: lockstep with the white pjmid ground above (was --k-bg for #980's cream) */
   /* #3218: Files is a header grid now (increment 5), so its label is a fixed cell in the header row
      -- it never scrolls, so it needs no sticky positioning and no background patch. `background: none`
      keeps it showing the column ground (--k-side) through, which is the #1303 B fix (no white box
@@ -4755,66 +4755,75 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.dm-b). Padding
    and radius match the DM bubble. A bodyless row draws no .msg-bd at all (pjMsg emits
    the wrapper only for non-empty body content), so there is no empty tinted box. */
-.msg-bd { padding: 8px 12px; border-radius: 12px; }
+.msg-bd { padding: 8px 12px; border-radius: 12px; max-width: 52ch; }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
    .msg-bd -- composites on top of the cream instead of being cleared by a
    shorthand. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
-/* #3134-followup (Josh 6.72): the bubble TAIL is now a clean iMessage-style WING at
-   the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
+/* #3134-followup (Josh 6.72) -> #3267: the bubble TAIL is a clean iMessage-style Option A
+   WING at the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
    bottom-RIGHT on the person's.
-   🛑 WHY THE OLD NUB WAS REPLACED, not tuned: the #3130 nub was a rotated square at
-   `z-index: -1` with `background-color: inherit` that OVERLAPPED the bubble box. On
-   the OPAQUE agent bubble that overlap was invisible (same colour over same colour),
-   but on the person's TRANSLUCENT `--usermsg-tint` it double-composited (tint over
-   tint) into a darker triangle -- Josh 6.72, "two transparent objects colliding
-   making a weird triangle". A translucent fill can only be made seamless by drawing
-   the wing ENTIRELY OUTSIDE the bubble box, so it composites exactly ONCE over the
-   thread ground and matches the bubble.
-   🔑 THE MASK TECHNIQUE: `::before` is the colored wing (`background-color: inherit`,
-   so it tracks the bubble's own cream fill), sitting flush just outside the
-   bubble's tail-side bottom corner; `::after` is a `--k-bg` (thread-ground) mask that
-   carves the wing's outer edge into a point. Neither overlaps the bubble body, so the
-   translucent user tint never doubles. Both are `z-index: -1` inside `.msg-bd`'s own
-   stacking context (kept below) so they tuck under the bubble's rounded corner and
-   read as one shape. Kept at the bubble's bottom (no extra row height) so the
-   message geometry does not shift -- the scroll-repin (#1147/#3200) is sensitive to
-   reflow, so this is deliberate; render-room-scroll.js is the oracle. */
+   🔑 THE TECHNIQUE (two pseudo-elements): `::before` is the colored wing
+   (`background-color: inherit`, so it tracks the bubble's own fill) and it OVERLAPS the bubble
+   box (Option A geometry) so the curve tucks under the corner and reads as one shape, the Apple
+   flick. `::after` is a thread-ground mask (`--k-surface`) sitting just outside the tail-side
+   bottom corner, carving the wing's outer edge into the curve; because it is the SAME colour as
+   the thread ground (white in light, the dark surface in dark, on both the tab and consolidated
+   views), the carve is invisible on the ground. Both sit at negative z-index inside `.msg-bd`'s
+   own stacking context (kept below) so they tuck under the bubble's rounded corner. Kept at the
+   bubble's bottom (absolutely positioned, no extra row height) so the message geometry does not
+   shift -- the scroll-repin (#1147/#3200) is sensitive to reflow, so this is deliberate;
+   render-room-scroll.js is the oracle.
+   🛑 WHY THE TINT IS SOLID, and it is load-bearing: the Option A wing OVERLAPS the box, and an
+   overlapping wing on a TRANSLUCENT fill double-composites (tint over tint) into a darker
+   triangle -- Josh 6.72, "two transparent objects colliding making a weird triangle" (#3130).
+   So EVERY bubble fill the wing can inherit is opaque: `--usermsg-tint` and `--agent-msg` are
+   solid hexes in every theme (light, dark, forced-dark, and navy -- navy `--agent-msg` was
+   translucent `var(--k-sunk)` until #3267 made it solid too), each pre-composited per theme, so
+   the overlap composites exactly ONCE (opaque over opaque) and there is no triangle. That
+   "every bubble fill is opaque" invariant is guarded by server.test.js (the overlap wing needs
+   it); render-room-msgbox-2806.js is the pixel oracle that MEASURES no double-tint seam in
+   light and dark. */
 .msg-bd { position: relative; z-index: 0; }
-/* 🛑 THE WING SITS ENTIRELY OUTSIDE THE BUBBLE BOX -- ZERO horizontal overlap -- and that
-   is load-bearing, not cosmetic. The colored ::before uses `background-color: inherit`, i.e.
-   the SAME translucent tint as the bubble (--usermsg-tint is rgba .10/.15). If the wing
-   overlapped the painted body, the two translucent layers would composite twice and the
-   overlap would read a shade bluer -- the exact double-tint "colliding triangle" #3130
-   produced and Josh 6.72 rejected. A pixel oracle (in-browser canvas decode of a screenshot,
-   /tmp wing-pixel-oracle) MEASURED that overlap seam on the first geometry and now measures
-   it gone. So: `left:-W; width:W` (agent) / `right:-W; width:W` (user) puts the wing's inner
-   edge flush AT the bubble edge, never inside it. The tail-side bottom corner is squared
-   (radius 5, #3244) so the wing meets a near-straight edge, not a gap under a 12px round corner. */
-/* #3244 (Josh picked Option A, iMessage curved wing): the old geometry (10x12, circular radii) read
-   as a small square-ish NOTCH; Josh asked for the classic Apple curved flick. Enlarged to 12x17
-   with ELLIPTICAL bottom radii (declared 16px 15px), so the wing is a soft curve growing from the
-   bottom corner toward the avatar, and the --k-bg mask (7x18, declared 14px 16px) carves its outer
-   edge into that curve. The horizontal radii are declared LARGER than the box width on purpose: CSS
-   clamps a corner radius to the box, so this asks for a full-corner round and the rendered curve is
-   the clamp (the numbers are the request, not the literal pixels; the shape is fixed by the render
-   below, not by the exact radius). Everything stays ENTIRELY OUTSIDE the bubble box (left/right:-W; width:W, inner
-   edge flush AT the edge) -- the load-bearing no-overlap invariant above, so the translucent user
-   tint never double-composites. The wing is absolutely positioned and bottom-anchored, so the taller
-   size adds NO row height and does not reflow (render-room-scroll.js still holds). Verified against a
-   headless render of both a sent (translucent tint) and received bubble: reads as the curved wing,
-   no double-tint seam. */
-.msg-bd::before, .msg-bd::after { content: ""; position: absolute; bottom: 0; z-index: -1; }
-.msg:not(.you) .msg-bd { border-bottom-left-radius: 5px; }
-.msg.you .msg-bd { border-bottom-right-radius: 5px; }
-/* the colored wing, flush at and extending OUTSIDE the tail-side edge (never inside it) */
-.msg:not(.you) .msg-bd::before { left: -12px; width: 12px; height: 17px; background-color: inherit; border-bottom-left-radius: 16px 15px; }
-.msg.you .msg-bd::before { right: -12px; width: 12px; height: 17px; background-color: inherit; border-bottom-right-radius: 16px 15px; }
-/* the thread-ground mask carving the wing's OUTER half to a curved point toward the avatar */
-.msg:not(.you) .msg-bd::after { left: -12px; width: 7px; height: 18px; background: var(--k-bg); border-bottom-left-radius: 14px 16px; }
-.msg.you .msg-bd::after { right: -12px; width: 7px; height: 18px; background: var(--k-bg); border-bottom-right-radius: 14px 16px; }
+/* #3244 -> #3247 -> #3267 (Josh picked Option A, the iMessage curved wing). #3247 dodged the
+   translucent double-composite by shrinking the wing onto a small NO-OVERLAP mask (12x17 + 7x18),
+   which read as a squished NOTCH -- Josh 2026-09-18: "not the right iMessage thing you showed
+   yesterday". #3267 rebuilds the approved Option A curve at the mockup's scale by going back to the
+   OVERLAP geometry the mockup uses (the overlap is what makes the curve connect under the corner)
+   and making the tint SOLID so that overlap is safe (see the tint note above). The shipped rules
+   below:
+     colored ::before wing 20x20 at offset -8 (spans 8px OUTSIDE the edge to 12px INSIDE it, i.e.
+       it overlaps the box by 12px), bottom radius 18px 16px;
+     --k-surface ground mask ::after 14x22 at offset -14 (spans entirely OUTSIDE, from -14 to the
+       box edge), bottom radius 12px 16px, carving the wing's outer edge into the full Apple curve.
+   The horizontal radii are declared larger than the element on purpose: CSS clamps a corner radius
+   to the box, so this asks for a full-corner round and the render is the clamp (the numbers are the
+   request, not literal pixels; the shape is fixed by the render). The tail-side bottom corner is 6px
+   (below) so the wing meets a near-straight edge, not a gap under a round corner. Absolutely
+   positioned + bottom-anchored, so the size adds NO row height and does not reflow
+   (render-room-scroll.js is the oracle). Verified against a headless render of both a sent (SOLID
+   blue tint) and received (SOLID cream) bubble vs the approved Option A mockup: reads as the full
+   curved wing, no double-tint seam (render-room-msgbox-2806.js is the pixel oracle). */
+.msg-bd::before, .msg-bd::after { content: ""; position: absolute; bottom: 0; }
+.msg:not(.you) .msg-bd { border-bottom-left-radius: 6px; }
+.msg.you .msg-bd { border-bottom-right-radius: 6px; }
+/* the colored wing (Option A geometry, tucks under the corner). It OVERLAPS the box: at
+   left:-8/width:20 (agent) the wing spans 8px OUTSIDE the tail-side edge to 12px INSIDE it, and
+   the inner 12px sits behind the opaque bubble (z-index:-2), hidden. The wing's own bottom radius
+   is on the INNER (bubble-side) corner -- that is deliberate, not a bug: the VISIBLE curved flick
+   is NOT this radius, it is carved by the ::after ground-mask below (its rounded corner uncovers a
+   crescent of this colored wing right where the wing meets the bubble). So the visible shape is a
+   two-pseudo composite: do not "fix" this radius onto the outward tip -- that recreates the
+   rejected squished notch. The rendered shape is the source of truth (verified vs the approved
+   Option A mockup); render-room-msgbox-2806.js is the pixel oracle and the geometry is pinned in
+   server.test.js so a revert to the notch reds. */
+.msg:not(.you) .msg-bd::before { left: -8px; width: 20px; height: 20px; background-color: inherit; border-bottom-right-radius: 18px 16px; z-index: -2; }
+.msg.you .msg-bd::before { right: -8px; width: 20px; height: 20px; background-color: inherit; border-bottom-left-radius: 18px 16px; z-index: -2; }
+/* the thread-ground mask carving the wing's outer edge into the curve */
+.msg:not(.you) .msg-bd::after { left: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-right-radius: 12px 16px; z-index: -1; }
+.msg.you .msg-bd::after { right: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-left-radius: 12px 16px; z-index: -1; }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
    mask must stay the pure thread ground or it would stop carving. */
@@ -7655,7 +7664,7 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #221f1a;  /* #2947: the dark-mode cream (warm, a touch above the surface) */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
-    --usermsg-tint: rgba(65,113,227,.15);
+    --usermsg-tint: #141c2f; /* #3267: solid dark (pre-composited from rgba .15 over --k-bg #0c0d0f); see light note */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
     --k-side:   #111316;
     --k-side-2: #1c1f23;
@@ -7799,8 +7808,8 @@ body.plus-active {
   --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
-  --agent-msg: var(--k-sunk);  /* #2947: navy keeps its bluish inset, cream is out of scope for this world */
-  --usermsg-tint: rgba(65,113,227,.15); /* #2660: 15% on the navy ground, as in dark */
+  --agent-msg: #1b2a4b;  /* #3267: was var(--k-sunk) = rgba(120,150,200,.08), TRANSLUCENT. The Option A wing (::before, background-color:inherit) OVERLAPS the bubble box, and a translucent fill double-composites in the overlap into the #3130 dark triangle -- the same defect this change fixed for --usermsg-tint. Made SOLID here too: .08 of rgb(120,150,200) pre-composited over navy --k-bg #132140 (mirrors --usermsg-tint navy). #2947 history: navy keeps its bluish inset, cream is out of scope for this world. */
+  --usermsg-tint: #1a2d58; /* #3267: solid navy (pre-composited from rgba .15 over --k-bg #132140); was #2660 15% */
   --k-optline: #5f7099;
   /* --label/--bg system */
   --bg: #132140; --bg-elevated: #1c2c4f; --bg-sunken: #0b1428;

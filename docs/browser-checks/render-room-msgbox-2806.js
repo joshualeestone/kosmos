@@ -28,9 +28,11 @@
  *   (g) the TIMESTAMP is INSIDE the bubble (`.msg-bd .msg-t`), the LAST child
  *       (bottom-right), on both bubbles;
  *   (h) the inline delivery receipt (`.delivery`, "Placed with X ...") is GONE;
- *   (i) the TAIL is a WING: the colored `::before` sits OUTSIDE the box (negative
- *       offset, agent=cream on the left, operator=blue on the right) so a translucent
- *       fill never double-tints, and the `::after` is the thread-ground mask;
+ *   (i) the TAIL is a WING: the colored `::before` is anchored at a negative offset
+ *       (agent=cream on the left, operator=blue on the right) and the `::after` is the
+ *       thread-ground mask that carves the Option A curve. #3267: the wing now OVERLAPS
+ *       the box (Option A geometry) and `--usermsg-tint` is SOLID, so the overlap cannot
+ *       double-tint (the solid fill composites once by construction);
  *   (j) the agent name + agent avatar are click-to-open (`data-open-agent`), the
  *       operator's own avatar is not; and the avatar is bottom-aligned (flex-end).
  *
@@ -158,10 +160,11 @@ const now = () => new Date().toISOString();
           /* #3134-followup (Josh 6.72): the inline delivery receipt (".delivery") is
              gone from the room -- no "Placed with X ... could not be reached". */
           hasReceipt: !!host.querySelector('.delivery'),
-          /* #3134-followup (Josh 6.72): the WING. The COLORED wing is now ::before
-             (background-color:inherit, so agent=cream, operator=blue), drawn OUTSIDE the
-             bubble box (negative left/right) so a translucent fill composites once and
-             never double-tints. ::after is the --k-bg thread-ground MASK that carves it. */
+          /* #3134-followup (Josh 6.72): the WING. The COLORED wing is ::before
+             (background-color:inherit, so agent=cream, operator=blue), anchored at a
+             negative left/right. #3267: the wing OVERLAPS the box (Option A geometry) and
+             --usermsg-tint is SOLID, so the overlap composites once by construction (no
+             double-tint). ::after is the --k-surface thread-ground MASK that carves the curve. */
           agentWing: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::before'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, bg: cs.backgroundColor }; })(),
           opWing: (() => { const bd = opRow && opRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::before'); return { on: cs.content !== 'none' && cs.content !== '', right: cs.right, bg: cs.backgroundColor }; })(),
           agentMask: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', bg: cs.backgroundColor }; })(),
@@ -175,11 +178,12 @@ const now = () => new Date().toISOString();
              (.msg align-items: flex-end). */
           rowAlign: (() => { const r = agentRow; return r ? getComputedStyle(r).alignItems : null; })(),
           /* #3130: `.msg-bd` MUST own a stacking context (position:relative +
-             z-index:0) or the tail's z-index:-1 resolves against the ambient tree
-             and `.thread`'s opaque ground paints OVER the whole nub -- an invisible
-             tail that every getComputedStyle-only tail assertion above still reads
-             as present. This is the structural pin for that (a regression to
-             z-index:auto reds it). */
+             z-index:0) or the tail's negative-z-index pseudo-elements (#3267:
+             ::before wing z-index:-2, ::after mask z-index:-1) resolve against the
+             ambient tree and `.thread`'s opaque ground paints OVER the whole tail --
+             an invisible tail that every getComputedStyle-only tail assertion above
+             still reads as present. This is the structural pin for that (a regression
+             to z-index:auto reds it). */
           bdPos: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).position : null; })(),
           bdZ: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).zIndex : null; })(),
           /* #3134-followup (Josh 6.72): an operator post with a BODY but NO timestamp
@@ -210,7 +214,14 @@ const now = () => new Date().toISOString();
       // (a) operator box filled.
       chk(op[3] > 0, `${t} the operator body box (.msg.you .msg-bd) carries a fill`, m.opBd);
       // (b) operator box is blue, not gray/surface.
-      chk(blueLead(op) >= 20, `${t} the operator box is BLUE (blue channel leads)`, `${m.opBd} lead=${blueLead(op).toFixed(0)}`);
+      // #3267: --usermsg-tint is now SOLID (pre-composited over each theme ground) so the
+      // Option A overlap wing cannot double-composite into a dark triangle. getComputedStyle
+      // therefore returns the true PAINTED pixel (light rgb(232,235,245) lead 10, dark
+      // rgb(20,28,47) lead 19), not the old translucent token whose raw blue read ~114 with the
+      // alpha dropped. Recalibrated floor 8 cleanly separates the painted blue (>=10) from a
+      // neutral gray (~0) and the warm agent cream (negative); the >=20 distinctness guard at (d)
+      // is the strong separator and stays put.
+      chk(blueLead(op) >= 8, `${t} the operator box is BLUE (blue channel leads)`, `${m.opBd} lead=${blueLead(op).toFixed(0)}`);
       // (c) agent box filled AND a warm cream (#2947), not the blue.
       chk(ag[3] > 0, `${t} the agent body box (.msg:not(.you) .msg-bd) carries a fill`, m.agentBd);
       chk(ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20,
@@ -238,9 +249,11 @@ const now = () => new Date().toISOString();
       chk(m.agentTimeIsLast === true, `${t} the timestamp is the LAST child of the bubble (bottom)`, `last=${m.agentTimeIsLast}`);
       // #3134-followup (Josh 6.72): the inline delivery receipt ("Placed with X ...") is GONE.
       chk(m.hasReceipt === false, `${t} no inline "placed with" delivery receipt in the room`, `hasReceipt=${m.hasReceipt}`);
-      // #3134-followup (Josh 6.72): the WING. The COLORED wing is ::before, drawn OUTSIDE
-      // the box (negative offset) so a translucent fill composites once and never doubles;
-      // agent on the LEFT (cream), operator on the RIGHT (blue).
+      // #3134-followup (Josh 6.72): the WING. The COLORED wing is ::before, anchored at a
+      // negative offset; #3267 it overlaps the box (Option A) with a SOLID tint so the fill
+      // composites once and never doubles. agent on the LEFT (cream), operator on the RIGHT (blue).
+      // The offset assertion below stays < 0 (the anchor is still negative); overlap is the
+      // width extending back INTO the box, not a change of anchor sign.
       chk(!!(m.agentWing && m.agentWing.on) && parseInt(m.agentWing.left, 10) < 0,
         `${t} the agent wing (::before) sits outside the LEFT edge`, JSON.stringify(m.agentWing));
       chk(!!(m.opWing && m.opWing.on) && parseInt(m.opWing.right, 10) < 0,
@@ -251,13 +264,16 @@ const now = () => new Date().toISOString();
       chk(awing[0] >= awing[1] && awing[1] >= awing[2] && (awing[0] - awing[2]) >= 2 && blueLead(awing) < 20,
         `${t} the agent wing is the warm cream, not blue`, m.agentWing && m.agentWing.bg);
       const owing = parse(m.opWing && m.opWing.bg);
-      chk(blueLead(owing) >= 20, `${t} the operator wing is the blue user tint`, m.opWing && m.opWing.bg);
+      // #3267: the wing inherits the SOLID --usermsg-tint (background-color: inherit), so it reads
+      // the same painted blue as the box at (b) -- floor 8, same recalibration rationale.
+      chk(blueLead(owing) >= 8, `${t} the operator wing is the blue user tint`, m.opWing && m.opWing.bg);
       // the ::after MASK carries the thread-ground fill (carving the wing to a point).
       const amask = parse(m.agentMask && m.agentMask.bg);
       chk(!!(m.agentMask && m.agentMask.on) && amask[3] > 0,
         `${t} the wing MASK (::after) carries the thread-ground fill`, m.agentMask && m.agentMask.bg);
       // the STRUCTURAL guard for the wing's visibility -- `.msg-bd` owns its own stacking
-      // context so the z-index:-1 wing tucks behind THIS bubble, not behind `.thread`.
+      // context so the negative-z-index wing (::before) and mask (::after) tuck behind THIS
+      // bubble, not behind `.thread`.
       chk(m.bdPos === 'relative' && m.bdZ === '0',
         `${t} .msg-bd owns a stacking context (position:relative, z-index:0) so the wing is not hidden behind .thread`,
         `position=${m.bdPos} z-index=${m.bdZ}`);
@@ -279,15 +295,17 @@ const now = () => new Date().toISOString();
     }
 
     /* #3134-followup (Josh 6.72): the WING NO-SEAM PIXEL ORACLE. The computed-style arms
-       above verify the wing's MECHANISM (::before colored + outside offset, ::after mask);
+       above verify the wing's MECHANISM (::before colored + negative anchor, ::after mask);
        they cannot see the COMPOSITED OUTCOME. #3130's tail LOOKED right and still
-       double-tinted the translucent user bubble into a "colliding triangle" -- a defect
+       double-tinted the then-translucent user bubble into a "colliding triangle" -- a defect
        invisible to getComputedStyle and to the eye on a quick look, caught only by reading
-       pixels. So: render a real user bubble VISIBLE, screenshot it, decode the PNG in-browser
-       via a canvas (no node PNG dep needed), and assert no pixel in the wing region is more
-       blue than the bubble body (a double composite of the .10-alpha --usermsg-tint reads a
-       shade bluer). Light theme, where the tint alpha is lowest and a seam is hardest to see
-       by eye -- the case the human check is weakest on. */
+       pixels. #3267 rebuilt the tail to the Option A OVERLAP geometry, which would re-introduce
+       exactly that double-composite on a translucent fill -- so --usermsg-tint was made SOLID,
+       and this oracle is what proves the overlap composites once. So: render a real user bubble
+       VISIBLE, screenshot it, decode the PNG in-browser via a canvas (no node PNG dep needed),
+       and assert no pixel in the wing region is more blue than the bubble body (a double
+       composite would read a shade bluer). Light theme, where a seam is hardest to see by eye
+       -- the case the human check is weakest on. */
     const pxPage = await browser.newPage({ viewport: { width: 760, height: 400 }, colorScheme: 'light' });
     try {
       await pxPage.addInitScript(() => {
@@ -320,11 +338,15 @@ const now = () => new Date().toISOString();
         const blueLead = (rgb) => rgb[2] - Math.max(rgb[0], rgb[1]);
         const bodyLead = blueLead(at(box.x + box.w * 0.5, box.y + box.h * 0.5));
         let maxWingLead = -999;
-        // #3244: window matched to the enlarged curved wing -- ::before is right:-12/width:12/height:17
-        // and the ::after mask is height:18, so the wing footprint is box.right-12..box.right+12
-        // horizontally and box.bottom-18..box.bottom vertically. Sample the whole footprint: dx<0 is
-        // the body/edge (where a double-tint seam would show), dx 0..12 is the outward wing itself.
-        for (let dx = -12; dx <= 12; dx++) for (let dy = -18; dy <= 3; dy++) {
+        // #3267: this samples the OPERATOR bubble (.msg.you), whose tail is on the RIGHT: ::before
+        // wing is right:-8/width:20/height:20 (spans box.right-12 to box.right+8, overlapping the
+        // body from box.right-12 to box.right) and the ::after mask is right:-14/width:14/height:22
+        // (spans box.right to box.right+14). So the footprint is box.right-14..box.right+14
+        // horizontally (the -14 low bound over-covers the overlap/seam side by 2px) and
+        // box.bottom-22..box.bottom vertically. Sample the whole footprint: dx<0 is the body/overlap
+        // (where a double-tint seam would show, since the wing overlaps back INTO the box), dx>0 is
+        // the outward wing + mask.
+        for (let dx = -14; dx <= 14; dx++) for (let dy = -22; dy <= 3; dy++) {
           const lead = blueLead(at(box.right + dx, box.bottom + dy));
           if (lead > maxWingLead) maxWingLead = lead;
         }
@@ -333,7 +355,7 @@ const now = () => new Date().toISOString();
       // A single-composite wing matches the body; a double-tint seam reads several points
       // bluer. Allow a small anti-aliasing margin.
       chk(px.maxWingLead <= px.bodyLead + 4,
-        `[pixel] the wing has no double-tint seam on the translucent user bubble`,
+        `[pixel] the wing has no double-tint seam on the user bubble`,
         `bodyLead=${px.bodyLead} maxWingLead=${px.maxWingLead}`);
     } finally {
       await pxPage.close();
