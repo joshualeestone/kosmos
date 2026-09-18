@@ -65,6 +65,19 @@ test('the declared manifest is well-formed: non-empty, each has label/purpose/so
   assert.equal(new Set(labels).size, labels.length, 'monitor labels must be unique');
 });
 
+test('#3250: board-served-tree-check is registered (a live monitor that was missing from the registry)', () => {
+  // A LIVE loaded fleet monitor absent from the registry is a blind spot: the
+  // audit reads the registry as its expected set, so its loss would not be
+  // caught. This pins the fix red-capable: removing the entry fails this test.
+  const m = FLEET_MONITORS.find((x) => x.label === 'com.stonesyndicate.board-served-tree-check');
+  assert.ok(m, 'com.stonesyndicate.board-served-tree-check must be declared in the registry');
+  assert.equal(
+    m.source,
+    'Josh-Brain/Tools/fleet/board-served-tree-guard.sh',
+    'its source must point at what to reinstall (the deploying-repo-owned guard)',
+  );
+});
+
 /* Tool integration: exercise the launchctl-parsing + three-state wiring via the
  * PARAMETER seams (loadedLabels(inject), run(argv, loader)) IN-PROCESS - no env, no
  * subprocess. The seam is a parameter precisely because this box shares one env
