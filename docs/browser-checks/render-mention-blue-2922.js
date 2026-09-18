@@ -153,7 +153,12 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
       const userAlpha = (String(state.usermsg).match(/rgba?\([^)]*,\s*([0-9.]+)\s*\)/) || [])[1];
       const grounds = [['page', kbg]];
       if (sunkRaw && sunkAlpha != null) grounds.push(['sunk', blend(sunkRaw, parseFloat(sunkAlpha), kbg)]);
-      if (userRaw && userAlpha != null) grounds.push(['usermsg', blend(userRaw, parseFloat(userAlpha), kbg)]);
+      // #3267: --usermsg-tint is now SOLID (opaque), so its painted ground IS userRaw directly.
+      // The old arm only pushed a BLENDED ground when an rgba alpha was present, so against the
+      // solid hex userAlpha is undefined and the usermsg ground was silently dropped -- the exact
+      // wrong-ground/vacuous loss the header at :60-61 warns about. Push it either way: blend when
+      // translucent (legacy rgba), use the opaque rgb directly when solid.
+      if (userRaw) grounds.push(['usermsg', userAlpha != null ? blend(userRaw, parseFloat(userAlpha), kbg) : userRaw]);
       const ratios = grounds.map(([n, g]) => [n, fg ? contrast(fg, g) : 0]);
       const worst = Math.min(...ratios.map((r) => r[1]));
       check(`${tag} .pjmention clears WCAG AA (>=4.5:1) on every message-bubble ground`,
