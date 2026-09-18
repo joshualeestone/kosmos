@@ -4824,6 +4824,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    keeps --k-bg) is untouched. */
 html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid .msg:not(.you) .msg-bd::after { background: var(--k-surface); }
 .msg.you .msg-bd::after { right: -12px; width: 7px; height: 18px; background: var(--k-bg); border-bottom-right-radius: 14px 16px; }
+/* #3264: the SAME white-ground carve for the operator's OWN message tail. The mask masks
+   against the thread GROUND (behind the bubble), not the bubble tint, so it must move in
+   lockstep with the agent carve above, or the user's own tail shows a --k-bg sliver on the
+   white consolidated ground (an 11/channel darker sliver in dark mode). Consolidated-scoped
+   like line 4825; the non-consolidated (tab) ground keeps --k-bg, untouched. */
+html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid .msg.you .msg-bd::after { background: var(--k-surface); }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
    mask must stay the pure thread ground or it would stop carving. */

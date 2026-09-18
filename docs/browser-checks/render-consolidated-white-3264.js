@@ -5,12 +5,14 @@
  * is WHITE (--k-surface), like the tab view. Verbatim: "the background is supposed to be
  * white just like it is on the tab view." This reverses #980 iter-5's cream (--k-bg) tuning.
  *
- * The load-bearing coupling is that THREE things must move together, or a mismatched band
- * (or a cream tail sliver) returns -- glaring in dark:
+ * The load-bearing coupling is that FOUR things must move together, or a mismatched band
+ * (or a tail sliver) returns -- glaring in dark:
  *   - the consolidated .pj3 > .pjmid ground,
  *   - its sticky .pjmid .composer (which #980 repainted to --k-bg to hide the band),
- *   - the wing-carve `.msg:not(.you) .msg-bd::after` mask (matches the ground, or a cream
- *     sliver shows at the tail tip on a white ground).
+ *   - the agent wing-carve `.msg:not(.you) .msg-bd::after` mask,
+ *   - the operator's OWN wing-carve `.msg.you .msg-bd::after` mask (both masks match the
+ *     GROUND behind the bubble, not the bubble tint, so a --k-bg sliver shows at the tail
+ *     tip on a white ground if either is missed -- an 11/channel darker sliver in dark).
  *
  * WHAT IT MEASURES, and why it is render-mode independent: the COMPUTED background-color of
  * each, compared token-to-token against a painted `var(--k-surface)` probe (and asserted
@@ -70,12 +72,17 @@ const norm = (c) => String(c).replace(/\s+/g, '');
         probe.style.background = 'var(--k-surface)'; const surface = getComputedStyle(probe).backgroundColor;
         probe.style.background = 'var(--k-bg)'; const bg = getComputedStyle(probe).backgroundColor;
 
-        // NO-REGRESSION control: a carve OUTSIDE the consolidated layout keeps --k-bg (the global
-        // rule the consolidated-scoped #3264 override must not leak into -- i.e. the tab view).
+        // NO-REGRESSION control: carves OUTSIDE the consolidated layout keep --k-bg (the global
+        // rules the consolidated-scoped #3264 override must not leak into -- i.e. the tab view).
+        // BOTH arms: the agent (.msg:not(.you)) AND the operator's own (.msg.you) carve.
         const tabMsg = document.createElement('div'); tabMsg.className = 'msg';
         const tabBd = document.createElement('div'); tabBd.className = 'msg-bd'; tabBd.textContent = 'x';
         tabMsg.appendChild(tabBd); document.body.appendChild(tabMsg);
         const tabCarve = getComputedStyle(tabBd, '::after').backgroundColor;
+        const tabYouMsg = document.createElement('div'); tabYouMsg.className = 'msg you';
+        const tabYouBd = document.createElement('div'); tabYouBd.className = 'msg-bd'; tabYouBd.textContent = 'x';
+        tabYouMsg.appendChild(tabYouBd); document.body.appendChild(tabYouMsg);
+        const tabYouCarve = getComputedStyle(tabYouBd, '::after').backgroundColor;
 
         // Now switch to CONSOLIDATED and inject the structure the #3264 rules target.
         document.documentElement.setAttribute('data-layout', 'consolidated');
@@ -83,18 +90,25 @@ const norm = (c) => String(c).replace(/\s+/g, '');
         const pj3 = document.createElement('div'); pj3.className = 'pj3';
         const pjmid = document.createElement('div'); pjmid.className = 'pjmid';
         const composer = document.createElement('div'); composer.className = 'composer';
-        const msg = document.createElement('div'); msg.className = 'msg'; // NOT .you -> the carve applies
+        const msg = document.createElement('div'); msg.className = 'msg'; // agent (:not(.you)) -> the carve applies
         const bd = document.createElement('div'); bd.className = 'msg-bd'; bd.textContent = 'x';
-        msg.appendChild(bd); pjmid.appendChild(msg); pjmid.appendChild(composer); pj3.appendChild(pjmid);
+        // The operator's OWN message also mounts in the consolidated discussion (the room
+        // renderer adds .you for isOp). Its tail carve must ALSO go white, or a --k-bg sliver
+        // shows at its tail tip on the white ground (glaring in dark). Cover both arms.
+        const youMsg = document.createElement('div'); youMsg.className = 'msg you';
+        const youBd = document.createElement('div'); youBd.className = 'msg-bd'; youBd.textContent = 'x';
+        youMsg.appendChild(youBd);
+        msg.appendChild(bd); pjmid.appendChild(msg); pjmid.appendChild(youMsg); pjmid.appendChild(composer); pj3.appendChild(pjmid);
         document.body.appendChild(pj3);
         const cs = (el, pseudo) => getComputedStyle(el, pseudo || null).backgroundColor;
         const out = {
-          surface, bg, tabCarve,
+          surface, bg, tabCarve, tabYouCarve,
           pjmid: cs(pjmid),
           composer: cs(composer),
           carve: cs(bd, '::after'),
+          youCarve: cs(youBd, '::after'),
         };
-        pj3.remove(); tabMsg.remove(); probe.remove();
+        pj3.remove(); tabMsg.remove(); tabYouMsg.remove(); probe.remove();
         return out;
       });
       const t = `[${theme}]`;
@@ -107,10 +121,14 @@ const norm = (c) => String(c).replace(/\s+/g, '');
       chk(norm(r.composer) === norm(r.surface),
         `${t} consolidated sticky .composer matches --k-surface (no #980 mismatched band)`, `composer=${r.composer} surface=${r.surface}`);
       chk(norm(r.carve) === norm(r.surface),
-        `${t} the wing-carve ::after is --k-surface (no cream tail sliver on the white ground)`, `carve=${r.carve} surface=${r.surface}`);
-      // NO tab-view regression: the non-consolidated carve keeps --k-bg (the override is scoped).
+        `${t} the agent wing-carve ::after is --k-surface (no cream tail sliver on the white ground)`, `carve=${r.carve} surface=${r.surface}`);
+      chk(norm(r.youCarve) === norm(r.surface),
+        `${t} the OPERATOR'S OWN (.msg.you) wing-carve ::after is --k-surface too (no dark sliver on its tail)`, `youCarve=${r.youCarve} surface=${r.surface}`);
+      // NO tab-view regression: BOTH non-consolidated carves keep --k-bg (the override is scoped).
       chk(norm(r.tabCarve) === norm(r.bg),
-        `${t} the NON-consolidated (tab) carve is untouched (still --k-bg) -- the #3264 override did not leak`, `tabCarve=${r.tabCarve} bg=${r.bg}`);
+        `${t} the NON-consolidated (tab) agent carve is untouched (still --k-bg) -- the #3264 override did not leak`, `tabCarve=${r.tabCarve} bg=${r.bg}`);
+      chk(norm(r.tabYouCarve) === norm(r.bg),
+        `${t} the NON-consolidated (tab) .msg.you carve is untouched (still --k-bg) -- no leak`, `tabYouCarve=${r.tabYouCarve} bg=${r.bg}`);
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
