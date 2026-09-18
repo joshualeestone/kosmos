@@ -73,6 +73,19 @@ rejection is corrected in the same change.
 - `web.firstrun-a11y-1214.test.js` - updated the #2911 sub-arms: the map no longer wires any
   gate to `/api/tmux-a11y-prompt`; only the app row keeps a trigger; `frFireTmuxA11yRegister`
   POSTs the register up front; entering S3 calls it; it is macOS-only + once-per-session. 12/12.
-- `docs/browser-checks/click-first-run.js` - new section clicks tmux's own row like a person on
-  a booted board: register fires once on S3 entry (before any click), no pane opens pre-click,
-  Turn On deep-links, Turn On does NOT re-fire the register. All 4 arms green.
+- `docs/browser-checks/click-first-run.js` - new sections click tmux's own row like a person on
+  a booted board. Fire-once/deep-link (4 arms): register fires once on S3 entry (before any
+  click), no pane opens pre-click, Turn On deep-links, Turn On does NOT re-fire the register.
+  Unlatch-on-failure (2 arms + a success control): a failed register (`ok:false`) unlatches and
+  RETRIES on the next S3 entry (driven via `frGo(1)` -> `frGo(3)`), while a successful register
+  does NOT re-fire. `/api/tmux-a11y-prompt` is also mocked in `render-gated-next` and
+  `render-permission-slider-2620` (they goto S3 with `networkidle`). All arms green.
+
+## Design note: the register fire is deliberately status-independent
+
+`frFireTmuxA11yRegister` fires on every fresh S3 entry (once/session) WITHOUT consulting
+`/api/tmux-a11y-status.trusted`. This is deliberate: the async status is not reliably known at
+entry, and re-registering an already-granted tmux is harmless (macOS does not re-prompt an
+already-listed binary, so the worst case is one redundant, idempotent osascript spawn). Gating the
+fire on a not-yet-known status would risk NOT registering when it is actually needed, which is the
+regression this whole change exists to prevent.
