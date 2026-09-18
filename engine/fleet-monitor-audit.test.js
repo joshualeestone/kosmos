@@ -115,6 +115,18 @@ test('tool: launchctl unreadable -> exit 2 and could-not-read, NOT reported as a
   assert.ok(!('missing' in v) || v.missing === undefined, 'a read failure must NOT emit a missing list (would read as a rebuild signal)');
 });
 
+test('tool: empty-but-SUCCESSFUL read (AUDIT_LOADED_RAW="") -> readable:true, all missing, exit 1 (empty != unset != failed)', () => {
+  // An empty string is a successful read that saw nothing, NOT a failure. This pins
+  // the `AUDIT_LOADED_RAW != null` check: a future refactor to a truthiness test
+  // (`if (process.env.AUDIT_LOADED_RAW)`) would silently fold '' into the call-real-
+  // launchctl branch, and only this test would catch it.
+  const r = runTool(['--json'], { AUDIT_LOADED_RAW: '' });
+  assert.equal(r.code, 1, 'an empty successful read is all-missing (exit 1), NOT could-not-read (exit 2)');
+  const v = JSON.parse(r.out);
+  assert.equal(v.readable, true, 'an empty string is a successful read (readable:true), distinct from AUDIT_LOADED_FAIL');
+  assert.equal(v.missing.length, v.expectedCount, 'nothing loaded -> every declared monitor missing');
+});
+
 test('tool: human-readable output NAMES a missing monitor + its reinstall source (the mode an operator runs)', () => {
   const dropped = FLEET_MONITORS[0];
   const r = runTool([], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS.slice(1)) });

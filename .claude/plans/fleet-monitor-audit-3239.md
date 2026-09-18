@@ -37,7 +37,10 @@ Turn silent monitor-loss into a CAUGHT signal, without touching the running moni
 - Reversible by construction (only reads + reports).
 
 ## Verification
-- node --test engine/fleet-monitor-audit.test.js: 8/8 green.
+- node --test engine/fleet-monitor-audit.test.js: all green (pure verdict with non-vacuous
+  missing controls, the three-state tool integration incl. could-not-read exit 2, the
+  empty-vs-unset-vs-failed distinction, and the human-output path). Count intentionally not
+  cited here to avoid prose-vs-artifact drift.
 - Real-box smoke: `node tools/fleet-monitor-audit.js` reports all 7 declared monitors present, exit 0
   (confirms the real launchctl path, not just the stub).
 
