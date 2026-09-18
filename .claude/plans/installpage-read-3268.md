@@ -1,4 +1,4 @@
-# installpage-read-3268 — .pkg install progress page: render from a world-readable copy
+# installpage-read-3268 - .pkg install progress page renders from a world-readable copy
 
 Card: kosmos#3268 (non-fatal fast-follow split out of #3254; the fatal half was #3261, fixed in 0.6.78).
 
@@ -15,7 +15,7 @@ bar) does not show. Josh's /var/log/install.log:
 `$0` = `PAGE_SRC = $(dirname "$0")/installing.html`. That source lives inside the root-owned
 PKInstallSandbox Scripts dir, which the console user cannot READ, so `sed` fails, the inner `set -e`
 aborts the sub-shell, and `PAGE_OPENED` stays 0. The rendered OUTPUT (`$PAGE`) goes to the
-user-owned `$USER_HOME/Library/Caches/Kosmos`, which is writable — only the READ of the root-owned
+user-owned `$USER_HOME/Library/Caches/Kosmos`, which is writable; only the READ of the root-owned
 source is the problem. Non-fatal (the install proceeds), but it defeats #3233's progress bar on the
 .pkg path, so a ~200MB download reads as stuck rather than slow.
 
@@ -34,7 +34,7 @@ Then pass `$_PAGE_READABLE` (not `$PAGE_SRC`) as the render source, and remove t
 
 Decisions:
 - **Explicit `/tmp` path, NOT mktemp's default dir.** Under installd, `$TMPDIR` IS the root-owned
-  PKInstallSandbox, so a temp created there would be unreadable too — the exact trap this fix exists
+  PKInstallSandbox, so a temp created there would be unreadable too, the exact trap this fix exists
   to avoid. Rejected `mktemp -t` / bare `mktemp` for that reason.
 - **Fall back to the original source on any copy failure.** No worse than today (the page just does
   not show, as before); never abort the install for a cosmetic page. Safe because the outer

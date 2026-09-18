@@ -162,6 +162,9 @@ PLIST
   # kosmos#3268: remove the staged readable copy (set only when mktemp succeeded;
   # a failed cp/chmod still leaves the empty temp, so remove it unconditionally here).
   [ -n "$_pr_tmp" ] && /bin/rm -f "$_pr_tmp" 2>/dev/null || true
+  # kosmos#3268: the temp is gone now, so disarm the EXIT trap rather than leave it live
+  # through the long real-install block below (it would only re-rm an already-removed path).
+  trap - EXIT
 fi
 echo "Kosmos: install page opened=$PAGE_OPENED"
 
