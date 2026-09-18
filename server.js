@@ -8575,22 +8575,24 @@ const server = http.createServer((req, res) => {
         // remains non-blocking (#2912):
         // this only turns a dead spinner into an affordance, it never blocks.
         //
-        // TWO checkable:false sub-cases enter here, and Turn On is the right action for BOTH (so
-        // the branch keys on nativePresent + checkable:false, not on which sub-case), which is why
-        // the `because` is worded to cover both rather than asserting one:
+        // TWO checkable:false sub-cases enter here, and the actionable row is the right answer for
+        // BOTH (so the branch keys on nativePresent + checkable:false, not on which sub-case),
+        // which is why the `because` is worded to cover both rather than asserting one:
         //   (1) TCC db UNREADABLE -- the fresh-Mac no-FDA case (tmux's grant is only readable via
         //       the system TCC db, which needs Full Disk Access a fresh install lacks). We could
-        //       not read it, so we cannot confirm the grant; Turn On grants it.
+        //       not read it, so we cannot confirm the grant; the user grants it in the Accessibility
+        //       pane that the row's Turn On deep-links to.
         //   (2) PATH-KEY MISMATCH -- the db WAS readable and some tmux is granted, but not the
         //       exact bundled binary this install runs (a11ystatus.js). Our tmux is still not
-        //       granted, and Turn On registers the correct (bundled) binary.
+        //       granted. (#3221: the up-front register at S3 entry registers the correct (bundled)
+        //       binary so it is LISTED; Turn On then deep-links to the pane where the user grants it.)
         // A BROWSER (nativePresent false) does not enter this branch and keeps the honest advisory
-        // below -- nothing to grant, no native app to fire the prompt.
+        // below -- nothing to grant, no native app to register.
         //
         // WEAKEST PREMISE: which sub-case Josh's fresh-Mac stuck row is (no-FDA is the inferred
         // one) is not measured on a fresh box; the fresh-Mac verify confirms both that Turn On now
-        // appears and that firing it yields a tmux-keyed grant. The fix does not depend on the
-        // sub-case -- it covers whichever checkable:false path fires.
+        // appears and that the up-front register yields a tmux-keyed grant once granted in the pane.
+        // The fix does not depend on the sub-case -- it covers whichever checkable:false path fires.
         reading = { checkable: false, actionable: true, because: 'tmux is not confirmed granted for this install; turn it on to grant tmux' };
       } else {
         reading = g;

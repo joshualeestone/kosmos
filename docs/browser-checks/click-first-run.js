@@ -415,6 +415,9 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
     await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: true } }));
     await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    // #3221: entering S3 fires the tmux-a11y register up front; mock it so this section stays
+    // hermetic rather than POSTing to the real board.
+    await page.route('**/api/tmux-a11y-prompt', (r) => r.fulfill({ json: { ok: true } }));
     await advanceToAnchor(page, '.s3-gate-row');       // S2 file-access is granted, so we can reach S3
     await page.waitForTimeout(400);
     ok(await page.locator('#fr-next').isDisabled(), 'S3 Next is DISABLED while app accessibility is measured-not-granted (re-gated #2559)');
@@ -655,6 +658,9 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.route('**/api/open-sleep-settings', (r) => { sleepPosts += 1; r.fulfill({ json: { ok: true } }); });
     await page.route('**/api/a11y-prompt', (r) => { a11yPromptPosts += 1; r.fulfill({ json: { ok: true } }); });
     await page.route('**/api/open-accessibility-settings', (r) => { a11ySettingsPosts += 1; r.fulfill({ json: { ok: true } }); });
+    // #3221: entering S3 fires the tmux-a11y register up front; mock it so this section stays
+    // hermetic (it exercises the APP tmux row, not tmux's own, so the register is incidental here).
+    await page.route('**/api/tmux-a11y-prompt', (r) => r.fulfill({ json: { ok: true } }));
     await advanceToAnchor(page, '.s3-gate-row');
     await page.click('[data-gate="sleep"] .s3-on');
     await page.waitForTimeout(150);
