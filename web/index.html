@@ -4209,8 +4209,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      first version was ~100 lines earlier with identical specificity, so
      `margin: 0 12px 12px` won on order alone. The measurement showed padding
      applied and margin unchanged, which is what a lost tie looks like. */
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files,
-  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-members {
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files {
     margin-left: 0; margin-right: 0; padding-left: 12px; padding-right: 12px; }
   /* 🔑 AND THE TASKS COLUMN COMES UP TO MEET THEM (kosmos#1303 A item 2).
      MEASURED: this margin put the aside at 45 + 12 = 57, and its label 6px inside
@@ -4234,14 +4233,14 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
   /* #3218: Files is a header grid now (increment 5), so its label is a fixed cell in the header row
      -- it never scrolls, so it needs no sticky positioning and no background patch. `background: none`
      keeps it showing the column ground (--k-side) through, which is the #1303 B fix (no white box
-     behind the Files label) achieved by transparency rather than a painted tone. Tasks/Members keep
-     their own treatment; this is the one rule for the Files label, no shadowing override. */
+     behind the Files label) achieved by transparency rather than a painted tone. Tasks keeps its own
+     head treatment; this is the one rule for the Files label, no shadowing override. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .dlab { grid-column: 1; grid-row: 1; background: none; margin-bottom: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem, html[data-layout="consolidated"] body.consolidated .pj3 .fi, html[data-layout="consolidated"] body.consolidated .pj3 .tkrow { padding: 6px 8px; border-radius: 9px; }
   html[data-layout="consolidated"] body.consolidated .pj3 .mem:hover, html[data-layout="consolidated"] body.consolidated .pj3 .fi:hover { background: var(--k-surface); }
   /* The add/remove actions match the rail heads: a quiet + rather than a
      full button, so the panel reads like the mock. */
-  html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { font-size: .8125rem; padding: 6px 10px; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { font-size: .8125rem; padding: 6px 10px; }
   /* #867 (Josh, 2026-08-25 11:02): "make the dialog box fit the height
      of the page. Right now you can see it has a big empty gap... match
      up with the design that we did yesterday" -- the 2026-08-19 pass
@@ -4364,7 +4363,6 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
      fought this rule's 28px width/height and the disc rendered as a
      34x28 ellipse. Basis re-pinned to match, 1:1 held explicitly. */
   html[data-layout="consolidated"] body.consolidated .pj-member .lav.pj-face { width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1; }
-  html[data-layout="consolidated"] body.consolidated .pj-addmem { font-size: .8125rem; padding: 6px 10px; margin-top: 4px; }
   /* #520 piece ten (the mock's controls; Josh, 14:10 and 14:14): the small +
      at the head of Members and Tasks, the same 22px control the rail heads
      use, instead of a full button under the list; and a minus at each
@@ -4404,8 +4402,8 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; 
   html[data-layout="consolidated"] body.consolidated #pj-tasks-field > * { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
-  html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem > span, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
-  html[data-layout="consolidated"] body.consolidated .pj3 .pj-addmem:hover, html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask:hover { color: var(--k-ink); }
   html[data-layout="consolidated"] body.consolidated #pj-tasks-field > .tkcards { margin-top: 6px; }
   /* #3218 increment 5: View All rides the section HEADER, pinned far-right and always visible (Josh),
      instead of sitting under the list where it scrolled away. The base .pj-viewall (full-width,

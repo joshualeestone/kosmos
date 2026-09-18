@@ -50,7 +50,9 @@ test('item 4: the horizontal rule divides Tasks and Files, carried by Files (#32
 test('item 2: the cards fill their track, so their rules reach the edges', () => {
   /* MEASURED: the right track is 240px and the cards rendered 216 wide, because
      `.pjcard` carries `margin: 0 12px 12px`. After: 240. */
-  const r = rule('.pjcard-members {\n    margin-left: 0; margin-right: 0');
+  // #3218: the edge margin/padding rule is Files-only now (the .pjcard-members half was dead once
+  // the Members card became display:none in the consolidated view).
+  const r = rule('.pjcard-files {\n    margin-left: 0; margin-right: 0');
   assert.match(r, /padding-left: 12px; padding-right: 12px/,
     'the margin was removed without giving the padding back, so the content moved');
 });
