@@ -69,11 +69,8 @@ fi
 
 # world-readable? (o+r bit set on the staged copy)
 if [ "$_PAGE_READABLE" != "$PAGE_SRC" ]; then
+  # stat %Sp yields a mode string like -rw-r--r-- ; char 8 is the other-read bit.
   perm="$(/usr/bin/stat -f '%Sp' "$_PAGE_READABLE" 2>/dev/null)"
-  case "$perm" in
-    *r??r??r*|????????r*) : ;;  # loose: some r in the "other" triad
-  esac
-  # exact: the last (other) triad must contain r. stat %Sp is like -rw-r--r--
   other="$(printf '%s' "$perm" | /usr/bin/cut -c8)"
   if [ "$other" = "r" ]; then
     echo "PASS  the staged copy is world-readable (other-read bit set: $perm)"
