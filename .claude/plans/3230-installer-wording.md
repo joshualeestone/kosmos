@@ -29,10 +29,13 @@ without alarming the person. The exact wording may be refined; the intent is not
 ## Why this is honest about the mechanism
 
 The provider-tool download is user-initiated at Connect with a confirm step, not
-automatic at install. `engine/setup-assistant.js` shows the confirm dialog before
-any download starts, and `engine/connect.js` / `engine/runners.js` only fetch a
-runner when it is not already present. So "the first time you connect an agent"
-and "Kosmos asks before it starts" are both accurate.
+automatic at install. The confirm decision lives in `engine/connect.js`
+(`willInstall()`): the client's `frClaudeInstallNeeded()` reads
+`FR.connect.willInstall` and shows the confirm dialog before any download starts,
+which is the step Josh asked for by name to avoid an unannounced ~281MB download.
+`engine/connect.js` / `engine/runners.js` only fetch a runner when it is not
+already present. So "the first time you connect an agent" and "Kosmos asks before
+it starts" are both accurate.
 
 ## Scope / what this does NOT touch
 
