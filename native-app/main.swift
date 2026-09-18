@@ -799,7 +799,14 @@ func scanUnderGrant() -> Bool {
     // scan-result.json -- a within-user privilege escalation. Clamp to ~/Documents, ~/Downloads,
     // ~/Desktop (canonicalised), refusing anything else, so a forged request cannot redirect the
     // grant. The engine only ever sends these three.
-    let home = FileManager.default.homeDirectoryForCurrentUser
+    // #3188: the allowlist MUST use the REAL user home, not homeDirectoryForCurrentUser. The engine
+    // computes the roots it sends from node's os.homedir() (engine/discover.js:968, 1018 -- the real
+    // passwd home; node is not sandboxed), so a redirected/container homeDirectoryForCurrentUser here
+    // would build a container-home allowlist that REFUSES the engine's real-home roots ("refusing
+    // non-TCC-root") -> the scan walks nothing and finds no agents even after the check flips green.
+    // realUserHome() (getpwuid) matches os.homedir(), so the clamp aligns with what the engine sends;
+    // it still restricts to exactly the three real-home TCC roots, so the confused-deputy guard holds.
+    let home = realUserHome()
     // Test seam, mirroring the engine's AGENT_WORKFORCE_SCAN_ROOTS override: a path-delimited list
     // REPLACES the allowlist so a fixture tree can be walked under test. Unset in production ->
     // exactly the three TCC roots.

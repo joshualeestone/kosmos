@@ -31,6 +31,16 @@ empty TCC log:
   the fix is a no-op there and an enumerate that still does not gate against the real home is a
   distinct macOS finding to ESCALATE (not a silent gap). Removed in a follow-up once verified.
 - Return contract unchanged (`allGranted`); probe all three (single grant surfaces all prompts).
+- The SCAN HATCH clamp (main.swift:802, the confused-deputy guard's `allowedRoots`) also swapped to
+  `realUserHome()`. This is the code that does the REAL work (walks the protected trio to import
+  agents, holding the app-exe grant). The engine computes the roots it sends from node's
+  `os.homedir()` (engine/discover.js:968, 1018 -- the real passwd home), so a redirected
+  `homeDirectoryForCurrentUser` allowlist would REFUSE the engine's real-home roots ("refusing
+  non-TCC-root") and the scan would walk nothing even after the check flips green. `realUserHome()`
+  (getpwuid) matches `os.homedir()`, so the clamp aligns with the engine and still restricts to the
+  three real-home TCC roots (the confused-deputy guard is preserved, not weakened). Fixing only the
+  check without this would make the verdict truthful while the actual agent import stayed broken
+  (found via challenge-loop iter 1).
 
 ## Open question (b), honestly flagged
 On an EMPTY fresh-box protected folder there is no file to content-read, so a content-read cannot be
@@ -45,6 +55,10 @@ On a fresh-ungranted box with this fix:
    folder access).
 3. Granting flips the verdict to `granted:true` AND a TCC event appears in the log.
 4. `file-access-diag-3188.txt` shows `osHome != realHome` (confirming (a)).
+5. AND the actual import scan FINDS AGENTS against the real home (not merely that the check flips) --
+   confirming the scan-hatch clamp fix (802) works. If `osHome == realHome` the fix is a no-op for a
+   non-sandboxed app; if the enumerate still does not gate against the real home, escalate as the
+   distinct macOS finding above.
 This behavior-verify is the measurement that matters. MERGE IS HELD until it passes (folder access
 has real blast radius; do not ship unverified TCC behavior that sits). Fix-forward on the cut is an
 acceptable alternative (merge-on-green + verify-on-the-serve) at the operator's call.
