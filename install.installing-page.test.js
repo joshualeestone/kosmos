@@ -183,6 +183,10 @@ test('reduced motion turns off both animations, and dark mode is accounted for',
   // The override must name BOTH .bar>i (the swoosh animation) AND .bar.determinate>i (the
   // width transition): the determinate rule is more specific, and media queries add no
   // specificity, so a bare .bar>i override never reaches the determinate transition.
+  // KNOWN TEST-QUALITY GAP (string check): this asserts the rule TEXT, not the runtime
+  // cascade. It cannot catch a future <style> reorder, or a new equal/higher-specificity
+  // rule inserted after this one, that would silently break the override again -- catching
+  // that needs a jsdom/computed-style check, which this string-extraction test file does not run.
   assert.match(HTML, /@media \(prefers-reduced-motion:reduce\)\{\.bar>i,\.bar\.determinate>i\{animation:none;transition:none\}\}/);
   assert.match(HTML, /var slow = window\.matchMedia && window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches;/,
     'the K loader stopped reading reduced-motion itself');
@@ -273,6 +277,10 @@ test('#3233 a11y: aria-valuenow is exposed determinately and stays absent while 
     'aria-valuenow(pct) must sit inside the known-total branch, so no-total (swoosh) stays indeterminate');
   assert.doesNotMatch(CODE, /aria-valuenow",\s*"0"/,
     'a static aria-valuenow="0" would make the indeterminate swoosh falsely announce 0% progress');
+  // NaN-safe clamp: typeof NaN === "number" slips past the branch guard, and NaN fails every
+  // comparison, so a malformed byte count must be forced to 0 rather than written as "NaN".
+  assert.match(CODE, /if \(!\(pct >= 0\)\) pct = 0/,
+    'the NaN-safe clamp is gone -- a malformed byte count could write aria-valuenow="NaN"');
 });
 
 test('#3233: the page re-includes install-progress.js cache-busted, because a file:// page cannot fetch', () => {
@@ -288,7 +296,9 @@ test('#3233: the bar goes determinate only on a known positive total, and the pe
   const fn = CODE.slice(at, CODE.indexOf('function poll(', at));
   assert.match(fn, /typeof p\.total === "number" && p\.total > 0 && typeof p\.bytes === "number"/,
     'apply() no longer requires a known positive total before driving the bar (a null/0 total must keep the swoosh)');
-  assert.match(fn, /if \(pct < 0\) pct = 0/, 'the lower clamp on the percentage is gone');
+  // NaN-safe lower clamp (`!(pct >= 0)` also catches NaN, unlike `pct < 0`), so a malformed
+  // byte count is forced to 0 rather than written as aria-valuenow="NaN".
+  assert.match(fn, /if \(!\(pct >= 0\)\) pct = 0/, 'the lower clamp on the percentage is gone');
   assert.match(fn, /if \(pct > 100\) pct = 100/, 'the upper clamp on the percentage is gone');
   assert.match(fn, /classList\.add\("determinate"\)/, 'apply() no longer switches the bar to determinate');
 });
