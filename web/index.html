@@ -8205,7 +8205,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            what their status is getting reported ... we don't want a status line up there."
            The element and its paint are removed. Actionable info still has surfaces: the state
            badge (#d-state), the short engine-state sentences (#d-task), the screen-said evidence
-           (#d-said) and the re-auth action (#d-reauth). Locked by a guard in server.test.js that
+           (#d-said) and the re-auth sign-in button. Locked by a guard in server.test.js that
            reds if a #d-why / .detail-why reason line is re-added here. Do not re-add it. -->
       <!-- 🔑 WHAT THE SCREEN SAID, not what we concluded from it (Josh,
            2026-08-21: "is there any way we could show that her usage is full").
@@ -25109,7 +25109,7 @@ function openDetail(sessionName, section, fromProject) {
      their status is getting reported." The element and this paint are removed. `a.because`
      now has no dedicated header line by design; the actionable surfaces remain (the state
      badge #d-state, the short engine-state sentences #d-task, the screen-said evidence
-     #d-said, the re-auth action #d-reauth). Guarded in server.test.js so a re-add reds. */
+     #d-said, and the re-auth sign-in button). Guarded in server.test.js so a re-add reds. */
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
