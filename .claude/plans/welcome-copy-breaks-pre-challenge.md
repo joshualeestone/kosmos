@@ -22,7 +22,7 @@ this is the review + close-out. Renet Tilley.)
 
 No issues found.
 
-[STRENGTH] install/pkg-resources/welcome.html — Uses the page's existing `p{margin:0 0 12px}`
+[STRENGTH] install/pkg-resources/welcome.html - Uses the page's existing `p{margin:0 0 12px}`
 rule for the blank-line gap Josh asked for, rather than a new styled element or margin override:
 minimal, and preserves the #3256 dark-safe-by-construction property (no element sets its own
 background/color). Copy preserved byte-verbatim; change confined to markup structure.
