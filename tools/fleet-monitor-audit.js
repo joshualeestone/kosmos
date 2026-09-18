@@ -29,15 +29,23 @@
  *   node tools/fleet-monitor-audit.js --json     the verdict as JSON (also --check)
  *   exit 0 = all present, 1 = one or more missing, 2 = could not read launchctl
  *
- * SEAMS (test-only; no shell is executed, so nothing arbitrary runs from env in
- * the shipped tool - the earlier AUDIT_LOADED_CMD shell-exec seam was removed):
- *   AUDIT_LOADED_RAW    raw text to parse in place of `launchctl list` output (tests parsing)
- *   AUDIT_LOADED_FAIL   if set, force the could-not-read branch (tests the exit-2 path)
+ * 🛑 NO ENV SEAMS. Test injection is by PARAMETER, never environment: `loadedLabels`
+ * takes an optional `inject` and `run` takes an optional `loader`. This box shares
+ * one env across ~18 agents (the "one settings.json serves all 18 agents" hazard);
+ * an env-controlled seam in a SHIPPED tool means an inherited AUDIT_* var could
+ * silently make the audit read injected text instead of real launchctl and report a
+ * confident wrong verdict. A parameter cannot be inherited, so the shipped code path
+ * has no seam at all - the tests reach the seam by calling the functions directly.
  */
 
 const { execFileSync } = require('child_process');
 const { FLEET_MONITORS } = require('../engine/fleet-monitors');
 const { auditVerdict } = require('../engine/fleet-monitor-audit');
+
+// Exit codes are contract (documented above; tools/CI key on them) - name them.
+const EXIT_ALL_PRESENT = 0;
+const EXIT_MISSING = 1;
+const EXIT_COULD_NOT_READ = 2;
 
 /* The launchd labels loaded on this box, as { ok:true, labels:[...] }, or
  * { ok:false, error } when launchctl could not be read at all. `launchctl list`
@@ -45,14 +53,22 @@ const { auditVerdict } = require('../engine/fleet-monitor-audit');
  * dropped by the .filter(Boolean) before the label-mapping; the header row does
  * yield one token ("Label"), which is harmless (it cannot equal a declared label).
  * A read FAILURE is reported as such, NOT as an empty set, so the caller can tell
- * it apart from a genuine all-missing (three-answers). */
-function loadedLabels() {
-  if (process.env.AUDIT_LOADED_FAIL) {
-    return { ok: false, error: 'forced read failure (AUDIT_LOADED_FAIL test seam)' };
+ * it apart from a genuine all-missing (three-answers).
+ *
+ * `inject` is the test seam and is NEVER passed by the shipped CLI path (see run):
+ *   inject.fail === true      -> force the could-not-read branch (exercises exit 2)
+ *   typeof inject.rawText     -> parse this launchctl-shaped text in place of exec
+ * A missing/empty `inject` runs the real `launchctl list`. `rawText` is checked with
+ * `typeof === 'string'`, not truthiness, so an empty string is a successful empty
+ * read (all-missing), distinct from no injection (call launchctl) and from fail. */
+function loadedLabels(inject) {
+  const seam = inject || {};
+  if (seam.fail) {
+    return { ok: false, error: 'forced read failure (loadedLabels inject.fail test seam)' };
   }
   let out;
-  if (process.env.AUDIT_LOADED_RAW != null) {
-    out = process.env.AUDIT_LOADED_RAW; // injected launchctl-shaped text (tests)
+  if (typeof seam.rawText === 'string') {
+    out = seam.rawText; // injected launchctl-shaped text (tests)
   } else {
     try {
       out = execFileSync('launchctl', ['list'], { encoding: 'utf8' });
@@ -68,9 +84,12 @@ function loadedLabels() {
   return { ok: true, labels };
 }
 
-function run(argv) {
+/* `loader` defaults to the real `loadedLabels` (no injection). Tests pass their own
+ * loader (or `(inject) => loadedLabels(inject)`); the shipped CLI path never does, so
+ * the running tool always reads real launchctl. */
+function run(argv, loader = loadedLabels) {
   const asJson = argv.includes('--json') || argv.includes('--check');
-  const read = loadedLabels();
+  const read = loader();
   if (!read.ok) {
     /* could-not-read: distinct from all-missing. Cannot tell present from
        missing, so do NOT claim a rebuild is needed - point at the environment. */
@@ -79,7 +98,7 @@ function run(argv) {
     } else {
       console.error(`fleet-monitor-audit: could NOT read launchctl (${read.error}) - cannot tell present from missing; re-run or check the environment (this is NOT a signal that monitors were lost)`);
     }
-    return 2;
+    return EXIT_COULD_NOT_READ;
   }
   const v = auditVerdict(FLEET_MONITORS, read.labels);
   if (asJson) {
@@ -93,11 +112,11 @@ function run(argv) {
       console.error(`           reinstall from: ${m.source}`);
     }
   }
-  return v.ok ? 0 : 1;
+  return v.ok ? EXIT_ALL_PRESENT : EXIT_MISSING;
 }
 
 if (require.main === module) {
   process.exit(run(process.argv.slice(2)));
 }
 
-module.exports = { run, loadedLabels };
+module.exports = { run, loadedLabels, EXIT_ALL_PRESENT, EXIT_MISSING, EXIT_COULD_NOT_READ };

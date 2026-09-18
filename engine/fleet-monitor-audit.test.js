@@ -66,9 +66,14 @@ test('the declared manifest is well-formed: non-empty, each has label/purpose/so
 });
 
 /* Tool integration: exercise the launchctl-parsing + three-state wiring via the
- * non-shell seams (AUDIT_LOADED_RAW injects launchctl-shaped text; AUDIT_LOADED_FAIL
- * forces the could-not-read branch), spawning the real script as an operator would.
- * No shell command runs from env - the earlier AUDIT_LOADED_CMD seam was removed. */
+ * PARAMETER seams (loadedLabels(inject), run(argv, loader)) IN-PROCESS - no env, no
+ * subprocess. The seam is a parameter precisely because this box shares one env
+ * across ~18 agents: an env-controlled seam in the shipped tool could be triggered
+ * by an inherited var. Calling the functions directly reaches the seam the only way
+ * it can be reached, which is also the proof the shipped CLI path has no env seam.
+ * ONE real-subprocess smoke test below runs the tool with NO injection. */
+const tool = require('../tools/fleet-monitor-audit');
+const { run, loadedLabels, EXIT_ALL_PRESENT, EXIT_MISSING, EXIT_COULD_NOT_READ } = tool;
 const TOOL = path.join(__dirname, '..', 'tools', 'fleet-monitor-audit.js');
 
 function launchctlText(monitors) {
@@ -76,21 +81,34 @@ function launchctlText(monitors) {
   return ['PID\tStatus\tLabel', ...monitors.map((m) => `-\t0\t${m.label}`)].join('\n');
 }
 
-function runTool(args, env) {
+// Call run() in-process, capturing everything it writes to stdout/stderr. The
+// loader is the parameter seam: a zero-arg function returning the read result,
+// built here from loadedLabels(inject) so the launchctl-parsing is exercised too.
+function callRun(args, inject) {
+  const origLog = console.log;
+  const origErr = console.error;
+  let out = '';
+  console.log = (...a) => { out += a.join(' ') + '\n'; };
+  console.error = (...a) => { out += a.join(' ') + '\n'; };
+  let code;
   try {
-    const out = execFileSync('node', [TOOL, ...args], {
-      encoding: 'utf8',
-      env: { ...process.env, ...env },
-    });
-    return { code: 0, out };
-  } catch (e) {
-    return { code: e.status, out: (e.stdout || '') + (e.stderr || '') };
+    code = run(args, () => loadedLabels(inject));
+  } finally {
+    console.log = origLog;
+    console.error = origErr;
   }
+  return { code, out };
 }
 
+test('tool: exit-code constants are the documented contract 0/1/2', () => {
+  assert.equal(EXIT_ALL_PRESENT, 0);
+  assert.equal(EXIT_MISSING, 1);
+  assert.equal(EXIT_COULD_NOT_READ, 2);
+});
+
 test('tool: all declared monitors loaded -> exit 0, ok:true (parses launchctl-shaped output)', () => {
-  const r = runTool(['--json'], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS) });
-  assert.equal(r.code, 0, 'all present -> exit 0');
+  const r = callRun(['--json'], { rawText: launchctlText(FLEET_MONITORS) });
+  assert.equal(r.code, EXIT_ALL_PRESENT, 'all present -> exit 0');
   const v = JSON.parse(r.out);
   assert.equal(v.ok, true);
   assert.equal(v.readable, true);
@@ -99,45 +117,79 @@ test('tool: all declared monitors loaded -> exit 0, ok:true (parses launchctl-sh
 
 test('tool: one declared monitor absent from launchctl -> exit 1 and it is named missing', () => {
   const dropped = FLEET_MONITORS[0].label;
-  const r = runTool(['--json'], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS.slice(1)) });
-  assert.equal(r.code, 1, 'a missing monitor -> exit 1');
+  const r = callRun(['--json'], { rawText: launchctlText(FLEET_MONITORS.slice(1)) });
+  assert.equal(r.code, EXIT_MISSING, 'a missing monitor -> exit 1');
   const v = JSON.parse(r.out);
   assert.equal(v.ok, false);
   assert.ok(v.missing.some((m) => m.label === dropped), `${dropped} must be reported missing`);
 });
 
 test('tool: launchctl unreadable -> exit 2 and could-not-read, NOT reported as all-missing (three answers)', () => {
-  const r = runTool(['--json'], { AUDIT_LOADED_FAIL: '1' });
-  assert.equal(r.code, 2, 'a read failure -> exit 2, distinct from missing (1) and present (0)');
+  const r = callRun(['--json'], { fail: true });
+  assert.equal(r.code, EXIT_COULD_NOT_READ, 'a read failure -> exit 2, distinct from missing (1) and present (0)');
   const v = JSON.parse(r.out);
   assert.equal(v.ok, false);
   assert.equal(v.readable, false, 'must report it could not READ, not that monitors are missing');
   assert.ok(!('missing' in v) || v.missing === undefined, 'a read failure must NOT emit a missing list (would read as a rebuild signal)');
 });
 
-test('tool: empty-but-SUCCESSFUL read (AUDIT_LOADED_RAW="") -> readable:true, all missing, exit 1 (empty != unset != failed)', () => {
+test('tool: empty-but-SUCCESSFUL read (rawText="") -> readable:true, all missing, exit 1 (empty != unset != failed)', () => {
   // An empty string is a successful read that saw nothing, NOT a failure. This pins
-  // the `AUDIT_LOADED_RAW != null` check: a future refactor to a truthiness test
-  // (`if (process.env.AUDIT_LOADED_RAW)`) would silently fold '' into the call-real-
-  // launchctl branch, and only this test would catch it.
-  const r = runTool(['--json'], { AUDIT_LOADED_RAW: '' });
-  assert.equal(r.code, 1, 'an empty successful read is all-missing (exit 1), NOT could-not-read (exit 2)');
+  // the `typeof seam.rawText === 'string'` check: a future refactor to a truthiness
+  // test (`if (seam.rawText)`) would silently fold '' into the call-real-launchctl
+  // branch, and only this test would catch it.
+  const r = callRun(['--json'], { rawText: '' });
+  assert.equal(r.code, EXIT_MISSING, 'an empty successful read is all-missing (exit 1), NOT could-not-read (exit 2)');
   const v = JSON.parse(r.out);
-  assert.equal(v.readable, true, 'an empty string is a successful read (readable:true), distinct from AUDIT_LOADED_FAIL');
+  assert.equal(v.readable, true, 'an empty string is a successful read (readable:true), distinct from inject.fail');
   assert.equal(v.missing.length, v.expectedCount, 'nothing loaded -> every declared monitor missing');
 });
 
 test('tool: human-readable output NAMES a missing monitor + its reinstall source (the mode an operator runs)', () => {
   const dropped = FLEET_MONITORS[0];
-  const r = runTool([], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS.slice(1)) });
-  assert.equal(r.code, 1);
+  const r = callRun([], { rawText: launchctlText(FLEET_MONITORS.slice(1)) });
+  assert.equal(r.code, EXIT_MISSING);
   assert.match(r.out, new RegExp('MISSING'), 'human output must flag MISSING');
   assert.ok(r.out.includes(dropped.label), 'human output must name the missing label');
   assert.ok(r.out.includes(dropped.source), 'human output must name where to reinstall from');
 });
 
 test('tool: human-readable all-present output says so (control for the missing arm)', () => {
-  const r = runTool([], { AUDIT_LOADED_RAW: launchctlText(FLEET_MONITORS) });
-  assert.equal(r.code, 0);
+  const r = callRun([], { rawText: launchctlText(FLEET_MONITORS) });
+  assert.equal(r.code, EXIT_ALL_PRESENT);
   assert.match(r.out, /all \d+ declared fleet monitors are present/);
+});
+
+test('tool: default loader (no injection) reads REAL launchctl -> exit in {0,1,2} (in-process, proves the shipped path has no env seam)', () => {
+  // No loader passed: run() falls back to the real loadedLabels, which execs
+  // launchctl. We can't assert WHICH verdict (depends on the box), only that the
+  // no-seam path produces one of the three contract codes. This is the in-process
+  // half of the smoke test - it exercises run's default parameter.
+  const origLog = console.log;
+  const origErr = console.error;
+  console.log = () => {};
+  console.error = () => {};
+  let code;
+  try {
+    code = run(['--json']);
+  } finally {
+    console.log = origLog;
+    console.error = origErr;
+  }
+  assert.ok([EXIT_ALL_PRESENT, EXIT_MISSING, EXIT_COULD_NOT_READ].includes(code), `real-launchctl verdict must be 0/1/2, got ${code}`);
+});
+
+test('tool: real-subprocess smoke - spawn the script as an operator would, NO injection, exit in {0,1,2}', () => {
+  // The one true end-to-end: a real `node tools/fleet-monitor-audit.js` process,
+  // no env seam set anywhere, exercises the shebang/require.main/process.exit
+  // wiring the in-process tests bypass. Verdict is box-dependent; the contract is
+  // that it exits with one of the three documented codes and never throws.
+  let code;
+  try {
+    execFileSync('node', [TOOL, '--json'], { encoding: 'utf8' });
+    code = 0;
+  } catch (e) {
+    code = e.status;
+  }
+  assert.ok([0, 1, 2].includes(code), `subprocess must exit 0/1/2, got ${code}`);
 });
