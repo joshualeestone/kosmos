@@ -11419,26 +11419,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            `:last-child` rules with `.pjcard-members` / `.pjcard-files`. Reorder
            these two while anything still selects them by position and you
            silently repoint the members scroller onto Files. -->
-      <!-- 🛑 MEMBERS FIRST IN THE MARKUP, FILES BELOW, AND THE TWO VIEWS
-           DELIBERATELY DISAGREE (Josh, 2026-08-26 22:05, item 3):
-             tab view      Members top left, Files under it, Tasks far right
-             consolidated  Tasks, then Files, then Members down one column
-           He confirmed the consolidated order is right and the TAB view was the
-           one out of order, which is the half kosmos#1017 got wrong.
-           ⚠️ #1017 WAS MINE AND ITS PREMISE WAS WRONG. I unified the two views
-           on the argument that "two views of one project showing the same panels
-           in opposite orders is itself a defect". He wants them different, and
-           he is the one who uses both. The unification is undone; what survives
-           from that branch is the part that mattered -- the cards are selected
-           BY NAME, so the consolidated grid rows below hold whatever order the
-           markup is in, and swapping this back could not silently repoint the
-           members scroller onto Files.
-           ⚠️ THE TRADE #1017 EXISTED TO REMOVE IS BACK, KNOWINGLY: in the
-           consolidated view the eye reads Files then Members while the keyboard
-           tabs Members then Files (WCAG 2.4.3 / 1.3.2). One DOM cannot match two
-           opposite visual orders. The tab view now agrees with itself; the
-           consolidated one does not, and that is a decision rather than an
-           oversight. -->
+      <!-- 🛑 MEMBERS FIRST IN THE MARKUP, FILES BELOW -- this ORDER now serves the TAB view only
+           (Josh, 2026-08-26 22:05 item 3: tab view = Members top left, Files under it, Tasks far
+           right). #3218 HIDES the Members card in the CONSOLIDATED view (its agents moved to the top
+           of the single Agents list), so the old "consolidated shows Tasks/Files/Members down one
+           column" order -- and the WCAG tab-order tension kosmos#1017 wrestled with there -- no
+           longer applies in that view: a display:none card is not in the tab order at all. The
+           consolidated grid places Files/Tasks BY NAME (grid-row below), so the markup order here is
+           free to serve the tab view.
+           ⚠️ Do NOT reintroduce position selectors (:first-child/:last-child): the commit before
+           kosmos#1017 replaced fifteen of them with .pjcard-members / .pjcard-files (by name) exactly
+           so this order could change safely. Swapping cards by position would silently repoint the
+           members scroller onto Files. -->
 <div class="pjcard pjcard-members">
       <!-- Josh, 2026-09-10 (#2711 item 14): the column heading is just
            "Members" now. "Project members" restated the page it sits on. -->
@@ -11562,8 +11554,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              opened the in-app Documents view since #134 landed, while the
              words still promised Finder. Finder lives INSIDE that view. -->
         <button class="linkish pj-viewall" id="pj-docs-all" type="button" hidden>View All</button>
-        <div id="pj-docs" class="pj-docs"></div>
+        <!-- #3218: the message sits BEFORE the list in the DOM, matching its visual position (the
+             consolidated Files grid places it in the row directly under the header, above the list),
+             so reading/tab order and visual order agree. In the tab view (no grid) it also reads as
+             an empty-state line above the list. -->
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
+        <div id="pj-docs" class="pj-docs"></div>
       </div>
     </aside>
 

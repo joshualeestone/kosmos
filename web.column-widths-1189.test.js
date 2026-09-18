@@ -11,7 +11,8 @@
  *   1920     288px 15.0%   277px 14.4%   324px 16.9%   290px 15.1%
  *
  * 🛑 A PERCENTAGE CANNOT FIX THIS, WHICH IS THE WHOLE POINT. The agents column
- * is `minmax(200px, 15%)` OF THE BODY: flat 200px below about 1333px, then 15%.
+ * WAS `minmax(200px, 15%)` OF THE BODY (flat 200px below about 1333px, then 15%);
+ * #3218 moved it to `minmax(200px, 16.6vw)` -- see the assertion below, which now pins 16.6vw.
  * The right column is a percentage of what is LEFT after agents, so it is a
  * percentage of a DIFFERENT PARENT and cannot track a piecewise curve. Candidates
  * from 20% to 26% each matched at one width and missed at the others.
