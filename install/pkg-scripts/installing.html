@@ -39,7 +39,7 @@
   /* #2363: the .go button rules were dropped with the taken-branch manual link they
      styled (the only class="go" consumer, verified repo-wide) - dead under #2073. */
   @media (prefers-color-scheme:dark){body{background:#151412;color:#ece9e2}.muted{color:#a29e95}.bar{background:#3a3833}}
-  @media (prefers-reduced-motion:reduce){.bar>i{animation:none;transition:none}}
+  @media (prefers-reduced-motion:reduce){.bar>i,.bar.determinate>i{animation:none;transition:none}}
 </style></head>
 <body><main>
   <canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"></canvas>
@@ -361,14 +361,20 @@
     var barEl = document.getElementById("bar");
     var fillEl = barEl ? barEl.querySelector("i") : null;
     var kpStopped = false;
+    // Whether the bar ever went determinate (a known download total arrived). Gates the
+    // settle=100 below: on the "taken" branch (a foreign board answered the first poll, so
+    // nothing installed) the bar never went determinate, and asserting 100 to a screen
+    // reader there would announce a completion that never happened.
+    var kpDeterminate = false;
     // Cleared on settle() so the bar's inline width does not override .settled's 100%.
     window.__kpStop = function(){
       kpStopped = true;
       if (fillEl) fillEl.style.width = "";
       if (barEl) {
         barEl.classList.remove("determinate");
-        // settle() renders the bar full (.settled = width:100%); mirror that to AT.
-        barEl.setAttribute("aria-valuenow", "100");
+        // Mirror the full bar to AT only if it actually tracked a download to completion;
+        // an install that never ran (the taken branch) stays indeterminate, not "100%".
+        if (kpDeterminate) barEl.setAttribute("aria-valuenow", "100");
       }
     };
     function apply(p){
@@ -378,6 +384,7 @@
         if (pct < 0) pct = 0;
         if (pct > 100) pct = 100;
         barEl.classList.add("determinate");
+        kpDeterminate = true;
         fillEl.style.width = pct.toFixed(1) + "%";
         // kosmos#3233 a11y: expose the determinate value so a screen reader hears
         // the progress, not just "Installing". Unset while indeterminate (swoosh).
