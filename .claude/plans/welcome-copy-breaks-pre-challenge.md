@@ -18,6 +18,15 @@ verbatim-copy markup split. (Finishing Mona's stranded branch; the build + plan 
 this is the review + close-out. Renet Tilley.)
 **Findings:** 0 BLOCKER / 0 WARNING / 0 CONVENTION / 0 NIT.
 
+## Findings
+
+No issues found.
+
+[STRENGTH] install/pkg-resources/welcome.html — Uses the page's existing `p{margin:0 0 12px}`
+rule for the blank-line gap Josh asked for, rather than a new styled element or margin override:
+minimal, and preserves the #3256 dark-safe-by-construction property (no element sets its own
+background/color). Copy preserved byte-verbatim; change confined to markup structure.
+
 ### Iteration 1
 **Reviewer model:** opus
 **New findings:** none. The reviewer byte-compared the copy (character-for-character
