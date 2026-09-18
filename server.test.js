@@ -3288,10 +3288,12 @@ test('#3271: NO reported-reason status line under the agent name (do not re-add 
      (#d-task: restart/auth/rate-limit), the screen-said evidence (#d-said), the re-auth action
      (#d-reauth). If a genuine need for the reason resurfaces, take it to Josh, do not re-add here. */
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.ok(!/id="d-why"/.test(raw) && !/class="detail-why"/.test(raw),
+  // Quote-agnostic on purpose: a re-add with single OR double quotes must red (the file uses
+  // double quotes today, but the lock should not depend on that spelling).
+  assert.ok(!/id=["']d-why["']/.test(raw) && !/class=["']detail-why["']/.test(raw),
     'a #d-why / .detail-why reason line was re-added to the agent-detail header -- Josh 2026-09-18: no status line under the agent name (#3271)');
-  assert.ok(!/getElementById\((['"])d-why\1\)/.test(raw),
-    'the render still paints a #d-why reason line under the agent name -- removed per #3271 (Josh 2026-09-18)');
+  assert.ok(!/(getElementById|querySelector)\((['"])[#.]?d-why\2\)/.test(raw) && !/querySelector\((['"])\.detail-why\1\)/.test(raw),
+    'the render still paints a #d-why / .detail-why reason line under the agent name -- removed per #3271 (Josh 2026-09-18)');
   /* Non-vacuity control: the surfaces that DO remain must still be present, so this test is
      "the reason line is gone", not "the header is gone". */
   assert.ok(/id="d-meta"/.test(raw) && /id="d-said"/.test(raw),
