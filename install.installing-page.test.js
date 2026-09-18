@@ -259,8 +259,8 @@ test('#3233 a11y: aria-valuenow is exposed determinately and stays absent while 
   // (determinate) branch, and mirrored to 100 at settle ONLY if the bar went determinate.
   assert.match(HTML, /aria-valuemin="0" aria-valuemax="100"/,
     'the progressbar lost its aria-valuemin/max bounds');
-  assert.match(CODE, /setAttribute\("aria-valuenow", String\(Math\.round\(pct\)\)\)/,
-    'the determinate branch no longer sets aria-valuenow -- progress is not exposed to a screen reader');
+  assert.match(CODE, /setAttribute\("aria-valuenow", String\(Math\.floor\(pct\)\)\)/,
+    'the determinate branch no longer sets aria-valuenow (floor, so AT never overstates progress)');
   // The settle=100 must be GATED on the bar having gone determinate, or the taken branch
   // (a foreign board answered first, nothing installed) would announce "100%" to a screen reader.
   assert.match(CODE, /if \(kpDeterminate\) barEl\.setAttribute\("aria-valuenow", "100"\)/,
@@ -272,7 +272,7 @@ test('#3233 a11y: aria-valuenow is exposed determinately and stays absent while 
   assert.ok(applyAt > -1 && pollAt > applyAt, 'apply()/poll() structure changed -- re-check the aria gating');
   const applyBody = CODE.slice(applyAt, pollAt);
   const totalAt = applyBody.indexOf('p.total');
-  const ariaAt = applyBody.indexOf('aria-valuenow", String(Math.round(pct))');
+  const ariaAt = applyBody.indexOf('aria-valuenow", String(Math.floor(pct))');
   assert.ok(totalAt > -1 && ariaAt > totalAt,
     'aria-valuenow(pct) must sit inside the known-total branch, so no-total (swoosh) stays indeterminate');
   assert.doesNotMatch(CODE, /aria-valuenow",\s*"0"/,

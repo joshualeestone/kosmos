@@ -392,9 +392,11 @@
         barEl.classList.add("determinate");
         kpDeterminate = true;
         fillEl.style.width = pct.toFixed(1) + "%";
-        // kosmos#3233 a11y: expose the determinate value so a screen reader hears
-        // the progress, not just "Installing". Unset while indeterminate (swoosh).
-        barEl.setAttribute("aria-valuenow", String(Math.round(pct)));
+        // kosmos#3233 a11y: expose the determinate value so a screen reader hears the
+        // progress, not just "Installing". Unset while indeterminate (swoosh). Math.floor,
+        // not round, so AT never announces more progress than achieved (no early "100%"
+        // at 99.6%); settle mirrors the true 100 when the install actually completes.
+        barEl.setAttribute("aria-valuenow", String(Math.floor(pct)));
       }
       // no total -> leave the indeterminate swoosh as-is (no baked number).
     }
