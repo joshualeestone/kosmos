@@ -42,7 +42,7 @@ else
   exit 1
 fi
 
-# D. the copy goes to an explicit /tmp path, NOT mktemp's default dir ($TMPDIR is the
+# B. the copy goes to an explicit /tmp path, NOT mktemp's default dir ($TMPDIR is the
 #    root-owned sandbox under installd, so a temp there would be unreadable too).
 if printf '%s\n' "$BLOCK" | /usr/bin/grep -qE 'mktemp[[:space:]]+/tmp/'; then
   echo "PASS  the staging copy uses an explicit /tmp path (not \$TMPDIR/the sandbox)"
@@ -51,7 +51,7 @@ else
   fails=$((fails+1))
 fi
 
-# B. behavioural: a mode-600 source (stand-in for the root-owned unreadable page) is
+# C. behavioural: a mode-600 source (stand-in for the root-owned unreadable page) is
 #    turned into a world-readable copy with identical content.
 FIX="$(/usr/bin/mktemp /tmp/kosmos-3268-src.XXXXXX)"; tmpclean="$FIX"
 printf 'PORT=__KOSMOS_PORT__\n<html>installing</html>\n' > "$FIX"
@@ -87,7 +87,7 @@ if [ "$_PAGE_READABLE" != "$PAGE_SRC" ]; then
   fi
 fi
 
-# C. structural: the sudo -u render passes the STAGED copy as its source arg, not the
+# D. structural: the sudo -u render passes the STAGED copy as its source arg, not the
 #    raw PAGE_SRC. Guards a revert that keeps the staging block but re-points the render.
 if /usr/bin/grep -qE "^  ' \"\\\$_PAGE_READABLE\" \"\\\$PAGE_DIR\"" "$PI"; then
   echo "PASS  the sudo -u render is invoked with \$_PAGE_READABLE (the staged copy) as source"

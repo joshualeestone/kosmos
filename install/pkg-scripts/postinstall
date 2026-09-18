@@ -123,6 +123,12 @@ if [ -f "$PAGE_SRC" ] && [ -d "$USER_HOME" ]; then
   if [ -n "$_pr_tmp" ] && /bin/cp "$PAGE_SRC" "$_pr_tmp" 2>/dev/null && /bin/chmod 644 "$_pr_tmp" 2>/dev/null; then
     _PAGE_READABLE="$_pr_tmp"
   fi
+  # kosmos#3268: also clean the staged copy on any exit path, not only via the explicit rm
+  # below -- matches the trap at the setup.sh block (~line 195). EXIT-only, so it does not
+  # change the postinstall's signal handling; a hard SIGKILL/SIGTERM (e.g. cancelling the
+  # Installer mid-render) can still leak the one small world-readable /tmp page, the same
+  # inherent limit as that trap, and macOS purges /tmp.
+  trap '[ -n "$_pr_tmp" ] && /bin/rm -f "$_pr_tmp" 2>/dev/null' EXIT
   /usr/bin/sudo -u "$CONSOLE_USER" -H /bin/sh -c '
     set -e
     mkdir -p "$1" "$(dirname "$3")"
