@@ -56,10 +56,12 @@ const chk = (ok, label, extra) => {
 /* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0. */
 function parse(c) {
   if (!c || c === 'transparent') return [0, 0, 0, 0];
-  // #2947: Chromium serializes a color-mix() result (the per-message cream
-  // shade, .msg-bd[data-am]) as `color(srgb r g b [/ a])` with 0..1 components.
-  // Without scaling them, spread/blueLead collapse to ~0 and the arms pass
-  // VACUOUSLY; detect the srgb form and lift the three components to 0..255.
+  // Defensive srgb scaler: Chromium serializes a color-mix() result as
+  // `color(srgb r g b [/ a])` with 0..1 components, and without scaling them
+  // spread/blueLead collapse to ~0 and the arms pass VACUOUSLY. The agent color
+  // is now a plain hex (#3260 removed the color-mix nudges) so this branch is
+  // currently inert, but kept so any future color-mix color is scaled, not
+  // passed vacuously; detect the srgb form and lift the components to 0..255.
   const srgb = /^color\(\s*srgb\b/i.test(c);
   const n = (c.match(/[\d.]+/g) || []).map(Number);
   if (n.length < 3) return [0, 0, 0, 0];
@@ -134,10 +136,12 @@ const now = () => new Date().toISOString();
           agentEmptyRowExists: !!agentEmptyRow,
           agentEmptyHasBox: !!(agentEmptyRow && agentEmptyRow.querySelector('.msg-bd')),
           agentHasYou: agentRow ? agentRow.classList.contains('you') : null,
-          // #2947: the data-am the REAL pjRoomRow render emitted on the agent
-          // body box, so the room path never drops it or produces NaN/out-of-range.
+          // #3260: the REAL pjRoomRow render no longer emits data-am on the agent
+          // body box (agent messages are one fixed color); null confirms it.
           agentDataAm: (agentRow && agentRow.querySelector('.msg-bd')) ? agentRow.querySelector('.msg-bd').getAttribute('data-am') : null,
-          // The operator's own box must NOT carry data-am (emitted only for !isOp).
+          // #3260: data-am is no longer emitted for any row, so this stays false as
+          // a redundant control alongside agentDataAm === null (it would catch a
+          // regression that re-added the attribute on the operator's own box).
           opHasDataAm: !!(opRow && opRow.querySelector('.msg-bd') && opRow.querySelector('.msg-bd').hasAttribute('data-am')),
           /* #3134-followup (Josh 6.72): name is now INSIDE the bubble as .msg-nm (top).
              The operator's OWN post still has NO name; an agent's keeps its name. */
@@ -195,9 +199,10 @@ const now = () => new Date().toISOString();
       // Positive controls: all four rows rendered, and the mine/theirs split is real.
       chk(m.rowCount === 4, `${t} all four fixture rows rendered`, `count=${m.rowCount}`);
       chk(m.agentHasYou === false, `${t} the agent row is NOT .you (mine/theirs split is real)`);
-      // #2947: the REAL pjRoomRow render emits a valid data-am (0..4) on the agent
-      // box and NONE on the operator's own box.
-      chk(/^[0-4]$/.test(m.agentDataAm || ''), `${t} the real agent box carries a valid data-am (0..4)`, `data-am=${m.agentDataAm}`);
+      // #3260 (Josh, 2026-09-18): agent messages are ONE fixed color -- the REAL
+      // pjRoomRow render no longer emits data-am on any box. A regression re-adding
+      // per-message variation would fail here.
+      chk(m.agentDataAm === null, `${t} the real agent box carries NO data-am (one fixed color, #3260)`, `data-am=${m.agentDataAm}`);
       chk(m.opHasDataAm === false, `${t} the operator's own box carries NO data-am`, `opHasDataAm=${m.opHasDataAm}`);
 
       const op = parse(m.opBd);

@@ -22,10 +22,10 @@
  * render-mode independent -- headed and headless agree.
  *
  * #2947 (Josh, 2026-09-12): the agent bubble moved from the neutral --k-sunk
- * gray to an ultra-light cream (--agent-msg), with a subtle per-message shade
- * (data-am 0..4, a color-mix nudge) so a wall of bubbles stops reading as one
- * flat hex. This check now also probes that mechanism: same data-am -> same
- * shade (stable), different data-am -> different shade (variation), all cream.
+ * gray to an ultra-light cream (--agent-msg). #3260 (Josh, 2026-09-18): agent
+ * messages are ONE fixed color -- the earlier per-message variation was removed,
+ * so this check now probes the opposite: a data-am attribute has NO effect on the
+ * color (every agent bubble renders the identical base cream), all warm cream.
  *
  * It loads the page over file:// and answers the thread poll from a fixture,
  * the same posture as render-talk.js: the paint is what `node --test` cannot
@@ -48,11 +48,13 @@ const chk = (ok, label, extra) => {
 };
 
 /* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0.
-   #2947: Chromium serializes a color-mix() result (the per-message cream shade)
-   as `color(srgb r g b [/ a])` with 0..1 components, NOT `rgb(0..255)`. Without
-   scaling those, spread/delta collapse to ~0 and every arm passes VACUOUSLY, so
-   detect the srgb form and lift the three components to 0..255 (the alpha, if
-   present after the slash, stays 0..1). */
+   Defensive srgb scaler: Chromium serializes a color-mix() result as
+   `color(srgb r g b [/ a])` with 0..1 components, NOT `rgb(0..255)`, and without
+   scaling those, spread/delta collapse to ~0 and every arm passes VACUOUSLY. The
+   agent color is now a plain hex (#3260 removed the color-mix nudges) so this
+   branch is currently inert, but it is kept so any future color-mix color is
+   scaled rather than passing vacuously (the alpha, if present after the slash,
+   stays 0..1). */
 function parse(c) {
   if (Array.isArray(c)) return c.length > 3 ? c.slice(0, 4) : [c[0], c[1], c[2], 1];
   if (!c || c === 'transparent') return [0, 0, 0, 0];
@@ -146,10 +148,10 @@ const FX = {
           mineCount: document.querySelectorAll('#d-dmthread .dm.mine .dm-b').length,
           theirsBg: bg('#d-dmthread .dm.theirs .dm-b'),
           mineBg: bg('#d-dmthread .dm.mine .dm-b'),
-          // #2947: the data-am the REAL dmRow render emitted on the agent bubble
-          // (the probe below tests the CSS mechanism on synthetic elements; this
-          // reads the actual production path, so a dropped/NaN/out-of-range
-          // amShade would be caught). null when there is no agent bubble.
+          // #3260: the REAL dmRow render no longer emits data-am (agent messages
+          // are one fixed color), so this reads the production agent bubble's
+          // data-am to confirm it is absent (asserted null below). null also when
+          // there is no agent bubble.
           theirsDataAm: (() => { const el = document.querySelector('#d-dmthread .dm.theirs .dm-b'); return el ? el.getAttribute('data-am') : null; })(),
           // The panel the bubbles sit on, and the page behind it -- for the
           // "did it dissolve into the surface" comparison, composited in order.
@@ -163,9 +165,10 @@ const FX = {
       // so every comparison below is real rather than vacuous.
       chk(m.theirsCount >= 1, `${t} an agent bubble (.dm.theirs .dm-b) is on screen`, `count=${m.theirsCount}`);
       chk(m.mineCount >= 1, `${t} a person bubble (.dm.mine .dm-b) is on screen`, `count=${m.mineCount}`);
-      // #2947: the REAL dmRow render emits a valid per-message shade index (0..4),
-      // so amShade never drops the attribute or produces NaN/out-of-range.
-      chk(/^[0-4]$/.test(m.theirsDataAm || ''), `${t} the real agent bubble carries a valid data-am (0..4)`, `data-am=${m.theirsDataAm}`);
+      // #3260 (Josh, 2026-09-18): agent messages are ONE fixed color -- the REAL
+      // dmRow render no longer emits a per-message data-am, so the production agent
+      // bubble carries no such attribute. A regression re-adding it fails here.
+      chk(m.theirsDataAm === null, `${t} the real agent bubble carries NO data-am (one fixed color, #3260)`, `data-am=${m.theirsDataAm}`);
 
       if (m.theirsCount >= 1 && m.mineCount >= 1) {
         const theirs = parse(m.theirsBg);
@@ -196,12 +199,13 @@ const FX = {
           `composited=[${cream.map((x) => x.toFixed(1)).join(', ')}]`);
       }
 
-      // #2947: the per-message VARIATION mechanism, probed deterministically so
-      // it does not depend on which shades the fixture's two messages hashed to.
-      // Same data-am must render the SAME shade (stable, no shimmer on repaint);
-      // different data-am must render DIFFERENT shades (the "break in a single
-      // hex" Josh asked for); and every shade stays a warm cream.
-      const vary = await page.evaluate(() => {
+      // #3260 (Josh, 2026-09-18): agent messages are ONE fixed color -- the #2947
+      // per-message variation was removed. Probed by construction: a data-am
+      // attribute must now have NO effect on the bubble color (the color-mix nudge
+      // rules are gone), so every agent bubble renders the identical base cream. A
+      // regression re-adding the nudge rules would make the shades differ and red
+      // this. The base still reads as a warm cream.
+      const flat = await page.evaluate(() => {
         const host = document.getElementById('d-dmthread');
         const shadeOf = (am) => {
           const row = document.createElement('div'); row.className = 'dm theirs';
@@ -210,14 +214,13 @@ const FX = {
           b.textContent = 'x'; row.appendChild(b); host.appendChild(row);
           const c = getComputedStyle(b).backgroundColor; row.remove(); return c;
         };
-        return { a1: shadeOf(1), a1b: shadeOf(1), a3: shadeOf(3), a0: shadeOf(0) };
+        return { base: shadeOf(null), am1: shadeOf(1), am3: shadeOf(3) };
       });
-      chk(vary.a1 === vary.a1b, `${t} the same data-am renders the same shade (stable, no shimmer)`, vary.a1);
-      chk(vary.a1 !== vary.a3, `${t} different data-am render different shades (a break in the single hex)`, `am1=${vary.a1} am3=${vary.a3}`);
-      for (const [k, c] of [['am1', vary.a1], ['am3', vary.a3], ['am0(base)', vary.a0]]) {
-        const p = parse(c);
-        chk(p[0] >= p[1] && p[1] >= p[2] && (p[0] - p[2]) >= 2, `${t} shade ${k} is a warm cream`, c);
-      }
+      chk(flat.base === flat.am1 && flat.base === flat.am3,
+        `${t} a data-am attribute no longer changes the agent bubble color (one fixed color, #3260)`,
+        `base=${flat.base} am1=${flat.am1} am3=${flat.am3}`);
+      { const p = parse(flat.base);
+        chk(p[0] >= p[1] && p[1] >= p[2] && (p[0] - p[2]) >= 2, `${t} the one agent color is a warm cream`, flat.base); }
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();

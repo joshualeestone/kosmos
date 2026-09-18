@@ -109,10 +109,9 @@
   /* #2947 (Josh, 2026-09-12): the agent message bubble is an ultra-light CREAM,
      not the neutral --k-sunk gray, leaning into the warm ground. Defined per
      theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
-     bluish inset is that world's own language, out of scope). The subtle
-     per-message variation is a color-mix nudge of THIS token (see .dm.theirs
-     .dm-b[data-am] below), so it stays theme-aware. */
-  --agent-msg: #f9f7f1;  /* #3130 (Josh 6.70): the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. The per-message [data-am] variation is a color-mix nudge of this token, so a stack of bubbles does not read as one flat block. */
+     bluish inset is that world's own language, out of scope). #3260: this is now
+     ONE fixed color per theme -- the earlier per-message variation was removed. */
+  --agent-msg: #f9f7f1;  /* #3130 (Josh 6.70): the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
@@ -4758,11 +4757,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the wrapper only for non-empty body content), so there is no empty tinted box. */
 .msg-bd { padding: 8px 12px; border-radius: 12px; }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
-/* #2947: cream, per-message variation via [data-am] (rules beside the DM bubble).
-   background-COLOR, not the `background` shorthand, so the #2921 hover overlay
-   (a background-IMAGE on .msg:hover .msg-bd) composites on top of the cream
-   instead of being cleared by a shorthand -- true even for a [data-am] shade,
-   whose higher specificity would otherwise win the background-image too. */
+/* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
+   shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
+   .msg-bd -- composites on top of the cream instead of being cleared by a
+   shorthand. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
 /* #3134-followup (Josh 6.72): the bubble TAIL is now a clean iMessage-style WING at
    the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
@@ -4776,7 +4774,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the wing ENTIRELY OUTSIDE the bubble box, so it composites exactly ONCE over the
    thread ground and matches the bubble.
    🔑 THE MASK TECHNIQUE: `::before` is the colored wing (`background-color: inherit`,
-   so it tracks the per-message [data-am] cream too), sitting flush just outside the
+   so it tracks the bubble's own cream fill), sitting flush just outside the
    bubble's tail-side bottom corner; `::after` is a `--k-bg` (thread-ground) mask that
    carves the wing's outer edge into a point. Neither overlaps the bubble body, so the
    translucent user tint never doubles. Both are `z-index: -1` inside `.msg-bd`'s own
@@ -5072,24 +5070,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    stay visible: their own fill composites OVER the bubble's and lands a shade
    darker, not equal. */
 .dm.theirs .dm-b { background-color: var(--agent-msg); }
-/* #2947 (Josh, 2026-09-12): a subtle per-message variation on the cream, "so
-   subtle you don't necessarily notice it but it creates a break in a single
-   hex". Each agent bubble gets a stable data-am (0..4) from its message id (set
-   in dmRow / pjMsg), and each shade is a tiny color-mix nudge of the cream
-   token, so it stays theme-aware (the mix is of --agent-msg, which flips per
-   theme). data-am="0" (or absent) is the base above. The nudges are 1.5-4%,
-   below the just-noticeable threshold on a single bubble. */
-.dm.theirs .dm-b[data-am="1"], .msg:not(.you) .msg-bd[data-am="1"] { background-color: color-mix(in srgb, var(--agent-msg), #000 2%); }
-.dm.theirs .dm-b[data-am="2"], .msg:not(.you) .msg-bd[data-am="2"] { background-color: color-mix(in srgb, var(--agent-msg), #fff 2%); }
-.dm.theirs .dm-b[data-am="3"], .msg:not(.you) .msg-bd[data-am="3"] { background-color: color-mix(in srgb, var(--agent-msg), #000 4%); }
-.dm.theirs .dm-b[data-am="4"], .msg:not(.you) .msg-bd[data-am="4"] { background-color: color-mix(in srgb, var(--agent-msg), #fff 1.5%); }
-/* #2947: the Kosmos Plus tab (body.plus-active) is out of scope for cream -- its
-   --agent-msg stays the bluish TRANSLUCENT --k-sunk, and color-mix would drift
-   that alpha rather than nudge a hue. Re-flatten any data-am shade back to the
-   plain token there, so that world keeps its own inset with no per-message
-   variation. background-color (not the shorthand) so the #2921 room hover overlay
-   still composites on top. */
-body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg-bd[data-am] { background-color: var(--agent-msg); }
+/* #3260 (Josh, 2026-09-18): agent messages are ONE fixed background color. The
+   earlier #2947 per-message [data-am] color-mix nudges were removed -- Josh ruled
+   agent-message backgrounds should not vary message-to-message ("we determined we
+   were only going to have one fixed color for the background message color for
+   agent messages"). Every agent bubble now resolves to the flat --agent-msg base
+   set above (still per-theme, still the translucent --k-sunk on the Kosmos Plus
+   tab), and the data-am attribute is no longer emitted in dmRow / pjRoomRow. */
 /* #2067 / #2239: restricted-markdown treatments, on the surfaces that render
    them -- the talk thread (.dm-b) and the project message list (.pj-msg-text),
    both via pjRich; the project ROOM activity thread (.msg-b), via pjProse (#2239
@@ -23778,14 +23765,8 @@ function dmRow(m, name) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
-  /* #2947: a stable per-message shade (0..4) so the cream agent bubble carries a
-     subtle variation that never shimmers on a repaint (it is keyed on the
-     message id, not re-rolled per poll). Inlined, not a shared helper, because
-     dmRow is lifted and eval'd in isolation by web.links-everywhere /
-     web.agent-answers, where an external helper call is an undefined reference. */
-  const amShade = (r) => { const s = midOf(r); let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h) % 5; };
   if (m && m.from) {
-    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b" data-am="' + amShade(m) + '">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
+    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -41510,11 +41491,6 @@ function pjRoomRow(m, p) {
      it is just no longer rendered inline in the thread. The box is gated on BODY content
      (see `hasBubble = bd` below) -- a bodyless row, agent or operator, draws no box. */
   const bd = pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m);
-  /* #2947: the same stable per-message cream shade the DM bubble uses (dmRow),
-     for an agent's ROOM message. Only .msg:not(.you) .msg-bd[data-am] picks it
-     up, so it is inert on the person's own (blue) bubble. Inlined, not a shared
-     helper, for the same isolation-lift reason dmRow records. */
-  const amSeed = String((m && (m.id || m.at)) || ''); let amH = 0; for (let ai = 0; ai < amSeed.length; ai++) amH = (amH * 31 + amSeed.charCodeAt(ai)) | 0; const amRoom = Math.abs(amH) % 5;
   const whenStr = esc(pjWhen(m.at) || '');
   /* #3134-followup (Josh 6.72): name and timestamp move INSIDE the bubble. The agent's
      name is a bold heading at the TOP (`.msg-nm`); the operator's OWN post still gets
@@ -41531,7 +41507,7 @@ function pjRoomRow(m, p) {
   const hasBubble = bd;
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b">'
-    + (hasBubble ? '<div class="msg-bd"' + (isOp ? '' : ' data-am="' + amRoom + '"') + '>' + nameEl + bd + timeEl + '</div>' : '')
+    + (hasBubble ? '<div class="msg-bd">' + nameEl + bd + timeEl + '</div>' : '')
     + pjReactions(m) + '</div></div>';
 }
 
