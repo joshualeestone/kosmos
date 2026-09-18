@@ -23,12 +23,15 @@ Turn silent monitor-loss into a CAUGHT signal, without touching the running moni
   present, expectedCount}. No I/O; deterministically testable. Directional: reports only
   expected-but-not-loaded (an extra unrelated LaunchAgent is ignored).
 - tools/fleet-monitor-audit.js: the loud half - reads the manifest, runs `launchctl list`
-  (read-only), computes the verdict, reports. `--json`/`--check` prints JSON + exit 0/1; default is
-  a human report. AUDIT_LOADED_CMD seam for tests.
-- engine/fleet-monitor-audit.test.js: pure verdict (every present arm paired with a missing control
-  on the same set - a verdict that can only say ok is worthless), the box-rebuild empty case,
-  extra-label-ignored, fail-safe shapes, manifest well-formedness, and two tool-integration tests
-  (via the seam) exercising the launchctl parsing + exit codes.
+  (read-only), computes the verdict, reports. `--json`/`--check` prints JSON; default is a human
+  report. THREE-STATE exit code: 0 all present, 1 one or more missing, 2 could-not-read launchctl.
+  Test seams are NON-SHELL (no arbitrary command runs from env in the shipped tool):
+  AUDIT_LOADED_RAW injects launchctl-shaped text, AUDIT_LOADED_FAIL forces the could-not-read path.
+- engine/fleet-monitor-audit.test.js: pure-verdict tests (every present arm paired with a missing
+  control on the same set - a verdict that can only say ok is worthless), the box-rebuild empty case,
+  extra-label-ignored, fail-safe shapes, manifest well-formedness; plus tool-integration tests via
+  the non-shell seams exercising launchctl parsing, all three exit codes (present/missing/
+  could-not-read), the empty-vs-unset-vs-failed distinction, and the human-output path.
 
 ## Guardrails (shared-infra, per Splinter)
 - ADDITIVE only: new files, no change to any running monitor's behavior.
