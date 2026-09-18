@@ -108,6 +108,21 @@ else
   _KOSMOS_PAGE_PORT=$((16180 + 1 + (CONSOLE_UID % 3999)))
 fi
 if [ -f "$PAGE_SRC" ] && [ -d "$USER_HOME" ]; then
+  # kosmos#3268: installing.html (PAGE_SRC) lives in the root-owned PKInstallSandbox
+  # Scripts dir. The render below drops to the console user (sudo -u) to reach their
+  # gui launchd session, but the console user cannot READ a root-owned Scripts file,
+  # so `sed "$0"` fails, the inner `set -e` aborts the sub-shell, and the progress
+  # page never opens ("install page opened=0" -- the #3233 download bar is missing on
+  # the .pkg path). Stage a world-readable copy AS ROOT first and render from it. Use
+  # an explicit /tmp path, NOT mktemp's default dir: under installd $TMPDIR is that
+  # same root-owned sandbox, so a temp there would be unreadable too. Fall back to the
+  # original on any copy failure (no worse than before this fix). The page is static
+  # public content, so a world-readable copy leaks nothing.
+  _PAGE_READABLE="$PAGE_SRC"
+  _pr_tmp="$(/usr/bin/mktemp /tmp/kosmos-installing.XXXXXX 2>/dev/null || true)"
+  if [ -n "$_pr_tmp" ] && /bin/cp "$PAGE_SRC" "$_pr_tmp" 2>/dev/null && /bin/chmod 644 "$_pr_tmp" 2>/dev/null; then
+    _PAGE_READABLE="$_pr_tmp"
+  fi
   /usr/bin/sudo -u "$CONSOLE_USER" -H /bin/sh -c '
     set -e
     mkdir -p "$1" "$(dirname "$3")"
@@ -135,9 +150,12 @@ if [ -f "$PAGE_SRC" ] && [ -d "$USER_HOME" ]; then
 </dict>
 </plist>
 PLIST
-  ' "$PAGE_SRC" "$PAGE_DIR" "$PAGE" "$AGENT_PLIST" "$AGENT_LABEL" "$_KOSMOS_PAGE_PORT" \
+  ' "$_PAGE_READABLE" "$PAGE_DIR" "$PAGE" "$AGENT_PLIST" "$AGENT_LABEL" "$_KOSMOS_PAGE_PORT" \
   && /bin/launchctl bootstrap "gui/$CONSOLE_UID" "$AGENT_PLIST" 2>/dev/null \
   && PAGE_OPENED=1
+  # kosmos#3268: remove the staged readable copy (set only when mktemp succeeded;
+  # a failed cp/chmod still leaves the empty temp, so remove it unconditionally here).
+  [ -n "$_pr_tmp" ] && /bin/rm -f "$_pr_tmp" 2>/dev/null || true
 fi
 echo "Kosmos: install page opened=$PAGE_OPENED"
 
