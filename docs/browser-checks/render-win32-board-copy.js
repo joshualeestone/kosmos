@@ -65,7 +65,7 @@ const WORDS = {
     '#docs-finder': 'Open in File Explorer',
     '#set-reveal': 'Open the Kosmos folder',
     'button[data-go="term"]': 'Live output',
-    '#fr-pane-7 p[data-win-copy="s7Body"]': 'To open Kosmos later, double-click Kosmos.exe in the folder you extracted it to.',
+    '#fr-pane-7 p[data-win-copy="s7Body"]': 'Kosmos is running now, and its icon is on the taskbar at the bottom of your screen.',
     /* win32-update-arm (S4): the Update confirm dialog body. The win32 updater downloads first, THEN
        stops the board to swap in place, which the Mac's does not, so the win32 copy names both steps. */
     '#uc-small[data-win-copy="updateConfirmBody"]': 'Kosmos downloads the update, then closes for a few seconds while it swaps it in. Your agents keep working the whole time.',
