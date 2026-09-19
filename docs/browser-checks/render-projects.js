@@ -468,33 +468,27 @@ async function main() {
       if (gridRow.display !== 'none') {
         throw new Error('the grid card is drawing a description again; #861 asked for it gone from this view’s stack: ' + JSON.stringify(gridRow));
       }
-      // LIST view: the description renders, truncated to one line (#860),
-      // not wrapped across two or more the way the old pin asked for.
-      await page.click('.viewtoggle[data-scope="projects"] [data-layout="list"]');
+      // ROADMAP view (#3276 replaced the List): the description is DROPPED, not
+      // truncated. #860 asked the old list to truncate a long description to one line;
+      // #3276's denser Roadmap drops the per-row description entirely (it lives on the
+      // Grid card and the single-project view). The .pc-t element is hidden by CSS, not
+      // removed, so the same element-present-but-display:none contract as the grid holds.
+      await page.click('.viewtoggle[data-scope="projects"] [data-layout="roadmap"]');
       await page.waitForTimeout(300);
-      const listRow = await page.evaluate(() => {
+      const roadRow = await page.evaluate(() => {
         const row = [...document.querySelectorAll('.pj-row')]
           .find((r) => r.textContent.includes('Reed handover'));
         const el = row && row.querySelector('.pc-t');
-        if (!el) return null;
-        const cs = getComputedStyle(el);
-        return {
-          display: cs.display,
-          lines: Math.round(el.getBoundingClientRect().height / parseFloat(cs.lineHeight)),
-          clippedX: el.scrollWidth > el.clientWidth + 1,
-        };
+        return { present: Boolean(el), display: el ? getComputedStyle(el).display : null };
       });
-      if (!listRow) throw new Error('the 200-char description never rendered on the list row');
-      if (listRow.display === 'none') throw new Error('the list row is hiding its description; #860 only ever asked to truncate it, not hide it');
-      if (listRow.lines !== 1 || !listRow.clippedX) {
-        throw new Error('a description at the cap should truncate to one clipped line on the list row (#860), not wrap or sit unclipped: ' + JSON.stringify(listRow));
-      }
+      if (!roadRow.present) throw new Error('the .pc-t element itself is gone from the roadmap row -- #3276 hides it with CSS, it does not remove it');
+      if (roadRow.display !== 'none') throw new Error('the roadmap row is drawing a description again; #3276 dropped it from this view for density: ' + JSON.stringify(roadRow));
       await api('/api/project/' + encodeURIComponent('reedhandover'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ description: '' }),
       });
-      console.log('✔ 2b-description (row, its absence arm, and the one-line cap, grid-absent + list-truncated)');
+      console.log('✔ 2b-description (row, its absence arm, and the cap; description dropped in BOTH board views -- grid-absent #861 + roadmap-absent #3276)');
     } finally {
       await ctx.close();
     }
@@ -841,13 +835,12 @@ async function main() {
   fs.rmSync(path.join(demo, 'reed-handover'), { recursive: true, force: true });
   await shot('7-folder-missing');
 
-  // 7. Contrast, on the list where every text token on this screen appears.
-  // ⚠️ EXPLICITLY LIST, NOT WHATEVER '?tab=projects' DEFAULTS TO. That
-  // default is GRID, and #861 (2026-08-25) dropped .pc-t from the grid
-  // card's stack entirely -- measuring grid here silently lost the
-  // description's contrast coverage rather than failing loud, until the
-  // missing-selector guard below caught it. List is where every text
-  // token this pass names still actually renders.
+  // 7. Contrast of every text token the board card renders, measured on the GRID view.
+  // ⚠️ #861 dropped .pc-t (the description) from the grid card, and #3276 dropped it from
+  // the Roadmap too -- so .pc-t is no longer on ANY board view. It lives on the
+  // single-project view now and is out of this board pass's scope (removed from the token
+  // list below). Grid still renders the avatar faces the Roadmap drops, so it covers the
+  // most tokens; '?tab=projects' already defaults to grid and the click below re-affirms it.
   let contrastFails = 0;
   const surfacesByScheme = {};
   for (const scheme of ['light', 'dark']) {
@@ -855,7 +848,7 @@ async function main() {
     const page = await ctx.newPage();
     await page.goto(BASE + '/?tab=projects', { waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
-    await page.click('.viewtoggle[data-scope="projects"] [data-layout="list"]');
+    await page.click('.viewtoggle[data-scope="projects"] [data-layout="grid"]');
     await page.waitForTimeout(300);
     // ⚠️ ONE definition of the background walk, shared by every measuring
     // block on this page as `window.__kbg` -- four verbatim copies is how
@@ -903,7 +896,10 @@ async function main() {
       // the plan's hand-checked ratios were a one-time verification, and a
       // palette edit after it would regress silently. The disc initials
       // (.pjfaces .lav) measure the inline TINT/INK pair the renderer chose.
-      for (const sel of ['#panel-projects .pj-warn', '#panel-projects .pj-row .pc-t',
+      // #3276: '.pc-t' (the description) removed -- it is on no board view now (#861 grid,
+      // #3276 roadmap), so the missing-selector guard would fail on it. Its contrast lives
+      // with the single-project view.
+      for (const sel of ['#panel-projects .pj-warn',
                          '#pj-list .pjcard-h b', '#pj-list .pjpill', /* #747: the folder chip is gone */
                          '#pj-list .pjcount', '#pj-list .pjfaces .lav',
                          '#pj-list-view .viewtoggle .vt', '#pj-list-view .viewtoggle .vt.on']) {
@@ -1378,7 +1374,7 @@ async function main() {
       await page.click('.viewtoggle[data-scope="agents"] [data-layout="grid"]');
       await page.click('.tab[data-tab="projects"]');
       await page.waitForTimeout(200);
-      await page.click('.viewtoggle[data-scope="projects"] [data-layout="list"]');
+      await page.click('.viewtoggle[data-scope="projects"] [data-layout="roadmap"]');   // #3276: List retired
       await page.waitForTimeout(300);
 
       // 8e. The member wording and the resting picker. The heading is the
