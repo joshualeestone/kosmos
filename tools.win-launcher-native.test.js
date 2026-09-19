@@ -546,15 +546,17 @@ test('the zip README speaks Windows: Extract, sign in, the real prompts, a folde
   assert.match(readme, /Tip: before you extract, right-click the zip, choose Properties, tick\\r\\n'\n\s*printf 'Unblock/);
   assert.match(readme, /This preview is not signed yet; signed builds are coming\./);
   assert.doesNotMatch(readme, /have not bought/, 'the README still says a certificate was not bought');
-  /* %LOCALAPPDATA%, typed into File Explorer's address bar, which expands it: the
-     profile folder is often not the person's name and AppData is hidden (round 1). */
-  assert.match(readme, /folder named Kosmos inside %%LOCALAPPDATA%%\\\\Programs\./, 'the README does not suggest the per-user Programs folder');
-  assert.match(readme, /in File Explorer, click the address bar, type\\r\\n'\n\s*printf '%%LOCALAPPDATA%%\\\\Programs and press Enter\./, 'the README does not say how to reach that folder');
-  assert.match(readme, /paste that path into the box, and click Extract\./);
+  /* #3286: Kosmos installs itself into the per-user Programs folder, so the README no longer walks a
+     person through making that folder and pasting its path; it names where Kosmos goes, and says
+     nothing asks them. %LOCALAPPDATA% rather than a profile path (round 1). */
+  assert.match(readme, /computer \(%%LOCALAPPDATA%%\\\\Programs\\\\Kosmos\), adds itself to the Start/, 'the README does not say where Kosmos installs itself');
+  assert.match(readme, /Nothing asks you where to\\r\\n'\n\s*printf 'put it, and no administrator is needed\./);
+  assert.match(readme, /Extract All\.\.\., and click Extract\. Then open the extracted folder/);
+  assert.doesNotMatch(readme, /paste that path into the box|Make a new folder named Kosmos/, 'the README still has people make the install folder by hand');
   assert.doesNotMatch(readme, /AppData\\\\Local\\\\Programs/, 'the README spells out a profile path the person has to guess');
   assert.doesNotMatch(readme, /<your name>\\\\Kosmos\)/, 'the README suggests C:\\Users\\<name>\\Kosmos, where the Projects live (W-09)');
   assert.match(readme, /Bookmarks to Kosmos don\\047t stay\\r\\n'\n\s*printf 'signed in\. Always open Kosmos from Kosmos\.exe\./);
-  assert.doesNotMatch(readme, /Start menu/, 'the README promises a Start menu entry this slice does not create');
+  /* win32-installer-native creates the Start menu entry, so the README may name it (#3286). */
   assert.match(readme, /open Start, type Task Scheduler, press Enter, and open\\r\\n'\n\s*printf 'Task Scheduler Library, then the Kosmos folder\./);
   assert.doesNotMatch(readme, /A window opens for a moment/, 'the README still describes the console window W-07 removed');
   assert.match(WIN, /"\$STAGE\/! READ ME FIRST - Windows will warn you\.txt"/, 'the ! filename, which sorts first, is gone');

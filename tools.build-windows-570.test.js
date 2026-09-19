@@ -162,7 +162,9 @@ test('the package tells the truth about itself', () => {
      close by itself, and a README that still promises one describes a program
      that no longer exists. */
   assert.doesNotMatch(WIN, /closes by itself/, 'the README still explains a launcher window the GUI exe no longer opens');
-  assert.match(WIN, /folder that you will keep/, 'the README does not say the extracted folder IS the install');
+  /* #3286: the extracted folder is no longer the install: Kosmos installs itself into its own folder. */
+  assert.match(WIN, /The first time, Kosmos installs itself into its own folder on this/, 'the README does not say Kosmos installs itself');
+  assert.doesNotMatch(WIN, /folder that you will keep/, 'the README still says the extracted folder is the install');
   /* Board auth ENFORCES on Windows (tools/kosmos-open-board.js), so the bare
      address loads a board that 403s every agent read. Relaunching is the way in. */
   assert.doesNotMatch(WIN, /go to http:\/\/127\.0\.0\.1:%s yourself/, 'the README sends people to the unsigned address as the fix');

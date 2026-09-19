@@ -59,11 +59,11 @@ class KosmosLauncher
     // stamped here would be wrong from the next release on. It moves only when
     // this file does. 1 was the #2086 console launcher; 2 is the GUI one; 3 does
     // an installer's job (win32-installer-native); 4 opens the board in its own
-    // window (#1118).
-    public const string LauncherVersion = "4.0.0.0";
+    // window (#1118); 5 installs itself without asking (#3286).
+    public const string LauncherVersion = "5.0.0.0";
     // Explorer's "Product version". Worded so nobody reads it as the Kosmos
     // version, which lives in manifest.json and on the board.
-    public const string LauncherProductVersion = "launcher 4.0";
+    public const string LauncherProductVersion = "launcher 5.0";
 
     // Kept in step with tools/build-kosmos-windows.sh, which reads the board's
     // default out of server.js and refuses the build if this disagrees. If it
@@ -80,7 +80,9 @@ class KosmosLauncher
     const string UninstallFlag = "--uninstall";
 
     // The engine helpers' word that the person confirmed: engine/win32uninstall.js and
-    // win32relocate.js are dry runs without it. Passed only after the question was answered.
+    // win32relocate.js and win32update.js are dry runs without it. Passed only after the person confirmed
+    // (the uninstall), or because opening Kosmos from a cleaned-up folder or a newer download is the
+    // request (the install and the update, #3286).
     const string ConfirmedFlag = "--yes";
     const string UninstallHelperScript = "win32uninstall.js";
     const string RelocateHelperScript = "win32relocate.js";
@@ -192,7 +194,7 @@ class KosmosLauncher
 
         // win32-installer-native: a real build (manifest.json, see IsKosmosBuild) running from
         // Downloads, the Desktop, OneDrive or a temporary folder hands off to the Kosmos already
-        // installed in its own folder, or is offered a move there; then it points its Start menu
+        // installed in its own folder, updates it, or installs itself there (#3286); then it points its Start menu
         // shortcut and its Settings > Apps entry at wherever it runs from (RunInstallerDuties). A
         // folder without the manifest -- a partial extract, or any test's scratch folder -- does
         // none of it, so it never touches the Start menu or the registry.
@@ -685,80 +687,67 @@ class KosmosLauncher
         }
     }
 
-    internal enum MoveAnswer { Move, Keep, NoAnswer }
-
-    // The move question needs two named buttons, which a MessageBox cannot have, so it is a
-    // small dialog. Closing it is no answer: nothing is remembered and it asks again next time.
+    // #3286: while Kosmos installs or updates itself (a copy of about 100 MB, or the updater stopping
+    // and starting the board), the person who double-clicked would otherwise see nothing for many
+    // seconds and double-click again. So a small window titled Kosmos says what is happening until the
+    // work is done. It asks nothing and has no buttons: closing it does not stop the work, which must
+    // never be cut off midway. With nobody at the desktop (--console, or no desktop at all) the work
+    // simply runs.
     [MethodImpl(MethodImplOptions.NoInlining)]
-    static MoveAnswer AskMoveOrKeep(string question)
+    static void ShowWorkingWhile(string text, Action work)
     {
-        try { SetProcessDPIAware(); } catch { /* blurry text is better than no text */ }
+        if (!showMessageBoxes) { work(); return; }
+        System.Windows.Forms.Form form = null;
         try
         {
+            try { SetProcessDPIAware(); } catch { /* blurry text is better than no text */ }
             System.Windows.Forms.Application.EnableVisualStyles();
-            using (System.Windows.Forms.Form form = new System.Windows.Forms.Form())
-            {
-                form.Text = WindowTitle;
-                form.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
-                form.MaximizeBox = false;
-                form.MinimizeBox = false;
-                form.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-                form.Font = System.Drawing.SystemFonts.MessageBoxFont;
-                form.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-                form.AutoSize = true;
-                form.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-                try { form.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); }
-                catch { /* the default window icon */ }
-
-                System.Windows.Forms.Label text = new System.Windows.Forms.Label();
-                text.AutoSize = true;
-                text.MaximumSize = new System.Drawing.Size(420, 0);
-                text.Text = question;
-                text.Margin = new System.Windows.Forms.Padding(0, 0, 0, 18);
-
-                System.Windows.Forms.Button move = new System.Windows.Forms.Button();
-                move.Text = MoveButton;
-                move.AutoSize = true;
-                move.DialogResult = System.Windows.Forms.DialogResult.Yes;
-                System.Windows.Forms.Button keep = new System.Windows.Forms.Button();
-                keep.Text = KeepButton;
-                keep.AutoSize = true;
-                keep.DialogResult = System.Windows.Forms.DialogResult.No;
-
-                System.Windows.Forms.FlowLayoutPanel buttons = new System.Windows.Forms.FlowLayoutPanel();
-                buttons.FlowDirection = System.Windows.Forms.FlowDirection.RightToLeft;
-                buttons.AutoSize = true;
-                buttons.Dock = System.Windows.Forms.DockStyle.Fill;
-                buttons.WrapContents = false;
-                buttons.Controls.Add(keep);
-                buttons.Controls.Add(move);
-
-                System.Windows.Forms.TableLayoutPanel layout = new System.Windows.Forms.TableLayoutPanel();
-                layout.AutoSize = true;
-                layout.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-                layout.ColumnCount = 1;
-                layout.RowCount = 2;
-                layout.Padding = new System.Windows.Forms.Padding(18);
-                layout.Controls.Add(text, 0, 0);
-                layout.Controls.Add(buttons, 0, 1);
-                form.Controls.Add(layout);
-                form.AcceptButton = move;
-
-                System.Windows.Forms.DialogResult result = form.ShowDialog();
-                if (result == System.Windows.Forms.DialogResult.Yes) return MoveAnswer.Move;
-                if (result == System.Windows.Forms.DialogResult.No) return MoveAnswer.Keep;
-                return MoveAnswer.NoAnswer;
-            }
+            form = new System.Windows.Forms.Form();
+            form.Text = WindowTitle;
+            form.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
+            form.MaximizeBox = false;
+            form.MinimizeBox = false;
+            form.ControlBox = false;
+            form.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
+            form.Font = System.Drawing.SystemFonts.MessageBoxFont;
+            form.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            form.AutoSize = true;
+            form.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            try { form.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); }
+            catch { /* the default window icon */ }
+            System.Windows.Forms.Label label = new System.Windows.Forms.Label();
+            label.AutoSize = true;
+            label.MaximumSize = new System.Drawing.Size(420, 0);
+            label.Text = text;
+            label.Margin = new System.Windows.Forms.Padding(24);
+            System.Windows.Forms.FlowLayoutPanel layout = new System.Windows.Forms.FlowLayoutPanel();
+            layout.AutoSize = true;
+            layout.Controls.Add(label);
+            form.Controls.Add(layout);
         }
-        catch
+        catch { form = null; /* no window: the work still runs, in silence as before */ }
+        if (form == null) { work(); return; }
+
+        Exception failed = null;
+        System.Windows.Forms.Form shown = form;
+        Thread worker = new Thread(() =>
         {
-            // The plain user32 box, for ShowMessageBox's reason: a question that never shows is
-            // worse than one with plainer buttons.
-            int said = MessageBoxW(IntPtr.Zero, question + "\n\nYes: " + MoveButton + ". No: " + KeepButton + ".", WindowTitle, MB_YESNOCANCEL | MB_ICONQUESTION);
-            if (said == IDYES) return MoveAnswer.Move;
-            if (said == IDNO) return MoveAnswer.Keep;
-            return MoveAnswer.NoAnswer;
-        }
+            try { work(); }
+            catch (Exception e) { failed = e; }
+            finally
+            {
+                try { shown.BeginInvoke(new Action(() => { shown.Tag = "done"; shown.Close(); })); }
+                catch { /* the window is already gone */ }
+            }
+        });
+        worker.IsBackground = false;
+        // Closing by hand is refused until the work is done (Alt+F4 included): the work goes on either
+        // way, and a window that vanished while it did would look like the end.
+        form.FormClosing += (sender, e) => { if (!"done".Equals(shown.Tag)) e.Cancel = true; };
+        form.Shown += (sender, e) => worker.Start();
+        System.Windows.Forms.Application.Run(form);
+        worker.Join();
+        if (failed != null) throw failed;
     }
 
     const uint MB_YESNOCANCEL = 0x03;
@@ -802,7 +791,7 @@ class KosmosLauncher
 
     // A real Kosmos build: its manifest.json names the product and the platform at its top
     // level. Only a real build is advertised in the Start menu and Settings > Apps, or
-    // offered a move.
+    // installed from.
     internal static bool IsKosmosBuild(string root)
     {
         try
@@ -1121,7 +1110,7 @@ class KosmosLauncher
         return 1;
     }
 
-    // The folder list "Keep it here" wrote. The engine's removal deletes %LOCALAPPDATA%\Kosmos, which
+    // The folder list an older launcher wrote when a person chose to keep Kosmos where it was (before #3286). The engine's removal deletes %LOCALAPPDATA%\Kosmos, which
     // holds it, only when that is the plain folder; this file is the launcher's own, so it goes here.
     internal static string ForgetKeptPlaces()
     {
@@ -1154,7 +1143,7 @@ class KosmosLauncher
     internal static EngineHelperRunner runEngineHelper = RunEngineHelper;
     internal static Func<string, string, string> startLauncher = StartLauncherAt;
     internal static Func<string, bool> askYesNo = AskYesNo;
-    internal static Func<string, MoveAnswer> askMoveOrKeep = AskMoveOrKeep;
+    internal static Action<string, Action> showWorkingWhile = ShowWorkingWhile;
     internal static Action<string, bool> tellPerson = TellPerson;
     internal static Action<string> refreshWindowsRegistration = RefreshWindowsRegistration;
     internal static Action<int> closeBoardWindow = CloseBoardWindow;
@@ -1257,7 +1246,9 @@ class KosmosLauncher
     internal static Func<string> userProgramsFolder = () =>
         KnownFolderPath(FOLDERID_UserProgramFiles)
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
-    // "Keep it here", remembered per folder, one full path per line, in <LOCALAPPDATA>\Kosmos\launcher.
+    // Where launchers before #3286 remembered, per folder, a person's choice to keep Kosmos where it was: one
+    // full path per line, in <LOCALAPPDATA>\Kosmos\launcher. Nothing reads or writes it now (Kosmos installs itself
+    // without asking); it is named only so the uninstall removes a copy an older launcher left.
     // That is engine/win32anchor.js's folder by the same rule it uses without overrides: the
     // LOCALAPPDATA variable, else the account's own Local AppData. The launcher does not ask node on
     // every launch (a process per double-click), so the two differ only when the environment carries
@@ -1276,15 +1267,20 @@ class KosmosLauncher
     static readonly string[] OneDriveVariables = { "OneDrive", "OneDriveConsumer", "OneDriveCommercial" };
     const string InstallFolderName = "Kosmos";
     const string KeepsWorkingHere = "Kosmos keeps working from here.";
-    const string MoveButton = "Move Kosmos";
-    const string KeepButton = "Keep it here";
+    const string UpdateHelperScript = "win32update.js";
 
-    internal static string MoveQuestion(string place)
+    // #3286: what the working window says while Kosmos installs or updates itself.
+    const string InstallingMessage = "Installing Kosmos on this computer. This takes a moment.";
+    const string UpdatingMessage = "Updating the Kosmos installed on this computer. Your agents keep their work; Kosmos restarts in a moment.";
+
+    // #3286: the plain note, never a question, when Kosmos cannot install itself and runs where it is.
+    internal static string CouldNotInstallNote(string place, string target, string because)
     {
-        return "Kosmos is running from " + place + ". If that folder is cleaned up, Kosmos stops working. Move Kosmos to its own folder now?";
+        return "Kosmos could not install itself in " + target + ", so it is running from " + place + " for now. " + because
+            + "\n\nIf that folder is cleaned up, Kosmos stops working. Kosmos tries again the next time you open it from here.";
     }
 
-    // Which cleaned-up or synced place this folder is in, as the question names it, or null.
+    // Which cleaned-up or synced place this folder is in, as the note names it, or null.
     // Most specific first: a Desktop inside OneDrive is "your Desktop".
     internal static string TemporaryPlaceOf(string folder)
     {
@@ -1330,34 +1326,6 @@ class KosmosLauncher
     [DllImport("shell32.dll")]
     static extern int SHGetKnownFolderPath([MarshalAs(UnmanagedType.LPStruct)] Guid folder, uint flags, IntPtr token, out IntPtr path);
 
-    internal static bool PlaceWasKept(string folder)
-    {
-        try
-        {
-            string file = keptPlacesFile();
-            if (!File.Exists(file)) return false;
-            string mine = (FullPathOrNull(folder) ?? folder).TrimEnd('\\', '/');
-            foreach (string line in File.ReadAllLines(file, Encoding.UTF8))
-            {
-                if (string.Equals(line.Trim().TrimEnd('\\', '/'), mine, StringComparison.OrdinalIgnoreCase)) return true;
-            }
-            return false;
-        }
-        catch { return false; /* an unreadable memory asks again, which is the harmless direction */ }
-    }
-
-    internal static bool RememberPlaceKept(string folder)
-    {
-        try
-        {
-            string file = keptPlacesFile();
-            Directory.CreateDirectory(Path.GetDirectoryName(file));
-            File.AppendAllText(file, (FullPathOrNull(folder) ?? folder).TrimEnd('\\', '/') + "\r\n", new UTF8Encoding(false));
-            return true;
-        }
-        catch { return false; /* not remembered: the question comes back next launch, nothing worse */ }
-    }
-
     internal static string MoveTarget()
     {
         string programs = userProgramsFolder();
@@ -1367,16 +1335,106 @@ class KosmosLauncher
     // Everything this launcher does as an installer before it starts anything (see Main). Returns
     // the exit code this launch ends with, or null to carry on launching from here. Only a real
     // build: a folder without the manifest does none of it.
+    //
+    // #3286: KOSMOS INSTALLS ITSELF, LIKE WINDOWS SOFTWARE DOES, AND ASKS NOTHING. Josh on a clean
+    // laptop: a question about moving out of Downloads is not what installing software looks like.
+    // The per-user programs folder (%LOCALAPPDATA%\Programs\Kosmos, MoveTarget) is where Chrome, VS Code
+    // and Slack put a per-user install, and it needs no administrator. So:
+    //   - a copy running from a folder that gets cleaned up (Downloads, the Desktop, OneDrive, a
+    //     temporary or zip-extract folder), with no Kosmos installed, installs itself there
+    //     (InstallFromTemporaryPlace) and starts the installed copy;
+    //   - a NEWER copy, from anywhere, with Kosmos installed, updates the installed copy through the
+    //     in-app updater's own swap (UpdateInstalledCopy) and starts it, so there is only ever one;
+    //   - the same build or an older one hands off to the installed copy (CompareWithInstalledCopy);
+    //   - the installed copy itself does what it always did;
+    //   - a copy somebody put somewhere deliberate (not a cleaned-up place), with nothing installed, runs
+    //     where it is, as before.
+    // When the install or the update cannot happen, a plain note says why and Kosmos runs from here.
+    // Every launch of whichever copy runs then points the Start menu entry and the Settings > Apps entry
+    // at it (RefreshWindowsRegistration), as before.
     internal static int? RunInstallerDuties(string here, string node, int port)
     {
         if (!IsKosmosBuild(here)) return null;
         PlaceOutcome installed = CompareWithInstalledCopy(here, node);
         if (installed == PlaceOutcome.StartedInstalledCopy) return 0;
         if (installed == PlaceOutcome.InstalledCopyWouldNotStart) return 1;
-        if (installed != PlaceOutcome.NewerThanInstalledCopy
-            && OfferToMoveFromTemporaryPlace(here, node, port) == PlaceOutcome.StartedInstalledCopy) return 0;
+        if (installed == PlaceOutcome.NewerThanInstalledCopy)
+        {
+            PlaceOutcome updated = UpdateInstalledCopy(here, node, port);
+            if (updated == PlaceOutcome.StartedInstalledCopy) return 0;
+            if (updated == PlaceOutcome.InstalledCopyWouldNotStart) return 1;
+        }
+        else if (InstallFromTemporaryPlace(here, node, port) == PlaceOutcome.StartedInstalledCopy)
+        {
+            return 0;
+        }
         refreshWindowsRegistration(here);
         return null;
+    }
+
+    // #3286: a newer Kosmos (a newer zip the person extracted and ran) updates the installed copy instead
+    // of becoming a second install. The updater does it exactly as it installs a download
+    // (engine/win32update.js --apply --from): the newer build is staged beside the installed one, the
+    // board is stopped, the installed build is kept as .kosmos-update\previous-<version>, the new one is
+    // swapped in, the board is started and must answer as the new build, and anything that goes wrong
+    // puts the old build back. It runs with THIS copy's node and engine, the newer ones; the swap itself
+    // is done by the installed copy's own helper, as every in-app update is.
+    // When the updater refuses (the installed Kosmos is not the one Kosmos starts from, its board is not
+    // running from its logon task, an update is already under way), the move installs over the installed
+    // copy if it is idle (below); failing that, a note says so and this newer copy runs from here, which is
+    // what happened before #3286.
+    internal static PlaceOutcome UpdateInstalledCopy(string here, string node, int port)
+    {
+        string target = MoveTarget();
+        string full = FullPathOrNull(here) ?? here;
+        if (target == null) return PlaceOutcome.NewerThanInstalledCopy;
+        string problem = null;
+        string[] report = null;
+        showWorkingWhile(UpdatingMessage, () =>
+        {
+            report = runEngineHelper(node, here, UpdateHelperScript,
+                "--apply --root " + QuoteArgument(target) + " --from " + QuoteArgument(full) + " --port " + port + " --wait", NoHelperTimeout, out problem);
+        });
+        string outcome = report != null && report.Length > 0 ? report[0] : null;
+        if (outcome != null && outcome.StartsWith("UPDATED ", StringComparison.Ordinal))
+        {
+            string startProblem = startLauncher(Path.Combine(target, "Kosmos.exe"), target);
+            if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
+            tellPerson("Kosmos is updated in " + target + ", but it would not start from there (" + startProblem + "). Double-click Kosmos.exe in that folder.", true);
+            return PlaceOutcome.InstalledCopyWouldNotStart;
+        }
+        string because = outcome != null && outcome.StartsWith("REFUSED ", StringComparison.Ordinal)
+            ? outcome.Substring("REFUSED ".Length)
+            : "the update did not say what happened" + (problem != null ? " (" + problem + ")" : "");
+
+        // The updater swaps only the copy Kosmos starts from. When the installed copy is NOT that copy (the
+        // engine pointer names a download that ran before), it is an idle older leftover, and waiting for the
+        // updater would leave this person running from Downloads for good. So the move installs over it
+        // (--replace-older), keeping it whole as .kosmos-update\previous-<version> where the updater keeps the
+        // build an update replaced, and ends a board serving from here first, as the first install does. The
+        // move refuses on its own when the installed copy is the one Kosmos starts from, so this never
+        // replaces a running install behind the updater's back.
+        // 🔑 NEVER A LOOP: when both refuse, this copy runs from here, which is what happened before #3286 and
+        // is stable (the installed copy hands off only to a NEWER pointed copy, and this is it). Running here
+        // points Kosmos at this copy, so the next launch of this download finds the installed copy idle and
+        // replaces it.
+        string replaceProblem = null;
+        string[] replaced = null;
+        showWorkingWhile(InstallingMessage, () =>
+        {
+            replaced = runEngineHelper(node, here, RelocateHelperScript,
+                "--move --from " + QuoteArgument(full) + " --to " + QuoteArgument(target) + " --port " + port + " --end-board --replace-older", NoHelperTimeout, out replaceProblem);
+        });
+        string replacedOutcome = replaced != null && replaced.Length > 0 ? replaced[0] : null;
+        if (replacedOutcome != null && replacedOutcome.StartsWith("MOVED ", StringComparison.Ordinal))
+        {
+            string startProblem = startLauncher(Path.Combine(target, "Kosmos.exe"), target);
+            if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
+            tellPerson("Kosmos is updated in " + target + ", but it would not start from there (" + startProblem + "). Double-click Kosmos.exe in that folder.", true);
+            return PlaceOutcome.InstalledCopyWouldNotStart;
+        }
+        tellPerson("This Kosmos is newer than the one installed in " + target + ", but it could not update it (" + because + "). This newer Kosmos runs from here for now, and tries again the next time you open it.", false);
+        return PlaceOutcome.NewerThanInstalledCopy;
     }
 
     internal enum PlaceOutcome { NoInstalledCopy, NotATemporaryPlace, StartedInstalledCopy, InstalledCopyWouldNotStart, NewerThanInstalledCopy, StaysHere }
@@ -1389,10 +1447,9 @@ class KosmosLauncher
     // from its one build verdict (the verdict relocate reads too):
     //   HANDOFF (the same build, an installed build that is newer, or anything unreadable) -> start
     //   the installed Kosmos and end here. This copy re-points nothing: no shortcut, no Apps entry, no
-    //   engine pointer. Keep it here does not apply: a stale copy is exactly what re-pointed everything.
-    //   NEWER (this copy is newer, or the same version rebuilt from another commit) -> run from here and
-    //   re-point, which is how a by-hand zip update works today, until "Update Kosmos in Programs from a
-    //   newer downloaded zip" reuses engine/win32apply.js.
+    //   engine pointer. A stale copy is exactly what re-pointed everything.
+    //   NEWER (this copy is newer, or the same version rebuilt from another commit) -> #3286: update the
+    //   installed copy from this one (UpdateInstalledCopy, engine/win32apply.js's swap), so there is one install.
     //   NONE (no complete Kosmos there), or a compare that could not run -> carry on as before.
     internal static PlaceOutcome CompareWithInstalledCopy(string here, string node)
     {
@@ -1444,12 +1501,18 @@ class KosmosLauncher
         return PlaceOutcome.InstalledCopyWouldNotStart;
     }
 
-    // W-06: a copy running from a folder that gets cleaned up, with a person at the desktop and the
-    // folder not kept, is asked Move Kosmos or Keep it here. Whether it may move is the engine's rule
-    // (never while a board from this folder serves, never over a different or incomplete Kosmos), and a
-    // refusal is shown as it is worded. Only temporary places are asked; the installed-copy verdict above
-    // has already run for every folder.
-    internal static PlaceOutcome OfferToMoveFromTemporaryPlace(string here, string node, int port)
+    // #3286 (was W-06's move question): a copy running from a folder that gets
+    // cleaned up, with no Kosmos installed, installs itself into the per-user programs folder without
+    // asking, then starts the installed copy, which opens the board.
+    // The copying is engine/win32relocate.js's move, unchanged in what it copies and refuses (only the
+    // build's own entries; never over a different or incomplete Kosmos; staged beside the target and
+    // renamed into place; the pointer anchored to the new folder). --end-board is new: a board serving
+    // from THIS folder (anyone who ran Kosmos from Downloads before this build) is ended first, when its
+    // logon task started it, so it can come back from the new folder instead of blocking the install
+    // forever. The folder installed from is left exactly as it was: agents running now keep reading from
+    // it until they restart, and nothing is ever deleted.
+    // A refusal is a plain note, never a question, and Kosmos runs from here; it tries again next time.
+    internal static PlaceOutcome InstallFromTemporaryPlace(string here, string node, int port)
     {
         string place = TemporaryPlaceOf(here);
         if (place == null) return PlaceOutcome.NotATemporaryPlace;
@@ -1457,29 +1520,27 @@ class KosmosLauncher
         string full = FullPathOrNull(here) ?? here;
         if (target == null || IsSameOrInside(full, target) || IsSameOrInside(target, full)) return PlaceOutcome.NotATemporaryPlace;
 
-        if (!showMessageBoxes || PlaceWasKept(here)) return PlaceOutcome.StaysHere;
-        MoveAnswer answer = askMoveOrKeep(MoveQuestion(place));
-        if (answer == MoveAnswer.Keep) { RememberPlaceKept(here); return PlaceOutcome.StaysHere; }
-        if (answer != MoveAnswer.Move) return PlaceOutcome.StaysHere;
-
-        string problem;
-        string[] report = runEngineHelper(node, here, RelocateHelperScript,
-            "--move --from " + QuoteArgument(full) + " --to " + QuoteArgument(target) + " --port " + port, NoHelperTimeout, out problem);
+        string problem = null;
+        string[] report = null;
+        showWorkingWhile(InstallingMessage, () =>
+        {
+            report = runEngineHelper(node, here, RelocateHelperScript,
+                "--move --from " + QuoteArgument(full) + " --to " + QuoteArgument(target) + " --port " + port + " --end-board", NoHelperTimeout, out problem);
+        });
         string outcome = report != null && report.Length > 0 ? report[0] : null;
         if (outcome != null && (outcome.StartsWith("MOVED ", StringComparison.Ordinal) || outcome.StartsWith("SAME ", StringComparison.Ordinal)))
         {
             string startProblem = startLauncher(Path.Combine(target, "Kosmos.exe"), target);
             if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
-            tellPerson("Kosmos is in " + target + " now, but it would not start from there (" + startProblem + "). " + KeepsWorkingHere, true);
+            tellPerson("Kosmos is installed in " + target + " now, but it would not start from there (" + startProblem + "). " + KeepsWorkingHere, true);
             return PlaceOutcome.StaysHere;
         }
         string because = outcome != null && outcome.StartsWith("REFUSED ", StringComparison.Ordinal)
             ? outcome.Substring("REFUSED ".Length)
-            : "Kosmos could not be moved (" + (problem ?? "the move did not say what happened") + "). " + KeepsWorkingHere;
-        tellPerson(because, false);
+            : "The copy did not say what happened" + (problem != null ? " (" + problem + ")" : "") + ".";
+        tellPerson(CouldNotInstallNote(place, target, because), false);
         return PlaceOutcome.StaysHere;
     }
-
     // ---- the board's own window (#1118) ---------------------------------------
     //
     // A double-click used to open the board in the default browser, as a tab beside the person's
