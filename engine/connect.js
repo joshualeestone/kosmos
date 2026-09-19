@@ -1328,9 +1328,10 @@ const tmuxSigninHost = {
  * on 127.0.0.1 only (no firewall prompt, and Edge's `localhost` reaches it), a sign-in
  * finished both through the localhost callback and through a pasted code, and this
  * driver took one to CONNECTED from that task with no test seams. Its texts are the
- * fixtures in engine/connect.win32signin.test.js. The browser is opened through
- * `BROWSER` (see win32signin.js): claude's own opener showed nothing from that task
- * when the browser had no window open.
+ * fixtures in engine/connect.win32signin.test.js. Kosmos opens the sign-in page itself
+ * and tells claude's own opener to do nothing (see win32signin.js): claude's opener
+ * showed nothing from that task when the browser had no window open, and a browser it
+ * did start would have been killed with it.
  *
  * ⚠️ A CODE CONSTANT, NOT AN ENVIRONMENT VARIABLE. Anything running as this user,
  * an agent session included, can set an environment variable; switching this takes
