@@ -4066,7 +4066,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      which is the signature of correct tracking and a wrong intercept, so the 24px is
      added back. Measured after: 200/200, 200/200, 240/240, 288/288 at 1100, 1280,
      1600 and 1920. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(200px, 16.6vw); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; column-gap: 0; }   /* #3305 (Josh 2026-09-19): close the conversation<->rail gutter -- the base .pj3 gap:16px was adding a wide empty strip on top of the rail cards' own 12px inset; row-gap is left to the base so Tasks/Files vertical spacing is unchanged. #3218: right col fixed 16.6vw (supersedes the #1189 15vw+24px agents-match tuning); conversation (1fr) is the residual == ~50vw. Right stays 16.6vw when Agents folds, so the freed width flows only to the conversation (fold-flex by construction, no fold-a override needed). TWO rows now, 50/50: Tasks (top) over Files (bottom) -- the separate Members card is hidden here (increment 3), its agents having moved to the top of the single Agents list; member add/remove lives in project Settings. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(200px, 16.6vw); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; column-gap: 0; row-gap: 0; }   /* #3305 (Josh 2026-09-19): close the conversation<->rail gutter -- the base .pj3 gap:16px was adding a wide empty strip on top of the rail cards' own 12px inset. #3307 (Angel 2026-09-19): ALSO zero the row-gap -- the base 16px row-gap sat between the Tasks row and the Files row (divider), so the Tasks list clipped ~16px short of the divider over a --k-bg band; #3307's own margin-bottom:0 on the aside removed only its 12px inset, not this row-gap, so the list did not "fill that space down" (Josh's card) as #3307's comment claimed. With row-gap:0 + that margin-bottom:0 the Tasks list now reaches the divider and its overflow scrolls behind it. #3218: right col fixed 16.6vw (supersedes the #1189 15vw+24px agents-match tuning); conversation (1fr) is the residual == ~50vw. Right stays 16.6vw when Agents folds, so the freed width flows only to the conversation (fold-flex by construction, no fold-a override needed). TWO rows now, 50/50: Tasks (top) over Files (bottom) -- the separate Members card is hidden here (increment 3), its agents having moved to the top of the single Agents list; member add/remove lives in project Settings. */
   /* 🛑 `stretch`, NOT `start`, AND THIS ONE OVERLAPPED CARDS ON A SMALL LAPTOP.
      With `start` a card is never sized to its track: its height is its own
      content clamped by the 38vh cap. But the two `minmax(0, auto)` tracks have a
@@ -11841,11 +11841,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="field" id="pj-tasks-field">
       <h3 class="dlab">Tasks</h3>
       <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
-      <!-- #3218: the View-All door sits in the DOM right after the header controls (before the
-           list), so keyboard focus reaches it in reading order. The consolidated view grids it into
-           the header row (top-right); DOM-early keeps tab order matching that visual position (WCAG
-           2.4.3, the kosmos#1017 class). In the tab view it then shows just under the header rather
-           than at the bottom -- consistent with the consolidated header placement. -->
+      <!-- #3218 + #3304: the View-All door sits in the DOM right after the + control (before the
+           list), so keyboard focus reaches it in reading order. #3304 (Josh 2026-09-19) reordered the
+           consolidated header to Tasks(col 1) | View All(col 2) | +(col 3), so View All now sits to
+           the LEFT of the +, no longer top-right. NOTE (was a clean invariant, now a documented
+           tradeoff): the DOM keeps + before View All so the TAB view's vertical order (+ on top of
+           the header, View All just below) stays focus-clean; in the CONSOLIDATED view that same DOM
+           means focus reaches + then View All while the eye reads View All then +. A single DOM order
+           cannot match both views once #3304 flips the consolidated one, and these are two
+           independent header actions (add vs open-all) whose order is meaning-independent, so this
+           does not fail WCAG 2.4.3 (which targets order that changes meaning). In the tab view View
+           All still shows just under the header. -->
       <!-- The door, pack rule: the column is a task with somebody on it that
            is not finished; finished and unpicked are both real and both
            behind this. v1's door reveals them in place (there is no
