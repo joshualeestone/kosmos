@@ -71,12 +71,20 @@ test('the declared manifest is well-formed: non-empty, each has label/purpose/so
 });
 
 test('#3243: provisioning metadata is resolvable - every plist basename equals its label + .plist, and no plist path escapes its repo', () => {
-  // The fresh-box provisioner (claude-setup install-fleet-monitors.sh) resolves a
-  // plist at ~/work/<repo>/<plist> and, before loading, verifies the filename
-  // matches the plist's internal Label (a launchd requirement). Pin both halves so
-  // a malformed registry row cannot slip past into the installer:
-  //  - basename(plist) === '<label>.plist' (filename/Label agreement)
-  //  - plist is repo-relative and does not climb out with '..' or a leading '/'
+  // The registry-driven fresh-box provisioner (the claude-setup fleet installer,
+  // its `installer: 'fleet'` path) is intended to resolve a plist at
+  // ~/work/<repo>/<plist> and load it. This test guards the registry-internal
+  // invariants that provisioner will depend on, computed from data in THIS repo:
+  //  - basename(plist) === '<label>.plist'. A launchd job's plist filename must
+  //    match its internal <Label>; the internal Label lives in the committed plist
+  //    (another repo) and cannot be read from here, so this basename check is a
+  //    PROXY for that requirement, not the enforcement. The installer verifies the
+  //    real filename==internal-Label match at load time and fails on a mismatch.
+  //  - plist is repo-relative and does not climb out with '..' or a leading '/'.
+  // A length assertion keeps this from passing vacuously on an empty registry
+  // (the well-formedness test also asserts length > 0; repeated here so this test
+  // stands on its own).
+  assert.ok(FLEET_MONITORS.length > 0, 'the registry must be non-empty for this check to mean anything');
   for (const m of FLEET_MONITORS) {
     const base = m.plist.slice(m.plist.lastIndexOf('/') + 1);
     assert.equal(base, `${m.label}.plist`, `${m.label}: plist basename must be <label>.plist (got ${base})`);
