@@ -29,15 +29,16 @@
  *                           kosmos-relay/deploy/install-monitors.sh). The
  *                           claude-setup fleet installer REPORTS it and skips -
  *                           it does not duplicate a working self-installer.
- *                 'fleet' = the non-self-installing monitors (Josh-Brain's two,
- *                           and selfreport), meant to be provisioned by the one
- *                           claude-setup fleet installer rather than a per-repo
- *                           script. NOTE the state of that installer today: its
- *                           first slice (claude-setup#53) installs the monitors
- *                           whose plist is committed AS ITS OWN TEMPLATE
+ *                 'fleet' = the four non-self-installing monitors (selfreport,
+ *                           fleet-liveness, and Josh-Brain's fleet-drift-check +
+ *                           board-served-tree-check), meant to be provisioned by
+ *                           the one claude-setup fleet installer rather than a
+ *                           per-repo script. NOTE the state of that installer
+ *                           today: its first slice (claude-setup#53) installs the
+ *                           two whose plist is committed AS ITS OWN TEMPLATE
  *                           (selfreport, fleet-liveness) and only REPORTS the
- *                           rest; reading `repo`+`plist` to resolve a plist from
- *                           ANOTHER repo's checkout (the Josh-Brain pair) is the
+ *                           Josh-Brain pair; reading `repo`+`plist` to resolve a
+ *                           plist from ANOTHER repo's checkout (that pair) is the
  *                           paired follow-up PR that consumes these fields. This
  *                           registry is what makes that follow-up possible.
  *
