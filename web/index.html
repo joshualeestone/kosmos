@@ -5668,8 +5668,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    built-in halo. */
 .pj-member .pj-face > .lreach { display: grid; place-items: center; position: absolute; right: -3px; bottom: -3px; width: 15px; height: 15px; border-radius: 50%; background: var(--k-ink-2); color: var(--k-bg); font: 700 10px/1 var(--font-ui); border: 1.5px solid var(--k-bg); box-sizing: border-box; }
 .pj-member small.pj-attn { color: #b3261e; }
-/* #b3261e is a ~2:1 whisper on the dark surface (under WCAG AA for this caption), the same
-   reason .pjonode.attn lightens. Only the SYSTEM-dark @media rule is written by hand; the
+/* #b3261e is a ~2:1 whisper on the dark surface (under WCAG AA for this caption), so it
+   lightens to #ff8c82 in dark mode. Only the SYSTEM-dark @media rule is written by hand; the
    [data-theme="dark"] forced twin is generated into the forced-theme section by
    tools/sync-forced-theme.js (do not hand-write it, or the forced-theme parity test fails). */
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pj-member small.pj-attn { color: #ff8c82; } }
@@ -37722,8 +37722,8 @@ function projectCard(p, unreadable, depth, childCount) {
      affordance only. The glyph baked here is ALWAYS the open ▾, so the painted
      string never changes with fold state -- otherwise setLive would repaint the
      whole list on every fold. applyConsFold sets the true ▾/▸. The
-     data-pjtreefold handle is distinct from the Map's data-pjfold and the rail
-     column's data-fold, so no global [data-...] sweep can cross the three. */
+     data-pjtreefold handle is distinct from the rail column's data-fold, so no
+     global [data-...] sweep can cross them. */
   const treeCaret = subs
     ? '<span class="pjtreefold" data-pjtreefold="' + esc(p.id) + '" aria-hidden="true">▾</span>'
     : '';
@@ -44047,8 +44047,7 @@ document.getElementById('pj-add-back').addEventListener('click', () => { PJ_CURR
 document.getElementById('pj-list').addEventListener('click', (e) => {
   if (e.target.closest('#pj-new-empty')) { openAddProject(); return; }
   /* #2929/#3276: a fold-caret click toggles the tree branch and NEVER opens the
-     project -- checked BEFORE the row's open handler, the same order the Map view uses
-     for its data-pjfold. The caret is CSS-shown in BOTH tree views now (the consolidated
+     project -- checked BEFORE the row's open handler. The caret is CSS-shown in BOTH tree views now (the consolidated
      rail and, since #3276, the tab Roadmap), and CSS-hidden in the grid, so this fires
      in either tree view and is inert in the grid. */
   const foldEl = e.target.closest('[data-pjtreefold]');
