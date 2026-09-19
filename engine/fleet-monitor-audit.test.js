@@ -53,16 +53,36 @@ test('missing/undefined args do not throw (fail-safe shapes)', () => {
   assert.equal(auditVerdict(EXP, undefined).ok, false);        // expected but nothing loaded -> all missing
 });
 
-test('the declared manifest is well-formed: non-empty, each has label/purpose/source, labels unique', () => {
+test('the declared manifest is well-formed: non-empty, each has label/purpose/source/repo/plist/installer, labels unique', () => {
   assert.ok(FLEET_MONITORS.length > 0, 'the manifest must declare at least one monitor');
   for (const m of FLEET_MONITORS) {
     assert.equal(typeof m.label, 'string');
     assert.ok(m.label.length > 0, 'every monitor needs a label');
     assert.ok(typeof m.purpose === 'string' && m.purpose.length > 0, `${m.label} needs a purpose`);
     assert.ok(typeof m.source === 'string' && m.source.length > 0, `${m.label} needs a source (what to reinstall)`);
+    // #3243 provisioning metadata: repo (deploying-repo checkout under ~/work),
+    // plist (committed path relative to that checkout root), installer strategy.
+    assert.ok(typeof m.repo === 'string' && m.repo.length > 0, `${m.label} needs a repo (which checkout commits its plist)`);
+    assert.ok(typeof m.plist === 'string' && m.plist.length > 0, `${m.label} needs a plist path`);
+    assert.ok(['self', 'fleet'].includes(m.installer), `${m.label} installer must be 'self' or 'fleet' (got ${JSON.stringify(m.installer)})`);
   }
   const labels = FLEET_MONITORS.map((m) => m.label);
   assert.equal(new Set(labels).size, labels.length, 'monitor labels must be unique');
+});
+
+test('#3243: provisioning metadata is resolvable - every plist basename equals its label + .plist, and no plist path escapes its repo', () => {
+  // The fresh-box provisioner (claude-setup install-fleet-monitors.sh) resolves a
+  // plist at ~/work/<repo>/<plist> and, before loading, verifies the filename
+  // matches the plist's internal Label (a launchd requirement). Pin both halves so
+  // a malformed registry row cannot slip past into the installer:
+  //  - basename(plist) === '<label>.plist' (filename/Label agreement)
+  //  - plist is repo-relative and does not climb out with '..' or a leading '/'
+  for (const m of FLEET_MONITORS) {
+    const base = m.plist.slice(m.plist.lastIndexOf('/') + 1);
+    assert.equal(base, `${m.label}.plist`, `${m.label}: plist basename must be <label>.plist (got ${base})`);
+    assert.ok(!m.plist.startsWith('/'), `${m.label}: plist must be repo-relative, not absolute`);
+    assert.ok(!m.plist.split('/').includes('..'), `${m.label}: plist must not contain '..'`);
+  }
 });
 
 test('#3250: board-served-tree-check is registered (a live monitor that was missing from the registry)', () => {
