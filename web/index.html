@@ -47175,7 +47175,14 @@ document.getElementById('fr-openai-confirm-go').addEventListener('click', async 
         if (msg) msg.textContent = o.job.because ? pjSentence(o.job.because) : 'That install did not finish. Nothing changed; you can try again.';
         return;
       }
-      if (Date.now() - started > 300000) { clearInterval(tick); showBar(false); if (msg) msg.textContent = 'That is taking longer than expected. Settings > Accounts can finish it.'; }
+      /* Ten minutes, not five: a ~140MB download plus antivirus scanning the
+         unpacked program can pass five on a slow line. And when it does run out,
+         Confirm comes BACK: this used to stop polling and leave the button
+         disabled, so the person had no way to try again from here. */
+      if (Date.now() - started > 600000) {
+        clearInterval(tick); showBar(false); go.disabled = false;
+        if (msg) msg.textContent = 'This is taking longer than expected. It may still be working, or it may be stuck. Press Confirm to check again, or finish it later in Settings > Accounts.';
+      }
     }, 2000);
   } catch (err) {
     go.disabled = false;

@@ -128,7 +128,7 @@ test('plainFailure turns a thrown pipeline error into a sentence a person can ac
   const m = runners.manifestFor('openai', 'win32', 'x64');
   const net = Object.assign(new Error('connect ECONNRESET 1.2.3.4:443'), { code: 'ECONNRESET' });
   assert.match(runners.plainFailure(net, m, 'download'), /could not reach the download server.*try again/);
-  assert.match(runners.plainFailure(new Error('the download answered 404'), m, 'download'), /did not finish \(the download answered 404\)/);
+  assert.match(runners.plainFailure(new Error('the download answered 404'), m, 'download'), /did not hand over OpenAI's Codex \(it answered 404\)/);
   assert.match(runners.plainFailure(new Error('tar.exe: Error opening archive'), m, 'unpack'), /could not unpack it.*try again/);
   assert.doesNotMatch(runners.plainFailure(new Error('tar.exe: Error opening archive'), m, 'unpack'), /tar/);
   assert.match(runners.plainFailure(Object.assign(new Error('EPERM: rename'), { code: 'EPERM' }), m, 'swap'), /could not move it into place.*try again/);
@@ -194,4 +194,128 @@ test('win32: a binary that does not run is never left looking present', { skip: 
   assert.doesNotMatch(job.because, /Command failed|codex\.exe/, 'no raw child error on the screen');
   assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, false,
     'on Windows the binary inside the tree is the runner, so the tree must go');
+});
+
+/* ---- review follow-ups: existence is not "installed" on Windows ---------- */
+const { spawn } = require('node:child_process');
+const clearOpenai = () => fs.rmSync(path.join(runners.managedRoot(), 'openai'), { recursive: true, force: true });
+
+/* Run the unpacked "codex.exe" (a copy of node) so Windows holds its image open:
+   exactly what antivirus scanning or a stray process does, and the thing that makes
+   a best-effort delete fail. Resolves once the process is up. */
+function holdOpen(exe) {
+  const child = spawn(exe, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  return new Promise((resolve) => setTimeout(() => resolve(child), 400));
+}
+
+test('win32 A: a --version that fails while the exe is LOCKED leaves the runner absent and the failure sticky', { skip: !onWin && 'win32 only' }, async () => {
+  const m = runners.manifestFor('openai', 'win32', process.arch);
+  const { tgz, integrity } = winFixture('package/' + m.binInPackage);
+  let held = null;
+  const job = runners.install('openai', {
+    legacyBin: LEGACY, download: downloadFrom(tgz), integrity,
+    // Start the binary (locking it), THEN report the failure, so the cleanup that
+    // follows meets a file Windows will not delete.
+    prove: (bin, done) => { holdOpen(bin).then((c) => { held = c; done(new Error('exit code 1')); }); },
+  });
+  try {
+    await job.settled;
+    assert.equal(job.phase, 'failed');
+    const exe = runners.managedBin(m, 'win32');
+    assert.equal(fs.existsSync(exe), true, 'PRECONDITION: the lock really did keep codex.exe on disk');
+    assert.equal(fs.existsSync(runners.verifiedMarker('win32')), false, 'nothing vouches for it');
+    assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, false, 'an unverified exe is not a runner');
+    // Two polls, as the screens do: the failure must not be retired by the first.
+    for (let i = 0; i < 2; i++) {
+      const s = runners.status().openai;
+      assert.equal(s.present, false, 'status must not call a never-run binary present');
+      assert.equal(s.job && s.job.phase, 'failed', 'the failure stays so the screen shows it');
+    }
+  } finally {
+    if (held) held.kill();
+    await new Promise((r) => setTimeout(r, 500));
+    clearOpenai();
+  }
+});
+
+test('win32 B: a locked OLD tree does not fail a good reinstall, and the new tree is verified', { skip: !onWin && 'win32 only' }, async () => {
+  const m = runners.manifestFor('openai', 'win32', process.arch);
+  const { tgz, integrity } = winFixture('package/' + m.binInPackage);
+  // A previous, unverified tree at pkg/ (what a failed earlier attempt leaves).
+  const dest = path.join(runners.managedRoot(), 'openai', 'pkg');
+  fs.mkdirSync(path.join(dest, 'vendor'), { recursive: true });
+  fs.writeFileSync(path.join(dest, 'vendor', 'stale.txt'), 'old');
+  const realRm = fs.rmSync;
+  let refused = 0;
+  fs.rmSync = function (p, o) {
+    if (/pkg\.old-/.test(String(p)) && fs.existsSync(p)) {
+      refused++;
+      throw Object.assign(new Error('EBUSY: resource busy or locked, rmdir ' + p), { code: 'EBUSY' });
+    }
+    return realRm.call(fs, p, o);
+  };
+  try {
+    const job = runners.install('openai', {
+      legacyBin: LEGACY, download: downloadFrom(tgz), integrity,
+      prove: (bin, done) => done(null, 'codex-cli 9.9.9\n'),
+    });
+    await job.settled;
+    assert.ok(refused >= 1, 'PRECONDITION: the old-tree delete really was refused');
+    assert.equal(job.phase, 'installed', job.because || '');
+    assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, true);
+    assert.equal(fs.existsSync(runners.verifiedMarker('win32')), true, 'the proven tree is vouched for');
+  } finally {
+    fs.rmSync = realRm;
+    clearOpenai();
+  }
+});
+
+test('win32 C: status() does not report present while --version is still running', { skip: !onWin && 'win32 only' }, async () => {
+  const m = runners.manifestFor('openai', 'win32', process.arch);
+  const { tgz, integrity } = winFixture('package/' + m.binInPackage);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const job = runners.install('openai', {
+    legacyBin: LEGACY, download: downloadFrom(tgz), integrity,
+    prove: (bin, done) => { gate.then(() => done(null, 'codex-cli 9.9.9\n')); },
+  });
+  while (job.phase !== 'proving' && job.phase !== 'failed') await new Promise((r) => setTimeout(r, 10));
+  assert.equal(job.phase, 'proving', job.because || '');
+  assert.equal(runners.status().openai.present, false, 'mid-prove is not present');
+  release();
+  await job.settled;
+  assert.equal(runners.status().openai.present, true, 'and it is once --version answered');
+  clearOpenai();
+});
+
+test('win32: a hand-placed codex.exe with no matching verified marker is not reported present', { skip: !onWin && 'win32 only' }, () => {
+  const m = runners.manifestFor('openai', 'win32', process.arch);
+  const exe = runners.managedBin(m, 'win32');
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.copyFileSync(process.execPath, exe);
+  try {
+    assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, false);
+    fs.writeFileSync(runners.verifiedMarker('win32'), '0.0.1 some/other/codex.exe\n');
+    assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, false, 'a marker for another build does not vouch');
+  } finally {
+    clearOpenai();
+  }
+});
+
+test('D: disk, permission and HTTP failures get their own plain sentence, never a raw path', () => {
+  const m = runners.manifestFor('openai', 'win32', 'x64');
+  const withPath = (code) => Object.assign(new Error(`${code}: open 'C:\\Users\\someone\\.local\\share\\kosmos\\runners\\.tmp\\x.tgz'`), { code });
+  const full = runners.plainFailure(withPath('ENOSPC'), m, 'download');
+  assert.match(full, /not enough free disk space/);
+  assert.doesNotMatch(full, /online/, 'a full disk is not a network problem');
+  assert.match(runners.plainFailure(withPath('EACCES'), m, 'prepare'), /would not let us write the files/);
+  assert.match(runners.plainFailure(withPath('EPERM'), m, 'unpack'), /would not let us write the files/);
+  const notFound = runners.plainFailure(new Error('the download answered 404'), m, 'download');
+  assert.match(notFound, /answered 404/);
+  assert.doesNotMatch(notFound, /online/, 'a 404 is not a network problem');
+  assert.match(runners.plainFailure(new Error('the download stalled (no data for 60s)'), m, 'download'), /could not reach the download server/);
+  for (const [e, s] of [[withPath('ENOSPC'), 'download'], [withPath('EACCES'), 'prepare'], [withPath('EIO'), 'download'], [withPath('EIO'), 'prepare']]) {
+    const said = runners.plainFailure(e, m, s);
+    assert.doesNotMatch(said, /C:\\|Users|ENOSPC|EACCES|EIO/, 'no path or errno on the screen: ' + said);
+  }
 });

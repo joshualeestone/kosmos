@@ -321,6 +321,9 @@ test('#979: a Confirm during the proving window joins the live job, never a synt
   while (first.phase !== 'proving' && first.phase !== 'failed') { await new Promise((r) => setTimeout(r, 5)); }
   assert.equal(first.phase, 'proving', first.because || '');
   assert.ok(fs.existsSync(MANAGED), 'the window is real: the symlink is up while prove is pending');
+  // And status() does not call it present in that window: both screens poll `present`
+  // to move on to the key step, and --version may still fail.
+  assert.equal(runners.status().openai.present, false, 'a runner mid-prove must not read present');
   const second = runners.install('openai', { legacyBin: LEGACY });
   assert.equal(second, first, 'mid-prove presence must not mint a synthetic installed');
   releaseProve();

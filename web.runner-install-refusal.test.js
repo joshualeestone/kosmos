@@ -69,3 +69,14 @@ test('the first-run poll ends on a failed job instead of waiting five minutes', 
   assert.match(handler, /o\.job\.phase === 'failed'/);
   assert.match(handler, /pjSentence\(o\.job\.because\)/);
 });
+
+test('the first-run timeout gives Confirm back instead of leaving it disabled', () => {
+  const a = PAGE.indexOf("document.getElementById('fr-openai-confirm-go').addEventListener('click'");
+  const handler = PAGE.slice(a, PAGE.indexOf('\n});', a));
+  const t = handler.indexOf('Date.now() - started >');
+  assert.ok(t > -1, 'the timeout branch moved; re-anchor this test');
+  const branch = handler.slice(t, handler.indexOf('}, 2000);', t));
+  assert.match(branch, /go\.disabled = false/, 'a timed-out install must leave a way to try again');
+  assert.match(branch, /600000/, 'ten minutes: a 140MB download plus a virus scan can pass five');
+  assert.doesNotMatch(branch, /—/, 'no em dash');
+});

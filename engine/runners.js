@@ -223,6 +223,21 @@ function manifestFor(provider, platform = process.platform, arch = process.arch)
  * inside the tree itself (no symlink; see CODEX_WIN32). `platform` picks the path
  * FLAVOUR too, for the same reason pathextCandidates does.
  */
+/**
+ * The Windows "this build ran" marker: written ONLY after `codex.exe --version`
+ * succeeded, removed before any new tree is swapped in, and naming the build it
+ * vouches for (version + binary path) so an older marker cannot vouch for a newer
+ * tree. resolveBin's win32 managed rung requires it; see the comment there.
+ */
+function verifiedMarker(platform = process.platform) {
+  const flavour = platform === 'win32' ? path.win32 : path;
+  return flavour.join(managedRoot(), 'openai', '.verified');
+}
+const verifiedStamp = (m) => `${m.version} ${m.binInPackage}`;
+function isVerified(m, platform = process.platform) {
+  try { return fs.readFileSync(verifiedMarker(platform), 'utf8').trim() === verifiedStamp(m); } catch { return false; }
+}
+
 function managedBin(m, platform = process.platform) {
   const flavour = platform === 'win32' ? path.win32 : path;
   const dest = flavour.join(managedRoot(), 'openai');
@@ -456,7 +471,20 @@ function resolveBin(provider, opts) {
   // The platform/arch seams ride on the same opts install() passes through, so a
   // test that installs "as win32" also resolves as win32.
   const plat = (opts && opts.platform) || process.platform;
-  const managed = managedBin(manifestFor('openai', plat, (opts && opts.arch) || process.arch), plat);
+  const mf = manifestFor('openai', plat, (opts && opts.arch) || process.arch);
+  const managed = managedBin(mf, plat);
+  /* 🛑 ON WINDOWS, EXISTING IS NOT INSTALLED. The Mac's managed runner is a symlink
+     the installer only leaves up after --version passed; on Windows the runner is
+     codex.exe inside the unpacked tree, and a tree that failed its --version (or
+     whose cleanup antivirus blocked) still has a codex.exe in it. So the managed
+     rung counts on win32 only when the VERIFIED marker for this exact build is
+     there, and that marker is written after --version succeeds and removed before
+     any new tree is swapped in. */
+  if (plat === 'win32' && isRunnable(managed) && !isVerified(mf, plat)) {
+    const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/codex';
+    if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
+    return { bin: managed, present: false, managed: true, overridden: false };
+  }
   const candidates = [
     managed,
     // Testing seam for the last rung only: the real legacy path is
@@ -558,6 +586,11 @@ function status() {
     // so a polling screen never shows a failure banner over a working
     // runner.
     if (r.present && jobs[provider] && jobs[provider].phase === 'failed') delete jobs[provider];
+    /* ⚠️ NOT PRESENT WHILE AN INSTALL IS RUNNING. During `proving` the Mac symlink
+       is already up, so presence read true while --version could still fail, and
+       both screens poll `present` to move on to the key step. A live job is the
+       truth of that moment; install() and the add-key route already treat it so. */
+    const live = jobs[provider] && jobs[provider].phase !== 'installed' && jobs[provider].phase !== 'failed';
     out[provider] = {
       name: m.name,
       // What the screens WILL branch on: a tarball gets a real byte progress
@@ -583,7 +616,7 @@ function status() {
       // `?? null` for the same reason pinnedVersion has it: the next kind
       // that omits the key would otherwise drop the field off the wire.
       downloadBytes: m.downloadBytes ?? null,
-      present: r.present,
+      present: r.present && !live,
       bin: r.bin,
       managed: r.managed,
       job: jobs[provider] || null,
@@ -693,6 +726,18 @@ async function renameRetrying(from, to, platform = process.platform) {
   }
 }
 
+/** rmSync, retried like renameRetrying on win32; best-effort (never throws). */
+async function rmRetrying(target, platform = process.platform) {
+  const tries = platform === 'win32' ? 8 : 1;
+  for (let i = 1; i <= tries; i++) {
+    try { fs.rmSync(target, { recursive: true, force: true }); return true; } catch (err) {
+      if (i === tries) { console.warn(`[runners] could not remove ${target}: ${err && err.code}`); return false; }
+      await new Promise((r) => setTimeout(r, 250 * i));
+    }
+  }
+  return false;
+}
+
 /**
  * The sentence a person reads when the install pipeline THREW rather than failing
  * by name. Before this, the catch-all put `err.message` on the screen as-is, which
@@ -705,14 +750,28 @@ function plainFailure(err, m, stage) {
   const raw = String((err && err.message) || err || '').trim();
   if (err && err.plain) return raw;
   const name = (m && m.name) || 'the runner';
+  // The raw text (which can carry C:\Users\... paths) goes to the log ONLY.
   console.warn(`[runners] ${name} install failed at ${stage}: ${raw}`);
+  const code = err && err.code;
+  // Disk and permission problems can happen at any step, and "check you are
+  // online" would send the person the wrong way for either.
+  if (code === 'ENOSPC') {
+    return `there is not enough free disk space to install ${name}, so nothing was installed. Free up some space, then try again`;
+  }
+  if (code === 'EACCES' || (code === 'EPERM' && stage !== 'swap')) {
+    return `this computer would not let us write the files for ${name}, so nothing was installed. Try again, and if it keeps happening, check your security software is not blocking Kosmos`;
+  }
   if (stage === 'download') {
-    if (err && NETWORK_CODES.has(err.code)) {
+    if (NETWORK_CODES.has(code) || /stalled/.test(raw)) {
       return `we could not reach the download server for ${name}. Check this computer is online, then try again`;
     }
-    // download() already words its own failures ("the download answered 404",
-    // "the download stalled (no data for 60s)"); keep that detail, framed.
-    return `the download of ${name} did not finish (${raw || 'no reason given'}). Check this computer is online, then try again`;
+    const status = (raw.match(/answered (\d{3})/) || [])[1];
+    if (status) {
+      // The status number is not a path or a secret and it is what a support
+      // conversation needs, so it stays; the rest of the raw text does not.
+      return `the download server did not hand over ${name} (it answered ${status}), so nothing was installed. Try again later`;
+    }
+    return `the download of ${name} did not finish, so nothing was installed. Check this computer is online, then try again`;
   }
   if (stage === 'unpack') {
     return `we downloaded ${name} but could not unpack it on this computer, so nothing was installed. Check there is free disk space, then try again`;
@@ -963,7 +1022,8 @@ function install(provider, opts) {
           (err, _stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim())) : resolve());
       });
       if (!fs.existsSync(path.join(pkgNew, binInPackage))) {
-        fail(`the archive did not contain the runner at ${binInPackage}, so nothing was installed`);
+        console.warn(`[runners] ${provider} archive has no ${binInPackage}`);
+        fail(`the download of ${m.name || 'the runner'} was not laid out the way we expected, so nothing was installed. Try again later`);
         return;
       }
       // One deliberate chmod, on the one file the symlink's execution
@@ -973,12 +1033,22 @@ function install(provider, opts) {
       // defending against a problem the artifact does not have.
       // (A no-op on win32, where executability is the .exe suffix.)
       fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
-      fs.rmSync(pkgOld, { recursive: true, force: true });
+      try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the sweep gets it */ }
       stage = 'swap';
+      // The verified marker comes down BEFORE a new tree goes in: from here until
+      // --version passes, nothing on disk may vouch for what is at the stable path.
+      if (plat === 'win32' && !(await rmRetrying(verifiedMarker(plat), plat))) {
+        throw Object.assign(new Error('the verified marker could not be removed'), { code: 'EPERM' });
+      }
       if (fs.existsSync(pkgDir)) await renameRetrying(pkgDir, pkgOld, plat);
       await renameRetrying(pkgNew, pkgDir, plat);
       pkgNewLive = null; // swapped in; nothing at the per-pid name any more
-      fs.rmSync(pkgOld, { recursive: true, force: true });
+      // Best-effort, like the sweeps: a locked OLD tree (antivirus still reading
+      // it) must not fail an install whose new tree is already in place. The
+      // age-gated sweep at the next install removes it.
+      try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch (e) {
+        console.warn(`[runners] ${provider} could not remove the previous tree yet: ${e && e.code}`);
+      }
       const unpacked = path.join(pkgDir, binInPackage);
       let finalBin;
       if (plat === 'win32') {
@@ -1024,10 +1094,17 @@ function install(provider, opts) {
         // the symlink comes down (resolveBin keys on it) and the pkg/ tree
         // stays for diagnosis; on Windows the binary INSIDE the tree is what
         // resolveBin keys on, so the tree itself has to go.
-        try { fs.rmSync(plat === 'win32' ? pkgDir : finalBin, { recursive: true, force: true }); } catch { /* best effort */ }
+        // On Windows the tree removal is RETRIED (antivirus holds a fresh .exe),
+        // but it is no longer what keeps the runner from reading present: the
+        // verified marker was never written, so resolveBin reads absent even if
+        // a locked codex.exe survives every retry.
+        if (plat === 'win32') await rmRetrying(pkgDir, plat);
+        else { try { fs.rmSync(finalBin, { recursive: true, force: true }); } catch { /* best effort */ } }
         err.plain = true;
         throw err;
       }
+      // Only now, after the binary itself answered, may anything vouch for it.
+      if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat), verifiedStamp(m) + '\n');
 
       try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
       job.phase = 'installed';
@@ -1318,4 +1395,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, manifestFor, managedBin, tarBin, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, manifestFor, managedBin, verifiedMarker, tarBin, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
