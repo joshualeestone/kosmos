@@ -751,3 +751,128 @@ test('Convention 3: with no spawn seam and live execution not armed, nothing is 
     /tried to execute/,
     'the host would have started a real program in a test with no seam');
 });
+
+/* ── #3288: Kosmos opens the sign-in page itself; claude's own opener does nothing ── */
+
+const PRINTED = 'https://claude.com/cai/oauth/authorize?code=true&client_id=CID&response_type=code'
+  + '&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback'
+  + '&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference&code_challenge=CH&code_challenge_method=S256&state=ST';
+const PRINTED_SCREEN = "Opening browser to sign in…\nIf the browser didn't open, visit: " + PRINTED + '\nPaste code here if prompted > ';
+
+test('#3288: the automatic link is the printed one with only redirect_uri changed; no port keeps the printed one', () => {
+  const auto = new URL(win32signin.signinLinkToOpen(PRINTED, 52646));
+  const printed = new URL(PRINTED);
+  assert.equal(auto.searchParams.get('redirect_uri'), 'http://localhost:52646/callback');
+  assert.deepEqual([...auto.searchParams.keys()], [...printed.searchParams.keys()], 'a parameter was added, dropped or moved');
+  for (const [k, v] of printed.searchParams) if (k !== 'redirect_uri') assert.equal(auto.searchParams.get(k), v, k + ' changed');
+  assert.equal(auto.origin + auto.pathname, printed.origin + printed.pathname);
+  assert.equal(win32signin.signinLinkToOpen(PRINTED, null), new URL(PRINTED).toString(), 'with no port, the printed (code-paste) link is the one to open');
+});
+
+test('#3288: only a Claude sign-in link is ever opened', () => {
+  const swap = (from, to) => PRINTED.replace(from, to);
+  assert.equal(win32signin.signinLinkToOpen(swap('https://claude.com', 'https://evil.example'), 1), null);
+  assert.equal(win32signin.signinLinkToOpen(swap('https://claude.com', 'https://claude.com.evil.example'), 1), null);
+  assert.equal(win32signin.signinLinkToOpen(swap('https://', 'http://'), 1), null, 'not https');
+  assert.equal(win32signin.signinLinkToOpen(swap('/oauth/authorize', '/somewhere'), 1), null);
+  assert.equal(win32signin.signinLinkToOpen(PRINTED.replace(/&redirect_uri=[^&]+/, ''), 1), null, 'no redirect_uri: not the sign-in link');
+  assert.equal(win32signin.signinLinkToOpen(PRINTED + '&x=a,b', null), null, 'a comma on the raw command line');
+  assert.ok(win32signin.signinLinkToOpen(swap('https://claude.com', 'https://claude.ai'), 1), 'claude.ai is Claude too');
+  assert.equal(win32signin.signinLinkToOpen('not a url', 1), null);
+});
+
+test('#3288: the listening port comes from netstat columns, not the translated state word', () => {
+  const text = [
+    '  Proto  Local Address          Foreign Address        State           PID',
+    '  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1100',
+    '  TCP    127.0.0.1:52646        0.0.0.0:0              LISTENING       23188',
+    '  TCP    127.0.0.1:52646        127.0.0.1:60000        ESTABLISHED     23188',
+    '  TCP    0.0.0.0:52700          0.0.0.0:0              ABHÖREN         23188',
+    '  TCP    127.0.0.1:52999        0.0.0.0:0              ABHÖREN         9',
+    '  TCP    [::1]:52650            [::]:0                 ÉCOUTE          23188',
+    '  UDP    127.0.0.1:52651        *:*                                    23188',
+  ].join('\r\n');
+  assert.deepEqual(win32signin.parseListeningLoopbackPorts(text, 23188).sort(), [52646, 52650],
+    'only loopback, listening, TCP sockets of this pid');
+  assert.deepEqual(win32signin.parseListeningLoopbackPorts(text, 424242), []);
+  assert.deepEqual(win32signin.parseListeningLoopbackPorts('', 1), []);
+});
+
+test('#3288: claude is given the do-nothing opener, replacing any BROWSER the environment had', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  assert.match(win32signin.NO_OP_OPENER, /\\System32\\where\.exe$/i);
+  process.env.Browser = 'C:\\mine\\pick.exe';
+  t.after(() => { delete process.env.Browser; });
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const env = spawn.calls[0].opts.env;
+  const keys = Object.keys(env).filter((k) => k.toUpperCase() === 'BROWSER');
+  assert.deepEqual(keys, ['BROWSER'], 'two BROWSER variables, and Windows keeps one of them unpredictably');
+  assert.equal(env.BROWSER, win32signin.NO_OP_OPENER,
+    'claude would start a browser as its own child, and kill it when the sign-in ends');
+  await host.kill();
+});
+
+function withOpener(t, ports) {
+  const opened = [];
+  const asked = [];
+  win32signin.setBrowserOpener((link) => opened.push(link));
+  win32signin.setPortFinder(async (pid) => { asked.push(pid); return typeof ports === 'function' ? ports() : ports; });
+  t.after(() => { win32signin.setBrowserOpener(null); win32signin.setPortFinder(null); });
+  return { opened, asked };
+}
+const waitFor = async (fn, ms = 3000) => { const end = Date.now() + ms; while (!fn() && Date.now() < end) await new Promise((r) => setTimeout(r, 10)); };
+
+test('#3288: once the link is printed, Kosmos opens the automatic link on the program\'s port, exactly once', async (t) => {
+  const spawn = withSpawn(t);
+  const { opened, asked } = withOpener(t, [52646]);
+  const host = win32signin.createSigninHost();
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const child = spawn.calls[0].child;
+  child.stdout.write('Opening browser to sign in…\n');
+  await settle();
+  assert.equal(opened.length, 0, 'opened before any link was printed');
+  child.stdout.write(PRINTED_SCREEN.slice('Opening browser to sign in…\n'.length));
+  await waitFor(() => opened.length > 0);
+  child.stdout.write('more output\n');
+  await settle();
+  assert.deepEqual(asked, [4242], 'the port was not looked up for the sign-in program');
+  assert.equal(opened.length, 1, 'the page was opened more than once: duplicate tabs');
+  assert.equal(opened[0], win32signin.signinLinkToOpen(PRINTED, 52646));
+  await host.kill();
+});
+
+test('#3288: no single port (none found, or two) opens the printed code-paste link', async (t) => {
+  for (const ports of [[], [1, 2]]) {
+    const spawn = withSpawn(t);
+    const { opened } = withOpener(t, ports);
+    const host = win32signin.createSigninHost();
+    await host.open({ claudeBin: CLAUDE_BIN });
+    spawn.calls[0].child.stdout.write(PRINTED_SCREEN + '\n');
+    await waitFor(() => opened.length > 0, 5000);
+    assert.deepEqual(opened, [new URL(PRINTED).toString()], 'ports ' + JSON.stringify(ports));
+    await host.kill();
+  }
+});
+
+test('#3288: a sign-in stopped before its port is found opens nothing; with no opener seam under a spawn seam, nothing either', async (t) => {
+  const spawn = withSpawn(t);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { opened } = withOpener(t, () => gate.then(() => [52646]));
+  const host = win32signin.createSigninHost();
+  await host.open({ claudeBin: CLAUDE_BIN });
+  spawn.calls[0].child.stdout.write(PRINTED_SCREEN + '\n');
+  await settle();
+  await host.kill();
+  release();
+  await settle(); await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(opened, [], 'a page was opened for a sign-in that had been stopped');
+
+  win32signin.setBrowserOpener(null); win32signin.setPortFinder(null);
+  const host2 = win32signin.createSigninHost();
+  await host2.open({ claudeBin: CLAUDE_BIN });
+  spawn.calls[1].child.stdout.write(PRINTED_SCREEN + '\n');
+  await settle();
+  await host2.kill();   // nothing to assert beyond "did not throw and started no real program": the seam refuses those
+});

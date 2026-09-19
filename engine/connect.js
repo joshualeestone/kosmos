@@ -1317,21 +1317,29 @@ const tmuxSigninHost = {
 };
 
 /**
- * 🛑 THE WINDOWS SIGN-IN HOST SHIPS SWITCHED OFF, AND ONLY A COMMIT SWITCHES IT ON.
+ * 🛑 THE WINDOWS SIGN-IN HOST IS ON (#3288), AND ONLY A COMMIT SWITCHES IT.
  *
  * `engine/win32signin.js` runs `claude auth login --claudeai` over pipes. Its
- * contract was read out of the `claude.exe` 2.1.270 binary, not watched live: a real
- * sign-in creates a real OAuth login, so it waits for the live check L-1 (slice 3 of
- * `kosmos-scripts/win32-claude-signin-design.md`) and Josh's go. Until then a Windows
- * sign-in goes stuck with WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE, which is true, instead
- * of running a flow nobody has seen work.
+ * contract was first read out of the `claude.exe` 2.1.270 binary; the live check L-1
+ * (slice 3 of `kosmos-scripts/win32-claude-signin-design.md`) then ran it on Windows 11
+ * with `claude.exe` 2.1.277 against a sandbox CLAUDE_CONFIG_DIR, through this host,
+ * started both from a shell and from a task shaped like the board's logon task
+ * (`conhost --headless`, interactive logon): the browser opened, the callback listened
+ * on 127.0.0.1 only (no firewall prompt, and Edge's `localhost` reaches it), a sign-in
+ * finished both through the localhost callback and through a pasted code, and this
+ * driver took one to CONNECTED from that task with no test seams. Its texts are the
+ * fixtures in engine/connect.win32signin.test.js. Kosmos opens the sign-in page itself
+ * and tells claude's own opener to do nothing (see win32signin.js): claude's opener
+ * showed nothing from that task when the browser had no window open, and a browser it
+ * did start would have been killed with it.
  *
  * ⚠️ A CODE CONSTANT, NOT AN ENVIRONMENT VARIABLE. Anything running as this user,
- * an agent session included, can set an environment variable; switching this on takes
- * a reviewed commit. Slice 3 flips it to `true` in the same commit that swaps the
- * synthesised fixtures for L-1's captures and inverts the ship-off test arm.
+ * an agent session included, can set an environment variable; switching this takes
+ * a reviewed commit. Setting it back to `false` is the kill switch: a Windows sign-in
+ * then goes stuck with WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE and the card's PowerShell
+ * line, which the test suite keeps covered by forcing the host off.
  */
-const WINDOWS_SIGNIN_HOST_ENABLED = false;
+const WINDOWS_SIGNIN_HOST_ENABLED = true;
 
 /** What a Windows sign-in says while the host above is switched off. */
 const WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE = 'Kosmos cannot run the Claude sign-in on Windows yet';
@@ -1340,7 +1348,7 @@ const WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE = 'Kosmos cannot run the Claude sign-in
    once for the whole file; resetForTests leaves them alone and forgets only the host
    instance (and the program it started). */
 let signinPlatformForTests = null;
-let windowsSigninHostForcedForTests = false;
+let windowsSigninHostOverrideForTests = null;
 let windowsSigninHost = null;
 
 /** Tests only: choose the host as if on `platform` (null means process.platform). */
@@ -1349,15 +1357,17 @@ function setSigninPlatformForTests(platform) {
 }
 
 /**
- * Tests only: run the Windows host although WINDOWS_SIGNIN_HOST_ENABLED is off.
+ * Tests only: force the Windows host on (true) or off (false), or follow
+ * WINDOWS_SIGNIN_HOST_ENABLED (null). Off keeps the kill-switch path tested now that
+ * the constant ships on.
  * ⚠️ REFUSED OUTSIDE A `node --test` PROCESS, so the constant stays the only way a
- * running board gets this host.
+ * running board's host is chosen.
  */
 function setWindowsSigninHostForTests(on) {
-  if (on && !require('./live-execution').inTestProcess()) {
-    throw new Error('refusing to switch the Windows sign-in host on outside a test: WINDOWS_SIGNIN_HOST_ENABLED is the only production switch');
+  if (on !== null && on !== undefined && !require('./live-execution').inTestProcess()) {
+    throw new Error('refusing to switch the Windows sign-in host outside a test: WINDOWS_SIGNIN_HOST_ENABLED is the only production switch');
   }
-  windowsSigninHostForcedForTests = Boolean(on);
+  windowsSigninHostOverrideForTests = on === null || on === undefined ? null : Boolean(on);
 }
 
 /** The platform the sign-in runs for: the test pin, or this process. */
@@ -1368,7 +1378,8 @@ function signinPlatform() {
 /** The host for this platform, or null when there is none to run the sign-in with. */
 function signinHost() {
   if (signinPlatform() !== 'win32') return tmuxSigninHost;
-  if (!WINDOWS_SIGNIN_HOST_ENABLED && !windowsSigninHostForcedForTests) return null;
+  const on = windowsSigninHostOverrideForTests === null ? WINDOWS_SIGNIN_HOST_ENABLED : windowsSigninHostOverrideForTests;
+  if (!on) return null;
   if (!windowsSigninHost) windowsSigninHost = require('./win32signin').createSigninHost();
   return windowsSigninHost;
 }

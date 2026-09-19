@@ -16,9 +16,12 @@
  * `readline.createInterface({input: process.stdin})`, prints "Login successful." and
  * exits 0, or writes "Login failed: …" to stderr and exits 1. Those texts are what
  * connect.js's `classifyPane` already recognises. (Design:
- * `kosmos-scripts/win32-claude-signin-design.md`, option (e).) ⚠️ The live half is
- * slice 3's L-1; until it passes, connect.js keeps this host switched off
- * (`WINDOWS_SIGNIN_HOST_ENABLED`).
+ * `kosmos-scripts/win32-claude-signin-design.md`, option (e).) 📌 L-1 (#3288) then
+ * watched it live on 2.1.277 through this host: the texts held (with an extra
+ * "If the browser didn't open, visit: <link>" line before the prompt), the stdin paste
+ * is read, and a closed stdin alone does NOT end the program (kill() does, and so does
+ * the death of the node process that started it). connect.js's
+ * `WINDOWS_SIGNIN_HOST_ENABLED` switches this host on.
  *
  * 📌 SENSITIVE VALUES. The pasted code goes to stdin and nowhere else: never on a
  * command line (the Mac's `send-keys` does put it on tmux's) and never in a result
@@ -357,6 +360,107 @@ function onlyAScriptIsThere(bin) {
 let spawnFn = null;
 function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : null; }
 
+/**
+ * 🛑 KOSMOS OPENS THE SIGN-IN PAGE ITSELF; CLAUDE'S OWN OPENER IS TOLD TO DO NOTHING
+ * (#3288: L-1, then review).
+ *
+ * `auth login` opens its page with `rundll32 url,OpenURL <link>`, or with the program
+ * named in `BROWSER`, as ITS OWN non-detached child. Both are wrong on Windows,
+ * MEASURED on Windows 11 with claude.exe 2.1.277, started from a task shaped like the
+ * board's (`conhost --headless`, interactive logon):
+ *   - with no browser window open, the rundll32 path showed nothing, 0 of 6;
+ *   - `BROWSER=<the browser's program>` fixed that, but a browser that was not already
+ *     running then starts INSIDE claude's kill-on-close job: with Edge fully closed
+ *     it came up parented by claude.exe, in a job, and the whole browser died when
+ *     the sign-in was killed. Chrome, Firefox or Brave started cold would die the same
+ *     way whenever claude ends (success, cancel, retry, the 15-minute limit).
+ *
+ * So claude gets `BROWSER` = where.exe, which rejects a link as an invalid pattern in
+ * about 30 ms and touches nothing (MEASURED: no tab, no window, and the sign-in carries
+ * on). Any BROWSER the environment had is replaced: this child exists only to sign in,
+ * and a browser it started would be killed with it.
+ *
+ * Kosmos then opens the page itself: `rundll32 url.dll,FileProtocolHandler <link>`,
+ * detached, no shell, so the person's default browser starts outside the board's job and
+ * outlives the sign-in and the board. MEASURED from the board-shaped task with Edge fully
+ * closed: 3 of 3 opened, where `explorer.exe <link>` opened 0 of 3 and left a COM
+ * "factory" explorer running after every call; and a real sign-in opened this way kept
+ * its browser through claude's exit and the board-shaped node's death.
+ *
+ * WHICH LINK. claude prints only the manual link (redirect to platform.claude.com, which
+ * shows a code to paste). The automatic one differs ONLY in `redirect_uri`
+ * (`http://localhost:<port>/callback`; claude.exe's own link builder, read from the
+ * binary), so Kosmos rebuilds it from the printed link and the port the program listens
+ * on. When the port cannot be found, the manual link is opened instead, and the pasted
+ * code finishes the sign-in (L-1 (iv)).
+ */
+const NO_OP_OPENER = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'where.exe');
+const SIGNIN_LINK_HOSTS = Object.freeze(['claude.com', 'claude.ai']);
+const PRINTED_LINK = /https:\/\/\S*\/oauth\/authorize\S*(?=\s)/;
+/* The link rides on rundll32's raw command line, where a quote, a comma or whitespace could
+   change what is parsed; a link from claude has none, and one that does is not opened (the
+   page's own link still works). */
+const UNSAFE_ON_COMMAND_LINE = /[,"\s]/;
+
+/** The sign-in link to open: the automatic one when `port` is known, else the printed one. Null when it is not Claude's. */
+function signinLinkToOpen(printedLink, port) {
+  let u;
+  try { u = new URL(String(printedLink || '')); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  if (u.protocol !== 'https:' || !SIGNIN_LINK_HOSTS.some((h) => host === h || host.endsWith('.' + h))) return null;
+  if (!/\/oauth\/authorize$/.test(u.pathname) || !u.searchParams.has('redirect_uri')) return null;
+  if (Number.isInteger(port) && port > 0 && port < 65536) u.searchParams.set('redirect_uri', 'http://localhost:' + port + '/callback');
+  const link = u.toString();
+  return UNSAFE_ON_COMMAND_LINE.test(link) ? null : link;
+}
+
+/**
+ * The loopback TCP ports `pid` listens on, from `netstat -ano`. Matched on the columns,
+ * not the state word, which Windows translates; a listening socket's remote end is
+ * `0.0.0.0:0` or `[::]:0`.
+ */
+function parseListeningLoopbackPorts(netstatText, pid) {
+  const ports = new Set();
+  for (const line of String(netstatText || '').split(/\r?\n/)) {
+    const m = line.match(/^\s*TCP\s+(127\.0\.0\.1|\[::1\]):(\d+)\s+(0\.0\.0\.0:0|\[::\]:0)\s+.*?(\d+)\s*$/i);
+    if (m && Number(m[4]) === pid) ports.add(Number(m[2]));
+  }
+  return [...ports];
+}
+
+function listeningLoopbackPorts(pid) {
+  return new Promise((resolve) => {
+    require('node:child_process').execFile('netstat.exe', ['-ano'], { windowsHide: true, timeout: 5000, maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout) => resolve(err ? [] : parseListeningLoopbackPorts(stdout, pid)));
+  });
+}
+
+/** Open a link in the default browser, outside this process tree. Never throws. */
+function openInDefaultBrowser(link) {
+  try {
+    const child = spawn(path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'rundll32.exe'),
+      ['url.dll,FileProtocolHandler', link], { detached: true, stdio: 'ignore', windowsHide: false });
+    child.on('error', () => { /* the page's own link is the fallback */ });
+    child.unref();
+  } catch { /* the page's own link is the fallback */ }
+}
+
+/* Seams. With the spawn seam set and these not, nothing is opened and netstat is not run. */
+let openerFn = null;
+let portFinderFn = null;
+function setBrowserOpener(fn) { openerFn = typeof fn === 'function' ? fn : null; }
+function setPortFinder(fn) { portFinderFn = typeof fn === 'function' ? fn : null; }
+
+/** claude's own opener, told to do nothing: every BROWSER key (any case) replaced by one. */
+function withNoOpOpener(env) {
+  for (const k of Object.keys(env)) if (k.toUpperCase() === 'BROWSER') delete env[k];
+  env.BROWSER = NO_OP_OPENER;
+  return env;
+}
+
+const PORT_TRIES = 5;
+const PORT_RETRY_MS = 200;
+
 function startFailure(error, bin) {
   const code = (error && error.code) || 'unknown error';
   let because = 'Kosmos could not start the Claude sign-in on this computer';
@@ -381,6 +485,34 @@ function startFailure(error, bin) {
  * One sign-in host. connect.js makes one and keeps it; each `open` replaces the
  * program the previous one started.
  */
+/**
+ * Once the program has printed its link, open the sign-in page (see "KOSMOS OPENS THE
+ * SIGN-IN PAGE ITSELF"). At most once per program, and never for a program that has
+ * already been replaced or stopped. Under the spawn seam with no opener seam, nothing.
+ */
+function openSigninPageOnce(session) {
+  const m = session.screen.text().match(PRINTED_LINK);
+  if (!m) return;
+  session.pageOpened = true;
+  const opener = openerFn || (spawnFn ? null : openInDefaultBrowser);
+  const findPorts = portFinderFn || (spawnFn ? null : listeningLoopbackPorts);
+  if (!opener) return;
+  const printed = m[0];
+  (async () => {
+    let port = null;
+    for (let i = 0; findPorts && i < PORT_TRIES && port === null; i++) {
+      let ports = [];
+      try { ports = await findPorts(session.child && session.child.pid); } catch { ports = []; }
+      if (ports.length === 1) port = ports[0];
+      else if (i < PORT_TRIES - 1) await new Promise((r) => setTimeout(r, PORT_RETRY_MS));
+    }
+    if (session.killed || session.closed) return;
+    const link = signinLinkToOpen(printed, port);
+    session.pageOpenedWith = link ? (port !== null ? 'localhost' : 'printed') : 'none';
+    if (link) opener(link);
+  })().catch(() => { /* the page's own link is the fallback */ });
+}
+
 function createSigninHost() {
   let current = null;
 
@@ -415,7 +547,7 @@ function createSigninHost() {
        KOSMOS_AGENT_TOKEN, and sets CLAUDE_CONFIG_DIR to the account's folder or
        DELETES it for the default account (#1922: absent is not unset). Required here,
        not at the top: win32launch pulls in modules that fix data roots at require time. */
-    const env = require('./win32launch').childEnv(process.env, null, spec.launchDir || null, null);
+    const env = withNoOpOpener(require('./win32launch').childEnv(process.env, null, spec.launchDir || null, null));
     const session = {
       child: null,
       screen: null,
@@ -463,6 +595,7 @@ function createSigninHost() {
       stream.on('data', (d) => {
         session.screen.push(d);
         if (session.sinceSend) session.sinceSend.push(d);
+        if (!isStderr && !session.pageOpened) openSigninPageOnce(session);
         if (!isStderr) return;
         session.stderr.push(d);
         if (session.stderrSinceSend) {
@@ -578,7 +711,8 @@ function createSigninHost() {
 }
 
 module.exports = {
-  createSigninHost, setSpawn, signinLineForClaudeFile,
+  createSigninHost, setSpawn, setBrowserOpener, setPortFinder, signinLineForClaudeFile,
+  signinLinkToOpen, parseListeningLoopbackPorts, listeningLoopbackPorts, openInDefaultBrowser, NO_OP_OPENER,
   SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
   REDACTION_MARKER,
   normaliseSignInText, redactSecrets, createTextKeeper,
