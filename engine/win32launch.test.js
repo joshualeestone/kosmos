@@ -433,6 +433,35 @@ test('#570 7c-2 the resolved runner path is a HINT, and a stale one falls back t
   launcher.setSpawn(null);
 });
 
+test('#3323 an extensionless resolved claude path (file on disk is claude.exe) is launched, not dropped to bare PATH', () => {
+  /* 🛑 WHY THIS EXISTS. create.js resolves the runner to the vendor's POSIX
+     spelling `<home>\.local\bin\claude` -- NO `.exe` -- but the file on disk is
+     `claude.exe`. binFor asked `fs.existsSync` on the extensionless string, which
+     is FALSE on Windows, and fell back to the bare name `claude`. That name is not
+     on the Scheduled Task's logon PATH, so every launch ENOENT'd: the agent was
+     recorded and shown on the board (prepareSession writes the row before the async
+     spawn), yet could never be reached -- the exact "connected, but the agent can't
+     be reached" report (#3323). The create GATE already appended PATHEXT and passed
+     (runners.isRunnable), which is why creation SUCCEEDED over an agent that could
+     not start. The launcher must ask "would the platform launch this" the same
+     PATHEXT-aware way. */
+  const spawns = [];
+  launcher.setSpawn((bin) => { spawns.push(bin); return { pid: 1, stdin: {}, unref() {} }; });
+
+  const binDir = fs.mkdtempSync(path.join(SANDBOX, 'localbin-'));
+  /* The real Windows file is claude.exe; written under the PATHEXT spelling
+     runners.pathextCandidates emits (uppercase by default) so the case-sensitive
+     CI host -- a Mac -- resolves the same candidate Windows finds case-insensitively. */
+  const onDisk = path.join(binDir, 'claude.EXE');
+  fs.writeFileSync(onDisk, '');
+  const resolved = path.join(binDir, 'claude');   // extensionless -- what resolveBin hands create.js
+
+  launcher.launchStreaming({ name: 'ext-1', cwd: SANDBOX, claudeBin: resolved, platform: 'win32' });
+  assert.equal(spawns[0], onDisk, 'the PATHEXT-resolved claude.exe is spawned by its real path');
+  assert.notEqual(spawns[0], 'claude', 'must not fall back to a bare name that is not on the logon PATH');
+  launcher.setSpawn(null);
+});
+
 // ── #570: the agent's `kosmos` command is on its PATH ───────────────────────
 
 test('the zip\'s bin folder goes FIRST on the agent\'s PATH, on the key the env already has', () => {

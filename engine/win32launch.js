@@ -53,6 +53,7 @@ const path = require('node:path');
 
 const win32create = require('./win32create');
 const trust = require('./trust');
+const runners = require('./runners');
 const { accountEnvVar } = require('./accountenv');
 
 /* Every marker that makes a spawned session a CHILD of this one. Stripped, not
@@ -220,6 +221,22 @@ function binFor(s) {
   if (!given) return bare;
   /* Only a path can go stale; a bare name handed in is already the PATH lookup. */
   if (!path.isAbsolute(String(given))) return String(given);
+  /* 🛑 #3323: "still there" MUST BE ASKED THE WAY THE PLATFORM LAUNCHES IT. The
+     runner path create.js resolves is the vendor's POSIX spelling
+     `<home>\.local\bin\claude` -- NO `.exe` -- but the file on disk is
+     `claude.exe`. A plain `fs.existsSync` on the extensionless string is FALSE, so
+     this fell back to the bare name -- which is not on the task's logon PATH -- and
+     the agent ENOENT'd on every launch: created on the board, never reachable.
+     `runners.runnableCandidate` appends the PATHEXT the loader would (the same #570
+     logic the create GATE already passes through isRunnable), so it finds
+     `claude.exe` and hands back the exact file to spawn. Platform is passed so this
+     is assertable from the Mac the suite runs on. */
+  const plat = (s && s.platform) || process.platform;
+  const runnable = runners.runnableCandidate(String(given), plat);
+  if (runnable) return runnable;
+  /* An exact-path existence check still stands behind it: a path that is really
+     there but carries no launchable extension (a non-win32 host, or an operator's
+     own runner) is used verbatim rather than discarded. */
   try { if (fs.existsSync(String(given))) return String(given); } catch { /* treat as gone */ }
   return bare;
 }
