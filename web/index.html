@@ -9775,16 +9775,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            file-access flow (.s2-mockallow), so it is no longer purely illustrative;
            the keyboard/AT path stays the real Allow Access button in the
            .s2-gate-row below. */
-        /* #3031 (Josh 2026-09-14): show TWO previews side by side, one for Kosmos and one for
-           tmux, each a single "the app would like to access files." prompt. Josh cut the earlier
-           six-prompt, two-labelled-group layout (three folders x two apps) as visually heavy; the
-           two apps are still both named (tmux is the bundled process macOS holds responsible for
-           agent file access, so it is named on the real prompts). The row wraps to one column at
-           narrow widths so it never overflows the pane. */
+        /* #3031 (Josh 2026-09-14) cut the earlier six-prompt, two-labelled-group layout
+           (three folders x two apps) to a compact preview; 2026-09-19 (Josh, 0.6.81 QA) then
+           removed the tmux preview, leaving ONE "Kosmos would like to access files." preview.
+           The fan layout below is kept (it centres the single preview and would wrap gracefully
+           if a second were ever restored). */
         .s2-dlg-fan{display:flex;flex-wrap:wrap;gap:14px;align-items:stretch;justify-content:center;margin:2px 0 16px}
-        /* flex:1 1 240px so the two previews SHARE the row side by side on the ~552px
-           onboarding pane (Josh 2026-09-14 "two graphics side-by-side"); they wrap to
-           one column only when the pane is narrower than two 240px previews. */
+        /* flex:1 1 240px sizes the single preview on the ~552px onboarding pane; the flex-wrap
+           rule on .s2-dlg-fan is retained so the layout still degrades gracefully if a second
+           preview were ever restored. */
         .s2-dlg{flex:1 1 240px;min-width:0;max-width:100%;text-align:left;border-radius:12px;padding:15px 16px 13px;
           background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
         .s2-dlg-head{display:flex;align-items:flex-start;gap:11px;margin:0 0 14px}
@@ -9831,29 +9830,23 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>In order to put agents to work, you will need to grant them access to files, apps, and other parts of your computer.</p>
         <p>When prompted, click Allow.</p>
 
-        <!-- #3031 (was #2910/#2685): two previews side by side, one per app (Kosmos, tmux), each a
-             single "would like to access files." prompt (the browser-check pins exactly two). The
-             file-access prompts come up as "tmux", not Terminal: Kosmos ships and launches its own
-             bundled tmux (macOS has none), and that tmux is the process macOS holds responsible for
-             agent FILE access (engine/fileaccessstatus.js), so it is the name on the real folder
-             prompts (Josh's screenshots). This screen is FILE access only; the accessibility step is
-             S3 and is handled separately (its tmux-vs-Kosmos attribution is on #2911/#3032, not
-             asserted here). aria-hidden: the real
-             focusable grant is the .s2-gate-row button below; these are a mouse-only preview of what
-             will pop up. Each mock Allow keeps .s2-mockallow, so a click forwards into the one real
-             file-access flow (the #fr-pane-2 click handler targets the single .s2-allow). -->
+        <!-- #3031 (was #2910/#2685) collapsed the six folder prompts to a compact preview;
+             2026-09-19 (Josh, 0.6.81 QA) removed the tmux preview, so this fan now shows ONE
+             "Kosmos would like to access files." preview (the browser-check
+             render-firstrun-access-onebox.js pins exactly one). Background: the file-access
+             prompts come up as "tmux", not Terminal, because Kosmos ships and launches its own
+             bundled tmux (macOS has none) and that tmux is the process macOS holds responsible for
+             agent FILE access (engine/fileaccessstatus.js); the Settings box still names tmux for
+             that reason. This screen is FILE access only; the accessibility step is S3, handled
+             separately. aria-hidden: the real focusable grant is the .s2-gate-row button below;
+             this is a mouse-only preview of what will pop up. Its mock Allow keeps .s2-mockallow,
+             so a click forwards into the one real file-access flow (the #fr-pane-2 click handler
+             targets the single .s2-allow). -->
         <div class="s2-dlg-fan" aria-hidden="true">
           <div class="s2-dlg">
             <div class="s2-dlg-head">
               <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
               <p class="s2-say">"Kosmos" would like to access files.</p>
-            </div>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
-          </div>
-          <div class="s2-dlg">
-            <div class="s2-dlg-head">
-              <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-              <p class="s2-say">"tmux" would like to access files.</p>
             </div>
             <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
           </div>
@@ -9877,18 +9870,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fr-msg" id="fr-s2-msg" role="status" aria-live="polite"></p>
       </div>
 
-      <!-- S3 Automation. Three status rows: sleep (advisory, #2587) plus the app's Accessibility grant (data-gate="tmux") and tmux's own grant (data-gate="tmux-a11y"), which GATE Next (re-gated #2559/#2911). -->
+      <!-- S3 Automation. Two status rows: sleep (advisory, #2587) plus the app's Accessibility grant (data-gate="tmux"), which gates Next (re-gated #2559/#2911). The bundled-tmux own-grant row (data-gate="tmux-a11y") was removed 2026-09-19 (Josh, 0.6.81 QA): the installer no longer shows or asks for tmux's own Accessibility grant. -->
       <div class="fr-pane" id="fr-pane-3" hidden>
         <!-- ============================================================
              SCREEN 3 - AUTOMATION   (spec screen F + part of E)
-             Primary button (shell param): "Next" -- gated on the accessibility grants. No skip.
-             GATES: data-gate="sleep", data-gate="tmux" (the app's Accessibility grant) and
-               data-gate="tmux-a11y" (tmux's own grant) on the three status rows. Renet's poll
+             Primary button (shell param): "Next" -- gated on the app accessibility grant. No skip.
+             GATES: data-gate="sleep" and data-gate="tmux" (the app's Accessibility grant) on the
+               status rows. Renet's poll
                sets `data-granted` on each when granted (green "Activated"), `data-checking` on the
                cannot-check state (neutral "Checking...", #2085), else the red "Not activated" + Turn
                On default. #2587 made sleep advisory (a laptop cannot satisfy it). #2559/#2911: the
-               accessibility rows GATE Next -- the readings are now live TCC-db reads (appGrant /
-               tmuxGrant) that flip the instant the toggle does, so the #2912 false-negative that
+               app accessibility row GATES Next -- the reading is now a live TCC-db read (appGrant)
+               that flips the instant the toggle does, so the #2912 false-negative that
                trapped Josh on install ("I cannot proceed forward") is gone. Only a definite
                not-granted blocks; an uncheckable reading stays advisory, so it never re-traps.
              Dynamic: none.  CSS namespace: s3-*
@@ -9913,9 +9906,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-tl{width:11px;height:11px;border-radius:50%}
         .s3-r{background:#ff5f57}.s3-y{background:#febc2e}.s3-g{background:#28c840}
         .s3-title{font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:#3a3a38;margin-left:8px}
-        /* #3075: the Accessibility mock now stacks TWO rows (Kosmos + tmux) in one
-           box, so the body is a gapped column. A single-row body (Energy/sleep) is
-           unaffected -- one stretched child looks the same with or without the gap. */
+        /* The gapped column (.s3-body). The Accessibility mock holds a single Kosmos row
+           (the bundled-tmux own-grant row was removed 2026-09-19, Josh 0.6.81), and the
+           Energy/sleep mock is a single row too, so each body is a one-child column; the
+           8px gap only shows if a second row is ever added back. */
         .s3-body{padding:12px 14px;display:flex;flex-direction:column;gap:8px}
         .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
         .s3-mtxt{font:600 .6875rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
@@ -10060,47 +10054,35 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 
         <p data-win-only hidden data-win-copy="s3BatteryNote"></p>
         <!-- win32-board-copy (W-11): Windows has no Accessibility grant for this, so the whole second step is hidden there. -->
-        <p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos and tmux to On</p>
-        <!-- #3075/#3032 (Josh, 2026-09-14 #chaoskosmos-design): ONE Accessibility panel with
-             BOTH rows -- "Kosmos" and "tmux" -- because macOS lists them in a SINGLE
-             Accessibility list (Josh's fresh-install screenshot shows both). His words: a
-             second "tmux controls your computer" switch RIGHT UNDER Kosmos in the same box,
-             both switches animating on, one combined line. #2911 (Angel, engine) landed the
-             tmux grant as a SECOND, separate mock window; this restyles to the one-box design
-             Josh asked for. It leaves Angel's engine untouched: BOTH gate status rows stay
-             (data-gate="tmux" = the app's grant, data-gate="tmux-a11y" = the bundled tmux's
-             grant), BOTH switches keep their data-sw-gate keys, FR_GATES is unchanged. The
-             gate poll (swMirror) and frSyncSwitchOverlays both key off data-sw-gate
-             document-wide, so two switches sharing one .s3-mock bind exactly as before.
+        <p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos to On</p>
+        <!-- ONE Accessibility panel with a SINGLE "Kosmos" row. 2026-09-19 (Josh, 0.6.81 QA):
+             the bundled-tmux own-grant row was removed from onboarding -- the installer no
+             longer shows or asks for tmux's own Accessibility grant. History: #3075/#3032
+             (Josh, 2026-09-14) originally added a second "tmux" switch right under Kosmos in
+             the same box (macOS lists both in one Accessibility list); #2911 (Angel, engine)
+             had landed that tmux grant as a separate mock window and #3075 restyled it into the
+             one box. Both are now retired on the client; the server-side /api/tmux-a11y-* routes
+             are Angel's separate native cleanup. The gate poll (swMirror) and frSyncSwitchOverlays
+             key off data-sw-gate document-wide, so the surviving Kosmos switch binds as before.
              #2236/0.6.42: the grant is Privacy & Security > Accessibility ("control your
              computer"), NOT Login Items -- depict Accessibility here. (S4's s4-* pane keeps
              "Login Items", a different grant for bash background activity; do not conflate.)
-             #2451: macOS registers the calling binary as "Kosmos" (the app row); tmux is its
-             own bundled-binary subject (the tmux row). Copy: Mona Lisa. -->
+             #2451: macOS registers the calling binary as "Kosmos" (the app row). Copy: Mona Lisa. -->
         <div class="s3-mock" data-win-hide>
           <div class="s3-win" aria-hidden="true">
             <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
             <div class="s3-body">
               <div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux"></span></div>
-              <div class="s3-mrow"><span class="s3-mtxt">tmux<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux-a11y"></span></div>
             </div>
           </div>
           <button class="s3-sw-open" type="button" data-sw-gate="tmux" aria-label="Open Accessibility settings for Kosmos"></button>
-          <button class="s3-sw-open" type="button" data-sw-gate="tmux-a11y" aria-label="Open Accessibility settings for tmux"></button>
         </div>
-        <!-- Two status rows, one per grant, kept SEPARATE on purpose: a single combined line
-             cannot honestly show "Kosmos on, tmux still off" mid-flow. The mock above mirrors
-             the real Settings list (one box, two switches); these rows are the app's own
-             per-grant confirmation. Kosmos = data-gate="tmux" (app), tmux = data-gate="tmux-a11y". -->
+        <!-- One status row: the app's own Accessibility grant. The mock above mirrors the
+             real Settings list (the Kosmos switch); this row is the app's per-grant
+             confirmation. Kosmos = data-gate="tmux" (app). -->
         <div class="s3-gate-row" data-gate="tmux" data-win-hide>
           <span class="s3-gate-lbl">Kosmos</span>
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button" aria-label="Turn on Kosmos accessibility">Turn On</button></span>
-          <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
-          <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
-        </div>
-        <div class="s3-gate-row" data-gate="tmux-a11y" data-win-hide>
-          <span class="s3-gate-lbl">tmux</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button" aria-label="Turn on tmux accessibility">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
@@ -44870,11 +44852,10 @@ let FR_YOU_GEN = 0;
 /* install-flow-9screen: the permission-gate poll. Replaces the old single-gate
    Accessibility poll (frPollA11y) with a general poll over the data-gate rows in
    the ACTIVE screen. S2 carries data-gate="file-access"; S3 carries
-   data-gate="sleep", data-gate="tmux" (the app's Accessibility grant) and
-   data-gate="tmux-a11y" (tmux's own grant). A row is GREEN (data-granted) ONLY on a
-   measured grant; #fr-next is disabled when a GATING row is measured-not-granted --
-   that is S2 file-access AND both S3 accessibility rows (re-gated #2559/#2911); only
-   sleep stays advisory (gatesNext:false, #2587).
+   data-gate="sleep" and data-gate="tmux" (the app's Accessibility grant). A row is
+   GREEN (data-granted) ONLY on a measured grant; #fr-next is disabled when a GATING
+   row is measured-not-granted -- that is S2 file-access AND the S3 app-accessibility
+   row (re-gated #2559/#2911); only sleep stays advisory (gatesNext:false, #2587).
    Posture is FAIL-SAFE and POSITIVE-ONLY, exactly like the engine: uncheckable (a
    browser, no native reading yet) and any fetch failure NEVER block and NEVER show
    a false green, so the gate can never strand a browser tester or an unreadable
@@ -44942,19 +44923,6 @@ const FR_GATES = {
     // on its laggy not-granted). So the pill + Next now clear within a poll tick of
     // the toggle -- no app refresh, no 60s wait. Energy (sleep) stays advisory (#2587).
   },
-  'tmux-a11y': {
-    url: '/api/tmux-a11y-status',
-    granted: (r) => r.checkable === true && r.trusted === true,
-    blocked: (r) => r.checkable === true && r.trusted !== true,
-    // #2911 (Josh: "they need to turn on Kosmos, tmux, and accessibility"): tmux's
-    // OWN Accessibility grant, the SECOND distinct AX subject, served by
-    // /api/tmux-a11y-status (engine tmuxGrant, keyed on the bundled tmux binary).
-    // GATING (no gatesNext:false), same block-on-positive posture as the app row:
-    // only a definite checkable:true + trusted:false disables Next; an uncheckable
-    // reading never blocks. tmux-not-yet-listed is mapped to uncheckable by the route
-    // (present:false), so this can never trap a screen reached before tmux registers
-    // (#2912); the bg-agent-at-Access-step registers tmux up front (#1940).
-  },
 };
 let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
 // #2451/#2559 (Josh 0.6.50, 7.58.24): the gate poll used to run every 1500ms, so after a
@@ -44976,10 +44944,12 @@ async function frReadGate(row) {
   // the honest note in place of the useless Turn On on that row (see frPollGates). Absent
   // predicate (every gate but sleep) is always false.
   const battOnly = spec.battOnly ? spec.battOnly(r) === true : false;
-  // #3113: an uncheckable reading may still be ACTIONABLE -- the tmux-a11y route flags
-  // present:false (tmux not yet listed on a real Mac, TCC db readable) as actionable:true so
+  // #3113: an uncheckable reading may still be ACTIONABLE -- a route can flag
+  // present:false (subject not yet listed on a real Mac, TCC db readable) as actionable:true so
   // the row can offer Turn On instead of a dead "Checking..." spinner. Only meaningful for the
   // uncheckable state (granted/blocked already carry their own affordance); it never gates.
+  // NOTE: the tmux-a11y row (the only route that returned actionable:true) was removed
+  // 2026-09-19, so this branch is currently dormant; kept as generic, zero-cost machinery.
   const actionable = r.actionable === true;
   if (spec.granted(r)) return { state: 'granted', battOnly, actionable: false };
   if (spec.blocked(r)) return { state: 'blocked', battOnly, actionable: false };
@@ -45028,11 +44998,10 @@ async function frPollGates(screenEl, gen) {
     // An ADVISORY gate (gatesNext:false) never disables Next; a GATING one sets
     // anyBlocked when its row is measured-blocked. #2587: sleep is advisory (a laptop
     // cannot satisfy it -- macOS has no never-sleep-on-battery switch, or the user
-    // simply has not set it). #2559/#2911: the accessibility rows GATE -- the app's
-    // grant (data-gate="tmux") and tmux's own grant (data-gate="tmux-a11y") both set
-    // anyBlocked when measured-not-granted, now that the readings are live TCC-db reads
-    // that flip the instant the toggle does (so the #2912 false-negative that trapped
-    // users is gone). Only sleep carries gatesNext:false.
+    // simply has not set it). #2559/#2911: the app accessibility row GATES -- the app's
+    // grant (data-gate="tmux") sets anyBlocked when measured-not-granted, now that the
+    // reading is a live TCC-db read that flips the instant the toggle does (so the #2912
+    // false-negative that trapped users is gone). Only sleep carries gatesNext:false.
     const spec = FR_GATES[row.getAttribute('data-gate')];
     if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
@@ -45047,9 +45016,8 @@ async function frPollGates(screenEl, gen) {
   if (anyBlocked) next.setAttribute('aria-disabled', 'true'); else next.removeAttribute('aria-disabled');
 }
 // #2620: keep each real .s3-sw-open overlay button sitting exactly over its decorative
-// switch. #3075: the Accessibility mock now stacks TWO switch rows (Kosmos + tmux) in one
-// box, so two overlay buttons share that mock and their switches sit at DIFFERENT vertical
-// positions within it; the Energy mock's single switch is different again. So MEASURE each
+// switch. The Accessibility mock carries the Kosmos switch and the Energy mock its own
+// sleep switch, each at a DIFFERENT vertical position within its box. So MEASURE each
 // switch's rect rather than hardcode an offset. Idempotent and cheap; runs when S3 paints and
 // on resize. Skips a switch that has not been laid out yet (pane hidden -> zero rect).
 function frSyncSwitchOverlays() {
@@ -45285,10 +45253,10 @@ function frGo(step) {
     frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(frStepAfter(2)); } });
     frGateStart(pane);
   } else if (step === 3) {
-    // S3 Automation: sleep (advisory, #2587) plus the two accessibility rows -- the
-    // app's grant (data-gate="tmux") and tmux's own grant (data-gate="tmux-a11y") --
-    // which GATE Next when measured-not-granted (re-gated #2559/#2911). The go() guard
-    // below reads fr-next.disabled, which the gate poll (frGateStart) drives.
+    // S3 Automation: sleep (advisory, #2587) plus the app's Accessibility row
+    // (data-gate="tmux"), which GATES Next when measured-not-granted (re-gated
+    // #2559/#2911). The go() guard below reads fr-next.disabled, which the gate poll
+    // (frGateStart) drives.
     /* #2647: Check-again rides the nav's far-left secondary slot, with its copy
        beside it. Josh could not see the old in-pane version before finishing the
        connection; this bar is always visible. */
@@ -45297,10 +45265,6 @@ function frGo(step) {
       { label: 'Check again', go: (e) => frRecheckPress(e && e.currentTarget), hint: 'Turned it on? Tap to check.' },
     );
     frGateStart(pane);
-    // #3221: register tmux in Accessibility up front on entering S3, so it is listed by the
-    // time the person reaches its "Turn On" (which now only deep-links). Fire-and-forget --
-    // never awaited, so it cannot delay the paint or the gate poll. See frFireTmuxA11yRegister.
-    frFireTmuxA11yRegister();
   } else if (step === 4) {
     // S4 Notifications.
     frActions({ label: 'Next', go: () => frGo(frStepAfter(4)) });
@@ -45654,30 +45618,6 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
   }
 }
 
-/* #3221: register tmux in Accessibility UP FRONT, the moment the S3 Automation step is
-   entered -- not on the "Turn On" click (see s3PermissionTargets, where tmux-a11y's trigger is
-   now null). Angel confirmed the native mechanism fires when the register REQUEST arrives, so
-   the TIMING is ours here; the native half (#3113/#3274) makes the osascript register's copy
-   honest. Firing it up front is what lets tmux be LISTED in Accessibility by the time the
-   person reaches its "Turn On", so that button can simply deep-link to the pane instead of
-   surfacing the confusing Automation prompt -- and it prevents the "empty pane" regression that
-   trigger:null would cause on its own. macOS-only (the tmux accessibility row is hidden on
-   Windows, and the register is an osascript op); fired at most once per session (best-effort,
-   never blocks the gate poll or the paint). Unlatches on a failed/unavailable attempt so a
-   genuine failure can retry on a later S3 entry rather than leaving tmux unregistered. */
-let FR_TMUX_A11Y_REGISTER_FIRED = false;
-async function frFireTmuxA11yRegister() {
-  if (FR_TMUX_A11Y_REGISTER_FIRED || onWindows()) return;
-  FR_TMUX_A11Y_REGISTER_FIRED = true;   // latch BEFORE the await so a rapid re-entry cannot double-fire
-  try {
-    const res = await fetch('/api/tmux-a11y-prompt', { method: 'POST', headers: { 'content-type': 'application/json' } });
-    const body = await res.json().catch(() => null);
-    if (!(res.ok && body && body.ok === true)) FR_TMUX_A11Y_REGISTER_FIRED = false;
-  } catch {
-    FR_TMUX_A11Y_REGISTER_FIRED = false;
-  }
-}
-
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
   // Josh, 2026-09-08: the mock dialog's blue "Allow" (aria-hidden preview, mouse-only)
   // routes a click through the real "Allow Access" button, firing the same flow (see commit).
@@ -45789,10 +45729,9 @@ async function frRecheckPress(btn) {
    folding the open-settings actions into the S3 gate:
      - a click inside the data-gate="sleep" row      -> /api/open-sleep-settings
      - a click inside the data-gate="tmux" row       -> /api/open-accessibility-settings (app)
-     - a click inside the data-gate="tmux-a11y" row  -> /api/open-accessibility-settings (tmux)
    The button opens System Settings; it cannot grant the permission (TCC), which
    is why the gate poll (not this click) is what flips the pill. Sleep is advisory
-   (#2587); the two accessibility rows GATE Next (re-gated #2559/#2911), and the poll
+   (#2587); the app accessibility row GATES Next (re-gated #2559/#2911), and the poll
    both flips the pill and unlocks Next once the grant lands.
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
@@ -45805,37 +45744,17 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
      #1/#2451: the APP Accessibility row (data-gate="tmux") fires the native PROMPT
      (Kitty's /api/a11y-prompt), which registers the CALLING BINARY (the kosmos-app =
      Kosmos) in the Accessibility list so it appears and is grantable. The app's grant
-     is keyed on the app; tmux holds its OWN, separate Accessibility grant (#2911).
-     #2911/#3113/#3221: tmux holds its OWN Accessibility grant (data-gate="tmux-a11y"),
-     separate from the app's. For tmux to be LISTED in Accessibility it must first be
-     registered by an osascript op run UNDER the bundled tmux (so macOS attributes it to the
-     RESPONSIBLE process, tmux, giving tmux its own Accessibility TCC row); without that row
-     tmuxGrant reports present:false and /api/tmux-a11y-status maps that to a non-blocking
-     reading. Until #3221 that register fired from THIS Turn On, but on Josh's 0.6.78 fresh box
-     it surfaced the wrong (System Events / Open-Terminal) Automation prompt. The register now
-     runs UP FRONT the moment S3 is entered (frFireTmuxA11yRegister), so by the time this button
-     is reached tmux is already listed -- and the tmux row's Turn On therefore carries NO
-     trigger (see s3PermissionTargets), only DEEP-LINKS to the Accessibility pane (the shared
-     fallback). Before #3113 the not-yet-listed reading painted a dead "Checking..." with no
-     affordance (Josh's screenshot); the route now flags that state actionable (see frReadGate/
-     frPollGates), so the row paints "Not activated" + this Turn On. sleep is programmatic
-     (pmset), not a prompt category, so it opens Settings and passes no trigger. Both a11y rows
-     fall back to opening the same Accessibility pane. */
-  /* #3221: the tmux-a11y "Turn On" no longer fires the osascript register trigger
-     (/api/tmux-a11y-prompt). That op ran an Automation prompt UNDER tmux, and Josh's 0.6.78
-     fresh-box review saw the wrong pop-up from it ("System Events ... Open Terminal") when he
-     expected to land on the Accessibility pane. The tmux register now fires UP FRONT when the
-     S3 step is entered (frFireTmuxA11yRegister), so by the time the person reaches this button
-     tmux is already listed; the tmux "Turn On" then just DEEP-LINKS to the Accessibility pane
-     (the fallback below) -- exactly Josh's drawn spec. It lands together with the native
-     honest-copy half (#3113/#3274): dropping the trigger alone would regress the listing
-     (tmux never registered -> empty pane), which the up-front register prevents.
-     The APP's OWN grant (data-gate="tmux") keeps its /api/a11y-prompt trigger -- only tmux's
-     own row (data-gate="tmux-a11y") goes trigger-null. */
+     is keyed on the app.
+     2026-09-19 (Josh, 0.6.81 QA): the bundled-tmux OWN-grant row (data-gate="tmux-a11y")
+     was removed from onboarding -- the installer no longer shows or asks for tmux's own
+     Accessibility grant, so there is no second row or register to reconcile here. The
+     server-side /api/tmux-a11y-* routes are Angel's separate native cleanup. sleep is
+     programmatic (pmset), not a prompt category, so it opens Settings and passes no trigger.
+     The app Accessibility row falls back to opening the Accessibility pane. */
   const s3PermissionTargets = (gate) => ({
     trigger: gate === 'tmux' ? '/api/a11y-prompt' : null,
     fallback: gate === 'sleep' ? '/api/open-sleep-settings'
-      : (gate === 'tmux' || gate === 'tmux-a11y') ? '/api/open-accessibility-settings' : null,
+      : gate === 'tmux' ? '/api/open-accessibility-settings' : null,
   });
   // #2620: a click on the mock switch (its real overlay button, .s3-sw-open) opens the
   // same macOS pane as that row's "Turn On" -- Josh's point is people try to click the

@@ -1,19 +1,18 @@
 /**
  * install-flow-9screen: the gated Next on the permission screens, driven for real.
  *
- * The gating screens and their subjects (#2559/#2911 re-gated S3 accessibility):
+ * The gating screens and their subjects (#2559 re-gated S3 app accessibility):
  *   S2 Access     data-gate="file-access"  -> /api/file-access-status (granted)     GATES
  *   S3 Automation data-gate="sleep"        -> /api/sleep-status (prevented)          advisory (#2587)
  *                 data-gate="tmux"         -> /api/a11y-status (app AX, trusted)     GATES  (#2559)
- *                 data-gate="tmux-a11y"    -> /api/tmux-a11y-status (tmux AX)         GATES  (#2911)
- * S3 asks for THREE things now (Josh: "turn on Kosmos, tmux, and accessibility"): the
- * app's own Accessibility grant (data-gate="tmux", label "Kosmos") AND tmux's OWN
- * Accessibility grant (data-gate="tmux-a11y", label "tmux") both GATE Next; sleep is
- * advisory. The contract (frPollGates) is FAIL-SAFE and POSITIVE-ONLY: a row goes green
- * (data-granted) ONLY on a measured grant; #fr-next is disabled ONLY when a GATING row
- * is measured-not-granted (checkable:true && !granted/!trusted). Uncheckable (a browser,
- * no FDA, an unreadable db, tmux not yet listed) and any fetch failure NEVER block and
- * NEVER show false green -- that is why the #2912 re-gate can never re-trap.
+ * S3 asks for the app's own Accessibility grant (data-gate="tmux", label "Kosmos"), which
+ * GATES Next; sleep is advisory. (2026-09-19, Josh 0.6.81 QA: the bundled-tmux OWN-grant
+ * row (data-gate="tmux-a11y") was removed from onboarding, so S3 no longer asks for or
+ * gates on tmux's own Accessibility grant.) The contract (frPollGates) is FAIL-SAFE and
+ * POSITIVE-ONLY: a row goes green (data-granted) ONLY on a measured grant; #fr-next is
+ * disabled ONLY when a GATING row is measured-not-granted (checkable:true && !granted/
+ * !trusted). Uncheckable (a browser, no FDA, an unreadable db) and any fetch failure NEVER
+ * block and NEVER show false green -- that is why the #2912 re-gate can never re-trap.
  * The poll (FR_GATE_POLL_MS, 750ms) re-checks, so granting in System Settings unlocks
  * Next on its own; a "Check again" control (#2451/#2559) also lets the user force it now.
  *
@@ -38,22 +37,14 @@ const fails = [];
 const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? '  ok  ' : ' FAIL '} ${what}`); };
 
 /* Route the status endpoints to fixed verdicts for this context. Any omitted endpoint
-   is left to answer however the served board does; every S3 test sets sleep, tmux (app
-   AX) AND tmuxA11y, because all three are gating/advisory rows on S3 and an UNROUTED
-   gating row would read the real board's live grant -> nondeterministic Next state.
+   is left to answer however the served board does; every S3 test sets sleep AND tmux
+   (app AX), because both are gating/advisory rows on S3 and an UNROUTED gating row would
+   read the real board's live grant -> nondeterministic Next state.
    `undefined` means "leave unrouted". */
-async function routeGates(page, { fileAccess, sleep, tmux, tmuxA11y }) {
+async function routeGates(page, { fileAccess, sleep, tmux }) {
   if (fileAccess !== undefined) await page.route('**/api/file-access-status', (r) => r.fulfill({ json: fileAccess }));
   if (sleep !== undefined) await page.route('**/api/sleep-status', (r) => r.fulfill({ json: sleep }));
   if (tmux !== undefined) await page.route('**/api/a11y-status', (r) => r.fulfill({ json: tmux }));
-  if (tmuxA11y !== undefined) await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: tmuxA11y }));
-  // #3221: entering S3 fires the tmux-a11y REGISTER (/api/tmux-a11y-prompt) up front (client
-  // frFireTmuxA11yRegister), fire-and-forget, during this gotoGate navigation. Mock it so it
-  // resolves deterministically instead of hitting the real board mid-goto -- the same reason the
-  // *-status polls above are routed. #3113 had recorded an entry-time fire hanging this check's
-  // networkidle wait; that no longer reproduces (the served endpoint answers fast), and this
-  // route removes the dependency on that timing entirely.
-  await page.route('**/api/tmux-a11y-prompt', (r) => r.fulfill({ json: { ok: true } }));
 }
 
 /* Deep-link to the screen holding `anchorSel`, discovering its step number. Loads
@@ -77,9 +68,9 @@ const rowGranted = (page, gate) => page.evaluate((g) => {
   return !!(row && row.hasAttribute('data-granted'));
 }, gate);
 
-// The S3-satisfied baseline for a test that is NOT probing a given row: both
-// accessibility rows granted, so Next is gated only by whatever that test varies.
-const S3_GRANTED = { tmux: { checkable: true, trusted: true }, tmuxA11y: { checkable: true, trusted: true } };
+// The S3-satisfied baseline for a test that is NOT probing the app-AX row: the app
+// accessibility row granted, so Next is gated only by whatever that test varies.
+const S3_GRANTED = { tmux: { checkable: true, trusted: true } };
 
 async function fresh(browser) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -149,118 +140,52 @@ async function fresh(browser) {
     await ctx.close();
   }
 
-  /* ---------- S3 Automation: app AX + tmux AX GATE, sleep is advisory (#2559/#2911) ----------
-     #2559/#2911 RE-GATED the accessibility rows. Both the app's own Accessibility grant
-     (data-gate="tmux", /api/a11y-status) and tmux's own Accessibility grant
-     (data-gate="tmux-a11y", /api/tmux-a11y-status) block Next when measured-not-granted;
-     sleep stays advisory (#2587). This is safe to re-gate (where #2912 could not) because
-     the readings are now LIVE TCC-db reads that flip the instant the toggle does, and the
+  /* ---------- S3 Automation: app AX GATES, sleep is advisory (#2559) ----------
+     #2559 RE-GATED the app accessibility row. The app's own Accessibility grant
+     (data-gate="tmux", /api/a11y-status) blocks Next when measured-not-granted; sleep
+     stays advisory (#2587). This is safe to re-gate (where #2912 could not) because the
+     reading is now a LIVE TCC-db read that flips the instant the toggle does, and the
      gate is still POSITIVE-ONLY + FAIL-SAFE: only a definite checkable:true+!granted
-     blocks; uncheckable (browser, no FDA, unreadable db, or tmux-not-yet-listed) never
-     blocks. RED-CAPABLE both ways: a regression that drops either accessibility gate makes
-     the "not-granted disables Next" arms go green->red; a regression that gates on an
-     uncheckable reading makes the fail-safe arms red. */
-  console.log('\nS3 Automation -- app AX + tmux AX GATE, sleep advisory (#2559/#2911)');
+     blocks; uncheckable (browser, no FDA, unreadable db) never blocks. RED-CAPABLE both
+     ways: a regression that drops the accessibility gate makes the "not-granted disables
+     Next" arm go green->red; a regression that gates on an uncheckable reading makes the
+     fail-safe arm red. (2026-09-19 Josh 0.6.81: the bundled-tmux own-grant row was
+     removed, so S3 has one gating accessibility row, not two.) */
+  console.log('\nS3 Automation -- app AX GATES, sleep advisory (#2559)');
   {
-    // All three not-granted -> Next DISABLED (both accessibility rows gate). Sleep alone
-    // would not block (advisory), so this proves the accessibility gates, not sleep.
+    // App AX not-granted -> Next DISABLED. Sleep alone would not block (advisory), so this
+    // proves the accessibility gate, not sleep.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: false },
-      tmux: { checkable: true, trusted: false }, tmuxA11y: { checkable: true, trusted: false },
+      tmux: { checkable: true, trusted: false },
     });
-    ok(await nextDisabled(page), 'S3 accessibility-not-granted DISABLES Next (re-gated #2559/#2911)');
-    ok(!(await rowGranted(page, 'tmux')) && !(await rowGranted(page, 'tmux-a11y')), 'neither accessibility row is green (honest, no false grant)');
+    ok(await nextDisabled(page), 'S3 app-accessibility-not-granted DISABLES Next (re-gated #2559)');
+    ok(!(await rowGranted(page, 'tmux')), 'the accessibility row is not green (honest, no false grant)');
     await ctx.close();
   }
   {
-    // App AX granted, tmux AX NOT granted -> Next DISABLED by the tmux row ALONE. The new
-    // #2911 capability: the tmux accessibility grant is independently required.
+    // App AX granted (sleep prevented too) -> Next ENABLED, both S3 rows green.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: true },
-      tmux: { checkable: true, trusted: true }, tmuxA11y: { checkable: true, trusted: false },
-    });
-    ok(await nextDisabled(page), 'tmux accessibility not-granted alone DISABLES Next (#2911: tmux is independently required)');
-    ok(await rowGranted(page, 'tmux'), 'the app-AX row is honestly green');
-    ok(!(await rowGranted(page, 'tmux-a11y')), 'the tmux-AX row is honestly not green');
-    await ctx.close();
-  }
-  {
-    // Tmux AX granted, app AX NOT granted -> Next DISABLED by the app row (the #2559 re-gate).
-    const { ctx, page } = await fresh(browser);
-    await gotoGate(page, '[data-gate="sleep"]', {
-      sleep: { checkable: true, prevented: true },
-      tmux: { checkable: true, trusted: false }, tmuxA11y: { checkable: true, trusted: true },
-    });
-    ok(await nextDisabled(page), 'app accessibility not-granted alone DISABLES Next (#2559 re-gate)');
-    ok(!(await rowGranted(page, 'tmux')) && await rowGranted(page, 'tmux-a11y'), 'app-AX not green, tmux-AX green');
-    await ctx.close();
-  }
-  {
-    // All granted -> Next ENABLED, both accessibility rows green.
-    const { ctx, page } = await fresh(browser);
-    await gotoGate(page, '[data-gate="sleep"]', {
-      sleep: { checkable: true, prevented: true },
-      tmux: { checkable: true, trusted: true }, tmuxA11y: { checkable: true, trusted: true },
+      tmux: { checkable: true, trusted: true },
     });
     ok(!(await nextDisabled(page)), 'S3 all-granted enables Next');
-    ok(await rowGranted(page, 'sleep') && await rowGranted(page, 'tmux') && await rowGranted(page, 'tmux-a11y'), 'all three S3 rows are green');
+    ok(await rowGranted(page, 'sleep') && await rowGranted(page, 'tmux'), 'both S3 rows (sleep + app AX) are green');
     await ctx.close();
   }
   {
-    // Both accessibility rows uncheckable -> FAIL-SAFE: Next ENABLED, neither green. This is
-    // the invariant that makes the re-gate un-trappable: a browser / no-FDA / unreadable-db
+    // App accessibility uncheckable -> FAIL-SAFE: Next ENABLED, not green. This is the
+    // invariant that makes the re-gate un-trappable: a browser / no-FDA / unreadable-db
     // context is never blocked.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: false },
-      tmux: { checkable: false }, tmuxA11y: { checkable: false },
+      tmux: { checkable: false },
     });
     ok(!(await nextDisabled(page)), 'S3 uncheckable accessibility never blocks (fail-safe -- the #2912 un-trap preserved)');
-    ok(!(await rowGranted(page, 'tmux')) && !(await rowGranted(page, 'tmux-a11y')), 'and neither uncheckable row is false-green');
-    await ctx.close();
-  }
-  {
-    // #2911/#3113 tmux-not-yet-listed: the route maps present:false -> checkable:false +
-    // actionable:true, so a screen reached before tmux registers is advisory (never a trap) BUT
-    // the row offers a real "Not activated" + Turn On affordance instead of a dead "Checking..."
-    // spinner (Josh's #3113). App granted -> Next ENABLED even though the tmux row is not yet
-    // granted; the tmux row is actionable (Turn On shown), not green, not a spinner.
-    const { ctx, page } = await fresh(browser);
-    await gotoGate(page, '[data-gate="sleep"]', {
-      sleep: { checkable: true, prevented: true },
-      tmux: { checkable: true, trusted: true },
-      tmuxA11y: { checkable: false, actionable: true, because: 'tmux is not yet listed in Accessibility; turn it on to grant it' },
-    });
-    ok(!(await nextDisabled(page)), '#2911/#3113 tmux-not-yet-listed (actionable-uncheckable) never blocks -- no trap before tmux registers');
-    ok(!(await rowGranted(page, 'tmux-a11y')), 'and the not-yet-listed tmux row is not false-green');
-    const a11yUi = await page.evaluate(() => {
-      const row = document.querySelector('[data-gate="tmux-a11y"]');
-      const vis = (sel) => { const e = row.querySelector(sel); return !!(e && getComputedStyle(e).display !== 'none'); };
-      return { turnOn: vis('.s3-req'), checking: vis('.s3-checking'), granted: vis('.s3-granted') };
-    });
-    ok(a11yUi.turnOn && !a11yUi.checking && !a11yUi.granted,
-      '#3113 the not-yet-listed tmux row shows the "Not activated" + Turn On affordance, NOT a dead "Checking..." spinner');
-    await ctx.close();
-  }
-  {
-    // #3113 negative control: a plain uncheckable (no actionable flag -- a browser / no-FDA box,
-    // where tmux genuinely cannot be granted) KEEPS the honest "Checking..." spinner and no Turn
-    // On, proving the actionable render is gated on the flag and not applied to every uncheckable.
-    const { ctx, page } = await fresh(browser);
-    await gotoGate(page, '[data-gate="sleep"]', {
-      sleep: { checkable: true, prevented: true },
-      tmux: { checkable: true, trusted: true },
-      tmuxA11y: { checkable: false, because: 'accessibility is not live-checkable here' },
-    });
-    const plainUi = await page.evaluate(() => {
-      const row = document.querySelector('[data-gate="tmux-a11y"]');
-      const vis = (sel) => { const e = row.querySelector(sel); return !!(e && getComputedStyle(e).display !== 'none'); };
-      return { turnOn: vis('.s3-req'), checking: vis('.s3-checking') };
-    });
-    ok(plainUi.checking && !plainUi.turnOn,
-      '#3113 CONTROL: a non-actionable uncheckable (browser/no-FDA) keeps "Checking..." and shows no Turn On');
+    ok(!(await rowGranted(page, 'tmux')), 'and the uncheckable row is not false-green');
     await ctx.close();
   }
 
@@ -268,8 +193,8 @@ async function fresh(browser) {
      A laptop that sleeps on battery is prevented:false forever (macOS has no
      never-sleep-on-battery switch), so gating Next on it walled laptop users in. Now the
      sleep step NEVER gates Next; the honest note replaces the useless Turn On on that
-     (battOnly) row. Accessibility DOES gate (#2559/#2911), so these arms hold the
-     accessibility rows GRANTED and vary only sleep, to prove sleep alone never walls.
+     (battOnly) row. Accessibility DOES gate (#2559), so these arms hold the app
+     accessibility row GRANTED and vary only sleep, to prove sleep alone never walls.
      Arms: (A) laptop-battery, accessibility granted -> Next ENABLED, note shown, Turn On
      hidden, not green, no Continue button; (B) control: a fixable desktop that sleeps on
      AC -> Next ENABLED, no note, Turn On shown. */
@@ -411,8 +336,8 @@ async function fresh(browser) {
   // and there was no way to force it. Assert the S3 "Check again" button exists and, on click,
   // fires a gate re-check RIGHT NOW (a new /api/a11y-status request lands well inside one poll
   // interval), and that this manual re-check unlocks Next when the grant has landed. S3 now
-  // GATES on accessibility, so we enter with app-AX not-granted (Next disabled), hold tmux-AX
-  // granted so the app row is the only variable, then grant the app row and force the re-check.
+  // GATES on the app accessibility row, so we enter with app-AX not-granted (Next disabled),
+  // then grant the app row and force the re-check.
   console.log('\n#2451/#2559 -- the S3 "Check again" button forces an immediate gate re-check');
   {
     const { ctx, page } = await fresh(browser);
@@ -421,7 +346,6 @@ async function fresh(browser) {
     let appTrusted = false;
     let a11yHits = 0;
     await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
-    await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: true } }));
     await page.route('**/api/a11y-status', (r) => { a11yHits += 1; return r.fulfill({ json: { checkable: true, trusted: appTrusted } }); });
     await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
@@ -454,29 +378,24 @@ async function fresh(browser) {
   console.log('\n#2085 -- an uncheckable app-accessibility grant shows the neutral "Checking..." pill, never a false green, never blocks');
   {
     const { ctx, page } = await fresh(browser);
-    // sleep + tmux-AX granted (so only the app-AX gate is in question); app-AX uncheckable
+    // sleep granted (so only the app-AX gate is in question); app-AX uncheckable
     // (checkable:false) -- what /api/a11y-status returns when no live verdict is available
     // (a browser, no FDA). This check mocks the HTTP response directly, so it is engine-agnostic.
     await gotoGate(page, '[data-gate="tmux"]', {
       sleep: { checkable: true, prevented: true },
       tmux: { checkable: false, because: 'the accessibility database was not readable' },
-      tmuxA11y: { checkable: true, trusted: true },
     });
     const st = await page.evaluate(() => {
       const row = document.querySelector('[data-gate="tmux"]');
       const disp = (sel) => { const e = row && row.querySelector(sel); return e ? getComputedStyle(e).display : 'missing'; };
       const checkPill = row && row.querySelector('.s3-checking .s3-pill-wait');
       const lbl = row && row.querySelector('.s3-gate-lbl');
-      // The tmux-AX row (data-gate="tmux-a11y") is the NEW #2911 row; its label reads "tmux".
-      const tmuxRow = document.querySelector('[data-gate="tmux-a11y"]');
-      const tmuxLbl = tmuxRow && tmuxRow.querySelector('.s3-gate-lbl');
       return {
         hasChecking: !!(row && row.hasAttribute('data-checking')),
         hasGranted: !!(row && row.hasAttribute('data-granted')),
         reqDisp: disp('.s3-req'), grantedDisp: disp('.s3-granted'), checkingDisp: disp('.s3-checking'),
         checkText: checkPill ? checkPill.textContent.trim() : null,
         lblText: lbl ? lbl.textContent.trim() : null,
-        tmuxLblText: tmuxLbl ? tmuxLbl.textContent.trim() : null,
       };
     });
     ok(st.hasChecking && !st.hasGranted, 'the uncheckable app-AX row is data-checking, not data-granted (never a false green)');
@@ -484,11 +403,9 @@ async function fresh(browser) {
       `only the neutral pill shows (checking=${st.checkingDisp}, req/TurnOn=${st.reqDisp}, granted=${st.grantedDisp})`);
     ok(/Checking/i.test(st.checkText || ''), `the neutral pill reads "Checking..." (got: ${JSON.stringify(st.checkText)})`);
     ok(!(await nextDisabled(page)), 'an uncheckable app-AX grant does NOT block Next (fail-safe invariant preserved)');
-    // #2451/#2911: the APP row names "Kosmos" (the app is the calling binary macOS shows +
-    // grants), and the NEW tmux row names "tmux" (its own separate grant, #2911). Both must
-    // be honestly labelled so the user knows which of the two Accessibility entries to toggle.
+    // #2451: the APP row names "Kosmos" (the app is the calling binary macOS shows + grants),
+    // so the user knows which Accessibility entry to toggle.
     ok(st.lblText === 'Kosmos', `the app-AX gate row label reads "Kosmos" (got: ${JSON.stringify(st.lblText)})`);
-    ok(st.tmuxLblText === 'tmux', `the tmux-AX gate row label reads "tmux" (got: ${JSON.stringify(st.tmuxLblText)})`);
     await ctx.close();
   }
 
