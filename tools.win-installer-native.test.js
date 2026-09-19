@@ -519,6 +519,14 @@ test('🛑 #3286 probe: a NEWER copy updates the installed Kosmos through the up
     assert.equal(refused.started, '-');
     assert.equal(refused.helpers, COMPARE + ',' + UPDATE + ',' + REPLACE);
     assert.equal(refused.told, 'NOTICE This Kosmos is newer than the one installed in ' + path.join(r.programs, 'Kosmos') + ', but it could not update it (the helper said no.). This newer Kosmos runs from here for now, and tries again the next time you open it.');
+    /* The same version from another commit (the compare says NEWER, the updater and the move both refuse
+       it): the note must not call it newer. */
+    fs.writeFileSync(path.join(r.programs, 'Kosmos', 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', version: '0.6.60', source_sha: 'another' }));
+    const rebuilt = fields(run('duties', r.here, r.programs, 'NEWER', 'refused', r.kept, 'person', 'temp').out);
+    assert.equal(rebuilt.exit, 'null');
+    assert.equal(rebuilt.told, 'NOTICE Another copy of Kosmos 0.6.60 is already installed in ' + path.join(r.programs, 'Kosmos') + ', so this one runs from here.');
+    assert.doesNotMatch(rebuilt.told, /newer/, 'a same-version rebuild was called newer');
+    fs.rmSync(path.join(r.programs, 'Kosmos', 'manifest.json'));
     const noHelper = fields(run('duties', r.here, r.programs, 'NEWER', 'null', r.kept, 'person', 'temp').out);
     assert.match(noHelper.told, /^NOTICE This Kosmos is newer .* could not update it \(the update did not say what happened \(the runtime would not start\)\)\./);
     assert.equal(noHelper.refreshed, 'True');

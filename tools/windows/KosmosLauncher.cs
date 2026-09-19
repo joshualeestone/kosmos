@@ -1276,6 +1276,19 @@ class KosmosLauncher
     const string InstallingMessage = "Installing Kosmos on this computer. This takes a moment.";
     const string UpdatingMessage = "Updating the Kosmos installed on this computer. Your agents keep their work; Kosmos restarts in a moment.";
 
+    // #3286: a same-version build from another commit, with that version installed: it runs from here.
+    internal static string SameVersionNote(string version, string target)
+    {
+        return "Another copy of Kosmos " + version + " is already installed in " + target + ", so this one runs from here.";
+    }
+
+    // The version a Kosmos folder's manifest.json names, or null.
+    static string ManifestVersionOf(string folder)
+    {
+        try { return AppVersionFromManifest(File.ReadAllText(Path.Combine(folder, ManifestFileName), Encoding.UTF8)); }
+        catch { return null; }
+    }
+
     // #3286: the plain note, never a question, when Kosmos cannot install itself and runs where it is.
     internal static string CouldNotInstallNote(string place, string target, string because)
     {
@@ -1475,6 +1488,14 @@ class KosmosLauncher
             return PlaceOutcome.NewerThanInstalledCopy;
         }
         if (replacedOutcome != null && replacedOutcome.StartsWith(UnanchoredTag, StringComparison.Ordinal)) because = replacedOutcome.Substring(UnanchoredTag.Length);
+        // The compare says NEWER for a same-version rebuild too (another commit, no order), and neither the
+        // updater nor the move takes one (never a downgrade). Calling that copy "newer" would be untrue.
+        string mineVersion = ManifestVersionOf(full);
+        if (mineVersion != null && mineVersion == ManifestVersionOf(target))
+        {
+            tellPerson(SameVersionNote(mineVersion, target), false);
+            return PlaceOutcome.NewerThanInstalledCopy;
+        }
         tellPerson("This Kosmos is newer than the one installed in " + target + ", but it could not update it (" + because + "). This newer Kosmos runs from here for now, and tries again the next time you open it.", false);
         return PlaceOutcome.NewerThanInstalledCopy;
     }
