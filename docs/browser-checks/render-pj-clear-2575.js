@@ -42,8 +42,8 @@ const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', '
 const HEADED = process.env.HEADED !== '0';
 
 const results = [];
-/* Ternary emit shape (like render-projects-map's check()): a PASS/FAIL result
-   line, NOT a counted SHAPE-1 finding-emit site, so the reason-grep guard's
+/* Ternary emit shape (like render-projects-roadmap-3276's check()): a PASS/FAIL
+   result line, NOT a counted SHAPE-1 finding-emit site, so the reason-grep guard's
    EXPECTED_SITES is untouched. */
 function check(name, pass, detail) {
   results.push({ name, pass: Boolean(pass) });

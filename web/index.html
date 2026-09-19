@@ -22608,6 +22608,13 @@ for (const box of document.querySelectorAll('.viewtoggle')) {
     if (!btn) return;
     const scope = box.dataset.scope;
     layoutApply(scope, btn.dataset.layout);
+    /* #3276: re-sync the fold on a projects layout switch, mirroring the consolidated
+       view switch. applyConsFold otherwise runs only on the ~5s data poll, so switching
+       INTO the Roadmap would show a persisted-collapsed branch fully expanded (with a
+       stale open caret) until the next poll self-heals it. Guarded on the projects scope
+       (the agents toggle has no tree fold) and on the function existing (it is declared
+       later in this same script). */
+    if (scope === 'projects' && typeof applyConsFold === 'function') applyConsFold();
     // Storage can be refused (private windows, storage pressure); the toggle
     // still works for this page either way.
     try { localStorage.setItem('kosmos.layout.' + scope, btn.dataset.layout); } catch { /* display preference only */ }
@@ -44334,10 +44341,11 @@ document.getElementById('pj-add-back').addEventListener('click', () => { PJ_CURR
 
 document.getElementById('pj-list').addEventListener('click', (e) => {
   if (e.target.closest('#pj-new-empty')) { openAddProject(); return; }
-  /* #2929: a fold-caret click toggles the consolidated tree branch and NEVER
-     opens the project -- checked BEFORE the row's open handler, the same order the
-     Map view uses for its data-pjfold. The caret is CSS-hidden outside the
-     consolidated rail, so this only fires there. */
+  /* #2929/#3276: a fold-caret click toggles the tree branch and NEVER opens the
+     project -- checked BEFORE the row's open handler, the same order the Map view uses
+     for its data-pjfold. The caret is CSS-shown in BOTH tree views now (the consolidated
+     rail and, since #3276, the tab Roadmap), and CSS-hidden in the grid, so this fires
+     in either tree view and is inert in the grid. */
   const foldEl = e.target.closest('[data-pjtreefold]');
   if (foldEl) { pjTreeToggleFold(foldEl.dataset.pjtreefold); return; }
   const row = e.target.closest('[data-project]');

@@ -146,6 +146,29 @@ const SEED = `
   check('ArrowRight on a focused parent EXPANDS it (keyboard operability, WCAG)',
     kbd.expanded.gammaShown && kbd.expanded.aria === 'true', JSON.stringify(kbd.expanded));
 
+  // 2c. Fold state SURVIVES a layout switch, applied immediately (not only on the ~5s
+  //     poll). Fold Beta, switch to Grid and back to Roadmap, and assert Gamma is hidden
+  //     right after the switch -- the toggle handler must re-sync the fold. Without that
+  //     re-sync a persisted/held collapse renders expanded (stale open caret) until a poll.
+  const resync = await page.evaluate(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const caret = (${rowByName('Beta')}) ? (${rowByName('Beta')}).querySelector('.pjtreefold') : null;
+    if (caret) caret.click(); await sleep(20);          // fold Beta in the roadmap
+    const foldedBefore = (() => { const g = ${rowByName('Gamma')}; return !!(g && getComputedStyle(g).display === 'none'); })();
+    document.querySelector('.viewtoggle[data-scope="projects"] [data-layout="grid"]').click();  // -> grid
+    await sleep(20);
+    document.querySelector('.viewtoggle[data-scope="projects"] [data-layout="roadmap"]').click(); // -> back
+    await sleep(20);                                     // NO ~5s poll wait: the switch itself must re-sync
+    const stillFolded = (() => { const g = ${rowByName('Gamma')}; return !!(g && getComputedStyle(g).display === 'none'); })();
+    const aria = (${rowByName('Beta')}) ? (${rowByName('Beta')}).getAttribute('aria-expanded') : null;
+    // restore for later sections
+    if (caret) { const c2 = (${rowByName('Beta')}).querySelector('.pjtreefold'); if (c2) c2.click(); }
+    await sleep(20);
+    return { foldedBefore, stillFolded, aria };
+  })()`);
+  check('a held fold SURVIVES a Grid<->Roadmap switch, applied immediately (toggle re-syncs, no poll wait)',
+    resync.foldedBefore && resync.stillFolded && resync.aria === 'false', JSON.stringify(resync));
+
   // 3. Density: the Roadmap hides the description and the faces but keeps the count;
   //    the GRID still shows the faces (the leak control -- proves the hide is scoped).
   const density = await page.evaluate(`(async () => {
