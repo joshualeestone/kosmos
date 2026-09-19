@@ -185,6 +185,18 @@ of the engine's own helpers, run with the bundle's node:
     and a note says so. That is the behaviour before #3286, it is stable (the installed
     copy hands off only to a newer copy the pointer names), and the next launch of that
     download finds the installed copy idle and replaces it.
+  - **Review of #3299.** A second launch while "Installing" or "Updating" is up waits
+    for it (a per-session lock, `Local\Kosmos.InstallOrUpdate`) instead of racing it,
+    then hands off to the fresh install. An update whose report came back late or
+    refused, but whose swap happened, is read as done: the move then finds the build
+    already there (SAME). Any path that ended the board ends with one running again: if
+    the installed copy will not start (antivirus, say), this copy starts the board from
+    where it is. A copy Kosmos could not be pointed at is not installed (`UNANCHORED`),
+    so it is the plain note and a run from here. Only a provably newer version updates or
+    replaces an install: the same version from another commit has no order, so it runs
+    from where it is rather than risk a downgrade. A replaced install is set aside beside
+    the target under a name the sweep of interrupted moves never touches, and only that
+    one previous build is kept, as the updater keeps one.
   - **The same build or an older one** starts the installed Kosmos and re-points nothing.
     The installed copy itself does nothing new. A folder somebody chose on purpose (not a
     cleaned-up one), with nothing installed, runs where it is.

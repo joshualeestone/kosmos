@@ -200,10 +200,13 @@ class InstallerProbe {
       case "duties": {
         /* a[1] this copy, a[2] the per-user programs folder, a[3] the compare's first word or "fail",
            a[4] how the move or the update ends: ok | refused | null (the helper would not start) |
-           update-refused (the updater says no, the move that replaces an idle install says yes),
+           update-refused (the updater says no, the move that replaces an idle install says yes) |
+           update-refused-same (the updater says no, the move finds this build already installed: SAME) |
+           unanchored (the copy is in place but Kosmos could not be pointed at it),
            a[5] (unused since #3286: the kept-here file), a[6] person|nobody, a[7] temp (this copy is in
            Downloads) | elsewhere (a folder that is not cleaned up, such as D:\\Kosmos-0.6.50),
-           a[8] (optional) the folder a --pointer compare names */
+           a[8] (optional) the folder a --pointer compare names, a[9] (optional) startfails: the installed
+           Kosmos.exe will not start. PROBE_INSTALL_LOCK (environment): the install lock to use, and print ms. */
         string started = "-"; bool refreshed = false; string working = "-"; string told = "-";
         List<string> helpers = new List<string>();
         KosmosLauncher.showMessageBoxes = a[6] == "person";
@@ -227,16 +230,31 @@ class InstallerProbe {
           }
           if (a[4] == "null") { problem = "the runtime would not start"; return null; }
           if (a[4] == "refused") return new[] { "REFUSED the helper said no." };
-          if (a[4] == "update-refused" && arguments.StartsWith("--apply")) return new[] { "REFUSED the updater said no." };
+          if (a[4].StartsWith("update-refused") && arguments.StartsWith("--apply")) return new[] { "REFUSED the updater said no." };
+          if (a[4] == "update-refused-same") return new[] { "SAME " + Path.Combine(a[2], "Kosmos") };
+          if (a[4] == "unanchored") return new[] { "UNANCHORED Kosmos was copied to " + Path.Combine(a[2], "Kosmos") + ", but it could not be set to start from there (disk full)." };
           return new[] { (arguments.StartsWith("--apply") ? "UPDATED " : "MOVED ") + Path.Combine(a[2], "Kosmos") };
         };
-        KosmosLauncher.startLauncher = (exe, folder) => { started = exe; return null; };
+        KosmosLauncher.startLauncher = (exe, folder) => { started = exe; return a.Length > 9 && a[9] == "startfails" ? "blocked by antivirus" : null; };
         KosmosLauncher.showWorkingWhile = (shown, work) => { working = shown; work(); };
+        string lockName = Environment.GetEnvironmentVariable("PROBE_INSTALL_LOCK");
+        KosmosLauncher.installLockName = string.IsNullOrEmpty(lockName) ? "Local\\\\KosmosTest.InstallOrUpdate." + Guid.NewGuid().ToString("N") : lockName;
+        System.Diagnostics.Stopwatch waited = System.Diagnostics.Stopwatch.StartNew();
         KosmosLauncher.tellPerson = (said, isError) => { told = (isError ? "ERROR " : "NOTICE ") + said.Replace("\\n", " / "); };
         KosmosLauncher.refreshWindowsRegistration = (root) => { refreshed = true; };
         int? exit = KosmosLauncher.RunInstallerDuties(a[1], "node.exe", 16180);
         Console.Write("exit=" + (exit.HasValue ? exit.Value.ToString() : "null") + "\\nrefreshed=" + refreshed + "\\nstarted=" + started
-          + "\\nhelpers=" + string.Join(",", helpers.ToArray()) + "\\nworking=" + working + "\\ntold=" + told);
+          + "\\nhelpers=" + string.Join(",", helpers.ToArray()) + "\\nworking=" + working + "\\ntold=" + told
+          + (string.IsNullOrEmpty(lockName) ? "" : "\\nms=" + waited.ElapsedMilliseconds));
+        return 0;
+      }
+      case "holdlock": {
+        /* a[1] the lock name, a[2] how long to hold it, a[3] a file written once it is held */
+        using (System.Threading.Mutex held = new System.Threading.Mutex(true, a[1])) {
+          File.WriteAllText(a[3], "held");
+          System.Threading.Thread.Sleep(int.Parse(a[2]));
+          held.ReleaseMutex();
+        }
         return 0;
       }
       case "uninstall": {
@@ -306,6 +324,8 @@ function probe(t) {
   };
 }
 test.after(() => { if (probeBuild) fs.rmSync(probeBuild.dir, { recursive: true, force: true }); });
+/** The compiled probe, for a test that runs it alongside another (after probe(t) built it). */
+function probeExe() { return probeBuild.exe; }
 
 /** `k=v` lines, as the duties and uninstall probes print them. */
 function fields(out) {
@@ -503,6 +523,56 @@ test('🛑 #3286 probe: a NEWER copy updates the installed Kosmos through the up
     assert.match(noHelper.told, /^NOTICE This Kosmos is newer .* could not update it \(the update did not say what happened \(the runtime would not start\)\)\./);
     assert.equal(noHelper.refreshed, 'True');
   } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+});
+
+test('🛑 #3286 review probe: SAME is an update that finished; a board the replace ended always runs again; a copy Kosmos was not pointed at is not installed', WINDOWS_ONLY, (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const REPLACE = 'win32relocate.js:--move+end-board+replace-older';
+  const r = dutiesRig(true);
+  try {
+    /* Finding 2: the update's report said REFUSED (the wait ran out), but the swap had happened: the move
+       then finds this build installed (SAME), and that is success, not a run from Downloads. */
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'update-refused-same', r.kept, 'person', 'temp').out),
+      { exit: '0', refreshed: 'False', started: r.installed, helpers: COMPARE + ',' + UPDATE + ',' + REPLACE, working: 'Installing Kosmos on this computer. This takes a moment.', told: '-' });
+    /* Finding 1: the replace ended the board; the installed copy will not start. This copy carries on from
+       here (exit null: its own start runs the board), never exit 1 with no board until the next sign-in. */
+    const blocked = fields(run('duties', r.here, r.programs, 'NEWER', 'update-refused', r.kept, 'person', 'temp', '-', 'startfails').out);
+    assert.equal(blocked.exit, 'null', 'a board the replace ended was left off');
+    assert.equal(blocked.refreshed, 'True');
+    assert.match(blocked.told, /^ERROR Kosmos is updated in .*, but it would not start from there \(blocked by antivirus\)\. This copy runs Kosmos from here for now/);
+  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+  /* Finding 5: in place, but Kosmos could not be pointed at it: the plain note, and a run from here. */
+  const empty = dutiesRig(false);
+  try {
+    const unanchored = fields(run('duties', empty.here, empty.programs, 'NONE', 'unanchored', empty.kept, 'person', 'temp').out);
+    assert.equal(unanchored.exit, 'null');
+    assert.equal(unanchored.started, '-', 'a copy Kosmos was not pointed at was started as if installed');
+    assert.match(unanchored.told, /^NOTICE Kosmos could not install itself in .*\. Kosmos was copied to .*, but it could not be set to start from there \(disk full\)\./);
+    /* The first install's own start failure already ran from here (StaysHere), before this review. */
+    const firstBlocked = fields(run('duties', empty.here, empty.programs, 'NONE', 'ok', empty.kept, 'person', 'temp', '-', 'startfails').out);
+    assert.equal(firstBlocked.exit, 'null');
+  } finally { fs.rmSync(empty.base, { recursive: true, force: true }); }
+});
+
+test('🛑 #3286 review finding 2 probe: a second launch during an install WAITS for it, rather than racing it', WINDOWS_ONLY, async (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const lock = 'Local\\KosmosTest.InstallOrUpdate.' + process.pid;
+  const r = dutiesRig(false);
+  const ready = path.join(r.base, 'held.txt');
+  const HOLD_MS = 3000;
+  const holder = spawn(probeExe(), ['holdlock', lock, String(HOLD_MS), ready], { windowsHide: true, stdio: 'ignore' });
+  try {
+    for (let i = 0; i < 100 && !fs.existsSync(ready); i++) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(fs.existsSync(ready), 'the first launch never took the lock');
+    const second = fields(run('duties', r.here, r.programs, 'NONE', 'ok', r.kept, 'person', 'temp', { env: { ...process.env, PROBE_INSTALL_LOCK: lock } }).out);
+    assert.ok(Number(second.ms) >= HOLD_MS - 1000, 'the second launch did not wait for the first (' + second.ms + ' ms)');
+    assert.equal(second.exit, '0', 'the second launch did not carry on once the first let go');
+  } finally {
+    try { holder.kill(); } catch { /* already gone */ }
+    fs.rmSync(r.base, { recursive: true, force: true });
+  }
 });
 
 test('🛑 round 2 finding 4 probe: an old copy in a folder that is NOT cleaned up hands off and re-points nothing; with nothing installed it runs where it is', WINDOWS_ONLY, (t) => {

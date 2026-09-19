@@ -1268,6 +1268,9 @@ class KosmosLauncher
     const string InstallFolderName = "Kosmos";
     const string KeepsWorkingHere = "Kosmos keeps working from here.";
     const string UpdateHelperScript = "win32update.js";
+    // engine/win32relocate.js reportText's tag for a copy that is in place but that Kosmos could not be set
+    // to start from (#3286 review, finding 5).
+    const string UnanchoredTag = "UNANCHORED ";
 
     // #3286: what the working window says while Kosmos installs or updates itself.
     const string InstallingMessage = "Installing Kosmos on this computer. This takes a moment.";
@@ -1355,6 +1358,36 @@ class KosmosLauncher
     internal static int? RunInstallerDuties(string here, string node, int port)
     {
         if (!IsKosmosBuild(here)) return null;
+        // #3286 review, finding 2: ONE install or update at a time. A double-click while "Installing" or
+        // "Updating" is up used to race the first: two moves into one folder (rmdir ENOTEMPTY), or "an update
+        // is starting now", then a fall back to Downloads, and whichever wrote the engine pointer last won.
+        // So every launch of a real build takes this lock for its installer duties, and a second launch
+        // WAITS for the first rather than racing it. It then decides afresh, and normally hands off to the
+        // copy the first one just installed, whose one window comes forward. Waiting, not exiting, is also
+        // what the installed copy needs: the first launch starts it a moment before it lets go.
+        using (Mutex installing = new Mutex(false, installLockName))
+        {
+            bool held = false;
+            try
+            {
+                try { held = installing.WaitOne(InstallLockWaitMs); }
+                catch (AbandonedMutexException) { held = true; /* a launch that ended mid-install: ours now */ }
+                // A lock held for longer than any install or update takes: carry on as before this lock
+                // existed, rather than leaving the person with nothing.
+                return RunInstallerDutiesUnderLock(here, node, port);
+            }
+            finally { if (held) { try { installing.ReleaseMutex(); } catch { /* already let go */ } } }
+        }
+    }
+
+    // Per signed-in session (Local\), so another person on this PC installs their own Kosmos unhindered.
+    // Not const only so the probe a test compiles beside this file can use its own.
+    internal static string installLockName = "Local\\Kosmos.InstallOrUpdate";
+    // Beyond the updater's own ten-minute wait for a swap (CLI_WAIT_MS), plus the copy.
+    const int InstallLockWaitMs = 15 * 60 * 1000;
+
+    static int? RunInstallerDutiesUnderLock(string here, string node, int port)
+    {
         PlaceOutcome installed = CompareWithInstalledCopy(here, node);
         if (installed == PlaceOutcome.StartedInstalledCopy) return 0;
         if (installed == PlaceOutcome.InstalledCopyWouldNotStart) return 1;
@@ -1426,13 +1459,22 @@ class KosmosLauncher
                 "--move --from " + QuoteArgument(full) + " --to " + QuoteArgument(target) + " --port " + port + " --end-board --replace-older", NoHelperTimeout, out replaceProblem);
         });
         string replacedOutcome = replaced != null && replaced.Length > 0 ? replaced[0] : null;
-        if (replacedOutcome != null && replacedOutcome.StartsWith("MOVED ", StringComparison.Ordinal))
+        // #3286 review, finding 2: SAME is success too. An update that DID swap the new build in, but whose
+        // report came back REFUSED (the ten-minute wait ran out, or the status record lagged), meets this
+        // build already installed, and the move answers SAME. Reading that as a failure would have run this
+        // copy from Downloads and pointed Kosmos back there, undoing the update.
+        if (replacedOutcome != null && (replacedOutcome.StartsWith("MOVED ", StringComparison.Ordinal) || replacedOutcome.StartsWith("SAME ", StringComparison.Ordinal)))
         {
             string startProblem = startLauncher(Path.Combine(target, "Kosmos.exe"), target);
             if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
-            tellPerson("Kosmos is updated in " + target + ", but it would not start from there (" + startProblem + "). Double-click Kosmos.exe in that folder.", true);
-            return PlaceOutcome.InstalledCopyWouldNotStart;
+            // Finding 1: the move may have ENDED the board (--end-board) and pointed Kosmos at the installed
+            // copy. Exiting here would leave no board until the next sign-in, so this copy carries on as the
+            // first install does when the installed copy will not start: it starts the board from here, which
+            // points Kosmos back at this folder until the installed copy can start.
+            tellPerson("Kosmos is updated in " + target + ", but it would not start from there (" + startProblem + "). This copy runs Kosmos from here for now, and tries again the next time you open it.", true);
+            return PlaceOutcome.NewerThanInstalledCopy;
         }
+        if (replacedOutcome != null && replacedOutcome.StartsWith(UnanchoredTag, StringComparison.Ordinal)) because = replacedOutcome.Substring(UnanchoredTag.Length);
         tellPerson("This Kosmos is newer than the one installed in " + target + ", but it could not update it (" + because + "). This newer Kosmos runs from here for now, and tries again the next time you open it.", false);
         return PlaceOutcome.NewerThanInstalledCopy;
     }
@@ -1535,9 +1577,15 @@ class KosmosLauncher
             tellPerson("Kosmos is installed in " + target + " now, but it would not start from there (" + startProblem + "). " + KeepsWorkingHere, true);
             return PlaceOutcome.StaysHere;
         }
+        // Finding 5: a copy that could not be set to start from its new home (the engine pointer was not
+        // written) is not installed: Kosmos would go on starting from here at every sign-in. So it is the
+        // plain note and a run from here, and the next launch tries again (it then finds the copy in place
+        // and only sets the pointer).
         string because = outcome != null && outcome.StartsWith("REFUSED ", StringComparison.Ordinal)
             ? outcome.Substring("REFUSED ".Length)
-            : "The copy did not say what happened" + (problem != null ? " (" + problem + ")" : "") + ".";
+            : outcome != null && outcome.StartsWith(UnanchoredTag, StringComparison.Ordinal)
+                ? outcome.Substring(UnanchoredTag.Length)
+                : "The copy did not say what happened" + (problem != null ? " (" + problem + ")" : "") + ".";
         tellPerson(CouldNotInstallNote(place, target, because), false);
         return PlaceOutcome.StaysHere;
     }

@@ -74,7 +74,7 @@ function move(s, extra) {
   const p = relocator.relocate({
     from: s.from, to: s.to, port: PORT, probe: NOBODY_ANSWERING, readPointer: () => null,
     anchor: (spec) => { anchored.push(spec); return { ok: true }; }, pidState: () => 'alive',
-    liveExecutionAllowed: () => true, ...extra,
+    unfinishedUpdate: () => null, liveExecutionAllowed: () => true, ...extra,
   });
   p.anchored = anchored;
   return p.then((r) => Object.assign(r, { anchorCalls: anchored }));
@@ -286,7 +286,10 @@ test('🛑 #3286 --replace-older: an older, idle install is replaced and KEPT wh
     assert.deepEqual(shape(r), { ok: true, action: 'replaced', target: s.to, replaced: '0.6.50', kept, boardEnded: false, anchored: true });
     assert.equal(JSON.parse(fs.readFileSync(path.join(s.to, 'manifest.json'), 'utf8')).version, '0.6.60', 'the new build is not in place');
     assert.equal(fs.readFileSync(path.join(kept, 'app', 'server.js'), 'utf8'), '// the 0.6.50 board', 'the replaced build was not kept whole');
-    assert.ok(fs.existsSync(path.join(kept, '.kosmos-update', 'previous-0.6.40')), 'what the old install kept was lost');
+    /* Review, minor: ONE previous build, as the updater keeps; the old install's own .kosmos-update is not nested. */
+    assert.equal(fs.existsSync(path.join(kept, '.kosmos-update')), false, 'the old install\'s own previous builds were nested inside the kept one');
+    assert.deepEqual(fs.readdirSync(path.join(s.to, '.kosmos-update')), ['previous-0.6.50']);
+    assert.deepEqual(fs.readdirSync(path.dirname(s.to)).filter((n) => n.includes(relocator.PREVIOUS_ASIDE_INFIX)), [], 'the set-aside install was left beside the target');
     assert.deepEqual(fs.readdirSync(s.to).sort(), [...ENTRIES, '.kosmos-update'].sort());
     assert.deepEqual(stagingLeftIn(path.dirname(s.to)), []);
     assert.equal(r.anchorCalls[0].engineDir, path.join(s.to, 'app', 'engine'), 'Kosmos was not pointed at the installed copy');
@@ -325,37 +328,90 @@ test('🛑 #3286 --replace-older never replaces the install Kosmos starts from, 
 test('🛑 #3286 --replace-older: a replace that fails at the last step puts the old install back; one that fails copying never touches it', async () => {
   const s = scratch();
   const realRename = fs.renameSync;
+  const eperm = () => Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+  const pointer = () => path.join(s.from, 'app', 'engine');
   try {
     build(s.from, { version: '0.6.60' });
     build(s.to, { version: '0.6.50' });
-    const eperm = () => Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
-    /* Both the last step AND the put-back fail: the old install is named where it is kept, never deleted. */
+    /* Both the last step AND the put-back fail: the old install is named where it is kept, beside the
+       target (never inside the staging folder a sweep deletes), and never deleted. */
     fs.renameSync = function failBoth(src, dst) {
-      if (String(src).includes(relocator.STAGING_INFIX) && path.resolve(String(dst)) === path.resolve(s.to)) throw eperm();
+      if (path.resolve(String(dst)) === path.resolve(s.to)) throw eperm();
       return realRename.apply(this, arguments);
     };
-    const both = await move(s, { replaceOlder: true, readPointer: () => path.join(s.from, 'app', 'engine') });
+    const both = await move(s, { replaceOlder: true, readPointer: pointer });
     fs.renameSync = realRename;
-    const keptAt = both.because.match(/The Kosmos that was there is kept in (.*previous-0\.6\.50)\. Kosmos keeps working from here\.$/);
+    const keptAt = both.because.match(/The Kosmos that was there is kept in (.*)\. Kosmos keeps working from here\.$/);
     assert.ok(keptAt, both.because);
+    assert.ok(path.basename(keptAt[1]).includes(relocator.PREVIOUS_ASIDE_INFIX), 'the old install was not set aside beside the target');
     assert.equal(JSON.parse(fs.readFileSync(path.join(keptAt[1], 'manifest.json'), 'utf8')).version, '0.6.50', 'the old install was deleted');
+    assert.deepEqual(stagingLeftIn(path.dirname(s.to)), [], 'the staging folder was left');
     realRename(keptAt[1], s.to);
-    fs.rmSync(path.dirname(path.dirname(keptAt[1])), { recursive: true, force: true });
     /* Only the last step fails: the old install goes back where it was. */
     fs.renameSync = function failTheLastStep(src, dst) {
       if (path.basename(String(src)).includes(relocator.STAGING_INFIX) && path.resolve(String(dst)) === path.resolve(s.to)) throw eperm();
       return realRename.apply(this, arguments);
     };
-    const r = await move(s, { replaceOlder: true, readPointer: () => path.join(s.from, 'app', 'engine') });
+    const r = await move(s, { replaceOlder: true, readPointer: pointer });
     fs.renameSync = realRename;
     assert.match(r.because, /could not be copied to .* \(EPERM: operation not permitted\), so it was not moved/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(s.to, 'manifest.json'), 'utf8')).version, '0.6.50', 'the old install was not put back');
     assert.deepEqual(stagingLeftIn(path.dirname(s.to)), []);
     assert.equal(r.anchorCalls.length, 0, 'Kosmos was pointed at a folder the replace did not finish');
-    const failedCopy = await move(s, { replaceOlder: true, readPointer: () => path.join(s.from, 'app', 'engine'), copy: () => { throw new Error('disk full'); } });
+    const failedCopy = await move(s, { replaceOlder: true, readPointer: pointer, copy: () => { throw new Error('disk full'); } });
     assert.match(failedCopy.because, /\(disk full\)/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(s.to, 'manifest.json'), 'utf8')).version, '0.6.50');
   } finally { fs.renameSync = realRename; fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 #3286 review finding 4: a replace killed between its renames leaves the old install where the next move\'s sweep never deletes it', async () => {
+  const s = scratch();
+  try {
+    build(s.from, { version: '0.6.60' });
+    /* What a process killed between the two renames leaves: the old install set aside, its staging
+       folder, and no target. */
+    const deadPid = 999999;
+    const aside = build(s.to + relocator.PREVIOUS_ASIDE_INFIX + deadPid, { version: '0.6.50' });
+    build(s.to + relocator.STAGING_INFIX + deadPid, { version: '0.6.60' });
+    const r = await move(s, { pidState: () => 'gone' });
+    assert.equal(r.action, 'moved', JSON.stringify(shape(r)));
+    assert.deepEqual(stagingLeftIn(path.dirname(s.to)), [], 'the interrupted staging folder was not swept');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(aside, 'manifest.json'), 'utf8')).version, '0.6.50', 'the sweep deleted the only copy of the old install');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 #3286 review finding 3: the same version from another commit is not "newer", so it never replaces an install', async () => {
+  const s = scratch();
+  try {
+    build(s.from, { version: '0.6.60', source_sha: '1111111aaaaa' });
+    build(s.to, { version: '0.6.60', source_sha: '2222222bbbbb' });
+    const r = await move(s, { replaceOlder: true, readPointer: () => path.join(s.from, 'app', 'engine') });
+    assert.match(r.because, /There is already a different Kosmos \(version 0\.6\.60\)/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(s.to, 'manifest.json'), 'utf8')).source_sha, '2222222bbbbb', 'a build of unknown order replaced the install');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#3286: an update left unfinished keeps --replace-older away from the install, in its own words', async () => {
+  const s = scratch();
+  try {
+    build(s.from, { version: '0.6.60' });
+    build(s.to, { version: '0.6.50' });
+    const r = await move(s, { replaceOlder: true, readPointer: () => path.join(s.from, 'app', 'engine'), unfinishedUpdate: () => 'An update to 0.6.55 has not finished.' });
+    assert.equal(r.because, 'An update to 0.6.55 has not finished. Kosmos keeps working from here.');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(s.to, 'manifest.json'), 'utf8')).version, '0.6.50');
+    await assert.rejects(relocator.relocate({
+      from: s.from, to: s.to, port: PORT, probe: NOBODY_ANSWERING, readPointer: () => path.join(s.from, 'app', 'engine'),
+      anchor: () => ({ ok: true }), pidState: () => 'alive', liveExecutionAllowed: () => true, replaceOlder: true,
+    }), /a test must pass an unfinishedUpdate seam/);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 #3286 review finding 5: a copy Kosmos could not be set to start from reports UNANCHORED, never MOVED', () => {
+  assert.equal(relocator.reportText({ ok: true, action: 'moved', target: 'T', anchored: false, anchorProblem: 'disk\nfull' }),
+    'UNANCHORED Kosmos was copied to T, but it could not be set to start from there (disk full).\r\n');
+  assert.match(relocator.reportText({ ok: true, action: 'replaced', target: 'T', anchored: false, anchorProblem: 'x' }), /^UNANCHORED /);
+  assert.equal(relocator.reportText({ ok: true, action: 'moved', target: 'T', anchored: true }), 'MOVED T\r\n');
+  assert.equal(relocator.reportText({ ok: true, action: 'already-there', target: 'T', anchored: true }), 'SAME T\r\n');
 });
 
 test('#3286: the move CLI passes --end-board through, and takes it only with --move', async () => {

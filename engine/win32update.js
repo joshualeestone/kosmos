@@ -457,7 +457,11 @@ function stageFromFolder(ctx) {
   if (!relocate.isCompleteBuild(source, mine, ENTRIES)) refuse(`${source} is not a complete Kosmos for Windows, so it cannot update ${ctx.root}`);
   const installed = relocate.readManifest(ctx.root);
   const verdict = relocate.buildVerdict(mine, installed);
-  if (verdict !== 'this-newer' && verdict !== 'rebuilt') {
+  /* #3286 review, finding 3: only a PROVABLY newer version. The same version from another commit ('rebuilt')
+     has no order in the manifest (no build time, no commit order), so it could be an older commit: a
+     downgrade, against the never-downgrade rule, that the roll back could not undo. The launcher then runs
+     that copy from where it is, as it did before #3286. */
+  if (verdict !== 'this-newer') {
     refuse(`${source} holds Kosmos ${mine.version}, which is not newer than the ${(installed && installed.version) || 'unknown version'} in ${ctx.root}, so there is nothing to update`);
   }
   const bytes = ENTRIES.reduce((n, entry) => n + treeBytes(path.join(source, entry)), 0);

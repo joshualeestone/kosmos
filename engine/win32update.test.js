@@ -2119,11 +2119,13 @@ test('#3286 --from refuses a build that is not newer, an incomplete one, one tha
   const c = withInstalledManifest(freshCase());
   const low = await win32update.prepare(prepareOpts(c, null, { ...OFFLINE, source: downloadedBuild(c), freeBytes: () => 1024 }));
   assert.match(low.because, /not enough free disk space next to your Kosmos folder: the update is .* and there is 1024 bytes free/);
-  /* The same version rebuilt from another commit is a rebuilt candidate, as the launcher's compare says. */
+  /* #3286 review, finding 3: the same version from another commit has no order, so it could be an older
+     commit. It is refused (never a downgrade), and the launcher runs it from where it is. */
   const rebuilt = withInstalledManifest(freshCase(), { version: NEXT, source_sha: '1111111111111111111111111111111111111111' });
   fs.writeFileSync(path.join(rebuilt.root, 'app', 'package.json'), JSON.stringify({ version: NEXT }));
   const r = await win32update.prepare(prepareOpts(rebuilt, null, { ...OFFLINE, source: downloadedBuild(rebuilt) }));
-  assert.equal(r.ok, true, r.because);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /holds Kosmos 0\.6\.60, which is not newer than the 0\.6\.60 in/);
 });
 
 test('#3286 --from: begin journals the local build and starts the installed copy\'s own helper, as for a download', T, async () => {

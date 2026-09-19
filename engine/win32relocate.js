@@ -64,6 +64,9 @@ const MANIFEST_NAME = 'manifest.json';
 const STAGING_INFIX = '.kosmos-move-';
 /* The updater's name for the build an update replaced, kept in <root>\.kosmos-update (engine/win32apply.js). */
 const PREVIOUS_PREFIX = 'previous-';
+/* #3286: beside the target, the install a replace sets aside until the new one is in place. Not the staging
+   name, so the sweep of interrupted moves never deletes it. */
+const PREVIOUS_ASIDE_INFIX = '.kosmos-previous-';
 
 const KEEPS_WORKING = 'Kosmos keeps working from here.';
 const MAY_BE_RUNNING_FROM_UNKNOWN_FOLDER = 'Kosmos was not moved, because Kosmos may be running and it could not tell from which folder. ' + KEEPS_WORKING;
@@ -297,7 +300,10 @@ async function relocate(opts) {
       if (verdict === 'same') return { ok: true, action: 'already-there', target: to, boardEnded, ...anchorTo(o, to) };
       const different = 'There is already a different Kosmos (version ' + (theirs.version || 'unknown') + ') in ' + to
         + ', so this one was not moved there. ' + KEEPS_WORKING;
-      if (!o.replaceOlder || (verdict !== 'this-newer' && verdict !== 'rebuilt')) return refused(different);
+      /* #3286 review, finding 3: only a PROVABLY newer build replaces one. 'rebuilt' (the same version from
+         another commit) has no order, so an older commit could replace a newer one: a downgrade, and one the
+         roll back could not undo. It is refused, and the launcher runs it from where it is, as before. */
+      if (!o.replaceOlder || verdict !== 'this-newer') return refused(different);
       /* #3286 --replace-older: an OLDER Kosmos installed there that is not the one Kosmos starts from (the
          engine pointer names this copy, or another). That is the state a newer download left behind when
          its update could not run: the updater only swaps the folder the pointer names, so without this
@@ -311,6 +317,9 @@ async function relocate(opts) {
       }
       const others = fs.readdirSync(to).filter((name) => !entries.includes(name) && name !== win32anchor.UPDATE_WORK_DIRNAME);
       if (others.length) return refused('Kosmos was not moved, because ' + to + ' also holds ' + others.join(', ') + '. ' + KEEPS_WORKING);
+      /* An update left unfinished owns that folder's .kosmos-update and may still put a build back into it. */
+      const unfinished = unfinishedUpdate(o);
+      if (unfinished) return refused(unfinished + ' ' + KEEPS_WORKING);
       replacing = theirs.version || 'unknown';
     }
   }
@@ -318,19 +327,22 @@ async function relocate(opts) {
   const copy = typeof o.copy === 'function' ? o.copy : (src, dst) => fs.cpSync(src, dst, { recursive: true, errorOnExist: true, force: false });
   sweepInterruptedMoves(to, typeof o.pidState === 'function' ? o.pidState : require('./win32orphan').pidState);
   const staging = to + STAGING_INFIX + process.pid;
-  /* #3286: the replaced build is KEPT, whole, where the updater keeps the build an update replaced
+  /* #3286 review, finding 4: the replaced install is set aside BESIDE the target, under a name the sweep of
+     interrupted moves never touches (PREVIOUS_ASIDE_INFIX, not STAGING_INFIX), so a move killed between the
+     two renames cannot have its only copy of the old install deleted by the next one's sweep. Once the new
+     build is in place it goes where the updater keeps the build an update replaced
      (<to>\.kosmos-update\previous-<version>), so the in-app roll back finds it like any other. */
-  const keptAt = replacing ? path.join(staging, win32anchor.UPDATE_WORK_DIRNAME, PREVIOUS_PREFIX + replacing) : null;
-  let oldIsInStaging = false;
+  const aside = replacing ? to + PREVIOUS_ASIDE_INFIX + process.pid : null;
+  const keptAt = replacing ? path.join(to, win32anchor.UPDATE_WORK_DIRNAME, PREVIOUS_PREFIX + replacing) : null;
+  let oldIsAside = false;
   try {
     fs.mkdirSync(staging, { recursive: true });
     for (const entry of entries) copy(path.join(from, entry), path.join(staging, entry));
     if (replacing) {
-      fs.mkdirSync(path.dirname(keptAt), { recursive: true });
-      fs.renameSync(to, keptAt);
-      oldIsInStaging = true;
+      fs.renameSync(to, aside);
+      oldIsAside = true;
       fs.renameSync(staging, to);
-      oldIsInStaging = false;
+      oldIsAside = false;
     } else {
       /* rmdir, not rm: it refuses a folder that is no longer empty, so nothing that arrived in
          the target since it was checked is ever deleted. */
@@ -338,23 +350,43 @@ async function relocate(opts) {
       fs.renameSync(staging, to);
     }
   } catch (e) {
-    /* 🛑 The old install, if it was already set aside inside staging, goes back first, and staging is
-       never deleted while it still holds it: a failed replace must not cost the person the copy they had. */
-    if (oldIsInStaging) {
-      try { fs.renameSync(keptAt, to); oldIsInStaging = false; } catch { /* named below */ }
-    }
-    if (oldIsInStaging) {
-      return refused('Kosmos could not be copied to ' + to + ' (' + firstLine(e) + '). The Kosmos that was there is kept in ' + keptAt + '. ' + KEEPS_WORKING);
+    /* 🛑 The old install, if it was already set aside, goes back first: a failed replace must not cost the
+       person the copy they had. If it cannot go back it stays where it is, named. */
+    if (oldIsAside) {
+      try { fs.renameSync(aside, to); oldIsAside = false; } catch { /* named below */ }
     }
     try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* the sentence below still names the failure */ }
+    if (oldIsAside) {
+      return refused('Kosmos could not be copied to ' + to + ' (' + firstLine(e) + '). The Kosmos that was there is kept in ' + aside + '. ' + KEEPS_WORKING);
+    }
     return refused('Kosmos could not be copied to ' + to + ' (' + firstLine(e) + '), so it was not moved. ' + KEEPS_WORKING);
   }
   if (replacing) {
-    return { ok: true, action: 'replaced', target: to, replaced: replacing, kept: path.join(to, win32anchor.UPDATE_WORK_DIRNAME, PREVIOUS_PREFIX + replacing), boardEnded, ...anchorTo(o, to) };
+    /* Minor finding: ONE previous build, as the updater keeps (H9). The old install's own .kosmos-update
+       (its earlier previous-* builds, a staged tree) is not carried inside the new previous-<version>. */
+    let kept = keptAt;
+    try {
+      fs.rmSync(path.join(aside, win32anchor.UPDATE_WORK_DIRNAME), { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(keptAt), { recursive: true });
+      fs.renameSync(aside, keptAt);
+    } catch {
+      /* The new build is in place either way; the old one stays beside it, named, rather than lost. */
+      kept = aside;
+    }
+    return { ok: true, action: 'replaced', target: to, replaced: replacing, kept, boardEnded, ...anchorTo(o, to) };
   }
   return { ok: true, action: 'moved', target: to, boardEnded, ...anchorTo(o, to) };
 }
 
+/** #3286: an update left unfinished, as a sentence, or null (engine/win32apply.js's own reading). */
+function unfinishedUpdate(o) {
+  if (typeof o.unfinishedUpdate === 'function') return o.unfinishedUpdate();
+  if (liveExec.inTestProcess()) throw new Error('win32relocate: a test must pass an unfinishedUpdate seam; the real one reads %LOCALAPPDATA%\\Kosmos');
+  try {
+    const anchor = win32anchor.anchorDir(process.platform, o.home || os.homedir(), o.env || process.env);
+    return require('./win32apply').unfinishedUpdateRefusal(anchor);
+  } catch (e) { return 'Kosmos could not tell whether an update is still finishing (' + firstLine(e) + ').'; }
+}
 /* #3286: how long an ended board gets to let go of its port before the move gives up on it. The
    hand-off waits MIN_PORT_RELEASE_WAIT_MS at least; a board finishing its last requests can take
    longer, and a move is not in a hurry. */
@@ -445,6 +477,10 @@ function compareWithPointer(opts) {
 /** The report the launcher reads: its first line is the outcome. */
 function reportText(result) {
   if (result.verdict) return result.verdict.toUpperCase() + ' ' + result.target + '\r\n';
+  /* #3286 review, finding 5: a copy in place that Kosmos could not be set to start from is not installed. */
+  if (result.ok && result.anchored === false) {
+    return 'UNANCHORED Kosmos was copied to ' + result.target + ', but it could not be set to start from there (' + String(result.anchorProblem || 'no detail').replace(/\s*\r?\n\s*/g, ' ') + ').\r\n';
+  }
   if (result.ok) return (result.action === 'moved' || result.action === 'replaced' ? 'MOVED ' : 'SAME ') + result.target + '\r\n';
   return 'REFUSED ' + String(result.because).replace(/\s*\r?\n\s*/g, ' ') + '\r\n';
 }
@@ -503,7 +539,7 @@ async function cliMain(argv, deps) {
   return result.ok ? 0 : 1;
 }
 
-module.exports = { relocate, compare, compareWithPointer, buildVerdict, readManifest, isCompleteBuild, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX, PORT_RELEASE_WAIT_MS };
+module.exports = { relocate, compare, compareWithPointer, buildVerdict, readManifest, isCompleteBuild, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX, PREVIOUS_ASIDE_INFIX, PORT_RELEASE_WAIT_MS };
 
 /* Guarded on being the main module: requiring this file must never copy anything. */
 if (require.main === module) {
