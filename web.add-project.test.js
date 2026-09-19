@@ -1,8 +1,11 @@
 "use strict";
 /**
- * #750: Add a project, styled like New agent: no box, "New project", "Name",
- * "Description", no folder talk, three add buttons (two disabled until their
- * flows exist), a dropdown behind Add an agent, and a big yellow Create project.
+ * #750: Add a project, styled like New agent: no box, "Name", "Description", no folder
+ * talk, a dropdown behind Add an agent, and a big yellow Create project.
+ * #3312 (Josh 2026-09-19): the screen is now two MODES -- Create New Project and Join
+ * External Project (relay federation MVP) -- so the heading is visually hidden behind the
+ * pill toggle, and the two external-add doors are LIVE (they mint an invite code) rather
+ * than the #750 honestly-disabled placeholders.
  *
  *   node --test web.add-project.test.js
  */
@@ -13,19 +16,40 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 const VIEW = (() => { const at = PAGE.indexOf('id="pj-add-view"'); return PAGE.slice(at, PAGE.indexOf('id="panel-settings"', at)).replace(/<!--[\s\S]*?-->/g, ''); })();
 
-test('the words: New project, Name, Description; no folder sentence, no folder door, no "skip this"', () => {
-  assert.match(VIEW, /<h2>New project<\/h2>/);
+test('the words: Name, Description; no folder sentence, no folder door, no "skip this"; the heading is behind the mode toggle', () => {
+  // #3312: the visible top control is the pill toggle; the heading is kept for the heading
+  // list but visually hidden (class vh) since the toggle names the choice.
+  assert.match(VIEW, /<h2 class="vh">Add a project<\/h2>/);
   assert.match(VIEW, /<span class="flabel">Name<\/span>/);
   assert.match(VIEW, /<span class="flabel">Description<\/span>/);
-  assert.doesNotMatch(VIEW, /What do you call it|What is it about|You can skip this|Add a project<\/h2>/);
+  assert.doesNotMatch(VIEW, /What do you call it|What is it about|You can skip this/);
   assert.match(VIEW, /<p class="pj-advanced" hidden>/, 'the folder door is still on the page');
   assert.match(VIEW, /id="pj-will-be" hidden/, 'the folder sentence can still show');
 });
 
-test('the agents section is the picked list and three doors, two of them honestly disabled; the dropdown sits behind Add an agent', () => {
+test('#3312: the top toggle offers Create New Project vs Join External Project', () => {
+  assert.match(VIEW, /<button type="button" class="pj-mode-opt" id="pj-mode-create" role="radio" aria-checked="true">Create New Project<\/button>/);
+  assert.match(VIEW, /<button type="button" class="pj-mode-opt" id="pj-mode-join" role="radio" aria-checked="false">Join External Project<\/button>/);
+});
+
+test('#3312: the two external doors are LIVE now (they mint an invite code), no longer disabled placeholders', () => {
   assert.match(VIEW, /<button class="btn" id="pj-add-agent" type="button"><span aria-hidden="true">\+<\/span> Add an agent<\/button>/);
-  assert.match(VIEW, /<button class="btn" type="button" disabled title="Not yet: people outside Kosmos[^"]*">Add an external person<\/button>/);
-  assert.match(VIEW, /<button class="btn" type="button" disabled title="Not yet: agents outside Kosmos[^"]*">Add an external agent<\/button>/);
+  assert.match(VIEW, /<button class="btn" id="pj-add-ext-person" type="button" title="[^"]*">Add an external person<\/button>/);
+  assert.match(VIEW, /<button class="btn" id="pj-add-ext-agent" type="button" title="[^"]*">Add an external agent<\/button>/);
+  assert.doesNotMatch(VIEW, /disabled title="Not yet: (people|agents) outside Kosmos/, 'the external doors are no longer the honestly-disabled placeholders');
+  // The invite panel (verbatim message + code + copy) is present, hidden until a door is pressed.
+  assert.match(VIEW, /id="pj-invite-panel" hidden/);
+  assert.match(VIEW, /To connect external Kosmos users or their agents, give them this code to enter when joining an external project on Kosmos:/);
+});
+
+test('#3312: the Join-External mode carries a code + Verify and a Join Project submit', () => {
+  assert.match(VIEW, /Enter your code to access an external project:/);
+  assert.match(VIEW, /<button class="btn" id="pj-join-verify" type="button">Verify<\/button>/);
+  assert.match(VIEW, /id="pj-join-result" hidden/);
+  assert.match(VIEW, /<button class="btn uprime big" id="pj-join-submit" type="button">Join Project<\/button>/);
+});
+
+test('the agents picker: the picked list and Add an agent with its dropdown behind it', () => {
   assert.match(VIEW, /<div class="frow" id="pj-add-agent-row" hidden/);
   assert.match(VIEW, /<select id="pj-add-pick" aria-label="Which agent to add"><\/select>/);
   assert.doesNotMatch(SCRIPT, /closest\('\[data-pick\]'\)/, 'the every-agent roster still has a click path');

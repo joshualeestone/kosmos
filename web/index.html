@@ -1293,6 +1293,21 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .layopt[aria-checked="true"]:focus-visible { outline-color: #14161a; }
 .layopt:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 @media (max-width: 959.98px) { .laypick { display: none; } }
+/* #3312 (Josh 2026-09-19): the Add-Project mode toggle -- two pills with "or" between, the
+   active one filled with ink, the other outlined. Bigger than the .laypick segmented control
+   (this is the screen's top-level choice, not a compact icon switch), and it uses ink/surface
+   rather than gold so it never competes with the gold "Create project" / "Join Project" CTA. */
+.pj-mode { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 24px; }
+.pj-mode-opt { font: inherit; font-weight: 700; font-size: 1.0625rem; line-height: 1;
+               padding: .8em 1.5em; border-radius: var(--radius-pill, 100px);
+               border: 1.5px solid var(--label); background: none; color: var(--label); cursor: pointer; }
+.pj-mode-opt:hover:not([aria-checked="true"]) { background: var(--bg-elevated); }
+.pj-mode-opt[aria-checked="true"] { background: var(--label); color: var(--bg-elevated); border-color: var(--label); }
+.pj-mode-opt:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+.pj-mode-or { color: var(--label-2); font-weight: 600; }
+/* A read-only value line in Join mode (the owner's project name/description, which the receiver
+   cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
+.pj-ro { margin: 2px 0 0; color: var(--label); white-space: pre-wrap; }
 /* #3051: the upper-right user menu (avatar + name -> dropdown), modelled on the
    world-switcher popover so the two header controls read as one family. The button is the
    avatar + name; the menu holds the Settings link, the moved light/dark + board-view
@@ -11275,7 +11290,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="railhead" id="rail-projects" hidden>
       <span class="lead"><span class="railname">Projects</span></span>
       <span class="railacts">
-        <button class="fold plus" type="button" id="rail-projects-new" aria-label="New project" title="New project">+</button>
+        <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
     </div>
     <!-- ⚠️ The pack's stats row (view C), the same grammar as the agents
@@ -11290,7 +11305,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="statsrow">
       <button class="stat action" id="pj-new" type="button">
         <span class="plus" aria-hidden="true">+</span>
-        <span class="slab">New project</span>
+        <span class="slab">Add Project</span>
       </button>
       <div class="stats">
         <div class="stat"><b id="st-pj">0</b><span class="slab">Projects</span></div>
@@ -12229,7 +12244,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <!-- Adding one. Two decisions, not a form. -->
   <div id="pj-add-view" hidden>
     <button class="back" id="pj-add-back" type="button">← All projects</button>
-    <h2>New project</h2>
+    <!-- #3312 (Josh 2026-09-19): the Add-Project screen is one of two modes -- create a new
+         project of your own, or join an EXTERNAL project someone shared a code for (relay
+         federation MVP, messaging only). The h2 is kept for the heading list but visually
+         hidden; the pill toggle is the visible top control (Josh's wireframe). -->
+    <h2 class="vh">Add a project</h2>
+    <div class="pj-mode" role="radiogroup" aria-label="Add a project">
+      <button type="button" class="pj-mode-opt" id="pj-mode-create" role="radio" aria-checked="true">Create New Project</button>
+      <span class="pj-mode-or" aria-hidden="true">or</span>
+      <button type="button" class="pj-mode-opt" id="pj-mode-join" role="radio" aria-checked="false">Join External Project</button>
+    </div>
+
+    <div id="pj-create-mode">
 
     <!-- ⚠️ NAMING IT IS THE WHOLE DEFAULT PATH, and the reason is a permission
          dialog rather than a preference. Making the folder the FIRST decision
@@ -12385,8 +12411,23 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
       <div class="frow pj-add-doors" style="margin-top: var(--space-4)">
         <button class="btn" id="pj-add-agent" type="button"><span aria-hidden="true">+</span> Add an agent</button>
-        <button class="btn" type="button" disabled title="Not yet: people outside Kosmos will be able to join a project in a later version">Add an external person</button>
-        <button class="btn" type="button" disabled title="Not yet: agents outside Kosmos will be able to join a project in a later version">Add an external agent</button>
+        <!-- #3312: the two external doors are LIVE now (relay federation MVP). Each mints a
+             single-use invite code the owner hands to an external person or agent to join THIS
+             project's dialogue (messaging only; a connected member can never drive your computer). -->
+        <button class="btn" id="pj-add-ext-person" type="button" title="Invite a person outside your Kosmos to this project's messages">Add an external person</button>
+        <button class="btn" id="pj-add-ext-agent" type="button" title="Invite an agent outside your Kosmos to this project's messages">Add an external agent</button>
+      </div>
+      <!-- #3312: the invite panel appears when an external door is pressed. It carries Josh's
+           verbatim message, the single-use code (read-only), and a copy control with a "copied"
+           indicator. Hidden until a code is minted; an unreachable coordinator shows an honest
+           error here rather than a blank or a fake code. -->
+      <div id="pj-invite-panel" hidden style="margin-top: var(--space-4)">
+        <p class="fhint" id="pj-invite-msg">To connect external Kosmos users or their agents, give them this code to enter when joining an external project on Kosmos:</p>
+        <div class="frow" style="margin-top: var(--space-4)">
+          <input type="text" id="pj-invite-code" class="tk-inp" readonly aria-label="The single-use invite code to share">
+          <button class="btn" id="pj-invite-copy" type="button">Copy</button>
+        </div>
+        <p class="fmsg" id="pj-invite-status" aria-live="polite"></p>
       </div>
     </div>
 
@@ -12394,6 +12435,50 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <button class="btn uprime big" id="pj-create" type="button">Create project</button>
     </div>
     <p class="fmsg" id="pj-add-msg" aria-live="polite"></p>
+    </div><!-- /#pj-create-mode -->
+
+    <!-- #3312: JOIN mode. Paste the code the owner shared, Verify it against the coordinator,
+         and on success the project's Name and Description come back READ-ONLY (they are the
+         owner's, not yours to edit). You can add your OWN agents; you cannot invite further
+         external people or agents, because it is not your project. The submit reads "Join Project". -->
+    <div id="pj-join-mode" hidden>
+      <div class="field">
+        <label class="flabel" for="pj-join-code">Enter your code to access an external project:</label>
+        <div class="frow">
+          <input type="text" id="pj-join-code" class="tk-inp" autocomplete="off" spellcheck="false"
+                 aria-label="The code for the external project" placeholder="Paste the code you were given">
+          <button class="btn" id="pj-join-verify" type="button">Verify</button>
+        </div>
+        <p class="ferr" id="pj-join-err" aria-live="polite"></p>
+      </div>
+
+      <div id="pj-join-result" hidden>
+        <div class="field">
+          <span class="flabel">Name</span>
+          <p class="pj-ro" id="pj-join-name"></p>
+        </div>
+        <div class="field">
+          <span class="flabel">Description</span>
+          <p class="pj-ro" id="pj-join-desc"></p>
+        </div>
+        <div class="field">
+          <span class="flabel" id="pj-join-agents-label">Which agents are on it?</span>
+          <p class="fhint">You can change this later, and you can leave it empty for now.</p>
+          <div id="pj-join-agents" class="pj-members" role="group" aria-labelledby="pj-join-agents-label"></div>
+          <div class="frow" id="pj-join-agent-row" hidden style="margin-top: var(--space-4)">
+            <select id="pj-join-pick" aria-label="Which of your agents to add"></select>
+            <button class="linkish" id="pj-join-pick-cancel" type="button">Never mind</button>
+          </div>
+          <div class="frow" style="margin-top: var(--space-4)">
+            <button class="btn" id="pj-join-add-agent" type="button"><span aria-hidden="true">+</span> Add an agent</button>
+          </div>
+        </div>
+        <div class="sfoot">
+          <button class="btn uprime big" id="pj-join-submit" type="button">Join Project</button>
+        </div>
+        <p class="fmsg" id="pj-join-msg" aria-live="polite"></p>
+      </div>
+    </div>
   </div>
 </section>
 <section class="panel" id="panel-settings" hidden>
@@ -44143,6 +44228,7 @@ function openAddProject() {
   pjWillBe();
   paintAddAgents();
   pjPaintCreateParentSelect();   // #2458: a fresh create starts top-level, options from the active projects
+  pjResetFederation();           // #3312: start in create mode, invite/join surfaces cleared
   pjView('add');
   // ⚠️ The folder browser is NOT loaded here any more. Listing a directory is
   // the cheap half; the expensive half is that this screen's whole point is
@@ -44339,6 +44425,218 @@ document.getElementById('pj-add-pick').addEventListener('change', () => {
   document.getElementById('pj-add-agent-row').hidden = true;
   paintAddAgents();
   document.getElementById('pj-add-agent').focus();
+});
+
+/* ===== #3312 Federation UI: Add-Project mode toggle, invite minting, join/verify =====
+   The page calls a LOCAL /api/federation/* proxy -- the board server holds the coordinator
+   credential, the page never does (the #3149 3b no-credential-in-frontend pattern). Those local
+   routes are a backend dependency (ICK coordinator #3313 + Baron transport #3314); until they
+   exist every call degrades to an honest "could not reach" state, never a fake code or success.
+   The messaging-only guardrail is absolute: a connected member views and posts, and can never
+   drive your computer -- no copy here may imply otherwise. */
+let PJ_JOIN_VERIFIED = null;   // the verify() snapshot {edge_id, project_name, project_desc, owner_handle}
+let PJ_JOIN_ADD_AGENTS = [];   // the receiver's OWN agents to bring onto the joined project
+// A stable local project ref for a create-with-invite: minted once per Add-Project open, reused by
+// every invite on this form and passed on create so the coordinator snapshot and the local project
+// share one id. COORDINATION POINT: /api/projects must accept + persist this ref (ICK/Angel).
+let PJ_FEDERATION_REF = null;
+function pjFederationRef() {
+  if (!PJ_FEDERATION_REF) {
+    try { PJ_FEDERATION_REF = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2); }
+    catch { PJ_FEDERATION_REF = String(Date.now()) + Math.random().toString(16).slice(2); }
+  }
+  return PJ_FEDERATION_REF;
+}
+
+function pjSetAddMode(mode) {
+  const isJoin = mode === 'join';
+  document.getElementById('pj-mode-create').setAttribute('aria-checked', String(!isJoin));
+  document.getElementById('pj-mode-join').setAttribute('aria-checked', String(isJoin));
+  document.getElementById('pj-create-mode').hidden = isJoin;
+  document.getElementById('pj-join-mode').hidden = !isJoin;
+}
+
+// Reset the whole federation surface to a clean create-mode state (called from openAddProject).
+function pjResetFederation() {
+  PJ_FEDERATION_REF = null;
+  PJ_JOIN_VERIFIED = null;
+  PJ_JOIN_ADD_AGENTS = [];
+  pjSetAddMode('create');
+  const hide = (id) => { const el = document.getElementById(id); if (el) el.hidden = true; };
+  const clear = (id) => { const el = document.getElementById(id); if (el) { if ('value' in el) el.value = ''; else el.textContent = ''; } };
+  hide('pj-invite-panel'); clear('pj-invite-code'); clear('pj-invite-status');
+  clear('pj-join-code'); clear('pj-join-err'); hide('pj-join-result'); hide('pj-join-agent-row');
+  const ja = document.getElementById('pj-join-agents'); if (ja) ja.innerHTML = '';
+  const jm = document.getElementById('pj-join-msg'); if (jm) jm.textContent = '';
+}
+
+// A federation error response carries a distinct reason (already-used / expired / revoked /
+// not-found / self-join / double-join); name what the person can DO, never leak internals.
+function pjFedMessage(body, fallback) {
+  const reason = body && (body.reason || body.error || body.code);
+  const M = {
+    'already-used': 'That code has already been used. Ask for a fresh one.',
+    'expired': 'That code has expired. Ask for a fresh one.',
+    'revoked': 'That invitation was withdrawn. Ask the owner for a new code.',
+    'not-found': 'That code was not recognised. Check it and try again.',
+    'self-join': 'That is your own project, so there is nothing to join.',
+    'double-join': 'You are already on that project.',
+  };
+  return (reason && M[reason]) || fallback;
+}
+
+// Mint a single-use invite for THIS create-form's project and show it in the panel.
+async function pjMintInvite(invitedKind) {
+  const status = document.getElementById('pj-invite-status');
+  const codeEl = document.getElementById('pj-invite-code');
+  document.getElementById('pj-invite-panel').hidden = false;
+  codeEl.value = '';
+  status.textContent = 'Making a code…';
+  const name = document.getElementById('pj-name').value.trim();
+  const desc = document.getElementById('pj-add-desc').value.trim();
+  try {
+    const res = await fetch('/api/federation/invite', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        project_ref: pjFederationRef(),
+        project_name: name,
+        ...(desc ? { project_desc: desc } : {}),
+        invited_kind: invitedKind,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body || !body.code) {
+      status.textContent = pjFedMessage(body, 'Kosmos could not make a code just now. Try again in a moment.');
+      return;
+    }
+    codeEl.value = body.code;
+    status.textContent = 'Share this code with the person or agent you are inviting.';
+  } catch {
+    status.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
+  }
+}
+
+// Copy the invite code, with the app's copy -> "Copied" pattern (and a keyboard fallback).
+async function pjCopyInvite() {
+  const codeEl = document.getElementById('pj-invite-code');
+  const btn = document.getElementById('pj-invite-copy');
+  const text = codeEl ? codeEl.value : '';
+  if (!text) return;
+  let ok = false;
+  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
+  if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
+  btn.textContent = ok ? 'Copied' : 'Press ⌘C to copy';
+  setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+}
+
+// Verify a pasted code: on success show the owner's read-only project name + description.
+async function pjVerifyCode() {
+  const code = document.getElementById('pj-join-code').value.trim();
+  const err = document.getElementById('pj-join-err');
+  const result = document.getElementById('pj-join-result');
+  const btn = document.getElementById('pj-join-verify');
+  err.textContent = '';
+  result.hidden = true;
+  PJ_JOIN_VERIFIED = null;
+  if (!code) { err.textContent = 'Paste the code you were given first.'; return; }
+  const rest = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Verifying…';
+  try {
+    const res = await fetch('/api/federation/verify', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body || !body.edge_id) {
+      err.textContent = pjFedMessage(body, 'Kosmos could not check that code just now. Try again in a moment.');
+      return;
+    }
+    PJ_JOIN_VERIFIED = body;
+    PJ_JOIN_ADD_AGENTS = [];
+    document.getElementById('pj-join-name').textContent = body.project_name || '';
+    document.getElementById('pj-join-desc').textContent = body.project_desc || 'No description.';
+    document.getElementById('pj-join-agents').innerHTML = '';
+    result.hidden = false;
+  } catch {
+    err.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
+  } finally {
+    btn.disabled = false; btn.textContent = rest;
+  }
+}
+
+// The receiver's own-agent picker for the joined project (pure frontend state; simple name chips).
+function pjJoinPickOptions() {
+  const sel = document.getElementById('pj-join-pick');
+  const free = (typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : []).filter((a) => a && !PJ_JOIN_ADD_AGENTS.includes(a.sessionName));
+  sel.innerHTML = '<option value="">Pick an agent…</option>' + free.map((a) => '<option value="' + esc(a.sessionName) + '">' + esc(a.name || a.sessionName) + '</option>').join('');
+  document.getElementById('pj-join-add-agent').disabled = free.length === 0;
+}
+function pjPaintJoinAgents() {
+  const box = document.getElementById('pj-join-agents');
+  if (!PJ_JOIN_ADD_AGENTS.length) { box.innerHTML = '<p class="fhint" style="margin:0;">No agents on it yet.</p>'; return; }
+  const nameOf = (k) => { const a = (typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : []).find((x) => x && x.sessionName === k); return a ? (a.name || a.sessionName) : k; };
+  box.innerHTML = PJ_JOIN_ADD_AGENTS.map((k) => '<span class="pj-picked">' + esc(nameOf(k)) + ' <button type="button" class="skillrm" data-join-unpick="' + esc(k) + '" aria-label="Take ' + esc(nameOf(k)) + ' off this project">×</button></span>').join('');
+}
+
+// Join the verified external project. COORDINATION POINT: the local route + how a joined project
+// is stored (name/desc snapshot, the edge_id, the receiver's agents) is a backend contract still
+// being defined; wired thin so a shape change is a small edit, and it degrades honestly.
+async function pjJoinSubmit() {
+  if (!PJ_JOIN_VERIFIED || !PJ_JOIN_VERIFIED.edge_id) return;
+  const msg = document.getElementById('pj-join-msg');
+  const btn = document.getElementById('pj-join-submit');
+  msg.textContent = 'Joining…';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/federation/join', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ edge_id: PJ_JOIN_VERIFIED.edge_id, agents: PJ_JOIN_ADD_AGENTS }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body) { msg.textContent = pjFedMessage(body, 'Kosmos could not join that project just now. Try again in a moment.'); return; }
+    await loadProjects();
+    const id = (body.project && body.project.id) || body.id || body.project_id;
+    if (id) openProject(id); else pjView('list');
+  } catch {
+    msg.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('pj-mode-create').addEventListener('click', () => pjSetAddMode('create'));
+document.getElementById('pj-mode-join').addEventListener('click', () => pjSetAddMode('join'));
+document.getElementById('pj-add-ext-person').addEventListener('click', () => pjMintInvite('person'));
+document.getElementById('pj-add-ext-agent').addEventListener('click', () => pjMintInvite('agent'));
+document.getElementById('pj-invite-copy').addEventListener('click', pjCopyInvite);
+document.getElementById('pj-join-verify').addEventListener('click', pjVerifyCode);
+document.getElementById('pj-join-submit').addEventListener('click', pjJoinSubmit);
+document.getElementById('pj-join-add-agent').addEventListener('click', () => {
+  pjJoinPickOptions();
+  document.getElementById('pj-join-agent-row').hidden = false;
+  document.getElementById('pj-join-pick').focus();
+});
+document.getElementById('pj-join-pick-cancel').addEventListener('click', () => {
+  document.getElementById('pj-join-agent-row').hidden = true;
+  document.getElementById('pj-join-add-agent').focus();
+});
+document.getElementById('pj-join-pick').addEventListener('change', () => {
+  const sel = document.getElementById('pj-join-pick');
+  const key = sel.value;
+  if (!key) return;
+  if (!PJ_JOIN_ADD_AGENTS.includes(key)) PJ_JOIN_ADD_AGENTS = [...PJ_JOIN_ADD_AGENTS, key];
+  sel.value = '';
+  document.getElementById('pj-join-agent-row').hidden = true;
+  pjPaintJoinAgents();
+  document.getElementById('pj-join-add-agent').focus();
+});
+document.getElementById('pj-join-agents').addEventListener('click', (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('[data-join-unpick]') : null;
+  if (!b) return;
+  const key = b.getAttribute('data-join-unpick');
+  PJ_JOIN_ADD_AGENTS = PJ_JOIN_ADD_AGENTS.filter((k) => k !== key);
+  pjPaintJoinAgents();
+  document.getElementById('pj-join-add-agent').focus();
 });
 
 document.getElementById('pj-use').addEventListener('click', () => {
