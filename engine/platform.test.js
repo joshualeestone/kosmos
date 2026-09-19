@@ -139,7 +139,12 @@ test('#570/#3159 the DOWNLOAD gates read a download predicate, not the substrate
     'connect.js must NOT gate a download on isSupported');
   const runnersSrc = fs.readFileSync(path.join(__dirname, 'runners.js'), 'utf8');
   assert.match(runnersSrc, /platformGate\.canDownloadRunner\(/,
-    'runners.js must gate the codex download on canDownloadRunner (codex is darwin-only)');
+    'runners.js must gate its non-codex arms on canDownloadRunner (darwin-only)');
+  /* And the codex arm on its OWN list: OpenAI publishes win32 Codex builds and
+     runners.js pins them, so codex reads canDownloadCodex (darwin + win32). Reading
+     canDownloadRunner there is the refusal the founder hit on a clean Windows laptop. */
+  assert.match(runnersSrc, /platformGate\.canDownloadCodex\(/,
+    'runners.js must gate the codex download on canDownloadCodex');
   assert.doesNotMatch(runnersSrc, /platformGate\.isSupported\(/,
     'runners.js must NOT gate a download on isSupported');
 });

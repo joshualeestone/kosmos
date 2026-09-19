@@ -158,6 +158,79 @@ for (const k of Object.keys(MANIFEST)) Object.freeze(MANIFEST[k]);
 Object.freeze(MANIFEST);
 
 /**
+ * The WINDOWS builds of the same pinned Codex version, keyed by process.arch.
+ *
+ * 📌 Same source and same trust anchor as the darwin entry above: the npm registry
+ * publishes each platform build as a version of @openai/codex itself
+ * (`0.149.1-win32-x64`, `0.149.1-win32-arm64`), and each version document carries a
+ * vendor-published `dist.integrity`. MEASURED on a Windows 11 box, 2026-09-19: both
+ * tarballs downloaded, their sha512 matched the registry integrity pinned here, the
+ * byte counts below are the real file sizes, and the x64 tree unpacked with the
+ * Windows-shipped tar.exe and `codex.exe --version` answered `codex-cli 0.149.1`.
+ *
+ * ⚠️ THE LAYOUT DIFFERS FROM THE MAC ONE IN ONE WAY THAT MATTERS: the binary is
+ * `codex.exe` beside vendored siblings (codex-path/rg.exe, codex-resources/
+ * codex-command-runner.exe, codex-windows-sandbox-setup.exe) that it resolves
+ * relative to ITSELF. The Mac install exposes one stable path through a symlink,
+ * and a symlink on Windows needs Developer Mode or elevation, which a clean laptop
+ * has neither of. So on win32 the stable path IS the binary inside the unpacked
+ * tree (see managedBin); the tree is swapped in whole, so that path never names a
+ * half-written tree.
+ */
+const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
+  x64: Object.freeze({
+    arch: 'x64',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-x64.tgz',
+    integrity: 'sha512-G3QXGAg7nyyhqOeooAMUekBCeHd8a1QByhKcVAFyzNBaI06t6Ft7nsF+1SzFS0spuIdU4YyMi5YD26ukADBQUQ==',
+    binInPackage: 'vendor/x86_64-pc-windows-msvc/bin/codex.exe',
+    downloadBytes: 139929729,
+  }),
+  arm64: Object.freeze({
+    arch: 'arm64',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-arm64.tgz',
+    integrity: 'sha512-5K0DmOKGK9Bos627p8sK8ATHjovPK0sDyT6h9Cb+4v+5CW5SGw1HLgjGxoLfJ8g3cg6mtg/pRCXXo2L/j71UVA==',
+    binInPackage: 'vendor/aarch64-pc-windows-msvc/bin/codex.exe',
+    downloadBytes: 130863958,
+  }),
+}));
+
+/**
+ * The manifest entry for `provider` ON A GIVEN PLATFORM AND CPU. Everything that
+ * installs or resolves a runner asks this rather than reading MANIFEST directly,
+ * so the Mac and Windows answers can never drift into two resolvers again.
+ *
+ * On win32 the openai entry is the darwin one with the Windows build's url,
+ * integrity, binary path and size laid over it (version and name are shared: it is
+ * the same pinned release). A Windows CPU with no published build (ia32) gets the
+ * x64 entry, so install()'s arch guard refuses it BY NAME before a byte moves,
+ * exactly as an Intel Mac is refused against the arm64 pin.
+ * `platform`/`arch` default to this process; they are parameters so the win32
+ * answer is assertable from the Mac CI runs on.
+ */
+function manifestFor(provider, platform = process.platform, arch = process.arch) {
+  if (!Object.hasOwn(MANIFEST, provider)) return null;
+  const base = MANIFEST[provider];
+  if (provider === 'openai' && platform === 'win32') {
+    const build = CODEX_WIN32[arch] || CODEX_WIN32.x64;
+    return Object.freeze({ ...base, ...build, binName: 'codex.exe' });
+  }
+  return base;
+}
+
+/**
+ * The one stable path a managed tarball runner is reached by, for a manifest entry
+ * from manifestFor(). Mac: the `codex` symlink beside the tree. Windows: the binary
+ * inside the tree itself (no symlink; see CODEX_WIN32). `platform` picks the path
+ * FLAVOUR too, for the same reason pathextCandidates does.
+ */
+function managedBin(m, platform = process.platform) {
+  const flavour = platform === 'win32' ? path.win32 : path;
+  const dest = flavour.join(managedRoot(), 'openai');
+  if (platform === 'win32') return flavour.join(dest, 'pkg', ...m.binInPackage.split('/'));
+  return flavour.join(dest, m.binName);
+}
+
+/**
  * Where managed runners live. An installed Kosmos keeps them inside
  * KOSMOS_HOME beside app/ and runtime/ (this file runs from app/engine,
  * same derivation as update.js's installedRoot); a from-source checkout
@@ -380,7 +453,10 @@ function resolveBin(provider, opts) {
   // var belongs to which provider.
   const envBin = process.env.AGENT_WORKFORCE_CODEX_BIN;
   if (envBin) return { bin: envBin, present: isRunnable(envBin), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_CODEX_BIN' };
-  const managed = path.join(managedRoot(), 'openai', MANIFEST.openai.binName);
+  // The platform/arch seams ride on the same opts install() passes through, so a
+  // test that installs "as win32" also resolves as win32.
+  const plat = (opts && opts.platform) || process.platform;
+  const managed = managedBin(manifestFor('openai', plat, (opts && opts.arch) || process.arch), plat);
   const candidates = [
     managed,
     // Testing seam for the last rung only: the real legacy path is
@@ -473,7 +549,9 @@ const blankJob = () => ({
 function status() {
   const out = {};
   for (const provider of Object.keys(MANIFEST)) {
-    const m = MANIFEST[provider];
+    // This machine's build (on Windows, the win32 size and pin), so the "x of y"
+    // a progress bar draws is the file this computer would actually fetch.
+    const m = manifestFor(provider);
     const r = resolveBin(provider);
     // A failed job beside a runner that has since become present (hand
     // install, env fixed) is a stale contradiction; presence retires it
@@ -587,6 +665,65 @@ function download(url, file, job, redirectsLeft, getter) {
 }
 
 /**
+ * The tar that unpacks a runner tarball. The Mac's is /usr/bin/tar. Windows 10
+ * (1803) and later ship bsdtar as %SystemRoot%\System32\tar.exe, which reads .tgz
+ * natively and takes the same flags; there is no /usr/bin on Windows, and a clean
+ * laptop has no Git or MSYS tar to fall back on, so the system copy is named by its
+ * full path rather than found on PATH (where a stray GNU tar could shadow it and
+ * misread `C:\` as a remote host).
+ */
+function tarBin(platform = process.platform, env = process.env) {
+  if (platform !== 'win32') return '/usr/bin/tar';
+  return path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'tar.exe');
+}
+
+/**
+ * renameSync, retried briefly on win32 only. Windows refuses to rename a folder
+ * while anything holds a file inside it open, and antivirus scanning a freshly
+ * unpacked .exe is exactly that, for a moment. A few short retries ride that out;
+ * a rename that is STILL refused after them is a real failure and is thrown.
+ */
+async function renameRetrying(from, to, platform = process.platform) {
+  const tries = platform === 'win32' ? 8 : 1;
+  for (let i = 1; ; i++) {
+    try { fs.renameSync(from, to); return; } catch (err) {
+      if (i >= tries || !['EPERM', 'EBUSY', 'EACCES'].includes(err && err.code)) throw err;
+      await new Promise((r) => setTimeout(r, 250 * i));
+    }
+  }
+}
+
+/**
+ * The sentence a person reads when the install pipeline THREW rather than failing
+ * by name. Before this, the catch-all put `err.message` on the screen as-is, which
+ * could be `getaddrinfo ENOTFOUND registry.npmjs.org` or a tar diagnostic: true, and
+ * useless to the person who has to act on it. Each arm says what happened in plain
+ * words and what they can do. The raw error still goes to the board's log.
+ */
+const NETWORK_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN']);
+function plainFailure(err, m, stage) {
+  const raw = String((err && err.message) || err || '').trim();
+  if (err && err.plain) return raw;
+  console.warn(`[runners] ${m.name} install failed at ${stage}: ${raw}`);
+  const name = m.name;
+  if (stage === 'download') {
+    if (err && NETWORK_CODES.has(err.code)) {
+      return `we could not reach the download server for ${name}. Check this computer is online, then try again`;
+    }
+    // download() already words its own failures ("the download answered 404",
+    // "the download stalled (no data for 60s)"); keep that detail, framed.
+    return `the download of ${name} did not finish (${raw || 'no reason given'}). Check this computer is online, then try again`;
+  }
+  if (stage === 'unpack') {
+    return `we downloaded ${name} but could not unpack it on this computer, so nothing was installed. Check there is free disk space, then try again`;
+  }
+  if (stage === 'swap') {
+    return `we unpacked ${name} but could not move it into place, possibly because security software was still checking it. Wait a moment, then try again`;
+  }
+  return `we could not finish installing ${name}, so nothing was installed. You can try again`;
+}
+
+/**
  * Install a provider's runner. Returns the job object immediately; the
  * work continues in the background and the job's `phase` tells the story.
  * When the runner is already present, returns { phase: 'installed' }
@@ -610,7 +747,11 @@ function install(provider, opts) {
   // hasOwn, not truthiness: with a URL-supplied provider, a prototype-chain
   // hit ("constructor") must be the SAME refusal as any unknown name.
   // opts.manifest is the fixture seam (the shipped MANIFEST is frozen).
-  const m = o.manifest || (Object.hasOwn(MANIFEST, provider) ? MANIFEST[provider] : null);
+  const plat = o.platform || process.platform;
+  const arch = o.arch || process.arch;
+  // manifestFor, not MANIFEST[provider]: on Windows the openai entry is the
+  // win32 build for this CPU, not the darwin tarball.
+  const m = o.manifest || manifestFor(provider, plat, arch);
   /**
    * A refusal that happens BEFORE any job starts, in the shape a job has.
    *
@@ -631,9 +772,16 @@ function install(provider, opts) {
      fetches no Windows build, so no part of Windows is made to look functional.
      `o.platform` is the test seam (defaults to process.platform); the polished
      user-facing wording is the operator's to refine (see engine/platform.js). */
-  const plat = o.platform || process.platform;
-  if (!platformGate.canDownloadRunner(plat)) {
-    return refuse(`this platform (${plat}) is not supported; the ${provider} runner is a macOS build and was not downloaded`);
+  /* 📌 openai reads its OWN list (canDownloadCodex: darwin + win32), because OpenAI
+     publishes a Windows Codex build and it is pinned above. Every other arm keeps the
+     darwin-only canDownloadRunner, including Claude's Mac-shaped link path. The
+     sentence is for a person: it names the thing and says nothing moved. */
+  const allowed = provider === 'openai'
+    ? platformGate.canDownloadCodex(plat)
+    : platformGate.canDownloadRunner(plat);
+  if (!allowed) {
+    const what = m ? m.name : provider;
+    return refuse(`installing ${what} from here is not supported on this kind of computer (${plat}), so nothing was downloaded`);
   }
 
   if (!m) return refuse(`we do not know how to install a runner for ${provider}`);
@@ -688,7 +836,6 @@ function install(provider, opts) {
   // the prove step with a symptom: the pinned artifact is arch-specific.
   // (A vendor-external entry carries no arch: the vendor's manifest picks
   // its own per-platform artifact, so the guard naturally passes.)
-  const arch = o.arch || process.arch;
   if (m.arch && arch !== m.arch) {
     return refuse(`the pinned ${m.name} build is ${m.arch} and this computer is ${arch}; no download was attempted`);
   }
@@ -721,6 +868,8 @@ function install(provider, opts) {
   // it: a stranded pkg.new tree is a fully unpacked runner (~300MB), a
   // much bigger stray than a staging tarball.
   let pkgNewLive = null;
+  // Which step a thrown error came from, so the catch-all can say it in words.
+  let stage = 'prepare';
   const fail = (because) => {
     try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
     if (pkgNewLive) { try { fs.rmSync(pkgNewLive, { recursive: true, force: true }); } catch { /* the sweep gets it */ } }
@@ -745,7 +894,9 @@ function install(provider, opts) {
         } catch { /* best effort */ }
       }
       fs.rmSync(staging, { force: true });
+      stage = 'download';
       await doDownload(url, staging, job);
+      stage = 'prepare';
 
       // A size mismatch that closed cleanly is a network fact, not a
       // tamper fact -- name it as what it is (early OR over-delivery,
@@ -803,11 +954,12 @@ function install(provider, opts) {
       fs.rmSync(pkgNew, { recursive: true, force: true });
       fs.mkdirSync(pkgNew, { recursive: true });
       pkgNewLive = pkgNew;
+      stage = 'unpack';
       await new Promise((resolve, reject) => {
         // Timeboxed like its neighbors (download 60s stall, prove 30s): a
         // wedged tar would otherwise park the job in `unpacking` forever
         // behind the idempotent join.
-        execFile('/usr/bin/tar', ['-xzf', staging, '-C', pkgNew, '--strip-components', '1'], { timeout: 120000 },
+        execFile(tarBin(plat), ['-xzf', staging, '-C', pkgNew, '--strip-components', '1'], { timeout: 120000 },
           (err, _stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim())) : resolve());
       });
       if (!fs.existsSync(path.join(pkgNew, binInPackage))) {
@@ -819,22 +971,35 @@ function install(provider, opts) {
       // packed and tar preserved -- the live proof ran the real binary
       // through exactly that, so re-moding the whole tree would be
       // defending against a problem the artifact does not have.
+      // (A no-op on win32, where executability is the .exe suffix.)
       fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
       fs.rmSync(pkgOld, { recursive: true, force: true });
-      if (fs.existsSync(pkgDir)) fs.renameSync(pkgDir, pkgOld);
-      fs.renameSync(pkgNew, pkgDir);
+      stage = 'swap';
+      if (fs.existsSync(pkgDir)) await renameRetrying(pkgDir, pkgOld, plat);
+      await renameRetrying(pkgNew, pkgDir, plat);
       pkgNewLive = null; // swapped in; nothing at the per-pid name any more
       fs.rmSync(pkgOld, { recursive: true, force: true });
       const unpacked = path.join(pkgDir, binInPackage);
-      // ONE stable path for every caller, whatever the package layout is:
-      // a symlink beside the tree, RELATIVE so a moved or renamed
-      // KOSMOS_HOME carries it intact. Rust binaries resolve
-      // current_exe() through symlinks, so the runner still finds its
-      // vendored siblings.
-      const finalBin = path.join(destDir, m.binName);
-      fs.rmSync(finalBin, { force: true });
-      fs.symlinkSync(path.relative(destDir, unpacked), finalBin);
+      let finalBin;
+      if (plat === 'win32') {
+        // 📌 NO SYMLINK ON WINDOWS: creating one needs Developer Mode or
+        // elevation, neither of which a clean laptop has. The stable path is
+        // the binary inside the tree, which is exactly what resolveBin names
+        // on win32 (managedBin), and codex.exe finds its vendored siblings
+        // relative to itself there without any link.
+        finalBin = unpacked;
+      } else {
+        // ONE stable path for every caller, whatever the package layout is:
+        // a symlink beside the tree, RELATIVE so a moved or renamed
+        // KOSMOS_HOME carries it intact. Rust binaries resolve
+        // current_exe() through symlinks, so the runner still finds its
+        // vendored siblings.
+        finalBin = path.join(destDir, m.binName);
+        fs.rmSync(finalBin, { force: true });
+        fs.symlinkSync(path.relative(destDir, unpacked), finalBin);
+      }
 
+      stage = 'prove';
       job.phase = 'proving';
       // Installed is a CLAIM until the binary itself answers. --version is
       // local (no network, no account), so a pass means the Mach-O loads
@@ -843,23 +1008,31 @@ function install(provider, opts) {
       try {
         await new Promise((resolve, reject) => {
           prove(finalBin, (err, stdout) => {
-            if (err) { reject(new Error('the installed runner did not run: ' + String(err.message || err).trim())); return; }
+            if (err) {
+              // The raw child error (a path, an errno, "Command failed") goes to
+              // the board's log for whoever diagnoses it, never to the screen.
+              console.warn(`[runners] ${provider} prove failed: ${String(err.message || err).trim()}`);
+              reject(new Error(`${m.name} was downloaded but did not run on this computer, so it was not installed; you can try again`));
+              return;
+            }
             job.proved = String(stdout || '').trim();
             resolve();
           });
         });
       } catch (err) {
-        // A failed prove must not leave a present-looking runner: the
-        // symlink comes down (resolveBin keys on it), the pkg/ tree stays
-        // for diagnosis.
-        try { fs.rmSync(finalBin, { force: true }); } catch { /* best effort */ }
+        // A failed prove must not leave a present-looking runner. On the Mac
+        // the symlink comes down (resolveBin keys on it) and the pkg/ tree
+        // stays for diagnosis; on Windows the binary INSIDE the tree is what
+        // resolveBin keys on, so the tree itself has to go.
+        try { fs.rmSync(plat === 'win32' ? pkgDir : finalBin, { recursive: true, force: true }); } catch { /* best effort */ }
+        err.plain = true;
         throw err;
       }
 
       try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
       job.phase = 'installed';
     } catch (err) {
-      fail(String((err && err.message) || err).trim() || 'the install failed');
+      fail(plainFailure(err, m, stage));
     }
   })();
   // Awaitable completion for harnesses; non-enumerable so the job's JSON
@@ -1145,4 +1318,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, manifestFor, managedBin, tarBin, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

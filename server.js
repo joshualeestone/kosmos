@@ -6159,7 +6159,13 @@ const server = http.createServer((req, res) => {
     if (m && req.method === 'POST') {
       req.resume(); // no body is expected; drain anything sent so keep-alive survives
       const job = runners.install(m[1]);
-      sendJson(res, job.phase === 'failed' ? 400 : 200, { job });
+      /* A refusal ALSO carries its reason at the top level as `error`, the field
+         every screen's fetch wrapper reads first. Without it the first-run GPT
+         card read only `out.error || out.because`, found neither (the reason was
+         at `job.because`), and told a Windows user "We could not start that
+         install." with no reason and nothing to do. */
+      if (job.phase === 'failed') sendJson(res, 400, { job, error: job.because || 'we could not start that install' });
+      else sendJson(res, 200, { job });
       return;
     }
   }
