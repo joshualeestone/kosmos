@@ -158,6 +158,38 @@ async function waitFor(page, pred, ms) {
     s.pickShown === true && s.msg === '', 'picker shown ' + s.pickShown + ', msg ' + JSON.stringify(s.msg));
 
   // ARM 4: Settings.
+  // Arms 1 to 3 ran inside first-run, which shows on boot here (no board on
+  // file://). First-run traps focus (frOpen) by marking every other body child
+  // `inert`, and its opaque overlay sits above the board at z-index 60. The
+  // Settings install modal is one of those inert, covered elements, so clicking
+  // #acct-openai-install-go while first-run is still up is neither hit-testable
+  // (the overlay is on top) nor delivered (inert swallows the pointer event) and
+  // the click waits out its timeout. In the real app Settings is reached only
+  // AFTER first-run is dismissed, which is what frClose does: it hides the
+  // overlay and clears inert on the rest of the page. Reproduce that exit before
+  // reaching for the Settings button, or ARM 4 is testing a state no user is in.
+  // Assert the POSTCONDITION, not just that frClose ran: the overlay is gone and
+  // the background is no longer inert. frClose does both, so a regression that keeps
+  // only half (hides the overlay but drops the inert loop, or the reverse) would
+  // leave the Settings button unclickable while a mere "frClose present" check
+  // passed; the arm's own click would then time out for a reason this named check
+  // would not explain.
+  const fr = await page.evaluate(() => {
+    if (typeof window.frClose !== 'function') return { present: false };
+    window.frClose();
+    const overlay = document.getElementById('firstrun');
+    const modal = document.getElementById('acct-add-modal');
+    return {
+      present: true,
+      overlayHidden: overlay ? overlay.hidden === true : null,
+      backgroundInert: modal ? modal.inert === true : null,
+    };
+  });
+  check('Settings: first-run is dismissed (overlay hidden, background no longer inert) before the Settings arm',
+    fr.present === true && fr.overlayHidden === true && fr.backgroundInert === false,
+    !fr.present
+      ? "window.frClose is gone: the app's first-run exit changed"
+      : 'overlayHidden=' + fr.overlayHidden + ', backgroundInert=' + fr.backgroundInert);
   if (!(await reveal(page, 'acct-openai-install-go'))) {
     check('Settings: the install button is on the page', false, '#acct-openai-install-go is gone');
   } else {
