@@ -1,17 +1,13 @@
 /**
- * Screen 2 (Access) shows TWO macOS-style permission previews, side by side, one
- * per app: Kosmos and tmux, each a single "<app> would like to access files."
- * prompt. #2910 introduced a six-ask layout (three folders x two apps, framed as
- * "Terminal"); #2685 relabelled the file-access app "Terminal" -> "tmux" (Kosmos
- * ships and launches its own bundled tmux, the process macOS holds responsible
- * for agent FILE access, engine/fileaccessstatus.js, so it is the name on the
- * real folder prompts). #3031 (Josh 2026-09-14) then cut the six previews to two:
- * Josh found six graphics visually heavy and asked for one representative preview
- * per app, with the folder-count labels and the group micro-note removed and the
- * "Don't Allow"/"Allow" buttons no longer wrapping.
+ * Screen 2 (Access) shows ONE macOS-style permission preview: "Kosmos" would like
+ * to access files. History: #2910 introduced a six-ask layout (three folders x two
+ * apps, framed as "Terminal"); #2685 relabelled the file-access app "Terminal" ->
+ * "tmux"; #3031 (Josh 2026-09-14) cut the six previews to two (Kosmos + tmux). Josh
+ * then removed the tmux preview 2026-09-19 because the tmux ask does not fire on the
+ * installer, so a single representative Kosmos preview remains (folder-count labels
+ * and the group micro-note gone, the "Don't Allow"/"Allow" buttons not wrapping).
  * This check covers the FILE-access screen only; the accessibility step (S3) is
- * separate, its tmux-vs-Kosmos attribution is tracked on #2911/#3032, and this
- * check does not assert it.
+ * separate and this check does not assert it.
  *
  * FILENAME IS HISTORICAL. This check began at 0.6.39 #8 asserting ONE box
  * ("onebox") that replaced a three-card fan; #2910 grew it to six, #3031 settles
@@ -30,21 +26,21 @@
  * works; only the computed style / rendered rect tells them apart.
  *
  * Arms:
- *  1. STRUCTURE: exactly two `.s2-dlg`, no `.s2-appgrp` groups, no `.s2-applbl`.
- *  2. NAMES: the two previews name Kosmos and tmux, NOT Terminal.
- *  3. GENERIC COPY: each preview reads "<app> would like to access files.", with
+ *  1. STRUCTURE: exactly ONE `.s2-dlg`, no `.s2-appgrp` groups, no `.s2-applbl`.
+ *  2. NAMES: the preview names Kosmos, NOT tmux and NOT Terminal.
+ *  3. GENERIC COPY: the preview reads "Kosmos would like to access files.", with
  *     no per-folder text and the old "...in your folders." line gone.
  *  4. TRIMMED (#3031 items 4/5/6): the group micro-note and folder-count labels
  *     are gone.
- *  5. COMPACT COPY: a preview line renders at the compact dialog size (~12-14px,
+ *  5. COMPACT COPY: the preview line renders at the compact dialog size (~12-14px,
  *     weight 600), not the 17px/400 first-run body.
- *  6. BUTTONS: every preview renders a "Don't Allow" and an "Allow".
+ *  6. BUTTONS: the preview renders a "Don't Allow" and an "Allow".
  *  7. NO WRAP (#3031 item 3): every `.s2-db` is white-space:nowrap and renders as
  *     a single line, and the two buttons in a row are equal height (a wrap would
  *     make "Don't Allow" taller and leave a gap under "Allow").
- *  8. MOCK AFFORDANCE: every Allow is a live affordance (`.s2-mockallow` +
+ *  8. MOCK AFFORDANCE: the Allow is a live affordance (`.s2-mockallow` +
  *     cursor:pointer).
- *  9. RING: every Allow draws a solid gold `::after` ring and is the blue macOS
+ *  9. RING: the Allow draws a solid gold `::after` ring and is the blue macOS
  *     default button.
  *
  * HERMETIC: loads web/index.html over file://, boots no server. Everything it
@@ -179,13 +175,9 @@ function isBlue(rgb) {
       };
     });
 
-    // #3031 item 2: at the REAL onboarding pane width (~552px) the two previews must sit
-    // side by side, not stacked. That width is not the test viewport: .fr-box caps the modal
-    // at max-width:40rem (640px), and .fr-body's 44px side padding leaves ~552px of content,
-    // so the natural render here is already ~552px whatever the viewport is. We pin 552px
-    // anyway so this guard does not silently disarm if .fr-box's own width rules change later.
-    // The regression the first cut shipped: 320px-wide previews wrapped to a column on the
-    // narrow pane. Same top + different left = one row.
+    // #3031/2026-09-19: a single Kosmos preview now (the tmux preview was removed). Pin that
+    // it renders with real layout at the onboarding pane width (~552px) -- exactly one .s2-dlg,
+    // sized. (The old two-preview side-by-side row check retired with the tmux preview.)
     const layout = await page.evaluate(() => {
       const fan = document.querySelector('#fr-pane-2 .s2-dlg-fan') || document.querySelector('.s2-dlg-fan');
       if (!fan) return { ok: false };
@@ -193,30 +185,28 @@ function isBlue(rgb) {
       fan.style.width = '552px';
       fan.getBoundingClientRect();
       const dlgs = Array.from(fan.querySelectorAll('.s2-dlg'));
-      const tops = dlgs.map((d) => Math.round(d.getBoundingClientRect().top));
-      const lefts = dlgs.map((d) => Math.round(d.getBoundingClientRect().left));
+      const sized = dlgs.map((d) => { const r = d.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
       fan.style.width = prevW;
-      return { ok: true, count: dlgs.length, tops, lefts };
+      return { ok: true, count: dlgs.length, sized };
     });
-    check(`${engine}: the two previews are side by side at the onboarding pane width (~552px)`,
-      layout.ok && layout.count === 2
-        && layout.tops[0] === layout.tops[1] && layout.lefts[0] !== layout.lefts[1],
+    check(`${engine}: exactly one preview, sized, at the onboarding pane width (~552px)`,
+      layout.ok && layout.count === 1 && layout.sized.every(Boolean),
       JSON.stringify(layout));
 
-    check(`${engine}: exactly TWO previews, no groups, no labels (was six in two groups)`,
-      state.dlgCount === 2 && state.groupCount === 0 && state.labelCount === 0,
+    check(`${engine}: exactly ONE preview, no groups, no labels (was two; tmux removed 2026-09-19)`,
+      state.dlgCount === 1 && state.groupCount === 0 && state.labelCount === 0,
       `dlgs ${state.dlgCount}, groups ${state.groupCount}, labels ${state.labelCount}`);
 
-    check(`${engine}: the two previews name Kosmos and tmux (not Terminal)`,
-      state.namesKosmos && state.namesTmux && !state.namesTerminal,
+    check(`${engine}: the preview names Kosmos (not tmux, not Terminal)`,
+      state.namesKosmos && !state.namesTmux && !state.namesTerminal,
       `kosmos ${state.namesKosmos}, tmux ${state.namesTmux}, terminal ${state.namesTerminal}`);
 
-    // #3031: the six per-folder lines collapsed to one generic "would like to access
-    // files." per app -- no per-folder text, and the older "...in your folders." line
+    // #3031: the per-folder lines collapsed to one generic "would like to access
+    // files." -- no per-folder text, and the older "...in your folders." line
     // stays gone too.
-    check(`${engine}: previews use the generic "access files." line, no per-folder text`,
+    check(`${engine}: the preview uses the generic "access files." line, no per-folder text`,
       !state.perFolderCopy && !state.oldGenericCopy
-        && state.says.length === 2 && state.says.every((s) => /would like to access files\.$/.test(s)),
+        && state.says.length === 1 && state.says.every((s) => /would like to access files\.$/.test(s)),
       JSON.stringify(state.says));
 
     // #3031 items 4/5/6: the "(3 folders)" labels and the tmux group micro-note are gone.
@@ -228,33 +218,33 @@ function isBlue(rgb) {
       state.sayPx !== null && state.sayPx >= 11.5 && state.sayPx <= 14 && state.sayWeight === '600',
       `sayPx ${state.sayPx}, weight ${state.sayWeight}`);
 
-    check(`${engine}: every preview renders a Don't Allow and an Allow`,
-      state.denyCount === 2 && state.allowCount === 2,
+    check(`${engine}: the preview renders a Don't Allow and an Allow`,
+      state.denyCount === 1 && state.allowCount === 1,
       `deny ${state.denyCount}, allow ${state.allowCount}`);
 
     // #3031 item 3: neither button wraps. white-space:nowrap on every .s2-db AND each
     // button renders as a single line (height within a one-line box), so "Don't Allow"
     // no longer breaks to two lines and leaves a gap under "Allow".
-    const noWrap = state.btnRows.length === 2 && state.btnRows.every((row) =>
+    const noWrap = state.btnRows.length === 1 && state.btnRows.every((row) =>
       row.length === 2 && row.every((b) => b.whiteSpace === 'nowrap' && b.h > 0 && b.h <= b.oneLineMax));
     check(`${engine}: neither button wraps (nowrap + single-line height on every .s2-db)`,
       noWrap, JSON.stringify(state.btnRows));
 
     // A wrap would make "Don't Allow" taller than "Allow"; equal height means no wrap gap.
-    const equalHeight = state.btnRows.length === 2
+    const equalHeight = state.btnRows.length === 1
       && state.btnRows.every((row) => row.length === 2 && Math.abs(row[0].h - row[1].h) <= 1);
-    check(`${engine}: the two buttons in each preview are equal height (no wrap gap)`,
+    check(`${engine}: the two buttons in the preview are equal height (no wrap gap)`,
       equalHeight, JSON.stringify(state.btnRows.map((r) => r.map((b) => b.h))));
 
     // Josh 2026-09-08: people click the mock "Allow" (they read it as the real macOS button),
     // so each is a live mouse affordance (.s2-mockallow + pointer). The click BEHAVIOUR is
     // pinned in engine/machine.a11y-1344.test.js; this arm verifies the RENDERED affordance.
-    const allMock = state.allowInfo.length === 2 && state.allowInfo.every((a) => a && a.mock && a.cursor === 'pointer' && a.sized);
-    check(`${engine}: every mock Allow is a live clickable affordance (.s2-mockallow + cursor:pointer)`,
+    const allMock = state.allowInfo.length === 1 && state.allowInfo.every((a) => a && a.mock && a.cursor === 'pointer' && a.sized);
+    check(`${engine}: the mock Allow is a live clickable affordance (.s2-mockallow + cursor:pointer)`,
       allMock, JSON.stringify(state.allowInfo.map((a) => a && { mock: a.mock, cursor: a.cursor })));
 
-    // Non-vacuous: the ring pseudo must actually exist on every Allow, then be a gold solid ring on a blue button.
-    const allRinged = state.allowInfo.length === 2 && state.allowInfo.every((a) => {
+    // Non-vacuous: the ring pseudo must actually exist on the Allow, then be a gold solid ring on a blue button.
+    const allRinged = state.allowInfo.length === 1 && state.allowInfo.every((a) => {
       const present = a && a.ring && a.ring.content && a.ring.content !== 'none' && parseFloat(a.ring.bw) >= 1;
       return present && a.ring.bs === 'solid' && isGold(a.ring.bc) && isBlue(a.bg);
     });

@@ -78,15 +78,17 @@ test('it stays short, because shortening this page was a direct instruction', ()
 
 test('the word tmux appears only where macOS shows it first, never as Kosmos jargon', () => {
   /* Two rulings say Kosmos must not INTRODUCE this word. It is allowed only
-     where macOS puts it on the screen first, and we mirror that: the Settings
-     box explains the prompts, and the S2 Access screen previews the real
-     file-access prompt. Both echo what macOS shows; neither is Kosmos coining
-     jargon. A fix that removes it from either takes away the explanation of a
-     word a person was handed. (#2685 added the S2 place; before it, the box was
-     the only one.) */
+     where macOS puts it on the screen first: the Settings box explains the
+     prompts a person may meet. (#2685 had also previewed a "tmux" file-access
+     prompt on the S2 Access screen; Josh removed that preview 2026-09-19 because
+     the tmux ask does not fire on the installer, so S2 now previews only Kosmos.
+     The Settings-box mention stays, since removing it would take away the
+     explanation of a word a person was handed.) */
   assert.match(boxText(), /"tmux"/, 'the Settings box stopped naming the word macOS shows');
-  // The S2 file-access preview mirrors the real "tmux" prompt; a revert of the
-  // #2685 relabel back to "Terminal" would break the invariant, so pin it here too.
-  assert.match(PAGE, /<p class="s2-say">"tmux" would like to access files/,
-    'the S2 file-access preview stopped naming tmux (reverted to Terminal?)');
+  // #2685 -> removed per Josh 2026-09-19: the S2 file-access preview no longer
+  // previews a tmux prompt; only the Kosmos preview remains.
+  assert.match(PAGE, /<p class="s2-say">"Kosmos" would like to access files/,
+    'the S2 file-access preview lost its Kosmos card');
+  assert.doesNotMatch(PAGE, /<p class="s2-say">"tmux" would like to access files/,
+    'the S2 file-access preview still previews a tmux prompt (should be removed per Josh 2026-09-19)');
 });
