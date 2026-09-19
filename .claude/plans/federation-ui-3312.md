@@ -29,6 +29,10 @@ Josh, #chaoskosmos-design 2026-09-19 (wireframes ROUGH: IA + copy only; match th
 ## Weakest premise
 The LOCAL /api/federation/* proxy routes do NOT exist yet (backend dependency: ICK coordinator + Baron transport + the local proxy in server.js). The UI is built against the contract and is testable with a mocked fetch; it must degrade honestly when the routes are absent (a clear "could not reach" state, never a fake success). The project_ref assignment in the create-with-invite flow (client-generated id vs create-then-invite) needs confirmation with ICK/Angel, the UI is structured so either resolution is a small change.
 
-## Verification
-- node --test on the new UI logic (mode toggle, copy state, verify success/error rendering) via the page's real functions where the harness allows.
-- A docs/browser-checks assertion (the #1720 gate needs a browser-check or a `Browser-check:` trailer for a web/ change): render the Add-Project screen, prove the toggle switches modes, the external-add reveals the code panel, and the join flow shows Verify → read-only name/desc → "Join Project".
+## Verification (as SHIPPED)
+- node --test covers the new UI logic via the page's real functions: web.add-project.test.js (the markup: native-radio toggle, live external doors, invite panel, join mode) and web.federation-3312.test.js (mode toggle, error-reason mapping, mint/verify/join success + non-ok + unreachable degrade, the empty-name guard, reset, copy).
+- The #1720 gate is satisfied by a `Browser-check:` trailer plus per-check `Browser-check-surface:` trailers (ferr, openAddProject). No docs/browser-checks assertion was added: the invite/verify/join flow needs the live /api/federation/* routes to render meaningfully, and those do not exist yet.
+- FOLLOW-UP (near-term, does not need the backend): a docs/browser-checks assertion for the PURE-UI parts that are synchronous client state, the mode toggle switching create<->join and an external door revealing the invite panel + verbatim message. Deferred here only to keep this PR to the UI; tracked as a fast-follow once the browser-check is wired (README + runner + gate, per the three-part wiring rule).
+
+## Deferred / follow-ups
+- Abandon-with-invite: minting an invite then leaving create via "All projects" without creating the project hands out a code for a project that may never exist under that client ref. The defensive measure (disable doors until named/saved, or confirm-on-back) depends on how the project_ref reconciliation is settled with ICK, so it is a follow-up card, not resolved in this UI-only PR. Flagged to Splinter/ICK.

@@ -44075,8 +44075,11 @@ function paintAddAgents() {
    has one (gated on hasAvatar, tied in the engine), otherwise tinted
    initials -- reused rather than re-derived, so this row's face agrees
    with the card, the list and the room about the same agent. */
-function addAgentsHtml() {
-  const picked = PJ_ADD_AGENTS.map((key) => LAST.find((a) => a.sessionName === key)).filter(Boolean);
+// #3312: takes the picked-list and the unpick attr so the JOIN mode can render the SAME rich row
+// (face + bold name + role + Remove) as create -- one visual language, not a second chip style.
+// Defaults keep every existing create-mode call (addAgentsHtml()) byte-identical.
+function addAgentsHtml(agents = PJ_ADD_AGENTS, unpickAttr = 'data-unpick') {
+  const picked = agents.map((key) => LAST.find((a) => a.sessionName === key)).filter(Boolean);
   if (!picked.length) return '<p class="fhint" style="margin:0;">No agents on it yet.</p>';
   return picked.map((a) => {
     const face = a.hasAvatar
@@ -44091,7 +44094,7 @@ function addAgentsHtml() {
     return '<div class="pj-picked" data-agent="' + esc(a.sessionName) + '">'
       + face
       + '<span class="pj-picked-b"><b>' + esc(a.name) + '</b> <small>' + esc(roleLine(a, ROLE_TITLES)) + '</small></span>'
-      + '<button class="skillrm" type="button" data-unpick="' + esc(a.sessionName) + '" aria-label="Take ' + esc(a.name) + ' off this project">Remove</button>'
+      + '<button class="skillrm" type="button" ' + unpickAttr + '="' + esc(a.sessionName) + '" aria-label="Take ' + esc(a.name) + ' off this project">Remove</button>'
       + '</div>';
   }).join('');
 }
@@ -44409,7 +44412,9 @@ function pjResetFederation() {
   PJ_JOIN_ADD_AGENTS = [];
   pjSetAddMode('create');
   const hide = (id) => { const el = document.getElementById(id); if (el) el.hidden = true; };
-  const clear = (id) => { const el = document.getElementById(id); if (el) { if ('value' in el) el.value = ''; else el.textContent = ''; } };
+  // Clear both: an input carries its content in value, a <p>/status region in textContent, and
+  // clearing the unused one is a harmless no-op -- more robust than sniffing which is which.
+  const clear = (id) => { const el = document.getElementById(id); if (el) { el.value = ''; el.textContent = ''; } };
   hide('pj-invite-panel'); clear('pj-invite-code'); clear('pj-invite-status');
   clear('pj-join-code'); clear('pj-join-err'); hide('pj-join-result'); hide('pj-join-agent-row');
   const ja = document.getElementById('pj-join-agents'); if (ja) ja.innerHTML = '';
@@ -44443,8 +44448,8 @@ async function pjMintInvite(invitedKind) {
   // Surface the SAME inline "give it a name" the Create path shows for the identical mistake, rather
   // than silently sending project_name:'' and getting only the generic failure back.
   if (!name) {
-    pjFieldBad('pj-name', 'pj-name-err', 'Give this project a name first.');
-    document.getElementById('pj-name').focus();
+    // The SAME copy the Create path shows for the identical mistake (pjFieldBad already focuses).
+    pjFieldBad('pj-name', 'pj-name-err', 'Give this project a name.');
     return;
   }
   const desc = document.getElementById('pj-add-desc').value.trim();
@@ -44519,9 +44524,11 @@ async function pjVerifyCode() {
     document.getElementById('pj-join-name').textContent = body.project_name || '';
     document.getElementById('pj-join-desc').textContent = body.project_desc || 'No description.';
     // A fresh verify starts with no agents added, and any picker left open by a prior verify is
-    // re-hidden: paint the "No agents on it yet." hint rather than leaving the box empty.
+    // re-hidden: show the "No agents on it yet." hint rather than leaving the box empty. Set it
+    // directly (a fresh verify is always the empty state) so this success path stays self-contained
+    // for the isolation harness; the picker's add/remove is what repaints via pjPaintJoinAgents.
     document.getElementById('pj-join-agent-row').hidden = true;
-    pjPaintJoinAgents();
+    document.getElementById('pj-join-agents').innerHTML = '<p class="fhint" style="margin:0;">No agents on it yet.</p>';
     result.hidden = false;
   } catch {
     err.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
@@ -44538,10 +44545,9 @@ function pjJoinPickOptions() {
   document.getElementById('pj-join-add-agent').disabled = free.length === 0;
 }
 function pjPaintJoinAgents() {
-  const box = document.getElementById('pj-join-agents');
-  if (!PJ_JOIN_ADD_AGENTS.length) { box.innerHTML = '<p class="fhint" style="margin:0;">No agents on it yet.</p>'; return; }
-  const nameOf = (k) => { const a = (typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : []).find((x) => x && x.sessionName === k); return a ? (a.name || a.sessionName) : k; };
-  box.innerHTML = PJ_JOIN_ADD_AGENTS.map((k) => '<span class="pj-picked">' + esc(nameOf(k)) + ' <button type="button" class="skillrm" data-join-unpick="' + esc(k) + '" aria-label="Take ' + esc(nameOf(k)) + ' off this project">×</button></span>').join('');
+  // Reuse the create-mode row renderer so the receiver's picked agents render in the SAME visual
+  // language (face + bold name + role + Remove), keyed to the join unpick attr.
+  document.getElementById('pj-join-agents').innerHTML = addAgentsHtml(PJ_JOIN_ADD_AGENTS, 'data-join-unpick');
 }
 
 // Join the verified external project. COORDINATION POINT: the local route + how a joined project
