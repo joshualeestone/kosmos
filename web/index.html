@@ -4705,7 +4705,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    and still cannot set the page height on a month-old project — which is what
    the original bound existed to prevent, and the reason it changed shape
    rather than being deleted. The two smaller columns keep their own scroll. */
-.thread { padding: 14px 16px; display: flex; flex-direction: column; gap: 18px;
+.thread { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px;
           min-height: 26rem; max-height: min(62vh, 44rem); overflow-y: auto;
           border: 1px solid var(--k-rule); border-radius: 10px;
           background: var(--k-bg); }
@@ -4718,7 +4718,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
           font-weight: 600; color: var(--k-ink-2); overflow: hidden; }
 .msg-av img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
 .msg-av.mine { background: var(--k-ink); color: var(--k-bg); }
-.msg-b { flex: 1; min-width: 0; }
+.msg-b { flex: 1; min-width: 0; position: relative; }
 /* #2918 (Josh, 2026-09-12 6.59 QA): the operator's OWN post reads like an iOS
    text-message conversation. Agent posts keep avatar+name on the LEFT with the
    message to the right (the default .msg row); the operator's own post is the
@@ -4883,6 +4883,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the blue to message backgrounds, not reactions), so the reaction pill keeps
    gold on purpose and the two surfaces deliberately differ. */
 .rxns { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+/* Josh 2026-09-19: a resting message has no reaction pills, only the hover-only quick bar
+   (floated out of flow, see .rxn-quick below). An empty reaction row must add NO height, so
+   the avatar (align-items:flex-end on .msg) sits on the bubble's bottom baseline instead of
+   below a reserved reaction strip, and the inter-message gap tightens. With pills present the
+   row is in normal flow as before. */
+.rxns:not(:has(.rxn)) { margin-top: 0; }
 .rxn { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 100px;
        border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink);
        font-size: .8125rem; line-height: 1.5; cursor: pointer; }
@@ -4897,7 +4903,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    stay in the tab order for the `:focus-within` reveal, and an invisible button is
    never clickable. Existing reaction pills (`.rxn`) are outside this bar and stay
    visible always. */
-.rxn-quick { display: inline-flex; align-items: center; gap: 2px; opacity: 0;
+/* Josh 2026-09-19: floated ABOVE the bubble (out of flow) so the resting reaction strip
+   reserves no height -- the avatar baseline aligns to the bubble bottom and the message gaps
+   tighten. On hover it fades in at the message's top-right, in the gap above, the Discord-style
+   popout in Josh's mockup. Anchored to .msg-b (position:relative). */
+.rxn-quick { position: absolute; top: -10px; right: 0; z-index: 3;
+             display: inline-flex; align-items: center; gap: 2px; opacity: 0;
              pointer-events: none; transition: opacity .12s ease; }
 .msg:hover .rxn-quick, .rxn-quick:focus-within { opacity: 1; pointer-events: auto; }
 .rxn-more { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
