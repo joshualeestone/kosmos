@@ -3007,6 +3007,74 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child { border-left: 2px s
    real top-level project -- keep its chip so the relationship stays visible in
    every view, not just the grid and the rail. */
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display: none; }
+
+/* ===================================================================== #3276
+   The tab ROADMAP (Josh, 2026-09-18): the indented tree, upgraded to mock2 -- a
+   working fold caret, connector rails, denser rows, and a right-aligned meta
+   cluster (agent count + status). ALL rules scope on
+   `body:not(.consolidated) #pj-list:not(.asgrid)` so Grid (.asgrid) and the
+   consolidated rail (body.consolidated) are untouched. The id in the selector
+   out-specifies the base `.pj-list:not(.asgrid)` rules above, so these win.
+   ===================================================================== */
+
+/* Denser rows + a caret gutter. The depth indent still rides margin-left (the
+   #2999 rule); this adds a fixed left gutter for the absolutely-placed caret and
+   trims the vertical padding so more projects fit -- Josh's "you still can't see
+   all of it". */
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row {
+  position: relative;
+  padding: 8px 14px 8px 30px;
+  /* name | count | status. Description and faces are dropped for density (below),
+     so the four-column base grid collapses to name + right-aligned meta. */
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: 12px;
+}
+/* Density drops (spec): no per-row description, no avatar faces -- both live one
+   click away in the Grid card and the single-project view. The agent COUNT stays,
+   moved to the right cluster. */
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pc-t { display: none; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjfaces > [aria-hidden] { display: none; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjfaces {
+  grid-column: 2; grid-row: 1; justify-self: end; align-self: center;
+  margin: 0; min-width: 0; overflow: visible; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 3; grid-row: 1; justify-self: end; }
+
+/* The fold caret, shown for any parent row (the base `#pj-list .pjtreefold`
+   display:none is out-specified here). Absolute in the reserved gutter so leaves
+   and parents align; sizing mirrors the consolidated caret (#3126). */
+body:not(.consolidated) #pj-list:not(.asgrid) .pjtreefold {
+  display: inline-flex; align-items: center; justify-content: center;
+  position: absolute; top: 50%; transform: translateY(-50%); left: 3px;
+  width: 20px; height: 20px; border-radius: 4px;
+  font-size: 15px; line-height: 1; color: var(--k-ink-2);
+  cursor: pointer; user-select: none; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pjtreefold:hover { background: var(--k-surface); color: var(--k-ink); }
+/* A folded branch's descendants leave the Roadmap (set in applyConsFold). */
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.pj-fold-hidden { display: none; }
+
+/* Connector rails. A child row carries a vertical rail on its left (the #3003
+   border) and a short horizontal elbow into the caret gutter, the file-tree cue
+   the mock shows. Scope note: this draws one elbow at the row's own depth, not a
+   full multi-ancestor ladder -- CSS cannot know which ancestors have following
+   siblings without per-level markup, so the indent carries the deeper levels. */
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child {
+  border-left: 2px solid var(--k-rule); border-top-left-radius: 0; border-bottom-left-radius: 0; }
+body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child::before {
+  content: ""; position: absolute; left: 0; top: 50%; width: 12px; height: 0;
+  border-top: 2px solid var(--k-rule); pointer-events: none; }
+
+/* The Roadmap top strip: shown ONLY here (Grid and the consolidated rail never
+   see it). No `hidden` attribute is used on #pj-rm-strip -- this display rule is
+   the sole visibility control, so a global [hidden] rule cannot fight it. */
+.pj-rm-strip { display: none; }
+body:not(.consolidated).pj-roadmap .pj-rm-strip {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 2px 2px 10px; }
+.pj-rm-summary { font-size: .8125rem; color: var(--k-ink-2); font-weight: 600; }
+.pj-rm-foldctl { display: inline-flex; gap: 14px; }
+.pj-rm-foldctl .linkish { font-size: .8125rem; }
+
 /* #3135 (Josh, 6.68): the hierarchical (subprojects) LIST view kept every
    project HEADLINE at 100% width, so a long tree ran down the page one row per
    line and half the projects fell off screen ("I can't even see half of my
@@ -11311,19 +11379,36 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <button class="vt on" type="button" data-layout="grid" aria-pressed="true" aria-label="Show projects as a grid" title="Show projects as a grid">
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor"/></svg>
         </button>
-        <button class="vt" type="button" data-layout="list" aria-pressed="false" aria-label="Show projects as a list" title="Show projects as a list">
-          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1" y="2" width="14" height="2.2" rx="1.1" fill="currentColor"/><rect x="1" y="6.9" width="14" height="2.2" rx="1.1" fill="currentColor"/><rect x="1" y="11.8" width="14" height="2.2" rx="1.1" fill="currentColor"/></svg>
-        </button>
-        <button class="vt" type="button" data-layout="map" aria-pressed="false" aria-label="Show projects as a map" title="Show projects as a map">
-          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="5.5" y="1" width="5" height="3.4" rx="1" fill="currentColor"/><rect x="1" y="11.6" width="5" height="3.4" rx="1" fill="currentColor"/><rect x="10" y="11.6" width="5" height="3.4" rx="1" fill="currentColor"/><path d="M8 4.4V8M3.5 8H12.5M3.5 8V11.6M12.5 8V11.6" stroke="currentColor" stroke-width="1.1" fill="none"/></svg>
+        <!-- #3276 (Josh, 2026-09-18): the Projects board settles on two views. The List
+             button is removed (the Roadmap IS the upgraded indented tree) and the Map
+             button becomes the Roadmap button (an indented-outline glyph with a connector
+             rail, distinct from the retired horizontal org-chart glyph). -->
+        <button class="vt" type="button" data-layout="roadmap" aria-pressed="false" aria-label="Show projects as a roadmap" title="Show projects as a roadmap">
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="2.2" cy="3" r="1.3" fill="currentColor"/><rect x="5" y="2.1" width="9" height="1.8" rx=".9" fill="currentColor"/><circle cx="5.4" cy="8" r="1.3" fill="currentColor"/><rect x="8" y="7.1" width="6" height="1.8" rx=".9" fill="currentColor"/><circle cx="5.4" cy="13" r="1.3" fill="currentColor"/><rect x="8" y="12.1" width="6" height="1.8" rx=".9" fill="currentColor"/><path d="M2.2 4.3V13h1.9M2.2 8h1.9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
         </button>
       </div>
       </div>
     </div>
     <p class="fmsg" id="pj-list-msg" aria-live="polite"></p>
+    <!-- #3276: the Roadmap top strip. Left: a "N projects - N need you" summary
+         (populated by paintProjects). Right: Collapse all / Expand all. Shown ONLY in
+         the tab Roadmap via CSS (body:not(.consolidated).pj-roadmap) -- no `hidden`
+         attribute, because a global [hidden]{display:none!important} would out-rank the
+         display rule. The existing sort control stays in the header row above (one sort
+         across views, #168), so it is not duplicated here. -->
+    <div class="pj-rm-strip" id="pj-rm-strip">
+      <span class="pj-rm-summary" id="pj-rm-summary"></span>
+      <span class="pj-rm-foldctl">
+        <button class="linkish" type="button" id="pj-rm-collapse">Collapse all</button>
+        <button class="linkish" type="button" id="pj-rm-expand">Expand all</button>
+      </span>
+    </div>
     <div id="pj-list" class="pj-list"></div>
-    <!-- #2458 Map view: the org-chart layout, shown in place of #pj-list when the
-         viewtoggle is set to Map. paintProjectsMap writes its whole contents. -->
+    <!-- #3276: the org-chart Map layout is retired from the toggle (Josh: two views
+         only). This container is now unreachable; its removal, together with
+         paintProjectsMap / pjMapNode / PJ_MAP_FOLDED / pjHasSubprojects and the #pj-map
+         click delegate, is tracked as the #3276 follow-up cleanup. Kept for now so the
+         boot-time #pj-map click delegate does not throw (getElementById would be null). -->
     <div id="pj-map" class="pjorgwrap" hidden></div>
     <!-- ⚠️ Absent entirely when nothing is archived (hidden on the WRAP, same
          lesson as the removed-agents section: an empty "Archived (0)"
@@ -22439,21 +22524,27 @@ const LAYOUTS = {
   // Grid is the pack's default for projects (view C); the stored choice
   // still wins via the restore path. `flip` NAMES THE LAYOUT THAT GETS
   // THE CLASS (asgrid == grid mode), the default rides `fallback`.
-  // #2458: a third layout, `map`, draws the project tree as an org chart in its
-  // own container (`mapEl`), shown in place of the list. `map` is not `flip`, so
-  // the asgrid toggle sits harmlessly off while the list is hidden.
-  projects: { el: 'pj-list', cls: 'asgrid', flip: 'grid', fallback: 'grid', layouts: ['grid', 'list', 'map'], mapEl: 'pj-map' },
+  // #3276 (Josh, 2026-09-18): two views only -- Grid (asgrid on) and Roadmap
+  // (asgrid off: the upgraded indented tree that absorbed the old List, with the
+  // horizontal org-chart Map dropped). A saved `list` or `map` preference migrates
+  // to `roadmap` on read (pjLayoutMigrate). `roadmap` is not `flip`, so grid alone
+  // carries the class; the Roadmap is the flip's off-state.
+  projects: { el: 'pj-list', cls: 'asgrid', flip: 'grid', fallback: 'grid', layouts: ['grid', 'roadmap'] },
 };
 
-/* `paint` is true only on a user CLICK. On the boot-restore path below it is
-   omitted, and that is load-bearing: this function runs at boot BEFORE PROJECTS /
-   PJ_SORT / LAST are declared further down the same script, so calling
-   paintProjectsMap() there would read them in their temporal dead zone and throw
-   an uncaught ReferenceError that halts the rest of the boot. Boot does not need
-   the paint anyway -- there is no project data yet, and paintProjects paints the
-   map the moment loadProjects populates it. A click happens long after the script
-   has evaluated, so it paints immediately for instant feedback. */
-function layoutApply(scope, want, paint) {
+/* #3276: the Projects board dropped the List and org-chart Map layouts for a single
+   Roadmap view (the upgraded indented tree). A saved `list` or `map` preference maps
+   to `roadmap` on read so nobody lands on a dead layout key. Scoped to the projects
+   scope by its caller -- the agents scope keeps its own `list`/`org` layouts. */
+function pjLayoutMigrate(v) { return (v === 'list' || v === 'map') ? 'roadmap' : v; }
+
+/* #3276: layoutApply no longer paints on a click. The retired third layout (Map)
+   had its own container that only the click path painted, guarded against a boot-time
+   temporal-dead-zone read of PROJECTS/PJ_SORT/LAST (declared further down this script).
+   With the Map gone both views draw from #pj-list, which paintProjects owns on every
+   data poll, so there is nothing to paint here and the boot-vs-click distinction (the
+   old `paint` argument) is gone. */
+function layoutApply(scope, want) {
   const lay = LAYOUTS[scope];
   if (!lay) return;
   if (lay.swap) {
@@ -22461,15 +22552,13 @@ function layoutApply(scope, want, paint) {
     boardApplyVisibility(onAgentsTab());
   } else {
     document.getElementById(lay.el).classList.toggle(lay.cls, want === lay.flip);
-    /* #2458: the map layout reveals its own container and hides the list surfaces
-       (via body.pj-mapmode). It paints now only on a click (see `paint` above);
-       paintProjects keeps it fresh on later data polls either way. */
-    if (lay.mapEl) {
-      const mapOn = want === 'map';
-      document.getElementById(lay.mapEl).hidden = !mapOn;
-      document.body.classList.toggle('pj-mapmode', mapOn);
-      if (mapOn && paint) paintProjectsMap();
-    }
+    /* #3276: mark the tab Roadmap so its own styling -- the fold caret, connector
+       rails, denser rows and the summary strip that sits OUTSIDE #pj-list (so it
+       cannot be keyed on the list's class) -- applies without touching Grid or the
+       consolidated rail. Grid ('grid' === flip) clears it; Roadmap sets it. The
+       strip CSS additionally scopes on :not(.consolidated) so a stale set while
+       consolidated is inert. */
+    if (scope === 'projects') document.body.classList.toggle('pj-roadmap', want === 'roadmap');
   }
   const box = document.querySelector('.viewtoggle[data-scope="' + scope + '"]');
   if (!box) return;
@@ -22485,7 +22574,7 @@ for (const box of document.querySelectorAll('.viewtoggle')) {
     const btn = e.target.closest('[data-layout]');
     if (!btn) return;
     const scope = box.dataset.scope;
-    layoutApply(scope, btn.dataset.layout, true);   // #2458: a click paints immediately
+    layoutApply(scope, btn.dataset.layout);
     // Storage can be refused (private windows, storage pressure); the toggle
     // still works for this page either way.
     try { localStorage.setItem('kosmos.layout.' + scope, btn.dataset.layout); } catch { /* display preference only */ }
@@ -22497,6 +22586,16 @@ for (const box of document.querySelectorAll('.viewtoggle')) {
 for (const scope of Object.keys(LAYOUTS)) {
   let saved = null;
   try { saved = localStorage.getItem('kosmos.layout.' + scope); } catch { saved = null; }
+  /* #3276: migrate a stored projects `list`/`map` to `roadmap` and persist the
+     rewrite once, so a dead key is cleaned rather than re-migrated every boot.
+     Projects scope only -- the agents scope keeps its own `list`/`org`. */
+  if (scope === 'projects') {
+    const migrated = pjLayoutMigrate(saved);
+    if (migrated !== saved) {
+      saved = migrated;
+      try { localStorage.setItem('kosmos.layout.projects', saved); } catch { /* display preference only */ }
+    }
+  }
   /* ⚠️ THE ALLOWLIST IS PER SCOPE, because they no longer have the same
      layouts: `org` is an agents-only layout, and a shared list would let a
      stored "org" put the projects screen into a mode it has no container for.
@@ -30868,11 +30967,16 @@ function placeProjectsView(cons, wasCons) {
     const list = document.getElementById('pj-list');
     if (list) list.classList.remove('asgrid');
   } else if (wasCons) {
-    // Leaving consolidated: restore the tab view's saved projects layout (grid/list/map).
+    // Leaving consolidated: restore the tab view's saved projects layout (grid/roadmap).
     // Same allowlist-or-fallback the boot restore uses, so an unreadable or foreign value
-    // falls back rather than being guessed. No `paint` arg: paintProjects repaints on data.
+    // falls back rather than being guessed.
     let saved = null;
     try { saved = localStorage.getItem('kosmos.layout.projects'); } catch { saved = null; }
+    /* #3276: migrate a stale `list`/`map` to `roadmap` BEFORE the allowlist check --
+       otherwise the retired value is not on the list and falls back to grid, stranding
+       someone who last chose the tree. Boot already persists this rewrite; this is the
+       defensive twin for the same read. */
+    saved = pjLayoutMigrate(saved);
     const allowed = LAYOUTS.projects.layouts;
     if (!allowed.includes(saved)) saved = LAYOUTS.projects.fallback;
     layoutApply('projects', saved);
@@ -37076,24 +37180,11 @@ function paintProjects() {
       const want = pjManualOrderActive() ? 'custom' : PJ_SORT;
       if (sortSel.value !== want) sortSel.value = want;
     } }
-  /* #2458: the Map only earns its toggle once a project has sub-projects -- a flat
-     board of top-level projects has no tree to draw, so the Map button sits out
-     (spec: "when there is nothing to draw"). If the person had saved Map and the
-     last sub-project just went away, fall back to Grid so they are not stranded in
-     an empty view. */
-  const mapBtn = document.querySelector('.viewtoggle[data-scope="projects"] [data-layout="map"]');
-  if (mapBtn) {
-    const hasTree = pjHasSubprojects();
-    mapBtn.hidden = !hasTree;
-    if (!hasTree && document.body.classList.contains('pj-mapmode')) {
-      layoutApply('projects', 'grid', true);
-      try { localStorage.setItem('kosmos.layout.projects', 'grid'); } catch { /* display preference only */ }
-    }
-  }
-  /* #2458: keep the Map layout fresh on every data poll. Before the early-return
-     empty states below, so the map refreshes even when the list would return
-     early. The list still renders underneath for an instant switch back. */
-  if (document.body.classList.contains('pj-mapmode')) paintProjectsMap();
+  /* #3276: the org-chart Map is retired from the toggle, so its per-poll button-gating
+     and map-refresh (the old #2458 block here, which drove pjHasSubprojects /
+     paintProjectsMap and toggled the map button) are gone. Both views now draw from
+     #pj-list, painted below. The now-unused map functions are deleted in the #3276
+     follow-up. */
   // Archived rows leave this list and live in the disclosure below it. The
   // split happens here, once, so the count the disclosure shows is derived
   // from the same rows it renders and can never disagree with them.
@@ -37101,12 +37192,16 @@ function paintProjects() {
   // disclosure sort alike, so a person who chose A to Z gets it everywhere.
   const active = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT);
   const archived = sortProjects(PROJECTS.filter((p) => p.archived), PJ_SORT);
-  /* #2929: prune the consolidated tree's fold set to live active ids on EVERY paint,
-     BEFORE the empty-state early returns below -- a folded parent later archived or
-     deleted (the all-archived case included) must not leave a stale id that a later
-     un-archive would resurrect as a fold. Mirrors the Map's PJ_MAP_FOLDED pruning. */
+  /* #2929: prune the tree fold set to live active ids on EVERY paint, BEFORE the
+     empty-state early returns below -- a folded parent later archived or deleted (the
+     all-archived case included) must not leave a stale id that a later un-archive would
+     resurrect as a fold. #3276: persist ONLY when the prune actually removed something,
+     so the stored set never names a dead project yet the common no-change poll writes
+     nothing. */
   { const treeActiveIds = new Set(active.map((p) => p.id));
-    for (const id of PJ_TREE_FOLDED) { if (!treeActiveIds.has(id)) PJ_TREE_FOLDED.delete(id); } }
+    let pruned = false;
+    for (const id of PJ_TREE_FOLDED) { if (!treeActiveIds.has(id)) { PJ_TREE_FOLDED.delete(id); pruned = true; } }
+    if (pruned) pjSaveFold(); }
   paintArchived(archived);
   /* ⚠️ The tiles write BEFORE any return: the empty-state branches used to
      leave "3 Projects" (and a red Needs-you) sitting above "No projects
@@ -37120,6 +37215,18 @@ function paintProjects() {
   document.getElementById('st-pj').textContent = String(active.length);
   document.getElementById('st-pjattn').textContent = String(attnProjects);
   document.getElementById('st-pjattn-tile').hidden = !attnProjects;
+  /* #3276: the Roadmap top strip's summary, from the SAME `active`/`attnProjects` the
+     tiles use so the strip can never disagree with the count tile. "N need you" is
+     appended only when non-zero (and never under a blind roster, matching the tile's
+     hide-at-zero grammar). The strip itself is shown/hidden by CSS (roadmap only); the
+     text is written unconditionally (cheap, and correct if the strip is revealed). */
+  { const sm = document.getElementById('pj-rm-summary');
+    if (sm) {
+      const projWord = active.length === 1 ? 'project' : 'projects';
+      const txt = active.length + ' ' + projWord
+        + (attnProjects ? ' · ' + attnProjects + ' need you' : '');
+      if (sm.textContent !== txt) sm.textContent = txt;
+    } }
   /* #2863: the projects unread tally, the rollup of the per-project unread
      bubbles, summed here from the same `active` rows the cards render (so the
      tile can never disagree with the badges on the board) rather than trusting a
@@ -37202,13 +37309,32 @@ function pjHasSubprojects() {
    id. Module-level so it survives the re-render on every data poll -- FULLY EXPANDED
    is the default (empty set), nothing auto-folds. Cleared entries reappear expanded. */
 let PJ_MAP_FOLDED = new Set();
-/* #2929: the consolidated rail's OWN tree fold, by project id. SEPARATE from
-   PJ_MAP_FOLDED (the tab Map view) on purpose -- the two tree views fold
-   independently, so folding a branch in one never silently reshapes the other,
-   and this stays a tight consolidated-only change. Module-level so it survives
-   the data-poll repaint; FULLY EXPANDED is the default (empty set). Pruned to
-   live active projects in paintProjects, exactly as PJ_MAP_FOLDED is. */
-let PJ_TREE_FOLDED = new Set();
+/* #2929/#3276: the fold state for the indented tree, by project id. Shared by the
+   consolidated rail (#2929) AND the tab Roadmap (#3276) -- both are #pj-list:not(.asgrid)
+   and fold the same rows the same way, so one fold set is correct (they never show at the
+   same time). Module-level so it survives the data-poll repaint; FULLY EXPANDED is the
+   default. Pruned to live active projects in paintProjects.
+   #3276: persisted best-effort to localStorage so a collapsed branch survives a reload
+   (the spec's "remembered per project id"). Guarded like the sort/order keys -- an
+   unreadable or malformed store just starts fully expanded. This also persists the
+   rail's folds, an intended consequence of the one shared set (a reload no longer
+   springs every branch back open). */
+let PJ_TREE_FOLDED = (() => {
+  let raw = null;
+  try { raw = localStorage.getItem('kosmos.fold.projects'); } catch { raw = null; }
+  if (!raw) return new Set();
+  try { const a = JSON.parse(raw); return (Array.isArray(a) && a.every((x) => typeof x === 'string')) ? new Set(a) : new Set(); }
+  catch { return new Set(); }
+})();
+/* #3276: write the current fold set back, best-effort. Called after every fold
+   change (toggle, collapse-all, expand-all) and after the paint-time prune, so the
+   stored set never names a project that no longer exists. */
+function pjSaveFold() {
+  try {
+    if (PJ_TREE_FOLDED.size) localStorage.setItem('kosmos.fold.projects', JSON.stringify([...PJ_TREE_FOLDED]));
+    else localStorage.removeItem('kosmos.fold.projects');
+  } catch { /* display preference only, same standing as the sort/order keys */ }
+}
 /* #2929 slice 2: a MANUAL top-level order the person sets by dragging a whole project
    cluster to a new position, saved on this computer (a list of top-level project ids)
    the same way the sort setting is (localStorage, a display preference). Mutually
@@ -37471,26 +37597,30 @@ function pjTreeRows(active) {
   return rows.join('');
 }
 
-/* #2929: sync the consolidated tree's fold state onto the already-painted
-   #pj-list. Runs AFTER every paint (setLive) and after every fold toggle. Three
-   jobs, all keyed on whether the EFFECTIVE view is consolidated (body.consolidated,
-   the same signal the CSS uses -- so a narrow window that drops out of the rail
-   drops the tree behaviour with it):
-     - hide the descendants of any folded parent (pjDescendantIds, the same
-       downward walk the parent <select> uses, so a deep branch folds whole);
-     - carry aria-expanded on each PARENT row, but ONLY in the consolidated view
-       where folding is possible -- the flat tab list and the grid never gain the
-       claim (their carets are hidden by CSS and their rows never fold);
+/* #2929/#3276: sync a tree view's fold state onto the already-painted #pj-list.
+   Runs AFTER every paint (setLive) and after every fold toggle. The function name is
+   historical (#2929 shipped folding for the consolidated rail first); #3276 extended
+   the SAME behaviour to the tab Roadmap, so the gate is now "is this a foldable tree
+   view" rather than "is this consolidated". Both foldable views are #pj-list WITHOUT
+   .asgrid (grid mode has no tree to fold); that one class test is the CSS's own
+   discriminator, so JS and CSS cannot drift. Three jobs, all keyed on treeMode:
+     - hide the descendants of any folded parent (by reading the RENDERED depth, so a
+       deep branch folds whole);
+     - carry aria-expanded on each PARENT row, but ONLY in a foldable tree view -- the
+       grid never gains the claim (its carets are CSS-hidden and its rows never fold);
      - flip the caret glyph to match the fold state.
-   The .pj-fold-hidden class is set only in the consolidated view AND only hidden
-   there by CSS, so the shared markup the wide tab list reuses is never reshaped by
-   a consolidated fold (and its rows keep no unreachable disclosure). setLive
-   compares the string it last WROTE, not live innerHTML, so these DOM edits never
-   trigger a repaint loop. */
+   The .pj-fold-hidden class is only hidden by CSS in the two tree views, so the shared
+   markup the grid reuses is never reshaped by a fold. setLive compares the string it
+   last WROTE, not live innerHTML, so these DOM edits never trigger a repaint loop.
+   Drag-to-reorder stays consolidated-only (row.draggable below reads `cons`, not
+   `treeMode`) -- the tab Roadmap folds but does not reorder by drag. */
 function applyConsFold() {
   const list = document.getElementById('pj-list');
   if (!list) return;
   const cons = document.body.classList.contains('consolidated');
+  // #3276: a foldable tree view = #pj-list shown as a tree (not the .asgrid grid).
+  // True for the consolidated rail AND the tab Roadmap; false for Grid.
+  const treeMode = !list.classList.contains('asgrid');
   /* Hide a folded branch by walking the RENDERED rows in tree order and their
      --pj-depth, NOT by walking PROJECTS. pjTreeRows re-homes a child of an
      archived/dangling parent (and any cycle) to the TOP level, so a raw parent-link
@@ -37516,7 +37646,7 @@ function applyConsFold() {
        screen reader ("expanded"/"collapsed") every poll, forever -- the exact churn
        setLive documents and dedups a few functions up. These DOM edits bypass
        setLive's string dedup, so each one must guard itself. (#2929 iter2) */
-    const shouldHide = cons && depth > cutoff;
+    const shouldHide = treeMode && depth > cutoff;
     // classList.toggle(token, force) is already idempotent -- it writes nothing when
     // the token's presence already matches force -- so it needs no compare-guard. The
     // aria-expanded and caret-text writes below are NOT idempotent, so they do. (#2929 iter4)
@@ -37524,27 +37654,48 @@ function applyConsFold() {
     if (!shouldHide) {
       // A VISIBLE folded parent collapses everything deeper than it until a row
       // returns to its depth or shallower; anything else clears the collapse.
-      cutoff = (cons && folded && caret) ? depth : Infinity;
+      cutoff = (treeMode && folded && caret) ? depth : Infinity;
     }
     if (!caret) continue;                          // a leaf: nothing to expand
-    if (cons) {
+    if (treeMode) {
       const want = folded ? 'false' : 'true';
       if (row.getAttribute('aria-expanded') !== want) row.setAttribute('aria-expanded', want);
     } else if (row.hasAttribute('aria-expanded')) {
-      row.removeAttribute('aria-expanded');        // no folding outside the rail
+      row.removeAttribute('aria-expanded');        // no folding in the grid
     }
     const glyph = folded ? '▸' : '▾';         // ▸ folded / ▾ open
     if (caret.textContent !== glyph) caret.textContent = glyph;
   }
 }
 
-/* #2929: flip one branch's fold in the consolidated tree, then re-sync the DOM.
-   Unlike the Map (which rebuilds every node and must re-home focus), the row and
-   its caret are the same elements before and after, so focus is never lost -- no
-   re-homing needed. */
+/* #2929/#3276: flip one branch's fold in the tree (consolidated rail or tab Roadmap),
+   persist, then re-sync the DOM. Unlike the Map (which rebuilds every node and must
+   re-home focus), the row and its caret are the same elements before and after, so
+   focus is never lost -- no re-homing needed. */
 function pjTreeToggleFold(id) {
   if (!id) return;
   if (PJ_TREE_FOLDED.has(id)) PJ_TREE_FOLDED.delete(id); else PJ_TREE_FOLDED.add(id);
+  pjSaveFold();
+  applyConsFold();
+}
+
+/* #3276: Collapse all / Expand all for the tab Roadmap's top strip. Collapse adds
+   every ACTIVE parent id (a row with children) to the fold set; expand clears the set.
+   Reads the same rendered rows applyConsFold walks -- a parent is any row that carries a
+   caret -- so "all" means exactly the branches the person can see fold. Persist, then
+   re-sync. Idempotent: collapsing an already-collapsed tree is a no-op write. */
+function pjFoldAll(fold) {
+  const list = document.getElementById('pj-list');
+  if (!list) return;
+  if (fold) {
+    for (const caret of list.querySelectorAll('.pj-row[data-project] .pjtreefold')) {
+      const row = caret.closest('.pj-row[data-project]');
+      if (row && row.dataset.project) PJ_TREE_FOLDED.add(row.dataset.project);
+    }
+  } else {
+    PJ_TREE_FOLDED.clear();
+  }
+  pjSaveFold();
   applyConsFold();
 }
 
@@ -37904,6 +38055,15 @@ document.getElementById('pj-arch-toggle').addEventListener('click', () => {
   PJ_ARCH_OPEN = !PJ_ARCH_OPEN;
   paintArchived(PROJECTS.filter((p) => p.archived));
 });
+
+/* #3276: the Roadmap top strip's Collapse all / Expand all. Both call pjFoldAll,
+   which reads the rendered parent rows so "all" means exactly the branches on screen,
+   persists the fold set, and re-syncs via applyConsFold. Guarded (the buttons exist
+   only when the strip markup is present). */
+{ const collapse = document.getElementById('pj-rm-collapse');
+  const expand = document.getElementById('pj-rm-expand');
+  if (collapse) collapse.addEventListener('click', () => pjFoldAll(true));
+  if (expand) expand.addEventListener('click', () => pjFoldAll(false)); }
 
 document.getElementById('pj-arch-list').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-restore]');
