@@ -41,16 +41,26 @@ const win32signin = require('./win32signin');
 connect.setSigninPlatformForTests('win32');
 
 /* ── fixtures ────────────────────────────────────────────────────────────────
-   ⚠️ SYNTHESISED FROM claude.exe 2.1.270 BINARY STRINGS; RE-CAPTURE IN SLICE 3.
-   `auth login` writes "Opening browser to sign in…", then "Paste code here if
-   prompted > "; its readline splits a pasted line on `#` and writes "Invalid code…" to
-   stderr when either half is missing; success prints "Login successful." and exits 0;
-   failure writes "Login failed: …" to stderr and exits 1. The text after "Invalid
-   code" and "Login failed: " is invented. */
+   📌 CAPTURED LIVE (L-1, #3288): `claude.exe` 2.1.277 `auth login --claudeai` on
+   Windows 11, over pipes with windowsHide, against a sandbox CLAUDE_CONFIG_DIR. The
+   client_id, code_challenge and state values are redacted; nothing else is changed.
+   stdout comes in two chunks: the browser line, then the manual-code link and the
+   prompt together (no escape codes, no CR). A pasted line with no `#` gets ERR_INVALID
+   on stderr and the program keeps reading; a well-formed but wrong code gets
+   ERR_FAILED on stderr and exit 1.
+   ⚠️ OUT_SUCCESS is still the binary's string ("Login successful.", 2.1.270); L-1
+   (iii) and (iv), a completed sign-in, confirm it. */
 const OUT_BROWSER = 'Opening browser to sign in…\n';
+const REAL_URL = (state) => 'https://claude.com/cai/oauth/authorize?code=true&client_id=REDACTED&response_type=code'
+  + '&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback'
+  + '&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload+user%3Aplugins'
+  + '&code_challenge=REDACTED&code_challenge_method=S256&state=' + state;
+const OUT_VISIT = (url) => "If the browser didn't open, visit: " + url + '\n';
 const OUT_PROMPT = 'Paste code here if prompted > ';
+/* The second stdout chunk, exactly as it arrived. */
+const OUT_LINK_AND_PROMPT = OUT_VISIT(REAL_URL('REDACTED')) + OUT_PROMPT;
 const OUT_SUCCESS = 'Login successful.\n';
-const ERR_INVALID = 'Invalid code\n';
+const ERR_INVALID = 'Invalid code. Please make sure the full code was copied.\n';
 const ERR_FAILED = 'Login failed: Request failed with status code 400\n';
 
 const CODE = 'abCD1234#efGH5678';
@@ -163,7 +173,7 @@ function winTest(name, fn) {
     t.after(async () => {
       await connect.cancel().catch(() => {});
       connect.resetForTests();
-      connect.setWindowsSigninHostForTests(false);
+      connect.setWindowsSigninHostForTests(null);
       connect.setSigninPlatformForTests('win32');
       connect.setRunner(null);
       win32signin.setSpawn(null);
@@ -179,12 +189,31 @@ function winTest(name, fn) {
   });
 }
 
-/* ── slice 1: the Windows host switched off ─────────────────────────────────── */
+/* ── slice 3: the Windows host ships switched on (#3288) ─────────────────────── */
 
-winTest('slice 1: with the Windows host off, a sign-in goes stuck with the true reason and issues no tmux command', async (ctx) => {
+winTest('slice 3 #3288: the Windows host ships ON, so a plain start runs auth login through it, with no tmux and no "cannot run" stop', async (ctx) => {
+  connect.setWindowsSigninHostForTests(null);   // no override: what a real board gets
+  assert.equal(connect.WINDOWS_SIGNIN_HOST_ENABLED, true,
+    'the Windows sign-in host ships switched OFF, so a Windows user still cannot sign Claude in from Kosmos (#3288)');
+  ctx.behaviour = { onSpawn: (c) => { c.say(OUT_BROWSER); c.say(OUT_LINK_AND_PROMPT); } };
+  await connect.start();
+  await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
+  assert.equal(ctx.spawns.length, 1, 'the sign-in program was not started exactly once');
+  assert.deepEqual(ctx.spawns[0].args, ['auth', 'login', '--claudeai']);
+  assert.notEqual(connect.state().because, connect.WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE);
+  assert.deepEqual(tmuxCommands(ctx.calls), [], 'a tmux command went out on Windows, where there is no tmux');
+  /* The link the page offers is the manual-code one Claude printed, so a person whose
+     browser did not open gets a page that shows them a code to paste back. */
+  const url = new URL(connect.state().url);
+  assert.equal(url.host + url.pathname, 'claude.com/cai/oauth/authorize');
+  assert.equal(url.searchParams.get('redirect_uri'), 'https://platform.claude.com/oauth/code/callback');
+});
+
+/* ── the kill switch: the Windows host forced off ────────────────────────────
+   Production reaches this only if WINDOWS_SIGNIN_HOST_ENABLED is set back to false. */
+
+winTest('kill switch: with the Windows host off, a sign-in goes stuck with the true reason and issues no tmux command', async (ctx) => {
   connect.setWindowsSigninHostForTests(false);
-  assert.equal(connect.WINDOWS_SIGNIN_HOST_ENABLED, false,
-    'the Windows sign-in host ships switched ON, before the L-1 live check and Josh\'s go');
   await connect.start();
   await until(() => phase() === connect.PHASE.STUCK, 5000);
   const st = connect.state();
@@ -306,7 +335,7 @@ winTest('Windows host: browser, the code prompt, the code on stdin, then Login s
   await connect.start();
   await until(() => phase() === connect.PHASE.SIGNIN_BROWSER_OPEN, 5000);
   const { child } = ctx.spawns[0];
-  child.say(OUT_PROMPT);
+  child.say(OUT_LINK_AND_PROMPT);
   await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
   assert.equal(connect.submitCode(CODE).ok, true);
   await until(() => phase() === connect.PHASE.CONNECTED, 15000);
@@ -372,7 +401,7 @@ winTest('Windows host: a VALID code whose exchange takes 9 s is never told it di
   let exchange = null;
   t.after(() => clearTimeout(exchange));   // never let a late sign-in land in the next arm
   ctx.behaviour = {
-    onSpawn: (c) => c.say(OUT_BROWSER + OUT_PROMPT),
+    onSpawn: (c) => c.say(OUT_BROWSER + OUT_LINK_AND_PROMPT),
     onLine: (child, line) => {
       if (child.stdinLines.length !== 1) return;
       exchange = setTimeout(() => { if (child.killCalls === 0) signsInOnAWholeCode(ctx)(child, line); }, 9000);
@@ -397,7 +426,7 @@ winTest('Windows host: a VALID code whose exchange takes 9 s is never told it di
 });
 
 winTest('Windows host: exit 1 with Login failed goes stuck, and the tail shows what Claude said', async (ctx) => {
-  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_PROMPT) };
+  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_LINK_AND_PROMPT) };
   await connect.start();
   await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
   const { child } = ctx.spawns[0];
@@ -410,7 +439,7 @@ winTest('Windows host: exit 1 with Login failed goes stuck, and the tail shows w
 });
 
 winTest('Windows host: an Invalid code takes the rejection arm, and a second code is then accepted', async (ctx) => {
-  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_PROMPT), onLine: signsInOnAWholeCode(ctx) };
+  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_LINK_AND_PROMPT), onLine: signsInOnAWholeCode(ctx) };
   await connect.start();
   await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
   assert.equal(connect.submitCode('abcdefgh').ok, true, 'CONTROL: the first code passes validCode, so auth login is what rejects it');
@@ -424,10 +453,10 @@ winTest('Windows host: an Invalid code takes the rejection arm, and a second cod
 
 winTest('R4: a wrong paste that equals the URL state is refused, and the stored sign-in link is not replaced by a redacted one', async (ctx) => {
   const STATE = 'STATEhalfu2Wq8Er4Ty6Ui0Op1As3Df5Gh7';
-  /* Synthesised: whether auth login prints its URL at all is an L-1 measurement. */
-  const URL = 'https://claude.ai/oauth/authorize?code=true&client_id=abc&state=' + STATE;
+  /* The live link's shape (L-1), with this arm's own state in it. */
+  const URL = REAL_URL(STATE);
   ctx.behaviour = {
-    onSpawn: (c) => c.say(OUT_BROWSER + 'If the browser did not open, visit: ' + URL + '\n' + OUT_PROMPT),
+    onSpawn: (c) => c.say(OUT_BROWSER + OUT_VISIT(URL) + OUT_PROMPT),
     onLine: signsInOnAWholeCode(ctx),
   };
   await connect.start();
@@ -439,7 +468,7 @@ winTest('R4: a wrong paste that equals the URL state is refused, and the stored 
 });
 
 winTest('Windows host: cancel kills the program', async (ctx) => {
-  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_PROMPT) };
+  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_LINK_AND_PROMPT) };
   await connect.start();
   await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
   const { child } = ctx.spawns[0];
@@ -451,7 +480,7 @@ winTest('Windows host: cancel kills the program', async (ctx) => {
 
 winTest('Windows host: the abandoned sign-in limit expires the flow and kills the program', async (ctx) => {
   connect.setAbandonedSigninMs(200);
-  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_PROMPT) };
+  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_LINK_AND_PROMPT) };
   await connect.start();
   await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
   await until(() => phase() === connect.PHASE.STUCK, 5000);

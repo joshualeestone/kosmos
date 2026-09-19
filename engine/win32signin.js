@@ -16,9 +16,12 @@
  * `readline.createInterface({input: process.stdin})`, prints "Login successful." and
  * exits 0, or writes "Login failed: …" to stderr and exits 1. Those texts are what
  * connect.js's `classifyPane` already recognises. (Design:
- * `kosmos-scripts/win32-claude-signin-design.md`, option (e).) ⚠️ The live half is
- * slice 3's L-1; until it passes, connect.js keeps this host switched off
- * (`WINDOWS_SIGNIN_HOST_ENABLED`).
+ * `kosmos-scripts/win32-claude-signin-design.md`, option (e).) 📌 L-1 (#3288) then
+ * watched it live on 2.1.277 through this host: the texts held (with an extra
+ * "If the browser didn't open, visit: <link>" line before the prompt), the stdin paste
+ * is read, and a closed stdin alone does NOT end the program (kill() does, and so does
+ * the death of the node process that started it). connect.js's
+ * `WINDOWS_SIGNIN_HOST_ENABLED` switches this host on.
  *
  * 📌 SENSITIVE VALUES. The pasted code goes to stdin and nowhere else: never on a
  * command line (the Mac's `send-keys` does put it on tmux's) and never in a result

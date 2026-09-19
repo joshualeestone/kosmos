@@ -15,8 +15,8 @@
  * WINDOWS build and checksum-verifies it before executing -- the identical trust
  * posture as the Mac. `canInstallClaude` (this file's subject) is now TRUE on win32.
  * The half that must NOT move: codex is still a darwin-only tarball, and a platform
- * with no published Claude build still refuses. Sign-in stays a separate, still-gated
- * slice (WINDOWS_SIGNIN_HOST_ENABLED), so a win32 user auto-installs, then signs in.
+ * with no published Claude build still refuses. Sign-in is a separate slice
+ * (WINDOWS_SIGNIN_HOST_ENABLED, on since #3288), so a win32 user auto-installs, then signs in.
  *
  *   node --test engine.connect-win32-install-570.test.js
  *
