@@ -168,7 +168,14 @@ async function waitFor(page, pred, ms) {
   // AFTER first-run is dismissed, which is what frClose does: it hides the
   // overlay and clears inert on the rest of the page. Reproduce that exit before
   // reaching for the Settings button, or ARM 4 is testing a state no user is in.
-  await page.evaluate(() => { if (typeof window.frClose === 'function') window.frClose(); });
+  const firstRunDismissed = await page.evaluate(() => {
+    if (typeof window.frClose !== 'function') return false;
+    window.frClose();
+    return true;
+  });
+  check('Settings: first-run can be dismissed (frClose present) before the Settings arm',
+    firstRunDismissed,
+    firstRunDismissed ? '' : "window.frClose is gone: the app's first-run exit changed, so this arm cannot start from a clean state and its click would time out for the wrong reason");
   if (!(await reveal(page, 'acct-openai-install-go'))) {
     check('Settings: the install button is on the page', false, '#acct-openai-install-go is gone');
   } else {
