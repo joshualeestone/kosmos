@@ -3009,64 +3009,89 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child { border-left: 2px s
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display: none; }
 
 /* ===================================================================== #3276
-   The tab ROADMAP (Josh, 2026-09-18): the indented tree, upgraded to mock2 -- a
-   working fold caret, connector rails, denser rows, and a right-aligned meta
-   cluster (agent count + status). ALL rules scope on
-   `body:not(.consolidated) #pj-list:not(.asgrid)` so Grid (.asgrid) and the
-   consolidated rail (body.consolidated) are untouched. The id in the selector
-   out-specifies the base `.pj-list:not(.asgrid)` rules above, so these win.
+   The tab ROADMAP (Josh, 2026-09-18): a single-column indented outline tree, mock2 --
+   a working fold caret, connector rails, denser flat rows, and a right-aligned meta
+   cluster (agent count + status).
+
+   ⚠️ These MUST out-rank the #3135 rules below (line ~3100), which turned the old List
+   into a MULTI-COLUMN newspaper flow of boxed cards -- a shape a tree cannot use (rails
+   and fold make no sense across columns). #3135 is scoped `body:not(.consolidated)`; we
+   add `.pj-roadmap` (set in layoutApply only for the roadmap layout), so every rule here
+   carries one more class and wins on specificity regardless of source order. That is why
+   the whole block keys on `body:not(.consolidated).pj-roadmap`. Grid (.asgrid) and the
+   consolidated rail (body.consolidated) are untouched.
    ===================================================================== */
 
-/* Denser rows + a caret gutter. The depth indent still rides margin-left (the
-   #2999 rule); this adds a fixed left gutter for the absolutely-placed caret and
-   trims the vertical padding so more projects fit -- Josh's "you still can't see
-   all of it". */
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row {
+/* Single column: undo #3135's `display:block; column-width:20rem` (line ~3100). A tree
+   split across newspaper columns cannot draw rails or fold sensibly. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) {
+  display: flex; flex-direction: column; gap: 2px;
+  columns: auto; column-width: auto; }
+
+/* Flat outline rows: drop the #3135 card shell (border / shadow / radius / big padding)
+   so the Roadmap reads as an outline, not a wall of boxes. Denser padding + a reserved
+   left gutter for the absolutely-placed caret; the depth indent rides margin-left. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
   position: relative;
-  padding: 8px 14px 8px 30px;
-  /* name | count | status. Description and faces are dropped for density (below),
-     so the four-column base grid collapses to name + right-aligned meta. */
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  column-gap: 12px;
-}
-/* Density drops (spec): no per-row description, no avatar faces -- both live one
-   click away in the Grid card and the single-project view. The agent COUNT stays,
-   moved to the right cluster. */
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pc-t { display: none; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjfaces > [aria-hidden] { display: none; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjfaces {
-  grid-column: 2; grid-row: 1; justify-self: end; align-self: center;
-  margin: 0; min-width: 0; overflow: visible; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 3; grid-row: 1; justify-self: end; }
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 12px; align-items: center;
+  background: none; border: 0; border-radius: 6px; box-shadow: none;
+  /* Depth indent rides PADDING-left, not margin: a margin on a stretched flex item
+     overflows the column (its right edge is pushed past the container, clipping the
+     right-side meta -- measured 22px). Padding keeps the row full-width so the count +
+     status stay pinned to the right edge, and the content indents inside. */
+  padding: 7px 12px 7px calc(30px + var(--pj-depth, 0) * 22px);
+  margin: 0; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row:hover {
+  background: var(--k-surface); box-shadow: none; border: 0; }
+/* Needs-you: the card border is gone, so mark attn with a left accent bar instead. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn {
+  box-shadow: inset 3px 0 0 rgba(179, 38, 30, .55); }
+
+/* Density (spec): drop the per-row description and the avatar faces -- both live one
+   click away in the Grid card and the single-project view. Keep the agent COUNT, moved
+   into the right-aligned meta cluster beside the status pill. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pc-t { display: none; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjfaces > [aria-hidden] { display: none; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjfaces {
+  grid-column: 2; grid-row: 1; justify-self: end; align-self: center; margin: 0; min-width: 0; overflow: visible; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 3; grid-row: 1; justify-self: end; }
 
 /* The fold caret, shown for any parent row (the base `#pj-list .pjtreefold`
-   display:none is out-specified here). Absolute in the reserved gutter so leaves
-   and parents align; sizing mirrors the consolidated caret (#3126). */
-body:not(.consolidated) #pj-list:not(.asgrid) .pjtreefold {
+   display:none is out-specified here). Absolute in the reserved gutter so leaves and
+   parents align; sizing mirrors the consolidated caret (#3126). */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pjtreefold {
   display: inline-flex; align-items: center; justify-content: center;
-  position: absolute; top: 50%; transform: translateY(-50%); left: 3px;
+  position: absolute; top: 50%; transform: translateY(-50%);
+  /* Sits just left of the depth-indented name (indent = --pj-depth * 22px). */
+  left: calc(6px + var(--pj-depth, 0) * 22px);
   width: 20px; height: 20px; border-radius: 4px;
   font-size: 15px; line-height: 1; color: var(--k-ink-2);
   cursor: pointer; user-select: none; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pjtreefold:hover { background: var(--k-surface); color: var(--k-ink); }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pjtreefold:hover { background: var(--k-surface); color: var(--k-ink); }
 /* A folded branch's descendants leave the Roadmap (set in applyConsFold). */
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.pj-fold-hidden { display: none; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.pj-fold-hidden { display: none; }
 
-/* Connector rails. A child row carries a vertical rail on its left (the #3003
-   border) and a short horizontal elbow into the caret gutter, the file-tree cue
-   the mock shows. Scope note: this draws one elbow at the row's own depth, not a
-   full multi-ancestor ladder -- CSS cannot know which ancestors have following
-   siblings without per-level markup, so the indent carries the deeper levels. */
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child {
-  border-left: 2px solid var(--k-rule); border-top-left-radius: 0; border-bottom-left-radius: 0; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child::before {
-  content: ""; position: absolute; left: 0; top: 50%; width: 12px; height: 0;
+/* Connector rails, file-tree style: a child row draws a VERTICAL rail at its parent's
+   indent level (::before, full height so consecutive siblings join into one line) and a
+   short horizontal ELBOW from that rail across to its own caret/name (::after). Both are
+   positioned at (depth-1)*22px + 13px, the parent's caret column. Scope note: one rail at
+   the row's OWN parent level, not a full multi-ancestor ladder -- CSS cannot know which
+   ancestors have following siblings without per-level markup, so the deeper indents are
+   carried by the padding indent alone. The last child's vertical over-runs its elbow
+   slightly (no CSS "last sibling" selector); an accepted, minor imperfection. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child::before {
+  content: ""; position: absolute; top: 0; height: 100%;
+  left: calc((var(--pj-depth, 0) - 1) * 22px + 13px);
+  border-left: 2px solid var(--k-rule); pointer-events: none; }
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child::after {
+  content: ""; position: absolute; top: 50%; height: 0; width: 11px;
+  left: calc((var(--pj-depth, 0) - 1) * 22px + 13px);
   border-top: 2px solid var(--k-rule); pointer-events: none; }
 
-/* The Roadmap top strip: shown ONLY here (Grid and the consolidated rail never
-   see it). No `hidden` attribute is used on #pj-rm-strip -- this display rule is
-   the sole visibility control, so a global [hidden] rule cannot fight it. */
+/* The Roadmap top strip: shown ONLY here (Grid and the consolidated rail never see it).
+   No `hidden` attribute is used on #pj-rm-strip -- this display rule is the sole
+   visibility control, so a global [hidden] rule cannot fight it. */
 .pj-rm-strip { display: none; }
 body:not(.consolidated).pj-roadmap .pj-rm-strip {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;

@@ -525,7 +525,11 @@ test('every emit site in every check prints a line the gate can quote', () => {
      quotable (same shape as render-model-restart-interstitial.js's). Its launch-failure
      emit is counted once by the catch/launch scan below (as the 46th), not here.
      (73 was render-model-restart-interstitial's +1, which never got its own numbered
-     block above -- a pre-existing trail gap, noted rather than back-filled here.) */
+     block above -- a pre-existing trail gap, noted rather than back-filled here.)
+     #3276: the org-chart Map was retired for the two-view (Grid + Roadmap) board, so
+     render-projects-map.js was deleted and render-projects-roadmap-3276.js added in its
+     place. The new check carries the SAME one SHAPE-1 loop + one launch catch, so this
+     count and the catch/launch count are UNCHANGED by the swap (measured, still green). */
   /* 75/76 after kosmos#2617 added render-token-usage-2617.js, whose TWO literal-`FAIL `
      emit lines are two SHAPE-1 finding-emit sites (same shape as render-permission-slider-2620's,
      now on main): its `could not start a browser` launch catch and its top-level

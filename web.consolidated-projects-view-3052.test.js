@@ -65,12 +65,17 @@ function scope({ storageThrows, saved } = {}) {
   };
   const layoutApplyCalls = [];
   const layoutApply = (s, w, p) => layoutApplyCalls.push([s, w, p]);
-  const LAYOUTS = { projects: { layouts: ['grid', 'list', 'map'], fallback: 'grid' } };
-  const factory = new Function('document', 'localStorage', 'layoutApply', 'LAYOUTS', `
+  /* #3276: the Projects board is two views now -- grid + roadmap. The retired list/map
+     values migrate to roadmap on read (pjLayoutMigrate), which placeProjectsView calls,
+     so it is injected here (the sliced fn references it as a free name -- the
+     eval-sliced-node-test trap). */
+  const LAYOUTS = { projects: { layouts: ['grid', 'roadmap'], fallback: 'grid' } };
+  const pjLayoutMigrate = (v) => (v === 'list' || v === 'map') ? 'roadmap' : v;
+  const factory = new Function('document', 'localStorage', 'layoutApply', 'LAYOUTS', 'pjLayoutMigrate', `
     ${FN_SRC}
     return placeProjectsView;
   `);
-  const fn = factory(document, localStorage, layoutApply, LAYOUTS);
+  const fn = factory(document, localStorage, layoutApply, LAYOUTS, pjLayoutMigrate);
   return { fn, body, map, list, writes, layoutApplyCalls };
 }
 
@@ -89,10 +94,16 @@ test('#3052 control: the consolidated force is DISPLAY-ONLY -- it never writes l
   assert.deepEqual(s.layoutApplyCalls, [], 'the consolidated branch must not re-run layoutApply');
 });
 
-test('#3052: leaving consolidated restores the saved tab layout (map)', () => {
+test('#3052/#3276: leaving consolidated restores the saved tab layout, migrating a retired map/list to roadmap', () => {
   const s = scope({ saved: 'map' });
   s.fn(false, true);
-  assert.deepEqual(s.layoutApplyCalls, [['projects', 'map', undefined]], 'the saved map layout must be restored on exit');
+  assert.deepEqual(s.layoutApplyCalls, [['projects', 'roadmap', undefined]], 'a saved map must restore as roadmap on exit (#3276 migration), not a dead key');
+  const l = scope({ saved: 'list' });
+  l.fn(false, true);
+  assert.deepEqual(l.layoutApplyCalls, [['projects', 'roadmap', undefined]], 'a saved list must restore as roadmap on exit (#3276 migration)');
+  const g = scope({ saved: 'grid' });
+  g.fn(false, true);
+  assert.deepEqual(g.layoutApplyCalls, [['projects', 'grid', undefined]], 'grid is unchanged by the migration');
 });
 
 test('#3052 control: an unreadable/foreign saved value falls back to grid, never guesses', () => {
