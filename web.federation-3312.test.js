@@ -50,19 +50,19 @@ function makeDoc(overrides) {
 
 function build(opts) {
   opts = opts || {};
-  // Lift pjSpin + pjPaintJoinAgents too: pjVerifyCode now calls both. And pjJoinSubmit, so the
-  // join-submit degrade/navigate path is covered like its verify/mint siblings.
+  // pjVerifyCode sets the join-agents empty state directly (no cross-call), so pjPaintJoinAgents
+  // is not lifted; pjResetFederation + pjCopyInvite ARE, to cover reset/copy state (plan requires).
   const src = [lift('pjFederationRef'), lift('pjSpin'), lift('pjSetAddMode'), lift('pjFedMessage'),
-    lift('pjPaintJoinAgents'), lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit')].join('\n');
+    lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit'), lift('pjResetFederation'), lift('pjCopyInvite')].join('\n');
   // eslint-disable-next-line no-new-func
   const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad', 'loadProjects', 'openProject', 'pjView',
     'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = [];\n' + src +
-    '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, pjJoinSubmit, get verified() { return PJ_JOIN_VERIFIED; }, setVerified: (v) => { PJ_JOIN_VERIFIED = v; }, ref: pjFederationRef };');
+    '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, pjJoinSubmit, pjResetFederation, pjCopyInvite, get verified() { return PJ_JOIN_VERIFIED; }, get joinAgents() { return PJ_JOIN_ADD_AGENTS; }, setVerified: (v) => { PJ_JOIN_VERIFIED = v; }, ref: pjFederationRef };');
   const doc = makeDoc();
   const fieldBadCalls = [];
   const opened = [];
   const nav = { loadedProjects: 0, listShown: 0 };
-  const api = factory(doc, opts.fetch || (() => Promise.reject(new Error('no fetch'))), {}, { randomUUID: () => 'ref-123' }, (x) => String(x == null ? '' : x), opts.LAST || [],
+  const api = factory(doc, opts.fetch || (() => Promise.reject(new Error('no fetch'))), opts.navigator || {}, { randomUUID: () => 'ref-123' }, (x) => String(x == null ? '' : x), opts.LAST || [],
     (id, errId, msg) => fieldBadCalls.push({ id, errId, msg }),
     () => { nav.loadedProjects += 1; return Promise.resolve(); },
     (id) => opened.push(id),
@@ -106,8 +106,45 @@ test('#3312: minting with an empty project name shows the inline name error and 
   s.doc.getElementById('pj-name').value = '   ';
   await s.pjMintInvite('person');
   assert.equal(called, false, 'an unnamed project still hit the coordinator');
-  assert.ok(s.fieldBadCalls.some((c) => c.id === 'pj-name'), 'no inline name error was shown for an unnamed project');
+  assert.ok(s.fieldBadCalls.some((c) => c.id === 'pj-name' && c.msg === 'Give this project a name.'),
+    'the mint empty-name error is missing or not the exact Create-path copy');
   assert.equal(s.doc.getElementById('pj-invite-code').value, '', 'a code slot was populated for an unnamed project');
+});
+
+test('#3312: pjResetFederation clears every federation surface (no stale state leaks across opens)', async () => {
+  const s = build({ navigator: { clipboard: { writeText: () => Promise.resolve() } } });
+  // dirty every surface a prior open could leave behind
+  s.doc.getElementById('pj-invite-code').value = 'OLD-CODE';
+  s.doc.getElementById('pj-invite-status').textContent = 'old status';
+  s.doc.getElementById('pj-invite-panel').hidden = false;
+  s.doc.getElementById('pj-join-code').value = 'old-join';
+  s.doc.getElementById('pj-join-result').hidden = false;
+  s.setVerified({ edge_id: 'stale' });
+  s.pjResetFederation();
+  assert.equal(s.doc.getElementById('pj-invite-code').value, '', 'a stale invite code survived reset');
+  assert.equal(s.doc.getElementById('pj-invite-status').textContent, '', 'a stale invite status survived reset');
+  assert.equal(s.doc.getElementById('pj-invite-panel').hidden, true, 'the invite panel stayed open after reset');
+  assert.equal(s.doc.getElementById('pj-join-code').value, '', 'a stale join code survived reset');
+  assert.equal(s.doc.getElementById('pj-join-result').hidden, true, 'a stale verified result survived reset');
+  assert.equal(s.verified, null, 'a stale verified edge survived reset');
+  assert.equal(s.doc.getElementById('pj-create-mode').hidden, false, 'reset did not return to create mode');
+});
+
+test('#3312: pjCopyInvite copies the code and swaps the button to "Copied"', async () => {
+  let copiedText = null;
+  const s = build({ navigator: { clipboard: { writeText: (t) => { copiedText = t; return Promise.resolve(); } } } });
+  s.doc.getElementById('pj-invite-code').value = 'THE-CODE-9';
+  await s.pjCopyInvite();
+  assert.equal(copiedText, 'THE-CODE-9', 'the code was not written to the clipboard');
+  assert.equal(s.doc.getElementById('pj-invite-copy').textContent, 'Copied', 'the button did not confirm the copy');
+});
+
+test('#3312: pjCopyInvite with no code does nothing', async () => {
+  let called = false;
+  const s = build({ navigator: { clipboard: { writeText: () => { called = true; return Promise.resolve(); } } } });
+  s.doc.getElementById('pj-invite-code').value = '';
+  await s.pjCopyInvite();
+  assert.equal(called, false, 'an empty code was still copied');
 });
 
 test('#3312: a successful verify shows the read-only name/desc and records the edge', async () => {
