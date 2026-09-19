@@ -166,7 +166,10 @@ test('the package tells the truth about itself', () => {
   /* Board auth ENFORCES on Windows (tools/kosmos-open-board.js), so the bare
      address loads a board that 403s every agent read. Relaunching is the way in. */
   assert.doesNotMatch(WIN, /go to http:\/\/127\.0\.0\.1:%s yourself/, 'the README sends people to the unsigned address as the fix');
-  assert.match(WIN, /If no browser opens, or the board says it is not signed in,/, 'the README does not cover the likelier failure: a browser that opened on a board it is not signed in to');
+  assert.match(WIN, /If Kosmos does not open, or the board says it is not signed in,/, 'the README does not cover the likelier failure: a window that opened on a board it is not signed in to');
+  /* #1118: Kosmos opens in its own window now, and closing it is not stopping Kosmos. */
+  assert.match(WIN, /Kosmos opens in its own window\. Closing that window does not stop\\r\\n'\n\s*printf 'Kosmos: it keeps running in the background/, 'the README does not say closing the window leaves Kosmos running');
+  assert.doesNotMatch(WIN, /A browser opens on the Kosmos board/, 'the README still says the board opens in a browser');
   assert.match(WIN, /double-click Kosmos\.exe again\. Bookmarks to Kosmos don\\047t stay/, 'the README does not say how to get back in signed in');
   assert.match(WIN, /signed in\. Always open Kosmos from Kosmos\.exe\./, 'the README does not say a bookmark is not the way in');
   /* The README names the Task Scheduler folder; it must be the one the tasks

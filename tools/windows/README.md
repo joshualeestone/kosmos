@@ -24,7 +24,7 @@ file is to remove a Windows-only problem.
 What it adds is how a Windows program presents itself (win32-launcher-native):
 
 - **No console window.** It is a GUI-subsystem exe (`/target:winexe`), so a
-  double-click opens nothing but the browser. The board runs on a hidden console,
+  double-click opens nothing but Kosmos. The board runs on a hidden console,
   as the logon task's board does. A board that could not move to its logon task
   keeps serving from there. From `HANDOFF_CHECK_FOR_SERVING_AFTER_MS` (in
   `engine/win32handoff.js`) on, the launcher waits for POSITIVE proof that the board
@@ -55,8 +55,59 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   by `assets/make-kosmos-ico.ps1`. FileDescription and ProductName are "Kosmos".
   CompanyName is left out until it can match the code-signing certificate's
   subject. The version is the **launcher's** own (`LauncherVersion`, currently
-  2.0.0.0), not the app's. This binary is copied unchanged into every release, so
+  4.0.0.0), not the app's. This binary is copied unchanged into every release, so
   an app version stamped into it would be wrong from the next release on.
+
+## Kosmos's own window (#1118)
+
+A double-click opens the board in a window of its own: titled Kosmos, with the Kosmos icon, its
+own taskbar entry, and no address bar or tabs. It is the Windows twin of the Mac app
+(`native-app/main.swift`, a WKWebView): a plain window hosting the system's Microsoft Edge
+WebView2 Runtime, pointed at the same local board.
+
+- **It is its own process, `Kosmos.exe --window`.** The launcher starts it where it used to start
+  the browser opener, then starts the board and exits after the hand-off, as before. Closing the
+  window ends only the window. The board and the agents run under their own tasks, as on the Mac.
+- **Signing in** is `open-board.js`'s job, as it is for the browser (#2007). With `--print-url`
+  it hands the signed-in address (a single-use boot nonce) to the window over a private pipe
+  instead of opening a browser. The board answers with its persistent cookie, which the window
+  keeps in its own web profile, `%LOCALAPPDATA%\Kosmos\WebView2`.
+- **One window per board.** A second double-click brings the open window forward (restoring it if
+  minimised) instead of opening another, and signs it in again with a fresh address from the same
+  `--print-url` path, so "double-click Kosmos.exe again" (the zip's READ ME) also rescues a window
+  that came up signed out. Like the Mac app's Reload, that returns the page to the board's front.
+- **Boxes come after the window lets go.** Every box the window process shows, and the browser
+  fallback, happen after its single-instance lock is released, so a double-click while one is up
+  opens a new window rather than asking a closed one to come forward.
+- **Links to other sites open in the person's browser**, whether they open a new window
+  (`target="_blank"`, as the Mac app handles them, #1416) or navigate the whole window: this
+  window has no Back button to return by. Only http and https are opened; anything else
+  (`mailto:`, `ms-settings:`, `file:`), in a new window or this one, is refused with a box that
+  says so.
+- **A page that crashes is loaded again.** If WebView2 itself stops, the window closes and says
+  your agents are still running.
+- **`--uninstall` closes the window first**, after the person said yes, because the removal
+  deletes the web profile the window holds open.
+- **When this PC cannot host the window** (no WebView2 Runtime, which Windows 10 may lack; a
+  partly extracted folder; a Runtime that will not start), it does what a double-click did before:
+  the board opens in the default browser, and a box says why. With nobody at the desktop the
+  launcher starts the opener, as it always did.
+
+**How it reaches WebView2.** Through WebView2's COM interfaces, declared at the bottom of
+`KosmosLauncher.cs`, rather than Microsoft's managed wrapper DLLs. The wrappers would need
+compile-time references, which would change the build flags this README, `verify-launcher.ps1`
+and `tools.win-launcher-native.test.js` pin, and every probe the tests compile beside the source.
+Declared here, the source still builds with nothing but the in-box compiler. The cost is that a
+declaration out of order calls the wrong method without any compile error, so
+`tools.win-launcher-native.test.js` pins every declared interface's id and slot order to
+`WebView2.h`.
+
+**What ships.** Only Microsoft's native loader, `runtime\WebView2Loader.dll`, with its licence
+beside it. `tools/build-kosmos-windows.sh` takes it from the `Microsoft.Web.WebView2` NuGet
+package, pinned by version and sha256. `runtime\` is a folder the updater and the move already
+carry whole. The WebView2 Runtime itself is part of Windows 11 and is kept up to date by Windows;
+Kosmos never ships it. An open window does not block an update: Windows lets the updater rename
+a running exe and a folder holding a loaded DLL (measured on the box).
 
 ## What it does as an installer (win32-installer-native)
 

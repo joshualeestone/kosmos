@@ -253,11 +253,14 @@ class InstallerProbe {
           return a[3] == "null" ? null : a[3].Split('|');
         };
         KosmosLauncher.tellPerson = (said, isError) => { told = (isError ? "ERROR " : "NOTICE ") + said.Replace("\\n", " / "); };
+        /* #1118: never the real window a person has open; only when it was asked to close. */
+        string window = "-";
+        KosmosLauncher.closeBoardWindow = (port) => { window = helperArguments == "-" ? "closed-before-removal" : "closed-after-removal"; };
         int code = KosmosLauncher.Uninstall(folder, "node.exe");
         bool key;
         using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(a[5] + "\\\\Kosmos")) { key = k != null; }
         Console.Write("code=" + code + "\\nasked=" + askedCount + "\\nhelper=" + helperArguments + "\\nshortcut=" + File.Exists(KosmosLauncher.StartMenuShortcutPath())
-          + "\\nkey=" + key + "\\nkept=" + File.Exists(a[6]) + "\\ntold=" + told);
+          + "\\nkey=" + key + "\\nkept=" + File.Exists(a[6]) + "\\nwindow=" + window + "\\ntold=" + told);
         return 0;
       }
       case "comparetimeout": {
@@ -713,9 +716,9 @@ test('🛑 uninstall probe: nobody to ask, or a No, runs nothing and removes not
     const programs = path.join(base, 'Start Menu', 'Programs');
     const kept = path.join(base, 'kept-here.txt');
     const nobody = fields(run('uninstall', 'nobody', 'yes,yes', 'DONE x', programs, parent, kept, exe).out);
-    assert.deepEqual({ ...nobody, told: undefined }, { code: '2', asked: '0', helper: '-', shortcut: 'True', key: 'True', kept: 'True', told: undefined });
+    assert.deepEqual({ ...nobody, told: undefined }, { code: '2', asked: '0', helper: '-', shortcut: 'True', key: 'True', kept: 'True', window: '-', told: undefined });
     const no = fields(run('uninstall', 'person', 'no', 'DONE x', programs, parent, kept, exe).out);
-    assert.deepEqual({ ...no, told: undefined }, { code: '0', asked: '1', helper: '-', shortcut: 'True', key: 'True', kept: 'True', told: undefined },
+    assert.deepEqual({ ...no, told: undefined }, { code: '0', asked: '1', helper: '-', shortcut: 'True', key: 'True', kept: 'True', window: '-', told: undefined },
       'something ran after a No to the first question');
   } finally {
     spawnSync('reg.exe', ['delete', 'HKCU\\' + parent, '/f'], { windowsHide: true });
@@ -738,6 +741,7 @@ test('🛑 uninstall probe: a clean removal takes the shortcut, the Apps entry a
     const clean = fields(run('uninstall', 'person', 'yes,no', 'DONE removed x|NOTE Your projects were kept in P.', programs, parent, kept, exe).out);
     assert.equal(clean.code, '0');
     assert.equal(clean.asked, '2');
+    assert.equal(clean.window, 'closed-before-removal', '#1118: an open Kosmos window was not closed before the removal deleted its web profile');
     assert.match(clean.helper, new RegExp('^win32uninstall\\.js --uninstall --root "' + path.dirname(exe).replace(/[\\^$.*+?()[\]{}|]/g, '\\$&') + '" --port \\d+$'),
       'a No to the chats question still asked for them to be deleted, or the helper was not told the board\'s port');
     assert.deepEqual([clean.shortcut, clean.key, clean.kept], ['False', 'False', 'False'], 'a clean removal left the Start menu entry, the Apps entry or the memory');

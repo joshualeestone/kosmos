@@ -189,6 +189,33 @@ rm -rf "$TMP"
 # an empty `dl/` shipped to users through that gap.
 [ ! -e "$STAGE/dl" ] || { echo "staging carries a scratch dir it should not: $STAGE/dl" >&2; exit 1; }
 
+# ---- the window's loader (#1118) ---------------------------------------------
+# Kosmos.exe shows the board in its own window, hosted by the Microsoft Edge WebView2 Runtime that
+# Windows itself installs and updates. The one file of Microsoft's Kosmos ships for that is the
+# small native loader that finds the Runtime, WebView2Loader.dll, which Microsoft publishes only
+# inside the Microsoft.Web.WebView2 NuGet package. It goes in runtime\ beside node.exe: a folder the
+# updater (win32update ENTRIES) and the move already carry whole, and the path KosmosLauncher.cs
+# loads it from (WebView2LoaderRelativePath). Without it the launcher still works: it opens the
+# browser, as before, and says why.
+# 🔑 PINNED BY HASH, like the node runtime. NuGet has no SHASUMS file to check against, but a NuGet
+# package version is immutable, so the sha256 measured when this version was chosen is the check:
+# the build DIES on any other bytes. Bump the version and the hash together.
+# 📌 Its LICENSE (BSD-style) asks that binary redistribution reproduce the notice, so it ships
+# beside the DLL.
+WEBVIEW2_SDK_VERSION="1.0.4191.47"
+WEBVIEW2_SDK_SHA256="f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0"
+case "$ARCH" in x64|arm64|x86) ;; *) echo "the WebView2 package has no loader for win-$ARCH" >&2; exit 1 ;; esac
+echo "==> downloading the WebView2 loader (SDK $WEBVIEW2_SDK_VERSION, win-$ARCH)"
+TMP="$(mktemp -d)"
+curl -fsSL "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/$WEBVIEW2_SDK_VERSION/microsoft.web.webview2.$WEBVIEW2_SDK_VERSION.nupkg" -o "$TMP/webview2.nupkg"
+GOT="$(shasum -a 256 "$TMP/webview2.nupkg" | awk '{print $1}')"
+[ "$GOT" = "$WEBVIEW2_SDK_SHA256" ] || { echo "WebView2 package checksum mismatch: want $WEBVIEW2_SDK_SHA256 got $GOT" >&2; exit 1; }
+( cd "$TMP" && unzip -q webview2.nupkg "build/native/$ARCH/WebView2Loader.dll" LICENSE.txt )
+cp "$TMP/build/native/$ARCH/WebView2Loader.dll" "$STAGE/runtime/WebView2Loader.dll"
+cp "$TMP/LICENSE.txt" "$STAGE/runtime/WebView2Loader.LICENSE.txt"
+rm -rf "$TMP"
+echo "==> checksum ok"
+
 # ---- the launcher ----------------------------------------------------------
 # 🛑 CRLF, NOT LF. A .cmd file with Unix line endings is read by cmd.exe with a
 # trailing carriage return on every token, and the failure is not a syntax error
@@ -318,10 +345,10 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf '\r\n'
   printf 'This preview is not signed yet; signed builds are coming.\r\n'
   printf '\r\n'
-  printf 'A browser opens on the Kosmos board. Kosmos keeps running in the\r\n'
-  printf 'background, with no window, and starts by itself when you sign in to\r\n'
-  printf 'Windows. Your agents do too. To open the board again later,\r\n'
-  printf 'double-click Kosmos.exe again.\r\n'
+  printf 'Kosmos opens in its own window. Closing that window does not stop\r\n'
+  printf 'Kosmos: it keeps running in the background and starts by itself when\r\n'
+  printf 'you sign in to Windows. Your agents do too. To open Kosmos again\r\n'
+  printf 'later, double-click Kosmos.exe again.\r\n'
   printf '\r\n'
   printf 'Agents need Claude Code on this computer, signed in. If it is\r\n'
   printf 'missing, the board shows you the command that installs it. If it is\r\n'
@@ -335,7 +362,7 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Scheduler: open Start, type Task Scheduler, press Enter, and open\r\n'
   printf 'Task Scheduler Library, then the Kosmos folder.\r\n'
   printf '\r\n'
-  printf 'If no browser opens, or the board says it is not signed in,\r\n'
+  printf 'If Kosmos does not open, or the board says it is not signed in,\r\n'
   printf 'double-click Kosmos.exe again. Bookmarks to Kosmos don\047t stay\r\n'
   printf 'signed in. Always open Kosmos from Kosmos.exe.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
@@ -351,6 +378,7 @@ cat > "$STAGE/manifest.json" <<JSON
   "source_dirty": $SOURCE_DIRTY,
   "signed": false,
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
+  "webview2_loader": { "sdk_version": "$WEBVIEW2_SDK_VERSION", "download_sha256": "$WEBVIEW2_SDK_SHA256" },
   "agents_supported": true
 }
 JSON
@@ -411,6 +439,13 @@ done
 case "$LISTING" in
   *" bin/kosmos"$'\n'*) ;;
   *) refuse "the zip is missing bin/kosmos (the Git Bash shim)" ;;
+esac
+# #1118: the window's loader. Not in the list above on purpose: that list is win32update's
+# REQUIRED_ENTRIES (a build without one is incomplete, and cannot be moved or updated to), while a
+# build without the loader still runs, in the browser. A build THIS script makes always has it.
+case "$LISTING" in
+  *" runtime/WebView2Loader.dll"$'\n'*) ;;
+  *) refuse "the zip is missing runtime/WebView2Loader.dll (Kosmos's own window)" ;;
 esac
 # 🛑 NO TEST FILES, AND THE ENGINE COUNT MUST MATCH THE REPO (Renet's finding).
 # His parallel builder's engine glob had no filter: it staged 137 .js of which
