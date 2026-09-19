@@ -75,6 +75,26 @@ const SUPPORTED = Object.freeze(['darwin', 'win32']);
 const RUNNER_DOWNLOADS = Object.freeze(['darwin']);
 const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32']);
 
+/* 🔑 AND CODEX NOW HAS ITS OWN LIST TOO, for the same reason Claude got one. The
+ * comment above says "Codex ships only that macOS tarball". That was a fact about
+ * what runners.js PINNED, not about what OpenAI PUBLISHES: the npm registry carries
+ * @openai/codex as per-platform versions (`0.149.1-win32-x64`, `0.149.1-win32-arm64`
+ * beside `-darwin-arm64`), each with its own registry sha512 integrity, and each
+ * tarball holds the real Windows build (`vendor/x86_64-pc-windows-msvc/bin/codex.exe`,
+ * verified by download and unpack on a Windows 11 box, 2026-09-19). runners.js now
+ * pins the win32 builds beside the darwin one and picks by platform+arch, so a
+ * Windows install fetches the WINDOWS build, checksum-verified, never the Mac one.
+ *
+ * ⚠️ RUNNER_DOWNLOADS IS LEFT darwin-only ON PURPOSE. It still gates every OTHER
+ * runners.install() arm, including the Claude vendor-external LINK path, whose probe
+ * is Mac-shaped (/usr/bin/which, Homebrew paths). Widening it would have armed that
+ * path on Windows as a side effect. Codex reads canDownloadCodex; everything else
+ * keeps reading canDownloadRunner.
+ * 📌 Found by the founder on a clean Windows 11 laptop (prod 0.6.72): the first-run
+ * GPT card refused on this gate and the screen said only "We could not start that
+ * install." */
+const CODEX_DOWNLOADS = Object.freeze(['darwin', 'win32']);
+
 /* 🛑 AND THE THIRD QUESTION, WHICH NOTHING ASKED UNTIL #570 WENT LOOKING FOR IT.
  * `engine/update.js` is the SELF-updater. On the Mac it answers "install the new
  * Kosmos" with `spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; ...'])`. There is
@@ -121,6 +141,14 @@ function canDownloadRunner(platform = process.platform) {
   return RUNNER_DOWNLOADS.includes(platform);
 }
 
+/** True only where OpenAI publishes a Codex build Kosmos pins and can fetch
+ *  (darwin, and win32 since the pinned win32-x64/win32-arm64 builds landed). Same
+ *  fail-closed shape as its siblings. runners.install reads this for the openai
+ *  runner only; every other runner arm keeps canDownloadRunner. */
+function canDownloadCodex(platform = process.platform) {
+  return CODEX_DOWNLOADS.includes(platform);
+}
+
 /** True only where Claude Code publishes a checksum-verifiable build Kosmos can
  *  fetch (darwin and, since the vendor shipped Windows builds, win32). Same
  *  fail-closed shape as its siblings. connect.js's download gate and the
@@ -156,4 +184,4 @@ function describe(platform = process.platform) {
   };
 }
 
-module.exports = { SUPPORTED, RUNNER_DOWNLOADS, CLAUDE_DOWNLOADS, SELF_INSTALL, isSupported, canDownloadRunner, canDownloadClaude, canSelfInstall, describe };
+module.exports = { SUPPORTED, RUNNER_DOWNLOADS, CLAUDE_DOWNLOADS, CODEX_DOWNLOADS, SELF_INSTALL, isSupported, canDownloadRunner, canDownloadClaude, canDownloadCodex, canSelfInstall, describe };

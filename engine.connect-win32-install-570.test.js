@@ -142,8 +142,15 @@ test('#3159: the guardrail holds -- win32 fetches the WINDOWS build, never a Mac
     /no published Claude Code build/,
     'linux must still refuse -- there is no Claude build for it, and we fetch nothing speculative');
 
+  /* 📌 CODEX ON WIN32 NOW FETCHES ITS OWN WINDOWS BUILD, never the Mac tarball: the
+     guardrail this arm defends ("no Mac binary onto Windows") holds by the manifest
+     picking the win32 artifact, which is asserted here, rather than by refusing.
+     A provider name the manifest does not know still refuses on win32. */
+  const winBuild = runners.manifestFor('openai', 'win32', 'x64');
+  assert.match(winBuild.url, /-win32-x64\.tgz$/, 'win32 fetches the Windows Codex build');
+  assert.doesNotMatch(winBuild.url, /darwin/, 'never the Mac tarball');
   const codexWin = runners.install('codex', { platform: 'win32' });
-  assert.equal(codexWin.phase, 'failed', 'codex must not start a download on win32');
+  assert.equal(codexWin.phase, 'failed', 'an unknown provider name must not start a download on win32');
   assert.match(codexWin.because, /not supported/,
-    'codex stays darwin-only -- Claude\'s new win32 permission must not leak to the codex tarball');
+    'Claude\'s win32 permission must not leak to an arm with no published Windows build');
 });

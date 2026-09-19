@@ -86,6 +86,10 @@ test('#979: a prototype-chain provider name in the URL is a refusal, not a job',
   const j = json(got).job;
   assert.equal(j.phase, 'failed');
   assert.match(j.because, /do not know/);
+  // The reason ALSO rides at top-level `error`, the field every screen's fetch
+  // wrapper reads first. Without it the first-run GPT card said only "We could not
+  // start that install." while the real reason sat unread at job.because.
+  assert.equal(json(got).error, j.because);
 });
 
 test('#979: install on an already-present runner answers installed without a job or a download', async () => {

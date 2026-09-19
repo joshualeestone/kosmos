@@ -19511,6 +19511,15 @@ function acctOpenaiSubView(state) {
     default:                 return { done: false, ok: false, say: 'Signing in…' };
   }
 }
+/* The sentence for a refused POST /api/runners/<p>/install. The reason lives at
+   `job.because` (and, since the Windows fix, at top-level `error` too); the old
+   wrappers read only `out.error || out.because`, so a Windows refusal arrived with
+   a real reason and the screen said "We could not start that install." with
+   nothing to do. Every reader of that route goes through this one function. */
+function runnerInstallRefusal(out) {
+  const said = out && (out.error || out.because || (out.job && out.job.because));
+  return said ? pjSentence(said) : 'We could not start that install. Check this computer is online, then try again.';
+}
 async function acctOpenaiLook() {
   try {
     const r = await (await fetch('/api/runners', { cache: 'no-store' })).json();
@@ -19644,13 +19653,15 @@ document.getElementById('acct-openai-install-go').addEventListener('click', asyn
   try {
     const res = await fetch('/api/runners/openai/install', { method: 'POST' });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not start that install.');
+    if (!res.ok) throw new Error(runnerInstallRefusal(out));
     if (msg) msg.textContent = 'Installing…';
     acctOpenaiWatch();
   } catch (err) {
     go.disabled = false;
-    showBar(false);
-    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
+    /* ⚠️ There was a `showBar(false)` here, and no showBar in this scope (it is a
+       local of the FIRST-RUN handler). It threw a ReferenceError inside the catch,
+       so the sentence below never painted and Settings sat on "Starting…". */
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install. Check this computer is online, then try again.');
   }
 });
 document.getElementById('acct-provider-pick').addEventListener('change', (e) => {
@@ -47152,20 +47163,37 @@ document.getElementById('fr-openai-confirm-go').addEventListener('click', async 
   try {
     const res = await fetch('/api/runners/openai/install', { method: 'POST' });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not start that install.');
+    if (!res.ok) throw new Error(runnerInstallRefusal(out));
     if (msg) msg.textContent = 'Installing\u2026 this screen will move on when it is done.';
-    /* Rough on purpose, and said out loud: this polls for the runner rather
-       than following the install job's own phases the way Settings does. It
-       is a holding shape for tonight -- the key box appears when the runner
-       appears. If it never does, the sentence above stays and nothing lies. */
+    /* Polls the runner AND its install job. It used to watch presence only, so an
+       install that FAILED after it started (a dropped connection, a checksum
+       refusal) left this sentence up for five minutes and then blamed slowness.
+       The job's own `failed` phase and reason end it at once, with the button
+       back, the same way Settings' acctOpenaiWatch does. */
     const started = Date.now();
     const tick = setInterval(async () => {
-      if (await frOpenaiRunnerPresent()) { clearInterval(tick); showBar(false); if (msg) msg.textContent = ''; frOpenaiShowPick(); return; }
-      if (Date.now() - started > 300000) { clearInterval(tick); showBar(false); if (msg) msg.textContent = 'That is taking longer than expected. Settings > Accounts can finish it.'; }
+      let o = null;
+      try { o = ((await (await fetch('/api/runners', { cache: 'no-store' })).json()).runners || {}).openai || null; } catch { o = null; }
+      if (o && o.present) { clearInterval(tick); showBar(false); if (msg) msg.textContent = ''; frOpenaiShowPick(); return; }
+      if (o && o.job && o.job.phase === 'failed') {
+        clearInterval(tick); showBar(false); go.disabled = false;
+        if (msg) msg.textContent = o.job.because ? pjSentence(o.job.because) : 'That install did not finish. Nothing changed; you can try again.';
+        return;
+      }
+      /* Ten minutes, not five: a ~140MB download plus antivirus scanning the
+         unpacked program can pass five on a slow line. And when it does run out,
+         Confirm comes BACK: this used to stop polling and leave the button
+         disabled, so the person had no way to try again from here. */
+      if (Date.now() - started > 600000) {
+        clearInterval(tick); showBar(false); go.disabled = false;
+        if (msg) msg.textContent = 'This is taking longer than expected. It may still be working, or it may be stuck. Press Confirm to check again, or finish it later in Settings > Accounts.';
+      }
     }, 2000);
   } catch (err) {
     go.disabled = false;
-    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install.');
+    // The bar is hidden on EVERY exit, as the comment above promises; this exit missed it.
+    showBar(false);
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that install. Check this computer is online, then try again.');
   }
 });
 // Paste-then-Enter is the natural gesture for this screen's non-technical
