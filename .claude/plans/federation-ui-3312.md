@@ -1,9 +1,9 @@
-# Federation UI — Add Project: New vs Join-External, invite-code, join+verify (#3312)
+# Federation UI, Add Project: New vs Join-External, invite-code, join+verify (#3312)
 
 Branch: `federation-ui-3312` · Repo: joshualeestone/kosmos · Owner: Mona Lisa · web/index.html
 
 ## Source of truth
-Josh, #chaoskosmos-design 2026-09-19 (wireframes ROUGH — IA + copy only; match the existing Kosmos design). Card #3312, umbrella #3311. Wireframes: ~/.cache/claude-handoffs/kosmos-federation-wireframes-2026-09-19/. Coordinator contract: ICK #3313 (~/work/kosmos-relay-fed-invite-3313/.claude/plans/fed-invite-3313.md).
+Josh, #chaoskosmos-design 2026-09-19 (wireframes ROUGH: IA + copy only; match the existing Kosmos design). Card #3312, umbrella #3311. Wireframes: ~/.cache/claude-handoffs/kosmos-federation-wireframes-2026-09-19/. Coordinator contract: ICK #3313 (~/work/kosmos-relay-fed-invite-3313/.claude/plans/fed-invite-3313.md).
 
 ## Done-condition
 - The Projects "+ New project" button reads "+ Add Project".
@@ -22,12 +22,12 @@ Josh, #chaoskosmos-design 2026-09-19 (wireframes ROUGH — IA + copy only; match
 
 ## Decisions (reversible)
 - Toggle style: two pills matching the wireframe (active = dark, inactive = outline), reusing the app's button tokens rather than a brand-new control language.
-- project_ref in the create-with-invite flow: the app supplies a stable local project id at invite time and reuses it on create (coordination point — see Weakest premise).
+- project_ref in the create-with-invite flow: the app supplies a stable local project id at invite time and reuses it on create (coordination point, see Weakest premise).
 - Invite panel is inline in the create form (per wireframe), not a modal.
 - Copy string is VERBATIM Josh copy; never reworded.
 
 ## Weakest premise
-The LOCAL /api/federation/* proxy routes do NOT exist yet (backend dependency: ICK coordinator + Baron transport + the local proxy in server.js). The UI is built against the contract and is testable with a mocked fetch; it must degrade honestly when the routes are absent (a clear "could not reach" state, never a fake success). The project_ref assignment in the create-with-invite flow (client-generated id vs create-then-invite) needs confirmation with ICK/Angel — the UI is structured so either resolution is a small change.
+The LOCAL /api/federation/* proxy routes do NOT exist yet (backend dependency: ICK coordinator + Baron transport + the local proxy in server.js). The UI is built against the contract and is testable with a mocked fetch; it must degrade honestly when the routes are absent (a clear "could not reach" state, never a fake success). The project_ref assignment in the create-with-invite flow (client-generated id vs create-then-invite) needs confirmation with ICK/Angel, the UI is structured so either resolution is a small change.
 
 ## Verification
 - node --test on the new UI logic (mode toggle, copy state, verify success/error rendering) via the page's real functions where the harness allows.
