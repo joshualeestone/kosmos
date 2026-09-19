@@ -1826,6 +1826,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     static var jsConfirmPresenter: ((String, @escaping (Bool) -> Void) -> Void)?
     static var jsPromptPresenter: ((String, String?, @escaping (String?) -> Void) -> Void)?
 
+    /* The OK/Cancel -> value mapping, pulled out as PURE functions so the button
+       logic is testable WITHOUT presenting a modal. The real NSAlert.runModal()
+       cannot be driven on a headless build box (it blocks the main thread and needs
+       a window server), so a stub-only self-test would leave this mapping - the one
+       place a logic inversion (Cancel answering true, or OK/Cancel swapped) would
+       ship silently - uncovered. The --kosmos-app-jspanels-selftest arm asserts
+       both responses against these, so the mapping is gated even though the modal
+       itself is not. `.alertFirstButtonReturn` is the FIRST-added button (OK). */
+    static func jsConfirmValue(_ resp: NSApplication.ModalResponse) -> Bool {
+        resp == .alertFirstButtonReturn
+    }
+    static func jsPromptValue(_ resp: NSApplication.ModalResponse, fieldText: String) -> String? {
+        resp == .alertFirstButtonReturn ? fieldText : nil   // Cancel -> nil (JS prompt() convention)
+    }
+
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
         var answered = false
@@ -1847,8 +1862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.messageText = message
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
-        // .alertFirstButtonReturn == the OK button; anything else (Cancel) is false.
-        respond(alert.runModal() == .alertFirstButtonReturn)
+        respond(AppDelegate.jsConfirmValue(alert.runModal()))
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
@@ -1864,8 +1878,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.accessoryView = field
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
-        // Cancel returns nil (JS prompt() convention), OK returns the field text.
-        respond(alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
+        // Focus the field so the person can type immediately (no click-first).
+        alert.window.initialFirstResponder = field
+        respond(AppDelegate.jsPromptValue(alert.runModal(), fieldText: field.stringValue))
     }
 
     /* 🛑 EVERY EXTERNAL LINK IN KOSMOS OPENED NOTHING IN THIS APP (#1416),
@@ -3407,6 +3422,18 @@ if CommandLine.arguments.contains("--kosmos-app-jspanels-selftest") {
     let frame = NSRect(x: 0, y: 0, width: 600, height: 300)
     let web = AppDelegate.makeWebView(frame: frame, delegate: d)
     print("uiDelegate:\(web.uiDelegate == nil ? "MISSING" : "set")")
+
+    // First, the PURE mapping the real (un-stubbed) NSAlert path uses. This is the one
+    // place a logic inversion would ship silently past the stub-driven arms below, so
+    // assert BOTH responses directly against the helpers (OK==first button, Cancel==second).
+    let mapOkTrue = AppDelegate.jsConfirmValue(.alertFirstButtonReturn) == true
+    let mapCancelFalse = AppDelegate.jsConfirmValue(.alertSecondButtonReturn) == false
+    let mapPromptOk = AppDelegate.jsPromptValue(.alertFirstButtonReturn, fieldText: "hi") == "hi"
+    let mapPromptCancel = AppDelegate.jsPromptValue(.alertSecondButtonReturn, fieldText: "hi") == nil
+    print("mapping:confirm-ok-true:\(mapOkTrue ? "yes" : "no")")
+    print("mapping:confirm-cancel-false:\(mapCancelFalse ? "yes" : "no")")
+    print("mapping:prompt-ok-text:\(mapPromptOk ? "yes" : "no")")
+    print("mapping:prompt-cancel-nil:\(mapPromptCancel ? "yes" : "no")")
 
     // Presenter stubs record that the delegate fired and answer programmatically
     // (no real modal). Scripted answers: confirm -> OK(true), prompt -> "typed".

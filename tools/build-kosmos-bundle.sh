@@ -467,7 +467,7 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   _js_out="$(perl -e 'alarm 40; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-jspanels-selftest 2>&1)" || _js_rc=$?
   printf '%s\n' "$_js_out" | sed 's/^/    /'
   _js_missing=""
-  for _js_want in "uiDelegate:set" "delegate-fired:alert:yes" "delegate-fired:confirm:yes" "delegate-fired:prompt:yes" "return-value:confirm-true:yes" "return-value:prompt-typed:yes"; do
+  for _js_want in "uiDelegate:set" "mapping:confirm-ok-true:yes" "mapping:confirm-cancel-false:yes" "mapping:prompt-ok-text:yes" "mapping:prompt-cancel-nil:yes" "delegate-fired:alert:yes" "delegate-fired:confirm:yes" "delegate-fired:prompt:yes" "return-value:confirm-true:yes" "return-value:prompt-typed:yes"; do
     case "$_js_out" in
       *"$_js_want"*) ;;
       *) [ -n "$_js_missing" ] || _js_missing="$_js_want" ;;
