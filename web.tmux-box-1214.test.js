@@ -79,14 +79,11 @@ test('it stays short, because shortening this page was a direct instruction', ()
 test('the word tmux appears only where macOS shows it first, never as Kosmos jargon', () => {
   /* Two rulings say Kosmos must not INTRODUCE this word. It is allowed only
      where macOS puts it on the screen first, and we mirror that: the Settings
-     box explains the prompts, and the S2 Access screen previews the real
-     file-access prompt. Both echo what macOS shows; neither is Kosmos coining
-     jargon. A fix that removes it from either takes away the explanation of a
-     word a person was handed. (#2685 added the S2 place; before it, the box was
-     the only one.) */
+     box explains the prompts. That echoes what macOS shows; it is not Kosmos
+     coining jargon. A fix that removes it takes away the explanation of a word a
+     person was handed.
+     2026-09-19 (Josh, 0.6.81 QA): the S2 Access screen's "tmux" file-access
+     PREVIEW box was removed (S2 now shows only the "Kosmos" preview), so the arm
+     that pinned it is gone; the Settings box remains the place that names tmux. */
   assert.match(boxText(), /"tmux"/, 'the Settings box stopped naming the word macOS shows');
-  // The S2 file-access preview mirrors the real "tmux" prompt; a revert of the
-  // #2685 relabel back to "Terminal" would break the invariant, so pin it here too.
-  assert.match(PAGE, /<p class="s2-say">"tmux" would like to access files/,
-    'the S2 file-access preview stopped naming tmux (reverted to Terminal?)');
 });

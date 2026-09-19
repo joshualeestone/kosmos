@@ -97,13 +97,17 @@ test('#2451: the S3 Automation gate names Kosmos, not tmux (the binary macOS sho
   // copy, not the attribute.
   assert.match(S3, /<span class="s3-gate-lbl">Kosmos<\/span>/, 'the app a11y gate row label reads "Kosmos"');
   assert.match(S3, /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small>/, 'the app mock Accessibility row names Kosmos');
-  assert.match(S3, /switch Kosmos and tmux to On/, 'the combined step caption asks to switch Kosmos on (#3075 one-box: Kosmos + tmux in one caption)');
+  assert.match(S3, /switch Kosmos to On/, 'the step caption asks to switch Kosmos on');
   assert.doesNotMatch(S3, /<span class="s3-gate-lbl">TMUX<\/span>/, 'the old uppercase "TMUX" mislabel of the APP row is gone (#2451)');
   assert.doesNotMatch(S3, /switch TMUX to On/, 'the old "switch TMUX to On" caption for the APP row is gone (#2451)');
-  // NOTE: #2911 legitimately reintroduces a LOWERCASE "tmux" mock + label -- but for the
-  // SEPARATE tmux-AX row (data-gate="tmux-a11y"), tmux's own grant, NOT a mislabel of the
-  // app row. That row is pinned by the dedicated #2911 test below. The #2451 fix here is
-  // only that the APP row (data-gate="tmux") reads "Kosmos", which the positive arms pin.
+  // 2026-09-19 (Josh, 0.6.81 QA): the bundled-tmux OWN-grant row (data-gate="tmux-a11y") was
+  // removed from onboarding, so S3 now shows a SINGLE "Kosmos" Accessibility row and no "tmux"
+  // row/switch/caption at all. Guard that the removed members stay absent (the-siblings-are-the-
+  // spec: assert the omission, since nothing else does).
+  assert.doesNotMatch(S3, /data-gate="tmux-a11y"/, 'the bundled-tmux own-grant gate row is gone (Josh, 0.6.81)');
+  assert.doesNotMatch(S3, /<span class="s3-mtxt">tmux<small>/, 'the tmux mock Accessibility switch row is gone (Josh, 0.6.81)');
+  assert.doesNotMatch(S3, /data-sw-gate="tmux-a11y"/, 'the tmux mock switch + overlay are gone (Josh, 0.6.81)');
+  assert.doesNotMatch(S3, /and tmux to On/, 'the caption no longer mentions tmux (Josh, 0.6.81)');
 });
 
 test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back to open-settings', () => {
@@ -129,83 +133,22 @@ test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back
     'the Settings button is unchanged and shares the endpoint');
 });
 
-test('#2911: S3 asks for tmux\'s OWN Accessibility grant (data-gate="tmux-a11y") and detects it via /api/tmux-a11y-status', () => {
-  // Josh (6.59 QA): "add a step 3 asking for accessibility for tmux ... turn on Kosmos,
-  // tmux, and accessibility." tmux holds a SEPARATE Accessibility grant from the app's;
-  // this tmux ask (folded into the combined caption + one-box mock at #3075, no longer a
-  // separate step-3 sub-step) still gates on tmuxGrant's live reading.
+// 2026-09-19 (Josh, 0.6.81 QA): the whole #2911 test was REMOVED. It asserted the bundled-tmux
+// OWN-grant row (data-gate="tmux-a11y"), its one-box mock/switch, the FR_GATES 'tmux-a11y' entry,
+// and the #3221 frFireTmuxA11yRegister up-front register -- ALL of which are gone now that the
+// installer no longer shows or asks for tmux's own Accessibility grant. The removal is guarded
+// positively by the doesNotMatch arms in the #2451 test above (the row/mock/switch/caption are
+// absent) and the 'tmux-a11y' FR_GATES-entry guard in the advisory-gates test below. The
+// server-side /api/tmux-a11y-status route + tmuxGrant() are Angel's separate native cleanup.
 
-  // The row + its visible copy (a distinct row from the app "Kosmos" one).
-  assert.match(S3, /data-gate="tmux-a11y"/, 'S3 carries the tmux-accessibility gate row (data-gate="tmux-a11y")');
-  assert.match(S3, /class="s3-gate-row" data-gate="tmux-a11y"[\s\S]{0,120}<span class="s3-gate-lbl">tmux<\/span>/,
-    'the tmux-a11y gate row label reads "tmux"');
-  assert.match(S3, /<span class="s3-mtxt">tmux<small>Control your computer<\/small>/, 'the tmux mock Accessibility row names tmux');
-  // #3075 one-box: the tmux ask folded into the combined "2 - switch Kosmos and tmux to On"
-  // caption (asserted positively at the #2451 test above); the tmux ROW, SWITCH and GATE here
-  // carry the rest. Guard the fold itself: the separate step-3 "switch tmux to On" caption must
-  // NOT come back (distinct from the #2451 uppercase-"TMUX" guard, which is about a mislabel).
-  assert.doesNotMatch(S3, /switch tmux to On/, 'the retired separate "3 - switch tmux to On" caption stays folded into the combined one (#3075)');
-  // #3075 ONE-BOX invariant, pinned STRUCTURALLY (the other asserts here are independent and
-  // would all stay green if the panel were split back into two adjacent .s3-mock windows).
-  // The tempered [\s\S] refuses to cross a second `<div class="s3-mock`, so BOTH switches must
-  // sit inside a SINGLE mock for this to match; a two-mock regression breaks it.
-  assert.match(
-    S3,
-    /<div class="s3-mock" data-win-hide>(?:(?!<div class="s3-mock")[\s\S])*?data-sw-gate="tmux"(?:(?!<div class="s3-mock")[\s\S])*?data-sw-gate="tmux-a11y"/,
-    'both the Kosmos and tmux switches sit inside ONE .s3-mock (the #3075 one-box Accessibility panel)',
-  );
-
-  // FR_GATES routes it to the tmux-a11y status endpoint, granting only on trusted:true.
-  assert.match(PAGE, /'tmux-a11y':\s*\{[\s\S]*?url:\s*'\/api\/tmux-a11y-status',[\s\S]*?granted:\s*\(r\)\s*=>[\s\S]*?r\.trusted === true/,
-    'the tmux-a11y gate reads /api/tmux-a11y-status and grants only on trusted:true');
-
-  // The route serves tmuxGrant() and maps present:false -> advisory (never a trap).
-  const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  const rstart = SERVER.indexOf("pathname === '/api/tmux-a11y-status'");
-  assert.ok(rstart > -1, 'the /api/tmux-a11y-status route exists');
-  const rnext = SERVER.indexOf('if (pathname ===', rstart + 1);
-  const rcode = SERVER.slice(rstart, rnext > -1 ? rnext : rstart + 2000).replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.match(rcode, /a11ystatus\.tmuxGrant\(\)/, 'the tmux-a11y route serves tmuxGrant()');
-  assert.match(rcode, /present === false/, 'the route maps present:false (tmux not yet listed) to a non-blocking reading (never a trap, #2912)');
-
-  // #3221: the tmux row's "Turn On" NO LONGER fires the osascript register trigger. On Josh's
-  // 0.6.78 fresh box that op surfaced the wrong (System Events / Open-Terminal) Automation
-  // prompt. The register now fires UP FRONT at S3 entry (frFireTmuxA11yRegister), so "Turn On"
-  // only DEEP-LINKS to the Accessibility pane where tmux is already listed. Lands with the
-  // native honest-copy half (#3113/#3274). Three arms pin the moved behavior:
-  const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
-  const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));
-  // (1) the s3PermissionTargets map's trigger arm no longer FIRES tmux-a11y-prompt (the
-  // osascript register is gone from the click path -- moved to S3 entry). Pinned on the map's
-  // executable arm rather than the whole slice, so the history comments may still name the
-  // endpoint without tripping this.
-  const targetsMap = handler.slice(handler.indexOf('const s3PermissionTargets'), handler.indexOf('});', handler.indexOf('const s3PermissionTargets')));
-  assert.doesNotMatch(targetsMap, /tmux-a11y-prompt/,
-    'the s3PermissionTargets map no longer wires any gate to /api/tmux-a11y-prompt (#3221 -- register moved to S3 entry)');
-  assert.match(targetsMap, /trigger:\s*gate === 'tmux' \? '\/api\/a11y-prompt' : null/,
-    'only the app row (data-gate="tmux") keeps a trigger; every other gate (incl. tmux-a11y) is trigger-null (#3221)');
-  // (2) the tmux-a11y Turn On deep-links to the Accessibility pane (shared fallback, app row).
-  assert.match(handler, /gate === 'tmux' \|\| gate === 'tmux-a11y'\)\s*\?\s*'\/api\/open-accessibility-settings'/,
-    'the tmux-a11y Turn On deep-links to the Accessibility pane (shared fallback with the app row)');
-  // (3) the register moved UP FRONT: frFireTmuxA11yRegister POSTs the register, and entering
-  // the S3 step calls it (so tmux is listed by the time the person reaches "Turn On").
-  assert.match(PAGE, /async function frFireTmuxA11yRegister\(\)\s*\{[\s\S]*?fetch\('\/api\/tmux-a11y-prompt'/,
-    'frFireTmuxA11yRegister POSTs /api/tmux-a11y-prompt up front (#3221)');
-  const s3start = PAGE.indexOf('} else if (step === 3) {');
-  const s3block = PAGE.slice(s3start, PAGE.indexOf('} else if (step === 4) {', s3start));
-  assert.match(s3block, /frFireTmuxA11yRegister\(\)/,
-    'entering the S3 Automation step calls frFireTmuxA11yRegister (register up front, not on Turn On -- #3221)');
-  // and the register is macOS-only + at-most-once (the tmux-a11y row is data-win-hide).
-  assert.match(PAGE, /function frFireTmuxA11yRegister\(\)\s*\{\s*if \(FR_TMUX_A11Y_REGISTER_FIRED \|\| onWindows\(\)\) return;/,
-    'the up-front register is macOS-only and fires at most once per session (#3221)');
-});
-
-test('#3113: the not-yet-listed tmux row is ACTIONABLE (Not activated + Turn On), never a dead "Checking..."', () => {
-  // Josh's screenshot: the tmux row sat forever on "Checking..." with no affordance because
-  // tmuxGrant reports present:false (tmux not yet in Accessibility) and the route mapped that to
-  // a plain uncheckable reading. The fix keeps it NON-BLOCKING (the #2912 fail-safe) but flags
-  // it actionable, so the poll paints the DEFAULT "Not activated" + Turn On state instead of the
-  // spinner. Three layers pin this end to end:
+test('#3113: an actionable-but-uncheckable gate paints Turn On, never a dead "Checking..." (generic machinery)', () => {
+  // 2026-09-19 (Josh, 0.6.81 QA): the tmux-a11y ROW that originally drove this was removed from
+  // onboarding. The GENERIC actionable machinery below (frReadGate / frPollGates) and the server
+  // /api/tmux-a11y-status route it reads are retained (Angel owns the native route cleanup), so
+  // these arms still exercise real, surviving code -- they now pin the machinery, not a live row.
+  // Original context (#3113): a not-yet-listed subject reports present:false; the route keeps it
+  // NON-BLOCKING (the #2912 fail-safe) but flags it actionable, so the poll paints the DEFAULT
+  // "Not activated" + Turn On state instead of a spinner. Three layers pin this end to end:
 
   // (1) The route flags the present:false verdict actionable (and keeps it non-blocking).
   const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
@@ -369,14 +312,14 @@ test('#2587/#2559/#2911: only sleep is advisory; the accessibility gates block N
   // #2587: a laptop that sleeps on battery cannot satisfy the sleep permission (macOS has
   // no never-sleep-on-battery switch), so that step never walls the user in -- sleep is
   // ADVISORY.
-  // #2559/#2911 (Josh 2026-09-14): the accessibility rows are RE-GATED. The app grant
-  // (data-gate="tmux") and tmux's own grant (data-gate="tmux-a11y") both BLOCK Next when
-  // measured-not-granted. #2912 had made the app row advisory because its native
-  // AXIsProcessTrusted reading false-negatived a just-granted permission; #2559 upgraded
-  // the source to a LIVE TCC-db read (appGrant / tmuxGrant) that flips the instant the
+  // #2559/#2911 (Josh 2026-09-14): the app accessibility row is RE-GATED. The app grant
+  // (data-gate="tmux") BLOCKS Next when measured-not-granted. #2912 had made it advisory
+  // because its native AXIsProcessTrusted reading false-negatived a just-granted permission;
+  // #2559 upgraded the source to a LIVE TCC-db read (appGrant) that flips the instant the
   // toggle does, so re-gating is now trap-free (uncheckable never blocks). So ONLY sleep
-  // carries gatesNext:false now; the two accessibility rows gate. The sleep row still
-  // shows the honest laptop note; there is no "Continue anyway" button.
+  // carries gatesNext:false now; the app accessibility row gates. (The bundled-tmux own-grant
+  // row was removed 2026-09-19, Josh 0.6.81.) The sleep row still shows the honest laptop
+  // note; there is no "Continue anyway" button.
 
   // 1. sleep is non-gating (gatesNext:false) and keeps its battOnly predicate.
   // 🔑 Judge CODE, not the comments: these blocks describe gatesNext:false in prose
@@ -386,18 +329,18 @@ test('#2587/#2559/#2911: only sleep is advisory; the accessibility gates block N
   assert.ok(frSleep.length > 0, 'the FR_GATES.sleep block was not bounded (markers moved)');
   assert.match(frSleep, /gatesNext:\s*false/, 'FR_GATES.sleep is not marked gatesNext:false, so it would still gate Next');
   assert.match(frSleep, /battOnly:\s*\(r\)\s*=>\s*r\.battOnly === true/, 'FR_GATES.sleep lost its battOnly predicate');
-  // 1b. the accessibility rows GATE now (#2559/#2911): neither carries gatesNext:false.
-  //     Bound each block to the NEXT key so the slice does not run past into a sibling.
-  const frTmux = codeOnly(PAGE.slice(PAGE.indexOf("'tmux': {"), PAGE.indexOf("'tmux-a11y': {")));
+  // 1b. the app accessibility row GATES now (#2559/#2911): it does not carry gatesNext:false.
+  //     tmux is the LAST FR_GATES entry (the 'tmux-a11y' entry was removed 2026-09-19), so bound
+  //     its block by the FR_GATES closing `\n};` rather than the removed 'tmux-a11y' key.
+  const frTmux = codeOnly(PAGE.slice(PAGE.indexOf("'tmux': {"), PAGE.indexOf('\n};', PAGE.indexOf("'tmux': {"))));
   assert.ok(frTmux.length > 0, 'the FR_GATES.tmux block was not bounded (markers moved)');
   assert.doesNotMatch(frTmux, /gatesNext:\s*false/, 'FR_GATES.tmux (app accessibility) must GATE now (#2559 re-gate): no gatesNext:false');
-  const frTmuxA11y = codeOnly(PAGE.slice(PAGE.indexOf("'tmux-a11y': {"), PAGE.indexOf('\n};', PAGE.indexOf("'tmux-a11y': {"))));
-  assert.ok(frTmuxA11y.length > 0, 'the FR_GATES.tmux-a11y block was not bounded (markers moved)');
-  assert.doesNotMatch(frTmuxA11y, /gatesNext:\s*false/, 'FR_GATES.tmux-a11y (tmux accessibility) must GATE (#2911): no gatesNext:false');
+  // The bundled-tmux own-grant entry (data-gate="tmux-a11y") is gone; guard it stays gone.
+  assert.doesNotMatch(PAGE, /'tmux-a11y':\s*\{/, "the FR_GATES 'tmux-a11y' entry was removed (Josh, 0.6.81)");
   const frGatesStart = PAGE.indexOf('const FR_GATES = {');
   const frGatesBlock = codeOnly(PAGE.slice(frGatesStart, PAGE.indexOf('\n};', frGatesStart)));
   assert.equal((frGatesBlock.match(/gatesNext:\s*false/g) || []).length, 1,
-    'only sleep is advisory now (gatesNext:false); S2 file-access and both S3 accessibility rows gate');
+    'only sleep is advisory now (gatesNext:false); S2 file-access and the S3 app-accessibility row gate');
 
   // 2. frReadGate surfaces battOnly alongside the state (for the note).
   const frs = PAGE.indexOf('async function frReadGate(');

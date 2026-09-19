@@ -48,14 +48,12 @@ const ENGINES = ['chromium', 'webkit'];
 /* The Mac-only surfaces, found by identity, and the words each platform must show. */
 const MAC_ONLY = {
   'S3 Energy mock': '.s3-mock:has(.s3-sw[data-sw-gate="sleep"])',
-  // #3075: ONE Accessibility mock now holds BOTH the Kosmos and tmux switch rows, so this
-  // single .s3-mock (matched via the Kosmos switch) covers the whole panel's Windows-hiding.
-  // The separate 'S3 tmux Accessibility mock' key is gone -- .s3-mock:has(tmux-a11y) resolved
-  // to this same element after consolidation. The tmux grant still has its own win-hidden
-  // STATUS row below (data-gate="tmux-a11y"), kept as distinct coverage.
-  'S3 Accessibility mock (Kosmos + tmux rows)': '.s3-mock:has(.s3-sw[data-sw-gate="tmux"])',
+  // The Accessibility mock holds the single Kosmos switch row (matched via the Kosmos switch),
+  // which covers the panel's Windows-hiding. 2026-09-19 (Josh, 0.6.81 QA): the bundled-tmux
+  // own-grant switch row and its 'S3 tmux Accessibility gate row' status row were removed from
+  // onboarding, so only the app (Kosmos) mock + gate row remain.
+  'S3 Accessibility mock (Kosmos row)': '.s3-mock:has(.s3-sw[data-sw-gate="tmux"])',
   'S3 Accessibility gate row': '.s3-gate-row[data-gate="tmux"]',
-  'S3 tmux Accessibility gate row': '.s3-gate-row[data-gate="tmux-a11y"]',
   'S7 Dock drawing': '#fr-success',
   'Settings Accessibility button': '#set-a11y-open',
   'Settings tmux box': 'section.dbox[data-win-hide]',
