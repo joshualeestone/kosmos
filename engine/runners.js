@@ -704,8 +704,8 @@ const NETWORK_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNR
 function plainFailure(err, m, stage) {
   const raw = String((err && err.message) || err || '').trim();
   if (err && err.plain) return raw;
-  console.warn(`[runners] ${m.name} install failed at ${stage}: ${raw}`);
-  const name = m.name;
+  const name = (m && m.name) || 'the runner';
+  console.warn(`[runners] ${name} install failed at ${stage}: ${raw}`);
   if (stage === 'download') {
     if (err && NETWORK_CODES.has(err.code)) {
       return `we could not reach the download server for ${name}. Check this computer is online, then try again`;
@@ -1012,7 +1012,7 @@ function install(provider, opts) {
               // The raw child error (a path, an errno, "Command failed") goes to
               // the board's log for whoever diagnoses it, never to the screen.
               console.warn(`[runners] ${provider} prove failed: ${String(err.message || err).trim()}`);
-              reject(new Error(`${m.name} was downloaded but did not run on this computer, so it was not installed; you can try again`));
+              reject(new Error(`${m.name || 'the runner'} was downloaded but did not run on this computer, so it was not installed; you can try again`));
               return;
             }
             job.proved = String(stdout || '').trim();
