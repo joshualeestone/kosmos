@@ -2864,72 +2864,6 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pjfaces > [aria-hidden] { display: flex; align-items: center; gap: 5px; }
 .pjfaces .lav { width: 22px; height: 22px; font-size: .625rem; }
 .pjcount { font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
-/* #2458 Map view: the Projects tab's third layout, an org chart of the project
-   tree drawn top-down (Kosmos at the root, sub-projects nested under their
-   parents). Ported from Mona's design/subprojects.html "The Map". The class
-   names are prefixed (.pjorg and .pjonode) because bare `.onode` is the AGENTS
-   org-view node, styled globally with circular avatars -- reusing it would cross
-   the two views.
-   It scrolls sideways for a wide fleet, the honest trade for never wrapping or
-   truncating the shape. It is a seeing view, so the nodes are static (design:
-   "Grid for working, Map for seeing"). */
-/* #2458: scroll in BOTH directions -- sideways for a wide fleet (the spec's honest
-   trade for never truncating), and down for a deep tree, bounded so a big map
-   scrolls within the panel rather than shoving the page. */
-.pjorgwrap { overflow: auto; padding: 6px 0 2px; max-height: min(68vh, 620px); }
-/* The node + its fold disclosure stack, so the disclosure reads as sitting at the
-   junction down to the branch it folds. */
-.pjnodewrap { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; }
-/* #2458 (Mona): the connector lines are how the Map draws the SHAPE, so on the map
-   they are load-bearing, not a generic divider. Give them a dedicated colour a step
-   darker than --k-rule -- aimed near 3:1 on the card surface -- kept a thin 1px
-   hairline (deepened, not thickened). It is a color-mix of two theme-aware tokens, so
-   it adapts to dark on its own; --k-rule itself is left untouched for borders and
-   dividers elsewhere. */
-.pjorg { display: flex; justify-content: center; min-width: max-content; --pj-connector: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule)); }
-.pjorg ul { position: relative; padding-top: 19px; display: flex; justify-content: center; margin: 0; list-style: none; }
-.pjorg li { list-style: none; position: relative; padding: 19px 9px 0; text-align: center; }
-.pjorg li::before, .pjorg li::after { content: ""; position: absolute; top: 0; right: 50%; width: 50%; height: 19px; border-top: 1px solid var(--pj-connector); }
-.pjorg li::after { right: auto; left: 50%; border-left: 1px solid var(--pj-connector); }
-.pjorg li:only-child { padding-top: 0; }
-.pjorg li:only-child::before, .pjorg li:only-child::after { display: none; }
-.pjorg li:first-child::before, .pjorg li:last-child::after { border: 0 none; }
-.pjorg li:last-child::before { border-right: 1px solid var(--pj-connector); }
-.pjorg ul ul::before { content: ""; position: absolute; top: 0; left: 50%; width: 0; height: 19px; border-left: 1px solid var(--pj-connector); }
-/* A project node is a BUTTON that opens the project, so it carries the button reset
-   (font/colour inherit, no UA chrome) on top of the card look. The Kosmos root is a
-   plain div (`.top`), not clickable, so it keeps the default cursor. */
-.pjonode { appearance: none; display: inline-flex; flex-direction: column; gap: 1px; align-items: center; border: 1px solid var(--k-rule); border-radius: 10px; padding: 7px 13px; background: var(--k-surface); min-width: 70px; font: inherit; color: inherit; cursor: pointer; text-align: center; }
-.pjonode.top { cursor: default; }
-.pjonode:hover:not(.top) { border-color: var(--k-ink-2); }
-.pjonode:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-/* The fold disclosure: a quiet triangle, muted like the connectors, its own button
-   so a fold click never opens the project. */
-/* A 24x24 hit area (WCAG 2.2 SC 2.5.8 target-size minimum) around the small triangle,
-   so a touch/low-dexterity user has a real target even though the glyph reads quiet. */
-.pjfold { appearance: none; background: none; border: 0; color: var(--k-ink-2); font-size: .7rem; line-height: 1; cursor: pointer; border-radius: 5px; min-width: 24px; min-height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
-.pjfold:hover { color: var(--k-ink); }
-.pjfold:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
-.pjonode.top { border-color: color-mix(in srgb, var(--gold-deep) 55%, var(--k-rule)); background: color-mix(in srgb, var(--gold-deep) 7%, var(--k-surface)); }
-.pjonode.attn { border-color: color-mix(in srgb, #b3261e 45%, var(--k-rule)); }
-.pjonode .pjonm { font-weight: 600; font-size: .8125rem; color: var(--k-ink); white-space: nowrap; }
-.pjonode .pjoc { font-size: .625rem; color: var(--k-ink-2); }
-.pjonode .pjoc.a { color: #b3261e; }
-/* The #b3261e attn red is a ~2:1 whisper on the dark surface, under WCAG AA for
-   the 10px "needs you" line and under 3:1 for the node border. Lighten both to
-   #ff8c82 in dark, the exact colour the sibling agents org-view already uses for
-   its dark attn ring -- in both dark spellings (system and the explicit toggle). */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .pjonode.attn { border-color: #ff8c82; }
-  :root:not([data-theme="light"]) .pjonode .pjoc.a { color: #ff8c82; }
-}
-/* (the :root[data-theme="dark"] forced twins are generated by
-   tools/sync-forced-theme.js into the GENERATED section, not hand-written here.) */
-/* Map mode swaps the list for the org chart: the list, its message line, and the
-   archived disclosure step aside (the map draws active projects only), and
-   #pj-map (hidden by default) is revealed by JS toggling its `hidden`. `!important`
-   so this beats the consolidated-layout display rules on #pj-list. */
-body.pj-mapmode #pj-list, body.pj-mapmode #pj-list-msg, body.pj-mapmode #pj-arch-wrap { display: none !important; }
 /* #1994 sub-projects. Two ways the same relationship is shown, one per view:
    an INDENT in the wide Projects-tab list (the only place with room for a
    tree), and an ANCESTRY LINE everywhere the row is narrow or tiled (the asgrid
@@ -3110,55 +3044,6 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
 .pj-rm-foldctl { display: inline-flex; gap: 14px; }
 .pj-rm-foldctl .linkish { font-size: .8125rem; }
 
-/* 🛑 #3276 follow-up: delete. This entire #3135 multi-column block is now UNREACHABLE
-   in the live UI -- the old List view it styled is retired, and whenever
-   #pj-list:not(.asgrid) is true outside consolidated, body.pj-roadmap is ALSO true (they
-   are written together in layoutApply), so the higher-specificity .pj-roadmap roadmap
-   rules above win on every property this block sets. It is kept for now only so
-   render-subproject-columns-3135.js still passes; both this block and that check are
-   slated for the same mechanical cleanup as the retired Map code (see the plan's
-   decisions section). Inert, not harmful -- it can only mislead a reader. */
-/* #3135 (Josh, 6.68): the hierarchical (subprojects) LIST view kept every
-   project HEADLINE at 100% width, so a long tree ran down the page one row per
-   line and half the projects fell off screen ("I can't even see half of my
-   projects... keep everything inside of one page"). Flow the list into
-   RESPONSIVE MULTIPLE COLUMNS (as many ~20rem columns as the page is wide
-   enough for) so headlines are no longer full width and far more projects fit
-   on one page -- the literal "wrap" Josh asked for, hierarchy KEPT.
-   Multi-column (not a wrapping grid) is deliberate: content flows top-to-bottom
-   within a column, so a child still sits directly under its parent. A column
-   break may fall only BEFORE a top-level row (break-before:avoid on every
-   .child), so in the common case a top-level project plus its whole subtree
-   stay together in one column. break-before/break-inside are advisory hints,
-   NOT hard guarantees: a single subtree taller than a balanced column can still
-   be split as a last resort, and because this view hides the ancestry chip on a
-   .child (the indent normally carries depth, rule 2953), an orphaned child then
-   shows its indent but no parent name. That residual is rare (a pathologically
-   tall single subtree) and is the accepted tradeoff of a CSS-only, zero-markup
-   reflow; the mechanism removes it for every ordinary tree. Scoped to the
-   non-consolidated LIST sub-view, so the consolidated rail, the grid tile view,
-   drag and fold are all untouched. The per-depth indent (rule above) and the
-   ancestry-chip fallback are both unchanged -- depth still reads inside a
-   subtree group. */
-body:not(.consolidated) #pj-list:not(.asgrid) { display: block; column-width: 20rem; column-gap: 24px; }
-/* Compact each row to a column-width card: title + status on the first line,
-   description then agents stacked under it. This is the shape the base rule's
-   narrow-window (<52rem) collapse produces, now applied at EVERY width -- so the
-   tab list view is UNCONDITIONALLY compact and columnised, and both the base
-   four-column grid-template AND its <52rem media collapse are superseded here
-   (do not read them as "four columns when wide": they no longer render in this
-   view). The base rule text is left verbatim -- it is pinned by
-   web.project-rows.test.js and still supplies this view's display:grid, padding,
-   column-gap and truncation -- so only its grid-template-columns and the
-   pc-t/pjfaces/pjpill placements are overridden below, by higher specificity. */
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row {
-  grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 14px;
-  break-inside: avoid; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child {
-  break-before: avoid; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pc-t { grid-column: 1; grid-row: 2; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjfaces { grid-column: 1; grid-row: 3; }
-body:not(.consolidated) #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 2; grid-row: 1; }
 /* The pack's .pc-t, name included: the pack spends `.pjdesc` on the DETAIL
    page's description (.9375rem/1.45), so the card's sentence takes the
    card's own pack class or the pjone rebuild inherits 14px by collision. */
@@ -7794,9 +7679,6 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 :root[data-theme="dark"] .chk.ok .chk-m { color: var(--gold-deep); }
 :root[data-theme="dark"] .chk.att .chk-m { background: rgba(255,140,130,.13); border-color: rgba(255,140,130,.5); color: #ff8c82; }
 
-:root[data-theme="dark"] .pjonode.attn { border-color: #ff8c82; }
-:root[data-theme="dark"] .pjonode .pjoc.a { color: #ff8c82; }
-
 :root[data-theme="dark"] .msg-av { background: rgba(245,245,244,.10); }
 
 :root[data-theme="dark"] .pj-member small.pj-attn { color: #ff8c82; }
@@ -11447,12 +11329,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </span>
     </div>
     <div id="pj-list" class="pj-list"></div>
-    <!-- #3276: the org-chart Map layout is retired from the toggle (Josh: two views
-         only). This container is now unreachable; its removal, together with
-         paintProjectsMap / pjMapNode / PJ_MAP_FOLDED / pjHasSubprojects and the #pj-map
-         click delegate, is tracked as the #3276 follow-up cleanup. Kept for now so the
-         boot-time #pj-map click delegate does not throw (getElementById would be null). -->
-    <div id="pj-map" class="pjorgwrap" hidden></div>
     <!-- ⚠️ Absent entirely when nothing is archived (hidden on the WRAP, same
          lesson as the removed-agents section: an empty "Archived (0)"
          teaches the person to ignore this corner). The count in
@@ -30987,17 +30863,17 @@ function placeCreatePanel(consolidated) {
   }
 }
 /* #3052 (Josh, 6.63 testing): the consolidated view's projects panel used to
-   inherit whatever layout the Projects TAB was last left on (grid/list/map),
-   because both read the one body.pj-mapmode / #pj-list.asgrid state. If the tab
-   was on the Map (the project org-chart), the consolidated panel -- a narrow
-   column -- drew that org chart, where Josh "can't see anything". The consolidated
-   projects panel needs its OWN view specific to projects: the readable list.
+   inherit whatever layout the Projects TAB was last left on (grid/list),
+   because both read the one #pj-list.asgrid state. When the tab was on a wide
+   layout the consolidated panel -- a narrow column -- drew it too, where Josh
+   "can't see anything". The consolidated projects panel needs its OWN view
+   specific to projects: the readable list.
 
    This is the projects analogue of the Agents pack, which boardApplyVisibility
    already forces to 'list' in the consolidated view (`consolidated ? 'list' :
    BOARD_LAYOUT`) without touching the pack's saved BOARD_LAYOUT. Here we do the
    same for projects: in the consolidated view force the list for DISPLAY (drop
-   pj-mapmode, hide the map container, drop the grid class) and NEVER write
+   the grid class) and NEVER write
    localStorage, so returning to the tab view restores the person's chosen mode.
    On the way OUT of consolidated, re-apply the saved projects layout -- the
    parallel of showTab's `if (wasCons && !cons) boardApplyVisibility(agents)`.
@@ -31011,15 +30887,12 @@ function placeCreatePanel(consolidated) {
 function placeProjectsView(cons, wasCons) {
   if (cons) {
     // Consolidated: this panel's own view is the list. Display-only, no storage write.
-    document.body.classList.remove('pj-mapmode');
     /* #3276: also clear pj-roadmap, which the tab Roadmap leaves set. Harmless today
        (every .pj-roadmap CSS rule also requires :not(.consolidated), and applyConsFold's
        treeMode is already true from `cons` here), but clearing it keeps the invariant
        "pj-roadmap implies the tab Roadmap is showing" true, so a future CSS rule or JS
        read of pj-roadmap without a paired consolidated check cannot misbehave. */
     document.body.classList.remove('pj-roadmap');
-    const map = document.getElementById('pj-map');
-    if (map) map.hidden = true;
     const list = document.getElementById('pj-list');
     if (list) list.classList.remove('asgrid');
   } else if (wasCons) {
@@ -31186,7 +31059,6 @@ window.addEventListener('resize', () => {
   const want = layoutConsolidated() && (URL_TAB === 'agents' || URL_TAB === 'projects');
   if (document.body.classList.contains('consolidated') !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
   else if (document.body.classList.contains('consolidated')) railFoldsApply();
-  pjMapFit();   // #3217: re-fit the projects map to the new panel width (no-op when the map is hidden)
 });
 function applyStyle(tokens) {
   const root = document.documentElement;
@@ -37237,10 +37109,8 @@ function paintProjects() {
       if (sortSel.value !== want) sortSel.value = want;
     } }
   /* #3276: the org-chart Map is retired from the toggle, so its per-poll button-gating
-     and map-refresh (the old #2458 block here, which drove pjHasSubprojects /
-     paintProjectsMap and toggled the map button) are gone. Both views now draw from
-     #pj-list, painted below. The now-unused map functions are deleted in the #3276
-     follow-up. */
+     and map-refresh (the old #2458 block here) are gone. Both views now draw from
+     #pj-list, painted below. (#3279 removed the now-unreachable map functions.) */
   // Archived rows leave this list and live in the disclosure below it. The
   // split happens here, once, so the count the disclosure shows is derived
   // from the same rows it renders and can never disagree with them.
@@ -37344,27 +37214,6 @@ function paintProjects() {
   applyConsFold();
 }
 
-/* #2458: the Projects tab Map layout -- an org chart of the project tree, drawn
-   top-down with a synthetic Kosmos root, every top-level project hanging off it,
-   and sub-projects nested under their parents. It shares pjTreeRows' grouping
-   shape (parent -> children, a child of a non-active parent floats to the top
-   level) and its three invariants (never drop, never loop, never disagree): the
-   `seen` guard stops a bad record looping or doubling a node, and a cycle-trapped
-   project still shows as a top-level child of Kosmos rather than vanishing. A
-   seeing view (design: "Grid for working, Map for seeing"), so the nodes are
-   static: a name and a count line (needs you / N agents / idle). */
-/* #2458: does any ACTIVE project actually name an active parent? Only then is there a
-   tree to draw, and only then does the Map toggle earn its place. Mirrors the tree
-   build's own "parent in active" test so the toggle and the render agree. */
-function pjHasSubprojects() {
-  const active = PROJECTS.filter((p) => !p.archived);
-  const ids = new Set(active.map((p) => p.id));
-  return active.some((p) => p.parent && ids.has(p.parent));
-}
-/* #2458: which sub-project branches the person has manually folded away, by project
-   id. Module-level so it survives the re-render on every data poll -- FULLY EXPANDED
-   is the default (empty set), nothing auto-folds. Cleared entries reappear expanded. */
-let PJ_MAP_FOLDED = new Set();
 /* #2929/#3276: the fold state for the indented tree, by project id. Shared by the
    consolidated rail (#2929) AND the tab Roadmap (#3276) -- both are #pj-list:not(.asgrid)
    and fold the same rows the same way, so one fold set is correct (they never show at the
@@ -37438,160 +37287,6 @@ function pjManualOrderActive() {
    (it clears the flag when no .pj-dragging row is present), so a future un-guarded writer
    degrades to a lost drag, never a frozen board. */
 let PJ_DRAGGING = false;
-/* A project node in the Map. The node itself is a BUTTON that opens the project
-   (`data-project`, the same handle the cards use). A parent additionally gets a fold
-   disclosure -- a SEPARATE button (`data-pjfold`, checked first in the click delegate;
-   distinct from the rail column-fold's `data-fold` so a global sweep cannot cross them),
-   so folding a branch never also opens the project -- stacked under the node so it
-   reads as sitting at the junction to the children. Leaves get no disclosure (the
-   spec's `.disc.leaf` hidden case). */
-function pjMapNode(p, hasKids, folded) {
-  const s = p.summary || {};
-  const attn = (s.needsYou || 0) > 0;
-  const statusText = attn ? 'needs you'
-    : (Number(s.total) > 0 ? Number(s.total) + (Number(s.total) === 1 ? ' agent' : ' agents') : 'idle');
-  const line = '<span class="pjoc' + (attn ? ' a' : '') + '">' + statusText + '</span>';
-  /* The status ("needs you" / "N agents" / "idle") is the Map's PRIMARY signal, and an
-     explicit aria-label OVERRIDES the subtree, so naming only "Open <name>" would hide
-     the needs-you state from a screen reader in the one view whose whole job is that
-     signal. Fold the status into the accessible name. */
-  const node = '<button type="button" class="pjonode' + (attn ? ' attn' : '') + '" data-project="' + esc(p.id) + '"'
-    + ' aria-label="Open ' + esc(p.name) + ', ' + statusText + '"><span class="pjonm">' + esc(p.name) + '</span>' + line + '</button>';
-  const fold = hasKids
-    ? '<button type="button" class="pjfold" data-pjfold="' + esc(p.id) + '" aria-expanded="' + (folded ? 'false' : 'true')
-      + '" aria-label="' + (folded ? 'Unfold ' : 'Fold ') + esc(p.name) + '’s sub-projects">'
-      + (folded ? '▸' : '▾') + '</button>'
-    : '';
-  return '<span class="pjnodewrap">' + node + fold + '</span>';
-}
-function paintProjectsMap() {
-  const wrap = document.getElementById('pj-map');
-  if (!wrap) return;
-  const active = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT);
-  if (!active.length) {
-    /* TWO empty states, matching the list's exactly, or the two layouts contradict
-       each other: genuinely no projects, versus projects that all happen to be
-       archived. Collapsing them would tell someone who archived everything "No
-       projects yet. Point Kosmos at a folder" -- false, and the opposite of what
-       the list says one toggle away. */
-    setIfChanged(wrap, PROJECTS.length
-      ? '<div class="pj-empty"><p><b>Nothing here right now.</b><br>Everything you have is archived.</p></div>'
-      : '<div class="pj-empty"><p><b>No projects yet.</b><br>Point Kosmos at a folder you already have, and put an agent on it.</p></div>');
-    return;
-  }
-  const inActive = new Set(active.map((p) => p.id));
-  // Prune fold state to live projects: a folded project that is later archived or
-  // deleted must not leave a stale id lingering in the set.
-  for (const id of PJ_MAP_FOLDED) { if (!inActive.has(id)) PJ_MAP_FOLDED.delete(id); }
-  const kids = new Map();                 // parent id -> [children], top level under ''
-  for (const p of active) {
-    const par = (p.parent && inActive.has(p.parent)) ? p.parent : '';
-    if (!kids.has(par)) kids.set(par, []);
-    kids.get(par).push(p);
-  }
-  const seen = new Set();
-  /* Mark a FOLDED subtree seen without drawing it, so the stranded backstop does not
-     redraw a hidden branch's members at the top level: folded means hidden, not gone. */
-  const markSeen = (parentId) => {
-    for (const c of (kids.get(parentId) || [])) {
-      if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      markSeen(c.id);
-    }
-  };
-  // One project's children as <li> items; recurse into a child's kids unless the
-  // child is folded (then mark them seen but do not draw them).
-  const liItems = (parentId) => (kids.get(parentId) || [])
-    .filter((c) => !seen.has(c.id))       // cycle guard: never render a node twice
-    .map((c) => {
-      seen.add(c.id);
-      const hasKids = (kids.get(c.id) || []).length > 0;
-      const folded = PJ_MAP_FOLDED.has(c.id);
-      let sub = '';
-      if (hasKids) { if (folded) markSeen(c.id); else sub = liItems(c.id); }
-      return '<li>' + pjMapNode(c, hasKids, folded) + (sub ? '<ul>' + sub + '</ul>' : '') + '</li>';
-    }).join('');
-  let topItems = liItems('');
-  // Backstop: any active project a cycle kept out of the top-down walk still shows,
-  // as a top-level child of Kosmos, so a bad record can never hide a project.
-  const stranded = active.filter((p) => !seen.has(p.id));
-  if (stranded.length) {
-    topItems += stranded.map((p) => {
-      /* Re-check inside the map, not just when the snapshot was taken: emitting an
-         earlier stranded node recurses into its kids and may mark a LATER member of
-         this same snapshot as seen (a stored cycle a->b->a). Without this re-check
-         that member renders a second time, breaking the "never double" invariant. */
-      if (seen.has(p.id)) return '';
-      seen.add(p.id);
-      const hasKids = (kids.get(p.id) || []).length > 0;
-      const folded = PJ_MAP_FOLDED.has(p.id);
-      let sub = '';
-      if (hasKids) { if (folded) markSeen(p.id); else sub = liItems(p.id); }
-      return '<li>' + pjMapNode(p, hasKids, folded) + (sub ? '<ul>' + sub + '</ul>' : '') + '</li>';
-    }).join('');
-  }
-  const kidsUl = topItems ? '<ul>' + topItems + '</ul>' : '';
-  /* The Kosmos root is the board itself, not a project. Its count is the whole
-     fleet's agents (from the agents roster), matching the design's "N agents" on
-     the root; omitted when the roster is empty or not yet read. */
-  const rootCount = (LAST && LAST.length)
-    ? '<span class="pjoc">' + LAST.length + (LAST.length === 1 ? ' agent' : ' agents') + '</span>' : '';
-  setIfChanged(wrap, '<div class="pjorg"><ul><li>'
-    + '<div class="pjonode top"><span class="pjonm">Kosmos</span>' + rootCount + '</div>'
-    + kidsUl + '</li></ul></div>');
-  pjMapFit();
-}
-/* #3217 (Josh, 2026-09-17, investor-meeting screenshot: a wide fleet clipped
-   'Northstar Robotics' off the right edge -- "this thing still needs to fit on one
-   page"): scale the whole map down to the panel width so it never overflows
-   sideways. The tree lays out at its natural max-content width (min-width:max-content
-   on .pjorg, so siblings never wrap and the shape stays honest); when that exceeds
-   the panel we shrink it to fit.
-   🔑 zoom, not transform:scale. transform is visual-only -- it would shrink the
-   drawing but leave the layout box at full width, so #pj-map would still show a
-   horizontal scrollbar and the check would still measure an overflow. zoom reflows:
-   the box shrinks with the content, the sideways scroll goes away, and the vertical
-   space compensates on its own. Both engines Kosmos renders in (the app's WebKit and
-   the Playwright/Chromium browser-check) support zoom. Nodes here are static (no drag
-   math to divide), so a single container scale is safe. Recomputed on every paint and
-   on resize; measured at zoom:1 first so the natural width is read, never a
-   previously-shrunk one. Down-only: the guard `natural > avail` means the scale is
-   always < 1, so a small fleet is never touched (no Math.min needed).
-   🔑 clientWidth guard (blind-review WARNING): paintProjects repaints the map on every poll even
-   when the Projects panel is on ANOTHER tab (an ancestor is display:none), where clientWidth and
-   scrollWidth read 0. So we check clientWidth <= 0 BEFORE touching zoom and bail: without that we
-   would reset zoom to '' and then fail the measure, WIPING a correct fit -- a tab-return would then
-   briefly show the map overflowing again (the exact #3217 symptom). The same check covers a visible
-   frame that is not yet measurable. Only once we know we can measure do we reset and read `avail`
-   AT the natural size -- so a vertical scrollbar that only appears once the tree is back to full
-   height is reflected in the width we fit to (reading avail before the reset would size against the
-   previous zoom's scrollbar state, not the natural one). `avail` is clientWidth, the usable width
-   INSIDE any vertical scrollbar (clientWidth excludes the scrollbar): fitting to it guarantees no
-   horizontal overflow even when that scrollbar is present, where using the wider outer width would
-   under-fit and let the sideways scroll back in. */
-function pjMapFit() {
-  const wrap = document.getElementById('pj-map');
-  if (!wrap || wrap.hidden) return;
-  const org = wrap.querySelector('.pjorg');
-  if (!org) return;
-  if (wrap.clientWidth <= 0) return;           // off-tab (ancestor display:none -> 0) or not-yet-measurable -> keep any prior fit, don't wipe
-  org.style.zoom = '';                         // reset to read the natural width...
-  const natural = org.scrollWidth;
-  const avail = wrap.clientWidth;              // ...and read avail at the natural size, so a vertical scrollbar that only shows at full height is counted
-  if (natural > avail) {
-    let z = avail / natural;
-    org.style.zoom = String(z);
-    /* Correction: zoom's sub-pixel rounding + how min-width:max-content re-intrinsics under zoom
-       leave a few px of residual overflow, so avail/natural alone lands right at the panel edge.
-       Shrink by the measured excess ratio in a BOUNDED loop until the container no longer overflows
-       -- one pass often lands on the +1 boundary (fragile: a rounding difference reintroduces a
-       hairline scrollbar), a second clears it. Capped at 3 passes so it always terminates. */
-    for (let i = 0; i < 3 && wrap.scrollWidth > wrap.clientWidth; i++) {
-      z = z * (wrap.clientWidth / wrap.scrollWidth);
-      org.style.zoom = String(z);
-    }
-  }
-}
 
 /* #1994: order the active projects as a tree (a project may name a `parent`).
    Depth-first from the top level, preserving the chosen sort within each set of
@@ -44382,29 +44077,6 @@ document.getElementById('pj-list').addEventListener('keydown', (e) => {
   const folded = row.getAttribute('aria-expanded') === 'false';
   if (e.key === 'ArrowRight' && folded) { pjTreeToggleFold(row.dataset.project); e.preventDefault(); }
   else if (e.key === 'ArrowLeft' && !folded) { pjTreeToggleFold(row.dataset.project); e.preventDefault(); }
-});
-
-/* #2458: the Map's clicks. A fold-disclosure click is checked FIRST and returns, so
-   folding a branch never also opens the project (the two are separate sibling
-   buttons). Otherwise a node click opens the project, the same openProject the cards
-   use. (The Map's empty state carries no Add button -- adding a project is the grid's
-   job, and the toggle is gated off before a board is that empty anyway.) */
-document.getElementById('pj-map').addEventListener('click', (e) => {
-  const fold = e.target.closest('[data-pjfold]');
-  if (fold) {
-    const id = fold.dataset.pjfold;
-    if (PJ_MAP_FOLDED.has(id)) PJ_MAP_FOLDED.delete(id); else PJ_MAP_FOLDED.add(id);
-    paintProjectsMap();
-    /* The repaint recreates every node, so the fold button just pressed is gone and
-       focus would fall to <body>. Re-home it onto the same project's fold button (it
-       still exists -- the branch still has children, only its ▾/▸ flipped), so a
-       keyboard user keeps their place. */
-    const again = document.querySelector('#pj-map [data-pjfold="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
-    if (again) { try { again.focus(); } catch { /* the fold still happened */ } }
-    return;
-  }
-  const node = e.target.closest('[data-project]');
-  if (node) openProject(node.dataset.project);
 });
 
 document.getElementById('pj-browse').addEventListener('click', (e) => {

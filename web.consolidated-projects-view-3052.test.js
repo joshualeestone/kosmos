@@ -2,13 +2,15 @@
 
 /**
  * #3052: the consolidated view's projects panel has its OWN view (the readable
- * list), independent of the Projects TAB's saved grid/list/map choice. Before this
- * fix, a tab left on the Map (project org-chart) made the narrow consolidated panel
- * draw that org chart, where Josh "can't see anything".
+ * list), independent of the Projects TAB's saved grid/list choice. Before this fix,
+ * a tab left on a wide layout made the narrow consolidated panel draw it too, where
+ * Josh "can't see anything". (The original symptom was the project org-chart Map,
+ * retired in #3276 and its code removed in #3279; the fix generalises to any wide
+ * tab layout.)
  *
  * These EXTRACT and RUN the shipped placeProjectsView against a stub DOM +
  * localStorage, so the controls return the dangerous answer without a browser:
- * a consolidated view that leaves the map mode on, or a restore that writes storage.
+ * a consolidated view that leaves a wide layout on, or a restore that writes storage.
  * The showTab wiring is pinned with a source-pattern assertion.
  *
  *   node --test web.consolidated-projects-view-3052.test.js
@@ -46,16 +48,14 @@ function classList(initial) {
 // the observable stubs (body classList, the map/list elements, layoutApply calls,
 // and every localStorage.setItem the fn made).
 function scope({ storageThrows, saved } = {}) {
-  // The body is deliberately seeded with BOTH pj-mapmode AND (on #pj-list) asgrid at once.
-  // Live these are mutually exclusive (map mode hides the list), but placeProjectsView's
-  // consolidated branch clears both unconditionally, so seeding both in one fixture asserts
-  // BOTH clears happen in a single call rather than needing a separate grid-only fixture.
-  const body = { classList: classList(['pj-mapmode', 'consolidated']) };
-  const map = { hidden: false };
+  // The body is seeded consolidated with #pj-list.asgrid set, so the consolidated
+  // branch's grid-class clear is observable. (#3279 retired the Map, so there is no
+  // pj-mapmode / #pj-map state left to seed or clear.)
+  const body = { classList: classList(['consolidated']) };
   const list = { classList: classList(['asgrid']) };
   const document = {
     body,
-    getElementById: (id) => (id === 'pj-map' ? map : id === 'pj-list' ? list : null),
+    getElementById: (id) => (id === 'pj-list' ? list : null),
   };
   const writes = [];
   const store = new Map(saved ? [['kosmos.layout.projects', saved]] : []);
@@ -81,14 +81,12 @@ function scope({ storageThrows, saved } = {}) {
     return placeProjectsView;
   `);
   const fn = factory(document, localStorage, layoutApply, LAYOUTS, pjLayoutMigrate);
-  return { fn, body, map, list, writes, layoutApplyCalls };
+  return { fn, body, list, writes, layoutApplyCalls };
 }
 
-test('#3052: consolidated forces the list -- drops pj-mapmode, hides #pj-map, drops the grid class', () => {
-  const s = scope({ saved: 'map' });
+test('#3052: consolidated forces the list -- drops the grid class', () => {
+  const s = scope({ saved: 'grid' });
   s.fn(true, false);
-  assert.equal(s.body.classList.contains('pj-mapmode'), false, 'the map mode must be off in the consolidated panel');
-  assert.equal(s.map.hidden, true, 'the map container must be hidden');
   assert.equal(s.list.classList.contains('asgrid'), false, 'the grid class must be off (list, not grid)');
 });
 
@@ -123,8 +121,8 @@ test('#3052 control: an unreadable/foreign saved value falls back to grid, never
 test('#3052 control: not entering or leaving consolidated is a no-op', () => {
   const s = scope({ saved: 'map' });
   s.fn(false, false);   // tab view, was tab view -> honor the saved mode, do nothing
-  assert.deepEqual(s.layoutApplyCalls, [], 'a pure tab-view pass must not restore (it would fight a live map selection)');
-  assert.equal(s.body.classList.contains('pj-mapmode'), true, 'the tab view keeps its map mode untouched');
+  assert.deepEqual(s.layoutApplyCalls, [], 'a pure tab-view pass must not restore (it would fight a live layout selection)');
+  assert.equal(s.list.classList.contains('asgrid'), true, 'the tab view keeps its grid class untouched (neither branch runs)');
   assert.deepEqual(s.writes, []);
 });
 
