@@ -3098,8 +3098,15 @@ build_app_bundle() {
        Terminal"), which is exactly what every agent hit after 0.6.56. This string
        is the text the one-time "Kosmos wants to control Terminal" prompt shows;
        once the person allows it, the grant persists for this Developer ID
-       signature across updates. -->
-  <key>NSAppleEventsUsageDescription</key><string>Kosmos opens a Terminal window and attaches your agent's session when you choose Open Terminal.</string>
+       signature across updates.
+       #3113: this ONE NSAppleEventsUsageDescription is SHARED (macOS allows only
+       one per bundle). It is shown for BOTH Open Terminal (control Terminal) AND
+       the tmux-a11y register (spawnTmuxAutomationPrompt runs osascript UNDER tmux
+       to control System Events so tmux gets its own Accessibility row). Josh's
+       0.6.78 fresh-box hit this as a confusing "control System Events / Open
+       Terminal" prompt on the Accessibility Turn On; the copy is reworded to be
+       honest for BOTH uses. Do NOT re-narrow it to Open-Terminal only. -->
+  <key>NSAppleEventsUsageDescription</key><string>Kosmos uses this so you can allow tmux (the tool that runs your agents) in your Accessibility settings, and to open a Terminal window with your agent's session when you choose Open Terminal.</string>
 </dict></plist>
 PLIST
 

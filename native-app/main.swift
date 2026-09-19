@@ -1289,8 +1289,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // #2911/#3113: run an osascript automation op UNDER tmux so macOS prompts for tmux
             // (the responsible process agents run under). No AXIsProcessTrusted here -- that
             // would register the app; the whole point is to prompt for tmux so it acquires its
-            // own Accessibility TCC row. Requested by the tmux gate row's Turn On (server.js
-            // /api/tmux-a11y-prompt), not on onboarding-step entry.
+            // own Accessibility TCC row. Requested by the client UP FRONT on the S3
+            // (Access-step) ENTRY via server.js /api/tmux-a11y-prompt (#3221), so tmux is
+            // registered + listed in Accessibility before the user acts; the tmux gate
+            // row's Turn On then just deep-links to the Accessibility pane (#3113).
             self?.spawnTmuxAutomationPrompt(kosmosHome: home)
         }
     }
