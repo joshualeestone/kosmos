@@ -90,8 +90,11 @@ test('#3243: provisioning metadata is resolvable - repo is a bare checkout name,
   // stands on its own).
   assert.ok(FLEET_MONITORS.length > 0, 'the registry must be non-empty for this check to mean anything');
   for (const m of FLEET_MONITORS) {
-    assert.ok(!m.repo.includes('/'), `${m.label}: repo must be a bare checkout name (no path separator), got ${JSON.stringify(m.repo)}`);
-    assert.ok(m.repo !== '.' && m.repo !== '..' && !m.repo.startsWith('/'), `${m.label}: repo must not be '.', '..', or absolute, got ${JSON.stringify(m.repo)}`);
+    // no separator already rejects an absolute path (leading '/'), so this one check
+    // covers both "bare name" and "not absolute"; the '.'/'..' check rules out the two
+    // separator-free relative names that would still escape ~/work resolution.
+    assert.ok(!m.repo.includes('/'), `${m.label}: repo must be a bare checkout name (no path separator, so also not absolute), got ${JSON.stringify(m.repo)}`);
+    assert.ok(m.repo !== '.' && m.repo !== '..', `${m.label}: repo must not be '.' or '..', got ${JSON.stringify(m.repo)}`);
     assert.equal(path.basename(m.plist), `${m.label}.plist`, `${m.label}: plist basename must be <label>.plist (got ${path.basename(m.plist)})`);
     assert.ok(!m.plist.startsWith('/'), `${m.label}: plist must be repo-relative, not absolute`);
     assert.ok(!m.plist.split('/').includes('..'), `${m.label}: plist must not contain '..'`);

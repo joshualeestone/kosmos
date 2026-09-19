@@ -35,15 +35,20 @@ Values verified against the real committed plists in each deploying repo:
 
 `engine/fleet-monitor-audit.test.js`: extend the well-formedness test to require the
 new fields, and add a test pinning the provisioning invariants the installer depends
-on: every plist basename equals `<label>.plist` (filename must match the internal
-Label launchd requires), and no plist path is absolute or contains `..`.
+on: `repo` is a bare checkout name (no separator, not `.`/`..`, not absolute), every
+plist basename equals `<label>.plist` (a proxy for the internal Label launchd requires;
+the real filename==Label match is enforced by the installer at load time), and no plist
+path is absolute or contains `..`.
 
 ## Why this is safe / bounded
 
 - Purely additive to a frozen data structure. The only consumer (tools/fleet-monitor-audit.js)
-  reads `.length`, `.label`, `.source` - untouched by new fields.
-- No behavior change: nothing reads the new fields yet. This is the registry the
-  paired claude-setup installer PR will read.
+  reads `.length`, `.label`, `.source` - none of its logic is affected by the new fields.
+- Backward-compatible, with one benign output change: `auditVerdict` puts whole monitor
+  objects into `present`/`missing`, so `tools/fleet-monitor-audit.js --json` now emits the
+  three new fields per entry. No test pins the object shape and consumers key on
+  `.label`/`.length`, so this is additive, not a break. No control flow reads the new fields
+  yet; the paired claude-setup installer PR is what will act on them.
 - Reversible: deleting the three fields per row restores prior state.
 
 ## Weakest premise
@@ -58,3 +63,17 @@ installer needs the repos present first.
 ## Verification
 
 `node --test engine/fleet-monitor-audit.test.js` - all pass (17 tests).
+
+Every `repo`+`plist` pair was checked first-hand against origin/main of its deploying repo
+(not just for internal consistency), so a fresh checkout of any of those repos will hold the
+declared plist. Reproduce per row with:
+
+```
+git -C ~/work/<repo> fetch origin
+git -C ~/work/<repo> show origin/main:<plist> | grep -A1 '<key>Label'
+```
+
+Confirmed for all 8 rows that the file exists on origin/main at the declared path AND its
+internal `<Label>` equals the registry `label` (hence equals the plist basename). The blind
+worktree cannot re-run this because the sibling repos are not checked out inside it; the
+commands above are how to verify it from a checkout that has them.
