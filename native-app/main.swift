@@ -1901,7 +1901,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let respond: (String?) -> Void = { s in if answered { return }; answered = true; completionHandler(s) }
         if let present = AppDelegate.jsPromptPresenter { present(prompt, defaultText) { respond($0) }; return }
         let (alert, field) = AppDelegate.makePromptAlert(prompt, defaultText)
-        respond(AppDelegate.jsPromptValue(alert.runModal(), fieldText: field.stringValue))
+        // Split so the read of field.stringValue AFTER dismissal is visibly ordered, not
+        // resting on Swift's left-to-right argument evaluation: we want the text the person
+        // left in the field, which only exists once runModal() has returned.
+        let resp = alert.runModal()
+        respond(AppDelegate.jsPromptValue(resp, fieldText: field.stringValue))
     }
 
     /* 🛑 EVERY EXTERNAL LINK IN KOSMOS OPENED NOTHING IN THIS APP (#1416),
