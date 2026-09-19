@@ -62,6 +62,14 @@ in-page fetch to the same route completes in 3ms; the entry-fire hangs. MAIN pas
 WT fails.) The actionable-render approach is deterministic, needs no entry-fire, and better matches
 Josh's literal complaint (an affordance now, not a spinner that may or may not resolve).
 
+> SUPERSEDED FOR #3221 (2026-09-18, Ice Cream Kitty): Josh's 0.6.78 fresh box found the Turn-On
+> fire surfaces the wrong (System Events / Open Terminal) Automation prompt, so #3221 moves the
+> register back to S3 entry and makes Turn On a clean deep-link. The entry-fire hang recorded above
+> was re-measured and does NOT reproduce on current code (`render-gated-next` 3/3 + render-permission-
+> slider 1/1 green with the entry-fire, because the served endpoint answers fast and networkidle
+> settles); those two S3-gate checks additionally now mock `/api/tmux-a11y-prompt` so it can never
+> orphan during their goto. See `.claude/plans/ick-3221-tmux-a11y.md`.
+
 ## Verification
 - Node: full `tools/run-tests.sh` green; `web.firstrun-a11y-1214` gains a 3-layer #3113 test
   (route flags actionable + non-blocking; frReadGate carries it; frPollGates paints Turn On, still

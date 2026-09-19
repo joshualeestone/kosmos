@@ -415,6 +415,9 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
     await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: true } }));
     await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    // #3221: entering S3 fires the tmux-a11y register up front; mock it so this section stays
+    // hermetic rather than POSTing to the real board.
+    await page.route('**/api/tmux-a11y-prompt', (r) => r.fulfill({ json: { ok: true } }));
     await advanceToAnchor(page, '.s3-gate-row');       // S2 file-access is granted, so we can reach S3
     await page.waitForTimeout(400);
     ok(await page.locator('#fr-next').isDisabled(), 'S3 Next is DISABLED while app accessibility is measured-not-granted (re-gated #2559)');
@@ -655,6 +658,9 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.route('**/api/open-sleep-settings', (r) => { sleepPosts += 1; r.fulfill({ json: { ok: true } }); });
     await page.route('**/api/a11y-prompt', (r) => { a11yPromptPosts += 1; r.fulfill({ json: { ok: true } }); });
     await page.route('**/api/open-accessibility-settings', (r) => { a11ySettingsPosts += 1; r.fulfill({ json: { ok: true } }); });
+    // #3221: entering S3 fires the tmux-a11y register up front; mock it so this section stays
+    // hermetic (it exercises the APP tmux row, not tmux's own, so the register is incidental here).
+    await page.route('**/api/tmux-a11y-prompt', (r) => r.fulfill({ json: { ok: true } }));
     await advanceToAnchor(page, '.s3-gate-row');
     await page.click('[data-gate="sleep"] .s3-on');
     await page.waitForTimeout(150);
@@ -675,6 +681,77 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
       null, { timeout: 3000 }).catch(() => {});
     ok(/could not open/i.test(await page.locator('#fr-s3-msg').textContent()),
       'a refused S3 "Turn On" is spoken in #fr-s3-msg, not swallowed');
+    await ctx.close();
+  }
+  {
+    // #3221: tmux's OWN Accessibility row. Josh's 0.6.78 fresh box: the tmux "Turn On" fired an
+    // osascript register UNDER tmux that surfaced the wrong (System Events / Open Terminal)
+    // Automation prompt. The fix moves the register UP FRONT to S3 entry and makes the tmux
+    // "Turn On" a plain DEEP-LINK to the Accessibility pane. This section clicks it like a
+    // person and pins both halves against mocked routes: (a) the register (/api/tmux-a11y-prompt)
+    // fires ONCE the moment S3 is reached, before any click; (b) the tmux row's "Turn On" opens
+    // /api/open-accessibility-settings and does NOT re-fire the register.
+    const { ctx, page } = await fresh(browser, { gates: false });
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    let registerPosts = 0; let tmuxSettingsPosts = 0;
+    await page.route('**/api/tmux-a11y-prompt', (r) => { registerPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/open-accessibility-settings', (r) => { tmuxSettingsPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await advanceToAnchor(page, '.s3-gate-row');
+    await page.waitForTimeout(250);
+    // (a) the register fired UP FRONT on entering S3 -- before any "Turn On" is clicked.
+    ok(registerPosts === 1, `#3221: entering S3 registers tmux up front exactly once (saw ${registerPosts})`);
+    ok(tmuxSettingsPosts === 0, `#3221: no Accessibility pane opened yet, before any click (saw ${tmuxSettingsPosts})`);
+    // (b) the tmux row's "Turn On" deep-links to the Accessibility pane and does NOT re-fire
+    // the osascript register (trigger:null).
+    await page.click('[data-gate="tmux-a11y"] .s3-on');
+    await page.waitForTimeout(250);
+    ok(tmuxSettingsPosts === 1, `#3221: tmux "Turn On" deep-links to the Accessibility pane (saw ${tmuxSettingsPosts})`);
+    ok(registerPosts === 1, `#3221: tmux "Turn On" does NOT re-fire the osascript register (still ${registerPosts})`);
+    await ctx.close();
+  }
+  {
+    // #3221 unlatch-on-failure: the register latches once/session on SUCCESS, but a FAILED
+    // register (ok:false / network error) must UNLATCH so a later S3 entry RETRIES -- otherwise a
+    // transient failure would strand tmux unregistered for the whole session. This drives that
+    // failure path (which the fire-once section above never exercises): a failed register followed
+    // by a second S3 entry re-fires. frGo is a page global, so we leave S3 (frGo(1)) and re-enter
+    // (frGo(3)) to force a second entry without a full reload (which would reset the latch anyway).
+    const { ctx, page } = await fresh(browser, { gates: false });
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    await page.route('**/api/open-accessibility-settings', (r) => r.fulfill({ json: { ok: true } }));
+    let failPosts = 0;
+    await page.route('**/api/tmux-a11y-prompt', (r) => { failPosts += 1; r.fulfill({ json: { ok: false, because: 'native unavailable' } }); });
+    await advanceToAnchor(page, '.s3-gate-row');
+    await page.waitForTimeout(250);
+    ok(failPosts === 1, `#3221 unlatch: register fires on first S3 entry (saw ${failPosts})`);
+    await page.evaluate(() => { frGo(1); });
+    await page.evaluate(() => { frGo(3); });
+    await page.waitForTimeout(250);
+    ok(failPosts === 2, `#3221 unlatch: a FAILED register RETRIES on the next S3 entry (saw ${failPosts})`);
+    await ctx.close();
+  }
+  {
+    // Control for the arm above: a SUCCESSFUL register latches, so re-entering S3 does NOT re-fire
+    // it. Without this contrast the retry test could pass vacuously by firing on every entry.
+    const { ctx, page } = await fresh(browser, { gates: false });
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    let okPosts = 0;
+    await page.route('**/api/tmux-a11y-prompt', (r) => { okPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await advanceToAnchor(page, '.s3-gate-row');
+    await page.waitForTimeout(250);
+    await page.evaluate(() => { frGo(1); });
+    await page.evaluate(() => { frGo(3); });
+    await page.waitForTimeout(250);
+    ok(okPosts === 1, `#3221 unlatch control: a SUCCESSFUL register does NOT re-fire on S3 re-entry (saw ${okPosts})`);
     await ctx.close();
   }
 

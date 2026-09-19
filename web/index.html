@@ -45109,9 +45109,10 @@ async function frPollGates(screenEl, gen) {
     if (st === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
     // #3113: an uncheckable-but-ACTIONABLE row (tmux not yet listed on a real Mac) paints the
     // DEFAULT "Not activated" + Turn On affordance rather than a dead "Checking..." spinner, so
-    // the user can act (the Turn On fires /api/tmux-a11y-prompt to register tmux + opens the
-    // Accessibility pane). It STILL never gates Next -- the reading is uncheckable, so the #2912
-    // fail-safe holds and only a definite 'blocked' sets anyBlocked below. A non-actionable
+    // the user can act. (#3221: the register runs UP FRONT at S3 entry, not from this Turn On;
+    // the tmux Turn On now only deep-links to the Accessibility pane.) It STILL never gates Next:
+    // the reading is uncheckable, so the #2912 fail-safe holds and only a definite 'blocked' sets
+    // anyBlocked below. A non-actionable
     // uncheckable (a browser / no-FDA box) keeps the honest "Checking..." (nothing to grant).
     else if (st === 'uncheckable' && !reads[i].actionable) { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
@@ -45400,6 +45401,10 @@ function frGo(step) {
       { label: 'Check again', go: (e) => frRecheckPress(e && e.currentTarget), hint: 'Turned it on? Tap to check.' },
     );
     frGateStart(pane);
+    // #3221: register tmux in Accessibility up front on entering S3, so it is listed by the
+    // time the person reaches its "Turn On" (which now only deep-links). Fire-and-forget --
+    // never awaited, so it cannot delay the paint or the gate poll. See frFireTmuxA11yRegister.
+    frFireTmuxA11yRegister();
   } else if (step === 4) {
     // S4 Notifications.
     frActions({ label: 'Next', go: () => frGo(frStepAfter(4)) });
@@ -45753,6 +45758,30 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
   }
 }
 
+/* #3221: register tmux in Accessibility UP FRONT, the moment the S3 Automation step is
+   entered -- not on the "Turn On" click (see s3PermissionTargets, where tmux-a11y's trigger is
+   now null). Angel confirmed the native mechanism fires when the register REQUEST arrives, so
+   the TIMING is ours here; the native half (#3113/#3274) makes the osascript register's copy
+   honest. Firing it up front is what lets tmux be LISTED in Accessibility by the time the
+   person reaches its "Turn On", so that button can simply deep-link to the pane instead of
+   surfacing the confusing Automation prompt -- and it prevents the "empty pane" regression that
+   trigger:null would cause on its own. macOS-only (the tmux accessibility row is hidden on
+   Windows, and the register is an osascript op); fired at most once per session (best-effort,
+   never blocks the gate poll or the paint). Unlatches on a failed/unavailable attempt so a
+   genuine failure can retry on a later S3 entry rather than leaving tmux unregistered. */
+let FR_TMUX_A11Y_REGISTER_FIRED = false;
+async function frFireTmuxA11yRegister() {
+  if (FR_TMUX_A11Y_REGISTER_FIRED || onWindows()) return;
+  FR_TMUX_A11Y_REGISTER_FIRED = true;   // latch BEFORE the await so a rapid re-entry cannot double-fire
+  try {
+    const res = await fetch('/api/tmux-a11y-prompt', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    const body = await res.json().catch(() => null);
+    if (!(res.ok && body && body.ok === true)) FR_TMUX_A11Y_REGISTER_FIRED = false;
+  } catch {
+    FR_TMUX_A11Y_REGISTER_FIRED = false;
+  }
+}
+
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
   // Josh, 2026-09-08: the mock dialog's blue "Allow" (aria-hidden preview, mouse-only)
   // routes a click through the real "Allow Access" button, firing the same flow (see commit).
@@ -45881,21 +45910,34 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
      (Kitty's /api/a11y-prompt), which registers the CALLING BINARY (the kosmos-app =
      Kosmos) in the Accessibility list so it appears and is grantable. The app's grant
      is keyed on the app; tmux holds its OWN, separate Accessibility grant (#2911).
-     #2911/#3113: the tmux Accessibility row (data-gate="tmux-a11y") now DOES have a native
-     trigger -- /api/tmux-a11y-prompt -- which runs an osascript automation op UNDER the
-     bundled tmux, so macOS attributes the prompt to the RESPONSIBLE process (tmux) and tmux
-     acquires its OWN Accessibility TCC row. Without that row tmux is never "listed" in
-     Accessibility, so tmuxGrant reports present:false and /api/tmux-a11y-status maps that to a
-     non-blocking reading. Before #3113 that reading painted a dead "Checking..." with no
-     affordance (Josh's screenshot); now the route flags that not-yet-listed state actionable
-     (see frReadGate/frPollGates), so the row paints "Not activated" + this Turn On, and the
-     Turn On fires this trigger (registering tmux); frFirePermission opens the Accessibility pane
-     only as the fallback when no native app answers the trigger. sleep is programmatic (pmset),
-     not a prompt category, so it opens Settings and passes no trigger. Both a11y rows fall back
-     to opening the same Accessibility pane. */
+     #2911/#3113/#3221: tmux holds its OWN Accessibility grant (data-gate="tmux-a11y"),
+     separate from the app's. For tmux to be LISTED in Accessibility it must first be
+     registered by an osascript op run UNDER the bundled tmux (so macOS attributes it to the
+     RESPONSIBLE process, tmux, giving tmux its own Accessibility TCC row); without that row
+     tmuxGrant reports present:false and /api/tmux-a11y-status maps that to a non-blocking
+     reading. Until #3221 that register fired from THIS Turn On, but on Josh's 0.6.78 fresh box
+     it surfaced the wrong (System Events / Open-Terminal) Automation prompt. The register now
+     runs UP FRONT the moment S3 is entered (frFireTmuxA11yRegister), so by the time this button
+     is reached tmux is already listed -- and the tmux row's Turn On therefore carries NO
+     trigger (see s3PermissionTargets), only DEEP-LINKS to the Accessibility pane (the shared
+     fallback). Before #3113 the not-yet-listed reading painted a dead "Checking..." with no
+     affordance (Josh's screenshot); the route now flags that state actionable (see frReadGate/
+     frPollGates), so the row paints "Not activated" + this Turn On. sleep is programmatic
+     (pmset), not a prompt category, so it opens Settings and passes no trigger. Both a11y rows
+     fall back to opening the same Accessibility pane. */
+  /* #3221: the tmux-a11y "Turn On" no longer fires the osascript register trigger
+     (/api/tmux-a11y-prompt). That op ran an Automation prompt UNDER tmux, and Josh's 0.6.78
+     fresh-box review saw the wrong pop-up from it ("System Events ... Open Terminal") when he
+     expected to land on the Accessibility pane. The tmux register now fires UP FRONT when the
+     S3 step is entered (frFireTmuxA11yRegister), so by the time the person reaches this button
+     tmux is already listed; the tmux "Turn On" then just DEEP-LINKS to the Accessibility pane
+     (the fallback below) -- exactly Josh's drawn spec. It lands together with the native
+     honest-copy half (#3113/#3274): dropping the trigger alone would regress the listing
+     (tmux never registered -> empty pane), which the up-front register prevents.
+     The APP's OWN grant (data-gate="tmux") keeps its /api/a11y-prompt trigger -- only tmux's
+     own row (data-gate="tmux-a11y") goes trigger-null. */
   const s3PermissionTargets = (gate) => ({
-    trigger: gate === 'tmux' ? '/api/a11y-prompt'
-      : gate === 'tmux-a11y' ? '/api/tmux-a11y-prompt' : null,
+    trigger: gate === 'tmux' ? '/api/a11y-prompt' : null,
     fallback: gate === 'sleep' ? '/api/open-sleep-settings'
       : (gate === 'tmux' || gate === 'tmux-a11y') ? '/api/open-accessibility-settings' : null,
   });

@@ -1,0 +1,91 @@
+# #3221: tmux accessibility "Turn On" deep-links + register up front (client half)
+
+**Branch:** `ick-3221-tmux-a11y` · **Card:** kosmos#3221 (client half of the joint #3113 fix)
+**Ships together with:** Angel's native honest-copy PR #3274 (must land in the same merge).
+
+## The defect (Josh, 0.6.78 fresh-box review, case-b)
+
+On a genuine fresh 0.6.78 box, clicking the tmux **Accessibility** "Turn On" fired the wrong
+macOS pop-up: a **System Events / Open Terminal Automation** prompt, not the Accessibility pane
+Josh expected. Josh's spec, drawn: tmux "Turn On" should take him to **System Settings > Privacy
+& Security > Accessibility > [turn on tmux]**.
+
+Root cause: the tmux row's "Turn On" fired `/api/tmux-a11y-prompt`, which runs an osascript op
+UNDER the bundled tmux to register tmux in Accessibility. That register is real and needed (tmux
+must be LISTED before it can be granted), but firing it FROM the button surfaced the confusing
+Automation prompt. The clean `/api/open-accessibility-settings` deep-link was only the fallback,
+which never ran because the native trigger answered.
+
+## Why the two halves must land together
+
+- **Native (Angel, #3274):** reword the shared `NSAppleEventsUsageDescription` so the osascript
+  register's copy is honest for the tmux-accessibility use.
+- **Client (this PR):** move the register OFF the Turn-On click.
+
+`trigger:null` alone regresses the listing - with no register, tmux is never listed and the
+Accessibility pane opens empty. So the register must still happen; it just moves earlier.
+
+## The change (two client edits, `web/index.html`)
+
+1. **`s3PermissionTargets`:** the `tmux-a11y` gate's `trigger` becomes `null`, so its "Turn On"
+   (and the mock-switch overlay, which shares the map) deep-links straight to
+   `/api/open-accessibility-settings`. The app's own grant (`data-gate="tmux"`) keeps its
+   `/api/a11y-prompt` - only tmux's own row changes.
+2. **`frFireTmuxA11yRegister()`:** fires the register (`/api/tmux-a11y-prompt`) UP FRONT the
+   moment the S3 Automation step is entered (called after `frGateStart(pane)` in the
+   `step === 3` branch). macOS-only (`onWindows()` guard), at most once per session (latched
+   flag), fire-and-forget (never awaited, never blocks paint or gate poll). Unlatches on a
+   failed/unavailable attempt so a genuine failure retries on a later S3 entry rather than
+   leaving tmux unregistered (the empty-pane regression).
+
+Angel confirmed the native register mechanism fires when the REQUEST arrives, so the timing is
+the client's to own.
+
+## Re-evaluating #3113's "entry-fire rejected" note (challenge-loop iteration 1)
+
+`.claude/plans/fix-3113-tmux-a11y.md` records an entry-time fire as a REJECTED alternative:
+"a POST issued during the `?fr-step=3` navigation is orphaned by Playwright (`requestfinished`
+never fires), so `render-gated-next`'s `networkidle` wait never settled -> 30s timeout." #3221's
+joint design (register at S3 entry) is exactly that approach, so a blind reviewer flagged it.
+
+Re-measured against current code: it does NOT reproduce. `render-gated-next` passed 3/3 and
+`render-permission-slider-2620` passed 1/1 with the entry-fire, UNMOCKED. The reason: the served
+board answers `/api/tmux-a11y-prompt` fast (it just records a request file and returns `{ok}`), so
+`requestfinished` fires and networkidle settles -- the same way the `*-status` polls that also fire
+during that navigation already settle because they resolve quickly. #3113's measurement predates
+the endpoint answering fast.
+
+Belt-and-suspenders: both S3-gate checks (`render-gated-next`, `render-permission-slider-2620`) now
+also MOCK `/api/tmux-a11y-prompt`, so the register resolves deterministically and can never orphan
+during their goto regardless of real-endpoint timing. This removes the failure mode #3113 warned
+about rather than relying on "does not repro". The stale `server.js` comment that recorded the
+rejection is corrected in the same change.
+
+## Not in scope
+
+- The permission COPY (Angel's native #3274; Josh rewords after seeing the flow).
+- The app's own Accessibility grant, sleep, and file-access rows - unchanged.
+- No server/native change; `/api/tmux-a11y-prompt` and `/api/open-accessibility-settings`
+  endpoints are untouched, only *when* the client calls the first one.
+
+## Tests
+
+- `web.firstrun-a11y-1214.test.js` - updated the #2911 sub-arms: the map no longer wires any
+  gate to `/api/tmux-a11y-prompt`; only the app row keeps a trigger; `frFireTmuxA11yRegister`
+  POSTs the register up front; entering S3 calls it; it is macOS-only + once-per-session. 12/12.
+- `docs/browser-checks/click-first-run.js` - new sections click tmux's own row like a person on
+  a booted board. Fire-once/deep-link (4 arms): register fires once on S3 entry (before any
+  click), no pane opens pre-click, Turn On deep-links, Turn On does NOT re-fire the register.
+  Unlatch-on-failure (2 arms + a success control): a failed register (`ok:false`) unlatches and
+  RETRIES on the next S3 entry (driven via `frGo(1)` -> `frGo(3)`), while a successful register
+  does NOT re-fire. `/api/tmux-a11y-prompt` is also mocked in `render-gated-next` and
+  `render-permission-slider-2620` (they goto S3 with `networkidle`). All arms green.
+
+## Design note: the register fire is deliberately status-independent
+
+`frFireTmuxA11yRegister` fires on every fresh S3 entry (once/session) WITHOUT consulting
+`/api/tmux-a11y-status.trusted`. This is deliberate: the async status is not reliably known at
+entry, and re-registering an already-granted tmux is harmless (macOS does not re-prompt an
+already-listed binary, so the worst case is one redundant, idempotent osascript spawn). Gating the
+fire on a not-yet-known status would risk NOT registering when it is actually needed, which is the
+regression this whole change exists to prevent.

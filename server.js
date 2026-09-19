@@ -8392,10 +8392,17 @@ const server = http.createServer((req, res) => {
      contract as /api/a11y-prompt, but records a `tmux-a11y` request the native watcher answers
      by running an osascript automation op UNDER the bundled tmux, so macOS prompts for tmux
      (the responsible process agents run under) rather than the Kosmos app, letting tmux acquire
-     its own Accessibility TCC row. Fired from the tmux gate row's Turn On on the S3 Automation
-     step (NOT on step entry -- an entry-time fire hung a Playwright networkidle wait; #3113
-     makes the not-yet-listed state actionable in the render instead). Falls back to Settings via
-     the caller when no native app is present, like its sibling. */
+     its own Accessibility TCC row.
+     #3221: this now fires UP FRONT when the S3 Automation step is entered (client
+     frFireTmuxA11yRegister), NOT from the tmux row's Turn On -- Josh's 0.6.78 fresh box saw that
+     Turn-On fire surface the wrong (System Events / Open Terminal) Automation prompt, so Turn On
+     is now a clean deep-link and the register moved earlier so tmux is listed by the time it is
+     clicked. #3113 had rejected an entry-time fire because it hung a Playwright `networkidle`
+     wait; that was re-measured for #3221 and does not reproduce (the served endpoint answers
+     fast, so `requestfinished` fires and networkidle settles -- render-gated-next + render-
+     permission-slider pass), and those two S3-gate browser checks additionally mock this route
+     so the register can never orphan during their goto. Falls back to Settings via the caller
+     when no native app is present, like its sibling. */
   if (pathname === '/api/tmux-a11y-prompt' && req.method === 'POST') {
     let r;
     try { r = promptrequest.request('tmux-a11y'); }
@@ -8552,36 +8559,40 @@ const server = http.createServer((req, res) => {
         // yet -- i.e. a real Mac where tmux simply has not registered. Keep it NON-BLOCKING
         // (checkable:false, so it never traps Next -- the #2912 invariant), but flag it
         // `actionable:true` so the gate row paints "Not activated" + Turn On (an affordance the
-        // user can act on) instead of a dead "Checking..." spinner (Josh's #3113). Clicking
-        // Turn On fires /api/tmux-a11y-prompt (which registers tmux) or, if no native app
-        // answers, falls back to opening the Accessibility pane.
+        // user can act on) instead of a dead "Checking..." spinner (Josh's #3113). (#3221: the
+        // register (/api/tmux-a11y-prompt) fires UP FRONT at S3 entry, not from Turn On; the tmux
+        // Turn On now only deep-links to the Accessibility pane.)
         reading = { checkable: false, actionable: true, because: 'tmux is not yet listed in Accessibility; turn it on to grant it' };
       } else if (g && g.checkable === false && nativePresent) {
         // #2559: tmux's grant is not confirmed for THIS install, but a native app IS present, so
         // this is a real Mac in onboarding (NOT a browser), and the dead "Checking..." spinner is
         // exactly what strands the user -- Josh's fresh-Mac repro is the tmux row never resolving
         // and no Turn On ever appearing. Flag `actionable:true` so the row paints "Not activated"
-        // + Turn On. Turn On fires /api/tmux-a11y-prompt -> the osascript-under-tmux prompt
-        // (spawnTmuxAutomationPrompt), which registers tmux and does NOT itself need Full Disk
-        // Access to run. Stays checkable:false, so the S3 Next gate remains non-blocking (#2912):
+        // + Turn On. (#3221: the register op /api/tmux-a11y-prompt -> the osascript-under-tmux
+        // prompt (spawnTmuxAutomationPrompt), which registers tmux and does NOT itself need Full
+        // Disk Access, now fires UP FRONT at S3 entry rather than from Turn On; the tmux Turn On
+        // deep-links to the Accessibility pane.) Stays checkable:false, so the S3 Next gate
+        // remains non-blocking (#2912):
         // this only turns a dead spinner into an affordance, it never blocks.
         //
-        // TWO checkable:false sub-cases enter here, and Turn On is the right action for BOTH (so
-        // the branch keys on nativePresent + checkable:false, not on which sub-case), which is why
-        // the `because` is worded to cover both rather than asserting one:
+        // TWO checkable:false sub-cases enter here, and the actionable row is the right answer for
+        // BOTH (so the branch keys on nativePresent + checkable:false, not on which sub-case),
+        // which is why the `because` is worded to cover both rather than asserting one:
         //   (1) TCC db UNREADABLE -- the fresh-Mac no-FDA case (tmux's grant is only readable via
         //       the system TCC db, which needs Full Disk Access a fresh install lacks). We could
-        //       not read it, so we cannot confirm the grant; Turn On grants it.
+        //       not read it, so we cannot confirm the grant; the user grants it in the Accessibility
+        //       pane that the row's Turn On deep-links to.
         //   (2) PATH-KEY MISMATCH -- the db WAS readable and some tmux is granted, but not the
         //       exact bundled binary this install runs (a11ystatus.js). Our tmux is still not
-        //       granted, and Turn On registers the correct (bundled) binary.
+        //       granted. (#3221: the up-front register at S3 entry registers the correct (bundled)
+        //       binary so it is LISTED; Turn On then deep-links to the pane where the user grants it.)
         // A BROWSER (nativePresent false) does not enter this branch and keeps the honest advisory
-        // below -- nothing to grant, no native app to fire the prompt.
+        // below -- nothing to grant, no native app to register.
         //
         // WEAKEST PREMISE: which sub-case Josh's fresh-Mac stuck row is (no-FDA is the inferred
         // one) is not measured on a fresh box; the fresh-Mac verify confirms both that Turn On now
-        // appears and that firing it yields a tmux-keyed grant. The fix does not depend on the
-        // sub-case -- it covers whichever checkable:false path fires.
+        // appears and that the up-front register yields a tmux-keyed grant once granted in the pane.
+        // The fix does not depend on the sub-case -- it covers whichever checkable:false path fires.
         reading = { checkable: false, actionable: true, because: 'tmux is not confirmed granted for this install; turn it on to grant tmux' };
       } else {
         reading = g;
