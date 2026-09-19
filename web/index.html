@@ -1655,13 +1655,15 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .stat.action .slab { color: var(--k-ink); font-weight: 600; }
 .plus { font-size: 1.25rem; font-weight: 300; line-height: 1; color: var(--k-ink-2); }
 /* messages-filter (Josh 2026-09-19): the "Messages" stat is a toggle that filters the agents
-   board to agents with 1+ messages. Hover/focus like .stat.action; the ON state is a gold-filled
-   pill (aria-pressed=true, kept in sync with body.filter-msgs by the click handler). */
-.statfilter { cursor: pointer; }
-.statfilter:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
-.statfilter:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.statfilter[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
-.statfilter[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
+   board to agents with 1+ messages. Keyed on the tile's own id, NOT an extra class, so the stat
+   markup stays exactly class="stat" (web.dm-tally-2863 pins that). Hover/focus like .stat.action;
+   the ON state is a gold-filled pill (aria-pressed=true, kept in sync with body.filter-msgs by
+   the click handler). */
+#st-dm-tile { cursor: pointer; }
+#st-dm-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
+#st-dm-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+#st-dm-tile[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
+#st-dm-tile[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
 /* The exit affordance ("View all agents"), shown only while the filter is on. */
 .board-msgfilter-exit { display: none; border: 0; background: none; padding: 0 4px; cursor: pointer;
   font: inherit; font-size: .8125rem; color: var(--k-ink); text-decoration: underline;
@@ -1673,7 +1675,9 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 body.filter-msgs .board-msgfilter-exit { display: inline-flex; }
 /* The filter: hide no-message agents in grid + list; DIM them in the org chart so the hierarchy
    (and its wires) stay intact -- keeping the tree is the UI-owner call for org, and it is reversible.
-   Keyed on data-has-msgs, set at render from a.dmUnread > 0 (see hasMsgsAttr). */
+   Keyed on data-has-msgs, set at render from a finite a.dmUnread > 0. The marker is
+   computed inline in each row renderer (card/lrow/onode), self-contained, because those
+   functions are lifted and eval'd in isolation by *.test.js harnesses. */
 body.filter-msgs #grid .acard:not([data-has-msgs]),
 body.filter-msgs #alist .lrow:not([data-has-msgs]) { display: none; }
 body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
@@ -13592,7 +13596,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          current agents view (grid/list/org) to only agents with 1+ messages; click again, or the
          "View all agents" link, to exit. role=button + aria-pressed so it reads as a control; it is
          still hidden at zero (no messages, nothing to filter). -->
-    <div class="stat statfilter" id="st-dm-tile" hidden role="button" tabindex="0" aria-pressed="false" title="Show only agents with messages">
+    <div class="stat" id="st-dm-tile" hidden role="button" tabindex="0" aria-pressed="false" title="Show only agents with messages">
       <span class="dmtile-g" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H6.5L3.5 14v-3H2.5a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z"/></svg></span>
       <b id="st-dm" data-count="dm">0</b><span class="slab">Messages</span>
     </div>
@@ -15154,8 +15158,6 @@ function dmBadge(a) {
    dmBadge's CURRENT-suppression, so the open agent is still shown when the filter is on. Every
    board row (.acard / .lrow / .onode) that has messages carries data-has-msgs; the CSS then
    hides (grid/list) or dims (org, keeping the tree) the rest while body.filter-msgs is set. */
-function agentHasMsgs(a) { const n = Number(a && a.dmUnread); return Number.isFinite(n) && n > 0; }
-function hasMsgsAttr(a) { return agentHasMsgs(a) ? ' data-has-msgs' : ''; }
 function card(a) {
   /**
    * 🛑 AN AGENT THAT IS NOT RUNNING GETS A DIFFERENT CARD, not this one with
@@ -15199,7 +15201,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15214,7 +15216,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -15278,7 +15280,7 @@ function card(a) {
     : (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15416,7 +15418,7 @@ function lrow(a) {
       const tav = a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15429,7 +15431,7 @@ function lrow(a) {
     const off = a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15488,7 +15490,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -17099,7 +17101,9 @@ async function tick() {
     document.getElementById('st-dm').textContent = String(dmTotal);
     document.getElementById('st-dm-tile').hidden = dmTotal <= 0;
     // messages-filter: no unread messages left, so there is nothing to filter; auto-exit.
-    if (dmTotal <= 0 && document.body.classList.contains('filter-msgs')) setMsgFilter(false);
+    // tick() is unit-tested against a minimal document with no body, so guard the body read
+    // (the filter state lives on body.classList); real DOM always has a body.
+    if (dmTotal <= 0 && document.body && document.body.classList.contains('filter-msgs')) setMsgFilter(false);
     /* #3216: the Agents nav-tab badge reuses this same fleet unread-DM total, so the tab
        count and the summary tile cannot disagree (one derivation of "unread agent messages"). */
     setNavBadge('nav-badge-agents', dmTotal);
@@ -17325,7 +17329,8 @@ async function tick() {
     document.getElementById('st-dm').textContent = '?';
     document.getElementById('st-dm-tile').hidden = true;
     // messages-filter: the Messages tile is withdrawn (status unknowable), so exit the filter too.
-    if (document.body.classList.contains('filter-msgs')) setMsgFilter(false);
+    // Guard the body read: tick() is unit-tested with a body-less document; real DOM has a body.
+    if (document.body && document.body.classList.contains('filter-msgs')) setMsgFilter(false);
     /* #3216: /api/status failed, so both nav-tab counts are unknowable this tick -- withdraw
        them (hide) exactly as the tiles do, rather than leaving a stale count asserting something
        this failed read cannot stand behind. null is the "unknown" input (per setNavBadge's
@@ -22301,7 +22306,7 @@ function paintOrg() {
          transparency Josh asked us to remove. */
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
-    nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"' + hasMsgsAttr(a)
+    nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"' + (Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
          own aria-label (the accessible name comes from the attribute alone, not
