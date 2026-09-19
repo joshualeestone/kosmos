@@ -57,8 +57,21 @@ test('the launcher runs the helper and NOT the pre-fix plain open (#2007)', () =
      go if no browser opens, so a bare url match here would fail on correct code. */
   assert.doesNotMatch(LAUNCHER_SRC, /Process\.Start\(\s*"http:/,
     'the launcher opens the PLAIN url directly - the #2007 bug is back');
-  assert.doesNotMatch(LAUNCHER_SRC, /UseShellExecute\s*=\s*true/,
-    'the launcher shell-executes something; that is how a bare url gets opened');
+  /* #1118: the ONE shell-execute is the board window handing ANOTHER site's link to the person's
+     browser. It refuses anything that is not http(s), and both of its callers keep the board's own
+     address in the window, so it can never open the board unsigned. */
+  const shellExecutes = [...LAUNCHER_SRC.matchAll(/UseShellExecute\s*=\s*true/g)].map((m) => m.index);
+  assert.equal(shellExecutes.length, 1, 'the launcher shell-executes something other than a link to another site');
+  const opensLinks = LAUNCHER_SRC.indexOf('internal static void OpenInPersonsBrowser(string address)');
+  const opensLinksEnd = LAUNCHER_SRC.indexOf('\n    }\n', opensLinks);
+  assert.ok(shellExecutes[0] > opensLinks && shellExecutes[0] < opensLinksEnd, 'the shell-execute moved out of OpenInPersonsBrowser');
+  assert.match(LAUNCHER_SRC.slice(opensLinks, shellExecutes[0]), /if \(!IsWebAddress\(address\)\)[\s\S]*?return;/, 'OpenInPersonsBrowser no longer refuses a non-web address first');
+  const callers = [...LAUNCHER_SRC.matchAll(/^.*KosmosLauncher\.OpenInPersonsBrowser\(uri\).*$/gm)].map((m) => m[0]);
+  assert.equal(callers.length, 2, 'OpenInPersonsBrowser gained or lost a caller');
+  assert.match(LAUNCHER_SRC, /if \(!KosmosLauncher\.IsWebAddress\(uri\) \|\| KosmosLauncher\.IsBoardAddress\(uri, port\)\) return;\s*args\.put_Cancel\(1\);\s*BeginInvoke\(new Action\(\(\) => KosmosLauncher\.OpenInPersonsBrowser\(uri\)\)\);/,
+    'a navigation to the board\'s own address can reach the browser');
+  assert.match(LAUNCHER_SRC, /if \(KosmosLauncher\.IsBoardAddress\(uri, port\)\) BeginInvoke\(new Action\(\(\) => webView\.Navigate\(uri\)\)\);\s*else BeginInvoke\(new Action\(\(\) => KosmosLauncher\.OpenInPersonsBrowser\(uri\)\)\);/,
+    'a new window on the board\'s own address can reach the browser');
 });
 
 test('#2086: the build stages the committed launcher and refuses a stale one', () => {
@@ -330,6 +343,27 @@ test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url
     let opened = '';
     for (let i = 0; i < 40 && !opened; i++) { try { opened = fs.readFileSync(out, 'utf8'); } catch (_e) { /* not yet */ } if (!opened) await napms(100); }
     assert.match(opened, new RegExp(`^http://127\\.0\\.0\\.1:${port}/\\?boot=[0-9a-f]+$`), 'the opener did not receive the nonced url');
+  } finally { server.close(); }
+});
+
+test('#1118: --print-url hands the NONCED url to the board window on stdout and opens nothing', async () => {
+  // Kosmos.exe's own window loads the board itself, so it asks for the address instead of a
+  // browser. The opener seam points at a program that cannot exist: any attempt to open would
+  // report "could not launch the browser" on stderr.
+  const { execFile } = require('node:child_process');
+  const { server, port } = await startFixtureBoard();
+  const { appDir } = makeAppDir({ withToken: true });
+  try {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [path.join(__dirname, 'tools', 'kosmos-open-board.js'), '--port', String(port), '--app', appDir, '--timeout-ms', '4000', '--print-url'],
+        { env: { ...process.env, KOSMOS_OPEN_BIN: path.join(os.tmpdir(), 'no-such-opener-' + process.pid) } },
+        (err, so, se) => (err ? reject(err) : resolve({ stdout: so, stderr: se })),
+      );
+    });
+    assert.match(stdout, new RegExp(`^http://127\\.0\\.0\\.1:${port}/\\?boot=[0-9a-f]+\\n$`), 'stdout was not exactly the nonced url');
+    assert.doesNotMatch(stderr, /could not launch the browser/, '--print-url still tried to open a browser');
   } finally { server.close(); }
 });
 

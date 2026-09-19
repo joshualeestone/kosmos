@@ -259,13 +259,18 @@ test('🛑 nothing is started before the runtime and app checks, so a runtime-le
     'the stop path no longer ends the board and its descendants with taskkill /T');
   const launches = starts.filter((at) => !(at > stopAt && at < stopEnd));
   assert.equal(starts.length - launches.length, 1, 'the stop path starts something other than one taskkill');
-  /* win32-installer-native: every start, by the method it is in. Main starts the opener and the
-     board; RunEngineHelper starts an engine helper (the uninstall or the move), only after a
-     question was answered (tools.win-installer-native.test.js); the move starts the moved exe. */
+  /* win32-installer-native: every start, by the method it is in. Main starts the board window (or,
+     with nobody at the desktop, the opener) and the board; RunEngineHelper starts an engine helper
+     (the uninstall or the move), only after a question was answered
+     (tools.win-installer-native.test.js); the move starts the moved exe. #1118: the board window
+     (Kosmos.exe --window, its own process) asks the opener for the address
+     (ResolveBoardAddress), falls back to the opener's browser (OpenInBrowserInstead), and hands a
+     web link to the person's browser (OpenInPersonsBrowser). */
   const declarations = [...SOURCE.matchAll(/\n {4}(?:internal |public |private )?static [^\n(=]*?\b(\w+)\(/g)].map((m) => ({ name: m[1], at: m.index }));
   const ownerOf = (at) => declarations.filter((d) => d.at < at).pop().name;
-  assert.deepEqual(launches.map(ownerOf).sort(), ['Main', 'Main', 'RunEngineHelper', 'StartLauncherAt'],
-    'the launcher starts something other than the opener, the server, an engine helper and the installed or moved launcher');
+  assert.deepEqual(launches.map(ownerOf).sort(),
+    ['Main', 'Main', 'OpenInBrowserInstead', 'OpenInPersonsBrowser', 'ResolveBoardAddress', 'RunEngineHelper', 'StartLauncherAt'],
+    'the launcher starts something other than the window or opener, the server, an engine helper, the installed or moved launcher, and the window\'s opener and links');
   const mainAt = SOURCE.indexOf('static int Main(');
   for (const at of launches.filter((l) => ownerOf(l) === 'Main')) {
     assert.ok(at > mainAt + appCheck, 'a process is started before the runtime and app checks; the tests below would reach the hand-off');
@@ -350,8 +355,144 @@ test('W-07: message boxes are for a person at a desktop, and --console keeps the
   /* The server's start is the old one except for the hidden console. */
   assert.match(SOURCE, /new ProcessStartInfo\(node, "\\"" \+ server \+ "\\""\);\s*s\.UseShellExecute = false;\s*s\.WorkingDirectory = here;/);
   assert.match(SOURCE, /s\.CreateNoWindow = showMessageBoxes;/);
-  assert.doesNotMatch(SOURCE, /Redirect(StandardOutput|StandardError|StandardInput)\s*=\s*true/,
+  assert.doesNotMatch(SOURCE, /\bs\.Redirect(StandardOutput|StandardError|StandardInput)\s*=\s*true/,
     'the server\'s output is redirected, which changes what it sees and can hang WaitForExit on a grandchild');
+  /* #1118: the ONE redirect is the opener's --print-url answer to the board window, a short-lived
+     helper that starts nothing, so no grandchild can hold the pipe. */
+  const redirects = [...SOURCE.matchAll(/(\w+)\.Redirect(StandardOutput|StandardError|StandardInput)\s*=\s*true/g)];
+  assert.deepEqual(redirects.map((m) => m[0]), ['o.RedirectStandardOutput = true'], 'something other than the opener\'s --print-url answer is redirected');
+  assert.match(SOURCE, /if \(printUrlOnly\)\s*\{\s*o\.RedirectStandardOutput = true;/, 'the opener\'s output is redirected when it opens a browser too');
+});
+
+/* ---- #1118: the board's own window -------------------------------------- */
+
+function sourceBetween(from, to) {
+  const at = SOURCE.indexOf(from);
+  const end = SOURCE.indexOf(to, at + 1);
+  assert.ok(at > 0 && end > at, 'KosmosLauncher.cs moved ' + from);
+  return SOURCE.slice(at, end);
+}
+
+test('#1118: a person at a desktop gets the board window, its own process, which never starts the board', () => {
+  const main = SOURCE.slice(SOURCE.indexOf('static int Main('), SOURCE.indexOf('static int Fail('));
+  assert.match(SOURCE, /const string WindowFlag = "--window";/);
+  const dispatch = main.indexOf('if (wantsWindow) return RunBoardWindow(here, node, opener, app, port);');
+  assert.ok(dispatch > main.indexOf('if (!File.Exists(server))'), '--window is dispatched before the runtime and app checks');
+  assert.ok(dispatch < main.indexOf('RunInstallerDuties('), '--window runs the installer duties (a move offer, the Start menu) before its window');
+  /* The window, not the browser, for a person at a desktop; the opener as before with nobody
+     there. Both wait on open-board.js, so a test's scratch folder (no opener) starts neither. */
+  assert.match(main, /if \(File\.Exists\(opener\)\)\s*\{\s*try\s*\{\s*ProcessStartInfo o = Environment\.UserInteractive\s*\? BoardWindowStartInfo\(here\)\s*: OpenerStartInfo\(here, node, opener, app, port, false\);\s*Process\.Start\(o\);/,
+    'the launch no longer chooses the window for a person at a desktop, gated on the opener');
+  assert.match(sourceBetween('static ProcessStartInfo BoardWindowStartInfo(', 'static ProcessStartInfo OpenerStartInfo('),
+    /new ProcessStartInfo\(Assembly\.GetExecutingAssembly\(\)\.Location, WindowFlag\)/, 'the window is not this same exe with --window');
+  /* The opener's arguments are Kosmos.cmd's, as they always were. */
+  assert.match(sourceBetween('static ProcessStartInfo OpenerStartInfo(', 'static int RunBoardWindow('),
+    /new ProcessStartInfo\(node,\s*"\\"" \+ opener \+ "\\" --port " \+ port \+ " --app \\"" \+ app \+ "\\""/);
+  /* 🛑 Closing the window must not stop the board: the window process starts nothing of it. */
+  const windowMode = sourceBetween('static int RunBoardWindow(', '// ---- the console, for --console');
+  assert.doesNotMatch(windowMode, /\bserver\b|RunInstallerDuties|KeepBoardUntilPersonStopsIt|StopServerAndEverythingItStarted|taskkill/,
+    'the board window reaches for the board process, so closing it could stop the board');
+  /* One window per board, keyed by the port, so a second double-click brings it forward and a
+     test on another port never reaches the person's window. */
+  assert.match(windowMode, /new Mutex\(true, "Local\\\\" \+ BoardWindowName\(port\), out firstWindow\)/);
+  assert.match(SOURCE, /static string BoardWindowName\(int port\) \{ return "Kosmos\.BoardWindow\." \+ port; \}/);
+});
+
+test('#1118: the window signs in through open-board.js --print-url, one flag in two files', () => {
+  assert.equal(sourceConstant('PrintUrlFlag'), '--print-url');
+  const opener = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
+  assert.match(opener, /process\.argv\.includes\('--print-url'\)/, 'open-board.js no longer knows --print-url');
+  /* Only its own port's address is taken from the opener's answer: never somewhere else. */
+  assert.match(sourceBetween('static string ResolveBoardAddress(', 'static int OpenInBrowserInstead('),
+    /if \(candidate == plain \|\| candidate\.StartsWith\(plain \+ "\/", StringComparison\.Ordinal\)\) return candidate;/);
+  /* The web profile lives with the launcher's per-user state, which the uninstall removes, never
+     beside Kosmos.exe inside the build the updater swaps. */
+  assert.match(SOURCE, /return Path\.Combine\(LocalAppDataFolder\(\), "Kosmos\\\\WebView2"\);/);
+  assert.match(SOURCE, /const string WebView2LoaderRelativePath = "runtime\\\\WebView2Loader\.dll";/);
+  assert.match(WIN, /cp "\$TMP\/build\/native\/\$ARCH\/WebView2Loader\.dll" "\$STAGE\/runtime\/WebView2Loader\.dll"/, 'the build no longer puts the loader where the launcher loads it');
+});
+
+/* 🛑 COM calls a method by its slot, so a declaration line out of place is a call into the wrong
+   method, and the compiler cannot see it. Each list is WebView2.h's (Microsoft.Web.WebView2
+   1.0.4191.47, build/native/include), transcribed to the last slot the launcher uses. A published
+   WebView2 interface never changes, so these lists never need to move with the SDK. */
+const WEBVIEW2_SLOTS = {
+  ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler: ['4e8a3389-c9d8-4bd2-b6b5-124fee6cc14d', ['Invoke']],
+  ICoreWebView2CreateCoreWebView2ControllerCompletedHandler: ['6c4819f3-c9b7-4260-8127-c9f5bde7f68c', ['Invoke']],
+  ICoreWebView2NavigationStartingEventHandler: ['9adbe429-f36d-432b-9ddc-f8881fbd76e3', ['Invoke']],
+  ICoreWebView2NewWindowRequestedEventHandler: ['d4c185fe-c81c-4989-97af-2d3fa7ab5651', ['Invoke']],
+  ICoreWebView2ProcessFailedEventHandler: ['79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1', ['Invoke']],
+  ICoreWebView2Environment: ['b96d755e-0319-4e92-a296-23436f46a1fc', ['CreateCoreWebView2Controller']],
+  ICoreWebView2Controller: ['4d00c0d1-9434-4eb6-8078-8697a560334f', ['get_IsVisible', 'put_IsVisible', 'get_Bounds', 'put_Bounds',
+    'get_ZoomFactor', 'put_ZoomFactor', 'add_ZoomFactorChanged', 'remove_ZoomFactorChanged', 'SetBoundsAndZoomFactor', 'MoveFocus',
+    'add_MoveFocusRequested', 'remove_MoveFocusRequested', 'add_GotFocus', 'remove_GotFocus', 'add_LostFocus', 'remove_LostFocus',
+    'add_AcceleratorKeyPressed', 'remove_AcceleratorKeyPressed', 'get_ParentWindow', 'put_ParentWindow',
+    'NotifyParentWindowPositionChanged', 'Close', 'get_CoreWebView2']],
+  ICoreWebView2: ['76eceacb-0462-4d94-ac83-423a6793775e', ['get_Settings', 'get_Source', 'Navigate', 'NavigateToString',
+    'add_NavigationStarting', 'remove_NavigationStarting', 'add_ContentLoading', 'remove_ContentLoading', 'add_SourceChanged',
+    'remove_SourceChanged', 'add_HistoryChanged', 'remove_HistoryChanged', 'add_NavigationCompleted', 'remove_NavigationCompleted',
+    'add_FrameNavigationStarting', 'remove_FrameNavigationStarting', 'add_FrameNavigationCompleted', 'remove_FrameNavigationCompleted',
+    'add_ScriptDialogOpening', 'remove_ScriptDialogOpening', 'add_PermissionRequested', 'remove_PermissionRequested',
+    'add_ProcessFailed', 'remove_ProcessFailed', 'AddScriptToExecuteOnDocumentCreated', 'RemoveScriptToExecuteOnDocumentCreated',
+    'ExecuteScript', 'CapturePreview', 'Reload', 'PostWebMessageAsJson', 'PostWebMessageAsString', 'add_WebMessageReceived',
+    'remove_WebMessageReceived', 'CallDevToolsProtocolMethod', 'get_BrowserProcessId', 'get_CanGoBack', 'get_CanGoForward', 'GoBack',
+    'GoForward', 'GetDevToolsProtocolEventReceiver', 'Stop', 'add_NewWindowRequested']],
+  ICoreWebView2Settings: ['e562e4f0-d7fa-43ac-8d71-c05150499f00', ['get_IsScriptEnabled', 'put_IsScriptEnabled',
+    'get_IsWebMessageEnabled', 'put_IsWebMessageEnabled', 'get_AreDefaultScriptDialogsEnabled', 'put_AreDefaultScriptDialogsEnabled',
+    'get_IsStatusBarEnabled', 'put_IsStatusBarEnabled']],
+  ICoreWebView2NavigationStartingEventArgs: ['5b495469-e119-438a-9b18-7604f25f2e49', ['get_Uri', 'get_IsUserInitiated',
+    'get_IsRedirected', 'get_RequestHeaders', 'get_Cancel', 'put_Cancel']],
+  ICoreWebView2NewWindowRequestedEventArgs: ['34acb11c-fc37-4418-9132-f9c21d1eafb9', ['get_Uri', 'put_NewWindow', 'get_NewWindow', 'put_Handled']],
+  ICoreWebView2ProcessFailedEventArgs: ['8155a9a4-1474-4a86-8cae-151b0fa6b8ca', ['get_ProcessFailedKind']],
+};
+
+test('#1118: every WebView2 interface the launcher declares has WebView2.h\'s id and slot order', () => {
+  const declared = [...SOURCE.matchAll(/\[ComImport, Guid\("([0-9a-f-]+)"\), InterfaceType\(ComInterfaceType\.InterfaceIsIUnknown\)\]\npublic interface (\w+)\n\{\n([\s\S]*?)\n\}/g)];
+  assert.deepEqual(declared.map((m) => m[2]).sort(), Object.keys(WEBVIEW2_SLOTS).sort(), 'the launcher declares a WebView2 interface this test does not know, or lost one');
+  for (const [, guid, name, body] of declared) {
+    const [wantGuid, wantSlots] = WEBVIEW2_SLOTS[name];
+    assert.equal(guid, wantGuid, name + ' has the wrong interface id');
+    const slots = body.split('\n').map((line) => line.match(/^ {4}(?:\[PreserveSig\] )?\w+ (?:_unused_)?(\w+)\(/)).filter(Boolean).map((m) => m[1]);
+    assert.deepEqual(slots, wantSlots, name + '\'s methods are not in WebView2.h\'s order, so a call lands in the wrong slot');
+  }
+});
+
+test('#1118: the uninstall closes the window only once the person said yes, before anything is removed', () => {
+  const uninstall = sourceBetween('internal static int Uninstall(', 'internal static string ForgetKeptPlaces(');
+  const closes = uninstall.indexOf('closeBoardWindow(BoardPort());');
+  assert.ok(closes > uninstall.indexOf('bool alsoDeleteChats = askYesNo(RemoveChatsQuestion);'), 'the window is closed before the person answered');
+  assert.ok(closes < uninstall.indexOf('runEngineHelper('), 'the window is closed after the removal, which cannot delete the web profile it holds');
+});
+
+test('#1118: the window keeps the board\'s own pages and sends every other web address to the browser', WINDOWS_ONLY, (t) => {
+  const csc = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  if (!fs.existsSync(csc)) { t.skip('no .NET Framework compiler on this machine'); return; }
+  const s = scratch();
+  try {
+    const probeSource = path.join(s.base, 'AddressProbe.cs');
+    fs.writeFileSync(probeSource, [
+      'class AddressProbe {',
+      '  static int Main(string[] a) {',
+      '    System.Console.Write(a[0] == "board" ? KosmosLauncher.IsBoardAddress(a[1], 16180) : KosmosLauncher.IsWebAddress(a[1]));',
+      '    return 0;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
+    const probe = path.join(s.base, 'probe.exe');
+    const built = spawnSync(csc, ['/nologo', '/target:exe', '/main:AddressProbe', '/out:' + probe, path.join(REPO, 'tools', 'windows', 'KosmosLauncher.cs'), probeSource], { encoding: 'utf8', windowsHide: true });
+    assert.equal(built.status, 0, 'the probe did not compile: ' + built.stdout + built.stderr);
+    const ask = (kind, address) => String(spawnSync(probe, [kind, address], { encoding: 'utf8', windowsHide: true }).stdout).trim();
+    assert.equal(ask('board', 'http://127.0.0.1:16180/?boot=ab12'), 'True');
+    assert.equal(ask('board', 'http://localhost:16180/settings'), 'True');
+    assert.equal(ask('board', 'http://127.0.0.1:16181/'), 'False', 'another port is somebody else\'s');
+    assert.equal(ask('board', 'https://127.0.0.1:16180/'), 'False', 'the board is plain http');
+    assert.equal(ask('board', 'https://installkosmos.com/'), 'False');
+    assert.equal(ask('web', 'https://platform.openai.com/api-keys'), 'True');
+    assert.equal(ask('web', 'http://example.com/'), 'True');
+    assert.equal(ask('web', 'file:///C:/Windows/System32/'), 'False', 'a page could hand ShellExecute a file: address');
+    assert.equal(ask('web', 'ms-settings:privacy'), 'False');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
 /* ---- the zip README ---------------------------------------------------- */
@@ -575,7 +716,7 @@ test('--console waits on the board and passes its exit code through, with the co
     const exe = stageFakeBoard(path.join(s.elsewhere, 'Kosmos'), 'process.exit(7);');
     const r = runConsole(exe, s.temp);
     assert.equal(r.code, 7, 'the board\'s exit code did not come back: ' + r.out);
-    assert.ok(r.out.includes('Starting Kosmos. A browser will open in a moment.'), r.out);
+    assert.ok(r.out.includes('Starting Kosmos. It will open in a moment.'), r.out);
     assert.ok(r.out.includes('Kosmos stopped. The lines above say why.'), r.out);
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
