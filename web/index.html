@@ -4718,7 +4718,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
           font-weight: 600; color: var(--k-ink-2); overflow: hidden; }
 .msg-av img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
 .msg-av.mine { background: var(--k-ink); color: var(--k-bg); }
-.msg-b { flex: 1; min-width: 0; position: relative; }
+.msg-b { flex: 1; min-width: 0; position: relative; isolation: isolate; }
+/* Josh 2026-09-19: an agent (non-.you) row shrink-wraps its body to the bubble (grow:0),
+   so the body's right edge coincides with the bubble's right edge instead of the full column
+   width. Without this, the hover reaction popout (.rxn-quick, anchored right:0 to .msg-b)
+   would float in the blank space to the right of a left-aligned agent bubble in a wide
+   column. The operator's own row (.msg.you) already right-aligns its bubble to the column
+   edge, so right:0 is correct there without this. */
+.msg:not(.you) .msg-b { flex: 0 1 auto; }
 /* #2918 (Josh, 2026-09-12 6.59 QA): the operator's OWN post reads like an iOS
    text-message conversation. Agent posts keep avatar+name on the LEFT with the
    message to the right (the default .msg row); the operator's own post is the
