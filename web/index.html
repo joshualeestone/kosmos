@@ -6487,12 +6487,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    and bounded in height so a long file scrolls inside the row rather than pushing the
    Add button off the screen. Load-bearing, not decoration: it is how a person answers
    "is this one of mine?" for a folder we cannot name. */
-/* #2690: dressed as a quiet SUNKEN preview well (sunk tint + soft separator
-   border) rather than the field-fill + strong border that read as an editable
-   text box. Still the same readonly <textarea> element (its id, readonly, and
-   the render-scan checks are unchanged); only the surface reads differently. */
+/* #2690: dressed as a quiet SUNKEN preview well rather than the field-fill +
+   strong border that read as an editable text box. Still the same readonly
+   <textarea> element (its id, readonly, and the render-scan checks are
+   unchanged); only the surface reads differently.
+   🛑 background is --bg-sunken, NOT --k-sunk: these rows render in the #firstrun
+   subtree, which re-pins --bg-sunken to its light value (#f4f2ee) but does NOT
+   pin --k-sunk, so --k-sunk would resolve to its dark value (a ~6% near-white
+   wash) on the forced-white card under OS dark -- invisible. --bg-sunken is the
+   pinned sunken token, so it reads as a well in both themes. */
 .fr-scanpreview { width: 100%; font: var(--text-callout) var(--font-mono);
-  color: var(--label-2); background: var(--k-sunk);
+  color: var(--label-2); background: var(--bg-sunken);
   border: 1px solid var(--separator); border-radius: var(--radius-control);
   padding: 10px 12px; box-sizing: border-box;
   /* #2690: resize OFF. It is readonly, and the drag handle was the last thing
@@ -7298,11 +7303,18 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    a grid child's default minimum is its content, not zero. */
 /* #2690: lifted off the page (surface fill + soft shadow + the softer card
    radius) so each one reads as a card rather than a bare bordered row on the
-   ground -- the "system-generated" look Josh flagged. Padding nudged up a touch
-   for the card feel; the row stays two-column and short. */
+   ground -- the "system-generated" look Josh flagged. The row stays two-column
+   and short.
+   🛑 The shadow is a HARDCODED light literal, not var(--shadow-card): these rows
+   render only in the #firstrun subtree, which is pinned forced-light in both
+   themes, so a theme-conditional --shadow-card would flip to the heavy dark
+   shadow (0 1px 3px rgba(0,0,0,0.5)) on a forced-white card under OS dark. Same
+   reason #firstrun .fr-box hardcodes its own shadow rather than consuming the
+   token. */
 .fr-foundrow { display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: center; column-gap: var(--space-4); padding: 10px 12px;
-  background: var(--k-surface); box-shadow: var(--shadow-card);
+  background: var(--k-surface);
+  box-shadow: 0 1px 2px rgba(20,22,26,.05), 0 1px 6px rgba(20,22,26,.04);
   border: 1px solid var(--separator); border-radius: var(--radius-card); }
 .fr-foundtext { display: grid; gap: 2px; min-width: 0; }
 .fr-foundact { display: flex; align-items: center; gap: var(--space-2); }
