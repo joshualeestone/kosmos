@@ -68,9 +68,14 @@ function scope({ storageThrows, saved } = {}) {
   /* #3276: the Projects board is two views now -- grid + roadmap. The retired list/map
      values migrate to roadmap on read (pjLayoutMigrate), which placeProjectsView calls,
      so it is injected here (the sliced fn references it as a free name -- the
-     eval-sliced-node-test trap). */
+     eval-sliced-node-test trap). Inject the REAL sliced pjLayoutMigrate, not a hand-rolled
+     copy: a regression in the shipped function (dropped case, wrong target) must fail THIS
+     file's placeProjectsView tests, not pass against a local duplicate that can't drift. */
   const LAYOUTS = { projects: { layouts: ['grid', 'roadmap'], fallback: 'grid' } };
-  const pjLayoutMigrate = (v) => (v === 'list' || v === 'map') ? 'roadmap' : v;
+  const migrateSrc = PAGE.match(/function pjLayoutMigrate\(v\) \{[^}]*\}/);
+  assert.ok(migrateSrc, 'pjLayoutMigrate is gone from the page');
+  // eslint-disable-next-line no-new-func
+  const pjLayoutMigrate = new Function(migrateSrc[0] + '\nreturn pjLayoutMigrate;')();
   const factory = new Function('document', 'localStorage', 'layoutApply', 'LAYOUTS', 'pjLayoutMigrate', `
     ${FN_SRC}
     return placeProjectsView;

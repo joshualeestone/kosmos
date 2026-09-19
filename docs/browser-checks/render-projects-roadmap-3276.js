@@ -195,6 +195,37 @@ const SEED = `
   check('the Roadmap keeps the agent-count pill', density.countShown === true, JSON.stringify(density.countShown));
   check('CONTROL: the GRID still shows the faces (the density hide is scoped to the Roadmap)', density.facesShownGrid === true, JSON.stringify(density.facesShownGrid));
 
+  // 3b. Connector rails (a headline mock2 feature): a CHILD row draws a vertical rail
+  //     (::before, a real 2px border-left) and a horizontal elbow (::after, a 2px border-top),
+  //     both at the parent's indent column; a TOP-LEVEL row draws neither. Read the computed
+  //     pseudo-element styles -- CSS pseudo geometry is exactly what a text/DOM test misses.
+  const rails = await page.evaluate(`(() => {
+    // ensure roadmap + everything expanded so Gamma (a child) is present
+    const rm = document.querySelector('.viewtoggle[data-scope="projects"] [data-layout="roadmap"]'); if (rm) rm.click();
+    const ex = document.getElementById('pj-rm-expand'); if (ex) ex.click();
+    const px = (v) => Math.round(parseFloat(v) || 0);
+    const child = ${rowByName('Gamma')};       // depth 1 -> rail at (1-1)*22+13 = 13px
+    const top = ${rowByName('Alpha')};         // depth 0, a leaf top-level row -> no rail
+    const b = child ? getComputedStyle(child, '::before') : null;
+    const a = child ? getComputedStyle(child, '::after') : null;
+    const tb = top ? getComputedStyle(top, '::before') : null;
+    return {
+      childVertBorder: b ? px(b.borderLeftWidth) : null,
+      childVertStyle: b ? b.borderLeftStyle : null,
+      childVertLeft: b ? px(b.left) : null,
+      childVertContent: b ? b.content : null,
+      childElbowBorder: a ? px(a.borderTopWidth) : null,
+      childElbowContent: a ? a.content : null,
+      topHasRail: tb ? (px(tb.borderLeftWidth) > 0 && tb.content !== 'none') : null,
+    };
+  })()`);
+  check('a child row draws a VERTICAL connector rail (::before, 2px border-left) at the parent column',
+    rails.childVertBorder === 2 && rails.childVertStyle === 'solid' && rails.childVertContent !== 'none' && rails.childVertLeft === 13,
+    JSON.stringify(rails));
+  check('a child row draws a horizontal ELBOW (::after, 2px border-top)',
+    rails.childElbowBorder === 2 && rails.childElbowContent !== 'none', JSON.stringify(rails));
+  check('CONTROL: a top-level row draws NO rail (rails are for children only)', rails.topHasRail === false, JSON.stringify(rails.topHasRail));
+
   // 4. The top strip: shown only in the Roadmap, its summary reflects the count, and
   //    Collapse all / Expand all fold/unfold every branch.
   const strip = await page.evaluate(`(async () => {

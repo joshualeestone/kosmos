@@ -3015,10 +3015,13 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 
    ⚠️ These MUST out-rank the #3135 rules below (line ~3100), which turned the old List
    into a MULTI-COLUMN newspaper flow of boxed cards -- a shape a tree cannot use (rails
-   and fold make no sense across columns). #3135 is scoped `body:not(.consolidated)`; we
-   add `.pj-roadmap` (set in layoutApply only for the roadmap layout), so every rule here
-   carries one more class and wins on specificity regardless of source order. That is why
-   the whole block keys on `body:not(.consolidated).pj-roadmap`. Grid (.asgrid) and the
+   and fold make no sense across columns). #3135's selectors are scoped `body:not(.consolidated)
+   #pj-list:not(.asgrid)` (+ `.pj-row` on its row rules); we add `.pj-roadmap`, so against
+   THOSE rules every rule here carries one more class and wins on specificity regardless of
+   source order. ⚠️ ONE exception: the pre-existing proto-rail `.pj-row.child { border-left }`
+   (~line 3003) carries `.child`, which TIES the flat-row `border:0` below on specificity;
+   that one is beaten by the dedicated `.pj-row.child { border-left:0 }` rule (which adds
+   .pj-roadmap on top of .child) rather than by source order. Grid (.asgrid) and the
    consolidated rail (body.consolidated) are untouched.
    ===================================================================== */
 
@@ -3073,21 +3076,28 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pjtreefold:hover { bac
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.pj-fold-hidden { display: none; }
 
 /* Connector rails, file-tree style: a child row draws a VERTICAL rail at its parent's
-   indent level (::before, full height so consecutive siblings join into one line) and a
-   short horizontal ELBOW from that rail across to its own caret/name (::after). Both are
-   positioned at (depth-1)*22px + 13px, the parent's caret column. Scope note: one rail at
-   the row's OWN parent level, not a full multi-ancestor ladder -- CSS cannot know which
-   ancestors have following siblings without per-level markup, so the deeper indents are
-   carried by the padding indent alone. The last child's vertical over-runs its elbow
-   slightly (no CSS "last sibling" selector); an accepted, minor imperfection. */
+   indent level (::before) and a short horizontal ELBOW from that rail across to its own
+   caret/name (::after). Both sit at (depth-1)*22px + 13px, the parent's caret column. The
+   vertical extends UP by the 2px row gap (top:-2px; height:100%+2px) so consecutive
+   siblings' rails TOUCH into one continuous line rather than breaking at each flex gap.
+   Scope note: one rail at the row's OWN parent level, not a full multi-ancestor ladder --
+   CSS cannot know which ancestors have following siblings without per-level markup, so the
+   deeper indents are carried by the padding indent alone. The last child's vertical
+   over-runs its elbow slightly (no CSS "last sibling" selector); an accepted imperfection. */
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child::before {
-  content: ""; position: absolute; top: 0; height: 100%;
+  content: ""; position: absolute; top: -2px; height: calc(100% + 2px);
   left: calc((var(--pj-depth, 0) - 1) * 22px + 13px);
   border-left: 2px solid var(--k-rule); pointer-events: none; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child::after {
   content: ""; position: absolute; top: 50%; height: 0; width: 11px;
   left: calc((var(--pj-depth, 0) - 1) * 22px + 13px);
   border-top: 2px solid var(--k-rule); pointer-events: none; }
+/* Suppress the pre-existing proto-rail (the plain `.pj-row.child { border-left }` at ~line
+   3003) inside the Roadmap. This rule carries `.pj-roadmap` AND `.child` -- one more class
+   than that rule -- so it wins on SPECIFICITY, not source order: the flat-row `border:0`
+   above only TIES `.pj-row.child` on specificity, so without this an edit that reordered the
+   cascade would bring the full-left-edge line back, doubled beside the ::before rail. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child { border-left: 0; }
 
 /* The Roadmap top strip: shown ONLY here (Grid and the consolidated rail never see it).
    No `hidden` attribute is used on #pj-rm-strip -- this display rule is the sole
