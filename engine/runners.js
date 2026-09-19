@@ -334,10 +334,14 @@ function isRunnable(p) {
  * The file the platform would actually launch for `p` (the first of pathextCandidates that
  * clears runnableExactly), or null. isRunnable is this answer as a yes/no, so a caller that
  * needs the FILE (the Windows sign-in line names it) asks the same question in the same spelling.
+ *
+ * `platform`/`env` are injectable (default the host's) so a caller REASONING ABOUT win32 from a
+ * POSIX host gets the win32 answer -- the same seam pathextCandidates and runnableExactly carry,
+ * and the reason win32launch.binFor (#3323) can ask "would Windows launch this path" off the box.
  */
-function runnableCandidate(p) {
-  for (const candidate of pathextCandidates(p)) {
-    if (runnableExactly(candidate)) return candidate;
+function runnableCandidate(p, platform = process.platform, env = process.env) {
+  for (const candidate of pathextCandidates(p, platform, env)) {
+    if (runnableExactly(candidate, platform, env)) return candidate;
   }
   return null;
 }
