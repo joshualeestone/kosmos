@@ -50,14 +50,15 @@ function makeDoc(overrides) {
 
 function build(opts) {
   opts = opts || {};
-  // pjVerifyCode sets the join-agents empty state directly (no cross-call), so pjPaintJoinAgents
-  // is not lifted; pjResetFederation + pjCopyInvite ARE, to cover reset/copy state (plan requires).
+  // Lift the join picker (pjJoinPickOptions/pjPaintJoinAgents) + addAgentsHtml it delegates to, so
+  // the join-mode own-agent picker is covered like the create-mode one.
   const src = [lift('pjFederationRef'), lift('pjSpin'), lift('pjSetAddMode'), lift('pjFedMessage'),
-    lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit'), lift('pjResetFederation'), lift('pjCopyInvite')].join('\n');
+    lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit'), lift('pjResetFederation'), lift('pjCopyInvite'),
+    lift('addAgentsHtml'), lift('pjJoinPickOptions'), lift('pjPaintJoinAgents')].join('\n');
   // eslint-disable-next-line no-new-func
-  const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad', 'loadProjects', 'openProject', 'pjView',
-    'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = [];\n' + src +
-    '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, pjJoinSubmit, pjResetFederation, pjCopyInvite, get verified() { return PJ_JOIN_VERIFIED; }, get joinAgents() { return PJ_JOIN_ADD_AGENTS; }, setVerified: (v) => { PJ_JOIN_VERIFIED = v; }, ref: pjFederationRef };');
+  const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad', 'loadProjects', 'openProject', 'pjView', 'roleLine', 'ROLE_TITLES', 'discTint', 'discInk', 'initials', 'PJ_ADD_AGENTS',
+    'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = []; var PJ_COPY_TIMER = null;\n' + src +
+    '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, pjJoinSubmit, pjResetFederation, pjCopyInvite, pjJoinPickOptions, pjPaintJoinAgents, get verified() { return PJ_JOIN_VERIFIED; }, get joinAgents() { return PJ_JOIN_ADD_AGENTS; }, get copyTimer() { return PJ_COPY_TIMER; }, setVerified: (v) => { PJ_JOIN_VERIFIED = v; }, setJoinAgents: (a) => { PJ_JOIN_ADD_AGENTS = a; }, ref: pjFederationRef };');
   const doc = makeDoc();
   const fieldBadCalls = [];
   const opened = [];
@@ -66,7 +67,8 @@ function build(opts) {
     (id, errId, msg) => fieldBadCalls.push({ id, errId, msg }),
     () => { nav.loadedProjects += 1; return Promise.resolve(); },
     (id) => opened.push(id),
-    (which) => { if (which === 'list') nav.listShown += 1; });
+    (which) => { if (which === 'list') nav.listShown += 1; },
+    () => '', {}, () => '#000', () => '#fff', (n) => String(n || '').slice(0, 2), []);
   api.fieldBadCalls = fieldBadCalls;
   api.opened = opened;
   api.nav = nav;
@@ -234,4 +236,38 @@ test('#3312: an unreachable coordinator on join degrades honestly and NEVER navi
   assert.match(s.doc.getElementById('pj-join-msg').textContent, /could not reach/i);
   assert.deepEqual(s.opened, [], 'a network failure on join still navigated');
   assert.equal(s.nav.loadedProjects, 0);
+});
+
+// LAST agents built via property assignment: fixture-discipline forbids a `sessionName`-key literal.
+const mkAgent = (sessionName, name) => { const a = {}; a.sessionName = sessionName; a.name = name; return a; };
+
+test('#3312: reset cancels a pending copy-revert timer and restores the copy button (no cross-open clobber)', async () => {
+  const s = build({ navigator: { clipboard: { writeText: () => Promise.resolve() } } });
+  s.doc.getElementById('pj-invite-code').value = 'C1';
+  await s.pjCopyInvite();
+  assert.notEqual(s.copyTimer, null, 'copy did not arm a revert timer');
+  s.pjResetFederation();
+  assert.equal(s.copyTimer, null, 'reset did not cancel the copy revert timer');
+  assert.equal(s.doc.getElementById('pj-invite-copy').textContent, 'Copy', 'reset did not restore the copy button label');
+});
+
+test('#3312: the join agent picker lists only unpicked agents and disables the button (with a title) when none are free', () => {
+  const s = build({ LAST: [mkAgent('a', 'Ava'), mkAgent('b', 'Bo')] });
+  s.setJoinAgents(['a']);
+  s.pjJoinPickOptions();
+  const html = s.doc.getElementById('pj-join-pick').innerHTML;
+  assert.match(html, /value="b"/, 'an unpicked agent is missing from the join picker');
+  assert.doesNotMatch(html, /value="a"/, 'a picked agent is offered again in the join picker');
+  assert.equal(s.doc.getElementById('pj-join-add-agent').disabled, false, 'the button is disabled while an agent is free');
+  s.setJoinAgents(['a', 'b']);
+  s.pjJoinPickOptions();
+  assert.equal(s.doc.getElementById('pj-join-add-agent').disabled, true, 'the button is not disabled when nobody is left to add');
+  assert.match(s.doc.getElementById('pj-join-add-agent').title || '', /already on it/i, 'no disabled title, unlike the create-mode picker');
+});
+
+test('#3312: the join picked-agents list renders the empty state when nobody is added', () => {
+  const s = build({ LAST: [mkAgent('a', 'Ava')] });
+  s.setJoinAgents([]);
+  s.pjPaintJoinAgents();
+  assert.match(s.doc.getElementById('pj-join-agents').innerHTML, /No agents on it yet\./);
 });
