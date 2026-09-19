@@ -108,7 +108,11 @@ const now = () => new Date().toISOString();
         if (typeof pjRoomRow !== 'function') return { error: 'pjRoomRow is not a function' };
         const p = { agents: [{ sessionName: 'april', name: 'April' }] };
         const opMsg = { operator: true, at: ts, text: 'moving everyone to the new account now.' };
-        const agentMsg = { from: 'april', at: ts, text: 'on it, board cleared.' };
+        // msg-avatar-baseline (Josh 2026-09-19): give the agent row an id so pjReactions emits
+        // its (empty) .rxns reaction row, the exact resting case the avatar-baseline fix targets.
+        // Without an id, pjReactions returns '' and the reaction-geometry assertions below are
+        // vacuous (no .rxns to reserve height, no .rxn-quick to anchor).
+        const agentMsg = { id: 'm-agent-1', from: 'april', at: ts, text: 'on it, board cleared.' };
         // A row with no words and no files: the body is empty, so no .msg-bd.
         const emptyMsg = { operator: true, at: ts, text: '' };
         // #3134-followup (Josh 6.72): an AGENT bodyless post must ALSO draw no .msg-bd --
@@ -186,6 +190,14 @@ const now = () => new Date().toISOString();
              to z-index:auto reds it). */
           bdPos: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).position : null; })(),
           bdZ: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).zIndex : null; })(),
+          /* msg-avatar-baseline (Josh 2026-09-19): the avatar sits ON the bubble's bottom
+             baseline (not below a reserved empty-reaction strip), and the hover reaction
+             popout (.rxn-quick, opacity:0 at rest but measurable) anchors to the bubble's
+             RIGHT edge, not the full column width. pjRoomRow emits an (empty) .rxns row for
+             every message, so a regression that lets the empty row reserve height, or that
+             un-anchors the popout from the shrink-wrapped agent body, moves these deltas off ~0. */
+          avatarVsBubbleBottom: (() => { const r = agentRow; if (!r) return null; const av = r.querySelector('.msg-av'); const bd = r.querySelector('.msg-bd'); if (!av || !bd) return null; return Math.round(av.getBoundingClientRect().bottom - bd.getBoundingClientRect().bottom); })(),
+          popoutVsBubbleRight: (() => { const r = agentRow; if (!r) return null; const q = r.querySelector('.rxn-quick'); const bd = r.querySelector('.msg-bd'); if (!q || !bd) return null; return Math.round(q.getBoundingClientRect().right - bd.getBoundingClientRect().right); })(),
           /* #3134-followup (Josh 6.72): an operator post with a BODY but NO timestamp
              draws its bubble (body only) -- no name (operator side), and NO empty .msg-t
              timestamp element inside. Rendered in isolation so it does not disturb the
@@ -284,6 +296,13 @@ const now = () => new Date().toISOString();
       chk(!m.opAvOpen, `${t} the operator's own avatar is NOT a click-to-open target`, `open=${m.opAvOpen}`);
       // #3134-followup (Josh 6.72): the avatar is bottom-aligned with the bubble.
       chk(m.rowAlign === 'flex-end', `${t} the avatar is bottom-aligned (.msg align-items: flex-end)`, `align=${m.rowAlign}`);
+      // msg-avatar-baseline (Josh 2026-09-19): the avatar sits ON the bubble bottom baseline
+      // (the empty reaction row reserves no height) and the hover popout anchors to the bubble
+      // right edge (the agent body shrink-wraps). ~0 delta both; a regression moves them off.
+      chk(m.avatarVsBubbleBottom !== null && Math.abs(m.avatarVsBubbleBottom) <= 2,
+        `${t} the avatar sits on the bubble's bottom baseline (empty reaction row reserves no height)`, `avatar-vs-bubble-bottom=${m.avatarVsBubbleBottom}px`);
+      chk(m.popoutVsBubbleRight !== null && Math.abs(m.popoutVsBubbleRight) <= 2,
+        `${t} the hover reaction popout anchors to the bubble's right edge`, `popout-vs-bubble-right=${m.popoutVsBubbleRight}px`);
       // #3134-followup (Josh 6.72): an operator post with a body but NO timestamp draws
       // its bubble (body present) with no stray empty timestamp inside.
       chk(m.noTimeHasBody && !m.noTimeHasTime,
