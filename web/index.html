@@ -21793,6 +21793,74 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+/* #3283 type-to-focus: on the agent-conversation view AND the project view
+   (grid + consolidated), a printable keystroke typed with nothing focused
+   routes straight into that surface's composer - no click into the field
+   first. Josh: nothing else on those screens catches key commands, so the
+   first key should just start populating the message input.
+
+   activeComposer() returns the ONE composer the current surface should hand
+   that keystroke to, or null when the surface has no composer (settings,
+   create, the projects LIST, a closed project). It is explicit rather than
+   "focus the first visible .cinput" because in Engineering mode with a project
+   open BOTH pj-post (the room composer) and pj-say (talk-to-one) are visible
+   at once, and the room composer is the one Josh means. */
+function activeComposer() {
+  const rendered = (el) => el && el.getClientRects().length > 0 && !el.disabled;
+  const detail = document.getElementById('panel-detail');
+  if (detail && !detail.hidden) {
+    const say = document.getElementById('d-say');        // Talk section (primary)
+    if (rendered(say)) return say;
+    const term = document.getElementById('d-term-say');  // Advanced/Terminal quick line
+    if (rendered(term)) return term;
+    return null;
+  }
+  const projects = document.getElementById('panel-projects');
+  if (projects && !projects.hidden) {
+    const post = document.getElementById('pj-post');     // room composer: grid AND consolidated
+    if (rendered(post)) return post;                     // prefer it over pj-say deliberately
+    return null;
+  }
+  return null;
+}
+document.addEventListener('keydown', (e) => {
+  /* Only a bare printable character typed with nothing focused. Everything
+     else is left completely alone: shortcuts (ctrl/meta/alt), navigation and
+     control keys (Enter/Tab/arrows/Escape/Backspace/F-keys, all length > 1),
+     SPACE (kept for its scroll-the-thread default; a message starts with a
+     visible character, not a leading space), IME composition, and any keystroke
+     while a field, button, link, or focus-trapping modal already holds focus. */
+  if (e.isComposing || e.keyCode === 229) return;        // IME mid-composition
+  // A real shortcut, not text. AltGr-composed printables (@, EUR, accented letters on
+  // many European layouts) report ctrl+alt to simulate Ctrl+Alt, so let those through via
+  // getModifierState('AltGraph'); the length/space checks below still bound it to one
+  // visible character. (macOS Option-composed characters that do not set AltGraph are the
+  // low-severity residual: the keystroke is dropped, never misdirected.)
+  if ((e.ctrlKey || e.metaKey || e.altKey) && !e.getModifierState('AltGraph')) return;
+  if (e.key.length !== 1) return;                        // not a single printable char
+  if (e.key === ' ') return;                             // #3283: space keeps its scroll default
+  const ae = document.activeElement;
+  /* "nothing focused" == body / documentElement. A focused input, button, or
+     link makes activeElement something else, so this bails and never steals
+     their keys. */
+  if (ae && ae !== document.body && ae !== document.documentElement) return;
+  /* A modal can be OPEN with nothing focused: a confirm button (#rm-go, #rst-go)
+     that disables itself on click blurs itself, so activeElement reverts to body
+     while the dialog is still up. These dialogs are not `inert`, so keydown still
+     reaches this handler. Bail whenever a dialog backdrop is open. Every modal here
+     is an `.rm-back` (or firstrun's `.fr-back`) backdrop toggled via the `hidden`
+     attribute; the inner `.rm-box[aria-modal]` is NOT itself `hidden`-toggled, so we
+     test the backdrop, not aria-modal. Keeps a keystroke during a destructive-action
+     confirmation from being stolen into the composer. */
+  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden])')) return;
+  const c = activeComposer();
+  if (!c) return;
+  /* Focus WITHOUT preventDefault so the character that triggered this keydown
+     lands in the now-focused composer (the browser retargets text input to the
+     newly focused field). */
+  c.focus();
+});
+
 // The K mark goes to the Agents board by clicking the REAL tab control, so
 // aria-selected, WATCH, and everything else a tab change means stay in the
 // one place that owns them. A logo in the top left is a home affordance
