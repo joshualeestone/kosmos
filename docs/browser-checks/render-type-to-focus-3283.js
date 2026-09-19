@@ -26,7 +26,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const freePort = () => Number(require('node:child_process').execFileSync(process.execPath,
@@ -76,6 +76,20 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
   try {
     await p.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) { await p.keyboard.press('Escape'); await p.waitForTimeout(300); }
+
+    // ---- NEGATIVE: a surface with NO composer (the Agents board) leaves the keystroke alone ----
+    // activeComposer() returning null here (panel-detail + panel-projects both hidden) is
+    // load-bearing; without this arm it is only exercised implicitly.
+    await p.waitForSelector('[data-agent="ttf"]', { timeout: 15000 });
+    say('SETUP no-composer: nothing is focused on the Agents board', await clearFocus(), 'active=' + (await active()));
+    await p.keyboard.type('x', { delay: 6 });
+    const rNoComposer = await p.evaluate(() => ({
+      id: (document.activeElement && (document.activeElement.id || document.activeElement.tagName)) || 'null',
+      dsay: (document.getElementById('d-say') || {}).value, post: (document.getElementById('pj-post') || {}).value,
+    }));
+    say('NEGATIVE: a keystroke on the Agents board (no composer) focuses nothing',
+      (rNoComposer.id === 'BODY' || rNoComposer.id === 'HTML') && !rNoComposer.dsay && !rNoComposer.post,
+      'active=' + rNoComposer.id + ' d-say=' + JSON.stringify(rNoComposer.dsay) + ' pj-post=' + JSON.stringify(rNoComposer.post));
 
     // ---- SURFACE 1: agent conversation view (panel-detail Talk) -> #d-say ----
     await p.waitForSelector('[data-agent="ttf"]', { timeout: 15000 });
@@ -138,6 +152,30 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
       r = await p.evaluate(() => ({ id: document.activeElement && document.activeElement.id, v: (document.getElementById('pj-post') || {}).value }));
       say('project consolidated: a keystroke focuses #pj-post', r.id === 'pj-post', 'focused=' + r.id);
       say('project consolidated: the typed characters LAND in #pj-post', r.v === 'ok', 'value=' + JSON.stringify(r.v));
+    }
+
+    // ---- WEBKIT ARM: the product renders the board in WKWebView, and the core mechanism
+    // (focus-on-keydown WITHOUT preventDefault, letting the browser retarget the triggering
+    // character into the newly focused field) is engine-sensitive. Chromium landing the char
+    // does not prove WebKit does, so verify the mechanism in WebKit on the agent surface. ----
+    // Targets #pj-post via the project surface (the seeded project auto-opens in the
+    // consolidated layout the server is now in), an unambiguous id. The mechanism is
+    // surface-agnostic; what is engine-sensitive is the char retarget, so proving it once
+    // in WebKit on a real composer is what closes the engine question.
+    const wb = await webkit.launch();
+    try {
+      const wp = await wb.newPage({ viewport: { width: 1400, height: 950 } });
+      await wp.goto(`http://127.0.0.1:${PORT}/?tab=projects`, { waitUntil: 'networkidle' });
+      if (await wp.isVisible('#firstrun')) { await wp.keyboard.press('Escape'); await wp.waitForTimeout(300); }
+      await wp.waitForFunction(() => { const e = document.getElementById('pj-post'); return e && e.getClientRects().length > 0; }, null, { timeout: 15000 });
+      await wp.evaluate(() => { const a = document.activeElement; if (a && a.blur) a.blur(); });
+      const wkSetup = await wp.evaluate(() => document.activeElement === document.body || document.activeElement === document.documentElement || document.activeElement === null);
+      say('SETUP webkit project view: nothing is focused before typing', wkSetup);
+      await wp.keyboard.type('hi', { delay: 6 });
+      const wr = await wp.evaluate(() => ({ id: document.activeElement && document.activeElement.id, v: (document.getElementById('pj-post') || {}).value }));
+      say('WEBKIT (product engine): a keystroke focuses #pj-post AND the chars land', wr.id === 'pj-post' && wr.v === 'hi', 'focused=' + wr.id + ' value=' + JSON.stringify(wr.v));
+    } finally {
+      await wb.close().catch(() => {});
     }
 
     say('no page errors', errs.length === 0, errs.join(' | '));

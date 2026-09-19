@@ -21827,11 +21827,13 @@ document.addEventListener('keydown', (e) => {
   /* Only a bare printable character typed with nothing focused. Everything
      else is left completely alone: shortcuts (ctrl/meta/alt), navigation and
      control keys (Enter/Tab/arrows/Escape/Backspace/F-keys, all length > 1),
-     IME composition, and any keystroke while a field, button, link, or
-     focus-trapping modal already holds focus. */
+     SPACE (kept for its scroll-the-thread default; a message starts with a
+     visible character, not a leading space), IME composition, and any keystroke
+     while a field, button, link, or focus-trapping modal already holds focus. */
   if (e.isComposing || e.keyCode === 229) return;        // IME mid-composition
   if (e.ctrlKey || e.metaKey || e.altKey) return;        // a shortcut, not text
   if (e.key.length !== 1) return;                        // not a single printable char
+  if (e.key === ' ') return;                             // #3283: space keeps its scroll default
   const ae = document.activeElement;
   /* "nothing focused" == body / documentElement. A focused input, button, or
      link, or a focus-trapping modal (firstrun, rm/rst/mem/etc.), makes
