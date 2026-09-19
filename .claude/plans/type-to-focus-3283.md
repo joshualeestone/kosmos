@@ -33,10 +33,16 @@ Three surfaces, each with one composer to receive the first keystroke:
   - NOT space (`e.key === ' '`): space keeps its scroll-the-thread default; a
     message starts with a visible character, not a leading space. Reversible if
     Josh wants space included (one line).
-  - and `document.activeElement` is `body`/`documentElement` (nothing focused).
-    A focused field/button/link, or a focus-trapping modal (firstrun, rm/rst/mem),
-    makes activeElement something else, so the handler bails and never steals their
-    keys - this one guard covers the modal cases for free.
+  - `document.activeElement` is `body`/`documentElement` (nothing focused): a
+    focused field/button/link makes activeElement something else, so the handler
+    bails.
+  - AND no dialog is open. The activeElement check alone is NOT enough: a confirm
+    button (#rm-go, #rst-go) that disables itself on click blurs itself, so
+    activeElement reverts to body while the (non-inert) dialog is still up. So the
+    handler also bails when a dialog backdrop is open (`.rm-back` / `.fr-back`,
+    toggled via the `hidden` attribute; the inner `.rm-box[aria-modal]` is not
+    itself hidden-toggled), so a keystroke during a destructive-action confirmation
+    is not stolen into the composer.
   Then `activeComposer().focus()` **without** `preventDefault`, so the browser
   retargets the triggering character into the now-focused composer.
 
@@ -67,6 +73,21 @@ Three surfaces, each with one composer to receive the first keystroke:
   media-query pair, or any existing keydown handler.
 - The task-view composer (`.tk-inp`, not `.cinput`) is out of the three named
   surfaces and is deliberately not caught.
+
+## Deferred (deliberate calls, surfaced for Josh)
+- **Space** keeps its scroll default (excluded from the trigger). Reversible if
+  Josh wants space to also start a message.
+- **Screen-reader browse-mode quick-nav:** some AT+browser combinations dispatch
+  single-letter navigation keys as ordinary keydown to the page. With nothing
+  focused, such a key could be redirected into the composer. Deferred, not blindly:
+  type-to-focus is a widely-shipped pattern (Slack, Discord, GitHub), most AT
+  browse modes consume quick-nav keys before they reach the page, and there is no
+  reliable JS signal for "AT browse mode is active" to gate on. The residual is a
+  dropped/redirected quick-nav key in a narrow AT configuration, from which the
+  user recovers (focus is in the composer; Tab/Escape moves on). Flagging for Josh
+  rather than implementing an unreliable detector.
+- **macOS Option-composed characters** that do not set AltGraph are dropped (not
+  misdirected) by the modifier guard. Low severity; the AltGr case is handled.
 
 Reversible (decide-and-build, Josh reviews in the running app). PR self-mergeable
 on green per the Kosmos beta ruling; addresses #3283 (non-closing).

@@ -115,6 +115,28 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
       say('NEGATIVE: found a focusable control to test no-hijack', false, 'no #d-nav button present');
     }
 
+    // ---- NEGATIVE (dialog open): a keystroke while a destructive-action dialog is up must
+    // NOT steal focus into the composer, even though the dialog's self-disabling confirm
+    // button (#rm-go) leaves activeElement on <body>. Reproduce that exact state directly:
+    // open #rm-modal and blur, then type. Without the dialog guard this focuses #d-say. ----
+    await p.evaluate(() => {
+      const el = document.getElementById('d-say'); if (el) el.value = '';
+      const m = document.getElementById('rm-modal'); if (m) m.hidden = false;
+      const a = document.activeElement; if (a && a.blur) a.blur();
+    });
+    const modalSetup = await p.evaluate(() => ({
+      open: !!(document.getElementById('rm-modal') && !document.getElementById('rm-modal').hidden),
+      active: (document.activeElement && (document.activeElement.id || document.activeElement.tagName)) || 'null',
+    }));
+    say('SETUP dialog-open: #rm-modal is open and nothing is focused', modalSetup.open && (modalSetup.active === 'BODY' || modalSetup.active === 'HTML'), JSON.stringify(modalSetup));
+    await p.keyboard.type('z', { delay: 6 });
+    const rModal = await p.evaluate(() => ({
+      id: (document.activeElement && (document.activeElement.id || document.activeElement.tagName)) || 'null',
+      dsay: (document.getElementById('d-say') || {}).value,
+    }));
+    say('NEGATIVE: a keystroke while a dialog is open is NOT stolen into the composer', rModal.id !== 'd-say' && !rModal.dsay, 'active=' + rModal.id + ' d-say=' + JSON.stringify(rModal.dsay));
+    await p.evaluate(() => { const m = document.getElementById('rm-modal'); if (m) m.hidden = true; });
+
     // ---- SURFACE 2: project GRID view (tabs layout) -> #pj-post ----
     await p.evaluate(async () => {
       const r = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Type To Focus' }) });
