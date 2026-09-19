@@ -37643,9 +37643,14 @@ function applyConsFold() {
   const list = document.getElementById('pj-list');
   if (!list) return;
   const cons = document.body.classList.contains('consolidated');
-  // #3276: a foldable tree view = #pj-list shown as a tree (not the .asgrid grid).
-  // True for the consolidated rail AND the tab Roadmap; false for Grid.
-  const treeMode = !list.classList.contains('asgrid');
+  // #3276: fold applies exactly where a fold CARET is shown -- the consolidated rail OR
+  // the tab Roadmap (body.pj-roadmap). NOT keyed on `!asgrid` alone: that would also fold
+  // in an artificial asgrid-off / not-consolidated / not-roadmap state the UI never
+  // produces (grid sets asgrid, roadmap sets pj-roadmap, they are mutually exclusive), so
+  // the JS fold would run where no caret is visible. Aligning this with the caret's CSS
+  // gate keeps the two from drifting (render-cons-tree-2929's tab CONTROL asserts exactly
+  // this -- a fold in the bare tab list must hide nothing and drop aria-expanded).
+  const treeMode = cons || document.body.classList.contains('pj-roadmap');
   /* Hide a folded branch by walking the RENDERED rows in tree order and their
      --pj-depth, NOT by walking PROJECTS. pjTreeRows re-homes a child of an
      archived/dangling parent (and any cycle) to the TOP level, so a raw parent-link

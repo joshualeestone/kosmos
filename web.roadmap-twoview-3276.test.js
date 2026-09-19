@@ -57,8 +57,8 @@ test('the boot restore migrates the projects scope only, and persists the rewrit
 
 test('the fold gate is treeMode (consolidated rail OR tab roadmap), not consolidated-only', () => {
   // #3276 generalised applyConsFold from body.consolidated to "any foldable tree view".
-  assert.match(PAGE, /const treeMode = !list\.classList\.contains\('asgrid'\);/,
-    'applyConsFold must compute treeMode from the .asgrid class (the CSS discriminator), so grid never folds');
+  assert.match(PAGE, /const treeMode = cons \|\| document\.body\.classList\.contains\('pj-roadmap'\);/,
+    'applyConsFold must gate fold on consolidated OR the roadmap (where the caret is shown), not on !asgrid alone (which would fold in the bare tab list too)');
   assert.match(PAGE, /const shouldHide = treeMode && depth > cutoff;/,
     'the fold-hide must be gated on treeMode, so the tab Roadmap folds too');
   // Drag stays consolidated-only.
