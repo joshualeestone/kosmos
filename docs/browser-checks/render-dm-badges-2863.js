@@ -201,6 +201,58 @@ function chk(ok, label, extra) {
       chk(filt.offAfterExit === true && filt.cleoOpAfter === 1,
         theme + ' filter: "View all agents" exits and restores the dimmed node', JSON.stringify(filt));
 
+      // ── filter/list HIDE + the OFFLINE-agent regression guard ──────────────
+      // A blind review caught that card()/lrow()'s NOT-RUNNING early-return branches once
+      // omitted data-has-msgs, so an offline agent WITH unread messages was wrongly HIDDEN by
+      // the filter (it still badges + counts). Guard both directions in the list view: bram is
+      // made offline (running:false) WITH messages and must be SHOWN (its .lrow is a notrunning
+      // row, carries data-has-msgs, is not display:none); cleo has no messages and must be
+      // display:none. This also covers the grid/list HIDE behavior the org-only block above did not.
+      await page.click('[data-scope="agents"] .vt[data-layout="list"]');
+      await page.waitForTimeout(300);
+      const listFilt = await page.evaluate(() => {
+        for (const a of (LAST || [])) {
+          if (a.sessionName === 'bram') { a.running = false; a.state = 'off'; a.dmUnread = 2; }
+          else if (a.sessionName === 'ada') { a.running = true; a.dmUnread = 3; }
+          else if (a.sessionName === 'cleo') { a.dmUnread = 0; }
+        }
+        document.getElementById('alist').innerHTML = (LAST || []).map(lrow).join('');
+        document.getElementById('st-dm-tile').hidden = false;
+        document.body.classList.add('filter-msgs');
+        const row = (ag) => document.querySelector('#alist .lrow[data-agent="' + ag + '"]');
+        const disp = (ag) => { const r = row(ag); return r ? getComputedStyle(r).display : 'missing'; };
+        const bram = row('bram');
+        const out = {
+          bramIsNotRunning: bram ? /notrunning/.test(bram.className) : null,
+          bramHasAttr: bram ? bram.hasAttribute('data-has-msgs') : null,
+          bramDisp: disp('bram'), adaDisp: disp('ada'), cleoDisp: disp('cleo'),
+        };
+        document.body.classList.remove('filter-msgs');
+        out.cleoDispAfter = disp('cleo');
+        return out;
+      });
+      chk(listFilt.bramIsNotRunning === true && listFilt.bramHasAttr === true && listFilt.bramDisp !== 'none',
+        theme + ' filter/list: an OFFLINE agent WITH messages carries data-has-msgs and is SHOWN (not hidden)', JSON.stringify(listFilt));
+      chk(listFilt.adaDisp !== 'none' && listFilt.cleoDisp === 'none',
+        theme + ' filter/list: a with-message agent is shown, a no-message agent is display:none (hide behavior)', JSON.stringify(listFilt));
+      chk(listFilt.cleoDispAfter !== 'none',
+        theme + ' filter/list: exiting the filter restores the hidden no-message row', JSON.stringify(listFilt));
+
+      // Restore the ORG view + a running fleet for the boundary/CURRENT-suppression tests below
+      // (this block switched to list, took bram offline, and had left the filter on).
+      await page.click('[data-scope="agents"] .vt[data-layout="org"]');
+      await page.waitForTimeout(300);
+      await page.evaluate(() => {
+        for (const a of (LAST || [])) {
+          if (a.sessionName === 'bram') { a.running = true; a.state = 'working'; a.dmUnread = 1; }
+          else if (a.sessionName === 'ada') a.dmUnread = 3;
+          else if (a.sessionName === 'cleo') a.dmUnread = 0;
+        }
+        document.body.classList.remove('filter-msgs');
+        ORG_HTML = null; paintOrg();
+      });
+      await page.waitForSelector('#orgmap .onode', { timeout: 8000 });
+
       // ── dmAria (org button) and dmBadge (span text) are TWO derivations of one
       //    count, so pin them equal at the boundary cases a single count-3 test never
       //    exercises: the singular n=1 and the >99 cap. If a future edit changes
