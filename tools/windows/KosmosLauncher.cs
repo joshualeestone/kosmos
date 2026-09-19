@@ -58,11 +58,12 @@ class KosmosLauncher
     // into every zip unchanged (tools/windows/README.md), so an app version
     // stamped here would be wrong from the next release on. It moves only when
     // this file does. 1 was the #2086 console launcher; 2 is the GUI one; 3 does
-    // an installer's job (win32-installer-native).
-    public const string LauncherVersion = "3.0.0.0";
+    // an installer's job (win32-installer-native); 4 opens the board in its own
+    // window (#1118).
+    public const string LauncherVersion = "4.0.0.0";
     // Explorer's "Product version". Worded so nobody reads it as the Kosmos
     // version, which lives in manifest.json and on the board.
-    public const string LauncherProductVersion = "launcher 3.0";
+    public const string LauncherProductVersion = "launcher 4.0";
 
     // Kept in step with tools/build-kosmos-windows.sh, which reads the board's
     // default out of server.js and refuses the build if this disagrees. If it
@@ -156,6 +157,7 @@ class KosmosLauncher
     {
         bool wantsConsole = Array.Exists(args, a => string.Equals(a, ConsoleFlag, StringComparison.OrdinalIgnoreCase));
         bool wantsUninstall = Array.Exists(args, a => string.Equals(a, UninstallFlag, StringComparison.OrdinalIgnoreCase));
+        bool wantsWindow = Array.Exists(args, a => string.Equals(a, WindowFlag, StringComparison.OrdinalIgnoreCase));
         showMessageBoxes = !wantsConsole && Environment.UserInteractive;
         if (!showMessageBoxes) ConnectToAConsole();
 
@@ -182,6 +184,12 @@ class KosmosLauncher
 
         int port = BoardPort();
 
+        // #1118: `Kosmos.exe --window` is the board's own window, and nothing else. The launch below
+        // starts it as a second process of this same exe, so closing the window ends only that
+        // process: the board and the agents run under their own tasks, as they do on the Mac. It
+        // never starts the board, offers a move or touches the Start menu.
+        if (wantsWindow) return RunBoardWindow(here, node, opener, app, port);
+
         // win32-installer-native: a real build (manifest.json, see IsKosmosBuild) running from
         // Downloads, the Desktop, OneDrive or a temporary folder hands off to the Kosmos already
         // installed in its own folder, or is offered a move there; then it points its Start menu
@@ -194,23 +202,26 @@ class KosmosLauncher
         // The opener waits for the board itself and falls back to the plain url,
         // so it is safe to start BEFORE the server is listening -- that is the
         // #2031 design and the .cmd relied on it too.
+        // #1118: a person at a desktop gets the board in Kosmos's own window (RunBoardWindow),
+        // which uses the same opener to sign in and falls back to the browser when this PC
+        // cannot host the window. With nobody at the desktop there is no window to show, so the
+        // opener runs as it always did. Both wait on open-board.js: a folder without it (a
+        // partial extract, or a test's scratch folder) starts neither.
         string browserProblem = null;
         if (File.Exists(opener))
         {
             try
             {
-                ProcessStartInfo o = new ProcessStartInfo(node,
-                    "\"" + opener + "\" --port " + port + " --app \"" + app + "\"");
-                o.UseShellExecute = false;
-                o.CreateNoWindow = true;
-                o.WorkingDirectory = here;
+                ProcessStartInfo o = Environment.UserInteractive
+                    ? BoardWindowStartInfo(here)
+                    : OpenerStartInfo(here, node, opener, app, port, false);
                 Process.Start(o);
             }
             catch (Exception e)
             {
                 // Not fatal: the board is what matters, and the user can reach it
                 // by hand. Say so rather than dying with the board about to work.
-                browserProblem = "Kosmos could not open your browser (" + e.Message + ").";
+                browserProblem = (Environment.UserInteractive ? "Kosmos could not open its window (" : "Kosmos could not open your browser (") + e.Message + ").";
                 if (!showMessageBoxes)
                 {
                     Console.Error.WriteLine(browserProblem);
@@ -221,7 +232,7 @@ class KosmosLauncher
 
         if (!showMessageBoxes)
         {
-            Console.WriteLine("Starting Kosmos. A browser will open in a moment.");
+            Console.WriteLine("Starting Kosmos. It will open in a moment.");
             Console.WriteLine("If it does not, open http://127.0.0.1:" + port + " yourself.");
             Console.WriteLine();
         }
@@ -1056,6 +1067,11 @@ class KosmosLauncher
         if (!askYesNo(RemoveQuestion)) return 0;
         bool alsoDeleteChats = askYesNo(RemoveChatsQuestion);
 
+        // #1118: an open Kosmos window would be left showing a board that is gone, and it holds
+        // its web profile open inside %LOCALAPPDATA%\Kosmos, which the removal deletes. So it is
+        // closed first, and only after the person said yes.
+        closeBoardWindow(BoardPort());
+
         List<string> leftBehind = new List<string>();
         List<string> notes = new List<string>();
         string problem;
@@ -1141,6 +1157,7 @@ class KosmosLauncher
     internal static Func<string, MoveAnswer> askMoveOrKeep = AskMoveOrKeep;
     internal static Action<string, bool> tellPerson = TellPerson;
     internal static Action<string> refreshWindowsRegistration = RefreshWindowsRegistration;
+    internal static Action<int> closeBoardWindow = CloseBoardWindow;
 
     // A message for the person: a box at a desktop, stderr otherwise (never a box nobody can see).
     static void TellPerson(string text, bool isError)
@@ -1463,6 +1480,352 @@ class KosmosLauncher
         return PlaceOutcome.StaysHere;
     }
 
+    // ---- the board's own window (#1118) ---------------------------------------
+    //
+    // A double-click used to open the board in the default browser, as a tab beside the person's
+    // other tabs. The Mac app is a window of its own hosting the system web view
+    // (native-app/main.swift, a WKWebView); this is the same thing on Windows, hosting the system's
+    // Microsoft Edge WebView2 Runtime. The board is the same local web page either way.
+    //
+    // 🔑 HOW IT REACHES WEBVIEW2, AND WHY THIS WAY. Through WebView2's own COM interfaces, declared at
+    // the bottom of this file in the order Microsoft's header (WebView2.h, in the
+    // Microsoft.Web.WebView2 NuGet package) gives them. The alternative, Microsoft's managed wrapper
+    // DLLs, would need compile-time references: the build flags that verify-launcher.ps1, the README
+    // and tools.win-launcher-native.test.js pin would change, and every probe a test compiles beside
+    // this file would need the DLLs too. Declared here, the source still builds with nothing but the
+    // in-box compiler. What remains is Microsoft's small native loader, WebView2Loader.dll, which the
+    // build ships in runtime\ (a folder the updater and the move already carry whole), and which
+    // finds the WebView2 Runtime installed on this PC. The Runtime itself is never shipped: it is part
+    // of Windows 11 and kept up to date by Windows.
+    // ⚠️ The weak spot of declaring them by hand: a slot out of order is not a compile error, it is a
+    // call into the wrong method. Only the interfaces and slots used here are declared, each list is
+    // written out to the last slot used, and the order was checked against WebView2.h 1.0.4191.47.
+    //
+    // 🛑 THE WINDOW IS ITS OWN PROCESS (`Kosmos.exe --window`), started by the launch in Main. The
+    // launcher goes on to start the board and exits once it has handed off, exactly as before;
+    // closing the window ends only the window. The board and the agents run under their own
+    // scheduled tasks and never notice, as on the Mac, where closing the window only hides it.
+    //
+    // SIGNING IN is open-board.js's job (#2007), as it is for the browser: it waits for the board,
+    // mints a single-use boot nonce with the board token and names the address to open. With
+    // --print-url it hands that address to this process over a private pipe instead of to a
+    // browser, so neither the token nor the nonce reaches a command line or a console. The board
+    // answers the nonce with its persistent cookie, which the window's own web profile keeps
+    // (%LOCALAPPDATA%\Kosmos\WebView2), so a reload stays signed in.
+    //
+    // WHEN THIS PC CANNOT HOST THE WINDOW (no WebView2 Runtime, a missing loader, or the Runtime
+    // refusing to start), it falls back to what a double-click did before: the opener opens the
+    // board in the default browser, and a box says why.
+
+    const string WindowFlag = "--window";
+
+    // open-board.js's word for "tell me the address, open nothing" (tools/kosmos-open-board.js).
+    const string PrintUrlFlag = "--print-url";
+
+    // Where the build puts Microsoft's loader (tools/build-kosmos-windows.sh). Loaded by full path,
+    // never searched for, so no other copy on the PATH can stand in for it.
+    const string WebView2LoaderRelativePath = "runtime\\WebView2Loader.dll";
+
+    // How long the window waits for the board before it opens the plain address. A first run
+    // installs and hands off before the board listens, which #2983 measured at up to ~72 s; the
+    // browser opener's own 20 s default was set for an already-installed board. The window shows
+    // "Starting Kosmos" meanwhile, so waiting longer costs a person nothing.
+    const int BoardWindowWaitMs = 120000;
+
+    const string NoWindowMessage =
+        "Kosmos opened in your web browser this time, because this PC can't show Kosmos in its own window. It needs the Microsoft Edge WebView2 Runtime, which comes with Windows 11 and is a free download from Microsoft for Windows 10 (search for \"WebView2 Runtime\"). Your agents are running either way.";
+
+    // Anything else that kept the window from opening: a partly extracted folder, or a Runtime that
+    // is installed but would not start. The reason follows it.
+    const string WindowWouldNotOpenMessage =
+        "Kosmos opened in your web browser this time, because its own window would not open. Your agents are running either way.";
+
+    const string WindowStoppedMessage =
+        "Kosmos's window stopped working, so it has closed. Your agents are still running. Double-click Kosmos.exe, or choose Kosmos in the Start menu, to open it again.";
+
+    internal const string StartingPage =
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kosmos</title><style>"
+        + "html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;"
+        + "font:15px 'Segoe UI',sans-serif;color:#555;background:#fafafa}"
+        + "@media (prefers-color-scheme:dark){body{color:#bbb;background:#1e1e1e}}"
+        + "</style></head><body>Starting Kosmos...</body></html>";
+
+    // One window per board, so the names carry the port: a second double-click brings this
+    // window forward instead of opening another, and a test using another port never reaches it.
+    static string BoardWindowName(int port) { return "Kosmos.BoardWindow." + port; }
+
+    // How the launcher starts the window: this same exe, in its own folder, with the environment
+    // it was given (so BoardPort() answers the same there).
+    static ProcessStartInfo BoardWindowStartInfo(string here)
+    {
+        ProcessStartInfo w = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, WindowFlag);
+        w.UseShellExecute = false;
+        w.WorkingDirectory = here;
+        return w;
+    }
+
+    // The #2007 opener, with the arguments Kosmos.cmd gave it. printUrlOnly asks it for the
+    // address instead of a browser; the address then comes back on its standard output, which
+    // only this process reads.
+    static ProcessStartInfo OpenerStartInfo(string here, string node, string opener, string app, int port, bool printUrlOnly)
+    {
+        ProcessStartInfo o = new ProcessStartInfo(node,
+            "\"" + opener + "\" --port " + port + " --app \"" + app + "\""
+            + (printUrlOnly ? " " + PrintUrlFlag + " --timeout-ms " + BoardWindowWaitMs : ""));
+        o.UseShellExecute = false;
+        o.CreateNoWindow = true;
+        o.WorkingDirectory = here;
+        if (printUrlOnly)
+        {
+            o.RedirectStandardOutput = true;
+            o.StandardOutputEncoding = Encoding.UTF8;
+        }
+        return o;
+    }
+
+    // Kosmos.exe --window. Returns when the window closes.
+    static int RunBoardWindow(string here, string node, string opener, string app, int port)
+    {
+        // 🛑 WHAT HAPPENS AFTER THE WINDOW, HAPPENS AFTER THE LOCK (review of #3285). A box shown
+        // while the single-instance lock is held leaves a person with no window: a double-click
+        // before they press OK finds the lock taken, asks a window that is already gone to come
+        // forward, and exits. So the window's run decides what to say, lets go of the lock, and only
+        // then says it or opens the browser.
+        string fallbackProblem = null;
+        bool noRuntime = false;
+        bool stoppedWorking = false;
+        bool firstWindow;
+        using (Mutex onlyWindow = new Mutex(true, "Local\\" + BoardWindowName(port), out firstWindow))
+        {
+            if (!firstWindow)
+            {
+                // Like the Mac app's single-instance guard (#2124): the window already open comes
+                // forward, signs in again (BoardWindowForm.SignInAgain), and this copy goes. This
+                // process was started by a double-click, so it may hand the foreground on.
+                try { AllowSetForegroundWindow(ASFW_ANY); } catch { /* it then flashes in the taskbar instead */ }
+                PostMessage(HWND_BROADCAST, RegisterWindowMessage(BoardWindowName(port) + ".Show"), IntPtr.Zero, IntPtr.Zero);
+                return 0;
+            }
+            try
+            {
+                IntPtr loader = LoadWebView2Loader(Path.Combine(here, WebView2LoaderRelativePath), out fallbackProblem, out noRuntime);
+                if (loader != IntPtr.Zero)
+                {
+                    BoardWindowForm form = ShowBoardWindow(here, node, opener, app, port, loader);
+                    fallbackProblem = form.RuntimeProblem;
+                    stoppedWorking = form.StoppedWorking;
+                }
+            }
+            finally { onlyWindow.ReleaseMutex(); }
+        }
+
+        if (fallbackProblem != null) return OpenInBrowserInstead(here, node, opener, app, port, fallbackProblem, noRuntime);
+        if (stoppedWorking) ShowMessageBox(WindowStoppedMessage, true);
+        return 0;
+    }
+
+    // The window itself, from its first address to its close.
+    static BoardWindowForm ShowBoardWindow(string here, string node, string opener, string app, int port, IntPtr loader)
+    {
+        try { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
+        catch { try { SetProcessDPIAware(); } catch { /* blurry is better than nothing */ } }
+        System.Windows.Forms.Application.EnableVisualStyles();
+        // Every address the window loads comes from the same --print-url answer: the first one, and
+        // a fresh one each time Kosmos.exe is opened again (SignInAgain).
+        BoardWindowForm form = new BoardWindowForm(port, loader, WebView2UserDataFolder(),
+            () => ResolveBoardAddress(here, node, opener, app, port));
+        // The handle first: a board that is already up answers in a moment, and BeginInvoke on a
+        // form with no handle yet throws, which would drop the address on the floor.
+        IntPtr formExists = form.Handle;
+        Thread resolve = new Thread(() =>
+        {
+            string resolved = ResolveBoardAddress(here, node, opener, app, port);
+            try { form.BeginInvoke(new Action(() => form.BoardAddressResolved(resolved))); }
+            catch { /* the window closed before the board answered */ }
+        });
+        resolve.IsBackground = true;
+        resolve.Start();
+        System.Windows.Forms.Application.Run(form);
+        return form;
+    }
+
+    // The address to open, from open-board.js --print-url: the board's own address, with a boot
+    // nonce on an enforcing board. Anything else it prints, or a failure to run it, is the plain
+    // address, which is what the browser path falls back to as well.
+    static string ResolveBoardAddress(string here, string node, string opener, string app, int port)
+    {
+        string plain = "http://127.0.0.1:" + port;
+        try
+        {
+            using (Process p = Process.Start(OpenerStartInfo(here, node, opener, app, port, true)))
+            {
+                string said = p.StandardOutput.ReadToEnd();
+                p.WaitForExit();
+                foreach (string line in said.Split('\n'))
+                {
+                    string candidate = line.Trim();
+                    if (candidate == plain || candidate.StartsWith(plain + "/", StringComparison.Ordinal)) return candidate;
+                }
+            }
+        }
+        catch { /* the plain address, below */ }
+        return plain;
+    }
+
+    // What a double-click did before the window existed: the opener opens the board in the
+    // default browser. Then the box that says why, because a browser tab where a window was
+    // expected would otherwise look like a fault.
+    static int OpenInBrowserInstead(string here, string node, string opener, string app, int port, string why, bool noRuntime)
+    {
+        string opened = null;
+        try { using (Process.Start(OpenerStartInfo(here, node, opener, app, port, false))) { } }
+        catch (Exception e) { opened = e.Message; }
+        string detail = "\n\n(" + why + ")";
+        if (opened != null)
+        {
+            ShowMessageBox("Kosmos could not open your browser (" + opened + ").\n\nOpen http://127.0.0.1:" + port + " in your browser yourself." + detail, true);
+            return 1;
+        }
+        ShowMessageBox((noRuntime ? NoWindowMessage : WindowWouldNotOpenMessage) + detail, false);
+        return 0;
+    }
+
+    // The loader, loaded by full path, and whether it finds a WebView2 Runtime on this PC. Zero
+    // with `problem` saying why when this PC cannot host the window; noRuntime when the reason is
+    // that the Runtime itself is not there, which is the one a person can fix by installing it.
+    static IntPtr LoadWebView2Loader(string path, out string problem, out bool noRuntime)
+    {
+        problem = null;
+        noRuntime = false;
+        if (!File.Exists(path)) { problem = "a Kosmos file is missing: " + WebView2LoaderRelativePath; return IntPtr.Zero; }
+        IntPtr module = LoadLibraryW(path);
+        if (module == IntPtr.Zero) { problem = WebView2LoaderRelativePath + " would not load (error " + Marshal.GetLastWin32Error() + ")"; return IntPtr.Zero; }
+        try
+        {
+            IntPtr at = GetProcAddress(module, "GetAvailableCoreWebView2BrowserVersionString");
+            if (at == IntPtr.Zero) { problem = WebView2LoaderRelativePath + " is not the WebView2 loader"; return IntPtr.Zero; }
+            GetAvailableBrowserVersion versionOf = (GetAvailableBrowserVersion)Marshal.GetDelegateForFunctionPointer(at, typeof(GetAvailableBrowserVersion));
+            IntPtr version;
+            int hr = versionOf(null, out version);
+            string found = version == IntPtr.Zero ? null : Marshal.PtrToStringUni(version);
+            if (version != IntPtr.Zero) Marshal.FreeCoTaskMem(version);
+            if (hr != 0 || string.IsNullOrEmpty(found)) { noRuntime = true; problem = "the Microsoft Edge WebView2 Runtime is not installed (0x" + hr.ToString("X8") + ")"; return IntPtr.Zero; }
+            return module;
+        }
+        catch (Exception e) { problem = "the WebView2 loader failed (" + e.Message + ")"; return IntPtr.Zero; }
+    }
+
+    // The window's own web profile, beside the launcher's other per-user state in
+    // %LOCALAPPDATA%\Kosmos (keptPlacesFile), which the uninstall removes. Never the default: that
+    // is a folder next to Kosmos.exe, inside the build, where the updater would swap it away.
+    static string WebView2UserDataFolder()
+    {
+        return Path.Combine(LocalAppDataFolder(), "Kosmos\\WebView2");
+    }
+
+    // The uninstall's ask to an open window: close, and let go of the web profile it holds. Waits
+    // a little for it, because the removal that follows deletes that profile.
+    static void CloseBoardWindow(int port)
+    {
+        try
+        {
+            PostMessage(HWND_BROADCAST, RegisterWindowMessage(BoardWindowName(port) + ".Close"), IntPtr.Zero, IntPtr.Zero);
+            using (Mutex onlyWindow = new Mutex(false, "Local\\" + BoardWindowName(port)))
+            {
+                bool gone;
+                try { gone = onlyWindow.WaitOne(CloseWindowWaitMs); }
+                catch (AbandonedMutexException) { gone = true; }
+                if (gone) onlyWindow.ReleaseMutex();
+            }
+        }
+        catch { /* nothing open, or it would not say: the removal names what it could not delete */ }
+    }
+
+    // The window closes in well under a second; this only bounds a window that is not answering.
+    const int CloseWindowWaitMs = 10000;
+
+    // Web links leave for the person's own browser, as they do from the Mac app (#1416). Only
+    // http and https: a page asked for this, and ShellExecute would act on any scheme, file:
+    // included.
+    internal static bool IsWebAddress(string address)
+    {
+        Uri uri;
+        return Uri.TryCreate(address, UriKind.Absolute, out uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+    }
+
+    // The pages the window makes itself: the "Starting Kosmos" page (NavigateToString) and blank.
+    internal static bool IsWindowOwnPage(string address)
+    {
+        return address != null && (address.StartsWith("about:", StringComparison.OrdinalIgnoreCase) || address.StartsWith("data:", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // The board's own pages: this port on loopback. Everything else is somebody else's site.
+    internal static bool IsBoardAddress(string address, int port)
+    {
+        Uri uri;
+        if (!Uri.TryCreate(address, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttp || uri.Port != port) return false;
+        string host = uri.Host.ToLowerInvariant();
+        return host == "127.0.0.1" || host == "localhost" || host == "[::1]";
+    }
+
+    internal static void OpenInPersonsBrowser(string address)
+    {
+        if (!IsWebAddress(address))
+        {
+            string scheme;
+            Uri uri;
+            scheme = Uri.TryCreate(address ?? "", UriKind.Absolute, out uri) ? uri.Scheme : null;
+            // The refusal speaks (#1416, Baron's review): a click that silently does nothing is the
+            // very bug the link handling exists to fix.
+            ShowMessageBox(string.IsNullOrEmpty(address)
+                ? "A link on this page had no address behind it, so there was nothing to open."
+                : "Kosmos only opens web links, and this one is " + (scheme == null ? "not a web address" : "a " + scheme + " link") + ", so it was not opened.\n\n" + address, false);
+            return;
+        }
+        try
+        {
+            ProcessStartInfo open = new ProcessStartInfo(address);
+            open.UseShellExecute = true;
+            using (Process.Start(open)) { }
+        }
+        catch (Exception e)
+        {
+            ShowMessageBox("Kosmos could not open your browser (" + e.Message + ").\n\n" + address, true);
+        }
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    delegate int GetAvailableBrowserVersion([MarshalAs(UnmanagedType.LPWStr)] string browserExecutableFolder, out IntPtr version);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    internal delegate int CreateEnvironment(
+        [MarshalAs(UnmanagedType.LPWStr)] string browserExecutableFolder,
+        [MarshalAs(UnmanagedType.LPWStr)] string userDataFolder,
+        IntPtr environmentOptions,
+        ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler handler);
+
+    static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
+    const int ASFW_ANY = -1;
+    static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern uint RegisterWindowMessage(string name);
+
+    [DllImport("user32.dll")]
+    static extern bool AllowSetForegroundWindow(int processId);
+
+    [DllImport("user32.dll")]
+    internal static extern bool SetForegroundWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
+    static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr LoadLibraryW(string path);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+    internal static extern IntPtr GetProcAddress(IntPtr module, string name);
+
     // ---- the console, for --console and non-interactive runs -----------------
 
     // A GUI-subsystem exe starts with no console. For --console it takes the one
@@ -1547,4 +1910,476 @@ class KosmosLauncher
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool GetConsoleMode(IntPtr handle, out uint mode);
+}
+
+// ---- the board's own window (#1118): the form ---------------------------------
+//
+// A plain Windows Forms window with WebView2 filling it. Every WebView2 callback arrives on this
+// window's thread (WebView2 requires an STA thread pumping messages, which Application.Run is), and
+// every one is wrapped so that a fault in it cannot take the window down with a crash dialog.
+class BoardWindowForm : System.Windows.Forms.Form
+{
+    readonly int port;
+    readonly IntPtr loader;
+    readonly string userDataFolder;
+    readonly uint showMessage;
+    readonly uint closeMessage;
+    ICoreWebView2Controller controller;
+    ICoreWebView2 webView;
+    string boardAddress;
+    bool navigatedToBoard;
+    // The --print-url answer, asked again each time Kosmos.exe is opened while this window is up.
+    readonly Func<string> resolveBoardAddress;
+    bool signingInAgain;
+
+    // Set when this PC could not host the window after all: RunBoardWindow then opens the browser.
+    internal string RuntimeProblem;
+    // Set when WebView2's browser process ended under an open window: RunBoardWindow says so.
+    internal bool StoppedWorking;
+
+    internal BoardWindowForm(int port, IntPtr loader, string userDataFolder, Func<string> resolveBoardAddress)
+    {
+        this.port = port;
+        this.resolveBoardAddress = resolveBoardAddress;
+        this.loader = loader;
+        this.userDataFolder = userDataFolder;
+        string name = "Kosmos.BoardWindow." + port;
+        showMessage = KosmosLauncher.RegisterWindowMessage(name + ".Show");
+        closeMessage = KosmosLauncher.RegisterWindowMessage(name + ".Close");
+
+        Text = "Kosmos";
+        try { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); }
+        catch { /* the default window icon */ }
+        BackColor = System.Drawing.Color.FromArgb(250, 250, 250);
+        // Most of the screen, centred on the one the person is using, as the Mac window opens.
+        System.Drawing.Rectangle area = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position).WorkingArea;
+        int width = Math.Max(Math.Min(area.Width, 800), area.Width * 4 / 5);
+        int height = Math.Max(Math.Min(area.Height, 600), area.Height * 17 / 20);
+        StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+        Bounds = new System.Drawing.Rectangle(area.Left + (area.Width - width) / 2, area.Top + (area.Height - height) / 2, width, height);
+        MinimumSize = new System.Drawing.Size(Math.Min(area.Width, 640), Math.Min(area.Height, 480));
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        try
+        {
+            IntPtr at = KosmosLauncher.GetProcAddress(loader, "CreateCoreWebView2EnvironmentWithOptions");
+            if (at == IntPtr.Zero) { CouldNotHost("the WebView2 loader has no CreateCoreWebView2EnvironmentWithOptions"); return; }
+            KosmosLauncher.CreateEnvironment create = (KosmosLauncher.CreateEnvironment)Marshal.GetDelegateForFunctionPointer(at, typeof(KosmosLauncher.CreateEnvironment));
+            try { Directory.CreateDirectory(userDataFolder); } catch { /* WebView2 then says why it cannot use it */ }
+            int hr = create(null, userDataFolder, IntPtr.Zero, new EnvironmentCreated(this));
+            if (hr != 0) CouldNotHost("WebView2 would not start (0x" + hr.ToString("X8") + ")");
+        }
+        catch (Exception x) { CouldNotHost("WebView2 would not start (" + x.Message + ")"); }
+    }
+
+    internal void EnvironmentReady(int hr, ICoreWebView2Environment environment)
+    {
+        if (hr != 0 || environment == null) { CouldNotHost("WebView2 would not start (0x" + hr.ToString("X8") + ")"); return; }
+        environment.CreateCoreWebView2Controller(Handle, new ControllerCreated(this));
+    }
+
+    internal void ControllerReady(int hr, ICoreWebView2Controller created)
+    {
+        if (hr != 0 || created == null) { CouldNotHost("WebView2 would not open a view (0x" + hr.ToString("X8") + ")"); return; }
+        if (IsDisposed) { created.Close(); return; }
+        controller = created;
+        controller.get_CoreWebView2(out webView);
+        ICoreWebView2Settings settings;
+        webView.get_Settings(out settings);
+        // No link preview in the corner: this is an app window, not a browser.
+        settings.put_IsStatusBarEnabled(0);
+        long token;
+        webView.add_NavigationStarting(new NavigationStarting(this), out token);
+        webView.add_NewWindowRequested(new NewWindowRequested(this), out token);
+        webView.add_ProcessFailed(new ProcessFailed(this), out token);
+        FitViewToWindow();
+        controller.MoveFocus(0);
+        if (boardAddress != null) NavigateToBoard();
+        else webView.NavigateToString(KosmosLauncher.StartingPage);
+    }
+
+    // The address open-board.js named, once it has; whichever of it and the view is ready last navigates.
+    internal void BoardAddressResolved(string address)
+    {
+        boardAddress = address;
+        if (webView != null) NavigateToBoard();
+    }
+
+    // Opening Kosmos.exe again is how a person signs back in (the zip's READ ME says so), so it has
+    // to work on an open window too, as the Mac app's Reload does (loadBoard mints a fresh signed-in
+    // address every time). A window that came up signed out -- the opener gave up on a slow first
+    // run, the nonce could not be minted, or the cookie is for another Kosmos -- is otherwise stuck:
+    // F5 reloads the same unsigned page. So the window asks open-board.js for a fresh address, off
+    // this thread, and loads it. Only a signed-in (?boot=) answer is loaded: the plain address would
+    // only throw away what the page shows and sign nobody in. The nonce travels as it did the first
+    // time, over the private pipe, never a command line.
+    // ⚠️ Accepted cost: the page reloads to the board's front page, so text typed and not yet sent
+    // is lost. That is what the Mac's Reload does too, and the person asked for Kosmos again.
+    internal void SignInAgain()
+    {
+        if (!navigatedToBoard || signingInAgain || resolveBoardAddress == null) return;
+        signingInAgain = true;
+        Thread resolve = new Thread(() =>
+        {
+            string fresh = null;
+            try { fresh = resolveBoardAddress(); } catch { /* nothing to load */ }
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    signingInAgain = false;
+                    if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(fresh);
+                }));
+            }
+            catch { /* the window closed meanwhile */ }
+        });
+        resolve.IsBackground = true;
+        resolve.Start();
+    }
+
+    void NavigateToBoard()
+    {
+        if (navigatedToBoard) return;
+        navigatedToBoard = true;
+        webView.Navigate(boardAddress);
+    }
+
+    // Before anything was shown, a failure means this PC cannot host the window: close, and
+    // RunBoardWindow opens the browser instead.
+    void CouldNotHost(string problem)
+    {
+        if (controller != null) return;
+        RuntimeProblem = problem;
+        BeginInvoke(new Action(Close));
+    }
+
+    // A navigation of the whole window away from the board (a plain link to another site) goes to
+    // the person's browser instead: this window has no address bar and no Back button to return by.
+    // Any other scheme (mailto:, ms-settings:, search-ms:, file:) is refused with the same box as a
+    // new-window link (review of #3285): left alone it reaches WebView2's own "open this app?"
+    // prompt. The window's own pages stay: the board, and the about:/data: page NavigateToString
+    // shows while the board starts.
+    internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)
+    {
+        string uri;
+        args.get_Uri(out uri);
+        if (KosmosLauncher.IsBoardAddress(uri, port) || KosmosLauncher.IsWindowOwnPage(uri)) return;
+        args.put_Cancel(1);
+        BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri)));
+    }
+
+    // target="_blank" and window.open: never a second WebView2 window; the person's browser, as
+    // the Mac app does (#1416). Every such link the board has today is another site. One of the
+    // board's own pages stays in this window instead, because the browser is not signed in to the
+    // board and would show the #2007 403.
+    internal void OnNewWindowRequested(ICoreWebView2NewWindowRequestedEventArgs args)
+    {
+        string uri;
+        args.get_Uri(out uri);
+        args.put_Handled(1);
+        if (KosmosLauncher.IsBoardAddress(uri, port)) BeginInvoke(new Action(() => webView.Navigate(uri)));
+        else BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri)));
+    }
+
+    const int COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED = 0;
+    const int COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED = 1;
+    const int COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE = 2;
+
+    // A page that crashed or hung is loaded again. A browser process that ended leaves nothing to
+    // load it in, so the window closes and says so, rather than sitting blank.
+    internal void OnProcessFailed(ICoreWebView2ProcessFailedEventArgs args)
+    {
+        int kind;
+        args.get_ProcessFailedKind(out kind);
+        if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED)
+        {
+            StoppedWorking = true;
+            BeginInvoke(new Action(Close));
+            return;
+        }
+        if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE)
+        {
+            BeginInvoke(new Action(() => { try { webView.Reload(); } catch { /* F5 is still there */ } }));
+        }
+    }
+
+    void FitViewToWindow()
+    {
+        if (controller == null) return;
+        try
+        {
+            bool minimized = WindowState == System.Windows.Forms.FormWindowState.Minimized;
+            controller.put_IsVisible(minimized ? 0 : 1);
+            if (minimized) return;
+            System.Drawing.Rectangle client = ClientRectangle;
+            RECT bounds;
+            bounds.left = client.Left; bounds.top = client.Top; bounds.right = client.Right; bounds.bottom = client.Bottom;
+            controller.put_Bounds(bounds);
+        }
+        catch { /* a view that is going away */ }
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        FitViewToWindow();
+    }
+
+    protected override void OnMove(EventArgs e)
+    {
+        base.OnMove(e);
+        if (controller != null) { try { controller.NotifyParentWindowPositionChanged(); } catch { /* a view that is going away */ } }
+    }
+
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        if (controller != null) { try { controller.MoveFocus(0); } catch { /* a view that is going away */ } }
+    }
+
+    protected override void WndProc(ref System.Windows.Forms.Message m)
+    {
+        if (m.Msg != 0 && (uint)m.Msg == showMessage)
+        {
+            if (WindowState == System.Windows.Forms.FormWindowState.Minimized) WindowState = System.Windows.Forms.FormWindowState.Normal;
+            Activate();
+            KosmosLauncher.SetForegroundWindow(Handle);
+            SignInAgain();
+            return;
+        }
+        if (m.Msg != 0 && (uint)m.Msg == closeMessage) { Close(); return; }
+        base.WndProc(ref m);
+    }
+
+    protected override void OnFormClosed(System.Windows.Forms.FormClosedEventArgs e)
+    {
+        if (controller != null) { try { controller.Close(); } catch { /* already gone */ } controller = null; }
+        base.OnFormClosed(e);
+    }
+}
+
+// The completion handlers and event handlers WebView2 calls back on. Each forwards to the form and
+// answers S_OK whatever happens: an exception escaping into WebView2 would end the process.
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class EnvironmentCreated : ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
+{
+    readonly BoardWindowForm form;
+    internal EnvironmentCreated(BoardWindowForm form) { this.form = form; }
+    public int Invoke(int errorCode, ICoreWebView2Environment environment)
+    {
+        try { form.EnvironmentReady(errorCode, environment); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class ControllerCreated : ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
+{
+    readonly BoardWindowForm form;
+    internal ControllerCreated(BoardWindowForm form) { this.form = form; }
+    public int Invoke(int errorCode, ICoreWebView2Controller controller)
+    {
+        try { form.ControllerReady(errorCode, controller); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class NavigationStarting : ICoreWebView2NavigationStartingEventHandler
+{
+    readonly BoardWindowForm form;
+    internal NavigationStarting(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2 sender, ICoreWebView2NavigationStartingEventArgs args)
+    {
+        try { form.OnNavigationStarting(args); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class NewWindowRequested : ICoreWebView2NewWindowRequestedEventHandler
+{
+    readonly BoardWindowForm form;
+    internal NewWindowRequested(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2 sender, ICoreWebView2NewWindowRequestedEventArgs args)
+    {
+        try { form.OnNewWindowRequested(args); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class ProcessFailed : ICoreWebView2ProcessFailedEventHandler
+{
+    readonly BoardWindowForm form;
+    internal ProcessFailed(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2 sender, ICoreWebView2ProcessFailedEventArgs args)
+    {
+        try { form.OnProcessFailed(args); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+// ---- WebView2's COM interfaces, as WebView2.h (SDK 1.0.4191.47) orders them -----
+//
+// 🛑 THE ORDER IS THE CONTRACT. COM calls a method by its slot in the interface's table, not by
+// name, so each list below runs in the header's order, from the first method to the last one this
+// file calls, with an _unused placeholder holding every slot in between. Reordering, removing or
+// inserting a line calls a different method. An interface WebView2 has published never changes
+// (new methods go on new interfaces), so the order cannot drift under a newer Runtime.
+
+[StructLayout(LayoutKind.Sequential)]
+public struct RECT { public int left; public int top; public int right; public int bottom; }
+
+[ComImport, Guid("4e8a3389-c9d8-4bd2-b6b5-124fee6cc14d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
+{
+    [PreserveSig] int Invoke(int errorCode, ICoreWebView2Environment createdEnvironment);
+}
+
+[ComImport, Guid("6c4819f3-c9b7-4260-8127-c9f5bde7f68c"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
+{
+    [PreserveSig] int Invoke(int errorCode, ICoreWebView2Controller createdController);
+}
+
+[ComImport, Guid("9adbe429-f36d-432b-9ddc-f8881fbd76e3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2NavigationStartingEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2NavigationStartingEventArgs args);
+}
+
+[ComImport, Guid("d4c185fe-c81c-4989-97af-2d3fa7ab5651"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2NewWindowRequestedEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2NewWindowRequestedEventArgs args);
+}
+
+[ComImport, Guid("79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2ProcessFailedEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2ProcessFailedEventArgs args);
+}
+
+[ComImport, Guid("b96d755e-0319-4e92-a296-23436f46a1fc"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2Environment
+{
+    void CreateCoreWebView2Controller(IntPtr parentWindow, ICoreWebView2CreateCoreWebView2ControllerCompletedHandler handler);
+}
+
+[ComImport, Guid("4d00c0d1-9434-4eb6-8078-8697a560334f"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2Controller
+{
+    void get_IsVisible(out int isVisible);
+    void put_IsVisible(int isVisible);
+    void get_Bounds(out RECT bounds);
+    void put_Bounds(RECT bounds);
+    void _unused_get_ZoomFactor();
+    void _unused_put_ZoomFactor();
+    void _unused_add_ZoomFactorChanged();
+    void _unused_remove_ZoomFactorChanged();
+    void _unused_SetBoundsAndZoomFactor();
+    void MoveFocus(int reason);
+    void _unused_add_MoveFocusRequested();
+    void _unused_remove_MoveFocusRequested();
+    void _unused_add_GotFocus();
+    void _unused_remove_GotFocus();
+    void _unused_add_LostFocus();
+    void _unused_remove_LostFocus();
+    void _unused_add_AcceleratorKeyPressed();
+    void _unused_remove_AcceleratorKeyPressed();
+    void _unused_get_ParentWindow();
+    void _unused_put_ParentWindow();
+    void NotifyParentWindowPositionChanged();
+    void Close();
+    void get_CoreWebView2(out ICoreWebView2 coreWebView2);
+}
+
+[ComImport, Guid("76eceacb-0462-4d94-ac83-423a6793775e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2
+{
+    void get_Settings(out ICoreWebView2Settings settings);
+    void _unused_get_Source();
+    void Navigate([MarshalAs(UnmanagedType.LPWStr)] string uri);
+    void NavigateToString([MarshalAs(UnmanagedType.LPWStr)] string htmlContent);
+    void add_NavigationStarting(ICoreWebView2NavigationStartingEventHandler eventHandler, out long token);
+    void _unused_remove_NavigationStarting();
+    void _unused_add_ContentLoading();
+    void _unused_remove_ContentLoading();
+    void _unused_add_SourceChanged();
+    void _unused_remove_SourceChanged();
+    void _unused_add_HistoryChanged();
+    void _unused_remove_HistoryChanged();
+    void _unused_add_NavigationCompleted();
+    void _unused_remove_NavigationCompleted();
+    void _unused_add_FrameNavigationStarting();
+    void _unused_remove_FrameNavigationStarting();
+    void _unused_add_FrameNavigationCompleted();
+    void _unused_remove_FrameNavigationCompleted();
+    void _unused_add_ScriptDialogOpening();
+    void _unused_remove_ScriptDialogOpening();
+    void _unused_add_PermissionRequested();
+    void _unused_remove_PermissionRequested();
+    void add_ProcessFailed(ICoreWebView2ProcessFailedEventHandler eventHandler, out long token);
+    void _unused_remove_ProcessFailed();
+    void _unused_AddScriptToExecuteOnDocumentCreated();
+    void _unused_RemoveScriptToExecuteOnDocumentCreated();
+    void _unused_ExecuteScript();
+    void _unused_CapturePreview();
+    void Reload();
+    void _unused_PostWebMessageAsJson();
+    void _unused_PostWebMessageAsString();
+    void _unused_add_WebMessageReceived();
+    void _unused_remove_WebMessageReceived();
+    void _unused_CallDevToolsProtocolMethod();
+    void _unused_get_BrowserProcessId();
+    void _unused_get_CanGoBack();
+    void _unused_get_CanGoForward();
+    void _unused_GoBack();
+    void _unused_GoForward();
+    void _unused_GetDevToolsProtocolEventReceiver();
+    void _unused_Stop();
+    void add_NewWindowRequested(ICoreWebView2NewWindowRequestedEventHandler eventHandler, out long token);
+}
+
+[ComImport, Guid("e562e4f0-d7fa-43ac-8d71-c05150499f00"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2Settings
+{
+    void _unused_get_IsScriptEnabled();
+    void _unused_put_IsScriptEnabled();
+    void _unused_get_IsWebMessageEnabled();
+    void _unused_put_IsWebMessageEnabled();
+    void _unused_get_AreDefaultScriptDialogsEnabled();
+    void _unused_put_AreDefaultScriptDialogsEnabled();
+    void _unused_get_IsStatusBarEnabled();
+    void put_IsStatusBarEnabled(int isStatusBarEnabled);
+}
+
+[ComImport, Guid("5b495469-e119-438a-9b18-7604f25f2e49"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2NavigationStartingEventArgs
+{
+    void get_Uri([MarshalAs(UnmanagedType.LPWStr)] out string uri);
+    void _unused_get_IsUserInitiated();
+    void _unused_get_IsRedirected();
+    void _unused_get_RequestHeaders();
+    void _unused_get_Cancel();
+    void put_Cancel(int cancel);
+}
+
+[ComImport, Guid("34acb11c-fc37-4418-9132-f9c21d1eafb9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2NewWindowRequestedEventArgs
+{
+    void get_Uri([MarshalAs(UnmanagedType.LPWStr)] out string uri);
+    void _unused_put_NewWindow();
+    void _unused_get_NewWindow();
+    void put_Handled(int handled);
+}
+
+[ComImport, Guid("8155a9a4-1474-4a86-8cae-151b0fa6b8ca"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2ProcessFailedEventArgs
+{
+    void get_ProcessFailedKind(out int processFailedKind);
 }

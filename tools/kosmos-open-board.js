@@ -223,6 +223,16 @@ async function main() {
   const port = argValue('--port', DEFAULT_PORT);
   const timeoutMs = Number(argValue('--timeout-ms', '20000')) || 20000;
   const open = await resolveOpenUrl({ appDir, port, timeoutMs });
+  // #1118: `--print-url` is Kosmos.exe's board window asking for the address to load in itself,
+  // instead of a browser. It gets the RESOLVED url (nonced on an enforcing board) and nothing is
+  // opened. This is the one case where stdout carries the nonce, and it is safe for the same reason
+  // the browser's argv is: the launcher reads this stdout over a private pipe and never shows or
+  // logs it, the nonce is single-use and short-TTL, and the durable token never leaves this process.
+  // Only that flag does this; the plain run below keeps the nonce off stdout.
+  if (process.argv.includes('--print-url')) {
+    process.stdout.write(open + '\n');
+    return;
+  }
   // Print the PLAIN url as the human message (mirrors cmd_open's `say "$URL"`),
   // then OPEN the resolved url (nonced on an enforcing board). Printing the plain
   // url rather than the nonced one keeps the single-use boot nonce out of any
@@ -243,7 +253,8 @@ if (require.main === module) {
     process.stderr.write('kosmos-open-board: ' + (e && e.message || e) + '\n');
     const url = `http://127.0.0.1:${argValue('--port', DEFAULT_PORT)}`;
     process.stdout.write(url + '\n');
-    await openInBrowser(url);
+    // --print-url: the window loads the plain url itself; opening a browser too would be two Kosmoses.
+    if (!process.argv.includes('--print-url')) await openInBrowser(url);
   });
 }
 

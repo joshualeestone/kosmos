@@ -4705,7 +4705,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    and still cannot set the page height on a month-old project — which is what
    the original bound existed to prevent, and the reason it changed shape
    rather than being deleted. The two smaller columns keep their own scroll. */
-.thread { padding: 14px 16px; display: flex; flex-direction: column; gap: 18px;
+.thread { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px;
           min-height: 26rem; max-height: min(62vh, 44rem); overflow-y: auto;
           border: 1px solid var(--k-rule); border-radius: 10px;
           background: var(--k-bg); }
@@ -4718,7 +4718,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
           font-weight: 600; color: var(--k-ink-2); overflow: hidden; }
 .msg-av img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
 .msg-av.mine { background: var(--k-ink); color: var(--k-bg); }
-.msg-b { flex: 1; min-width: 0; }
+.msg-b { flex: 1; min-width: 0; position: relative; isolation: isolate; }
+/* Josh 2026-09-19: an agent (non-.you) row shrink-wraps its body to the bubble (grow:0),
+   so the body's right edge coincides with the bubble's right edge instead of the full column
+   width. Without this, the hover reaction popout (.rxn-quick, anchored right:0 to .msg-b)
+   would float in the blank space to the right of a left-aligned agent bubble in a wide
+   column. The operator's own row (.msg.you) already right-aligns its bubble to the column
+   edge, so right:0 is correct there without this. */
+.msg:not(.you) .msg-b { flex: 0 1 auto; }
 /* #2918 (Josh, 2026-09-12 6.59 QA): the operator's OWN post reads like an iOS
    text-message conversation. Agent posts keep avatar+name on the LEFT with the
    message to the right (the default .msg row); the operator's own post is the
@@ -4883,6 +4890,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the blue to message backgrounds, not reactions), so the reaction pill keeps
    gold on purpose and the two surfaces deliberately differ. */
 .rxns { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+/* Josh 2026-09-19: a resting message has no reaction pills, only the hover-only quick bar
+   (floated out of flow, see .rxn-quick below). An empty reaction row must add NO height, so
+   the avatar (align-items:flex-end on .msg) sits on the bubble's bottom baseline instead of
+   below a reserved reaction strip, and the inter-message gap tightens. With pills present the
+   row is in normal flow as before. */
+.rxns:not(:has(.rxn)) { margin-top: 0; }
 .rxn { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 100px;
        border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink);
        font-size: .8125rem; line-height: 1.5; cursor: pointer; }
@@ -4897,7 +4910,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    stay in the tab order for the `:focus-within` reveal, and an invisible button is
    never clickable. Existing reaction pills (`.rxn`) are outside this bar and stay
    visible always. */
-.rxn-quick { display: inline-flex; align-items: center; gap: 2px; opacity: 0;
+/* Josh 2026-09-19: floated ABOVE the bubble (out of flow) so the resting reaction strip
+   reserves no height -- the avatar baseline aligns to the bubble bottom and the message gaps
+   tighten. On hover it fades in at the message's top-right, in the gap above, the Discord-style
+   popout in Josh's mockup. Anchored to .msg-b (position:relative). */
+.rxn-quick { position: absolute; top: -10px; right: 0; z-index: 3;
+             display: inline-flex; align-items: center; gap: 2px; opacity: 0;
              pointer-events: none; transition: opacity .12s ease; }
 .msg:hover .rxn-quick, .rxn-quick:focus-within { opacity: 1; pointer-events: auto; }
 .rxn-more { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
@@ -21802,6 +21820,74 @@ document.addEventListener('keydown', (e) => {
        drops to <body> and the keyboard user is lost */
     b.focus();
   }
+});
+
+/* #3283 type-to-focus: on the agent-conversation view AND the project view
+   (grid + consolidated), a printable keystroke typed with nothing focused
+   routes straight into that surface's composer - no click into the field
+   first. Josh: nothing else on those screens catches key commands, so the
+   first key should just start populating the message input.
+
+   activeComposer() returns the ONE composer the current surface should hand
+   that keystroke to, or null when the surface has no composer (settings,
+   create, the projects LIST, a closed project). It is explicit rather than
+   "focus the first visible .cinput" because in Engineering mode with a project
+   open BOTH pj-post (the room composer) and pj-say (talk-to-one) are visible
+   at once, and the room composer is the one Josh means. */
+function activeComposer() {
+  const rendered = (el) => el && el.getClientRects().length > 0 && !el.disabled;
+  const detail = document.getElementById('panel-detail');
+  if (detail && !detail.hidden) {
+    const say = document.getElementById('d-say');        // Talk section (primary)
+    if (rendered(say)) return say;
+    const term = document.getElementById('d-term-say');  // Advanced/Terminal quick line
+    if (rendered(term)) return term;
+    return null;
+  }
+  const projects = document.getElementById('panel-projects');
+  if (projects && !projects.hidden) {
+    const post = document.getElementById('pj-post');     // room composer: grid AND consolidated
+    if (rendered(post)) return post;                     // prefer it over pj-say deliberately
+    return null;
+  }
+  return null;
+}
+document.addEventListener('keydown', (e) => {
+  /* Only a bare printable character typed with nothing focused. Everything
+     else is left completely alone: shortcuts (ctrl/meta/alt), navigation and
+     control keys (Enter/Tab/arrows/Escape/Backspace/F-keys, all length > 1),
+     SPACE (kept for its scroll-the-thread default; a message starts with a
+     visible character, not a leading space), IME composition, and any keystroke
+     while a field, button, link, or focus-trapping modal already holds focus. */
+  if (e.isComposing || e.keyCode === 229) return;        // IME mid-composition
+  // A real shortcut, not text. AltGr-composed printables (@, EUR, accented letters on
+  // many European layouts) report ctrl+alt to simulate Ctrl+Alt, so let those through via
+  // getModifierState('AltGraph'); the length/space checks below still bound it to one
+  // visible character. (macOS Option-composed characters that do not set AltGraph are the
+  // low-severity residual: the keystroke is dropped, never misdirected.)
+  if ((e.ctrlKey || e.metaKey || e.altKey) && !e.getModifierState('AltGraph')) return;
+  if (e.key.length !== 1) return;                        // not a single printable char
+  if (e.key === ' ') return;                             // #3283: space keeps its scroll default
+  const ae = document.activeElement;
+  /* "nothing focused" == body / documentElement. A focused input, button, or
+     link makes activeElement something else, so this bails and never steals
+     their keys. */
+  if (ae && ae !== document.body && ae !== document.documentElement) return;
+  /* A modal can be OPEN with nothing focused: a confirm button (#rm-go, #rst-go)
+     that disables itself on click blurs itself, so activeElement reverts to body
+     while the dialog is still up. These dialogs are not `inert`, so keydown still
+     reaches this handler. Bail whenever a dialog backdrop is open. Every modal here
+     is an `.rm-back` (or firstrun's `.fr-back`) backdrop toggled via the `hidden`
+     attribute; the inner `.rm-box[aria-modal]` is NOT itself `hidden`-toggled, so we
+     test the backdrop, not aria-modal. Keeps a keystroke during a destructive-action
+     confirmation from being stolen into the composer. */
+  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden])')) return;
+  const c = activeComposer();
+  if (!c) return;
+  /* Focus WITHOUT preventDefault so the character that triggered this keydown
+     lands in the now-focused composer (the browser retargets text input to the
+     newly focused field). */
+  c.focus();
 });
 
 // The K mark goes to the Agents board by clicking the REAL tab control, so
