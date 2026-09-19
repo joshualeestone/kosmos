@@ -3507,8 +3507,14 @@ if CommandLine.arguments.contains("--kosmos-app-jspanels-selftest") {
                 print("delegate-fired:prompt:\(promptFired ? "yes" : "no")")
                 print("return-value:confirm-true:\(seen.contains("\"confirm\":true") ? "yes" : "no")")
                 print("return-value:prompt-typed:\(seen.contains("\"prompt\":\"typed\"") ? "yes" : "no")")
+                // Gate the exit on the mapping/buttons arms too, not just the wiring arms:
+                // otherwise an inverted jsConfirmValue prints `mapping:...:no` yet the binary
+                // still exits 0, leaving the inversion protection only in the (headless-skipped)
+                // build gate. Include every check so the binary itself self-fails on an inversion.
                 let ok = alertFired && confirmFired && promptFired
                     && seen.contains("\"confirm\":true") && seen.contains("\"prompt\":\"typed\"")
+                    && mapOkTrue && mapCancelFalse && mapPromptOk && mapPromptCancel
+                    && confirmOkFirst && promptOkFirst
                 exit(ok ? 0 : 1)
             }
         }, "the probe dialogs never resolved (a delegate never answered its completion)")
