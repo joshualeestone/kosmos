@@ -360,6 +360,85 @@ function onlyAScriptIsThere(bin) {
 let spawnFn = null;
 function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : null; }
 
+/**
+ * 🛑 THE BROWSER IS OPENED BY ITS OWN PROGRAM, NAMED IN `BROWSER` (L-1, #3288).
+ *
+ * `auth login` opens its sign-in page with `rundll32 url,OpenURL <link>` unless
+ * `BROWSER` names a program, which it then runs with the link as its one argument.
+ * MEASURED on Windows 11 with claude.exe 2.1.277 and Edge as the default browser:
+ * started from a task shaped like the board's (`conhost --headless`, interactive
+ * logon) while Edge had NO window open, the rundll32 path opened nothing, 0 of 4
+ * (and 0 of 1 each with windowsHide off and with `BROWSER=explorer.exe`). The page
+ * never appeared and the person would sit on "opening your browser". With `BROWSER`
+ * set to the browser's own program the tab opened within a second, 3 of 3, and from
+ * a shell both paths worked. A clean laptop just after logon usually has no browser
+ * window open, so this is the common case, not an edge.
+ *
+ * So the sign-in gets `BROWSER` = the default browser's program: the https handler
+ * the person chose (UserChoice ProgId, then that ProgId's open command, whose program
+ * is taken and whose arguments are dropped; Edge, Chrome and Firefox all open a bare
+ * link), else Edge, which every Windows 10 and 11 has. A `BROWSER` the person already
+ * set is theirs and is left alone. When nothing is found the variable stays unset,
+ * which is the rundll32 path, no worse than before.
+ */
+const USER_CHOICE_KEYS = Object.freeze([
+  'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice',
+  'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice',
+]);
+const EDGE_RELATIVE = ['Microsoft', 'Edge', 'Application', 'msedge.exe'];
+
+/** One registry string value (`name` null means the default value), or null. */
+function readRegistryString(key, name) {
+  try {
+    const args = ['query', key].concat(name ? ['/v', name] : ['/ve']);
+    const out = require('node:child_process').execFileSync('reg.exe', args,
+      { encoding: 'utf8', windowsHide: true, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const m = String(out).match(/\sREG_(?:EXPAND_)?SZ\s+(.*?)\s*$/m);
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+
+/** The program at the front of a shell open command: `"C:\x\y.exe" --flag %1` gives `C:\x\y.exe`. */
+function programOfOpenCommand(command) {
+  const s = String(command || '').trim();
+  const m = s.startsWith('"') ? s.match(/^"([^"]+)"/) : s.match(/^(\S+?\.exe)(?=\s|$)/i);
+  const program = m ? m[1] : null;
+  return program && /\.exe$/i.test(program) ? program : null;
+}
+
+/**
+ * The default browser's program on this PC, or null. `readReg(key, name)` and `exists(path)`
+ * are the registry and the disk; tests pass their own.
+ */
+function defaultBrowserProgram(readReg = readRegistryString, exists = fs.existsSync, env = process.env) {
+  for (const key of USER_CHOICE_KEYS) {
+    const progId = readReg(key, 'ProgId');
+    if (!progId || /[\\\r\n]/.test(progId)) continue;
+    const program = programOfOpenCommand(readReg('HKCR\\' + progId + '\\shell\\open\\command', null));
+    try { if (program && exists(program)) return program; } catch { /* try the next */ }
+  }
+  for (const root of [env['ProgramFiles(x86)'], env.ProgramFiles]) {
+    if (!root) continue;
+    const edge = path.win32.join(root, ...EDGE_RELATIVE);
+    try { if (exists(edge)) return edge; } catch { /* try the next */ }
+  }
+  return null;
+}
+
+/* The browser seam. With the spawn seam set and this one not, no registry is read at all. */
+let browserFinderFn = null;
+function setBrowserFinder(fn) { browserFinderFn = typeof fn === 'function' ? fn : null; }
+
+/** Set BROWSER on a sign-in environment unless the person already has one (any case). */
+function withBrowser(env) {
+  if (Object.keys(env).some((k) => k.toUpperCase() === 'BROWSER')) return env;
+  const finder = browserFinderFn || (spawnFn ? null : defaultBrowserProgram);
+  let program = null;
+  try { program = finder ? finder() : null; } catch { program = null; }
+  if (program) env.BROWSER = program;
+  return env;
+}
+
 function startFailure(error, bin) {
   const code = (error && error.code) || 'unknown error';
   let because = 'Kosmos could not start the Claude sign-in on this computer';
@@ -418,7 +497,7 @@ function createSigninHost() {
        KOSMOS_AGENT_TOKEN, and sets CLAUDE_CONFIG_DIR to the account's folder or
        DELETES it for the default account (#1922: absent is not unset). Required here,
        not at the top: win32launch pulls in modules that fix data roots at require time. */
-    const env = require('./win32launch').childEnv(process.env, null, spec.launchDir || null, null);
+    const env = withBrowser(require('./win32launch').childEnv(process.env, null, spec.launchDir || null, null));
     const session = {
       child: null,
       screen: null,
@@ -581,7 +660,8 @@ function createSigninHost() {
 }
 
 module.exports = {
-  createSigninHost, setSpawn, signinLineForClaudeFile,
+  createSigninHost, setSpawn, setBrowserFinder, signinLineForClaudeFile,
+  defaultBrowserProgram, programOfOpenCommand,
   SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
   REDACTION_MARKER,
   normaliseSignInText, redactSecrets, createTextKeeper,

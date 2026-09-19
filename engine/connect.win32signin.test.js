@@ -47,9 +47,9 @@ connect.setSigninPlatformForTests('win32');
    stdout comes in two chunks: the browser line, then the manual-code link and the
    prompt together (no escape codes, no CR). A pasted line with no `#` gets ERR_INVALID
    on stderr and the program keeps reading; a well-formed but wrong code gets
-   ERR_FAILED on stderr and exit 1.
-   ⚠️ OUT_SUCCESS is still the binary's string ("Login successful.", 2.1.270); L-1
-   (iii) and (iv), a completed sign-in, confirm it. */
+   ERR_FAILED on stderr and exit 1. A completed sign-in (L-1 (iii) through the localhost
+   callback, and (iv) through a pasted code#state) prints OUT_SUCCESS as a third stdout
+   chunk, writes nothing to stderr, and exits 0; the code is never echoed. */
 const OUT_BROWSER = 'Opening browser to sign in…\n';
 const REAL_URL = (state) => 'https://claude.com/cai/oauth/authorize?code=true&client_id=REDACTED&response_type=code'
   + '&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback'

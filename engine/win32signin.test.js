@@ -751,3 +751,74 @@ test('Convention 3: with no spawn seam and live execution not armed, nothing is 
     /tried to execute/,
     'the host would have started a real program in a test with no seam');
 });
+
+/* ── #3288 L-1: the sign-in opens the browser through the browser's own program ── */
+
+test('#3288: the open command gives its program, and nothing that is not an .exe', () => {
+  const p = win32signin.programOfOpenCommand;
+  assert.equal(p('"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --single-argument %1'),
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe');
+  assert.equal(p('"C:\\Program Files\\Mozilla Firefox\\firefox.exe" -osint -url "%1"'), 'C:\\Program Files\\Mozilla Firefox\\firefox.exe');
+  assert.equal(p('C:\\Browsers\\b.exe %1'), 'C:\\Browsers\\b.exe');
+  assert.equal(p('"C:\\x\\opener.cmd" %1'), null, 'a script would need a shell, and cmd.exe splits a link at &');
+  assert.equal(p(''), null);
+  assert.equal(p(null), null);
+});
+
+test('#3288: the default browser is the https choice, then the http one, then Edge, else none', () => {
+  const EDGE = 'C:\\PF86\\Microsoft\\Edge\\Application\\msedge.exe';
+  const CHROME = 'C:\\PF\\Google\\Chrome\\Application\\chrome.exe';
+  const reg = (table) => (key, name) => table[key + '|' + (name || '')] || null;
+  const HTTPS = 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice|ProgId';
+  const HTTP = 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice|ProgId';
+  const env = { 'ProgramFiles(x86)': 'C:\\PF86', ProgramFiles: 'C:\\PF' };
+  const on = (...files) => (f) => files.includes(f);
+
+  const chosen = reg({ [HTTPS]: 'ChromeHTML', 'HKCR\\ChromeHTML\\shell\\open\\command|': '"' + CHROME + '" --single-argument %1' });
+  assert.equal(win32signin.defaultBrowserProgram(chosen, on(CHROME, EDGE), env), CHROME, 'the person\'s choice lost to Edge');
+  assert.equal(win32signin.defaultBrowserProgram(chosen, on(EDGE), env), EDGE, 'a choice whose program is gone was used anyway');
+  const httpOnly = reg({ [HTTP]: 'ChromeHTML', 'HKCR\\ChromeHTML\\shell\\open\\command|': '"' + CHROME + '" %1' });
+  assert.equal(win32signin.defaultBrowserProgram(httpOnly, on(CHROME, EDGE), env), CHROME);
+  const oddProgId = reg({ [HTTPS]: 'a\\b', 'HKCR\\a\\b\\shell\\open\\command|': '"' + CHROME + '"' });
+  assert.equal(win32signin.defaultBrowserProgram(oddProgId, on(CHROME, EDGE), env), EDGE, 'a ProgId naming another key was followed');
+  assert.equal(win32signin.defaultBrowserProgram(reg({}), on(EDGE), env), EDGE, 'no choice made: Edge, which every Windows 10 and 11 has');
+  assert.equal(win32signin.defaultBrowserProgram(reg({}), on(), env), null);
+});
+
+test('#3288: the sign-in gets BROWSER from the finder, keeps a BROWSER the person set, and reads no registry under a spawn seam', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  t.after(() => win32signin.setBrowserFinder(null));
+
+  /* No finder under a spawn seam: nothing is looked up, so no test reads this machine's registry. */
+  await host.open({ claudeBin: CLAUDE_BIN });
+  assert.ok(!Object.keys(spawn.calls[0].opts.env).some((k) => k.toUpperCase() === 'BROWSER' && !process.env[k]),
+    'a BROWSER appeared with no finder and none inherited');
+
+  win32signin.setBrowserFinder(() => 'C:\\B\\browser.exe');
+  const saved = Object.keys(process.env).filter((k) => k.toUpperCase() === 'BROWSER').map((k) => [k, process.env[k]]);
+  for (const [k] of saved) delete process.env[k];
+  t.after(() => { for (const [k, v] of saved) process.env[k] = v; });
+  await host.open({ claudeBin: CLAUDE_BIN });
+  assert.equal(spawn.calls[1].opts.env.BROWSER, 'C:\\B\\browser.exe', 'the sign-in was not told which program opens the browser');
+
+  process.env.Browser = 'C:\\mine\\pick.exe';
+  t.after(() => { delete process.env.Browser; });
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const env = spawn.calls[2].opts.env;
+  const keys = Object.keys(env).filter((k) => k.toUpperCase() === 'BROWSER');
+  assert.equal(keys.length, 1, 'two BROWSER variables, and Windows keeps one of them unpredictably');
+  assert.equal(env[keys[0]], 'C:\\mine\\pick.exe', 'the person\'s own BROWSER was overridden');
+
+  win32signin.setBrowserFinder(() => null);
+  delete process.env.Browser;
+  await host.open({ claudeBin: CLAUDE_BIN });
+  assert.ok(!Object.keys(spawn.calls[3].opts.env).some((k) => k.toUpperCase() === 'BROWSER'), 'nothing found, yet BROWSER was set');
+  await host.kill();
+});
+
+test('#3288 (win32 only): this PC\'s default browser resolves to a program that exists', { skip: process.platform !== 'win32' && 'reads the Windows registry' }, () => {
+  const program = win32signin.defaultBrowserProgram();
+  assert.ok(program, 'no browser program found on a Windows PC, which always has Edge');
+  assert.ok(fs.existsSync(program) && /\.exe$/i.test(program), program);
+});

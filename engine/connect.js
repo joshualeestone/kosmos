@@ -1325,8 +1325,12 @@ const tmuxSigninHost = {
  * with `claude.exe` 2.1.277 against a sandbox CLAUDE_CONFIG_DIR, through this host,
  * started both from a shell and from a task shaped like the board's logon task
  * (`conhost --headless`, interactive logon): the browser opened, the callback listened
- * on 127.0.0.1 only (no firewall prompt), a pasted line reached the program's stdin,
- * and its texts are the fixtures in engine/connect.win32signin.test.js.
+ * on 127.0.0.1 only (no firewall prompt, and Edge's `localhost` reaches it), a sign-in
+ * finished both through the localhost callback and through a pasted code, and this
+ * driver took one to CONNECTED from that task with no test seams. Its texts are the
+ * fixtures in engine/connect.win32signin.test.js. The browser is opened through
+ * `BROWSER` (see win32signin.js): claude's own opener showed nothing from that task
+ * when the browser had no window open.
  *
  * ⚠️ A CODE CONSTANT, NOT AN ENVIRONMENT VARIABLE. Anything running as this user,
  * an agent session included, can set an environment variable; switching this takes
