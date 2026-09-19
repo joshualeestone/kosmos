@@ -12392,9 +12392,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            agent I've ever created. I just want to see the three buttons." The
            agents already put on the project are listed above the buttons; Add
            an agent opens a dropdown of the rest, picking one adds it, and the
-           button can be pressed again. The two external buttons are present
-           and disabled until those flows exist: nothing that looks live may do
-           nothing, and disabled is the honest state. -->
+           button can be pressed again.
+           #3312: the two external buttons are LIVE now (they were #750-disabled
+           placeholders): each mints a single-use invite code that lets a person
+           or agent outside this Kosmos into THIS project's messages. -->
       <div id="pj-add-agents" class="pj-members" role="group"
            aria-labelledby="pj-agents-label"></div>
       <div class="frow" id="pj-add-agent-row" hidden style="margin-top: var(--space-4)">
@@ -44449,7 +44450,10 @@ async function pjMintInvite(invitedKind) {
   // than silently sending project_name:'' and getting only the generic failure back.
   if (!name) {
     // The SAME copy the Create path shows for the identical mistake (pjFieldBad already focuses).
+    // Also clear + hide any panel a prior mint left open, so a stale code does not sit beside the error.
     pjFieldBad('pj-name', 'pj-name-err', 'Give this project a name.');
+    codeEl.value = '';
+    const panel = document.getElementById('pj-invite-panel'); if (panel) panel.hidden = true;
     return;
   }
   const desc = document.getElementById('pj-add-desc').value.trim();
@@ -44488,12 +44492,19 @@ async function pjMintInvite(invitedKind) {
 async function pjCopyInvite() {
   const codeEl = document.getElementById('pj-invite-code');
   const btn = document.getElementById('pj-invite-copy');
+  const status = document.getElementById('pj-invite-status');
   const text = codeEl ? codeEl.value : '';
   if (!text) return;
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(text); ok = true; } } catch { ok = false; }
   if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
   btn.textContent = ok ? 'Copied' : 'Press ⌘C to copy';
+  // A button text swap is not announced to a screen reader unless it is focused there, so also say
+  // it in the aria-live status region, then restore the share prompt.
+  if (status) {
+    status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press Command C.';
+    setTimeout(() => { status.textContent = 'Share this code with the person or agent you are inviting.'; }, 2000);
+  }
   setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
 }
 

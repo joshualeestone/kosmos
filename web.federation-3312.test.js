@@ -137,6 +137,7 @@ test('#3312: pjCopyInvite copies the code and swaps the button to "Copied"', asy
   await s.pjCopyInvite();
   assert.equal(copiedText, 'THE-CODE-9', 'the code was not written to the clipboard');
   assert.equal(s.doc.getElementById('pj-invite-copy').textContent, 'Copied', 'the button did not confirm the copy');
+  assert.match(s.doc.getElementById('pj-invite-status').textContent, /copied/i, 'the copy was not announced in the aria-live status region');
 });
 
 test('#3312: pjCopyInvite with no code does nothing', async () => {
