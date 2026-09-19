@@ -44461,6 +44461,13 @@ function pjFederationRef() {
   return PJ_FEDERATION_REF;
 }
 
+// The app's "Take D Sweep" spinner markup (same one the "Adding..." button uses), self-contained
+// so it survives being lifted into an isolation test. aria-hidden, so the button's accessible name
+// stays the surrounding word ("Verifying", "Joining").
+function pjSpin() {
+  return '<span class="spin spin-sweep" style="--sz:16px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
+}
+
 function pjSetAddMode(mode) {
   const isJoin = mode === 'join';
   // Native radios: set `checked` (the single source of truth) so a programmatic reset moves the
@@ -44490,7 +44497,10 @@ function pjResetFederation() {
 // A federation error response carries a distinct reason (already-used / expired / revoked /
 // not-found / self-join / double-join); name what the person can DO, never leak internals.
 function pjFedMessage(body, fallback) {
-  const reason = body && (body.reason || body.error || body.code);
+  // reason || error only -- NOT body.code: `code` is the invite SECRET field on a mint success,
+  // and overloading it as an error key here is a needless ambiguity. Unknown reasons fall through
+  // to the caller's safe fallback.
+  const reason = body && (body.reason || body.error);
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
     'expired': 'That code has expired. Ask for a fresh one.',
@@ -44571,7 +44581,7 @@ async function pjVerifyCode() {
   PJ_JOIN_VERIFIED = null;
   if (!code) { err.textContent = 'Paste the code you were given first.'; return; }
   const rest = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Verifying…';
+  btn.disabled = true; btn.innerHTML = pjSpin() + ' Verifying…';
   try {
     const res = await fetch('/api/federation/verify', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -44586,7 +44596,10 @@ async function pjVerifyCode() {
     PJ_JOIN_ADD_AGENTS = [];
     document.getElementById('pj-join-name').textContent = body.project_name || '';
     document.getElementById('pj-join-desc').textContent = body.project_desc || 'No description.';
-    document.getElementById('pj-join-agents').innerHTML = '';
+    // A fresh verify starts with no agents added, and any picker left open by a prior verify is
+    // re-hidden: paint the "No agents on it yet." hint rather than leaving the box empty.
+    document.getElementById('pj-join-agent-row').hidden = true;
+    pjPaintJoinAgents();
     result.hidden = false;
   } catch {
     err.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
@@ -44616,7 +44629,7 @@ async function pjJoinSubmit() {
   if (!PJ_JOIN_VERIFIED || !PJ_JOIN_VERIFIED.edge_id) return;
   const msg = document.getElementById('pj-join-msg');
   const btn = document.getElementById('pj-join-submit');
-  msg.textContent = 'Joining…';
+  msg.innerHTML = pjSpin() + ' Joining…';
   btn.disabled = true;
   try {
     const res = await fetch('/api/federation/join', {
