@@ -239,7 +239,7 @@ test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits
   const HIDDEN_ON_WINDOWS = {
     'S3 Energy mock (traffic lights)': /<div class="s3-mock" data-win-hide>\s*<div class="s3-win" aria-hidden="true">\s*<div class="s3-bar">[^\n]*>Energy</,
     'S3 Accessibility mock': /<div class="s3-mock" data-win-hide>\s*<div class="s3-win" aria-hidden="true">\s*<div class="s3-bar">[^\n]*>Accessibility</,
-    'S3 Accessibility caption': /<p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos and tmux to On<\/p>/,
+    'S3 Accessibility caption': /<p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos to On<\/p>/,
     'S3 Accessibility gate row': /<div class="s3-gate-row" data-gate="tmux" data-win-hide>/,
     // #3075: the tmux Accessibility ask is now ONE box with Kosmos, not a separate mock +
     // caption. Its own status ROW (data-gate="tmux-a11y") still gates Next and stays Mac-only,
@@ -516,7 +516,7 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
   const MAC_MARKUP = [
     />To get the most out of your agents we need to ensure they can stay awake and access the computer\.<\/p>/,
     />1 &middot; keep this computer awake<\/p>/,
-    />2 &middot; when prompted, switch Kosmos and tmux to On<\/p>/,
+    />2 &middot; when prompted, switch Kosmos to On<\/p>/,
     /<span class="s3-title">Energy<\/span>/,
     /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small><\/span>/,
     /<h2>Kosmos needs your permission<\/h2>/,
