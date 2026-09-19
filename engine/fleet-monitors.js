@@ -21,27 +21,34 @@
  * `source`    - the program the installed plist runs, recorded so a "missing"
  *               finding points straight at what to reinstall.
  * `repo`      - the checkout directory under ~/work that COMMITS this monitor's
- *               plist (its deploying repo). The fresh-box provisioner resolves
- *               the plist at `~/work/<repo>/<plist>`.
+ *               plist (its deploying repo). It names where the plist lives so a
+ *               provisioner can resolve it at `~/work/<repo>/<plist>`.
  * `plist`     - the committed plist path relative to that repo's checkout root.
  * `installer` - HOW a fresh/rebuilt box re-provisions this monitor (#3243):
  *                 'self'  = the deploying repo ships its own install step (e.g.
  *                           kosmos-relay/deploy/install-monitors.sh). The
  *                           claude-setup fleet installer REPORTS it and skips -
  *                           it does not duplicate a working self-installer.
- *                 'fleet' = the claude-setup fleet installer
- *                           (scripts/install-fleet-monitors.sh) provisions it by
- *                           reading `repo`+`plist` and loading it idempotently.
- *                           This is how the non-self-installing monitors
- *                           (Josh-Brain's two, and selfreport) get onto a
- *                           rebuilt box with no per-repo install script.
+ *                 'fleet' = the non-self-installing monitors (Josh-Brain's two,
+ *                           and selfreport), meant to be provisioned by the one
+ *                           claude-setup fleet installer rather than a per-repo
+ *                           script. NOTE the state of that installer today: its
+ *                           first slice (claude-setup#53) installs the monitors
+ *                           whose plist is committed AS ITS OWN TEMPLATE
+ *                           (selfreport, fleet-liveness) and only REPORTS the
+ *                           rest; reading `repo`+`plist` to resolve a plist from
+ *                           ANOTHER repo's checkout (the Josh-Brain pair) is the
+ *                           paired follow-up PR that consumes these fields. This
+ *                           registry is what makes that follow-up possible.
  *
  * 📌 PROVISIONING SEAM (#3243, resolved 2026-09-18): a monitor's plist SOURCE
  * lives in the repo that deploys it (deploying-repo-owns-source); this registry
  * is the shared index of WHICH monitors exist and, now, WHERE each plist is and
- * WHO installs it. The relay four self-install; everything else the one
- * claude-setup fleet installer provisions by reference, so there is no per-repo
- * install script to build and maintain per monitor.
+ * WHO installs it. The relay four self-install; the rest are meant to be
+ * provisioned by the one claude-setup fleet installer by reference, so there is
+ * no per-repo install script to build and maintain per monitor. The installer's
+ * cross-repo resolution is the follow-up noted above; the fields are declared
+ * here first so it has an authoritative registry to read.
  *
  * ⏳ PENDING MIGRATION (selfreport): selfreport-silence-monitor's PROGRAM lives
  * in this repo (tools/selfreport-silence-monitor.js), but its committed plist is

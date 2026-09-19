@@ -70,11 +70,15 @@ test('the declared manifest is well-formed: non-empty, each has label/purpose/so
   assert.equal(new Set(labels).size, labels.length, 'monitor labels must be unique');
 });
 
-test('#3243: provisioning metadata is resolvable - every plist basename equals its label + .plist, and no plist path escapes its repo', () => {
+test('#3243: provisioning metadata is resolvable - repo is a bare checkout name, plist basename equals its label + .plist, and neither escapes its repo', () => {
   // The registry-driven fresh-box provisioner (the claude-setup fleet installer,
   // its `installer: 'fleet'` path) is intended to resolve a plist at
   // ~/work/<repo>/<plist> and load it. This test guards the registry-internal
   // invariants that provisioner will depend on, computed from data in THIS repo:
+  //  - repo is a single bare checkout directory name under ~/work: no path
+  //    separator, no '..', not absolute. A repo carrying a separator or '..'
+  //    could redirect or escape the ~/work/<repo>/<plist> resolution just as a
+  //    bad plist could, so it is guarded to the same standard.
   //  - basename(plist) === '<label>.plist'. A launchd job's plist filename must
   //    match its internal <Label>; the internal Label lives in the committed plist
   //    (another repo) and cannot be read from here, so this basename check is a
@@ -86,8 +90,9 @@ test('#3243: provisioning metadata is resolvable - every plist basename equals i
   // stands on its own).
   assert.ok(FLEET_MONITORS.length > 0, 'the registry must be non-empty for this check to mean anything');
   for (const m of FLEET_MONITORS) {
-    const base = m.plist.slice(m.plist.lastIndexOf('/') + 1);
-    assert.equal(base, `${m.label}.plist`, `${m.label}: plist basename must be <label>.plist (got ${base})`);
+    assert.ok(!m.repo.includes('/'), `${m.label}: repo must be a bare checkout name (no path separator), got ${JSON.stringify(m.repo)}`);
+    assert.ok(m.repo !== '.' && m.repo !== '..' && !m.repo.startsWith('/'), `${m.label}: repo must not be '.', '..', or absolute, got ${JSON.stringify(m.repo)}`);
+    assert.equal(path.basename(m.plist), `${m.label}.plist`, `${m.label}: plist basename must be <label>.plist (got ${path.basename(m.plist)})`);
     assert.ok(!m.plist.startsWith('/'), `${m.label}: plist must be repo-relative, not absolute`);
     assert.ok(!m.plist.split('/').includes('..'), `${m.label}: plist must not contain '..'`);
   }
