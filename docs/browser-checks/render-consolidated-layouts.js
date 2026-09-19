@@ -218,6 +218,27 @@ const path = require('path');
     say(headerTR(va.tasks), '#3218: Tasks View All sits in the header, top-right', JSON.stringify(va.tasks));
     say(headerTR(va.files), '#3218: Files View All sits in the header, top-right', JSON.stringify(va.files));
 
+    /* #3304 (Josh 2026-09-19): the Tasks header reordered to TASKS | View All | +, so the + now
+       sits to the RIGHT of the View All door (was to its left). Measured live, not from CSS text. */
+    const tOrder = await pg.evaluate(() => {
+      const va = document.querySelector('#pj-alltasks'); const plus = document.querySelector('#pj-newtask');
+      if (!va || !plus) return 'missing';
+      va.hidden = false; if (!va.textContent) va.textContent = 'View All';
+      const v = va.getBoundingClientRect(); const p = plus.getBoundingClientRect();
+      return { plusRightOfViewAll: p.left >= v.right - 2, plusLeft: Math.round(p.left), vaRight: Math.round(v.right) };
+    });
+    say(tOrder && tOrder.plusRightOfViewAll === true, '#3304: the Tasks + sits to the right of View All', JSON.stringify(tOrder));
+
+    /* #3308 (Josh 2026-09-19): the agents rail and the tasks/files column sit on the TOP-HEADER
+       ground (--k-bg), not the old --k-side tone. Compared as a computed color against .apphead so
+       a token rename that moved either apart from the header goes red here. */
+    const grounds = await pg.evaluate(() => {
+      const head = getComputedStyle(document.querySelector('.apphead')).backgroundColor;
+      const rail = document.querySelector('#rail-agents'); const pj3 = document.querySelector('.pj3');
+      return { head, rail: rail ? getComputedStyle(rail).backgroundColor : 'missing', pj3: pj3 ? getComputedStyle(pj3).backgroundColor : 'missing' };
+    });
+    say(grounds.rail === grounds.head && grounds.pj3 === grounds.head, '#3308: the agents rail + tasks/files column use the top-header ground', JSON.stringify(grounds));
+
     /* #3218 increment 2: the open project's agents sort to the TOP of the single Agents list, then a
        rule, then the rest. Drive paintAgentList directly with a known roster + board sample so the
        ordering is deterministic without live tmux. running:false rows render from record fields only
