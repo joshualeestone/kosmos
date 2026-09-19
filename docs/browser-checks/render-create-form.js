@@ -101,18 +101,27 @@ function check(name, pass, detail) {
         /* #2140 SETTLE-WAIT: paintOpenaiCreateModel clears #create-model-why to ''
            first (its loading state) and only sets the note synchronously in the
            no-account branch or AFTER an async models fetch when an account is
-           selected. Reading `why` immediately after the change event races that
-           populate -- a race that, under the cut machine's load, read '' on webkit
-           and aborted 3b (green alone == contention, not a product change). Wait
-           for the note to settle rather than reading the transient empty. Bounded
-           at 8000ms (matching this file's other waitForSelector/waitForFunction
-           bounds), so a genuinely-empty why still returns rather than hanging the
-           check. 8000, not 2000: F2 was a LOAD/contention flake, and under that same
-           load an async /v1/models round-trip can exceed a short bound and re-red --
-           the longer bound removes that residual (it fails safe as a false-red
-           either way, never a shipped bug). */
+           selected (web/index.html paintOpenaiCreateModel awaits
+           /api/accounts/openai/models before setting the note). Reading `why`
+           immediately after the change event races that populate -- a race that,
+           under the cut machine's load, read '' and aborted 3b (green alone ==
+           contention, not a product change). Wait for the note to settle rather than
+           reading the transient empty. So a genuinely-empty why still returns rather
+           than hanging the check.
+           BOUND = 30000ms (was 8000, was 2000 before F2). #3275's 0.6.80 cut RE-SPIKED
+           this TWICE, byte-identical on both engines, on the real cut box (Mortals),
+           which carries a RESIDENT 7-agent fleet -- genuinely hotter than an isolated
+           or full-3b-suite local run (both of which pass at 8000ms). The product park
+           WORKS (proven green in isolation 3x + full-3b-under-load); it is the async
+           /api/accounts/openai/models round-trip that loses the race past 8000ms under
+           that concurrent-fleet starvation. Quiescing Mortals is not an option (the
+           fleet is resident, not the cut's activity), so the durable fix is a bound
+           wide enough to survive it with margin. 30000ms is ~4x the prior bound and
+           well past the observed starvation while still bounded, so a genuine
+           regression fails in 30s rather than hanging. Test-timing only; no product
+           change. See kosmos#2140, #3275. */
         const whyEl = id('create-model-why');
-        const deadline = Date.now() + 8000;
+        const deadline = Date.now() + 30000;
         while (Date.now() < deadline) {
           if (whyEl && whyEl.textContent && whyEl.textContent.trim()) break;
           await new Promise((r) => setTimeout(r, 50));
