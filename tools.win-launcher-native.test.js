@@ -464,6 +464,38 @@ test('#1118: the uninstall closes the window only once the person said yes, befo
   assert.ok(closes < uninstall.indexOf('runEngineHelper('), 'the window is closed after the removal, which cannot delete the web profile it holds');
 });
 
+test('#3285 review: opening Kosmos.exe again signs an open window in again, through --print-url', () => {
+  /* A window that came up signed out (a slow first run, a failed mint, another Kosmos's cookie)
+     was stuck: a second double-click only brought it forward, and F5 reloads the same unsigned
+     page, while the READ ME tells people to double-click Kosmos.exe again for exactly this. */
+  const windowProc = sourceBetween('protected override void WndProc(', 'protected override void OnFormClosed(');
+  assert.match(windowProc, /if \(m\.Msg != 0 && \(uint\)m\.Msg == showMessage\)\s*\{[^}]*Activate\(\);\s*KosmosLauncher\.SetForegroundWindow\(Handle\);\s*SignInAgain\(\);\s*return;/,
+    'the window only comes forward when Kosmos.exe is opened again; it does not sign in again');
+  const again = sourceBetween('internal void SignInAgain()', 'void NavigateToBoard()');
+  assert.match(again, /fresh = resolveBoardAddress\(\);/, 'signing in again does not ask open-board.js for a fresh address');
+  assert.match(again, /if \(fresh != null && fresh\.Contains\("\?boot="\) && webView != null\) webView\.Navigate\(fresh\);/,
+    'signing in again loads something other than a fresh signed-in address');
+  assert.match(again, /new Thread\(/, 'the fresh address is asked for on the window\'s own thread, freezing it for up to BoardWindowWaitMs');
+  assert.match(again, /if \(!navigatedToBoard \|\| signingInAgain \|\| resolveBoardAddress == null\) return;/,
+    'a second launch during the first load, or during a sign-in already under way, starts another');
+  /* The same --print-url answer as the first load: the nonce travels over the private pipe, never argv. */
+  assert.match(SOURCE, /new BoardWindowForm\(port, loader, WebView2UserDataFolder\(\),\s*\(\) => ResolveBoardAddress\(here, node, opener, app, port\)\);/);
+});
+
+test('#3285 review: no box is shown and no browser opened while the window still holds the single-instance lock', () => {
+  /* A box up while the lock is held leaves a person with no window: a double-click before OK finds
+     the lock taken, asks a window that is gone to come forward, and exits. */
+  const run = sourceBetween('static int RunBoardWindow(', 'static BoardWindowForm ShowBoardWindow(');
+  const afterLock = run.indexOf('        if (fallbackProblem != null) return OpenInBrowserInstead(');
+  assert.ok(afterLock > 0, 'RunBoardWindow no longer falls back after the lock');
+  const holdingLock = run.slice(0, afterLock);
+  assert.match(holdingLock, /finally \{ onlyWindow\.ReleaseMutex\(\); \}\s*\}\s*$/, 'the lock is not released before the window\'s outcome is acted on');
+  assert.doesNotMatch(holdingLock, /ShowMessageBox\(|OpenInBrowserInstead\(|ShowNotice\(|tellPerson\(/, 'a box or the browser fallback runs while the lock is held');
+  assert.match(run.slice(afterLock), /if \(stoppedWorking\) ShowMessageBox\(WindowStoppedMessage, true\);/);
+  assert.doesNotMatch(sourceBetween('static BoardWindowForm ShowBoardWindow(', 'static string ResolveBoardAddress('), /ShowMessageBox\(|OpenInBrowserInstead\(/,
+    'the window\'s run shows a box itself, inside the lock');
+});
+
 test('#1118: the window keeps the board\'s own pages and sends every other web address to the browser', WINDOWS_ONLY, (t) => {
   const csc = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
   if (!fs.existsSync(csc)) { t.skip('no .NET Framework compiler on this machine'); return; }
@@ -473,7 +505,7 @@ test('#1118: the window keeps the board\'s own pages and sends every other web a
     fs.writeFileSync(probeSource, [
       'class AddressProbe {',
       '  static int Main(string[] a) {',
-      '    System.Console.Write(a[0] == "board" ? KosmosLauncher.IsBoardAddress(a[1], 16180) : KosmosLauncher.IsWebAddress(a[1]));',
+      '    System.Console.Write(a[0] == "board" ? KosmosLauncher.IsBoardAddress(a[1], 16180) : a[0] == "own" ? KosmosLauncher.IsWindowOwnPage(a[1]) : KosmosLauncher.IsWebAddress(a[1]));',
       '    return 0;',
       '  }',
       '}',
@@ -492,6 +524,13 @@ test('#1118: the window keeps the board\'s own pages and sends every other web a
     assert.equal(ask('web', 'http://example.com/'), 'True');
     assert.equal(ask('web', 'file:///C:/Windows/System32/'), 'False', 'a page could hand ShellExecute a file: address');
     assert.equal(ask('web', 'ms-settings:privacy'), 'False');
+    /* #3285 review: in the window itself only its own pages stay; mailto:, ms-settings:, search-ms:
+       and file: are cancelled and refused (OnNavigationStarting), not left to WebView2's app prompt. */
+    assert.equal(ask('own', 'about:blank'), 'True');
+    assert.equal(ask('own', 'data:text/html;charset=utf-8,Starting'), 'True', 'the Starting Kosmos page would be cancelled');
+    for (const other of ['mailto:someone@example.invalid', 'ms-settings:privacy', 'search-ms:query=x', 'file:///C:/Windows/', 'http://127.0.0.1:16181/']) {
+      assert.equal(ask('own', other), 'False', other + ' would stay in the window');
+    }
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 

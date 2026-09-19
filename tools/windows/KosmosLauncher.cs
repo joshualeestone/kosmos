@@ -1586,46 +1586,67 @@ class KosmosLauncher
     // Kosmos.exe --window. Returns when the window closes.
     static int RunBoardWindow(string here, string node, string opener, string app, int port)
     {
+        // 🛑 WHAT HAPPENS AFTER THE WINDOW, HAPPENS AFTER THE LOCK (review of #3285). A box shown
+        // while the single-instance lock is held leaves a person with no window: a double-click
+        // before they press OK finds the lock taken, asks a window that is already gone to come
+        // forward, and exits. So the window's run decides what to say, lets go of the lock, and only
+        // then says it or opens the browser.
+        string fallbackProblem = null;
+        bool noRuntime = false;
+        bool stoppedWorking = false;
         bool firstWindow;
         using (Mutex onlyWindow = new Mutex(true, "Local\\" + BoardWindowName(port), out firstWindow))
         {
             if (!firstWindow)
             {
                 // Like the Mac app's single-instance guard (#2124): the window already open comes
-                // forward, and this copy goes. This process was started by a double-click, so it may
-                // hand the foreground on.
+                // forward, signs in again (BoardWindowForm.SignInAgain), and this copy goes. This
+                // process was started by a double-click, so it may hand the foreground on.
                 try { AllowSetForegroundWindow(ASFW_ANY); } catch { /* it then flashes in the taskbar instead */ }
                 PostMessage(HWND_BROADCAST, RegisterWindowMessage(BoardWindowName(port) + ".Show"), IntPtr.Zero, IntPtr.Zero);
                 return 0;
             }
-
-            string problem;
-            bool noRuntime;
-            IntPtr loader = LoadWebView2Loader(Path.Combine(here, WebView2LoaderRelativePath), out problem, out noRuntime);
-            if (loader == IntPtr.Zero) return OpenInBrowserInstead(here, node, opener, app, port, problem, noRuntime);
-
-            try { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
-            catch { try { SetProcessDPIAware(); } catch { /* blurry is better than nothing */ } }
-            System.Windows.Forms.Application.EnableVisualStyles();
-            BoardWindowForm form = new BoardWindowForm(port, loader, WebView2UserDataFolder());
-            // The handle first: a board that is already up answers in a moment, and BeginInvoke on a
-            // form with no handle yet throws, which would drop the address on the floor.
-            IntPtr formExists = form.Handle;
-            string resolved = null;
-            Thread resolve = new Thread(() =>
+            try
             {
-                resolved = ResolveBoardAddress(here, node, opener, app, port);
-                try { form.BeginInvoke(new Action(() => form.BoardAddressResolved(resolved))); }
-                catch { /* the window closed before the board answered */ }
-            });
-            resolve.IsBackground = true;
-            resolve.Start();
-            System.Windows.Forms.Application.Run(form);
-
-            if (form.RuntimeProblem != null) return OpenInBrowserInstead(here, node, opener, app, port, form.RuntimeProblem, false);
-            if (form.StoppedWorking) ShowMessageBox(WindowStoppedMessage, true);
-            return 0;
+                IntPtr loader = LoadWebView2Loader(Path.Combine(here, WebView2LoaderRelativePath), out fallbackProblem, out noRuntime);
+                if (loader != IntPtr.Zero)
+                {
+                    BoardWindowForm form = ShowBoardWindow(here, node, opener, app, port, loader);
+                    fallbackProblem = form.RuntimeProblem;
+                    stoppedWorking = form.StoppedWorking;
+                }
+            }
+            finally { onlyWindow.ReleaseMutex(); }
         }
+
+        if (fallbackProblem != null) return OpenInBrowserInstead(here, node, opener, app, port, fallbackProblem, noRuntime);
+        if (stoppedWorking) ShowMessageBox(WindowStoppedMessage, true);
+        return 0;
+    }
+
+    // The window itself, from its first address to its close.
+    static BoardWindowForm ShowBoardWindow(string here, string node, string opener, string app, int port, IntPtr loader)
+    {
+        try { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
+        catch { try { SetProcessDPIAware(); } catch { /* blurry is better than nothing */ } }
+        System.Windows.Forms.Application.EnableVisualStyles();
+        // Every address the window loads comes from the same --print-url answer: the first one, and
+        // a fresh one each time Kosmos.exe is opened again (SignInAgain).
+        BoardWindowForm form = new BoardWindowForm(port, loader, WebView2UserDataFolder(),
+            () => ResolveBoardAddress(here, node, opener, app, port));
+        // The handle first: a board that is already up answers in a moment, and BeginInvoke on a
+        // form with no handle yet throws, which would drop the address on the floor.
+        IntPtr formExists = form.Handle;
+        Thread resolve = new Thread(() =>
+        {
+            string resolved = ResolveBoardAddress(here, node, opener, app, port);
+            try { form.BeginInvoke(new Action(() => form.BoardAddressResolved(resolved))); }
+            catch { /* the window closed before the board answered */ }
+        });
+        resolve.IsBackground = true;
+        resolve.Start();
+        System.Windows.Forms.Application.Run(form);
+        return form;
     }
 
     // The address to open, from open-board.js --print-url: the board's own address, with a boot
@@ -1730,6 +1751,12 @@ class KosmosLauncher
     {
         Uri uri;
         return Uri.TryCreate(address, UriKind.Absolute, out uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+    }
+
+    // The pages the window makes itself: the "Starting Kosmos" page (NavigateToString) and blank.
+    internal static bool IsWindowOwnPage(string address)
+    {
+        return address != null && (address.StartsWith("about:", StringComparison.OrdinalIgnoreCase) || address.StartsWith("data:", StringComparison.OrdinalIgnoreCase));
     }
 
     // The board's own pages: this port on loopback. Everything else is somebody else's site.
@@ -1901,15 +1928,19 @@ class BoardWindowForm : System.Windows.Forms.Form
     ICoreWebView2 webView;
     string boardAddress;
     bool navigatedToBoard;
+    // The --print-url answer, asked again each time Kosmos.exe is opened while this window is up.
+    readonly Func<string> resolveBoardAddress;
+    bool signingInAgain;
 
     // Set when this PC could not host the window after all: RunBoardWindow then opens the browser.
     internal string RuntimeProblem;
     // Set when WebView2's browser process ended under an open window: RunBoardWindow says so.
     internal bool StoppedWorking;
 
-    internal BoardWindowForm(int port, IntPtr loader, string userDataFolder)
+    internal BoardWindowForm(int port, IntPtr loader, string userDataFolder, Func<string> resolveBoardAddress)
     {
         this.port = port;
+        this.resolveBoardAddress = resolveBoardAddress;
         this.loader = loader;
         this.userDataFolder = userDataFolder;
         string name = "Kosmos.BoardWindow." + port;
@@ -1977,6 +2008,38 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (webView != null) NavigateToBoard();
     }
 
+    // Opening Kosmos.exe again is how a person signs back in (the zip's READ ME says so), so it has
+    // to work on an open window too, as the Mac app's Reload does (loadBoard mints a fresh signed-in
+    // address every time). A window that came up signed out -- the opener gave up on a slow first
+    // run, the nonce could not be minted, or the cookie is for another Kosmos -- is otherwise stuck:
+    // F5 reloads the same unsigned page. So the window asks open-board.js for a fresh address, off
+    // this thread, and loads it. Only a signed-in (?boot=) answer is loaded: the plain address would
+    // only throw away what the page shows and sign nobody in. The nonce travels as it did the first
+    // time, over the private pipe, never a command line.
+    // ⚠️ Accepted cost: the page reloads to the board's front page, so text typed and not yet sent
+    // is lost. That is what the Mac's Reload does too, and the person asked for Kosmos again.
+    internal void SignInAgain()
+    {
+        if (!navigatedToBoard || signingInAgain || resolveBoardAddress == null) return;
+        signingInAgain = true;
+        Thread resolve = new Thread(() =>
+        {
+            string fresh = null;
+            try { fresh = resolveBoardAddress(); } catch { /* nothing to load */ }
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    signingInAgain = false;
+                    if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(fresh);
+                }));
+            }
+            catch { /* the window closed meanwhile */ }
+        });
+        resolve.IsBackground = true;
+        resolve.Start();
+    }
+
     void NavigateToBoard()
     {
         if (navigatedToBoard) return;
@@ -1995,11 +2058,15 @@ class BoardWindowForm : System.Windows.Forms.Form
 
     // A navigation of the whole window away from the board (a plain link to another site) goes to
     // the person's browser instead: this window has no address bar and no Back button to return by.
+    // Any other scheme (mailto:, ms-settings:, search-ms:, file:) is refused with the same box as a
+    // new-window link (review of #3285): left alone it reaches WebView2's own "open this app?"
+    // prompt. The window's own pages stay: the board, and the about:/data: page NavigateToString
+    // shows while the board starts.
     internal void OnNavigationStarting(ICoreWebView2NavigationStartingEventArgs args)
     {
         string uri;
         args.get_Uri(out uri);
-        if (!KosmosLauncher.IsWebAddress(uri) || KosmosLauncher.IsBoardAddress(uri, port)) return;
+        if (KosmosLauncher.IsBoardAddress(uri, port) || KosmosLauncher.IsWindowOwnPage(uri)) return;
         args.put_Cancel(1);
         BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri)));
     }
@@ -2080,6 +2147,7 @@ class BoardWindowForm : System.Windows.Forms.Form
             if (WindowState == System.Windows.Forms.FormWindowState.Minimized) WindowState = System.Windows.Forms.FormWindowState.Normal;
             Activate();
             KosmosLauncher.SetForegroundWindow(Handle);
+            SignInAgain();
             return;
         }
         if (m.Msg != 0 && (uint)m.Msg == closeMessage) { Close(); return; }

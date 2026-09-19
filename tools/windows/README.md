@@ -73,11 +73,17 @@ WebView2 Runtime, pointed at the same local board.
   instead of opening a browser. The board answers with its persistent cookie, which the window
   keeps in its own web profile, `%LOCALAPPDATA%\Kosmos\WebView2`.
 - **One window per board.** A second double-click brings the open window forward (restoring it if
-  minimised) instead of opening another.
+  minimised) instead of opening another, and signs it in again with a fresh address from the same
+  `--print-url` path, so "double-click Kosmos.exe again" (the zip's READ ME) also rescues a window
+  that came up signed out. Like the Mac app's Reload, that returns the page to the board's front.
+- **Boxes come after the window lets go.** Every box the window process shows, and the browser
+  fallback, happen after its single-instance lock is released, so a double-click while one is up
+  opens a new window rather than asking a closed one to come forward.
 - **Links to other sites open in the person's browser**, whether they open a new window
   (`target="_blank"`, as the Mac app handles them, #1416) or navigate the whole window: this
-  window has no Back button to return by. Only http and https are opened; anything else is refused
-  with a box that says so.
+  window has no Back button to return by. Only http and https are opened; anything else
+  (`mailto:`, `ms-settings:`, `file:`), in a new window or this one, is refused with a box that
+  says so.
 - **A page that crashes is loaded again.** If WebView2 itself stops, the window closes and says
   your agents are still running.
 - **`--uninstall` closes the window first**, after the person said yes, because the removal

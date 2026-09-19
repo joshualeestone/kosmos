@@ -68,7 +68,7 @@ test('the launcher runs the helper and NOT the pre-fix plain open (#2007)', () =
   assert.match(LAUNCHER_SRC.slice(opensLinks, shellExecutes[0]), /if \(!IsWebAddress\(address\)\)[\s\S]*?return;/, 'OpenInPersonsBrowser no longer refuses a non-web address first');
   const callers = [...LAUNCHER_SRC.matchAll(/^.*KosmosLauncher\.OpenInPersonsBrowser\(uri\).*$/gm)].map((m) => m[0]);
   assert.equal(callers.length, 2, 'OpenInPersonsBrowser gained or lost a caller');
-  assert.match(LAUNCHER_SRC, /if \(!KosmosLauncher\.IsWebAddress\(uri\) \|\| KosmosLauncher\.IsBoardAddress\(uri, port\)\) return;\s*args\.put_Cancel\(1\);\s*BeginInvoke\(new Action\(\(\) => KosmosLauncher\.OpenInPersonsBrowser\(uri\)\)\);/,
+  assert.match(LAUNCHER_SRC, /if \(KosmosLauncher\.IsBoardAddress\(uri, port\) \|\| KosmosLauncher\.IsWindowOwnPage\(uri\)\) return;\s*args\.put_Cancel\(1\);\s*BeginInvoke\(new Action\(\(\) => KosmosLauncher\.OpenInPersonsBrowser\(uri\)\)\);/,
     'a navigation to the board\'s own address can reach the browser');
   assert.match(LAUNCHER_SRC, /if \(KosmosLauncher\.IsBoardAddress\(uri, port\)\) BeginInvoke\(new Action\(\(\) => webView\.Navigate\(uri\)\)\);\s*else BeginInvoke\(new Action\(\(\) => KosmosLauncher\.OpenInPersonsBrowser\(uri\)\)\);/,
     'a new window on the board\'s own address can reach the browser');
