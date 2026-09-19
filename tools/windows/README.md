@@ -55,7 +55,7 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   by `assets/make-kosmos-ico.ps1`. FileDescription and ProductName are "Kosmos".
   CompanyName is left out until it can match the code-signing certificate's
   subject. The version is the **launcher's** own (`LauncherVersion`, currently
-  4.0.0.0), not the app's. This binary is copied unchanged into every release, so
+  5.0.0.0), not the app's. This binary is copied unchanged into every release, so
   an app version stamped into it would be wrong from the next release on.
 
 ## Kosmos's own window (#1118)
@@ -150,26 +150,68 @@ of the engine's own helpers, run with the bundle's node:
     entry, only once nothing was left behind.
   - It ends with "Kosmos is removed. You can now delete the folder ...". It never
     schedules deleting its own folder.
-- **Moving out of Downloads, the Desktop, OneDrive or a temporary folder.**
-  - The check uses the Known Folder API, so a Desktop that OneDrive redirected is
-    caught.
-  - A real build there asks "Move Kosmos to its own folder now?" [Move Kosmos]
-    [Keep it here]. Keep it here is remembered per folder, in
-    `%LOCALAPPDATA%\Kosmos\launcher\kept-here.txt`.
-  - Move Kosmos runs `app\engine\win32relocate.js --move --yes`. It copies exactly
-    the updater's ENTRIES to `%LOCALAPPDATA%\Programs\Kosmos`. It refuses while a
-    board from this folder is serving, and refuses a folder holding a different
-    Kosmos.
-  - The launcher then starts the moved exe and exits, and leaves the old copy
-    where it is.
-  - If `%LOCALAPPDATA%\Programs\Kosmos` already holds a complete Kosmos, the
-    launcher asks `win32relocate.js --compare` first. A copy that is the same
-    build or older starts the installed Kosmos and re-points nothing, whatever
-    Keep it here says. A newer copy runs from where it is and re-points, which
-    is how a by-hand zip update works today.
-
-Every helper is a dry run without `--yes`, which the launcher passes only after the
-question was answered. The seams tests use are `internal static` fields that only a
+- **It installs itself, like Windows software does, and asks nothing (#3286).**
+  Kosmos goes where Chrome, VS Code and Slack put a per-user install,
+  `%LOCALAPPDATA%\Programs\Kosmos` (the Known Folder `UserProgramFiles`), with no
+  administrator prompt.
+  - **First run from a folder that gets cleaned up** (Downloads, the Desktop, OneDrive,
+    a temporary or zip-extract folder; the Known Folder API catches a Desktop OneDrive
+    redirected), with nothing installed: a small window titled Kosmos says "Installing
+    Kosmos on this computer" while `app\engine\win32relocate.js --move --end-board
+    --yes` copies exactly the updater's ENTRIES there, staged beside it and renamed into
+    place, and points the engine pointer at it. The launcher then starts the installed
+    exe and exits. The installed copy's own launch writes the Start menu entry and the
+    Settings > Apps entry, and opens the board window. The downloaded folder is left
+    exactly as it was.
+  - **A board already serving from that folder** (anyone who ran Kosmos from Downloads
+    before this build) is ended first (`--end-board`), but only one its logon task
+    started, the hand-off's own rule. It comes back from the new folder when the
+    installed exe starts, because the logon task boots through the pointer. Without this
+    the board would keep reading its pages from the folder about to be abandoned: a
+    board's identity is its build and world, never its folder, so the new copy's hand-off
+    would find "this build" already answering and leave it there.
+  - **A newer copy, from anywhere, with Kosmos installed**, updates the installed copy
+    instead of becoming a second install: `app\engine\win32update.js --apply --from
+    <this folder> --wait`, the in-app updater's own swap with a local folder in place of
+    the download. The board stops, the installed build is kept as
+    `.kosmos-update\previous-<version>`, the new one is swapped in, the board must answer
+    as the new build, and anything that goes wrong puts the old build back. Then the
+    installed exe starts.
+  - **When the updater refuses** (it swaps only the copy the engine pointer names, whose
+    board its logon task started), an installed copy that is *not* the one Kosmos starts
+    from is an idle leftover, and `win32relocate.js --move --end-board --replace-older`
+    installs over it, keeping it whole as `.kosmos-update\previous-<version>`, where the
+    in-app roll back finds it. If that refuses too, the newer copy runs from where it is
+    and a note says so. That is the behaviour before #3286, it is stable (the installed
+    copy hands off only to a newer copy the pointer names), and the next launch of that
+    download finds the installed copy idle and replaces it.
+  - **Review of #3299.** A second launch while "Installing" or "Updating" is up waits
+    for it (a per-session lock, `Local\Kosmos.InstallOrUpdate`) instead of racing it,
+    then hands off to the fresh install. An update whose report came back late or
+    refused, but whose swap happened, is read as done: the move then finds the build
+    already there (SAME). Any path that ended the board ends with one running again: if
+    the installed copy will not start (antivirus, say), this copy starts the board from
+    where it is. A copy Kosmos could not be pointed at is not installed (`UNANCHORED`),
+    so it is the plain note and a run from here. Only a provably newer version updates or
+    replaces an install: the same version from another commit has no order, so it runs
+    from where it is rather than risk a downgrade. A replaced install is set aside beside
+    the target under a name the sweep of interrupted moves never touches, and only that
+    one previous build is kept, as the updater keeps one.
+  - **The same build or an older one** starts the installed Kosmos and re-points nothing.
+    The installed copy itself does nothing new. A folder somebody chose on purpose (not a
+    cleaned-up one), with nothing installed, runs where it is.
+  - **When Kosmos cannot install itself** it says so in a plain note, never a question,
+    and runs from where it is; it tries again the next time. The old Move Kosmos / Keep
+    it here question and its per-folder memory are gone; the uninstall still deletes a
+    `%LOCALAPPDATA%\Kosmos\launcher\kept-here.txt` an older launcher left.
+  - **The download mark travels with the copy.** Windows marks files extracted from a
+    downloaded zip (the `Zone.Identifier` stream), and the copy keeps it, as copying any
+    file on Windows does. It is left in place: the person already passed SmartScreen for
+    that download. Unblocking the zip before extracting (the READ ME's tip) leaves no mark
+    at all.
+Every helper is a dry run without `--yes`, which only the launcher passes: for the
+uninstall, after the person confirmed; for the install and the update, because opening
+Kosmos from a folder that gets cleaned up, or a newer download, is the request. The seams tests use are `internal static` fields that only a
 probe compiled beside the source in a scratch folder replaces, never environment
 variables the shipped exe reads. `tools.win-installer-native.test.js` covers them:
 the Start menu goes to a temp folder, the key goes under

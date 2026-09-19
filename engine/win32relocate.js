@@ -1,6 +1,6 @@
 'use strict';
 /**
- * "Move Kosmos" (win32-installer-native, installer audit W-06): copy a Kosmos that is running
+ * Kosmos installing itself (win32-installer-native W-06; #3286 made it ask nothing): copy a Kosmos that is running
  * from Downloads, the Desktop, OneDrive or a temporary folder into its own per-user folder,
  * `%LOCALAPPDATA%\Programs\Kosmos`.
  *
@@ -8,7 +8,7 @@
  * the engine pointer, which names wherever Kosmos was last started from. A Downloads folder
  * tidied away later leaves Kosmos unable to start at the next sign-in, and nothing says why.
  *
- * 🔑 THE LAUNCHER DECIDES WHERE KOSMOS IS AND ASKS; THIS DECIDES WHETHER IT MAY MOVE AND COPIES.
+ * 🔑 THE LAUNCHER DECIDES WHERE KOSMOS IS; THIS DECIDES WHETHER IT MAY MOVE AND COPIES.
  * The launcher has the Known Folder API and the person. What a safe move needs is already in
  * the engine, once each:
  *   - what a build is made of: win32update.ENTRIES, the updater's own list, so a move copies
@@ -22,7 +22,12 @@
  *
  * Rules, each a sentence when it refuses:
  *   - never while a board from THIS folder is serving: a board answers on the port AND the
- *     pointer is inside this folder, or cannot be read;
+ *     pointer is inside this folder, or cannot be read. #3286: with --end-board (the launcher's
+ *     install on first run), a board its logon task started is ended first instead, and the move
+ *     goes on; one in a window of its own, or one that will not stop, still refuses;
+ *   - #3286 --replace-older: an OLDER, complete Kosmos at the target that is not the one the pointer
+ *     names, and holds nothing but Kosmos's own entries, is replaced, and kept whole as
+ *     <target>\.kosmos-update\previous-<version>, where the updater keeps the build an update replaced;
  *   - never over a different Kosmos, an incomplete one (any ENTRIES item missing; our own move
  *     never leaves one, because it renames a whole staging folder into place), or a folder
  *     holding other files;
@@ -37,10 +42,11 @@
  * hand off to the installed one. Newer: run from here, as a by-hand update does today.
  *
  * ⚠️ GATED (convention 3): `relocate()` refuses without `liveExecutionAllowed`, and the move CLI is
- * a dry run unless `--yes`, which only the launcher passes after the person chose Move Kosmos.
+ * a dry run unless `--yes`, which only the launcher passes, when Kosmos was opened from a folder that
+ * gets cleaned up or a newer download was opened (#3286).
  * `--compare` only reads.
  *
- *     node app\engine\win32relocate.js --move --from <folder> --to <folder> --port <n> [--report <file>] [--yes]
+ *     node app\engine\win32relocate.js --move --from <folder> --to <folder> --port <n> [--end-board] [--replace-older] [--report <file>] [--yes]
  *     node app\engine\win32relocate.js --compare --from <folder> --to <folder> [--report <file>]
  *     node app\engine\win32relocate.js --compare --from <folder> --pointer [--report <file>]
  */
@@ -56,12 +62,17 @@ const MANIFEST_NAME = 'manifest.json';
 /* Beside the target, so the rename that finishes a move is a rename on one volume. The process id
    follows it, so a leftover can be told from a move still under way. */
 const STAGING_INFIX = '.kosmos-move-';
+/* The updater's name for the build an update replaced, kept in <root>\.kosmos-update (engine/win32apply.js). */
+const PREVIOUS_PREFIX = 'previous-';
+/* #3286: beside the target, the install a replace sets aside until the new one is in place. Not the staging
+   name, so the sweep of interrupted moves never deletes it. */
+const PREVIOUS_ASIDE_INFIX = '.kosmos-previous-';
 
 const KEEPS_WORKING = 'Kosmos keeps working from here.';
 const MAY_BE_RUNNING_FROM_UNKNOWN_FOLDER = 'Kosmos was not moved, because Kosmos may be running and it could not tell from which folder. ' + KEEPS_WORKING;
 const RESTART_THEN_OPEN_AGAIN = 'Restart your computer, then open Kosmos again.';
 
-const USAGE = 'usage: node engine/win32relocate.js --move --from <folder> --to <folder> --port <n> [--report <file>] [--yes]\n'
+const USAGE = 'usage: node engine/win32relocate.js --move --from <folder> --to <folder> --port <n> [--end-board] [--replace-older] [--report <file>] [--yes]\n'
   + '       node engine/win32relocate.js --compare --from <folder> --to <folder> [--report <file>]\n'
   + '       node engine/win32relocate.js --compare --from <folder> --pointer [--report <file>]';
 
@@ -211,6 +222,24 @@ async function relocate(opts) {
     return refused('Kosmos was not moved, because it could not tell which port Kosmos uses, so it could not check whether Kosmos is running from this folder. ' + KEEPS_WORKING);
   }
   const handoff = require('./win32handoff');
+  let boardEnded = false;
+  /* #3286: the build an install over an older, idle copy replaces (--replace-older), or null. */
+  let replacing = null;
+  /* The engine pointer, read once, for both questions that need it: which folder a running board serves
+     from, and whether the copy at the target is the one Kosmos starts from. */
+  let pointerRead = false;
+  let pointerValue = null;
+  const pointerOnce = () => {
+    if (!pointerRead) {
+      pointerRead = true;
+      try {
+        pointerValue = typeof o.readPointer === 'function'
+          ? o.readPointer()
+          : win32anchor.readPointer('win32', o.home || os.homedir(), o.env || process.env);
+      } catch { pointerValue = null; }
+    }
+    return pointerValue;
+  };
   /* Round 4, finding 1: every address a board of this user could be on, not 127.0.0.1 alone. */
   const probe = typeof o.probe === 'function' ? o.probe : (p) => handoff.probeBoardOnEveryAddress(p, o.env || process.env, undefined, o.lookup);
   let answer = null;
@@ -228,15 +257,28 @@ async function relocate(opts) {
     return refused(MAY_BE_RUNNING_FROM_UNKNOWN_FOLDER);
   }
   if (answer && answer.answering) {
-    let pointer = null;
-    try {
-      pointer = typeof o.readPointer === 'function'
-        ? o.readPointer()
-        : win32anchor.readPointer('win32', o.home || os.homedir(), o.env || process.env);
-    } catch { pointer = null; }
+    const pointer = pointerOnce();
     if (!pointer) return refused(MAY_BE_RUNNING_FROM_UNKNOWN_FOLDER);
     if (isSameOrInside(pointer, from)) {
-      return refused('Kosmos is running from this folder right now, so it was not moved. ' + KEEPS_WORKING);
+      /* #3286: the install on first run. A board that serves from THIS folder is the common case, not
+         the rare one: whoever ran Kosmos from Downloads before this build has a board serving from
+         Downloads. Copying past it would leave that board reading its pages from the folder about to
+         be abandoned, and the moved copy's hand-off would find "this build" already answering and
+         leave it there (the board's identity is its build and world, never its folder). So with
+         `endBoardServingHere` (the launcher's --end-board) the board is ended FIRST, the hand-off's way
+         (win32handoff.attemptHandOff: only a board its logon task PROVABLY started, never one in a
+         window of its own), and the move goes on. The board comes back from the new folder when the
+         moved Kosmos.exe starts: its hand-off runs the logon task, which boots through the pointer
+         anchored below. If the move then fails, this Kosmos.exe carries on from here and its own
+         hand-off starts the task through the unchanged pointer, so a failed move never leaves the
+         board off. */
+      if (!o.endBoardServingHere) return refused('Kosmos is running from this folder right now, so it was not moved. ' + KEEPS_WORKING);
+      if (answer.startedByTask !== true) {
+        return refused('Kosmos is running from this folder right now, in a window of its own, so it was not moved. ' + KEEPS_WORKING);
+      }
+      const ended = await endServingBoard(o, port, probe);
+      if (!ended.ok) return refused('Kosmos is running from this folder right now and could not be stopped to move it (' + ended.because + '). ' + KEEPS_WORKING);
+      boardEnded = true;
     }
   }
 
@@ -254,29 +296,127 @@ async function relocate(opts) {
       if (theirsMissing.length) {
         return refused('Kosmos was not moved, because the Kosmos in ' + to + ' is incomplete (it is missing ' + theirsMissing.join(', ') + '). ' + KEEPS_WORKING);
       }
-      if (buildVerdict(mine, theirs, o.newer) !== 'same') {
-        return refused('There is already a different Kosmos (version ' + (theirs.version || 'unknown') + ') in ' + to
-          + ', so this one was not moved there. ' + KEEPS_WORKING);
+      const verdict = buildVerdict(mine, theirs, o.newer);
+      if (verdict === 'same') return { ok: true, action: 'already-there', target: to, boardEnded, ...anchorTo(o, to) };
+      const different = 'There is already a different Kosmos (version ' + (theirs.version || 'unknown') + ') in ' + to
+        + ', so this one was not moved there. ' + KEEPS_WORKING;
+      /* #3286 review, finding 3: only a PROVABLY newer build replaces one. 'rebuilt' (the same version from
+         another commit) has no order, so an older commit could replace a newer one: a downgrade, and one the
+         roll back could not undo. It is refused, and the launcher runs it from where it is, as before. */
+      if (!o.replaceOlder || verdict !== 'this-newer') return refused(different);
+      /* #3286 --replace-older: an OLDER Kosmos installed there that is not the one Kosmos starts from (the
+         engine pointer names this copy, or another). That is the state a newer download left behind when
+         its update could not run: the updater only swaps the folder the pointer names, so without this
+         that person would run from Downloads for good. Only an idle copy is replaced: never the one the
+         pointer names (that one is updated by the updater, with its board stopped and started), never one
+         holding anything but Kosmos's own entries. */
+      const pointerNow = pointerOnce();
+      if (!pointerNow) return refused('Kosmos could not tell which Kosmos starts when you sign in, so the one in ' + to + ' was left as it is. ' + KEEPS_WORKING);
+      if (isSameOrInside(pointerNow, to)) {
+        return refused('The Kosmos in ' + to + ' is the one that starts when you sign in, so Kosmos updates it itself rather than replacing it. ' + KEEPS_WORKING);
       }
-      return { ok: true, action: 'already-there', target: to, ...anchorTo(o, to) };
+      const others = fs.readdirSync(to).filter((name) => !entries.includes(name) && name !== win32anchor.UPDATE_WORK_DIRNAME);
+      if (others.length) return refused('Kosmos was not moved, because ' + to + ' also holds ' + others.join(', ') + '. ' + KEEPS_WORKING);
+      /* An update left unfinished owns that folder's .kosmos-update and may still put a build back into it. */
+      const unfinished = unfinishedUpdate(o);
+      if (unfinished) return refused(unfinished + ' ' + KEEPS_WORKING);
+      replacing = theirs.version || 'unknown';
     }
   }
 
   const copy = typeof o.copy === 'function' ? o.copy : (src, dst) => fs.cpSync(src, dst, { recursive: true, errorOnExist: true, force: false });
   sweepInterruptedMoves(to, typeof o.pidState === 'function' ? o.pidState : require('./win32orphan').pidState);
   const staging = to + STAGING_INFIX + process.pid;
+  /* #3286 review, finding 4: the replaced install is set aside BESIDE the target, under a name the sweep of
+     interrupted moves never touches (PREVIOUS_ASIDE_INFIX, not STAGING_INFIX), so a move killed between the
+     two renames cannot have its only copy of the old install deleted by the next one's sweep. Once the new
+     build is in place it goes where the updater keeps the build an update replaced
+     (<to>\.kosmos-update\previous-<version>), so the in-app roll back finds it like any other. */
+  const aside = replacing ? to + PREVIOUS_ASIDE_INFIX + process.pid : null;
+  const keptAt = replacing ? path.join(to, win32anchor.UPDATE_WORK_DIRNAME, PREVIOUS_PREFIX + replacing) : null;
+  let oldIsAside = false;
   try {
     fs.mkdirSync(staging, { recursive: true });
     for (const entry of entries) copy(path.join(from, entry), path.join(staging, entry));
-    /* rmdir, not rm: it refuses a folder that is no longer empty, so nothing that arrived in
-       the target since it was checked is ever deleted. */
-    if (fs.existsSync(to)) fs.rmdirSync(to);
-    fs.renameSync(staging, to);
+    if (replacing) {
+      fs.renameSync(to, aside);
+      oldIsAside = true;
+      fs.renameSync(staging, to);
+      oldIsAside = false;
+    } else {
+      /* rmdir, not rm: it refuses a folder that is no longer empty, so nothing that arrived in
+         the target since it was checked is ever deleted. */
+      if (fs.existsSync(to)) fs.rmdirSync(to);
+      fs.renameSync(staging, to);
+    }
   } catch (e) {
+    /* 🛑 The old install, if it was already set aside, goes back first: a failed replace must not cost the
+       person the copy they had. If it cannot go back it stays where it is, named. */
+    if (oldIsAside) {
+      try { fs.renameSync(aside, to); oldIsAside = false; } catch { /* named below */ }
+    }
     try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* the sentence below still names the failure */ }
+    if (oldIsAside) {
+      return refused('Kosmos could not be copied to ' + to + ' (' + firstLine(e) + '). The Kosmos that was there is kept in ' + aside + '. ' + KEEPS_WORKING);
+    }
     return refused('Kosmos could not be copied to ' + to + ' (' + firstLine(e) + '), so it was not moved. ' + KEEPS_WORKING);
   }
-  return { ok: true, action: 'moved', target: to, ...anchorTo(o, to) };
+  if (replacing) {
+    /* Minor finding: ONE previous build, as the updater keeps (H9). The old install's own .kosmos-update
+       (its earlier previous-* builds, a staged tree) is not carried inside the new previous-<version>. */
+    let kept = keptAt;
+    try {
+      fs.rmSync(path.join(aside, win32anchor.UPDATE_WORK_DIRNAME), { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(keptAt), { recursive: true });
+      fs.renameSync(aside, keptAt);
+    } catch {
+      /* The new build is in place either way; the old one stays beside it, named, rather than lost. */
+      kept = aside;
+    }
+    return { ok: true, action: 'replaced', target: to, replaced: replacing, kept, boardEnded, ...anchorTo(o, to) };
+  }
+  return { ok: true, action: 'moved', target: to, boardEnded, ...anchorTo(o, to) };
+}
+
+/** #3286: an update left unfinished, as a sentence, or null (engine/win32apply.js's own reading). */
+function unfinishedUpdate(o) {
+  if (typeof o.unfinishedUpdate === 'function') return o.unfinishedUpdate();
+  if (liveExec.inTestProcess()) throw new Error('win32relocate: a test must pass an unfinishedUpdate seam; the real one reads %LOCALAPPDATA%\\Kosmos');
+  try {
+    const anchor = win32anchor.anchorDir(process.platform, o.home || os.homedir(), o.env || process.env);
+    return require('./win32apply').unfinishedUpdateRefusal(anchor);
+  } catch (e) { return 'Kosmos could not tell whether an update is still finishing (' + firstLine(e) + ').'; }
+}
+/* #3286: how long an ended board gets to let go of its port before the move gives up on it. The
+   hand-off waits MIN_PORT_RELEASE_WAIT_MS at least; a board finishing its last requests can take
+   longer, and a move is not in a hurry. */
+const PORT_RELEASE_WAIT_MS = 20000;
+const PORT_RELEASE_POLL_MS = 250;
+
+/**
+ * #3286: end the board serving from the folder being moved, and wait until its port is free, so the
+ * copy never races a board reading from it and the moved copy's hand-off finds the port empty.
+ * Seams: endBoard() (win32board.end, which the hand-off uses to replace a task board), sleep, now,
+ * portReleaseWaitMs. Resolves { ok } or { ok: false, because }.
+ */
+async function endServingBoard(o, port, probe) {
+  if (typeof o.endBoard !== 'function' && liveExec.inTestProcess()) {
+    throw new Error('win32relocate: a test must pass an endBoard seam; the real one ends the board task');
+  }
+  const endBoard = typeof o.endBoard === 'function' ? o.endBoard : () => require('./win32board').end();
+  const sleep = typeof o.sleep === 'function' ? o.sleep : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const now = typeof o.now === 'function' ? o.now : Date.now;
+  let r;
+  try { r = endBoard(); } catch (e) { r = { ok: false, because: firstLine(e) }; }
+  if (!r || !r.ok) return { ok: false, because: (r && r.because) || 'the board did not say it stopped' };
+  const until = now() + (Number.isInteger(o.portReleaseWaitMs) ? o.portReleaseWaitMs : PORT_RELEASE_WAIT_MS);
+  for (;;) {
+    let p = null;
+    try { p = await probe(port); } catch { p = null; }
+    if (p && !p.answering && !require('./win32handoff').boardMayBeOpen(p)) return { ok: true };
+    if (now() >= until) return { ok: false, because: 'it still answered on port ' + port + ' after it was asked to stop' };
+    await sleep(PORT_RELEASE_POLL_MS);
+  }
 }
 
 /**
@@ -337,18 +477,24 @@ function compareWithPointer(opts) {
 /** The report the launcher reads: its first line is the outcome. */
 function reportText(result) {
   if (result.verdict) return result.verdict.toUpperCase() + ' ' + result.target + '\r\n';
-  if (result.ok) return (result.action === 'moved' ? 'MOVED ' : 'SAME ') + result.target + '\r\n';
+  /* #3286 review, finding 5: a copy in place that Kosmos could not be set to start from is not installed. */
+  if (result.ok && result.anchored === false) {
+    return 'UNANCHORED Kosmos was copied to ' + result.target + ', but it could not be set to start from there (' + String(result.anchorProblem || 'no detail').replace(/\s*\r?\n\s*/g, ' ') + ').\r\n';
+  }
+  if (result.ok) return (result.action === 'moved' || result.action === 'replaced' ? 'MOVED ' : 'SAME ') + result.target + '\r\n';
   return 'REFUSED ' + String(result.because).replace(/\s*\r?\n\s*/g, ' ') + '\r\n';
 }
 
 function parseCliArgs(argv) {
-  const a = { move: false, compare: false, pointer: false, yes: false, from: null, to: null, port: null, report: null, unknown: null };
+  const a = { move: false, compare: false, pointer: false, yes: false, endBoard: false, replaceOlder: false, from: null, to: null, port: null, report: null, unknown: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--move') a.move = true;
     else if (arg === '--compare') a.compare = true;
     else if (arg === '--pointer') a.pointer = true;
     else if (arg === '--yes') a.yes = true;
+    else if (arg === '--end-board') a.endBoard = true;
+    else if (arg === '--replace-older') a.replaceOlder = true;
     else if (['--from', '--to', '--port', '--report'].includes(arg)) { a[arg.slice(2)] = argv[i + 1] || null; i += 1; }
     else a.unknown = arg;
   }
@@ -367,7 +513,7 @@ function writeReport(a, result, out) {
 }
 
 /**
- * `--yes` is the launcher's word that the person chose Move Kosmos; it stands in for
+ * `--yes` is the launcher's word that Kosmos should install itself (#3286); it stands in for
  * allowLiveExecution(). Without it a move prints what it would do and exits 2, copying nothing.
  * `--compare` changes nothing, so it needs no `--yes`.
  */
@@ -376,7 +522,7 @@ async function cliMain(argv, deps) {
   const out = typeof d.write === 'function' ? d.write : (s) => process.stdout.write(s);
   const a = parseCliArgs(argv);
   const withPointer = a.compare && a.pointer;
-  if ((a.move === a.compare) || !a.from || (!withPointer && !a.to) || (a.pointer && !a.compare) || (withPointer && a.to) || a.unknown) { out(USAGE + '\n'); return 64; }
+  if ((a.move === a.compare) || !a.from || (!withPointer && !a.to) || (a.pointer && !a.compare) || (withPointer && a.to) || ((a.endBoard || a.replaceOlder) && !a.move) || a.unknown) { out(USAGE + '\n'); return 64; }
   if (a.compare) {
     const verdict = withPointer ? (d.compareWithPointer || compareWithPointer)({ from: a.from }) : (d.compare || compare)({ from: a.from, to: a.to });
     if (!writeReport(a, verdict, out)) return 1;
@@ -387,13 +533,13 @@ async function cliMain(argv, deps) {
     out(JSON.stringify({ dryRun: true, from: path.resolve(a.from), to: path.resolve(a.to), because: 'nothing was copied: add --yes to move Kosmos' }, null, 2) + '\n');
     return 2;
   }
-  const result = await (d.relocate || relocate)({ from: a.from, to: a.to, port: a.port, liveExecutionAllowed: () => true });
+  const result = await (d.relocate || relocate)({ from: a.from, to: a.to, port: a.port, endBoardServingHere: a.endBoard, replaceOlder: a.replaceOlder, liveExecutionAllowed: () => true });
   if (!writeReport(a, result, out)) return 1;
   out(JSON.stringify(result, null, 2) + '\n');
   return result.ok ? 0 : 1;
 }
 
-module.exports = { relocate, compare, compareWithPointer, buildVerdict, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX };
+module.exports = { relocate, compare, compareWithPointer, buildVerdict, readManifest, isCompleteBuild, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX, PREVIOUS_ASIDE_INFIX, PORT_RELEASE_WAIT_MS };
 
 /* Guarded on being the main module: requiring this file must never copy anything. */
 if (require.main === module) {

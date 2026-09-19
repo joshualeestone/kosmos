@@ -103,13 +103,15 @@ test('the engine helpers are armed by --yes, and speak the flags and report tags
     assert.notEqual(uninstaller.cliMain(['--uninstall', '--delete-data', '--root', 'C:\\K', '--report', report, '--yes'],
       { uninstall: () => ({ ok: true, done: [], left: [], notes: [] }), write: () => {} }), 64);
   } finally { fs.rmSync(report, { force: true }); }
-  const offer = method('CompareWithInstalledCopy') + method('OfferToMoveFromTemporaryPlace');
-  for (const tag of ['MOVED ', 'SAME ', 'REFUSED ', 'NEWER ', 'HANDOFF ']) assert.ok(offer.includes('"' + tag + '"'), 'the launcher does not read ' + tag);
+  const offer = method('CompareWithInstalledCopy') + method('InstallFromTemporaryPlace') + method('UpdateInstalledCopy');
+  for (const tag of ['MOVED ', 'SAME ', 'REFUSED ', 'NEWER ', 'HANDOFF ', 'UPDATED ']) assert.ok(offer.includes('"' + tag + '"'), 'the launcher does not read ' + tag);
+  assert.equal(constant('UpdateHelperScript'), 'win32update.js');
   assert.match(uninstaller.reportText({ done: [], left: ['a'], notes: ['b'] }), /^LEFT a\r\nNOTE b\r\n$/);
   /* Round 3, finding 5: only the compare, which merely reads, has a time limit. A removal or a copy cut
      off midway would leave half a folder. */
   assert.match(method('Uninstall'), /BoardPort\(\), NoHelperTimeout, out problem\);/, 'the uninstall helper was given a time limit');
-  assert.match(method('OfferToMoveFromTemporaryPlace'), /" --port " \+ port, NoHelperTimeout, out problem\);/, 'the move helper was given a time limit');
+  assert.match(method('InstallFromTemporaryPlace'), /" --port " \+ port \+ " --end-board", NoHelperTimeout, out problem\);/, 'the install helper was given a time limit, or does not end a board serving from Downloads');
+  assert.match(method('UpdateInstalledCopy'), /" --from " \+ QuoteArgument\(full\) \+ " --port " \+ port \+ " --wait", NoHelperTimeout, out problem\);/, 'the update helper was given a time limit, or does not wait for the new board');
   assert.equal((method('CompareWithInstalledCopy') + method('CompareWithPointedCopy')).split(', compareTimeoutMs, out compareProblem);').length - 1, 2,
     'a compare waits on its helper with no time limit');
   assert.match(SOURCE, /internal static int compareTimeoutMs = 10000;/);
@@ -129,9 +131,12 @@ test('W-06: the installer duties run between the app check and the first start, 
   const main = method('Main');
   const dutiesAt = main.indexOf('int? endedByInstallerDuties = RunInstallerDuties(here, node, port);');
   assert.ok(dutiesAt > main.indexOf('if (!File.Exists(server))') && dutiesAt < main.indexOf('Process.Start('), 'the installer duties are not between the app check and the first start');
-  assert.match(method('MoveQuestion'), /"Kosmos is running from " \+ place \+ "\. If that folder is cleaned up, Kosmos stops working\. Move Kosmos to its own folder now\?"/);
-  assert.equal(constant('MoveButton'), 'Move Kosmos');
-  assert.equal(constant('KeepButton'), 'Keep it here');
+  /* #3286: Kosmos installs itself; nothing asks Move Kosmos or Keep it here any more, and nothing
+     remembers an answer to a question that is not asked. */
+  assert.doesNotMatch(SOURCE, /askMoveOrKeep|AskMoveOrKeep|MoveAnswer|Keep it here|PlaceWasKept|RememberPlaceKept/, 'the move question, or its memory, is back');
+  assert.equal(constant('InstallingMessage'), 'Installing Kosmos on this computer. This takes a moment.');
+  assert.match(method('CouldNotInstallNote'), /"Kosmos could not install itself in " \+ target \+ ", so it is running from " \+ place \+ " for now\. " \+ because/);
+  assert.doesNotMatch(method('CouldNotInstallNote'), /\?/, 'the note asks a question');
   assert.match(SOURCE, /FOLDERID_Downloads = new Guid\("374DE290-123F-4565-9164-39C4925E467B"\)/);
   assert.match(SOURCE, /FOLDERID_Desktop = new Guid\("B4BFCC3A-DB2C-424C-B029-7FE99A87C641"\)/);
   assert.match(SOURCE, /FOLDERID_UserProgramFiles = new Guid\("5CD7AEE2-2219-4A67-B85D-6C9CE15660CB"\)/);
@@ -182,12 +187,6 @@ class InstallerProbe {
       case "knownfolders":
         Console.Write(KosmosLauncher.KnownFolderPath(KosmosLauncher.FOLDERID_Desktop) + "|" + KosmosLauncher.KnownFolderPath(KosmosLauncher.FOLDERID_Downloads) + "|" + KosmosLauncher.MoveTarget());
         return 0;
-      case "kept":
-        KosmosLauncher.keptPlacesFile = () => a[1];
-        bool before = KosmosLauncher.PlaceWasKept(a[2]);
-        bool remembered = KosmosLauncher.RememberPlaceKept(a[2]);
-        Console.Write(before + "|" + remembered + "|" + KosmosLauncher.PlaceWasKept(a[2]) + "|" + KosmosLauncher.PlaceWasKept(a[3]) + "|" + KosmosLauncher.PlaceWasKept(a[2].ToUpperInvariant() + "\\\\"));
-        return 0;
       case "manifest":
         string text = File.Exists(Path.Combine(a[1], "manifest.json")) ? File.ReadAllText(Path.Combine(a[1], "manifest.json")) : "";
         Console.Write(KosmosLauncher.IsKosmosBuild(a[1]) + "|" + KosmosLauncher.AppVersionFromManifest(text));
@@ -200,10 +199,15 @@ class InstallerProbe {
         return 0;
       case "duties": {
         /* a[1] this copy, a[2] the per-user programs folder, a[3] the compare's first word or "fail",
-           a[4] Move|Keep|None, a[5] the kept-here file, a[6] person|nobody, a[7] temp (this copy is in
+           a[4] how the move or the update ends: ok | refused | null (the helper would not start) |
+           update-refused (the updater says no, the move that replaces an idle install says yes) |
+           update-refused-same (the updater says no, the move finds this build already installed: SAME) |
+           unanchored (the copy is in place but Kosmos could not be pointed at it),
+           a[5] (unused since #3286: the kept-here file), a[6] person|nobody, a[7] temp (this copy is in
            Downloads) | elsewhere (a folder that is not cleaned up, such as D:\\Kosmos-0.6.50),
-           a[8] (optional) the folder a --pointer compare names */
-        string asked = "no"; string started = "-"; bool refreshed = false;
+           a[8] (optional) the folder a --pointer compare names, a[9] (optional) startfails: the installed
+           Kosmos.exe will not start. PROBE_INSTALL_LOCK (environment): the install lock to use, and print ms. */
+        string started = "-"; bool refreshed = false; string working = "-"; string told = "-";
         List<string> helpers = new List<string>();
         KosmosLauncher.showMessageBoxes = a[6] == "person";
         KosmosLauncher.downloadsFolder = () => a[7] == "elsewhere" ? null : Path.GetDirectoryName(a[1]);
@@ -211,25 +215,46 @@ class InstallerProbe {
         KosmosLauncher.environmentVariable = (name) => null;
         KosmosLauncher.temporaryFolders = () => new string[0];
         KosmosLauncher.userProgramsFolder = () => a[2];
-        KosmosLauncher.keptPlacesFile = () => a[5];
         KosmosLauncher.runEngineHelper = (string node, string here, string script, string arguments, int timeoutMs, out string problem) => {
           problem = null;
           bool pointer = arguments.Contains(" --pointer");
-          helpers.Add(pointer ? "--compare-pointer" : arguments.Split(' ')[0]);
+          string word = pointer ? "--compare-pointer" : arguments.Split(' ')[0];
+          if (arguments.Contains(" --end-board")) word += "+end-board";
+          if (arguments.Contains(" --replace-older")) word += "+replace-older";
+          if (arguments.StartsWith("--apply") && arguments.Contains(" --from ") && arguments.Contains(" --wait")) word += "+from+wait";
+          helpers.Add(script + ":" + word);
           if (arguments.StartsWith("--compare")) {
             if (a[3] == "fail") { problem = "the runtime would not start"; return null; }
             if (pointer) return new[] { a[3] + " " + (a.Length > 8 ? a[8] : "-") };
             return new[] { a[3] + " " + Path.Combine(a[2], "Kosmos") };
           }
-          return new[] { "MOVED " + Path.Combine(a[2], "Kosmos") };
+          if (a[4] == "null") { problem = "the runtime would not start"; return null; }
+          if (a[4] == "refused") return new[] { "REFUSED the helper said no." };
+          if (a[4].StartsWith("update-refused") && arguments.StartsWith("--apply")) return new[] { "REFUSED the updater said no." };
+          if (a[4] == "update-refused-same") return new[] { "SAME " + Path.Combine(a[2], "Kosmos") };
+          if (a[4] == "unanchored") return new[] { "UNANCHORED Kosmos was copied to " + Path.Combine(a[2], "Kosmos") + ", but it could not be set to start from there (disk full)." };
+          return new[] { (arguments.StartsWith("--apply") ? "UPDATED " : "MOVED ") + Path.Combine(a[2], "Kosmos") };
         };
-        KosmosLauncher.startLauncher = (exe, folder) => { started = exe; return null; };
-        KosmosLauncher.askMoveOrKeep = (question) => { asked = "yes"; return a[4] == "Move" ? KosmosLauncher.MoveAnswer.Move : a[4] == "Keep" ? KosmosLauncher.MoveAnswer.Keep : KosmosLauncher.MoveAnswer.NoAnswer; };
-        KosmosLauncher.tellPerson = (said, isError) => { };
+        KosmosLauncher.startLauncher = (exe, folder) => { started = exe; return a.Length > 9 && a[9] == "startfails" ? "blocked by antivirus" : null; };
+        KosmosLauncher.showWorkingWhile = (shown, work) => { working = shown; work(); };
+        string lockName = Environment.GetEnvironmentVariable("PROBE_INSTALL_LOCK");
+        KosmosLauncher.installLockName = string.IsNullOrEmpty(lockName) ? "Local\\\\KosmosTest.InstallOrUpdate." + Guid.NewGuid().ToString("N") : lockName;
+        System.Diagnostics.Stopwatch waited = System.Diagnostics.Stopwatch.StartNew();
+        KosmosLauncher.tellPerson = (said, isError) => { told = (isError ? "ERROR " : "NOTICE ") + said.Replace("\\n", " / "); };
         KosmosLauncher.refreshWindowsRegistration = (root) => { refreshed = true; };
         int? exit = KosmosLauncher.RunInstallerDuties(a[1], "node.exe", 16180);
-        Console.Write("exit=" + (exit.HasValue ? exit.Value.ToString() : "null") + "\\nrefreshed=" + refreshed + "\\nstarted=" + started + "\\nasked=" + asked
-          + "\\nhelpers=" + string.Join(",", helpers.ToArray()) + "\\nkept=" + KosmosLauncher.PlaceWasKept(a[1]));
+        Console.Write("exit=" + (exit.HasValue ? exit.Value.ToString() : "null") + "\\nrefreshed=" + refreshed + "\\nstarted=" + started
+          + "\\nhelpers=" + string.Join(",", helpers.ToArray()) + "\\nworking=" + working + "\\ntold=" + told
+          + (string.IsNullOrEmpty(lockName) ? "" : "\\nms=" + waited.ElapsedMilliseconds));
+        return 0;
+      }
+      case "holdlock": {
+        /* a[1] the lock name, a[2] how long to hold it, a[3] a file written once it is held */
+        using (System.Threading.Mutex held = new System.Threading.Mutex(true, a[1])) {
+          File.WriteAllText(a[3], "held");
+          System.Threading.Thread.Sleep(int.Parse(a[2]));
+          held.ReleaseMutex();
+        }
         return 0;
       }
       case "uninstall": {
@@ -242,7 +267,7 @@ class InstallerProbe {
         KosmosLauncher.keptPlacesFile = () => a[6];
         KosmosLauncher.RefreshStartMenuShortcut(a[7], folder);
         KosmosLauncher.RegisterUninstallEntry(a[7], folder, "1.0.0", 1);
-        KosmosLauncher.RememberPlaceKept(folder);
+        File.WriteAllText(a[6], folder + "\\r\\n");
         KosmosLauncher.showMessageBoxes = a[1] == "person";
         Queue<string> answers = new Queue<string>(a[2].Split(','));
         int askedCount = 0; string helperArguments = "-"; string told = "-";
@@ -299,6 +324,8 @@ function probe(t) {
   };
 }
 test.after(() => { if (probeBuild) fs.rmSync(probeBuild.dir, { recursive: true, force: true }); });
+/** The compiled probe, for a test that runs it alongside another (after probe(t) built it). */
+function probeExe() { return probeBuild.exe; }
 
 /** `k=v` lines, as the duties and uninstall probes print them. */
 function fields(out) {
@@ -452,68 +479,154 @@ function dutiesRig(withInstalledLauncher) {
   return { base, here, programs, installed: path.join(programs, 'Kosmos', 'Kosmos.exe'), kept: path.join(base, 'kept-here.txt') };
 }
 
-test('🛑 finding 4 probe: a stale or same-build copy in Downloads hands off to the installed Kosmos and re-points NOTHING, even when kept', WINDOWS_ONLY, (t) => {
+const MOVE = 'win32relocate.js:--move+end-board';
+const COMPARE = 'win32relocate.js:--compare';
+const UPDATE = 'win32update.js:--apply+from+wait';
+
+test('🛑 finding 4 probe: a stale or same-build copy in Downloads hands off to the installed Kosmos and re-points NOTHING', WINDOWS_ONLY, (t) => {
   const run = probe(t);
   if (!run) return;
   const r = dutiesRig(true);
   try {
-    const got = fields(run('duties', r.here, r.programs, 'HANDOFF', 'Keep', r.kept, 'person', 'temp').out);
-    assert.deepEqual(got, { exit: '0', refreshed: 'False', started: r.installed, asked: 'no', helpers: '--compare', kept: 'False' },
+    const got = fields(run('duties', r.here, r.programs, 'HANDOFF', 'ok', r.kept, 'person', 'temp').out);
+    assert.deepEqual(got, { exit: '0', refreshed: 'False', started: r.installed, helpers: COMPARE, working: '-', told: '-' },
       'a stale copy re-pointed the Start menu, the Apps entry or the pointer, or did not start the installed Kosmos');
-    fs.writeFileSync(r.kept, r.here + '\r\n');
-    const kept = fields(run('duties', r.here, r.programs, 'HANDOFF', 'Keep', r.kept, 'person', 'temp').out);
-    assert.equal(kept.refreshed, 'False', 'Keep it here let a stale copy re-point everything while a complete Kosmos is installed');
-    assert.equal(kept.started, r.installed);
-    const console = fields(run('duties', r.here, r.programs, 'HANDOFF', 'None', r.kept, 'nobody', 'temp').out);
+    const console = fields(run('duties', r.here, r.programs, 'HANDOFF', 'ok', r.kept, 'nobody', 'temp').out);
     assert.equal(console.refreshed, 'False', 'with --console a stale copy re-pointed everything');
   } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
 });
 
-test('🛑 finding 4 probe: a NEWER copy runs from here and re-points, as a by-hand update does, without asking to move', WINDOWS_ONLY, (t) => {
+test('🛑 #3286 probe: a NEWER copy updates the installed Kosmos through the updater and starts it, so there is only ever one install', WINDOWS_ONLY, (t) => {
   const run = probe(t);
   if (!run) return;
   const r = dutiesRig(true);
   try {
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'Move', r.kept, 'person', 'temp').out),
-      { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare', kept: 'False' });
+    for (const where of ['temp', 'elsewhere']) {
+      assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'ok', r.kept, 'person', where).out),
+        { exit: '0', refreshed: 'False', started: r.installed, helpers: COMPARE + ',' + UPDATE, working: 'Updating the Kosmos installed on this computer. Your agents keep their work; Kosmos restarts in a moment.', told: '-' },
+        'a newer copy in ' + where + ' did not update the installed Kosmos and start it');
+    }
+    /* The updater said no, and the installed copy is idle: the move installs over it (keeping it as the
+       updater's previous build) and the installed copy starts. */
+    const REPLACE = 'win32relocate.js:--move+end-board+replace-older';
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'update-refused', r.kept, 'person', 'temp').out),
+      { exit: '0', refreshed: 'False', started: r.installed, helpers: COMPARE + ',' + UPDATE + ',' + REPLACE, working: 'Installing Kosmos on this computer. This takes a moment.', told: '-' },
+      'a refused update did not fall back to replacing an idle install');
+    /* Both said no: a plain note, and this newer copy runs from here and re-points, as before #3286. */
+    const refused = fields(run('duties', r.here, r.programs, 'NEWER', 'refused', r.kept, 'person', 'temp').out);
+    assert.equal(refused.exit, 'null');
+    assert.equal(refused.refreshed, 'True');
+    assert.equal(refused.started, '-');
+    assert.equal(refused.helpers, COMPARE + ',' + UPDATE + ',' + REPLACE);
+    assert.equal(refused.told, 'NOTICE This Kosmos is newer than the one installed in ' + path.join(r.programs, 'Kosmos') + ', but it could not update it (the helper said no.). This newer Kosmos runs from here for now, and tries again the next time you open it.');
+    /* The same version from another commit (the compare says NEWER, the updater and the move both refuse
+       it): the note must not call it newer. */
+    fs.writeFileSync(path.join(r.programs, 'Kosmos', 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', version: '0.6.60', source_sha: 'another' }));
+    const rebuilt = fields(run('duties', r.here, r.programs, 'NEWER', 'refused', r.kept, 'person', 'temp').out);
+    assert.equal(rebuilt.exit, 'null');
+    assert.equal(rebuilt.told, 'NOTICE Another copy of Kosmos 0.6.60 is already installed in ' + path.join(r.programs, 'Kosmos') + ', so this one runs from here.');
+    assert.doesNotMatch(rebuilt.told, /newer/, 'a same-version rebuild was called newer');
+    fs.rmSync(path.join(r.programs, 'Kosmos', 'manifest.json'));
+    const noHelper = fields(run('duties', r.here, r.programs, 'NEWER', 'null', r.kept, 'person', 'temp').out);
+    assert.match(noHelper.told, /^NOTICE This Kosmos is newer .* could not update it \(the update did not say what happened \(the runtime would not start\)\)\./);
+    assert.equal(noHelper.refreshed, 'True');
   } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
 });
 
-test('🛑 round 2 finding 4 probe: an old copy in a folder that is NOT cleaned up hands off and re-points nothing; a newer one re-points; no install carries on', WINDOWS_ONLY, (t) => {
+test('🛑 #3286 review probe: SAME is an update that finished; a board the replace ended always runs again; a copy Kosmos was not pointed at is not installed', WINDOWS_ONLY, (t) => {
   const run = probe(t);
   if (!run) return;
+  const REPLACE = 'win32relocate.js:--move+end-board+replace-older';
   const r = dutiesRig(true);
   try {
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'HANDOFF', 'Move', r.kept, 'person', 'elsewhere').out),
-      { exit: '0', refreshed: 'False', started: r.installed, asked: 'no', helpers: '--compare', kept: 'False' },
-      'a stale copy outside a temporary place re-pointed the Start menu, the Apps entry or the pointer');
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'Move', r.kept, 'person', 'elsewhere').out),
-      { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare', kept: 'False' });
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'Move', r.kept, 'person', 'elsewhere').out),
-      { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare', kept: 'False' }, 'a folder that is not cleaned up was offered a move');
+    /* Finding 2: the update's report said REFUSED (the wait ran out), but the swap had happened: the move
+       then finds this build installed (SAME), and that is success, not a run from Downloads. */
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'update-refused-same', r.kept, 'person', 'temp').out),
+      { exit: '0', refreshed: 'False', started: r.installed, helpers: COMPARE + ',' + UPDATE + ',' + REPLACE, working: 'Installing Kosmos on this computer. This takes a moment.', told: '-' });
+    /* Finding 1: the replace ended the board; the installed copy will not start. This copy carries on from
+       here (exit null: its own start runs the board), never exit 1 with no board until the next sign-in. */
+    const blocked = fields(run('duties', r.here, r.programs, 'NEWER', 'update-refused', r.kept, 'person', 'temp', '-', 'startfails').out);
+    assert.equal(blocked.exit, 'null', 'a board the replace ended was left off');
+    assert.equal(blocked.refreshed, 'True');
+    assert.match(blocked.told, /^ERROR Kosmos is updated in .*, but it would not start from there \(blocked by antivirus\)\. This copy runs Kosmos from here for now/);
   } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
-});
-
-test('finding 4 probe: no complete Kosmos installed is the ordinary offer: Keep is remembered, Move moves and starts the moved copy', WINDOWS_ONLY, (t) => {
-  const run = probe(t);
-  if (!run) return;
-  const r = dutiesRig(true);
-  try {
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'Keep', r.kept, 'person', 'temp').out),
-      { exit: 'null', refreshed: 'True', started: '-', asked: 'yes', helpers: '--compare', kept: 'True' });
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'Keep', r.kept, 'person', 'temp').out),
-      { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare', kept: 'True' }, 'a kept folder was asked again');
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'fail', 'None', path.join(r.base, 'other.txt'), 'person', 'temp').out),
-      { exit: 'null', refreshed: 'True', started: '-', asked: 'yes', helpers: '--compare', kept: 'False' }, 'a compare that could not run did not fall back to the offer');
-  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+  /* Finding 5: in place, but Kosmos could not be pointed at it: the plain note, and a run from here. */
   const empty = dutiesRig(false);
   try {
-    assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'Move', empty.kept, 'person', 'temp').out),
-      { exit: '0', refreshed: 'False', started: empty.installed, asked: 'yes', helpers: '--move', kept: 'False' });
-    fs.rmSync(path.join(empty.here, 'manifest.json'));
-    assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'Move', empty.kept, 'person', 'temp').out),
-      { exit: 'null', refreshed: 'False', started: '-', asked: 'no', helpers: '', kept: 'False' }, 'a folder that is not a real build did an installer\'s job');
+    const unanchored = fields(run('duties', empty.here, empty.programs, 'NONE', 'unanchored', empty.kept, 'person', 'temp').out);
+    assert.equal(unanchored.exit, 'null');
+    assert.equal(unanchored.started, '-', 'a copy Kosmos was not pointed at was started as if installed');
+    assert.match(unanchored.told, /^NOTICE Kosmos could not install itself in .*\. Kosmos was copied to .*, but it could not be set to start from there \(disk full\)\./);
+    /* The first install's own start failure already ran from here (StaysHere), before this review. */
+    const firstBlocked = fields(run('duties', empty.here, empty.programs, 'NONE', 'ok', empty.kept, 'person', 'temp', '-', 'startfails').out);
+    assert.equal(firstBlocked.exit, 'null');
   } finally { fs.rmSync(empty.base, { recursive: true, force: true }); }
+});
+
+test('🛑 #3286 review finding 2 probe: a second launch during an install WAITS for it, rather than racing it', WINDOWS_ONLY, async (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const lock = 'Local\\KosmosTest.InstallOrUpdate.' + process.pid;
+  const r = dutiesRig(false);
+  const ready = path.join(r.base, 'held.txt');
+  const HOLD_MS = 3000;
+  const holder = spawn(probeExe(), ['holdlock', lock, String(HOLD_MS), ready], { windowsHide: true, stdio: 'ignore' });
+  try {
+    for (let i = 0; i < 100 && !fs.existsSync(ready); i++) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(fs.existsSync(ready), 'the first launch never took the lock');
+    const second = fields(run('duties', r.here, r.programs, 'NONE', 'ok', r.kept, 'person', 'temp', { env: { ...process.env, PROBE_INSTALL_LOCK: lock } }).out);
+    assert.ok(Number(second.ms) >= HOLD_MS - 1000, 'the second launch did not wait for the first (' + second.ms + ' ms)');
+    assert.equal(second.exit, '0', 'the second launch did not carry on once the first let go');
+  } finally {
+    try { holder.kill(); } catch { /* already gone */ }
+    fs.rmSync(r.base, { recursive: true, force: true });
+  }
+});
+
+test('🛑 round 2 finding 4 probe: an old copy in a folder that is NOT cleaned up hands off and re-points nothing; with nothing installed it runs where it is', WINDOWS_ONLY, (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const r = dutiesRig(true);
+  try {
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'HANDOFF', 'ok', r.kept, 'person', 'elsewhere').out),
+      { exit: '0', refreshed: 'False', started: r.installed, helpers: COMPARE, working: '-', told: '-' },
+      'a stale copy outside a temporary place re-pointed the Start menu, the Apps entry or the pointer');
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'ok', r.kept, 'person', 'elsewhere').out),
+      { exit: 'null', refreshed: 'True', started: '-', helpers: COMPARE, working: '-', told: '-' }, 'a folder somebody chose, not a cleaned-up one, was installed from');
+  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+});
+
+test('🛑 #3286 probe: from a cleaned-up place with nothing installed, Kosmos installs itself WITHOUT asking and starts the installed copy; a refusal is a plain note', WINDOWS_ONLY, (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const empty = dutiesRig(false);
+  try {
+    const target = path.join(empty.programs, 'Kosmos');
+    /* A person at the desktop, and nobody (--console): both install, neither is asked anything. */
+    for (const who of ['person', 'nobody']) {
+      assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'ok', empty.kept, who, 'temp').out),
+        { exit: '0', refreshed: 'False', started: empty.installed, helpers: MOVE, working: 'Installing Kosmos on this computer. This takes a moment.', told: '-' },
+        'Kosmos did not install itself from Downloads (' + who + ')');
+    }
+    const refused = fields(run('duties', empty.here, empty.programs, 'NONE', 'refused', empty.kept, 'person', 'temp').out);
+    assert.equal(refused.exit, 'null');
+    assert.equal(refused.refreshed, 'True', 'a copy that could not install did not keep its Start menu entry pointing at itself');
+    assert.equal(refused.told, 'NOTICE Kosmos could not install itself in ' + target + ', so it is running from your Downloads folder for now. the helper said no. /  / If that folder is cleaned up, Kosmos stops working. Kosmos tries again the next time you open it from here.');
+    assert.doesNotMatch(refused.told, /\?/, 'the note asks a question');
+    const noHelper = fields(run('duties', empty.here, empty.programs, 'NONE', 'null', empty.kept, 'person', 'temp').out);
+    assert.match(noHelper.told, /^NOTICE Kosmos could not install itself .* The copy did not say what happened \(the runtime would not start\)\./);
+    fs.rmSync(path.join(empty.here, 'manifest.json'));
+    assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'ok', empty.kept, 'person', 'temp').out),
+      { exit: 'null', refreshed: 'False', started: '-', helpers: '', working: '-', told: '-' }, 'a folder that is not a real build did an installer\'s job');
+  } finally { fs.rmSync(empty.base, { recursive: true, force: true }); }
+  /* A compare that could not run, with a Kosmos.exe installed: carries on as with nothing installed, and
+     the install then meets whatever is in the target (the engine refuses a folder holding other files). */
+  const r = dutiesRig(true);
+  try {
+    const failed = fields(run('duties', r.here, r.programs, 'fail', 'refused', r.kept, 'person', 'temp').out);
+    assert.equal(failed.helpers, COMPARE + ',' + MOVE, 'a compare that could not run did not fall back to installing');
+    assert.equal(failed.refreshed, 'True');
+  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
 });
 
 /* ---- the round 3 review, fixed in round 4 ------------------------------------ */
@@ -569,10 +682,11 @@ test('🛑 round 3 finding 6 probe: the installed copy hands off to a newer copy
   if (!run) return;
   const r = pointerRig();
   try {
-    const duties = (verdict, pointedAt) => fields(run('duties', r.here, r.programs, verdict, 'None', r.kept, 'person', 'elsewhere', pointedAt).out);
-    assert.deepEqual(duties('HANDOFF', r.pointed), { exit: '0', refreshed: 'False', started: path.join(r.pointed, 'Kosmos.exe'), asked: 'no', helpers: '--compare-pointer', kept: 'False' },
+    const duties = (verdict, pointedAt) => fields(run('duties', r.here, r.programs, verdict, 'ok', r.kept, 'person', 'elsewhere', pointedAt).out);
+    /* #3286: running Kosmos.exe from the installed location does nothing new: no install, no update. */
+    assert.deepEqual(duties('HANDOFF', r.pointed), { exit: '0', refreshed: 'False', started: path.join(r.pointed, 'Kosmos.exe'), helpers: 'win32relocate.js:--compare-pointer', working: '-', told: '-' },
       'the installed copy moved the pointer back from a newer copy, or did not start it');
-    const runsHere = { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare-pointer', kept: 'False' };
+    const runsHere = { exit: 'null', refreshed: 'True', started: '-', helpers: 'win32relocate.js:--compare-pointer', working: '-', told: '-' };
     assert.deepEqual(duties('NONE', r.pointed), runsHere, 'a pointer that names no newer copy did not run and re-point here');
     assert.deepEqual(duties('HANDOFF', r.here), runsHere, 'the installed copy handed off to itself');
     assert.deepEqual(duties('HANDOFF', path.join(r.base, 'gone')), runsHere, 'the installed copy handed off to a copy that is not there');
@@ -798,18 +912,6 @@ test('W-06 probe: the real Known Folder Desktop is the one Windows reports, redi
   assert.ok(downloads && path.win32.isAbsolute(downloads), 'no Downloads folder: ' + downloads);
   assert.equal(target.toLowerCase(), path.win32.join(windowsSays[1], 'Programs', 'Kosmos').toLowerCase());
   t.diagnostic('Desktop on this machine: ' + desktop + (/OneDrive/i.test(desktop) ? ' (redirected by OneDrive)' : ''));
-});
-
-test('probe: Keep it here is remembered for that folder only, whatever its case or trailing slash', WINDOWS_ONLY, (t) => {
-  const run = probe(t);
-  if (!run) return;
-  const base = scratch();
-  try {
-    const memory = path.join(base, 'Kosmos', 'launcher', 'kept-here.txt');
-    const folder = path.join(base, 'Downloads', 'kosmos-win-x64');
-    assert.equal(run('kept', memory, folder, path.join(base, 'Desktop', 'Kosmos')).out, 'False|True|True|False|True');
-    assert.equal(fs.readFileSync(memory, 'utf8'), folder + '\r\n');
-  } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
 test('probe: a real build names kosmos and win32 at the top of its manifest, and its version is Kosmos\'s, not Node\'s', WINDOWS_ONLY, (t) => {

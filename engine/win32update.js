@@ -29,7 +29,10 @@
  * A CLI for the live checks (each a dry run unless --yes):
  *     node engine/win32update.js --prepare --root <folder> [--base <url>] [--channel staging] [--world <id>] [--yes]
  *     node engine/win32update.js --apply --root <folder> [--base <url>] [--channel staging] [--world <id>]
- *                                [--board-pid <pid>] [--port <n>] [--wait] [--yes]
+ *                                [--board-pid <pid>] [--port <n>] [--from <folder>] [--wait] [--report <file>] [--yes]
+ * #3286: `--from <folder>` installs the newer Kosmos in that folder (a zip the person extracted and ran)
+ * instead of downloading one; everything from B4 on, the journal and the helper's swap and rollback, is
+ * the same. Kosmos.exe runs it when a newer download finds Kosmos already installed.
  * and the helper's own entry points, started by begin() and never by hand:
  *     <anchored node.exe> <ROOT>\app\engine\win32update.js --kosmos-update-apply <journal>
  *     <anchored node.exe> <old build>\app\engine\win32update.js --kosmos-update-recover <journal>
@@ -422,6 +425,61 @@ function journalRefusal(env, home) {
 }
 
 /** The first B0 precondition that fails, as a sentence, or null. Reads only. */
+/* #3286: a newer Kosmos folder on this computer, in place of B1-B3. */
+
+/** The bytes of every file under `dir`, links not followed. */
+function treeBytes(dir) {
+  let total = 0;
+  let st;
+  try { st = fs.lstatSync(dir); } catch { return 0; }
+  if (st.isSymbolicLink()) return 0;
+  if (!st.isDirectory()) return st.size;
+  for (const name of fs.readdirSync(dir)) total += treeBytes(path.join(dir, name));
+  return total;
+}
+
+/**
+ * Stage the Kosmos in `ctx.source` (a folder the person extracted a newer zip into and ran) the way
+ * B3 stages a download: exactly ENTRIES, into WORK\staged, nothing else. The build verdict is the
+ * move's and the launcher's one derivation (win32relocate.buildVerdict), so "newer" here can never
+ * disagree with the launcher's compare: only a newer build, or the same version rebuilt from another
+ * commit, is staged. Returns `latest` in readOffer's shape, which B4 (verifyStaged) checks as it
+ * checks a download: the manifest, the app version, every required file, the node.exe running, the
+ * identity the new board will answer with.
+ */
+function stageFromFolder(ctx) {
+  const relocate = require('./win32relocate'); // lazy: win32relocate requires this module
+  const source = ctx.source;
+  if (insideOrEqual(source, ctx.root) || insideOrEqual(ctx.root, source)) {
+    refuse(`${source} and ${ctx.root} overlap, so one cannot update the other`);
+  }
+  const mine = relocate.readManifest(source);
+  if (!relocate.isCompleteBuild(source, mine, ENTRIES)) refuse(`${source} is not a complete Kosmos for Windows, so it cannot update ${ctx.root}`);
+  const installed = relocate.readManifest(ctx.root);
+  const verdict = relocate.buildVerdict(mine, installed);
+  /* #3286 review, finding 3: only a PROVABLY newer version. The same version from another commit ('rebuilt')
+     has no order in the manifest (no build time, no commit order), so it could be an older commit: a
+     downgrade, against the never-downgrade rule, that the roll back could not undo. The launcher then runs
+     that copy from where it is, as it did before #3286. */
+  if (verdict !== 'this-newer') {
+    refuse(`${source} holds Kosmos ${mine.version}, which is not newer than the ${(installed && installed.version) || 'unknown version'} in ${ctx.root}, so there is nothing to update`);
+  }
+  const bytes = ENTRIES.reduce((n, entry) => n + treeBytes(path.join(source, entry)), 0);
+  const free = ctx.freeBytes(ctx.work);
+  if (free < bytes) {
+    refuse(`there is not enough free disk space next to your Kosmos folder: the update is ${sizeInWords(bytes)} and there is ${sizeInWords(free)} free`);
+  }
+  fs.mkdirSync(ctx.inWork(ctx.staged), { recursive: true });
+  try {
+    for (const entry of ENTRIES) {
+      fs.cpSync(path.join(source, entry), ctx.inWork(path.join(ctx.staged, entry)), { recursive: true, errorOnExist: true, force: false });
+    }
+  } catch (e) {
+    refuse(`Kosmos could not be copied from ${source} (${firstLine(e)})`);
+  }
+  return { version: mine.version };
+}
+
 function preconditionRefusal(root, env, home, base) {
   const realRoot = realPathOf(root);
   for (const form of [root, realRoot]) {
@@ -1154,6 +1212,7 @@ async function prepare(opts) {
     arch: o.arch || process.arch,
     expectVersion: o.expectVersion || null,
     world: o.world || null,
+    source: o.source ? path.resolve(o.source) : null,
     limits: { ...DEFAULT_LIMITS, ...(o.limits || {}) },
     fetch: typeof o.fetch === 'function' ? o.fetch : fetch,
     freeBytes: typeof o.freeBytes === 'function' ? o.freeBytes : defaultFreeBytes,
@@ -1185,11 +1244,22 @@ async function prepare(opts) {
     adoptOrphanedRollbackBuild(root, env, home, ctx.staged, ctx.inWork, ctx.runStagedNode, log);
     fs.rmSync(inWork(ctx.staged), { recursive: true, force: true });
 
-    const latest = await readOffer(ctx);
-    const downloaded = await download(ctx, latest);
-    unpack(ctx, downloaded.bytes);
+    /* #3286: the build to install is either the channel's (B1-B3: the offer, the download, the unpack)
+       or a newer Kosmos folder already on this computer (a newer zip the person extracted and ran):
+       stageFromFolder takes B1-B3's place, and B4 onwards is the same for both. */
+    let latest;
+    let sha256 = null;
+    if (ctx.source) {
+      latest = stageFromFolder(ctx);
+    } else {
+      latest = await readOffer(ctx);
+      const downloaded = await download(ctx, latest);
+      unpack(ctx, downloaded.bytes);
+      sha256 = downloaded.sha256;
+    }
     const verified = verifyStaged(ctx, latest);
-    result = { ok: true, version: latest.version, sha256: downloaded.sha256, stagedDir: ctx.staged, runtimeChanged: verified.runtimeChanged, expectedIdentity: verified.expectedIdentity };
+    result = { ok: true, version: latest.version, sha256, stagedDir: ctx.staged, runtimeChanged: verified.runtimeChanged, expectedIdentity: verified.expectedIdentity };
+    if (ctx.source) result.source = ctx.source;
     if (typeof o.whileLocked === 'function') o.whileLocked(result, ctx);
   } catch (e) {
     if (e instanceof PrepareRefusal) {
@@ -1573,11 +1643,11 @@ async function rollbackToPrevious(opts) {
 /* ─── the live-check CLI ─────────────────────────────────────────────────────────────────── */
 
 const USAGE = 'usage: node engine/win32update.js --prepare --root <folder> [--base <url>] [--channel prod|staging] [--world <id>] [--yes]\n'
-  + '       node engine/win32update.js --apply --root <folder> [--base <url>] [--channel prod|staging] [--world <id>] [--board-pid <pid>] [--port <n>] [--wait] [--yes]';
+  + '       node engine/win32update.js --apply --root <folder> [--base <url>] [--channel prod|staging] [--world <id>] [--board-pid <pid>] [--port <n>] [--from <folder>] [--wait] [--report <file>] [--yes]';
 
 function parseCliArgs(argv) {
-  const a = { prepare: false, apply: false, yes: false, wait: false, root: null, base: null, channel: null, world: null, boardPid: null, port: null, unknown: null };
-  const valued = { '--root': 'root', '--base': 'base', '--channel': 'channel', '--world': 'world', '--board-pid': 'boardPid', '--port': 'port' };
+  const a = { prepare: false, apply: false, yes: false, wait: false, root: null, base: null, channel: null, world: null, boardPid: null, port: null, source: null, report: null, unknown: null };
+  const valued = { '--root': 'root', '--base': 'base', '--channel': 'channel', '--world': 'world', '--board-pid': 'boardPid', '--port': 'port', '--from': 'source', '--report': 'report' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--prepare') a.prepare = true;
@@ -1642,15 +1712,23 @@ async function applyCli(a, out, seams) {
       status: anchorDir && path.join(anchorDir, win32anchor.UPDATE_STATUS_NAME),
       writesUnder: path.join(root, WORK_DIRNAME),
       moves: ENTRIES.map((entry) => path.join(root, entry)),
-      because: 'nothing was changed: add --yes to download and stage the update, stop the board, swap the new build in, and start the board again',
+      source: a.source ? path.resolve(a.source) : null,
+      because: 'nothing was changed: add --yes to ' + (a.source ? 'stage the Kosmos in ' + path.resolve(a.source) : 'download and stage the update') + ', stop the board, swap the new build in, and start the board again',
     }, null, 2) + '\n');
     return 2;
   }
   const answer = await (s.probe || win32handoff.probeBoard)(port);
   const fromIdentity = win32handoff.boardIdentity(win32handoff.buildIdentity(path.join(root, 'app')), world);
   const task = (s.boardStatus || win32board.status)() || {};
+  /* #3286: the report Kosmos.exe reads (its RunEngineHelper), one tagged line: UPDATED <root> once the
+     new build answers, REFUSED <sentence> otherwise. */
+  const report = (line) => {
+    if (!a.report) return;
+    try { fs.writeFileSync(a.report, line.replace(/\s*\r?\n\s*/g, ' ') + '\r\n', 'utf8'); } catch (e) { out(`could not write the report to ${a.report}: ${firstLine(e)}\n`); }
+  };
   const r = await begin({
     root, base: a.base, channel: a.channel, world: a.world, port, boardPid, fromIdentity,
+    source: a.source ? path.resolve(a.source) : undefined,
     liveExecutionAllowed: () => true,
     /* The board says itself whether its task started it (#2986, x-kosmos-board-started-by-task), and
        only an exact yes counts. Task Scheduler's `running` is not asked: it reads null whenever its
@@ -1659,11 +1737,12 @@ async function applyCli(a, out, seams) {
     ...(s.begin || {}),
   });
   out(JSON.stringify(r, null, 2) + '\n');
-  if (!r.ok) return 1;
-  if (!a.wait) return 0;
+  if (!r.ok) { report('REFUSED ' + r.because); return 1; }
+  if (!a.wait) { report('STARTED ' + root); return 0; }
   const token = (require('./win32apply').readJournal(r.journal).journal || {}).token;
   const status = await waitForOutcome(r.journal, token, { probe: s.probe, ...(s.wait || {}) });
   out(JSON.stringify(status, null, 2) + '\n');
+  report(status.outcome === 'updated' ? 'UPDATED ' + root : 'REFUSED ' + (status.because || `the update ended as ${status.outcome || 'unknown'}`));
   return status.outcome === 'updated' ? 0 : 1;
 }
 

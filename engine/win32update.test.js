@@ -2067,3 +2067,101 @@ test('S5 round2: a FINISHED FORWARD journal never triggers adoption (its staged 
   await win32update.prepare(prepareOpts(c, null, { fetch: async () => { throw new Error('offline'); } }));
   assert.equal(fs.existsSync(path.join(c.work, `previous-${PREV}`)), false, 'a forward journal must not adopt staged as a kept build');
 });
+
+/* --- #3286: a newer Kosmos folder on this computer updates the installed copy --------------------- */
+
+/** freshCase's ROOT as a real install carries it: a manifest naming the installed build. */
+function withInstalledManifest(c, over) {
+  fs.writeFileSync(path.join(c.root, 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', arch: ARCH, version: INSTALLED, source_sha: SOURCE_SHA, ...(over || {}) }));
+  return c;
+}
+/** A newer Kosmos the person extracted somewhere else and ran. */
+function downloadedBuild(c, version, o = {}) {
+  const dir = o.at || path.join(c.dir, 'Downloads', 'kosmos-win-x64');
+  writeDirBuild(dir, version || NEXT);
+  for (const name of o.remove || []) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+  return dir;
+}
+const OFFLINE = { fetch: async () => { throw new Error('a local update must not reach the network'); } };
+
+test('#3286 --from: a newer Kosmos folder is staged exactly as a download is, and checked by B4, with no network and no write outside WORK', T, async () => {
+  const c = withInstalledManifest(freshCase());
+  const source = downloadedBuild(c);
+  fs.mkdirSync(path.join(source, 'Projects', 'mine'), { recursive: true });
+  fs.writeFileSync(path.join(source, 'stray.txt'), 'not part of Kosmos');
+  const before = snapshot(SANDBOX, [c.work]);
+  let r;
+  const written = await recordWrites(async () => { r = await win32update.prepare(prepareOpts(c, null, { ...OFFLINE, source })); });
+  assert.deepEqual(r, {
+    ok: true, version: NEXT, sha256: null, stagedDir: path.join(c.work, 'staged'), source,
+    runtimeChanged: true, expectedIdentity: `${NEXT}+${SOURCE_SHA.slice(0, 12)}@default`,
+  });
+  assert.deepEqual(fs.readdirSync(r.stagedDir).sort(), [...win32update.ENTRIES].sort(), 'something other than the build\'s own entries was staged');
+  assert.deepEqual(c.nodeRuns, [path.join(r.stagedDir, 'runtime', 'node.exe')], 'B4 did not run the STAGED interpreter');
+  assert.deepEqual(written.filter((p) => !under(p, c.work)), [], 'written outside WORK');
+  assert.deepEqual(snapshot(SANDBOX, [c.work]), before, 'the source folder or the install changed');
+});
+
+test('#3286 --from refuses a build that is not newer, an incomplete one, one that overlaps the install, and too little disk; nothing is left staged', T, async () => {
+  const cases = [
+    [(c) => downloadedBuild(c, INSTALLED), /holds Kosmos 0\.6\.55, which is not newer than the 0\.6\.55 in/],
+    [(c) => downloadedBuild(c, '0.6.50'), /holds Kosmos 0\.6\.50, which is not newer than the 0\.6\.55 in/],
+    [(c) => downloadedBuild(c, NEXT, { remove: ['bin'] }), /is not a complete Kosmos for Windows, so it cannot update/],
+    [(c) => downloadedBuild(c, NEXT, { at: path.join(c.root, 'newer') }), /overlap, so one cannot update the other/],
+  ];
+  for (const [make, pattern] of cases) {
+    const c = withInstalledManifest(freshCase());
+    const r = await win32update.prepare(prepareOpts(c, null, { ...OFFLINE, source: make(c) }));
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.match(r.because, pattern);
+    assert.equal(fs.existsSync(path.join(c.work, 'staged')), false, 'a refused update left a staged tree');
+  }
+  const c = withInstalledManifest(freshCase());
+  const low = await win32update.prepare(prepareOpts(c, null, { ...OFFLINE, source: downloadedBuild(c), freeBytes: () => 1024 }));
+  assert.match(low.because, /not enough free disk space next to your Kosmos folder: the update is .* and there is 1024 bytes free/);
+  /* #3286 review, finding 3: the same version from another commit has no order, so it could be an older
+     commit. It is refused (never a downgrade), and the launcher runs it from where it is. */
+  const rebuilt = withInstalledManifest(freshCase(), { version: NEXT, source_sha: '1111111111111111111111111111111111111111' });
+  fs.writeFileSync(path.join(rebuilt.root, 'app', 'package.json'), JSON.stringify({ version: NEXT }));
+  const r = await win32update.prepare(prepareOpts(rebuilt, null, { ...OFFLINE, source: downloadedBuild(rebuilt) }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /holds Kosmos 0\.6\.60, which is not newer than the 0\.6\.60 in/);
+});
+
+test('#3286 --from: begin journals the local build and starts the installed copy\'s own helper, as for a download', T, async () => {
+  const c = withInstalledManifest(freshCase());
+  const journalAt = path.join(c.anchor, JOURNAL_NAME);
+  const spawned = [];
+  const r = await win32update.begin(prepareOpts(c, null, {
+    ...OFFLINE, source: downloadedBuild(c), port: 16555, fromIdentity: `${INSTALLED}@default`,
+    spawn: (file, args) => { spawned.push(args); return fakeChild(); },
+  }));
+  assert.equal(r.ok, true, r.because);
+  const j = readJson(journalAt);
+  assert.deepEqual(j.to, { version: NEXT, identity: `${NEXT}+${SOURCE_SHA.slice(0, 12)}@default`, sha256: null });
+  assert.equal(j.previous, path.join(c.work, `previous-${INSTALLED}`), 'the installed build is not kept for the rollback');
+  assert.deepEqual(spawned, [[path.join(c.root, 'app', 'engine', 'win32update.js'), '--kosmos-update-apply', journalAt]]);
+});
+
+test('#3286 --apply --from --report: the launcher reads one tagged line, and the dry run names the folder', T, async () => {
+  const c = withInstalledManifest(freshCase());
+  const source = downloadedBuild(c);
+  const report = path.join(c.dir, 'report.txt');
+  const seams = (startedByTask) => ({
+    /* A real install's board names its commit too (buildIdentity reads the manifest beside runtime\node.exe). */
+    probe: async () => ({ answering: true, identity: `${INSTALLED}+${SOURCE_SHA.slice(0, 12)}@default`, startedByTask }),
+    boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
+    begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
+  });
+  const argv = ['--apply', '--root', c.root, '--from', source, '--port', '16555', '--world', 'default', '--report', report, '--yes'];
+  assert.equal(await win32update.cliMain(argv, () => {}, seams(false)), 1);
+  assert.match(fs.readFileSync(report, 'utf8'), /^REFUSED this board was not started by its Windows logon job .*\r\n$/);
+  const said2 = [];
+  assert.equal(await win32update.cliMain(argv, (s) => said2.push(s), seams(true)), 0, said2.join(''));
+  assert.equal(fs.readFileSync(report, 'utf8'), `STARTED ${c.root}\r\n`);
+  const out = [];
+  assert.equal(await win32update.cliMain(['--apply', '--root', c.root, '--from', source], (s) => out.push(s)), 2);
+  const said = JSON.parse(out.join(''));
+  assert.equal(said.source, source);
+  assert.match(said.because, /stage the Kosmos in /);
+});
