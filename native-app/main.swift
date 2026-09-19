@@ -1821,7 +1821,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        call-once `respond` wrapper is belt-and-braces for the presenter-stub path.
 
        A presenter stub (nil in every shipped run, like openPanelPresenter) lets the
-       build gate drive these headless without a real modal. */
+       build gate drive these headless without a real modal.
+
+       No `outstanding` serialization flag (unlike runOpenPanel): runModal is a
+       synchronous nested app-modal loop, so overlapping dialogs from two frames
+       stack as nested modal sessions (AppKit supports this and each still answers
+       its own completion exactly once) rather than dropping one -- so there is no
+       dropped-request-is-a-crash hazard here to guard against. */
     static var jsAlertPresenter: ((String, @escaping () -> Void) -> Void)?
     static var jsConfirmPresenter: ((String, @escaping (Bool) -> Void) -> Void)?
     static var jsPromptPresenter: ((String, String?, @escaping (String?) -> Void) -> Void)?
@@ -1841,6 +1847,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         resp == .alertFirstButtonReturn ? fieldText : nil   // Cancel -> nil (JS prompt() convention)
     }
 
+    /* Build the confirm/prompt NSAlert. Extracted so the self-test can assert the
+       button ORDER the mapping above depends on: jsConfirmValue/jsPromptValue read
+       `.alertFirstButtonReturn` as OK, which is only correct if OK is the FIRST
+       button added. If a future edit swapped these addButton lines, confirm/prompt
+       would SILENTLY invert (Cancel answering true / the typed text) -- worse than
+       "does nothing" -- and the stub-driven arms would still pass. So the self-test
+       checks buttons[0].title == "OK" on the alert THIS builder produces, closing
+       the order-vs-mapping link that source order alone would leave uncovered. */
+    static func makeConfirmAlert(_ message: String) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")       // FIRST -> .alertFirstButtonReturn
+        alert.addButton(withTitle: "Cancel")
+        return alert
+    }
+    static func makePromptAlert(_ prompt: String, _ defaultText: String?) -> (NSAlert, NSTextField) {
+        let alert = NSAlert()
+        alert.messageText = prompt
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.stringValue = defaultText ?? ""
+        alert.accessoryView = field
+        alert.addButton(withTitle: "OK")        // FIRST -> .alertFirstButtonReturn
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field   // focus so the person can type at once
+        return (alert, field)
+    }
+
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
         var answered = false
@@ -1858,11 +1891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         var answered = false
         let respond: (Bool) -> Void = { ok in if answered { return }; answered = true; completionHandler(ok) }
         if let present = AppDelegate.jsConfirmPresenter { present(message) { respond($0) }; return }
-        let alert = NSAlert()
-        alert.messageText = message
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        respond(AppDelegate.jsConfirmValue(alert.runModal()))
+        respond(AppDelegate.jsConfirmValue(AppDelegate.makeConfirmAlert(message).runModal()))
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
@@ -1871,15 +1900,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         var answered = false
         let respond: (String?) -> Void = { s in if answered { return }; answered = true; completionHandler(s) }
         if let present = AppDelegate.jsPromptPresenter { present(prompt, defaultText) { respond($0) }; return }
-        let alert = NSAlert()
-        alert.messageText = prompt
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        field.stringValue = defaultText ?? ""
-        alert.accessoryView = field
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        // Focus the field so the person can type immediately (no click-first).
-        alert.window.initialFirstResponder = field
+        let (alert, field) = AppDelegate.makePromptAlert(prompt, defaultText)
         respond(AppDelegate.jsPromptValue(alert.runModal(), fieldText: field.stringValue))
     }
 
@@ -3434,6 +3455,14 @@ if CommandLine.arguments.contains("--kosmos-app-jspanels-selftest") {
     print("mapping:confirm-cancel-false:\(mapCancelFalse ? "yes" : "no")")
     print("mapping:prompt-ok-text:\(mapPromptOk ? "yes" : "no")")
     print("mapping:prompt-cancel-nil:\(mapPromptCancel ? "yes" : "no")")
+
+    // The mapping above trusts OK to be the FIRST button; assert the real builders
+    // actually make it so (a swapped addButton order would invert the semantics and
+    // otherwise pass every stub-driven arm below). Checks the alert THIS delegate builds.
+    let confirmOkFirst = AppDelegate.makeConfirmAlert("x").buttons.first?.title == "OK"
+    let promptOkFirst = AppDelegate.makePromptAlert("x", nil).0.buttons.first?.title == "OK"
+    print("buttons:confirm-ok-first:\(confirmOkFirst ? "yes" : "no")")
+    print("buttons:prompt-ok-first:\(promptOkFirst ? "yes" : "no")")
 
     // Presenter stubs record that the delegate fired and answer programmatically
     // (no real modal). Scripted answers: confirm -> OK(true), prompt -> "typed".
