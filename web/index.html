@@ -1664,9 +1664,11 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .statfilter[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
 /* The exit affordance ("View all agents"), shown only while the filter is on. */
 .board-msgfilter-exit { display: none; border: 0; background: none; padding: 0 4px; cursor: pointer;
-  font: inherit; font-size: .8125rem; color: var(--gold-deep, #b88920); text-decoration: underline;
-  text-underline-offset: 2px; align-self: center; }
-.board-msgfilter-exit:hover { color: var(--k-ink); }
+  font: inherit; font-size: .8125rem; color: var(--k-ink); text-decoration: underline;
+  text-decoration-color: var(--gold-deep, #b88920); text-underline-offset: 2px; align-self: center; }
+/* --k-ink text (clears AA); the gold is reserved for the UNDERLINE accent, never the text --
+   --gold-deep is a border/non-text color in this file (see .dbox .btn), ~3:1 as text. */
+.board-msgfilter-exit:hover { text-decoration-color: var(--k-ink); }
 .board-msgfilter-exit:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 body.filter-msgs .board-msgfilter-exit { display: inline-flex; }
 /* The filter: hide no-message agents in grid + list; DIM them in the org chart so the hierarchy
@@ -15197,7 +15199,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}">
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15212,7 +15214,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}">
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -15414,7 +15416,7 @@ function lrow(a) {
       const tav = a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}">
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15427,7 +15429,7 @@ function lrow(a) {
     const off = a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}">
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
