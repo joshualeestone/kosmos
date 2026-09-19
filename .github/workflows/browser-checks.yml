@@ -262,4 +262,5 @@ jobs:
             render-build-marker-2066
             render-richtext-2067
             render-win32-board-copy
+            render-fed-prod-gate-3330
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
