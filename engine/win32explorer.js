@@ -226,15 +226,100 @@ function openSettingsPage(purpose) {
   return launch([SETTINGS_PAGES[purpose]]);
 }
 
+/**
+ * Bring the Settings window to the FOREGROUND after openSettingsPage opened it.
+ *
+ * 🛑 WHY THIS IS NEEDED. An `ms-settings:` page opened by the board comes up BEHIND the
+ * Kosmos window: the board is a background process, and Windows' foreground lock denies
+ * a window raised by a process that does not itself hold the foreground. On the Mac the
+ * same button uses `/usr/bin/open`, which foregrounds System Settings for free, so this
+ * is the Windows half of that parity (#3324, Josh's laptop, first-run sleep step).
+ *
+ * 🔑 BEST EFFORT, DETACHED, NEVER WAITED ON, and its result does not change whether the
+ * page opened. The page is already up; a helper that cannot raise it leaves the window
+ * behind, which is exactly the pre-fix state, so a failure here is silent by design.
+ *
+ * The technique is the documented one for foregrounding another process's window from a
+ * background one: attach this thread's input queue to the current foreground thread's
+ * (AttachThreadInput), which lifts the lock for the call, then SetForegroundWindow. It
+ * polls briefly because the Settings window appears a moment after the launch returns.
+ *
+ * NOTHING CALLER-CONTROLLED reaches the shell: the script is a fixed constant, and it is
+ * passed as -EncodedCommand (base64 UTF-16LE) so it survives argv as ONE space-free token
+ * with no quoting to get wrong. windowsHide is true here (unlike the Explorer launch): a
+ * helper the person never asked to see must not flash a console window.
+ */
+const FOREGROUND_SETTINGS_SCRIPT = [
+  "$ErrorActionPreference='SilentlyContinue'",
+  'Add-Type -Namespace KWin -Name Native -MemberDefinition @\'',
+  '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);',
+  '[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int c);',
+  '[DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);',
+  '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);',
+  '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
+  '[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();',
+  '\'@',
+  '$deadline=(Get-Date).AddSeconds(5)',
+  'do{',
+  '  $w=Get-Process -Name SystemSettings -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1',
+  '  if($w){',
+  '    $h=$w.MainWindowHandle',
+  '    $fg=[KWin.Native]::GetForegroundWindow()',
+  '    $ft=[KWin.Native]::GetWindowThreadProcessId($fg,[IntPtr]::Zero)',
+  '    $me=[KWin.Native]::GetCurrentThreadId()',
+  '    [void][KWin.Native]::AttachThreadInput($me,$ft,$true)',
+  '    [void][KWin.Native]::ShowWindowAsync($h,9)',
+  '    [void][KWin.Native]::SetForegroundWindow($h)',
+  '    [void][KWin.Native]::AttachThreadInput($me,$ft,$false)',
+  '    break',
+  '  }',
+  '  Start-Sleep -Milliseconds 120',
+  '} while((Get-Date) -lt $deadline)',
+].join('\n');
+
+function powershellPath() {
+  const windowsRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+  return path.win32.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+
+/** Raise the Settings window; see FOREGROUND_SETTINGS_SCRIPT. Best effort. */
+function foregroundSettings() {
+  const exe = powershellPath();
+  const args = ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand',
+    Buffer.from(FOREGROUND_SETTINGS_SCRIPT, 'utf16le').toString('base64')];
+  if (runner) return runner(exe, args);
+  if (!liveExecution.liveExecutionAllowed()) {
+    liveExecution.refuseOrWarn('win32explorer', exe, args);
+    return { ok: false, because: EXPLORER_DID_NOT_OPEN };
+  }
+  try {
+    /* Same detached, never-waited-on shape as the Explorer launch above, but windowsHide
+       is true: this helper is not a window the person asked to see. */
+    const child = spawn(exe, args, { detached: true, stdio: 'ignore', windowsHide: true, shell: false });
+    child.on('error', (err) => {
+      process.stderr.write('[win32explorer] ' + exe + ' foreground helper failed to start: '
+        + String((err && err.message) || err) + '\n');
+    });
+    child.unref();
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ReferenceError || err instanceof TypeError) throw err;
+    return { ok: false, because: EXPLORER_DID_NOT_OPEN };
+  }
+}
+
 module.exports = {
   SETTINGS_PAGES,
   OPENABLE_FILE_EXTENSIONS,
   REVEALED_INSTEAD_SENTENCE,
   EXPLORER_DID_NOT_OPEN,
   explorerPath,
+  powershellPath,
   openFolder,
   openFile,
   openSettingsPage,
+  foregroundSettings,
+  FOREGROUND_SETTINGS_SCRIPT,
   setRunner,
   setStatForTests,
 };

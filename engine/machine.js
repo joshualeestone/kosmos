@@ -1270,9 +1270,15 @@ function openSleepSettings(runner, lister) {
      the one Explorer launcher from a closed list, so a page still cannot name a URI. */
   if (platformOf() === 'win32') {
     const opened = win32explorer.openSettingsPage('sleep');
-    return opened.ok
-      ? { ok: true }
-      : { ok: false, because: 'we could not open the sleep settings. Open ' + WINDOWS_POWER_SETTINGS + ' and set the plugged-in sleep time to Never' };
+    if (!opened.ok) {
+      return { ok: false, because: 'we could not open the sleep settings. Open ' + WINDOWS_POWER_SETTINGS + ' and set the plugged-in sleep time to Never' };
+    }
+    /* The page opens BEHIND Kosmos (a background process cannot raise a window past
+       Windows' foreground lock), so bring it forward the way the Mac's `open` does for
+       free. Best effort: it is detached and its result cannot un-open the page, so a
+       helper that fails just leaves the window behind, the state before this. */
+    win32explorer.foregroundSettings();
+    return { ok: true };
   }
   const url = sleepPaneUrl(runner, lister);
   /* When we cannot pinpoint the pane, the honest answer is not a dead button:

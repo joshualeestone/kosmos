@@ -168,15 +168,52 @@ test('Turn On on Windows opens ms-settings:powersleep through the one Explorer l
   machine.setPlatform('win32');
   try {
     assert.deepEqual(machine.openSleepSettings(), { ok: true });
-    assert.equal(calls.length, 1);
+    /* First the Explorer launch of the page itself; the second call is the foreground
+       helper covered by the next test. */
     assert.match(calls[0][0], /\\explorer\.exe$/i);
     assert.deepEqual(calls[0][1], ['ms-settings:powersleep']);
 
-    explorer.setRunner(() => ({ ok: false, because: explorer.EXPLORER_DID_NOT_OPEN }));
+    calls.length = 0;
+    explorer.setRunner((exe, args) => { calls.push([exe, args]); return { ok: false, because: explorer.EXPLORER_DID_NOT_OPEN }; });
     const refused = machine.openSleepSettings();
     assert.equal(refused.ok, false);
     assert.match(refused.because, /Settings > System > Power & battery/, 'a failed open does not say where to go by hand');
     assert.doesNotMatch(refused.because, /System Settings|Energy Saver/);
+    assert.equal(calls.length, 1, 'a page that would not open still tried to be foregrounded');
+    assert.match(calls[0][0], /\\explorer\.exe$/i);
+  } finally {
+    machine.setPlatform(null);
+    explorer.setRunner(null);
+  }
+});
+
+test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUND, so it does not open behind Kosmos', () => {
+  const calls = [];
+  explorer.setRunner((exe, args) => { calls.push([exe, args]); return { ok: true }; });
+  machine.setPlatform('win32');
+  try {
+    assert.deepEqual(machine.openSleepSettings(), { ok: true });
+    /* Two launches, in order: open the page, then raise it. The page opens behind Kosmos
+       because the board is a background process; the second launch lifts it in front. */
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0][1], ['ms-settings:powersleep']);
+
+    const [exe, args] = calls[1];
+    assert.match(exe, /\\powershell\.exe$/i, 'the foreground step is a PowerShell launch');
+    const enc = args[args.indexOf('-EncodedCommand') + 1];
+    assert.ok(typeof enc === 'string' && enc.length > 0, 'the script travels as one -EncodedCommand token');
+    assert.doesNotMatch(enc, /\s/, 'an encoded command with a space would be split by argv');
+    const script = Buffer.from(enc, 'base64').toString('utf16le');
+    assert.equal(script, explorer.FOREGROUND_SETTINGS_SCRIPT, 'the encoded token decodes back to the fixed script');
+    assert.match(script, /SetForegroundWindow/, 'the helper actually raises the window');
+    assert.match(script, /AttachThreadInput/, 'it lifts the foreground lock the documented way');
+    assert.match(script, /SystemSettings/, 'it targets the Settings window');
+
+    /* When the page itself does not open, the window is not raised: nothing is there to raise. */
+    calls.length = 0;
+    explorer.setRunner((e, a) => { calls.push([e, a]); return { ok: false, because: explorer.EXPLORER_DID_NOT_OPEN }; });
+    assert.equal(machine.openSleepSettings().ok, false);
+    assert.equal(calls.length, 1, 'a page that never opened was still foregrounded');
   } finally {
     machine.setPlatform(null);
     explorer.setRunner(null);

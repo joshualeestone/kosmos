@@ -316,11 +316,14 @@ test('MAC (#3112): the wizard walks all nine steps with Model shown second, prog
 
 test('S3 and S7 on Windows: the audit\'s words, no Accessibility, no Dock', () => {
   assert.equal(table.s3Lead, 'To get the most out of your agents, this PC needs to stay awake while they work.');
-  assert.match(table.s3SleepHow, /Settings &gt; System &gt; Power &amp; battery &gt; Screen, sleep, &amp; hibernate timeouts/);
-  assert.match(table.s3SleepHow, /When plugged in, put my device to sleep after<\/b> to <b>Never<\/b>/);
+  /* #3324: trimmed to the one essential line; the long Settings-path instructions were cut,
+     because the Turn On button opens that page and now brings it to the foreground. */
+  assert.equal(table.s3SleepHow, 'Your agents pause when your PC sleeps.');
+  assert.doesNotMatch(table.s3SleepHow, /Settings &gt; System|put my device to sleep/, 'the long Settings path is gone');
   assert.equal(table.s3BatteryNote, 'On battery your PC will still sleep to save power. For overnight work, leave it plugged in.');
-  assert.equal(table.s7Body, 'To open Kosmos later, double-click <b>Kosmos.exe</b> in the folder you extracted it to.');
-  assert.equal(table.s7Tip, 'Tip: right-click <b>Kosmos.exe</b> and choose <b>Pin to Start</b>.');
+  /* #3324: the Windows pin-to-taskbar screen, the analog of the Mac keep-in-dock copy. */
+  assert.equal(table.s7Body, 'Kosmos is running now, and its icon is on the taskbar at the bottom of your screen.');
+  assert.equal(table.s7Tip, 'Right-click the Kosmos icon on the taskbar and choose <b>Pin to taskbar</b> so it stays there and is easy to find later.');
   assert.equal(runPage('win32', [], "platformCopy('firePermissionFailure', 'we could not open System Settings')"), 'we could not open Settings');
 });
 
