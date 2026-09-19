@@ -14,13 +14,19 @@ const rule = (needle) => {
   return PAGE.slice(PAGE.indexOf(needle), PAGE.indexOf('}', PAGE.indexOf(needle)) + 1);
 };
 
-test('item 1: the Tasks plus takes the first grid track, so it sits left of the label', () => {
-  // MEASURED: plus left 1212, label left 1242. Before, the grid was `1fr auto`
-  // and the button sat at the far right reading "+ New task".
-  assert.match(rule('#pj-tasks-field { grid-template-columns:'), /auto minmax\(0, 1fr\)/,
-    'the tracks are back to label-then-button, so the plus returns to the right');
-  assert.match(rule('.pj3 #pj-tasks-field > #pj-newtask {'), /grid-column: 1/);
-  assert.match(rule('#pj-tasks-field > .dlab { grid-column: 2'), /grid-column: 2/);
+test('#3304: the Tasks header reads label, then View All, then the plus on the far right', () => {
+  /* #3304 (Josh 2026-09-19) reversed the earlier "+ | TASKS | View All" order. Now:
+     TASKS flush-left on the 1fr track, View All next, and the + on the far-right track.
+     (Before #3304 the plus took grid-column 1 in an `auto minmax(0,1fr) auto` grid; this
+     test pinned that and is updated here to Josh's newer order.) */
+  assert.match(rule('#pj-tasks-field { grid-template-columns:'), /minmax\(0, 1fr\) auto auto/,
+    'the Tasks header tracks are not label(1fr) | View All | +');
+  assert.match(rule('.pj3 #pj-tasks-field > #pj-newtask {'), /grid-column: 3/,
+    'the Tasks + is not on the far-right track');
+  assert.match(rule('.pj3 #pj-tasks-field > .dlab {'), /grid-column: 1/,
+    'the Tasks label is not flush-left on the first track');
+  assert.match(rule('.pj3 #pj-tasks-field > #pj-alltasks {'), /grid-column: 2/,
+    'View All is not in the middle track, to the left of the +');
 });
 
 test('item 1: it is the rails\' 22x22 glyph, not a worded button', () => {

@@ -127,7 +127,7 @@ const EXPECTED = {
       "count": 1
     },
     {
-      "pin": "assert.match(PAGE, /html\\[data-layout=\"consolidated\"\\] body\\.consolidated \\.pj3 \\{ background: var\\(--k-side, #f3f1ec\\); border-radius: 0; padding: 0;/,",
+      "pin": "assert.match(PAGE, /html\\[data-layout=\"consolidated\"\\] body\\.consolidated \\.pj3 \\{ background: var\\(--k-bg, #faf9f7\\); border-radius: 0; padding: 0;/,",
       "count": 1
     },
     {

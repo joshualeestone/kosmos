@@ -113,8 +113,12 @@ test('the right cards sit on the side tone; the discussion is a full-bleed colum
   // cards, the part he called correct), the discussion column paints back
   // to the page ground over its whole column, and the dialogue|cards rule
   // is the discussion's own right edge. No radii: columns, not boxes.
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 \{ background: var\(--k-side, #f3f1ec\); border-radius: 0; padding: 0;/,
-    'the right column lost its side-tone ground (or the boxes-on-a-ground look is back)');
+  /* #3308 (Josh 2026-09-19) superseded the side tone here: the agents, projects, tasks and
+     files sections now sit on the TOP-HEADER ground (--k-bg), not --k-side. The full-bleed
+     discussion column and the no-radii "columns, not boxes" shape are unchanged; only the
+     right column's ground token moved from --k-side to --k-bg. */
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pj3 \{ background: var\(--k-bg, #faf9f7\); border-radius: 0; padding: 0;/,
+    'the right column lost its top-header ground (or the boxes-on-a-ground look is back)');
   /* 🛑 `border: 0` IS THE LOAD-BEARING PART, and this pin shipped without it
      for a while. `.pjmid` is a `.pjcol`, and `.pjcol` sets a 1px border on all
      four sides. Without the reset, top/left/bottom survived and the "full
