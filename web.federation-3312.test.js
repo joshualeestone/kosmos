@@ -3,7 +3,7 @@
  * #3312 Federation UI: the Add-Project mode toggle, the invite mint, and the join/verify flow,
  * run from the page's real functions (lifted out of web/index.html, not a copy) against a small
  * document + fetch stub. These pin the CLIENT behaviour a node --test can see:
- *   - the mode toggle swaps create <-> join and tracks aria-checked,
+ *   - the mode toggle (native radios) swaps create <-> join,
  *   - a coordinator error reason maps to a person-facing sentence (never a leaked internal),
  *   - a successful verify shows the owner's read-only name/desc and records the edge,
  *   - an unreachable coordinator degrades to an honest "could not reach", never a fake success.
@@ -50,15 +50,26 @@ function makeDoc(overrides) {
 
 function build(opts) {
   opts = opts || {};
-  const src = [lift('pjFederationRef'), lift('pjSetAddMode'), lift('pjFedMessage'), lift('pjMintInvite'), lift('pjVerifyCode')].join('\n');
+  // Lift pjSpin + pjPaintJoinAgents too: pjVerifyCode now calls both. And pjJoinSubmit, so the
+  // join-submit degrade/navigate path is covered like its verify/mint siblings.
+  const src = [lift('pjFederationRef'), lift('pjSpin'), lift('pjSetAddMode'), lift('pjFedMessage'),
+    lift('pjPaintJoinAgents'), lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit')].join('\n');
   // eslint-disable-next-line no-new-func
-  const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad',
+  const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad', 'loadProjects', 'openProject', 'pjView',
     'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = [];\n' + src +
-    '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, get verified() { return PJ_JOIN_VERIFIED; }, ref: pjFederationRef, _fieldBad: [] };');
+    '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, pjJoinSubmit, get verified() { return PJ_JOIN_VERIFIED; }, setVerified: (v) => { PJ_JOIN_VERIFIED = v; }, ref: pjFederationRef };');
   const doc = makeDoc();
   const fieldBadCalls = [];
-  const api = factory(doc, opts.fetch || (() => Promise.reject(new Error('no fetch'))), {}, { randomUUID: () => 'ref-123' }, (x) => String(x == null ? '' : x), opts.LAST || [], (id, errId, msg) => fieldBadCalls.push({ id, errId, msg }));
+  const opened = [];
+  const nav = { loadedProjects: 0, listShown: 0 };
+  const api = factory(doc, opts.fetch || (() => Promise.reject(new Error('no fetch'))), {}, { randomUUID: () => 'ref-123' }, (x) => String(x == null ? '' : x), opts.LAST || [],
+    (id, errId, msg) => fieldBadCalls.push({ id, errId, msg }),
+    () => { nav.loadedProjects += 1; return Promise.resolve(); },
+    (id) => opened.push(id),
+    (which) => { if (which === 'list') nav.listShown += 1; });
   api.fieldBadCalls = fieldBadCalls;
+  api.opened = opened;
+  api.nav = nav;
   api.doc = doc;
   return api;
 }
@@ -150,4 +161,39 @@ test('#3312: mint shows the returned code, and an unreachable coordinator shows 
   await down.pjMintInvite('agent');
   assert.equal(down.doc.getElementById('pj-invite-code').value, '', 'a code appeared while the coordinator was unreachable');
   assert.match(down.doc.getElementById('pj-invite-status').textContent, /could not reach/i);
+});
+
+test('#3312: join submit on success loads projects and opens the joined project', async () => {
+  const s = build({ fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ project: { id: 'p9' } }) }) });
+  s.setVerified({ edge_id: 'e1', project_name: 'X' });
+  await s.pjJoinSubmit();
+  assert.equal(s.nav.loadedProjects, 1, 'projects were not reloaded after joining');
+  assert.deepEqual(s.opened, ['p9'], 'the joined project was not opened');
+});
+
+test('#3312: join submit with no verified edge does nothing and never calls the coordinator', async () => {
+  let called = false;
+  const s = build({ fetch: () => { called = true; return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'x' }) }); } });
+  // PJ_JOIN_VERIFIED is null (no verify happened)
+  await s.pjJoinSubmit();
+  assert.equal(called, false, 'join hit the network with no verified edge');
+  assert.deepEqual(s.opened, [], 'a project was opened with no verified edge');
+});
+
+test('#3312: a coordinator error on join is surfaced and NEVER navigates (no fake success)', async () => {
+  const s = build({ fetch: () => Promise.resolve({ ok: false, json: () => Promise.resolve({ reason: 'revoked' }) }) });
+  s.setVerified({ edge_id: 'e1' });
+  await s.pjJoinSubmit();
+  assert.match(s.doc.getElementById('pj-join-msg').textContent, /withdrawn/i);
+  assert.deepEqual(s.opened, [], 'a failed join still navigated into a project');
+  assert.equal(s.nav.loadedProjects, 0, 'a failed join still reloaded projects');
+});
+
+test('#3312: an unreachable coordinator on join degrades honestly and NEVER navigates', async () => {
+  const s = build({ fetch: () => Promise.reject(new TypeError('Failed to fetch')) });
+  s.setVerified({ edge_id: 'e1' });
+  await s.pjJoinSubmit();
+  assert.match(s.doc.getElementById('pj-join-msg').textContent, /could not reach/i);
+  assert.deepEqual(s.opened, [], 'a network failure on join still navigated');
+  assert.equal(s.nav.loadedProjects, 0);
 });
