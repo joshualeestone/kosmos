@@ -3398,8 +3398,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      agents column's rule rides #rail-agents/#alist/#rail-me (all three
      grid rows of column 1, zero vertical gaps between them, so the border
      reads as one line), the projects rail's rule is its own right edge. */
-  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 8px; }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 8px 8px 0; margin: 0; }
+  html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated #pj-list-view { background: var(--k-bg, #faf9f7); /* #3308: top-header ground */ border-radius: 0; padding: 8px; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { background: var(--k-bg, #faf9f7); /* #3308: top-header ground */ border-radius: 0; padding: 8px 8px 0; margin: 0; }
   /* ⚠️ This was dead: `#alist`'s own rule later in source order sets
      `padding-top: 6px` at identical specificity and won, silently defeating
      the flush-under-the-head intent the comment above describes. Raised to
@@ -3524,7 +3524,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated .railhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 2px 4px 6px; min-height: 22px; }
   html[data-layout="consolidated"] body.consolidated .railname { font: 600 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); }
   html[data-layout="consolidated"] body.consolidated .railacts { display: flex; gap: 4px; flex: none; }
-  html[data-layout="consolidated"] body.consolidated .fold { width: 22px; height: 22px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font: 12px/1 var(--font-ui); cursor: pointer; padding: 0; }
+  html[data-layout="consolidated"] body.consolidated .fold { width: 22px; height: 22px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font: 12px/1 var(--font-ui); cursor: pointer; padding: 0; display: inline-flex; align-items: center; justify-content: center; } /* #3303 (Josh 2026-09-19): true-center the glyph (line-height alone read slightly low) */
   html[data-layout="consolidated"] body.consolidated .fold.plus { font-size: 15px; font-weight: 600; }
   html[data-layout="consolidated"] body.consolidated .fold:hover { color: var(--k-ink); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view .statsrow { display: none; }
@@ -3854,7 +3854,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      swallow #pj-list-view's 8px padding, its own padding restores the
      inset), so scrolled rows cannot peek through side strips beside the
      pinned header. */
-  html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-side, #f3f1ec);
+  html[data-layout="consolidated"] body.consolidated #rail-projects { position: sticky; top: 0; z-index: 4; background: var(--k-bg, #faf9f7); /* #3308: top-header ground */
     /* 🔑 `padding-top: 6px` MATCHES THE AGENTS HEAD (kosmos#1303 A item 2). Josh:
        "agents, projects and tasks are not on the same baseline. Let's make all
        their baselines match agents."
@@ -4066,7 +4066,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      which is the signature of correct tracking and a wrong intercept, so the 24px is
      added back. Measured after: 200/200, 200/200, 240/240, 288/288 at 1100, 1280,
      1600 and 1920. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(200px, 16.6vw); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; }   /* #3218: right col fixed 16.6vw (supersedes the #1189 15vw+24px agents-match tuning); conversation (1fr) is the residual == ~50vw. Right stays 16.6vw when Agents folds, so the freed width flows only to the conversation (fold-flex by construction, no fold-a override needed). TWO rows now, 50/50: Tasks (top) over Files (bottom) -- the separate Members card is hidden here (increment 3), its agents having moved to the top of the single Agents list; member add/remove lives in project Settings. */
+  html[data-layout="consolidated"] body.consolidated .pj3 { grid-template-columns: minmax(0, 1fr) minmax(200px, 16.6vw); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; column-gap: 0; row-gap: 0; }   /* #3305 (Josh 2026-09-19): close the conversation<->rail gutter -- the base .pj3 gap:16px was adding a wide empty strip on top of the rail cards' own 12px inset. #3307 (Angel 2026-09-19): ALSO zero the row-gap -- the base 16px row-gap sat between the Tasks row and the Files row (divider), so the Tasks list clipped ~16px short of the divider over a --k-bg band; #3307's own margin-bottom:0 on the aside removed only its 12px inset, not this row-gap, so the list did not "fill that space down" (Josh's card) as #3307's comment claimed. With row-gap:0 + that margin-bottom:0 the Tasks list now reaches the divider and its overflow scrolls behind it. #3218: right col fixed 16.6vw (supersedes the #1189 15vw+24px agents-match tuning); conversation (1fr) is the residual == ~50vw. Right stays 16.6vw when Agents folds, so the freed width flows only to the conversation (fold-flex by construction, no fold-a override needed). TWO rows now, 50/50: Tasks (top) over Files (bottom) -- the separate Members card is hidden here (increment 3), its agents having moved to the top of the single Agents list; member add/remove lives in project Settings. */
   /* 🛑 `stretch`, NOT `start`, AND THIS ONE OVERLAPPED CARDS ON A SMALL LAPTOP.
      With `start` a card is never sized to its track: its height is its own
      content clamped by the 38vh cap. But the two `minmax(0, auto)` tracks have a
@@ -4192,7 +4192,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      row at viewport height -- paints its whole column back to the page
      ground, full width and height, with the dialogue|cards rule on its
      right edge. No radii anywhere: columns, not boxes. */
-  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-side, #f3f1ec); border-radius: 0; padding: 0; }
+  html[data-layout="consolidated"] body.consolidated .pj3 { background: var(--k-bg, #faf9f7); border-radius: 0; padding: 0; } /* #3308 (Josh 2026-09-19): the tasks/files column ground is the top-header --k-bg, not --k-side */
   /* 🛑 `border: 0` FIRST, and its absence made this pass fail at the one thing
      it exists to do. `.pjmid` is a `.pjcol`, and `.pjcol` carries
      `border: 1px solid var(--k-rule)` on all four sides. Setting
@@ -4210,6 +4210,12 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      for. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjmid { background: var(--k-surface); border: 0; border-radius: 0; border-right: 1px solid var(--k-rule); } /* #3267 (Josh): consolidated dialogue ground WHITE too (reverses #980's cream); composer + tail-mask move with it */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard, html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin: 0 12px 12px; }
+  /* #3307 (Josh 2026-09-19): the Tasks aside (overflow:hidden) meets the Files divider directly, so
+     drop its 12px bottom gap -- the task list then fills the full row down to the divider and its
+     overflow scrolls BEHIND the rule instead of stopping 12px short of it. The 12px belonged between
+     stacked cards; Tasks does not stack on another card here, it sits above the divider. Left/right
+     inset is kept. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { margin-bottom: 0; }
   /* 🔑 THE RULES REACH THE COLUMN EDGES (kosmos#1303 B item 2). Josh: "The
      horizontal rule below Tasks is also not going all the way to the edges."
      MEASURED: the right track is 240px and the cards render 216 wide at
@@ -4405,10 +4411,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      text is still in the DOM, so the button is still named "New task" for a
      screen reader; only the glyph is drawn, which is what matching the rails
      means. A `display: none` on the text would have taken the name with it. */
-  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { grid-template-columns: auto minmax(0, 1fr) auto; } /* #3218: 3rd far-right track for View All in the header */
-  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-newtask { grid-column: 1; grid-row: 1; order: 0; font-size: 0; width: 22px; height: 22px; padding: 0; border: 1px solid var(--k-rule); border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 8px; } /* #3304 (Josh 2026-09-19): TASKS flush-left (1fr), then View All, then + far right */
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-newtask { grid-column: 3; grid-row: 1; order: 0; font-size: 0; width: 22px; height: 22px; padding: 0; margin: 0; border: 1px solid var(--k-rule); border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; align-self: center; } /* #3303: center the whole button in the header row (was top-aligned with a 6px margin, sitting ~3-4px high vs the rail + buttons) */
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-newtask > span { font-size: 15px; font-weight: 600; }
-  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .dlab { grid-column: 2; grid-row: 1; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; justify-self: start; } /* #3304: Tasks label flush-left */
   /* 🔑 A FOLDED SECTION HIDES ITS PLUS (kosmos#1303 H, Josh 10:23). Folded, the
      rail is 48px of column and the label is gone, so a + still sitting there is
      an action with nothing visible to act on. The arrow that unfolds it stays. */
@@ -4424,13 +4430,18 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      centered, shared with the tab view) is left untouched; these consolidated-only rules right-align
      the control in the header grid.
      TASKS already grids its header (+ in col 1, label col 2); #pj-alltasks takes the new 3rd track. */
-  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-alltasks { grid-column: 3; grid-row: 1; margin: 0; justify-self: end; align-self: center; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-alltasks { grid-column: 2; grid-row: 1; margin: 0; justify-self: end; align-self: center; } /* #3304: View All to the left of the + */
   /* FILES was a plain card that scrolled as a whole with a sticky label; convert it to the same
      header grid so the label + View All sit in a fixed row and only the list scrolls beneath. */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr); align-items: center; column-gap: 8px; overflow: hidden; } /* #3218: rows are header / message / list, so the empty-state message sits right under the header instead of floating at the bottom over the empty 1fr list track */
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > * { grid-column: 1 / -1; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-all { grid-column: 2; grid-row: 1; margin: 0; justify-self: end; align-self: center; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-msg { grid-column: 1 / -1; grid-row: 2; }
+  /* #3306 (Josh 2026-09-19): when files ARE present the JS empties this message (pjLoadDocs),
+     but .fmsg keeps min-height:1em + a top margin, so row 2 held a gap between the FILES
+     header and the first file. Collapse it when empty so the listing rises right under the
+     header; the empty-state message (non-empty) is unaffected. */
+  html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > #pj-docs-msg:empty { min-height: 0; margin: 0; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs { grid-column: 1 / -1; grid-row: 3; overflow-y: auto; min-height: 0; align-self: stretch; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-files > .pj-docs::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #pj-remove-member { display: none; }
@@ -11830,11 +11841,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="field" id="pj-tasks-field">
       <h3 class="dlab">Tasks</h3>
       <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
-      <!-- #3218: the View-All door sits in the DOM right after the header controls (before the
-           list), so keyboard focus reaches it in reading order. The consolidated view grids it into
-           the header row (top-right); DOM-early keeps tab order matching that visual position (WCAG
-           2.4.3, the kosmos#1017 class). In the tab view it then shows just under the header rather
-           than at the bottom -- consistent with the consolidated header placement. -->
+      <!-- #3218 + #3304: the View-All door sits in the DOM right after the + control (before the
+           list), so keyboard focus reaches it in reading order. #3304 (Josh 2026-09-19) reordered the
+           consolidated header to Tasks(col 1) | View All(col 2) | +(col 3), so View All now sits to
+           the LEFT of the +, no longer top-right. NOTE (was a clean invariant, now a documented
+           tradeoff): the DOM keeps + before View All so the TAB view's vertical order (+ on top of
+           the header, View All just below) stays focus-clean; in the CONSOLIDATED view that same DOM
+           means focus reaches + then View All while the eye reads View All then +. A single DOM order
+           cannot match both views once #3304 flips the consolidated one, and these are two
+           independent header actions (add vs open-all) whose order is meaning-independent, so this
+           does not fail WCAG 2.4.3 (which targets order that changes meaning). In the tab view View
+           All still shows just under the header. -->
       <!-- The door, pack rule: the column is a task with somebody on it that
            is not finished; finished and unpicked are both real and both
            behind this. v1's door reveals them in place (there is no
@@ -17107,6 +17124,11 @@ async function tick() {
     /* #3216: the Agents nav-tab badge reuses this same fleet unread-DM total, so the tab
        count and the summary tile cannot disagree (one derivation of "unread agent messages"). */
     setNavBadge('nav-badge-agents', dmTotal);
+    /* #3301 (Josh 2026-09-19): ring the new-message pop for a genuine rise in any agent's
+       unread DM count, the same sound a project message makes. Fed the whole fleet
+       (data.agents), it does its own per-agent rise detection and master/DND gating, and
+       coalesces with the project pop via the shared BUBBLE_LAST floor. */
+    ringNewAgentMessages(data.agents);
     /* #3216: the Projects nav-tab badge is set HERE in tick() (the always-polled /api/status), not
        in paintProjects, so it stays live while you are on the Agents tab (the projects poll is
        visibility-gated and would freeze paintProjects). c.projectsUnread is the server's raw unread
@@ -20824,9 +20846,13 @@ async function worldHideSubmit() {
 // #3051: the upper-right user menu popover. Same shape as wireWorldsw above: the
 // button toggles a hidden menu (aria-expanded tracks it), an outside click or Escape
 // closes it. The Settings link routes to #panel-settings and closes; the light/dark
-// and board-view controls inside run off their own document-level handlers, so a
-// choice there is left with the menu OPEN (a person may toggle and compare), matching
-// how those pills behaved when they sat bare in the header.
+// control inside runs off its own document-level handler and is left with the menu
+// OPEN (a person may toggle and compare).
+// #3302 (Josh 2026-09-19): the Board-view control now CLOSES the menu on a pick and
+// shows the new view, superseding the earlier "leave open to compare" for the view
+// control specifically (Josh: today he has to click his name again to dismiss it).
+// Appearance still stays open. The close fires from the outside-click handler below,
+// which now makes an exception for a [data-layout-switch] click inside the menu.
 (function wireUserpop() {
   const btn = document.getElementById('userpop-btn');
   const menu = document.getElementById('userpop-menu');
@@ -20846,7 +20872,13 @@ async function worldHideSubmit() {
   });
   document.addEventListener('click', (e) => {
     if (menu.hidden) return;
-    if (e.target.closest && e.target.closest('#userpop')) return;
+    if (e.target.closest && e.target.closest('#userpop')) {
+      /* #3302: a Board-view pick inside the menu dismisses it (and applyLayout, wired
+         on its own document-level handler, shows the new view). Every other in-menu
+         click -- Appearance, a stray press -- still leaves the menu open. */
+      if (e.target.closest('[data-layout-switch]')) close();
+      return;
+    }
     close();
   });
   document.addEventListener('keydown', (e) => {
@@ -36726,6 +36758,55 @@ function ringNewMessages(projects) {
     if (nowMs - BUBBLE_LAST >= 250) { BUBBLE_LAST = nowMs; playBubblePop(); }
   }
 }
+/* #3301 (Josh 2026-09-19): a new AGENT message rings the same pop as a project message.
+   Agent DMs are the a.dmUnread channel (the "Messages" tile / dmBadge); until now only a
+   PROJECT unread rise rang. Same shape as ringNewMessages: track each agent's unread
+   between polls, ring once per burst on a genuine rise against a KNOWN prior count, seed
+   silently on the first load, gate on the master toggle + DND, and coalesce with the
+   project pop through the shared BUBBLE_LAST floor -- a project message and an agent
+   message in the same tick make ONE pop, not two. Keyed on sessionName. The open thread
+   (CURRENT) never rings, the same suppression dmTotal and dmBadge apply, so opening an
+   agent (which zeroes its unread) is not heard as a message and its own messages while you
+   read them do not pop. No per-agent mute (projects have one, agents do not); the master
+   toggle governs all new-message sound. */
+let AGENT_DM_SEEN = null;   // null until the first load baselines it
+function ringNewAgentMessages(agents) {
+  const prevSeen = AGENT_DM_SEEN;   // null on the first load -> baseline only, no ring
+  const next = {};
+  let burst = false;
+  for (const a of (agents || [])) {
+    if (!a || a.sessionName == null) continue;
+    /* The open agent's thread never rings -- the same exclusion dmTotal/dmBadge apply --
+       so opening an agent (which zeroes its unread) is not heard as a new message. It is
+       excluded from the baseline too, so switching AWAY from it seeds silently rather than
+       ringing its accumulated count, mirroring the PJ_CURRENT handling in ringNewMessages. */
+    if (CURRENT && CURRENT.sessionName === a.sessionName) continue;
+    const raw = a.dmUnread;
+    /* null/undefined is UNKNOWN, not zero (mirroring p.unread): carry the prior baseline
+       forward and never ring on it, so a transient unreadable count does not rebaseline to
+       zero and then ring a spurious burst on the next normal read. */
+    if (raw == null || !Number.isFinite(Number(raw))) {
+      if (prevSeen && prevSeen[a.sessionName] !== undefined) next[a.sessionName] = prevSeen[a.sessionName];
+      continue;
+    }
+    const cur = Number(raw);
+    next[a.sessionName] = cur;
+    /* Ring only a genuine rise against a KNOWN prior count. An agent with no prior baseline
+       (first load, or one that just appeared) seeds silently -- an agent appearing is not a
+       message landing. */
+    const prev = prevSeen ? prevSeen[a.sessionName] : undefined;
+    if (prev !== undefined && cur > Number(prev)) burst = true;
+  }
+  AGENT_DM_SEEN = next;
+  /* The master gates the play, not the baseline (AGENT_DM_SEEN updates regardless), so
+     muting SILENCES rather than DEFERS. Coalesced with the project pop by the shared
+     BUBBLE_LAST floor: one pop per burst per 250ms no matter how many agents (or a project
+     too) rose this tick. */
+  if (prevSeen && burst && soundMasterOn() && !soundIsQuietedByDnd()) {
+    const nowMs = Date.now();
+    if (nowMs - BUBBLE_LAST >= 250) { BUBBLE_LAST = nowMs; playBubblePop(); }
+  }
+}
 /* #867 (Josh, 2026-08-25 11:02): "let's default to automatically opening
    up a project when they come to this so that it's not just empty
    nothingness." Same one-shot shape as WANT_PROJECT below (the first
@@ -40167,19 +40248,16 @@ async function pjLoadDocs(id) {
     b.append(n, w);
     box.append(b);
   }
-  /* ⚠️ The COUNT comes from the route's own total, never from files.length:
-     the list is capped at ten, so deriving "and N more" from what was returned
-     would report ten every time a project had more than ten. */
-  const more = Number(body.total || 0) - files.length;
   all.hidden = false;
   /* The SCREEN Josh asked for exists now (#134), so the button opens it and
      says so; the Finder hand-off lives inside that screen, named as what it
      does. */
   /* Josh, 2026-08-27: "we should have a 'View All' instead of 'Show All'".
      📌 "Show all" was ALSO his words, from #761, so this is him superseding
-     himself rather than a house style being corrected. Recorded so the #761
-     provenance is not read later as a rule this change broke. */
-  all.textContent = more > 0 ? 'View All ' + body.total : 'View All';
+     himself rather than a house style being corrected. */
+  /* #3306 (Josh 2026-09-19): the rail door reads just "View All", no count. The
+     total still lives on the all-files screen this door opens, so nothing is lost. */
+  all.textContent = 'View All';
 }
 
 /**

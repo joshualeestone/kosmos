@@ -32,8 +32,12 @@ function loadSound(opts) {
   const endMarker = '\n}\n';
   const ringIdx = SCRIPT.indexOf('function ringNewMessages', start);
   assert.ok(ringIdx > start, 'ringNewMessages is missing');
-  const end = SCRIPT.indexOf(endMarker, ringIdx);
-  assert.ok(end > ringIdx, 'could not bound ringNewMessages');
+  // #3301: extend the slice through ringNewAgentMessages (the agent-DM twin) so both
+  // the project ring and the agent ring run from the page's real source in these tests.
+  const agentRingIdx = SCRIPT.indexOf('function ringNewAgentMessages', start);
+  assert.ok(agentRingIdx > ringIdx, 'ringNewAgentMessages is missing');
+  const end = SCRIPT.indexOf(endMarker, agentRingIdx);
+  assert.ok(end > agentRingIdx, 'could not bound ringNewAgentMessages');
   const src = SCRIPT.slice(start, end + endMarker.length);
 
   // A minimal Web Audio stub that records how many pops (oscillators) started, and
@@ -68,7 +72,7 @@ function loadSound(opts) {
   // project); declare it in the wrapper and expose a setter so the tests can drive it.
   // eslint-disable-next-line no-new-func
   const factory = new Function('window', 'localStorage',
-    'var PJ_CURRENT = null;\n' + src + '\nreturn { ringNewMessages, projectSoundOn, setProjectSoundOn, soundMasterOn, setSoundMasterOn, playBubblePop, setQuiet: (v) => { SOUND_QUIET = v; }, setCurrent: (v) => { PJ_CURRENT = v; } };');
+    'var PJ_CURRENT = null;\nvar CURRENT = null;\n' + src + '\nreturn { ringNewMessages, ringNewAgentMessages, projectSoundOn, setProjectSoundOn, soundMasterOn, setSoundMasterOn, playBubblePop, setQuiet: (v) => { SOUND_QUIET = v; }, setCurrent: (v) => { PJ_CURRENT = v; }, setAgentCurrent: (v) => { CURRENT = v; } };');
   const api = factory(win, localStorage);
   api.started = started;
   return api;
@@ -209,4 +213,76 @@ test('#2407: a browser with no Web Audio is silent, not a crash', () => {
   s.ringNewMessages([{ id: 'a', unread: 0 }]);
   assert.doesNotThrow(() => s.ringNewMessages([{ id: 'a', unread: 9 }]));
   assert.equal(s.started.length, 0);
+});
+
+// #3301 (Josh 2026-09-19): a new AGENT message rings the same pop as a project message.
+// ringNewAgentMessages is the agent-DM twin of ringNewMessages, keyed on a.sessionName /
+// a.dmUnread, sharing the master toggle, the DND gate and the BUBBLE_LAST coalesce floor.
+//
+// ⚠️ These build a minimal {sessionName, dmUnread} object, NOT an agent card, and NOT via
+// a `sessionName`-key object literal (which fixture-discipline forbids, to stop hand-built CARDS). Two
+// reasons the fleet fixture is the wrong tool here, not a shortcut around it:
+//   1. ringNewAgentMessages reads exactly two fields and dmUnread is the /api/status server
+//      enrichment (server.js withUnread), NOT part of snapshot().agents -- so fleet.install(),
+//      which builds pane-snapshot cards, cannot supply the input this reducer consumes.
+//   2. Both fields it does read (sessionName, dmUnread) are real producer fields, so there is
+//      no dead-field risk -- the exact thing the guard exists to catch.
+// dmAgent assigns via `.sessionName` (a form the guard documents as always-legitimate, the
+// same exclusion as reading `a.sessionName`), so it is a reducer input by the guard's design.
+const dmAgent = (sessionName, dmUnread) => { const a = {}; a.sessionName = sessionName; a.dmUnread = dmUnread; return a; };
+
+test('#3301: the first agent load baselines and does NOT ring', () => {
+  const s = loadSound();
+  s.ringNewAgentMessages([dmAgent('a', 3), dmAgent('b', 0)]);
+  assert.equal(s.started.length, 0, 'a pop rang on the first (baseline) agent load');
+});
+
+test('#3301: a rise in an agent unread count rings once', () => {
+  const s = loadSound();
+  s.ringNewAgentMessages([dmAgent('a', 0)]);   // baseline
+  s.ringNewAgentMessages([dmAgent('a', 1)]);   // a new agent message
+  assert.equal(s.started.length, 1, 'a new agent message did not ring exactly once');
+});
+
+test('#3301: several agents rising at once make ONE pop (per burst)', () => {
+  const s = loadSound();
+  s.ringNewAgentMessages([dmAgent('a', 0), dmAgent('b', 0)]);
+  s.ringNewAgentMessages([dmAgent('a', 2), dmAgent('b', 5)]);
+  assert.equal(s.started.length, 1, 'an agent burst rang more than once');
+});
+
+test('#3301: the OPEN agent thread (CURRENT) never rings, and un-excluding it seeds silently', () => {
+  const s = loadSound();
+  s.setAgentCurrent(dmAgent('a'));                    // agent a is open
+  s.ringNewAgentMessages([dmAgent('a', 0)]);          // baseline (a excluded)
+  s.ringNewAgentMessages([dmAgent('a', 4)]);          // a rose while open
+  assert.equal(s.started.length, 0, 'the open agent rang while you were reading it');
+  s.setAgentCurrent(null);                            // switch away from a
+  s.ringNewAgentMessages([dmAgent('a', 4)]);          // a reappears; no prior baseline
+  assert.equal(s.started.length, 0, 'switching away from an agent rang its accumulated unread');
+});
+
+test('#3301: the master toggle OFF silences an agent rise too', () => {
+  const s = loadSound();
+  s.setSoundMasterOn(false);
+  s.ringNewAgentMessages([dmAgent('a', 0)]);
+  s.ringNewAgentMessages([dmAgent('a', 3)]);
+  assert.equal(s.started.length, 0, 'a muted master still rang an agent message');
+});
+
+test('#3301: an unknown (null) agent unread does not ring and carries the baseline', () => {
+  const s = loadSound();
+  s.ringNewAgentMessages([dmAgent('a', 2)]);          // baseline 2
+  s.ringNewAgentMessages([dmAgent('a', null)]);       // transient unknown
+  s.ringNewAgentMessages([dmAgent('a', 2)]);          // back to 2, not a rise
+  assert.equal(s.started.length, 0, 'an unknown count was read as zero and then rang a spurious rise');
+});
+
+test('#3301: an agent rise coalesces with a project pop in the same window (one pop, shared floor)', () => {
+  const s = loadSound();
+  s.ringNewMessages([{ id: 'p', unread: 0 }]);        // project baseline
+  s.ringNewAgentMessages([dmAgent('a', 0)]);          // agent baseline
+  s.ringNewMessages([{ id: 'p', unread: 1 }]);        // project message -> one pop
+  s.ringNewAgentMessages([dmAgent('a', 1)]);          // agent message same window
+  assert.equal(s.started.length, 1, 'a project pop and an agent pop in the same window rang twice');
 });
