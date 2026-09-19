@@ -1297,13 +1297,17 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    active one filled with ink, the other outlined. Bigger than the .laypick segmented control
    (this is the screen's top-level choice, not a compact icon switch), and it uses ink/surface
    rather than gold so it never competes with the gold "Create project" / "Join Project" CTA. */
-.pj-mode { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 24px; }
-.pj-mode-opt { font: inherit; font-weight: 700; font-size: 1.0625rem; line-height: 1;
-               padding: .8em 1.5em; border-radius: var(--radius-pill, 100px);
-               border: 1.5px solid var(--label); background: none; color: var(--label); cursor: pointer; }
-.pj-mode-opt:hover:not([aria-checked="true"]) { background: var(--bg-elevated); }
-.pj-mode-opt[aria-checked="true"] { background: var(--label); color: var(--bg-elevated); border-color: var(--label); }
-.pj-mode-opt:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+.pj-mode { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 24px;
+           border: 0; padding: 0; min-width: 0; }
+.pj-mode-opt { display: inline-flex; align-items: center; font: inherit; font-weight: 700;
+               font-size: 1.0625rem; line-height: 1; padding: .8em 1.5em;
+               border-radius: var(--radius-pill, 100px); border: 1.5px solid var(--label);
+               background: none; color: var(--label); cursor: pointer; }
+/* The pill IS the control; the radio is visually hidden but stays focusable + keyboard-navigable. */
+.pj-mode-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.pj-mode-opt:hover:not(:has(input:checked)) { background: var(--bg-elevated); }
+.pj-mode-opt:has(input:checked) { background: var(--label); color: var(--bg-elevated); border-color: var(--label); }
+.pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: 2px; }
 .pj-mode-or { color: var(--label-2); font-weight: 600; }
 /* A read-only value line in Join mode (the owner's project name/description, which the receiver
    cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
@@ -12232,11 +12236,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          federation MVP, messaging only). The h2 is kept for the heading list but visually
          hidden; the pill toggle is the visible top control (Josh's wireframe). -->
     <h2 class="vh">Add a project</h2>
-    <div class="pj-mode" role="radiogroup" aria-label="Add a project">
-      <button type="button" class="pj-mode-opt" id="pj-mode-create" role="radio" aria-checked="true">Create New Project</button>
+    <!-- #3312: NATIVE RADIOS grouped by name, in a fieldset -- Mona Lisa's #178 ruling (see the
+         roles picker: native radios give arrow-key movement from the browser, make `checked` the
+         single source of truth, and retire the aria-checked desync class). The pill styling lives
+         on the label; the input is visually hidden but focusable. -->
+    <fieldset class="pj-mode">
+      <legend class="vh">Create a new project or join an external one</legend>
+      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create New Project</label>
       <span class="pj-mode-or" aria-hidden="true">or</span>
-      <button type="button" class="pj-mode-opt" id="pj-mode-join" role="radio" aria-checked="false">Join External Project</button>
-    </div>
+      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join External Project</label>
+    </fieldset>
 
     <div id="pj-create-mode">
 
@@ -12429,7 +12438,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <label class="flabel" for="pj-join-code">Enter your code to access an external project:</label>
         <div class="frow">
           <input type="text" id="pj-join-code" class="tk-inp" autocomplete="off" spellcheck="false"
-                 aria-label="The code for the external project" placeholder="Paste the code you were given">
+                 placeholder="Paste the code you were given">
           <button class="btn" id="pj-join-verify" type="button">Verify</button>
         </div>
         <p class="ferr" id="pj-join-err" aria-live="polite"></p>
@@ -44358,9 +44367,13 @@ document.getElementById('pj-add-pick').addEventListener('change', () => {
    drive your computer -- no copy here may imply otherwise. */
 let PJ_JOIN_VERIFIED = null;   // the verify() snapshot {edge_id, project_name, project_desc, owner_handle}
 let PJ_JOIN_ADD_AGENTS = [];   // the receiver's OWN agents to bring onto the joined project
-// A stable local project ref for a create-with-invite: minted once per Add-Project open, reused by
-// every invite on this form and passed on create so the coordinator snapshot and the local project
-// share one id. COORDINATION POINT: /api/projects must accept + persist this ref (ICK/Angel).
+// A stable local project ref for a create-with-invite, minted once per Add-Project open and reused
+// by every invite on this form so several invites on one not-yet-created project agree on one ref.
+// It is NOT yet sent on create: whether the local project adopts this ref (so the coordinator
+// snapshot and the created project share one id) is an open coordination point with ICK (#3313) --
+// the coordinator's project_ref is opaque, so this resolves either way (client id reused on create,
+// or invite minted after create). Left unwired here rather than asserting a create-side behaviour
+// the code does not perform.
 let PJ_FEDERATION_REF = null;
 function pjFederationRef() {
   if (!PJ_FEDERATION_REF) {
@@ -44372,8 +44385,12 @@ function pjFederationRef() {
 
 function pjSetAddMode(mode) {
   const isJoin = mode === 'join';
-  document.getElementById('pj-mode-create').setAttribute('aria-checked', String(!isJoin));
-  document.getElementById('pj-mode-join').setAttribute('aria-checked', String(isJoin));
+  // Native radios: set `checked` (the single source of truth) so a programmatic reset moves the
+  // pill too; the browser owns aria state and arrow-key movement.
+  const createR = document.getElementById('pj-mode-create');
+  const joinR = document.getElementById('pj-mode-join');
+  if (createR) createR.checked = !isJoin;
+  if (joinR) joinR.checked = isJoin;
   document.getElementById('pj-create-mode').hidden = isJoin;
   document.getElementById('pj-join-mode').hidden = !isJoin;
 }
@@ -44411,11 +44428,23 @@ function pjFedMessage(body, fallback) {
 async function pjMintInvite(invitedKind) {
   const status = document.getElementById('pj-invite-status');
   const codeEl = document.getElementById('pj-invite-code');
+  const name = document.getElementById('pj-name').value.trim();
+  // A code snapshots the project's name (ICK's contract), so an unnamed project cannot mint one.
+  // Surface the SAME inline "give it a name" the Create path shows for the identical mistake, rather
+  // than silently sending project_name:'' and getting only the generic failure back.
+  if (!name) {
+    pjFieldBad('pj-name', 'pj-name-err', 'Give this project a name first.');
+    document.getElementById('pj-name').focus();
+    return;
+  }
+  const desc = document.getElementById('pj-add-desc').value.trim();
+  // Disable both doors while a mint is in flight: two concurrent fetches race the shared code/status
+  // elements and whichever resolves last wins regardless of which click it answered.
+  const doors = ['pj-add-ext-person', 'pj-add-ext-agent'].map((id) => document.getElementById(id));
+  doors.forEach((d) => { if (d) d.disabled = true; });
   document.getElementById('pj-invite-panel').hidden = false;
   codeEl.value = '';
   status.textContent = 'Making a code…';
-  const name = document.getElementById('pj-name').value.trim();
-  const desc = document.getElementById('pj-add-desc').value.trim();
   try {
     const res = await fetch('/api/federation/invite', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -44435,6 +44464,8 @@ async function pjMintInvite(invitedKind) {
     status.textContent = 'Share this code with the person or agent you are inviting.';
   } catch {
     status.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
+  } finally {
+    doors.forEach((d) => { if (d) d.disabled = false; });
   }
 }
 
@@ -44526,8 +44557,8 @@ async function pjJoinSubmit() {
   }
 }
 
-document.getElementById('pj-mode-create').addEventListener('click', () => pjSetAddMode('create'));
-document.getElementById('pj-mode-join').addEventListener('click', () => pjSetAddMode('join'));
+document.getElementById('pj-mode-create').addEventListener('change', () => { if (document.getElementById('pj-mode-create').checked) pjSetAddMode('create'); });
+document.getElementById('pj-mode-join').addEventListener('change', () => { if (document.getElementById('pj-mode-join').checked) pjSetAddMode('join'); });
 document.getElementById('pj-add-ext-person').addEventListener('click', () => pjMintInvite('person'));
 document.getElementById('pj-add-ext-agent').addEventListener('click', () => pjMintInvite('agent'));
 document.getElementById('pj-invite-copy').addEventListener('click', pjCopyInvite);

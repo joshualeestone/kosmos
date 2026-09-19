@@ -52,11 +52,13 @@ function build(opts) {
   opts = opts || {};
   const src = [lift('pjFederationRef'), lift('pjSetAddMode'), lift('pjFedMessage'), lift('pjMintInvite'), lift('pjVerifyCode')].join('\n');
   // eslint-disable-next-line no-new-func
-  const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST',
+  const factory = new Function('document', 'fetch', 'navigator', 'crypto', 'esc', 'LAST', 'pjFieldBad',
     'var PJ_FEDERATION_REF = null; var PJ_JOIN_VERIFIED = null; var PJ_JOIN_ADD_AGENTS = [];\n' + src +
-    '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, get verified() { return PJ_JOIN_VERIFIED; }, ref: pjFederationRef };');
+    '\nreturn { pjSetAddMode, pjFedMessage, pjMintInvite, pjVerifyCode, get verified() { return PJ_JOIN_VERIFIED; }, ref: pjFederationRef, _fieldBad: [] };');
   const doc = makeDoc();
-  const api = factory(doc, opts.fetch || (() => Promise.reject(new Error('no fetch'))), {}, { randomUUID: () => 'ref-123' }, (x) => String(x == null ? '' : x), opts.LAST || []);
+  const fieldBadCalls = [];
+  const api = factory(doc, opts.fetch || (() => Promise.reject(new Error('no fetch'))), {}, { randomUUID: () => 'ref-123' }, (x) => String(x == null ? '' : x), opts.LAST || [], (id, errId, msg) => fieldBadCalls.push({ id, errId, msg }));
+  api.fieldBadCalls = fieldBadCalls;
   api.doc = doc;
   return api;
 }
@@ -73,17 +75,28 @@ test('#3312: pjFedMessage maps every coordinator reason to a person-facing sente
   assert.equal(s.pjFedMessage(null, 'FALLBACK'), 'FALLBACK');
 });
 
-test('#3312: the mode toggle swaps create <-> join and tracks aria-checked', () => {
+test('#3312: the mode toggle swaps create <-> join and sets the native radio checked state', () => {
   const s = build();
   s.pjSetAddMode('join');
   assert.equal(s.doc.getElementById('pj-create-mode').hidden, true);
   assert.equal(s.doc.getElementById('pj-join-mode').hidden, false);
-  assert.equal(s.doc.getElementById('pj-mode-join').getAttribute('aria-checked'), 'true');
-  assert.equal(s.doc.getElementById('pj-mode-create').getAttribute('aria-checked'), 'false');
+  assert.equal(s.doc.getElementById('pj-mode-join').checked, true);
+  assert.equal(s.doc.getElementById('pj-mode-create').checked, false);
   s.pjSetAddMode('create');
   assert.equal(s.doc.getElementById('pj-create-mode').hidden, false);
   assert.equal(s.doc.getElementById('pj-join-mode').hidden, true);
-  assert.equal(s.doc.getElementById('pj-mode-create').getAttribute('aria-checked'), 'true');
+  assert.equal(s.doc.getElementById('pj-mode-create').checked, true);
+  assert.equal(s.doc.getElementById('pj-mode-join').checked, false);
+});
+
+test('#3312: minting with an empty project name shows the inline name error and never calls the coordinator', async () => {
+  let called = false;
+  const s = build({ fetch: () => { called = true; return Promise.resolve({ ok: true, json: () => Promise.resolve({ code: 'x' }) }); } });
+  s.doc.getElementById('pj-name').value = '   ';
+  await s.pjMintInvite('person');
+  assert.equal(called, false, 'an unnamed project still hit the coordinator');
+  assert.ok(s.fieldBadCalls.some((c) => c.id === 'pj-name'), 'no inline name error was shown for an unnamed project');
+  assert.equal(s.doc.getElementById('pj-invite-code').value, '', 'a code slot was populated for an unnamed project');
 });
 
 test('#3312: a successful verify shows the read-only name/desc and records the edge', async () => {
