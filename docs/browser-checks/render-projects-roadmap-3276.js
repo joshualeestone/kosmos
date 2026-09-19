@@ -125,6 +125,27 @@ const SEED = `
   check('clicking again re-EXPANDS the branch (child visible, aria-expanded=true)',
     fold.gammaBack && fold.ariaOpen === 'true', JSON.stringify({ back: fold.gammaBack, aria: fold.ariaOpen }));
 
+  // 2b. KEYBOARD operability (ARIA tree convention): a Roadmap parent row carries
+  //     aria-expanded, so it must be togglable by keyboard, not mouse-only. Focus the
+  //     parent row and press ArrowLeft (collapse) / ArrowRight (expand). Without the
+  //     keydown handler being generalized past consolidated this is a silent WCAG gap:
+  //     state claimed via ARIA, no keyboard path to change it.
+  const rowBetaHandle = await page.evaluateHandle(`${rowByName('Beta')}`);
+  const kbd = await (async () => {
+    await rowBetaHandle.asElement().focus();
+    await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(20);
+    const collapsed = await page.evaluate(`(() => { const g = ${rowByName('Gamma')}; const b = ${rowByName('Beta')};
+      return { gammaHidden: !!(g && getComputedStyle(g).display === 'none'), aria: b ? b.getAttribute('aria-expanded') : null }; })()`);
+    await page.keyboard.press('ArrowRight'); await page.waitForTimeout(20);
+    const expanded = await page.evaluate(`(() => { const g = ${rowByName('Gamma')}; const b = ${rowByName('Beta')};
+      return { gammaShown: !!(g && getComputedStyle(g).display !== 'none'), aria: b ? b.getAttribute('aria-expanded') : null }; })()`);
+    return { collapsed, expanded };
+  })();
+  check('ArrowLeft on a focused parent COLLAPSES it (keyboard operability, WCAG)',
+    kbd.collapsed.gammaHidden && kbd.collapsed.aria === 'false', JSON.stringify(kbd.collapsed));
+  check('ArrowRight on a focused parent EXPANDS it (keyboard operability, WCAG)',
+    kbd.expanded.gammaShown && kbd.expanded.aria === 'true', JSON.stringify(kbd.expanded));
+
   // 3. Density: the Roadmap hides the description and the faces but keeps the count;
   //    the GRID still shows the faces (the leak control -- proves the hide is scoped).
   const density = await page.evaluate(`(async () => {

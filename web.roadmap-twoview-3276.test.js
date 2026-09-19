@@ -64,4 +64,9 @@ test('the fold gate is treeMode (consolidated rail OR tab roadmap), not consolid
   // Drag stays consolidated-only.
   assert.match(PAGE, /row\.draggable = cons && depth === 0;/,
     'drag-to-reorder must stay consolidated-only (cons), not treeMode');
+  // #3276: the keyboard fold (Arrow keys) must be generalized to the roadmap too, or a
+  // roadmap parent carries aria-expanded (operable disclosure) with no keyboard path -- a
+  // WCAG gap. Pin the guard so a regression back to consolidated-only is caught.
+  assert.match(PAGE, /if \(!document\.body\.classList\.contains\('consolidated'\) && !document\.body\.classList\.contains\('pj-roadmap'\)\) return;/,
+    'the ArrowRight/ArrowLeft fold guard must allow the tab Roadmap (pj-roadmap), not consolidated alone');
 });

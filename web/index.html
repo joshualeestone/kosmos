@@ -3100,6 +3100,14 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
 .pj-rm-foldctl { display: inline-flex; gap: 14px; }
 .pj-rm-foldctl .linkish { font-size: .8125rem; }
 
+/* 🛑 #3276 follow-up: delete. This entire #3135 multi-column block is now UNREACHABLE
+   in the live UI -- the old List view it styled is retired, and whenever
+   #pj-list:not(.asgrid) is true outside consolidated, body.pj-roadmap is ALSO true (they
+   are written together in layoutApply), so the higher-specificity .pj-roadmap roadmap
+   rules above win on every property this block sets. It is kept for now only so
+   render-subproject-columns-3135.js still passes; both this block and that check are
+   slated for the same mechanical cleanup as the retired Map code (see the plan's
+   decisions section). Inert, not harmful -- it can only mislead a reader. */
 /* #3135 (Josh, 6.68): the hierarchical (subprojects) LIST view kept every
    project HEADLINE at 100% width, so a long tree ran down the page one row per
    line and half the projects fell off screen ("I can't even see half of my
@@ -30987,6 +30995,12 @@ function placeProjectsView(cons, wasCons) {
   if (cons) {
     // Consolidated: this panel's own view is the list. Display-only, no storage write.
     document.body.classList.remove('pj-mapmode');
+    /* #3276: also clear pj-roadmap, which the tab Roadmap leaves set. Harmless today
+       (every .pj-roadmap CSS rule also requires :not(.consolidated), and applyConsFold's
+       treeMode is already true from `cons` here), but clearing it keeps the invariant
+       "pj-roadmap implies the tab Roadmap is showing" true, so a future CSS rule or JS
+       read of pj-roadmap without a paired consolidated check cannot misbehave. */
+    document.body.classList.remove('pj-roadmap');
     const map = document.getElementById('pj-map');
     if (map) map.hidden = true;
     const list = document.getElementById('pj-list');
@@ -44329,19 +44343,22 @@ document.getElementById('pj-list').addEventListener('click', (e) => {
   const row = e.target.closest('[data-project]');
   if (row) openProject(row.dataset.project);
 });
-/* #2929: keyboard fold for the consolidated tree, the ARIA tree convention --
-   Right expands a collapsed parent, Left collapses an open one, on the focused row
-   (Enter/Space still OPEN it, the row's primary action). Inert outside the
-   consolidated rail: only there does a parent row carry aria-expanded, so the
-   closest() match finds nothing in the flat list or grid. */
+/* #2929/#3276: keyboard fold for the tree, the ARIA tree convention -- Right expands a
+   collapsed parent, Left collapses an open one, on the focused row (Enter/Space still
+   OPEN it, the row's primary action). Applies wherever a parent row carries aria-expanded,
+   which #3276 extended from the consolidated rail to the tab Roadmap. Without this, a
+   Roadmap parent would be exposed to assistive tech as an operable disclosure (applyConsFold
+   sets aria-expanded there) with no keyboard way to toggle it -- a WCAG operability gap,
+   since the caret is aria-hidden + not focusable and Enter/Space opens the project. */
 document.getElementById('pj-list').addEventListener('keydown', (e) => {
   if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-  /* Fold is a consolidated-rail action only. Gate on the effective view rather than
-     leaning on aria-expanded being absent in the tab list: a resize that drops below
-     the consolidated width leaves stale aria-expanded on the rows for up to one poll
-     (~5s) until applyConsFold clears them, and without this guard an arrow press in
-     that window would toggle a fold invisibly in the flat list. (#2929 iter2) */
-  if (!document.body.classList.contains('consolidated')) return;
+  /* Fold is a tree-view action (consolidated rail OR tab Roadmap) -- the SAME gate as
+     applyConsFold's treeMode. Gate on the effective view rather than leaning on
+     aria-expanded being absent elsewhere: a resize that drops the consolidated rail, or
+     a layout flip, can leave stale aria-expanded on the rows for up to one poll (~5s)
+     until applyConsFold clears them, and without this guard an arrow press in that window
+     would toggle a fold invisibly in a view that no longer folds. (#2929 iter2, #3276) */
+  if (!document.body.classList.contains('consolidated') && !document.body.classList.contains('pj-roadmap')) return;
   const row = e.target.closest('.pj-row[aria-expanded]');
   if (!row) return;
   const folded = row.getAttribute('aria-expanded') === 'false';
