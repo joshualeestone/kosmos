@@ -6202,11 +6202,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    strong border that read as an editable text box. Still the same readonly
    <textarea> element (its id, readonly, and the render-scan checks are
    unchanged); only the surface reads differently.
-   🛑 background is --bg-sunken, NOT --k-sunk: these rows render in the #firstrun
-   subtree, which re-pins --bg-sunken to its light value (#f4f2ee) but does NOT
-   pin --k-sunk, so --k-sunk would resolve to its dark value (a ~6% near-white
-   wash) on the forced-white card under OS dark -- invisible. --bg-sunken is the
-   pinned sunken token, so it reads as a well in both themes. */
+   🛑 background uses the bg-sunken token rather than the k-sunk one. These rows
+   render in the #firstrun subtree, which re-pins bg-sunken to its light value
+   (#f4f2ee) but does not pin k-sunk, so k-sunk would resolve to its dark value
+   (a ~6% near-white wash) on the forced-white card under OS dark, invisible.
+   bg-sunken is the pinned sunken token, so it reads as a well in both themes.
+   (Token names written without the leading dashes here on purpose: a
+   `token-name:` in a comment is read as a definition by the per-theme token
+   tests, #2947.) */
 .fr-scanpreview { width: 100%; font: var(--text-callout) var(--font-mono);
   color: var(--label-2); background: var(--bg-sunken);
   border: 1px solid var(--separator); border-radius: var(--radius-control);
