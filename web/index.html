@@ -6206,7 +6206,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   color: var(--label-2); background: var(--k-sunk);
   border: 1px solid var(--separator); border-radius: var(--radius-control);
   padding: 10px 12px; box-sizing: border-box;
-  margin-top: var(--space-2); resize: vertical; min-height: 4.5rem; max-height: 16rem;
+  /* #2690: resize OFF. It is readonly, and the drag handle was the last thing
+     making it read as an editable field rather than a preview. Height is bounded
+     and scrolls; a person does not resize a thing they cannot edit. */
+  margin-top: var(--space-2); resize: none; min-height: 4.5rem; max-height: 16rem;
   /* #2025: pre-WRAP, not pre. A scanned CLAUDE.md has long instruction lines;
      `pre` forced a horizontal scrollbar so the person read the file through a
      letterbox and had to scroll sideways to finish a sentence (Josh, 0.6.25
