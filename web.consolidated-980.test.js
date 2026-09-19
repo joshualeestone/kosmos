@@ -530,7 +530,7 @@ test('every projects sub-view scrolls inside the no-page-scroll grid', () => {
 });
 
 test('the projects rail header pins over its scrolling list, like the agents header', () => {
-  assert.match(PAGE, new RegExp(cons + ' #rail-projects \\{ position: sticky; top: 0; z-index: 4; background: var\\(--k-side, #f3f1ec\\);'),
+  assert.match(PAGE, new RegExp(cons + ' #rail-projects \\{ position: sticky; top: 0; z-index: 4; background: var\\(--k-bg, #faf9f7\\);'),
     'the projects header scrolls away with a long list while the agents header stays -- the two rails answer the same gesture differently');
 });
 

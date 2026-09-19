@@ -73,7 +73,7 @@ test('the agents rail keeps margin 0, or the projects-only rule stops being proj
   /* This is what makes the pair above correct. If somebody "tidies" this margin
      away, the .railhead rule starts reaching the agents rail too and the room
      doubles on one side only. */
-  assert.match(rule('#rail-agents { background: var(--k-side, #f3f1ec)'), /margin:\s*0/);
+  assert.match(rule('#rail-agents { background: var(--k-bg, #faf9f7)'), /margin:\s*0/);
 });
 
 test('the two heads are not given different heights', () => {
@@ -82,6 +82,6 @@ test('the two heads are not given different heights', () => {
      projects head's 28, so the two labels stopped sharing a baseline -- item 2 of
      this same group, broken by the fix for item 6. Nothing in the source hinted
      at it; only measuring both did. */
-  assert.match(rule('#rail-agents { background: var(--k-side, #f3f1ec)'), /padding:\s*8px 8px 0/,
+  assert.match(rule('#rail-agents { background: var(--k-bg, #faf9f7)'), /padding:\s*8px 8px 0/,
     'the agents head has bottom padding again, which pushes its label off the projects baseline');
 });

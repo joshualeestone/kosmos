@@ -50,7 +50,9 @@ test('#1382: the door carries NO count, because its destination spans every proj
 });
 
 test('the files link says View All, in Josh\'s newer words', () => {
-  assert.match(PAGE, /'View All ' \+ body\.total : 'View All'/, 'the files link is not View All');
+  // #3306 (Josh 2026-09-19): the rail door dropped its count -- just "View All" now.
+  assert.match(PAGE, /all\.textContent = 'View All';/, 'the files link is not View All');
+  assert.doesNotMatch(PAGE, /'View All ' \+ body\.total/, 'a per-project count is back on the files rail door (#3306 removed it)');
   assert.doesNotMatch(PAGE.replace(/\/\*[\s\S]*?\*\//g, ' '), /'Show all/,
     'a Show all label survives outside a comment');
 });

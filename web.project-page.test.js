@@ -48,7 +48,10 @@ test('the files door says View All, and the stale arm draws nothing', () => {
      'Show All'". So this is not a house style being corrected, it is a later
      instruction replacing an earlier one, and the #761 provenance is recorded at
      the call site so nobody later reads this change as having broken a rule. */
-  assert.match(SCRIPT, /all\.textContent = more > 0 \? 'View All ' \+ body\.total : 'View All';/);
+  /* #3306 (Josh 2026-09-19): the rail door dropped its count -- it now reads just "View All"
+     in every case (the total still lives on the all-files screen this door opens). */
+  assert.match(SCRIPT, /all\.textContent = 'View All';/);
+  assert.doesNotMatch(SCRIPT, /'View All ' \+ body\.total/, 'a per-project count is back on the rail door (#3306 removed it)');
   assert.doesNotMatch(SCRIPT, /Has not picked this up yet/);
   assert.doesNotMatch(SCRIPT, /pj-notyet-go/);
 });
