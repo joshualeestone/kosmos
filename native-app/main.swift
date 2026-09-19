@@ -1800,6 +1800,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         panel.begin(completionHandler: answer)
     }
 
+    /* 🛑 #3309: BOARD alert()/confirm()/prompt() WERE SILENTLY DROPPED IN THE APP.
+       A WKWebView does not draw JavaScript dialogs itself: it ASKS the host through
+       WKUIDelegate's runJavaScript{Alert,Confirm,TextInput}Panel. With those three
+       unimplemented, WebKit's default is to DISMISS the request with no UI --
+       alert() shows nothing, confirm() returns FALSE, prompt() returns nil -- so
+       any board "are you sure?" confirm() quietly did NOTHING in the Mac app while
+       the Windows native window showed it (destructive-action confirmations
+       especially). The uiDelegate is already wired above and already answers file
+       panels; these three add the JS panels. Found cross-machine by the Windows
+       box building the Mac/Windows parity checklist (Homer, 2026-09-19).
+
+       ⚠️ EACH COMPLETION MUST BE CALLED EXACTLY ONCE, or WebKit's
+       CompletionHandlerCallChecker aborts the whole app -- the same rule
+       runOpenPanel documents above. Present with the synchronous app-modal
+       NSAlert.runModal(), which ALWAYS returns and so ALWAYS answers, NOT
+       beginSheetModal: #2807 showed a sheet can be SILENTLY DROPPED on a window
+       that already has one, leaving the handler released un-called and aborting the
+       app. runModal is called on the main thread (WebKit calls these there). The
+       call-once `respond` wrapper is belt-and-braces for the presenter-stub path.
+
+       A presenter stub (nil in every shipped run, like openPanelPresenter) lets the
+       build gate drive these headless without a real modal. */
+    static var jsAlertPresenter: ((String, @escaping () -> Void) -> Void)?
+    static var jsConfirmPresenter: ((String, @escaping (Bool) -> Void) -> Void)?
+    static var jsPromptPresenter: ((String, String?, @escaping (String?) -> Void) -> Void)?
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        var answered = false
+        let respond: () -> Void = { if answered { return }; answered = true; completionHandler() }
+        if let present = AppDelegate.jsAlertPresenter { present(message) { respond() }; return }
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        respond()
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        var answered = false
+        let respond: (Bool) -> Void = { ok in if answered { return }; answered = true; completionHandler(ok) }
+        if let present = AppDelegate.jsConfirmPresenter { present(message) { respond($0) }; return }
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        // .alertFirstButtonReturn == the OK button; anything else (Cancel) is false.
+        respond(alert.runModal() == .alertFirstButtonReturn)
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
+                 defaultText: String?, initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (String?) -> Void) {
+        var answered = false
+        let respond: (String?) -> Void = { s in if answered { return }; answered = true; completionHandler(s) }
+        if let present = AppDelegate.jsPromptPresenter { present(prompt, defaultText) { respond($0) }; return }
+        let alert = NSAlert()
+        alert.messageText = prompt
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.stringValue = defaultText ?? ""
+        alert.accessoryView = field
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        // Cancel returns nil (JS prompt() convention), OK returns the field text.
+        respond(alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
+    }
+
     /* 🛑 EVERY EXTERNAL LINK IN KOSMOS OPENED NOTHING IN THIS APP (#1416),
        INCLUDING FIRST RUN'S "Get a key".
 
@@ -3313,6 +3381,86 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
        rather than live; it is one line and the blast radius is the whole
        product. */
     exit(1)
+}
+
+// #3309: prove the board's JS alert()/confirm()/prompt() reach the app AND that
+// their return values round-trip. Before this delegate, WKWebView dropped all
+// three silently (confirm -> false with nothing on screen), so a "are you sure?"
+// on the Mac did nothing. Mirrors the filepanel self-test: an in-process harness
+// that swaps in presenter stubs (so it runs headless on a build box with no window
+// server), loads a probe page that calls each dialog, and asserts each delegate
+// fired and the page saw the scripted answer.
+//
+// ⚠️ LIMIT, STATED HONESTLY: unlike the filepanel gate, this does NOT have a
+// "put the real presenter back and see a panel on screen" arm. The production
+// path is NSAlert.runModal(), a SYNCHRONOUS nested modal loop -- once entered it
+// blocks the main thread, so a headless gate cannot drive-then-dismiss it the way
+// the async NSOpenPanel.begin path allowed, and a build box has no window server
+// to present into anyway. So this proves WIRING + RETURN-VALUE round-trip (the
+// exact regression: a missing delegate returned false/nil with no UI); the real
+// NSAlert is standard AppKit API exercised the moment a person hits a confirm.
+if CommandLine.arguments.contains("--kosmos-app-jspanels-selftest") {
+    setvbuf(stdout, nil, _IONBF, 0)   // survive an abort through the gate's pipe (#2807)
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let d = AppDelegate()
+    let frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+    let web = AppDelegate.makeWebView(frame: frame, delegate: d)
+    print("uiDelegate:\(web.uiDelegate == nil ? "MISSING" : "set")")
+
+    // Presenter stubs record that the delegate fired and answer programmatically
+    // (no real modal). Scripted answers: confirm -> OK(true), prompt -> "typed".
+    var alertFired = false, confirmFired = false, promptFired = false
+    AppDelegate.jsAlertPresenter = { _, done in alertFired = true; done() }
+    AppDelegate.jsConfirmPresenter = { _, done in confirmFired = true; done(true) }
+    AppDelegate.jsPromptPresenter = { _, _, done in promptFired = true; done("typed") }
+
+    let win = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: frame.width, height: frame.height),
+                       styleMask: [.titled], backing: .buffered, defer: false)
+    win.contentView = web
+    win.orderFrontRegardless()
+    // The probe records the RETURN VALUE the page observed for confirm/prompt, so a
+    // delegate that fired but answered wrong (or on the wrong path) still fails.
+    let probePage = "<!doctype html><meta charset=utf-8><script>"
+        + "window.__r = {};"
+        + "window.__run = function(){"
+        + "  alert('a'); window.__r.alert = 'called';"
+        + "  window.__r.confirm = confirm('c');"
+        + "  window.__r.prompt = prompt('p','d');"
+        + "  window.__done = 1;"
+        + "};"
+        + "window.__probeReady = 1;</script>"
+    web.loadHTMLString(probePage, baseURL: URL(string: "http://127.0.0.1/"))
+
+    func whenTrue(_ expr: String, _ go: @escaping () -> Void, _ label: String, tries: Int = 150) {
+        web.evaluateJavaScript(expr) { r, _ in
+            if (r as? Bool) == true { go(); return }
+            guard tries > 0 else { print("jspanels selftest TIMED OUT: \(label)"); exit(1) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenTrue(expr, go, label, tries: tries - 1) }
+        }
+    }
+    whenTrue("window.__probeReady === 1", {
+        // Kick __run(). alert/confirm/prompt are synchronous in the page but round-trip
+        // to this host process, so poll window.__done rather than assuming completion.
+        web.evaluateJavaScript("window.__run()") { _, _ in }
+        whenTrue("window.__done === 1", {
+            web.evaluateJavaScript("JSON.stringify(window.__r)") { r, _ in
+                let seen = (r as? String) ?? ""
+                print("delegate-fired:alert:\(alertFired ? "yes" : "no")")
+                print("delegate-fired:confirm:\(confirmFired ? "yes" : "no")")
+                print("delegate-fired:prompt:\(promptFired ? "yes" : "no")")
+                print("return-value:confirm-true:\(seen.contains("\"confirm\":true") ? "yes" : "no")")
+                print("return-value:prompt-typed:\(seen.contains("\"prompt\":\"typed\"") ? "yes" : "no")")
+                let ok = alertFired && confirmFired && promptFired
+                    && seen.contains("\"confirm\":true") && seen.contains("\"prompt\":\"typed\"")
+                exit(ok ? 0 : 1)
+            }
+        }, "the probe dialogs never resolved (a delegate never answered its completion)")
+    }, "the probe page never finished loading")
+
+    DispatchQueue.main.asyncAfter(deadline: .now() + 25) { print("jspanels selftest TIMED OUT: watchdog"); exit(1) }
+    withExtendedLifetime(d) { app.run() }
+    exit(1)   // app.run() must never fall through into the real app (see filepanel note above)
 }
 
 // #1042: the version comparison that decides whether a person is TOLD anything.

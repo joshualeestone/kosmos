@@ -448,6 +448,52 @@ else
   echo "==> SKIPPED the #1032 file-picker gate: no console session for this user, so a WKWebView cannot be built here. The + button is UNCHECKED in this bundle." >&2
 fi
 
+# ---- the app answers the board's JS dialogs (#3309) ------------------------
+# alert()/confirm()/prompt() are drawn by the HOST through WKUIDelegate, not by
+# WKWebView itself, so with the three runJavaScript*Panel methods unimplemented the
+# app dropped every board confirm() SILENTLY (returned false, nothing on screen) --
+# a destructive "are you sure?" did nothing in the Mac app while the Windows window
+# showed it. This gate runs the in-process #3309 self-test: it proves the three
+# delegates fire and their return values round-trip. Like the #1032 gate it builds
+# a real WKWebView, so it needs a window server and is SKIPPED LOUDLY on a headless
+# box rather than blocking a cut that box cannot run.
+# 🛑 THE VERDICT IS THE OUTPUT, NOT THE EXIT STATUS (same reasoning as the #1032
+# gate): a future early-return would exit 0 and prove nothing, and a non-zero exit
+# does not say who is at fault -- a drifted hatch flag SIGALRMs at 142, a missing
+# binary is 127, a delegate that never answers its completion aborts the app at 134.
+# So require every arm to be present in the output.
+if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
+  _js_rc=0
+  _js_out="$(perl -e 'alarm 40; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-jspanels-selftest 2>&1)" || _js_rc=$?
+  printf '%s\n' "$_js_out" | sed 's/^/    /'
+  _js_missing=""
+  for _js_want in "uiDelegate:set" "delegate-fired:alert:yes" "delegate-fired:confirm:yes" "delegate-fired:prompt:yes" "return-value:confirm-true:yes" "return-value:prompt-typed:yes"; do
+    case "$_js_out" in
+      *"$_js_want"*) ;;
+      *) [ -n "$_js_missing" ] || _js_missing="$_js_want" ;;
+    esac
+  done
+  if [ -n "$_js_missing" ]; then
+    # TIMED OUT is tested FIRST: the hatch prints `uiDelegate:` before any async
+    # work, so every run that reaches its own watchdog has already printed it, and a
+    # product-arm-first order would misblame a genuine hang. The unique full phrase,
+    # not a bare "TIMED OUT", so unrelated stderr cannot exonerate the product.
+    case "$_js_out" in
+      *"jspanels selftest TIMED OUT"*)
+        echo "the #3309 JS-dialog gate did not finish (exit $_js_rc). It could not judge the dialogs either way, so this is NOT a verdict on the product; look at the output above." >&2 ;;
+      *"delegate-fired:"*|*"uiDelegate:"*)
+        printf '%s\n' "the native app drops board JS dialogs (#3309). The gate ran and then this did not hold:" "    $_js_missing" "A board confirm() will silently do nothing in the app. Output above; exit $_js_rc." >&2 ;;
+      *)
+        echo "the #3309 JS-dialog gate never ran (exit $_js_rc) and printed none of its arms. Output above; the product is NOT implicated." >&2 ;;
+    esac
+    exit 1
+  fi
+  [ "$_js_rc" -eq 0 ] || { echo "the #3309 JS-dialog gate printed every arm and still exited $_js_rc. Treat that as the gate being broken, not as a pass." >&2; exit 1; }
+  echo "==> native app: board JS alert/confirm/prompt reach the app (#3309)"
+else
+  echo "==> SKIPPED the #3309 JS-dialog gate: no console session for this user, so a WKWebView cannot be built here. Board dialogs are UNCHECKED in this bundle." >&2
+fi
+
 # ---- the app can tell when it is the stale half (kosmos#1042) --------------
 # The app and the board are separate processes on independent update paths: an
 # update restarts the board and leaves the app running, a quit-and-reopen does
