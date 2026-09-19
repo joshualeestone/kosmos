@@ -161,6 +161,46 @@ function chk(ok, label, extra) {
       chk(!!cleoO && !cleoO.btnAriaUnread,
         theme + ' org: a no-unread node does not claim unread in its aria-label (control)', JSON.stringify(cleoO));
 
+      // ── messages-filter (Josh 2026-09-19) ──────────────────────────────────
+      // The #st-dm "Messages" tile is a toggle: filter the agents board to agents with
+      // 1+ messages. In the ORG view the no-message nodes DIM (opacity down) while the tree
+      // (nodes + wires) stays -- the UI-owner call for org; grid/list use display:none. A
+      // "View all agents" link and a second tile click both exit. Fleet: ada+bram have unread
+      // DMs, cleo does not (the non-vacuous control: cleo carries no data-has-msgs, so it dims).
+      const filt = await page.evaluate(() => {
+        for (const a of (LAST || [])) {
+          if (a.sessionName === 'ada') a.dmUnread = 3;
+          else if (a.sessionName === 'bram') a.dmUnread = 1;
+          else if (a.sessionName === 'cleo') a.dmUnread = 0;
+        }
+        ORG_HTML = null; paintOrg();
+        const tile = document.getElementById('st-dm-tile');
+        tile.hidden = false;   // messages exist, so the tile is shown in reality
+        const opOf = (ag) => { const n = document.querySelector('#orgmap .onode[data-agent="' + ag + '"]'); return n ? Number(getComputedStyle(n).opacity) : null; };
+        const exit = document.querySelector('.board-msgfilter-exit');
+        const beforeExitShown = exit ? getComputedStyle(exit).display !== 'none' : true; // hidden before filtering
+        tile.click();          // turn the filter ON through the real handler
+        const out = {
+          on: document.body.classList.contains('filter-msgs'),
+          pressed: tile.getAttribute('aria-pressed'),
+          adaOp: opOf('ada'), cleoOp: opOf('cleo'),
+          exitBefore: beforeExitShown,
+          exitDuring: exit ? getComputedStyle(exit).display !== 'none' : false,
+        };
+        if (exit) exit.click(); // exit via "View all agents"
+        out.offAfterExit = !document.body.classList.contains('filter-msgs');
+        out.cleoOpAfter = opOf('cleo');
+        return out;
+      });
+      chk(filt.on === true && filt.pressed === 'true',
+        theme + ' filter: clicking the Messages tile turns the filter on (body.filter-msgs + aria-pressed)', JSON.stringify(filt));
+      chk(filt.cleoOp !== null && filt.cleoOp < 0.5 && filt.adaOp === 1,
+        theme + ' filter/org: a no-message node DIMS while a with-message node stays full (tree kept)', JSON.stringify(filt));
+      chk(filt.exitBefore === false && filt.exitDuring === true,
+        theme + ' filter: the "View all agents" exit link is hidden until filtering, then shown', JSON.stringify(filt));
+      chk(filt.offAfterExit === true && filt.cleoOpAfter === 1,
+        theme + ' filter: "View all agents" exits and restores the dimmed node', JSON.stringify(filt));
+
       // ── dmAria (org button) and dmBadge (span text) are TWO derivations of one
       //    count, so pin them equal at the boundary cases a single count-3 test never
       //    exercises: the singular n=1 and the >99 cap. If a future edit changes
