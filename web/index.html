@@ -1654,6 +1654,27 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .stat.action:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .stat.action .slab { color: var(--k-ink); font-weight: 600; }
 .plus { font-size: 1.25rem; font-weight: 300; line-height: 1; color: var(--k-ink-2); }
+/* messages-filter (Josh 2026-09-19): the "Messages" stat is a toggle that filters the agents
+   board to agents with 1+ messages. Hover/focus like .stat.action; the ON state is a gold-filled
+   pill (aria-pressed=true, kept in sync with body.filter-msgs by the click handler). */
+.statfilter { cursor: pointer; }
+.statfilter:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
+.statfilter:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.statfilter[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
+.statfilter[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
+/* The exit affordance ("View all agents"), shown only while the filter is on. */
+.board-msgfilter-exit { display: none; border: 0; background: none; padding: 0 4px; cursor: pointer;
+  font: inherit; font-size: .8125rem; color: var(--gold-deep, #b88920); text-decoration: underline;
+  text-underline-offset: 2px; align-self: center; }
+.board-msgfilter-exit:hover { color: var(--k-ink); }
+.board-msgfilter-exit:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+body.filter-msgs .board-msgfilter-exit { display: inline-flex; }
+/* The filter: hide no-message agents in grid + list; DIM them in the org chart so the hierarchy
+   (and its wires) stay intact -- keeping the tree is the UI-owner call for org, and it is reversible.
+   Keyed on data-has-msgs, set at render from a.dmUnread > 0 (see hasMsgsAttr). */
+body.filter-msgs #grid .acard:not([data-has-msgs]),
+body.filter-msgs #alist .lrow:not([data-has-msgs]) { display: none; }
+body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
 .stat.alert { border-color: rgba(179,38,30,.45); }
 /* The pack's status glyph family, shared by the tiles, the pills, and the
    list rows. The hazard is a TRIANGLE because shape is the carrier and
@@ -13565,7 +13586,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          message-bubble glyph rather than the .haz alert mark: unread DMs point
          you somewhere, they are not a fault. NOT part of the Working+Idle=Agents
          arithmetic, so it sits after the state tiles as its own signal. -->
-    <div class="stat" id="st-dm-tile" hidden title="Unread direct messages from your agents">
+    <!-- messages-filter (Josh 2026-09-19): the "Messages" tile is a TOGGLE. Click it to filter the
+         current agents view (grid/list/org) to only agents with 1+ messages; click again, or the
+         "View all agents" link, to exit. role=button + aria-pressed so it reads as a control; it is
+         still hidden at zero (no messages, nothing to filter). -->
+    <div class="stat statfilter" id="st-dm-tile" hidden role="button" tabindex="0" aria-pressed="false" title="Show only agents with messages">
       <span class="dmtile-g" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H6.5L3.5 14v-3H2.5a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z"/></svg></span>
       <b id="st-dm" data-count="dm">0</b><span class="slab">Messages</span>
     </div>
@@ -13583,6 +13608,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.6"/><circle cx="2.4" cy="3.2" r="1.5"/><circle cx="13.6" cy="3.6" r="1.5"/><circle cx="12.8" cy="13" r="1.5"/><path d="M6.1 6.4 3.6 4.3M9.9 6.5l2.5-2M9.6 9.7l2.3 2.2"/></svg>
     </button>
   </div>
+  <!-- messages-filter: the exit affordance, shown only while the Messages filter is on (CSS keys
+       on body.filter-msgs). Josh's words: a "View all agents" text link. Clicking it clears the filter. -->
+  <button class="board-msgfilter-exit" type="button">View all agents</button>
 </div>
 <!-- The residual honesty line: the tiles carry total/working/idle/attn;
      what stays here is what has no tile home -- unknowns, unknown memory
@@ -15119,6 +15147,13 @@ function dmBadge(a) {
   const s = n > 99 ? '99+' : String(n);
   return '<span class="dmbadge" aria-label="' + s + ' unread ' + (n === 1 ? 'message' : 'messages') + '">' + s + '</span>';
 }
+/* messages-filter (Josh 2026-09-19): an agent "has messages" when it carries 1+ unread DMs
+   (a.dmUnread > 0) -- the same signal the #st-dm "Messages" pill totals. Independent of
+   dmBadge's CURRENT-suppression, so the open agent is still shown when the filter is on. Every
+   board row (.acard / .lrow / .onode) that has messages carries data-has-msgs; the CSS then
+   hides (grid/list) or dims (org, keeping the tree) the rest while body.filter-msgs is set. */
+function agentHasMsgs(a) { const n = Number(a && a.dmUnread); return Number.isFinite(n) && n > 0; }
+function hasMsgsAttr(a) { return agentHasMsgs(a) ? ' data-has-msgs' : ''; }
 function card(a) {
   /**
    * 🛑 AN AGENT THAT IS NOT RUNNING GETS A DIFFERENT CARD, not this one with
@@ -15241,7 +15276,7 @@ function card(a) {
     : (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}">
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15451,7 +15486,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}">
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${hasMsgsAttr(a)}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -17061,6 +17096,8 @@ async function tick() {
     }, 0);
     document.getElementById('st-dm').textContent = String(dmTotal);
     document.getElementById('st-dm-tile').hidden = dmTotal <= 0;
+    // messages-filter: no unread messages left, so there is nothing to filter; auto-exit.
+    if (dmTotal <= 0 && document.body.classList.contains('filter-msgs')) setMsgFilter(false);
     /* #3216: the Agents nav-tab badge reuses this same fleet unread-DM total, so the tab
        count and the summary tile cannot disagree (one derivation of "unread agent messages"). */
     setNavBadge('nav-badge-agents', dmTotal);
@@ -17285,6 +17322,8 @@ async function tick() {
        stand behind. */
     document.getElementById('st-dm').textContent = '?';
     document.getElementById('st-dm-tile').hidden = true;
+    // messages-filter: the Messages tile is withdrawn (status unknowable), so exit the filter too.
+    if (document.body.classList.contains('filter-msgs')) setMsgFilter(false);
     /* #3216: /api/status failed, so both nav-tab counts are unknowable this tick -- withdraw
        them (hide) exactly as the tiles do, rather than leaving a stale count asserting something
        this failed read cannot stand behind. null is the "unknown" input (per setNavBadge's
@@ -22260,7 +22299,7 @@ function paintOrg() {
          transparency Josh asked us to remove. */
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
-    nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"'
+    nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"' + hasMsgsAttr(a)
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
          own aria-label (the accessible name comes from the attribute alone, not
@@ -22585,6 +22624,31 @@ for (const box of document.querySelectorAll('.viewtoggle')) {
     try { localStorage.setItem('kosmos.layout.' + scope, btn.dataset.layout); } catch { /* display preference only */ }
   });
 }
+
+/* messages-filter (Josh 2026-09-19): the "Messages" tile toggles a board-wide filter to agents
+   with 1+ messages; a second tile click OR the "View all agents" link exits. It is a pure body
+   class (body.filter-msgs) + the tile's aria-pressed, so it never touches BOARD_LAYOUT -- the
+   grid/list/org selection is preserved, exactly as Josh asked. The CSS then hides the no-message
+   rows in grid/list and dims them in the org chart (keeping the tree). Not persisted: the filter
+   is a transient view state, cleared on reload, and auto-cleared when the Messages tile hides
+   because the fleet has no unread messages left (see the dmTotal poll). */
+function setMsgFilter(on) {
+  document.body.classList.toggle('filter-msgs', on);
+  const tile = document.getElementById('st-dm-tile');
+  if (tile) tile.setAttribute('aria-pressed', String(on));
+}
+(() => {
+  const tile = document.getElementById('st-dm-tile');
+  const toggle = () => setMsgFilter(!document.body.classList.contains('filter-msgs'));
+  if (tile) {
+    tile.addEventListener('click', toggle);
+    tile.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); toggle(); }
+    });
+  }
+  const exit = document.querySelector('.board-msgfilter-exit');
+  if (exit) exit.addEventListener('click', () => setMsgFilter(false));
+})();
 
 // Re-apply the saved choice on boot. An unreadable store, or a value that is
 // not one of ours, falls back to the default layout rather than guessing.
