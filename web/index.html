@@ -44371,6 +44371,7 @@ document.getElementById('pj-add-pick').addEventListener('change', () => {
    drive your computer -- no copy here may imply otherwise. */
 let PJ_JOIN_VERIFIED = null;   // the verify() snapshot {edge_id, project_name, project_desc, owner_handle}
 let PJ_JOIN_ADD_AGENTS = [];   // the receiver's OWN agents to bring onto the joined project
+let PJ_COPY_TIMER = null;      // the "Copied" -> "Copy" revert timer, cleared on reset so a reopen mid-window cannot clobber new state
 // A stable local project ref for a create-with-invite, minted once per Add-Project open and reused
 // by every invite on this form so several invites on one not-yet-created project agree on one ref.
 // It is NOT yet sent on create: whether the local project adopts this ref (so the coordinator
@@ -44411,6 +44412,10 @@ function pjResetFederation() {
   PJ_FEDERATION_REF = null;
   PJ_JOIN_VERIFIED = null;
   PJ_JOIN_ADD_AGENTS = [];
+  // Cancel a pending copy-revert timer so it cannot fire onto this fresh open, and reset the label.
+  if (PJ_COPY_TIMER) { clearTimeout(PJ_COPY_TIMER); PJ_COPY_TIMER = null; }
+  const copyBtn = document.getElementById('pj-invite-copy');
+  if (copyBtn) copyBtn.textContent = 'Copy';
   pjSetAddMode('create');
   const hide = (id) => { const el = document.getElementById(id); if (el) el.hidden = true; };
   // Clear both: an input carries its content in value, a <p>/status region in textContent, and
@@ -44500,12 +44505,15 @@ async function pjCopyInvite() {
   if (!ok) { try { codeEl.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
   btn.textContent = ok ? 'Copied' : 'Press ⌘C to copy';
   // A button text swap is not announced to a screen reader unless it is focused there, so also say
-  // it in the aria-live status region, then restore the share prompt.
-  if (status) {
-    status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press Command C.';
-    setTimeout(() => { status.textContent = 'Share this code with the person or agent you are inviting.'; }, 2000);
-  }
-  setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  // it in the aria-live status region. ONE cancellable timer reverts both, cleared on reset so a
+  // reopen within the 2s window cannot fire onto a different project's fresh state.
+  if (status) status.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press Command C.';
+  if (PJ_COPY_TIMER) clearTimeout(PJ_COPY_TIMER);
+  PJ_COPY_TIMER = setTimeout(() => {
+    PJ_COPY_TIMER = null;
+    btn.textContent = 'Copy';
+    if (status) status.textContent = 'Share this code with the person or agent you are inviting.';
+  }, 2000);
 }
 
 // Verify a pasted code: on success show the owner's read-only project name + description.
@@ -44550,10 +44558,15 @@ async function pjVerifyCode() {
 
 // The receiver's own-agent picker for the joined project (pure frontend state; simple name chips).
 function pjJoinPickOptions() {
+  // Mirrors addPickOptions (the create-mode picker): the role rides each option label, and the
+  // button carries the same disabled title when every agent is already on it.
   const sel = document.getElementById('pj-join-pick');
-  const free = (typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST : []).filter((a) => a && !PJ_JOIN_ADD_AGENTS.includes(a.sessionName));
-  sel.innerHTML = '<option value="">Pick an agent…</option>' + free.map((a) => '<option value="' + esc(a.sessionName) + '">' + esc(a.name || a.sessionName) + '</option>').join('');
-  document.getElementById('pj-join-add-agent').disabled = free.length === 0;
+  const free = LAST.filter((a) => a && !PJ_JOIN_ADD_AGENTS.includes(a.sessionName));
+  sel.innerHTML = '<option value="">Pick an agent…</option>'
+    + free.map((a) => '<option value="' + esc(a.sessionName) + '">' + esc(a.name || a.sessionName) + (roleLine(a, ROLE_TITLES) ? ' · ' + esc(roleLine(a, ROLE_TITLES)) : '') + '</option>').join('');
+  const btn = document.getElementById('pj-join-add-agent');
+  btn.disabled = !free.length;
+  btn.title = free.length ? '' : 'Every agent on this computer is already on it';
 }
 function pjPaintJoinAgents() {
   // Reuse the create-mode row renderer so the receiver's picked agents render in the SAME visual
