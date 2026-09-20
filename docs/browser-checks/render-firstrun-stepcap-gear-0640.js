@@ -3,7 +3,8 @@
  * the "(stand-in graphic)" dev note is gone; Screen 4 (Notifications) cog is ~2x
  * (0.6.40 re-test, Josh's items #9 + #10). Plus (0.6.42 re-test, item #1): Screen 3's
  * tmux step depicts Privacy & Security > Accessibility ("Control your computer"), NOT the
- * Login Items pane -- see arms 4-6 below.
+ * Login Items pane -- see arms 4-5 below. (Arm 6 no longer backs this: #3337 repurposed it
+ * to assert S4's copy dropped "Login Items", so it is not evidence for the 0.6.42 scope claim.)
  *
  * #9: the two numbered step captions ("1 keep this computer awake", "2 when prompted,
  * switch Kosmos to On") are `<p class="s3-step-cap">`. A bare `.s3-step-cap` (0,1,0) loses
