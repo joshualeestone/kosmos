@@ -9919,7 +9919,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            to a compact macOS prompt. flex-wrap on .s2-dlg-fan still centres the single preview. */
         .s2-dlg{flex:0 1 auto;width:205px;max-width:100%;text-align:left;border-radius:12px;padding:10px 12px 10px;
           background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
-        .s2-dlg-head{display:flex;align-items:flex-start;gap:11px;margin:0 0 14px}
+        /* #3336: margin-bottom was 14px to separate the header from the (now-removed) buttons;
+           with the header the only child of .s2-dlg, drop it so the box is ~1/2 the old height. */
+        .s2-dlg-head{display:flex;align-items:flex-start;gap:11px;margin:0}
         .s2-fold{flex:none;width:34px;height:34px;border-radius:7px;position:relative;
           background:linear-gradient(160deg,#7cc0ff,#3f92f0)}
         .s2-fold::before{content:"";position:absolute;top:-5px;left:5px;width:16px;height:7px;border-radius:3px 3px 0 0;background:#3f92f0}

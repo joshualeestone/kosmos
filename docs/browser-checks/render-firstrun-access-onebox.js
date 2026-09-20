@@ -126,6 +126,7 @@ function check(name, pass, detail) {
         sayPx: sayCs ? parseFloat(sayCs.fontSize) : null,
         sayWeight: sayCs ? String(sayCs.fontWeight) : null,
         boxW: dlgRect ? Math.round(dlgRect.width) : null,
+        boxH: dlgRect ? Math.round(dlgRect.height) : null,
       };
     });
 
@@ -166,6 +167,13 @@ function check(name, pass, detail) {
     check(`${engine}: the demo box is shrunk to a small fixed width (#3336), not the old pane-filling box`,
       state.boxW !== null && state.boxW > 0 && state.boxW <= 240,
       `boxW ${state.boxW}`);
+
+    // #3336: the box is also ~1/2 the old HEIGHT. Removing the buttons + the .s2-dlg-head trailing
+    // margin + tighter padding brought it from ~105px to ~58px. Bound it well under the old height
+    // so a regression that re-inflates it (buttons back, or the head margin restored) reds.
+    check(`${engine}: the demo box is shrunk to about half its old height (#3336)`,
+      state.boxH !== null && state.boxH > 0 && state.boxH <= 70,
+      `boxH ${state.boxH}`);
 
     await browser.close();
   }
