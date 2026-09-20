@@ -3,7 +3,8 @@
  * the "(stand-in graphic)" dev note is gone; Screen 4 (Notifications) cog is ~2x
  * (0.6.40 re-test, Josh's items #9 + #10). Plus (0.6.42 re-test, item #1): Screen 3's
  * tmux step depicts Privacy & Security > Accessibility ("Control your computer"), NOT the
- * Login Items pane -- see arms 4-6 below.
+ * Login Items pane -- see arms 4-5 below. (Arm 6 no longer backs this: #3337 repurposed it
+ * to assert S4's copy dropped "Login Items", so it is not evidence for the 0.6.42 scope claim.)
  *
  * #9: the two numbered step captions ("1 keep this computer awake", "2 when prompted,
  * switch Kosmos to On") are `<p class="s3-step-cap">`. A bare `.s3-step-cap` (0,1,0) loses
@@ -21,16 +22,17 @@
  * computed font size tells the 17px bug from the 10px fix apart.
  *
  * Arms 1-3 red against the pre-0.6.40 page; arms 4-5 (0.6.42 #1) red against the pre-0.6.42
- * page; arm 6 is a scope CONTROL and stays GREEN on both (it verifies the change was scoped,
- * not that behavior flipped):
+ * page; arms 6-7 (#3337, Josh 6.83) red against the pre-#3337 page:
  *  1. S3: both `.s3-step-cap` render compact (<= 12px, weight 600), NOT 17px/400.
  *  2. S3: no `.s3-standin` element exists (the dev-note leak is removed).
  *  3. S4: `.s4-gear` box hugs the cog (box 48-58px, glyph 40-48px), NOT the old 76px box or 38px/22px.
  *  4. S3: the tmux window titles "Accessibility", NOT "Login Items" (0.6.42 #1: the tmux
  *     grant is Privacy & Security > Accessibility, not Login Items). Copy: Mona Lisa.
  *  5. S3: the tmux row sub-text is "Control your computer", NOT "Allow in the background".
- *  6. S4 CONTROL: S4 (bash) still says "Login Items" -- the move is scoped to S3's tmux
- *     window, not an over-removal of "Login Items" from the file.
+ *  6. S4 COPY (#3337): the bash notification is the one-liner "bash can run in the background.",
+ *     and "Login Items" is GONE from it (Josh 6.83 simplified S4's copy). This SUPERSEDES the
+ *     0.6.42 "S4 still says Login Items" control -- the removal is deliberate, not over-removal.
+ *  7. S4 WIDTH (#3337): the `.s4-notif` box max-width is halved to 230px (was 460px).
  *
  * HERMETIC: loads web/index.html over file://, boots no server. Static markup +
  * computed style only, so it sits in the browser-checks.sh no-URL loop.
@@ -136,14 +138,19 @@ function unhide(id) {
       if (!gear) return { noGear: true };
       const c = getComputedStyle(gear);
       const r = gear.getBoundingClientRect();
-      // #2236/0.6.42 #1 CONTROL: S4 (bash background activity) must STILL say "Login Items" --
-      // that pane is correct for the bash background grant; only S3's tmux window moved to
-      // Accessibility. This guards against over-removing "Login Items" from the whole file.
+      // #3337 (Josh 6.83): S4's copy was simplified to the one line "bash can run in the
+      // background.", so it no longer names "Login Items" on screen. The 0.6.42 #1 control
+      // (S4 must still say "Login Items", guarding against over-removal when S3's tmux moved to
+      // Accessibility) is superseded by this deliberate removal, so the arm below now pins the
+      // new one-liner and asserts the Login-Items sentence is gone, rather than expecting it.
       const nb = pane.querySelector('.s4-nb');
       const nt = pane.querySelector('.s4-nt');
       const ntc = nt ? getComputedStyle(nt) : null;
       const nbc = nb ? getComputedStyle(nb) : null;
-      return { w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize),
+      // #3337 (Josh 6.83): the notification box max-width is halved (460px -> 230px).
+      const notif = pane.querySelector('.s4-notif');
+      const notifMaxW = notif ? getComputedStyle(notif).maxWidth : null;
+      return { notifMaxW, w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize),
         s4Text: nb ? nb.textContent : null,
         // #768-batch (Josh, said 3x; Mona third round): the title must be BOLD, not
         // LARGER, AND the whole notice is the intended SMALL body size (.6875rem/~11px).
@@ -173,8 +180,13 @@ function unhide(id) {
       const gearOk = s4.w >= 48 && s4.w <= 58 && s4.h >= 48 && s4.h <= 58 && s4.gearHasSvg && s4.gearGlyph === '';
       check(`${engine}: the S4 notification cog box HUGS the cog (box 48-58px) and holds the SVG gear, not the U+2699 glyph`,
         gearOk, JSON.stringify(s4));
-      check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
-        /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
+      check(`${engine}: S4 (bash) copy is the #3337 one-liner "can run in the background", no "Login Items"`,
+        /can run in the background/i.test(s4.s4Text || '') && !/login items/i.test(s4.s4Text || ''),
+        `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
+      // #3337 (Josh 6.83): the notification box is halved to max-width 230px (was 460px). Pinned
+      // because the width has churned (340 -> 460 -> 230) and is otherwise unguarded.
+      check(`${engine}: S4 (bash) notification box is halved to max-width 230px (#3337)`,
+        s4.notifMaxW === '230px', `notifMaxW ${JSON.stringify(s4.notifMaxW)}`);
       // #768-batch (Josh, said 3 times; Mona third round): "App Background Activity" must
       // be BOLD, NOT a larger font, AND the whole notice is the intended SMALL size
       // (.6875rem == ~11px on a 16px root). Four arms, so none of the regressions pass:

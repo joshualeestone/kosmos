@@ -10197,8 +10197,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              are Angel's separate native cleanup. The gate poll (swMirror) and frSyncSwitchOverlays
              key off data-sw-gate document-wide, so the surviving Kosmos switch binds as before.
              #2236/0.6.42: the grant is Privacy & Security > Accessibility ("control your
-             computer"), NOT Login Items -- depict Accessibility here. (S4's s4-* pane keeps
-             "Login Items", a different grant for bash background activity; do not conflate.)
+             computer"), NOT Login Items -- depict Accessibility here. (S4's s4-* pane is the
+             bash background-activity grant, which macOS manages under Login Items & Extensions;
+             a different grant, do not conflate. #3337 (Josh 6.83) simplified S4's copy to the one
+             line "bash can run in the background." so it no longer names Login Items on screen,
+             but the underlying grant is unchanged.)
              #2451: macOS registers the calling binary as "Kosmos" (the app row). Copy: Mona Lisa. -->
         <div class="s3-mock" data-win-hide>
           <div class="s3-win" aria-hidden="true">
@@ -10249,9 +10252,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              notification, reproduced (a real framed screenshot can swap in if preferred).
              ============================================================ -->
         <style>
-        /* #10 (0.6.39): wider + shorter so the body sits on ~2 lines, not a tall
-           narrow block (max-width 340 -> 460). Gear sizing is set below. */
-        .s4-notif{max-width:460px;margin:2px 0 0;display:flex;gap:12px;align-items:flex-start;
+        /* #10 (0.6.39): width history 340 -> 460 (wider + shorter, body on ~2 lines).
+           #3337 (Josh 6.83): HALVED again 460 -> 230 with the copy cut to one sentence,
+           so it reads as a compact macOS notification. Gear sizing is set below. */
+        .s4-notif{max-width:230px;margin:2px 0 0;display:flex;gap:12px;align-items:flex-start;
           background:rgba(236,236,236,.98);border:1px solid #d8d6d2;border-radius:14px;padding:12px 16px;
           box-shadow:0 8px 22px rgba(0,0,0,.16);color:#1c1b19}
         /* Gear sizing, latest wins: 0.6.39 was 38/22, 0.6.40 doubled it (Josh),
@@ -10294,7 +10298,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="s4-gear"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true"><path fill-rule="evenodd" fill="#3a3a3c" d="M 13.43 5.30 L 12.38 2.48 L 19.62 2.48 L 18.57 5.30 L 21.75 6.62 L 23.00 3.88 L 28.12 9.00 L 25.38 10.25 L 26.70 13.43 L 29.52 12.38 L 29.52 19.62 L 26.70 18.57 L 25.38 21.75 L 28.12 23.00 L 23.00 28.12 L 21.75 25.38 L 18.57 26.70 L 19.62 29.52 L 12.38 29.52 L 13.43 26.70 L 10.25 25.38 L 9.00 28.12 L 3.88 23.00 L 6.62 21.75 L 5.30 18.57 L 2.48 19.62 L 2.48 12.38 L 5.30 13.43 L 6.62 10.25 L 3.88 9.00 L 9.00 3.88 L 10.25 6.62 Z M 21.00 16.00 A 5.00 5.00 0 1 0 11.00 16.00 A 5.00 5.00 0 1 0 21.00 16.00 Z"/></svg></span>
           <div>
             <p class="s4-nt">App Background Activity</p>
-            <p class="s4-nb">"bash" can run in the background. You can manage background activity in Login Items &amp; Extensions.</p>
+            <p class="s4-nb">"bash" can run in the background.</p>
           </div>
           <span class="s4-x">&times;</span>
         </div>
