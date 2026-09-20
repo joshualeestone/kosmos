@@ -8466,11 +8466,12 @@ test('--usermsg-tint is DEFINED in every theme, tied to its --k-sunk sibling', (
     `--usermsg-tint has ${tintDark.length} dark-side definition(s) but its sibling --k-sunk has ${sunkDark.length}; `
     + 'it must be defined in every dark theme block --k-sunk is (system-dark, forced-dark, navy), '
     + 'or the missing ground wears the light 10%');
-  // #3267: --usermsg-tint is now SOLID, pre-composited from 15% #4171E3 over EACH theme's
-  // own ground so the Option A overlap wing cannot double-composite into a dark triangle.
-  // The system-dark block and its generated forced-dark twin bake over the same ground
-  // (#0c0d0f) so they share one value (#141c2f); navy bakes over its own ground (#132140)
-  // and is legitimately different (#1a2d58). So this no longer requires ALL dark values to
+  // #3267: --usermsg-tint is SOLID (opaque) so the Option A overlap wing cannot
+  // double-composite into a dark triangle. #3340 (Josh 6.83): the dark value is now his
+  // explicit night-mode pick #1b1f65 (a bolder indigo), no longer the derived 15% #4171E3
+  // tint; light stays the derived tint. The system-dark block and its generated forced-dark
+  // twin share that one dark value (#1b1f65); navy bakes over its own ground (#132140) and
+  // is legitimately different (#1a2d58). So this no longer requires ALL dark values to
   // agree (that held only while the token was ONE translucent value composited live per
   // ground). It requires at most TWO distinct dark values -- the shared twin value plus
   // navy's -- so a THIRD distinct value (a drifted twin, or a mistyped opacity) still reds.
@@ -8483,9 +8484,9 @@ test('--usermsg-tint is DEFINED in every theme, tied to its --k-sunk sibling', (
   // system-dark reds there regardless of this count. This check is the presence/opacity guard.
   const tintDarkDistinct = [...new Set(tintDark)];
   assert.ok(tintDarkDistinct.length <= 2,
-    `the dark --usermsg-tint has ${tintDarkDistinct.length} distinct values (${tintDark.join(', ')}); expected at most two -- the system-dark/forced-dark twins share one solid value (15% over #0c0d0f) and navy bakes 15% over its own ground. A third distinct value means a twin drifted or an opacity was mistyped`);
+    `the dark --usermsg-tint has ${tintDarkDistinct.length} distinct values (${tintDark.join(', ')}); expected at most two -- the system-dark/forced-dark twins share one solid value (#3340 night-mode pick over #0c0d0f) and navy bakes over its own ground. A third distinct value means a twin drifted or an opacity was mistyped`);
   assert.notEqual(tintLight[0], tintDark[0],
-    `light and dark --usermsg-tint are the same value (${tintLight[0]}); light should be 10%, dark 15%`);
+    `light and dark --usermsg-tint are the same value (${tintLight[0]}); dark must differ from the light tint (night mode is its own color, #3340)`);
 });
 
 test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
@@ -8496,8 +8497,9 @@ test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
   // --agent-msg from any dark block --k-sunk defines and the counts diverge.
   // Unlike --usermsg-tint this does NOT assert the dark values agree, because navy
   // intentionally differs (its own bluish inset, now baked opaque per #3267) while the
-  // other dark blocks use the cream -- presence parity is this test's guarantee, not
-  // value-agreement. Opacity of every bubble-fill value is guarded separately below
+  // other dark blocks use the night-mode gray (#252529, Josh #3340; light stays the
+  // #2947 cream) -- presence parity is this test's guarantee, not value-agreement.
+  // Opacity of every bubble-fill value is guarded separately below
   // ("every bubble-fill token is opaque"), which the Option A overlap wing requires.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const declsIn = (token, text) => text.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [];
@@ -8542,15 +8544,17 @@ test('every bubble-fill token is opaque: the Option A overlap wing double-compos
   }
 });
 
-test('the room message bubble is width-capped so it does not span both edges (#3267, Josh: too wide on both sides)', () => {
+test('the room message bubble keeps a width cap so it does not span the full column (#3267/#3340)', () => {
   // #3267 (Josh, 2026-09-18): the room bubble had no inner width cap, so messages spanned the
-  // full column on both views. .msg-bd now carries max-width: 52ch, the literal fix for "it's
-  // still too wide on both sides". Guard the rule so a future edit cannot silently drop it -- the
-  // browser-check-gate is satisfied by other assertions in the touched file, so this needs its own
-  // pin. Open-tail match (no closing brace) per the #1430/#1469 convention.
+  // full column on both views. .msg-bd got max-width: 52ch, the literal fix for "too wide on both
+  // sides". #3340 (Josh, 6.83): make each bubble ~50% wider so agents extend further right and
+  // users further left with more overlap, so the cap moved 52ch -> 78ch. The POINT of this test is
+  // unchanged: a CAP still exists (a bounded ch value, not uncapped), so the bubble cannot revert
+  // to spanning the whole column the way #3267 fixed. Guard the rule so a future edit cannot
+  // silently drop it. Open-tail match (no closing brace) per the #1430/#1469 convention.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.match(raw, /\.msg-bd \{ padding:[^}]*max-width: 52ch/,
-    '.msg-bd lost its max-width: 52ch cap -- room messages will span both edges again (Josh: too wide on both sides)');
+  assert.match(raw, /\.msg-bd \{ padding:[^}]*max-width: 78ch/,
+    '.msg-bd lost its max-width: 78ch cap -- room messages will span the full column again (#3267/#3340)');
 });
 
 test('the message tail is the Option A OVERLAP wing, not the rejected notch (#3267)', () => {

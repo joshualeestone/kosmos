@@ -204,6 +204,22 @@ const now = () => new Date().toISOString();
              three-row fixture above. */
           noTimeHasBody: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-bd'); })(),
           noTimeHasTime: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-t'); })(),
+          /* #3340 (Josh 6.83): the message body TEXT. Dark -> #fff, light -> the dark ink.
+             Read the agent bubble's body paragraph. */
+          msgTextColor: (() => { const el = agentRow && agentRow.querySelector('.msg-bd p'); return el ? getComputedStyle(el).color : null; })(),
+          /* #3340: the TAB-view dialogue GROUND (.thread) AND the sticky .composer, which is
+             blacked in lockstep so the flat area has no lighter band at the bottom (#3267 tied
+             them). Measure both in the real `.pjmid` nesting -- a bare `.thread` inherits the page
+             ground and would not exercise the #000 rule. Dark -> both #000, light -> the surface. */
+          tabGrounds: (() => {
+            const wrap = document.createElement('div'); wrap.className = 'pjmid';
+            const th = document.createElement('div'); th.className = 'thread';
+            th.innerHTML = pjRoomRow(agentMsg, p);
+            const co = document.createElement('div'); co.className = 'composer';
+            wrap.appendChild(th); wrap.appendChild(co); document.body.appendChild(wrap);
+            const out = { thread: getComputedStyle(th).backgroundColor, composer: getComputedStyle(co).backgroundColor };
+            wrap.remove(); return out;
+          })(),
         };
         host.remove();
         return out;
@@ -234,10 +250,17 @@ const now = () => new Date().toISOString();
       // neutral gray (~0) and the warm agent cream (negative); the >=20 distinctness guard at (d)
       // is the strong separator and stays put.
       chk(blueLead(op) >= 8, `${t} the operator box is BLUE (blue channel leads)`, `${m.opBd} lead=${blueLead(op).toFixed(0)}`);
-      // (c) agent box filled AND a warm cream (#2947), not the blue.
+      // (c) agent box filled AND its own tone. LIGHT (#2947): a warm cream, R>=G>=B.
+      // DARK (#3340, Josh 6.83): the agent bubble moved to a COOL near-neutral dark
+      // gray (#252529 = rgb 37,37,41), so the warm-cream R>=G>=B shape is a light-mode
+      // claim now. In dark, assert it stays near-neutral (small spread), dark, and NOT
+      // the user's blue -- the distinctness arm (d) is the strong blue/agent separator.
       chk(ag[3] > 0, `${t} the agent body box (.msg:not(.you) .msg-bd) carries a fill`, m.agentBd);
-      chk(ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20,
-        `${t} the agent box is a warm cream (R>=G>=B), not a neutral gray or the blue`,
+      const agentToneOk = theme === 'dark'
+        ? (spread(ag) <= 20 && blueLead(ag) < 20 && blueLead(ag) >= -2 && Math.max(ag[0], ag[1], ag[2]) <= 80)
+        : (ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20);
+      chk(agentToneOk,
+        `${t} the agent box is its own tone (warm cream in light, cool dark gray in dark), not the blue`,
         `${m.agentBd} rgb=[${ag.slice(0, 3).map((x) => x.toFixed(1)).join(', ')}]`);
       // (d) the two are distinct (blue vs cream differ well beyond the alpha).
       chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent cream are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
@@ -273,8 +296,13 @@ const now = () => new Date().toISOString();
       // the agent wing inherits the warm cream, NOT blue; the operator wing is blue -- a
       // swap of the side rules reds one of these.
       const awing = parse(m.agentWing && m.agentWing.bg);
-      chk(awing[0] >= awing[1] && awing[1] >= awing[2] && (awing[0] - awing[2]) >= 2 && blueLead(awing) < 20,
-        `${t} the agent wing is the warm cream, not blue`, m.agentWing && m.agentWing.bg);
+      // The wing inherits the agent box fill (background-color: inherit), so it tracks
+      // the same tone: warm cream in light, cool dark gray in dark (#3340).
+      const awingToneOk = theme === 'dark'
+        ? (spread(awing) <= 20 && blueLead(awing) < 20 && blueLead(awing) >= -2 && Math.max(awing[0], awing[1], awing[2]) <= 80)
+        : (awing[0] >= awing[1] && awing[1] >= awing[2] && (awing[0] - awing[2]) >= 2 && blueLead(awing) < 20);
+      chk(awingToneOk,
+        `${t} the agent wing inherits the agent tone (warm cream in light, cool dark gray in dark), not blue`, m.agentWing && m.agentWing.bg);
       const owing = parse(m.opWing && m.opWing.bg);
       // #3267: the wing inherits the SOLID --usermsg-tint (background-color: inherit), so it reads
       // the same painted blue as the box at (b) -- floor 8, same recalibration rationale.
@@ -283,6 +311,30 @@ const now = () => new Date().toISOString();
       const amask = parse(m.agentMask && m.agentMask.bg);
       chk(!!(m.agentMask && m.agentMask.on) && amask[3] > 0,
         `${t} the wing MASK (::after) carries the thread-ground fill`, m.agentMask && m.agentMask.bg);
+      // #3340 (Josh 6.83): the three night-mode-only recolors Josh specified for the room,
+      // pinned by CONTENT so a future deletion of any of them reds here (not just via the gate
+      // trailer). Dark: message text -> #fff, dialogue ground -> #000, and the tail mask FOLLOWS
+      // the ground to #000 (else a #17191c seam shows behind the wing on black). Light is the
+      // control -- text stays the dark ink, ground stays the light surface, so the dark arms are
+      // demonstrably not vacuous.
+      const msgTxt = parse(m.msgTextColor);
+      const grd = parse(m.tabGrounds && m.tabGrounds.thread);
+      const comp = parse(m.tabGrounds && m.tabGrounds.composer);
+      if (theme === 'dark') {
+        chk(msgTxt[0] >= 240 && msgTxt[1] >= 240 && msgTxt[2] >= 240,
+          `${t} the message text is white (#3340)`, m.msgTextColor);
+        chk(grd[3] > 0 && grd[0] <= 8 && grd[1] <= 8 && grd[2] <= 8,
+          `${t} the room dialogue ground is black (#3340)`, m.tabGrounds && m.tabGrounds.thread);
+        chk(comp[3] > 0 && comp[0] <= 8 && comp[1] <= 8 && comp[2] <= 8,
+          `${t} the composer follows the ground to black -- no lighter band (#3340)`, m.tabGrounds && m.tabGrounds.composer);
+        chk(amask[0] <= 8 && amask[1] <= 8 && amask[2] <= 8,
+          `${t} the tail mask follows the ground to black (#3340, no seam on #000)`, m.agentMask && m.agentMask.bg);
+      } else {
+        chk(msgTxt[3] > 0 && msgTxt[0] <= 90 && msgTxt[1] <= 90 && msgTxt[2] <= 90,
+          `${t} the message text is the dark ink (control: the dark #fff arm is not vacuous)`, m.msgTextColor);
+        chk(grd[0] >= 200 && grd[1] >= 200 && grd[2] >= 200,
+          `${t} the room dialogue ground is the light surface (control: the dark #000 arm is not vacuous)`, m.tabGrounds && m.tabGrounds.thread);
+      }
       // the STRUCTURAL guard for the wing's visibility -- `.msg-bd` owns its own stacking
       // context so the negative-z-index wing (::before) and mask (::after) tuck behind THIS
       // bubble, not behind `.thread`.
@@ -378,6 +430,101 @@ const now = () => new Date().toISOString();
         `bodyLead=${px.bodyLead} maxWingLead=${px.maxWingLead}`);
     } finally {
       await pxPage.close();
+    }
+
+    /* #3340 (Josh 6.83): the CONSOLIDATED ("One screen") layout ground. #980 merges the thread
+       into its .pj3 > .pjmid parent (the thread is background:none there), and #3267 tied the
+       composer to that one ground. So the dark #000 must land on the MERGED surface
+       (.pj3 > .pjmid + .composer) with the thread left transparent -- never a black thread box
+       seamed against a lighter panel. Three scenarios, each entering the real layout state
+       (data-layout + body.consolidated at >=960px) and reading the real computed grounds:
+         - light (control): the ground is the light surface, so the dark #000 arm is not vacuous.
+         - dark: the merged panel + composer are #000, the thread transparent.
+         - dark + body.plus-active: the Kosmos Plus navy paid theme is EXCLUDED, so its dialogue
+           ground stays its own navy (NOT #000) -- the regression guard for the paid tier. */
+    for (const sc of [{ theme: 'light', plus: false }, { theme: 'dark', plus: false }, { theme: 'dark', plus: true }]) {
+      const consPage = await browser.newPage({ viewport: { width: 1400, height: 900 }, colorScheme: sc.theme });
+      try {
+        await consPage.addInitScript(() => {
+          window.setInterval = () => 0;
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.fetch = async () => enc({});
+        });
+        await consPage.goto(PAGE);
+        const cons = await consPage.evaluate(({ ts, plus }) => {
+          document.documentElement.setAttribute('data-layout', 'consolidated');
+          document.body.classList.add('consolidated');
+          if (plus) document.body.classList.add('plus-active');
+          const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+          const pj3 = document.createElement('div'); pj3.className = 'pj3';
+          const pjmid = document.createElement('div'); pjmid.className = 'pjmid';
+          const thread = document.createElement('div'); thread.className = 'thread';
+          thread.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'on it, board cleared.' }, p);
+          const composer = document.createElement('div'); composer.className = 'composer';
+          pjmid.appendChild(thread); pjmid.appendChild(composer); pj3.appendChild(pjmid);
+          document.body.appendChild(pj3);
+          const cs = getComputedStyle;
+          const out = { pjmidBg: cs(pjmid).backgroundColor, composerBg: cs(composer).backgroundColor, threadBg: cs(thread).backgroundColor };
+          pj3.remove(); document.body.classList.remove('plus-active');
+          return out;
+        }, { ts: now(), plus: sc.plus });
+        const pj = parse(cons.pjmidBg); const co = parse(cons.composerBg); const th = parse(cons.threadBg);
+        const isBlack = (c) => c[3] > 0 && c[0] <= 8 && c[1] <= 8 && c[2] <= 8;
+        if (sc.plus) {
+          chk(!isBlack(pj), `[dark/consolidated/plus] the Plus navy dialogue ground is NOT blacked (#3340 excludes body.plus-active)`, cons.pjmidBg);
+        } else if (sc.theme === 'dark') {
+          chk(isBlack(pj), `[dark/consolidated] the merged dialogue ground (.pj3 > .pjmid) is black (#3340)`, cons.pjmidBg);
+          chk(isBlack(co), `[dark/consolidated] the composer follows the ground to black (#3267 lockstep)`, cons.composerBg);
+          chk(th[3] === 0, `[dark/consolidated] the thread stays transparent (merges into the black panel, no floating box)`, cons.threadBg);
+        } else {
+          chk(pj[0] >= 200 && pj[1] >= 200 && pj[2] >= 200, `[light/consolidated] the merged ground is the light surface (control: the dark #000 arm is not vacuous)`, cons.pjmidBg);
+        }
+      } finally {
+        await consPage.close();
+      }
+    }
+
+    /* #3340: the TAB-view Plus exclusion, the common code path. All four tab night-mode rules
+       (.msg text, .thread ground, .composer, .msg-bd::after mask) carry :not(.plus-active); this
+       arm proves the guard by entering dark + body.plus-active WITHOUT the consolidated layout and
+       confirming NONE of them blacked the Kosmos Plus navy dialogue (a dropped guard would turn the
+       paid tier's navy tab black -- the regression this pins). */
+    const tabPlusPage = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: 'dark' });
+    try {
+      await tabPlusPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await tabPlusPage.goto(PAGE);
+      const tp = await tabPlusPage.evaluate((ts) => {
+        document.body.classList.add('plus-active');
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const wrap = document.createElement('div'); wrap.className = 'pjmid';
+        const thread = document.createElement('div'); thread.className = 'thread';
+        thread.innerHTML = pjRoomRow({ id: 'm-a', from: 'april', at: ts, text: 'on it.' }, p);
+        const composer = document.createElement('div'); composer.className = 'composer';
+        wrap.appendChild(thread); wrap.appendChild(composer); document.body.appendChild(wrap);
+        const cs = getComputedStyle;
+        const bd = thread.querySelector('.msg:not(.you) .msg-bd');
+        const pEl = thread.querySelector('.msg-bd p');
+        const out = {
+          threadBg: cs(thread).backgroundColor,
+          composerBg: cs(composer).backgroundColor,
+          textColor: pEl ? cs(pEl).color : null,
+          maskBg: bd ? cs(bd, '::after').backgroundColor : null,
+        };
+        wrap.remove(); document.body.classList.remove('plus-active');
+        return out;
+      }, now());
+      const isBlack = (s) => { const c = parse(s); return c[3] > 0 && c[0] <= 8 && c[1] <= 8 && c[2] <= 8; };
+      const isWhite = (s) => { const c = parse(s); return c[0] >= 240 && c[1] >= 240 && c[2] >= 240; };
+      chk(!isBlack(tp.threadBg), `[dark/tab/plus] the Plus navy thread ground is NOT blacked (:not(.plus-active) holds)`, tp.threadBg);
+      chk(!isBlack(tp.composerBg), `[dark/tab/plus] the Plus navy composer is NOT blacked`, tp.composerBg);
+      chk(!isWhite(tp.textColor), `[dark/tab/plus] the Plus message text is NOT forced white`, tp.textColor);
+      chk(!isBlack(tp.maskBg), `[dark/tab/plus] the Plus tail mask is NOT blacked`, tp.maskBg);
+    } finally {
+      await tabPlusPage.close();
     }
   } finally {
     await browser.close();
