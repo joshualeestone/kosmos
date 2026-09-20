@@ -763,11 +763,10 @@ class KosmosLauncher
     // What Windows lists Kosmos as, in the Start menu and in Settings > Apps.
     const string DisplayName = "Kosmos";
 
-    // 🛑 EMPTY UNTIL JOSH NAMES IT. Settings > Apps shows a Publisher, and it has to be the
-    // legal company name on the code-signing certificate -- the same name AssemblyCompany
-    // waits for. A guessed name would contradict the signature once it lands. Written only
+    // Settings > Apps shows a Publisher, and it has to be the legal company name -- the same
+    // name AssemblyCompany waits for. Josh gave it: Kosmos Agent Manager, Inc. Written only
     // when non-empty; a stale value is deleted while it is empty.
-    internal const string PublisherLegalName = "";
+    internal const string PublisherLegalName = "Kosmos Agent Manager, Inc.";
 
     const string ManifestFileName = "manifest.json";
     const string ShortcutFileName = "Kosmos.lnk";

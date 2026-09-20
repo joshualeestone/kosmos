@@ -65,12 +65,13 @@ test('W-20: the Start menu shortcut is IShellLink COM, never a PowerShell or WSc
   assert.equal(constant('ShortcutFileName'), 'Kosmos.lnk');
 });
 
-test('W-27b: the Apps & features entry is per user, and names no Publisher until the certificate does', () => {
+test('W-27b: the Apps & features entry is per user, and names the legal company as its Publisher', () => {
   assert.match(SOURCE, /internal static string uninstallKeyParent = @"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall";/);
   assert.equal(constant('UninstallKeyName'), 'Kosmos');
   assert.doesNotMatch(CODE, /Registry\.LocalMachine|RegistryHive\.LocalMachine/, 'a machine-wide key needs admin');
   assert.match(method('RegisterUninstallEntry'), /Registry\.CurrentUser\.CreateSubKey\(uninstallKeyParent \+ "\\\\" \+ UninstallKeyName\)/);
-  assert.match(SOURCE, /internal const string PublisherLegalName = "";/, 'a Publisher was named before Josh gave the certificate\'s legal company name');
+  assert.match(SOURCE, /internal const string PublisherLegalName = "Kosmos Agent Manager, Inc\.";/, 'the Publisher is not the legal company name Josh gave');
+  assert.match(method('RegisterUninstallEntry'), /if \(PublisherLegalName\.Length > 0\) key\.SetValue\("Publisher", PublisherLegalName, RegistryValueKind\.String\);/, 'the Publisher is not written into the uninstall entry');
   assert.equal([...CODE.matchAll(/"Publisher"/g)].length, 2, 'Publisher is written somewhere other than behind the certificate constant');
 });
 
@@ -443,7 +444,8 @@ test('W-27b probe: the Apps entry is written under HKCU\\Software\\KosmosTest, e
       NoModify: 'REG_DWORD 0x1',
       NoRepair: 'REG_DWORD 0x1',
       EstimatedSize: 'REG_DWORD 0x181cd',
-    }, 'the entry is not exactly what Settings > Apps needs (a quoted icon path with its index, and no Publisher)');
+      Publisher: 'REG_SZ Kosmos Agent Manager, Inc.',
+    }, 'the entry is not exactly what Settings > Apps needs (a quoted icon path with its index, and the legal company as Publisher)');
 
     assert.deepEqual(run('register', parent, exe, root, '-', '0'), { code: 0, out: 'OK' });
     const refreshed = values();
