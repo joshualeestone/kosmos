@@ -7213,6 +7213,21 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 /* win32-board-copy: the platform copy layer's one hiding rule. applyPlatformCopy()
    stamps data-kosmos-platform on <html> only on Windows, so on a Mac nothing matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
+/* #3330: gate the #3312 federation UI to the STAGING channel. Federation is a
+   client-only MVP whose transport (slice 3, room-id) and coordinator are not built
+   and whose /api/federation/* proxy is not implemented, so the external doors open
+   but messaging does not flow -- shipping it to prod is a door to nothing. The
+   channel is stamped on <html> as data-source-channel from /api/status (see the
+   status tick calling paintBuildMark). The `:not(...=staging)` form hides the fed
+   entry points by DEFAULT -- before the channel is known and on the prod channel --
+   and reveals them only once the channel is confirmed staging (a review surface),
+   which matches the server's own prod-by-default. `.pj-mode` is the create/join
+   toggle (hiding it leaves plain create-a-project); the two `#pj-add-ext-*` buttons
+   are the create-side external doors; `#pj-invite-panel` and `#pj-join-mode` are
+   their follow-on surfaces. `#pj-add-agent` (local agent add) and `#pj-create` are
+   NOT gated. To ship federation to prod (transport + coordinator deployed, or a
+   Josh-approved preview), remove this rule. Verified by render-fed-prod-gate-3330.js. */
+html:not([data-source-channel="staging"]) .pj-mode,html:not([data-source-channel="staging"]) #pj-add-ext-person,html:not([data-source-channel="staging"]) #pj-add-ext-agent,html:not([data-source-channel="staging"]) #pj-invite-panel,html:not([data-source-channel="staging"]) #pj-join-mode { display: none !important; }
 /* The Windows install command and its Copy button (W-14). The command keeps its own
    wrapping rule above; the row only puts the button beside it. */
 .fr-cmd-row { display: flex; align-items: flex-start; gap: var(--space-4); }
@@ -17348,6 +17363,11 @@ async function tick() {
     paintBuildLine(data.version);
     // #2066: the corner build marker reads (version, sourceChannel) off this same tick.
     paintBuildMark(data.version, data.sourceChannel);
+    // #3330: stamp the update channel on <html> so the CSS gate can hide the
+    // not-yet-functional #3312 federation UI on prod and reveal it on staging.
+    // Prod-by-default (anything but 'staging' hides it), matching the server's default.
+    document.documentElement.setAttribute('data-source-channel',
+      data.sourceChannel === 'staging' ? 'staging' : 'prod');
 
     // The freshness stamp is load-bearing. An ambient board gets trusted
     // passively, and silence reads as "all fine". If this stops updating, the
