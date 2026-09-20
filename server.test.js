@@ -8497,8 +8497,9 @@ test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
   // --agent-msg from any dark block --k-sunk defines and the counts diverge.
   // Unlike --usermsg-tint this does NOT assert the dark values agree, because navy
   // intentionally differs (its own bluish inset, now baked opaque per #3267) while the
-  // other dark blocks use the night-mode gray (#252529, Josh #3340; light stays the #2947
-  // cream) -- presence parity is this test's guarantee, not value-agreement. Opacity of every bubble-fill value is guarded separately below
+  // other dark blocks use the night-mode gray (#252529, Josh #3340; light stays the
+  // #2947 cream) -- presence parity is this test's guarantee, not value-agreement.
+  // Opacity of every bubble-fill value is guarded separately below
   // ("every bubble-fill token is opaque"), which the Option A overlap wing requires.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const declsIn = (token, text) => text.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [];

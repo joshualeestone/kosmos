@@ -425,6 +425,49 @@ const now = () => new Date().toISOString();
     } finally {
       await pxPage.close();
     }
+
+    /* #3340 (Josh 6.83): the CONSOLIDATED ("One screen") layout ground, in DARK. #980
+       merges the thread into its .pj3 > .pjmid parent (the thread is background:none there),
+       and #3267 tied the composer to that one ground. So the dark #000 must land on the
+       MERGED surface (.pj3 > .pjmid + .composer) with the thread left transparent -- never a
+       black thread box seamed against a lighter panel (the regression an earlier draft had).
+       This arm sets the real layout state (data-layout + body.consolidated at >=960px) and
+       reads the real computed grounds, the coverage the standalone .pjmid probe above cannot
+       reach because it never enters the consolidated layout. */
+    const consPage = await browser.newPage({ viewport: { width: 1400, height: 900 }, colorScheme: 'dark' });
+    try {
+      await consPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await consPage.goto(PAGE);
+      const cons = await consPage.evaluate((ts) => {
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        document.body.classList.add('consolidated');
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const pj3 = document.createElement('div'); pj3.className = 'pj3';
+        const pjmid = document.createElement('div'); pjmid.className = 'pjmid';
+        const thread = document.createElement('div'); thread.className = 'thread';
+        thread.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'on it, board cleared.' }, p);
+        const composer = document.createElement('div'); composer.className = 'composer';
+        pjmid.appendChild(thread); pjmid.appendChild(composer); pj3.appendChild(pjmid);
+        document.body.appendChild(pj3);
+        const cs = getComputedStyle;
+        const out = { pjmidBg: cs(pjmid).backgroundColor, composerBg: cs(composer).backgroundColor, threadBg: cs(thread).backgroundColor };
+        pj3.remove();
+        return out;
+      }, now());
+      const pj = parse(cons.pjmidBg); const co = parse(cons.composerBg); const th = parse(cons.threadBg);
+      chk(pj[3] > 0 && pj[0] <= 8 && pj[1] <= 8 && pj[2] <= 8,
+        `[dark/consolidated] the merged dialogue ground (.pj3 > .pjmid) is black (#3340)`, cons.pjmidBg);
+      chk(co[3] > 0 && co[0] <= 8 && co[1] <= 8 && co[2] <= 8,
+        `[dark/consolidated] the composer follows the ground to black (#3267 lockstep)`, cons.composerBg);
+      chk(th[3] === 0,
+        `[dark/consolidated] the thread stays transparent (merges into the black panel, no floating box)`, cons.threadBg);
+    } finally {
+      await consPage.close();
+    }
   } finally {
     await browser.close();
   }
