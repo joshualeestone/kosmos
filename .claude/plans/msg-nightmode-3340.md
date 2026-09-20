@@ -45,10 +45,13 @@ Part B — night-mode colors (DARK only, scoped, never a global token):
    Josh saying he meant the Talk-to-agent DM.
 2. **Text #fff and ground #000 scoped to the ROOM (.msg / .pjmid .thread), not the DM.** The card
    says "leave everything else the same," and he screenshotted the room. The bubble-bg TOKENS
-   (--agent-msg / --usermsg-tint) are shared, so the DM bubbles get the new dark colors automatically
-   and stay legible; I did NOT force the DM text/ground. If Josh wants the DM to match exactly, that
-   is a one-line follow-up. Weakest premise: that he wants only the room recolored; mitigated by
-   "leave everything else the same."
+   (--agent-msg / --usermsg-tint) are shared, so the DM bubbles AND the "Talk to one of them"
+   .pj-msg surface get the new dark colors automatically (in dark, .pj-msg wears the deeper indigo
+   #1b1f65 via --usermsg-tint). That is by-design token sharing (the tokens are deliberately one
+   source per the web/index.html 114/120 comments) and legibility is not worsened (the old dark
+   values were darker). I did NOT force the DM/pj-msg text or ground. If Josh wants those surfaces
+   to match the room exactly, that is a one-line follow-up. Weakest premise: that he wants only the
+   room recolored; mitigated by "leave everything else the same."
 3. **Timestamps stay dimmer (--k-ink-2), not #fff.** "Message text" = the message body (and the
    agent name, already near-white); the timestamp is de-emphasized meta, dimmer in both themes. Not
    changing it honors "leave everything else the same."

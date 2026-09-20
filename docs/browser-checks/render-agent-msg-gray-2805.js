@@ -200,7 +200,7 @@ const FX = {
         // NOT the user's blue (blue channel does not lead by much); arm (b) still separates
         // it from the person's blue by delta.
         const agentToneOk = theme === 'dark'
-          ? (spread(cream) <= 20 && (cream[2] - Math.max(cream[0], cream[1])) < 20)
+          ? (spread(cream) <= 20 && (cream[2] - Math.max(cream[0], cream[1])) < 20 && Math.max(cream[0], cream[1], cream[2]) <= 80)
           : (cream[0] >= cream[1] && cream[1] >= cream[2] && (cream[0] - cream[2]) >= 2 && spread(cream) <= 20);
         chk(agentToneOk,
           `${t} the agent bubble is its own tone (warm cream in light, cool dark gray in dark), not the blue`,
@@ -230,7 +230,7 @@ const FX = {
       { const p = parse(flat.base);
         // #3340: warm cream in light, cool near-neutral dark gray (#252529) in dark.
         const toneOk = theme === 'dark'
-          ? (spread(p) <= 20 && (p[2] - Math.max(p[0], p[1])) < 20)
+          ? (spread(p) <= 20 && (p[2] - Math.max(p[0], p[1])) < 20 && Math.max(p[0], p[1], p[2]) <= 80)
           : (p[0] >= p[1] && p[1] >= p[2] && (p[0] - p[2]) >= 2);
         chk(toneOk, `${t} the one agent color is its own tone (warm cream in light, cool dark gray in dark)`, flat.base); }
 

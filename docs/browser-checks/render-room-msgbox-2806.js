@@ -204,6 +204,19 @@ const now = () => new Date().toISOString();
              three-row fixture above. */
           noTimeHasBody: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-bd'); })(),
           noTimeHasTime: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-t'); })(),
+          /* #3340 (Josh 6.83): the message body TEXT. Dark -> #fff, light -> the dark ink.
+             Read the agent bubble's body paragraph. */
+          msgTextColor: (() => { const el = agentRow && agentRow.querySelector('.msg-bd p'); return el ? getComputedStyle(el).color : null; })(),
+          /* #3340: the room dialogue GROUND behind the bubbles. It is scoped to `.pjmid .thread`
+             (both layouts), so measure it in that exact nesting -- a bare `.thread` inherits the
+             page ground and would not exercise the #000 rule. Dark -> #000, light -> the surface. */
+          threadGroundBg: (() => {
+            const wrap = document.createElement('div'); wrap.className = 'pjmid';
+            const th = document.createElement('div'); th.className = 'thread';
+            th.innerHTML = pjRoomRow(agentMsg, p);
+            wrap.appendChild(th); document.body.appendChild(wrap);
+            const bg = getComputedStyle(th).backgroundColor; wrap.remove(); return bg;
+          })(),
         };
         host.remove();
         return out;
@@ -295,6 +308,27 @@ const now = () => new Date().toISOString();
       const amask = parse(m.agentMask && m.agentMask.bg);
       chk(!!(m.agentMask && m.agentMask.on) && amask[3] > 0,
         `${t} the wing MASK (::after) carries the thread-ground fill`, m.agentMask && m.agentMask.bg);
+      // #3340 (Josh 6.83): the three night-mode-only recolors Josh specified for the room,
+      // pinned by CONTENT so a future deletion of any of them reds here (not just via the gate
+      // trailer). Dark: message text -> #fff, dialogue ground -> #000, and the tail mask FOLLOWS
+      // the ground to #000 (else a #17191c seam shows behind the wing on black). Light is the
+      // control -- text stays the dark ink, ground stays the light surface, so the dark arms are
+      // demonstrably not vacuous.
+      const msgTxt = parse(m.msgTextColor);
+      const grd = parse(m.threadGroundBg);
+      if (theme === 'dark') {
+        chk(msgTxt[0] >= 240 && msgTxt[1] >= 240 && msgTxt[2] >= 240,
+          `${t} the message text is white (#3340)`, m.msgTextColor);
+        chk(grd[3] > 0 && grd[0] <= 8 && grd[1] <= 8 && grd[2] <= 8,
+          `${t} the room dialogue ground is black (#3340)`, m.threadGroundBg);
+        chk(amask[0] <= 8 && amask[1] <= 8 && amask[2] <= 8,
+          `${t} the tail mask follows the ground to black (#3340, no seam on #000)`, m.agentMask && m.agentMask.bg);
+      } else {
+        chk(msgTxt[3] > 0 && msgTxt[0] <= 90 && msgTxt[1] <= 90 && msgTxt[2] <= 90,
+          `${t} the message text is the dark ink (control: the dark #fff arm is not vacuous)`, m.msgTextColor);
+        chk(grd[0] >= 200 && grd[1] >= 200 && grd[2] >= 200,
+          `${t} the room dialogue ground is the light surface (control: the dark #000 arm is not vacuous)`, m.threadGroundBg);
+      }
       // the STRUCTURAL guard for the wing's visibility -- `.msg-bd` owns its own stacking
       // context so the negative-z-index wing (::before) and mask (::after) tuck behind THIS
       // bubble, not behind `.thread`.
