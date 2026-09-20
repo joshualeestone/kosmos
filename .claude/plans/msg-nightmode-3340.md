@@ -48,8 +48,10 @@ Part B - night-mode colors (DARK only, scoped, never a global token):
    (--agent-msg / --usermsg-tint) are shared, so the DM bubbles AND the "Talk to one of them"
    .pj-msg surface get the new dark colors automatically (in dark, .pj-msg wears the deeper indigo
    #1b1f65 via --usermsg-tint). That is by-design token sharing (the tokens are deliberately one
-   source per the web/index.html 114/120 comments) and legibility is not worsened (the old dark
-   values were darker). I did NOT force the DM/pj-msg text or ground. If Josh wants those surfaces
+   source per the web/index.html 114/120 comments) and legibility stays comfortable: the new
+   #1b1f65 (rgb 27,31,101) is slightly lighter than the old #141c2f (rgb 20,28,47), so contrast for
+   the existing DM/pj-msg text dips a touch but stays high (white ~14:1, the dim ink ~7:1, both well
+   above the floor). I did NOT force the DM/pj-msg text or ground. If Josh wants those surfaces
    to match the room exactly, that is a one-line follow-up. Weakest premise: that he wants only the
    room recolored; mitigated by "leave everything else the same."
 3. **Timestamps stay dimmer (--k-ink-2), not #fff.** "Message text" = the message body (and the
