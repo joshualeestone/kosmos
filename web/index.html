@@ -9915,7 +9915,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s2-dlg-fan{display:flex;flex-wrap:wrap;gap:14px;align-items:stretch;justify-content:center;margin:2px 0 16px}
         /* #3336 (Josh 6.83): the preview box is much smaller now -- roughly 1/3 the old width
            and 1/2 the old height. It no longer grows to fill the ~552px pane (was flex:1 1 240px);
-           a fixed ~170px width + tighter padding + the removed Allow/Don't Allow buttons shrink it
+           a fixed ~205px width + tighter padding + the removed Allow/Don't Allow buttons shrink it
            to a compact macOS prompt. flex-wrap on .s2-dlg-fan still centres the single preview. */
         .s2-dlg{flex:0 1 auto;width:205px;max-width:100%;text-align:left;border-radius:12px;padding:10px 12px 10px;
           background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
@@ -46337,7 +46337,9 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
   // in the .s2-gate-row. (Josh, 2026-09-08 history: the mock previously routed a click here.)
   const b = e.target.closest('.s2-allow');
   if (!b || b.disabled) return;
-  // once granted, the real button is hidden but the mock stays visible; do not re-open.
+  // #3336: once granted, the real Allow Access button is hidden; the post-grant guard below
+  // prevents re-firing the flow on a stray click in the granted gate row. (The mock preview
+  // that used to sit alongside was removed in #3336.)
   const row = b.closest('.s2-gate-row');
   if (row && row.hasAttribute('data-granted')) return;
   const msg = document.getElementById('fr-s2-msg');
