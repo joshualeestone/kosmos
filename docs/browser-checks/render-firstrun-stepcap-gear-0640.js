@@ -136,9 +136,11 @@ function unhide(id) {
       if (!gear) return { noGear: true };
       const c = getComputedStyle(gear);
       const r = gear.getBoundingClientRect();
-      // #2236/0.6.42 #1 CONTROL: S4 (bash background activity) must STILL say "Login Items" --
-      // that pane is correct for the bash background grant; only S3's tmux window moved to
-      // Accessibility. This guards against over-removing "Login Items" from the whole file.
+      // #3337 (Josh 6.83): S4's copy was simplified to the one line "bash can run in the
+      // background.", so it no longer names "Login Items" on screen. The 0.6.42 #1 control
+      // (S4 must still say "Login Items", guarding against over-removal when S3's tmux moved to
+      // Accessibility) is superseded by this deliberate removal, so the arm below now pins the
+      // new one-liner and asserts the Login-Items sentence is gone, rather than expecting it.
       const nb = pane.querySelector('.s4-nb');
       const nt = pane.querySelector('.s4-nt');
       const ntc = nt ? getComputedStyle(nt) : null;
@@ -173,8 +175,9 @@ function unhide(id) {
       const gearOk = s4.w >= 48 && s4.w <= 58 && s4.h >= 48 && s4.h <= 58 && s4.gearHasSvg && s4.gearGlyph === '';
       check(`${engine}: the S4 notification cog box HUGS the cog (box 48-58px) and holds the SVG gear, not the U+2699 glyph`,
         gearOk, JSON.stringify(s4));
-      check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
-        /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
+      check(`${engine}: S4 (bash) copy is the #3337 one-liner "can run in the background", no "Login Items"`,
+        /can run in the background/i.test(s4.s4Text || '') && !/login items/i.test(s4.s4Text || ''),
+        `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
       // #768-batch (Josh, said 3 times; Mona third round): "App Background Activity" must
       // be BOLD, NOT a larger font, AND the whole notice is the intended SMALL size
       // (.6875rem == ~11px on a 16px root). Four arms, so none of the regressions pass:

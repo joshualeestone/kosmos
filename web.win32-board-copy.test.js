@@ -525,7 +525,7 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
     // Kosmos preview; the single-preview structure is asserted by render-firstrun-access-onebox.js.
     /<p class="s2-say">"Kosmos" would like to access files\.<\/p>/,
     /<h2>Random notifications may appear<\/h2>/,
-    /"bash" can run in the background\. You can manage background activity in Login Items &amp; Extensions\./,
+    /<p class="s4-nb">"bash" can run in the background\.<\/p>/,
     /<h2>Kosmos is installed and configured\.<\/h2>/,
     />Kosmos is now in your applications folder, and you will see Kosmos in your dock\.<\/p>/,
     />Drag the Kosmos icon to the far left so it stays there and is easy to find later\.<\/p>/,
