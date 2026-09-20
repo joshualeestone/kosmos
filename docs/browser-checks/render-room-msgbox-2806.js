@@ -207,15 +207,18 @@ const now = () => new Date().toISOString();
           /* #3340 (Josh 6.83): the message body TEXT. Dark -> #fff, light -> the dark ink.
              Read the agent bubble's body paragraph. */
           msgTextColor: (() => { const el = agentRow && agentRow.querySelector('.msg-bd p'); return el ? getComputedStyle(el).color : null; })(),
-          /* #3340: the room dialogue GROUND behind the bubbles. It is scoped to `.pjmid .thread`
-             (both layouts), so measure it in that exact nesting -- a bare `.thread` inherits the
-             page ground and would not exercise the #000 rule. Dark -> #000, light -> the surface. */
-          threadGroundBg: (() => {
+          /* #3340: the TAB-view dialogue GROUND (.thread) AND the sticky .composer, which is
+             blacked in lockstep so the flat area has no lighter band at the bottom (#3267 tied
+             them). Measure both in the real `.pjmid` nesting -- a bare `.thread` inherits the page
+             ground and would not exercise the #000 rule. Dark -> both #000, light -> the surface. */
+          tabGrounds: (() => {
             const wrap = document.createElement('div'); wrap.className = 'pjmid';
             const th = document.createElement('div'); th.className = 'thread';
             th.innerHTML = pjRoomRow(agentMsg, p);
-            wrap.appendChild(th); document.body.appendChild(wrap);
-            const bg = getComputedStyle(th).backgroundColor; wrap.remove(); return bg;
+            const co = document.createElement('div'); co.className = 'composer';
+            wrap.appendChild(th); wrap.appendChild(co); document.body.appendChild(wrap);
+            const out = { thread: getComputedStyle(th).backgroundColor, composer: getComputedStyle(co).backgroundColor };
+            wrap.remove(); return out;
           })(),
         };
         host.remove();
@@ -315,19 +318,22 @@ const now = () => new Date().toISOString();
       // control -- text stays the dark ink, ground stays the light surface, so the dark arms are
       // demonstrably not vacuous.
       const msgTxt = parse(m.msgTextColor);
-      const grd = parse(m.threadGroundBg);
+      const grd = parse(m.tabGrounds && m.tabGrounds.thread);
+      const comp = parse(m.tabGrounds && m.tabGrounds.composer);
       if (theme === 'dark') {
         chk(msgTxt[0] >= 240 && msgTxt[1] >= 240 && msgTxt[2] >= 240,
           `${t} the message text is white (#3340)`, m.msgTextColor);
         chk(grd[3] > 0 && grd[0] <= 8 && grd[1] <= 8 && grd[2] <= 8,
-          `${t} the room dialogue ground is black (#3340)`, m.threadGroundBg);
+          `${t} the room dialogue ground is black (#3340)`, m.tabGrounds && m.tabGrounds.thread);
+        chk(comp[3] > 0 && comp[0] <= 8 && comp[1] <= 8 && comp[2] <= 8,
+          `${t} the composer follows the ground to black -- no lighter band (#3340)`, m.tabGrounds && m.tabGrounds.composer);
         chk(amask[0] <= 8 && amask[1] <= 8 && amask[2] <= 8,
           `${t} the tail mask follows the ground to black (#3340, no seam on #000)`, m.agentMask && m.agentMask.bg);
       } else {
         chk(msgTxt[3] > 0 && msgTxt[0] <= 90 && msgTxt[1] <= 90 && msgTxt[2] <= 90,
           `${t} the message text is the dark ink (control: the dark #fff arm is not vacuous)`, m.msgTextColor);
         chk(grd[0] >= 200 && grd[1] >= 200 && grd[2] >= 200,
-          `${t} the room dialogue ground is the light surface (control: the dark #000 arm is not vacuous)`, m.threadGroundBg);
+          `${t} the room dialogue ground is the light surface (control: the dark #000 arm is not vacuous)`, m.tabGrounds && m.tabGrounds.thread);
       }
       // the STRUCTURAL guard for the wing's visibility -- `.msg-bd` owns its own stacking
       // context so the negative-z-index wing (::before) and mask (::after) tuck behind THIS
@@ -426,47 +432,56 @@ const now = () => new Date().toISOString();
       await pxPage.close();
     }
 
-    /* #3340 (Josh 6.83): the CONSOLIDATED ("One screen") layout ground, in DARK. #980
-       merges the thread into its .pj3 > .pjmid parent (the thread is background:none there),
-       and #3267 tied the composer to that one ground. So the dark #000 must land on the
-       MERGED surface (.pj3 > .pjmid + .composer) with the thread left transparent -- never a
-       black thread box seamed against a lighter panel (the regression an earlier draft had).
-       This arm sets the real layout state (data-layout + body.consolidated at >=960px) and
-       reads the real computed grounds, the coverage the standalone .pjmid probe above cannot
-       reach because it never enters the consolidated layout. */
-    const consPage = await browser.newPage({ viewport: { width: 1400, height: 900 }, colorScheme: 'dark' });
-    try {
-      await consPage.addInitScript(() => {
-        window.setInterval = () => 0;
-        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
-        window.fetch = async () => enc({});
-      });
-      await consPage.goto(PAGE);
-      const cons = await consPage.evaluate((ts) => {
-        document.documentElement.setAttribute('data-layout', 'consolidated');
-        document.body.classList.add('consolidated');
-        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
-        const pj3 = document.createElement('div'); pj3.className = 'pj3';
-        const pjmid = document.createElement('div'); pjmid.className = 'pjmid';
-        const thread = document.createElement('div'); thread.className = 'thread';
-        thread.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'on it, board cleared.' }, p);
-        const composer = document.createElement('div'); composer.className = 'composer';
-        pjmid.appendChild(thread); pjmid.appendChild(composer); pj3.appendChild(pjmid);
-        document.body.appendChild(pj3);
-        const cs = getComputedStyle;
-        const out = { pjmidBg: cs(pjmid).backgroundColor, composerBg: cs(composer).backgroundColor, threadBg: cs(thread).backgroundColor };
-        pj3.remove();
-        return out;
-      }, now());
-      const pj = parse(cons.pjmidBg); const co = parse(cons.composerBg); const th = parse(cons.threadBg);
-      chk(pj[3] > 0 && pj[0] <= 8 && pj[1] <= 8 && pj[2] <= 8,
-        `[dark/consolidated] the merged dialogue ground (.pj3 > .pjmid) is black (#3340)`, cons.pjmidBg);
-      chk(co[3] > 0 && co[0] <= 8 && co[1] <= 8 && co[2] <= 8,
-        `[dark/consolidated] the composer follows the ground to black (#3267 lockstep)`, cons.composerBg);
-      chk(th[3] === 0,
-        `[dark/consolidated] the thread stays transparent (merges into the black panel, no floating box)`, cons.threadBg);
-    } finally {
-      await consPage.close();
+    /* #3340 (Josh 6.83): the CONSOLIDATED ("One screen") layout ground. #980 merges the thread
+       into its .pj3 > .pjmid parent (the thread is background:none there), and #3267 tied the
+       composer to that one ground. So the dark #000 must land on the MERGED surface
+       (.pj3 > .pjmid + .composer) with the thread left transparent -- never a black thread box
+       seamed against a lighter panel. Three scenarios, each entering the real layout state
+       (data-layout + body.consolidated at >=960px) and reading the real computed grounds:
+         - light (control): the ground is the light surface, so the dark #000 arm is not vacuous.
+         - dark: the merged panel + composer are #000, the thread transparent.
+         - dark + body.plus-active: the Kosmos Plus navy paid theme is EXCLUDED, so its dialogue
+           ground stays its own navy (NOT #000) -- the regression guard for the paid tier. */
+    for (const sc of [{ theme: 'light', plus: false }, { theme: 'dark', plus: false }, { theme: 'dark', plus: true }]) {
+      const consPage = await browser.newPage({ viewport: { width: 1400, height: 900 }, colorScheme: sc.theme });
+      try {
+        await consPage.addInitScript(() => {
+          window.setInterval = () => 0;
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.fetch = async () => enc({});
+        });
+        await consPage.goto(PAGE);
+        const cons = await consPage.evaluate(({ ts, plus }) => {
+          document.documentElement.setAttribute('data-layout', 'consolidated');
+          document.body.classList.add('consolidated');
+          if (plus) document.body.classList.add('plus-active');
+          const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+          const pj3 = document.createElement('div'); pj3.className = 'pj3';
+          const pjmid = document.createElement('div'); pjmid.className = 'pjmid';
+          const thread = document.createElement('div'); thread.className = 'thread';
+          thread.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'on it, board cleared.' }, p);
+          const composer = document.createElement('div'); composer.className = 'composer';
+          pjmid.appendChild(thread); pjmid.appendChild(composer); pj3.appendChild(pjmid);
+          document.body.appendChild(pj3);
+          const cs = getComputedStyle;
+          const out = { pjmidBg: cs(pjmid).backgroundColor, composerBg: cs(composer).backgroundColor, threadBg: cs(thread).backgroundColor };
+          pj3.remove(); document.body.classList.remove('plus-active');
+          return out;
+        }, { ts: now(), plus: sc.plus });
+        const pj = parse(cons.pjmidBg); const co = parse(cons.composerBg); const th = parse(cons.threadBg);
+        const isBlack = (c) => c[3] > 0 && c[0] <= 8 && c[1] <= 8 && c[2] <= 8;
+        if (sc.plus) {
+          chk(!isBlack(pj), `[dark/consolidated/plus] the Plus navy dialogue ground is NOT blacked (#3340 excludes body.plus-active)`, cons.pjmidBg);
+        } else if (sc.theme === 'dark') {
+          chk(isBlack(pj), `[dark/consolidated] the merged dialogue ground (.pj3 > .pjmid) is black (#3340)`, cons.pjmidBg);
+          chk(isBlack(co), `[dark/consolidated] the composer follows the ground to black (#3267 lockstep)`, cons.composerBg);
+          chk(th[3] === 0, `[dark/consolidated] the thread stays transparent (merges into the black panel, no floating box)`, cons.threadBg);
+        } else {
+          chk(pj[0] >= 200 && pj[1] >= 200 && pj[2] >= 200, `[light/consolidated] the merged ground is the light surface (control: the dark #000 arm is not vacuous)`, cons.pjmidBg);
+        }
+      } finally {
+        await consPage.close();
+      }
     }
   } finally {
     await browser.close();
