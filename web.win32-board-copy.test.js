@@ -526,7 +526,7 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
     // like to access files." preview (no per-folder lines, no group labels, no group micro-note).
     // 2026-09-19 (Josh, 0.6.81 QA): the tmux preview box was removed, so S2 now shows only the
     // Kosmos preview; the single-preview structure is asserted by render-firstrun-access-onebox.js.
-    /<p class="s2-say">"Kosmos" would like to access files\.<\/p>/,
+    /<p class="s2-say">"Kosmos" would like<br\s*\/?>to access files\.<\/p>/,
     /<h2>Random notifications may appear<\/h2>/,
     /<p class="s4-nb">"bash" can run in the background\.<\/p>/,
     /<h2>Kosmos is installed and configured\.<\/h2>/,
