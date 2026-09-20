@@ -234,10 +234,17 @@ const now = () => new Date().toISOString();
       // neutral gray (~0) and the warm agent cream (negative); the >=20 distinctness guard at (d)
       // is the strong separator and stays put.
       chk(blueLead(op) >= 8, `${t} the operator box is BLUE (blue channel leads)`, `${m.opBd} lead=${blueLead(op).toFixed(0)}`);
-      // (c) agent box filled AND a warm cream (#2947), not the blue.
+      // (c) agent box filled AND its own tone. LIGHT (#2947): a warm cream, R>=G>=B.
+      // DARK (#3340, Josh 6.83): the agent bubble moved to a COOL near-neutral dark
+      // gray (#252529 = rgb 37,37,41), so the warm-cream R>=G>=B shape is a light-mode
+      // claim now. In dark, assert it stays near-neutral (small spread), dark, and NOT
+      // the user's blue -- the distinctness arm (d) is the strong blue/agent separator.
       chk(ag[3] > 0, `${t} the agent body box (.msg:not(.you) .msg-bd) carries a fill`, m.agentBd);
-      chk(ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20,
-        `${t} the agent box is a warm cream (R>=G>=B), not a neutral gray or the blue`,
+      const agentToneOk = theme === 'dark'
+        ? (spread(ag) <= 20 && blueLead(ag) < 20 && Math.max(ag[0], ag[1], ag[2]) <= 80)
+        : (ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20);
+      chk(agentToneOk,
+        `${t} the agent box is its own tone (warm cream in light, cool dark gray in dark), not the blue`,
         `${m.agentBd} rgb=[${ag.slice(0, 3).map((x) => x.toFixed(1)).join(', ')}]`);
       // (d) the two are distinct (blue vs cream differ well beyond the alpha).
       chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent cream are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
@@ -273,8 +280,13 @@ const now = () => new Date().toISOString();
       // the agent wing inherits the warm cream, NOT blue; the operator wing is blue -- a
       // swap of the side rules reds one of these.
       const awing = parse(m.agentWing && m.agentWing.bg);
-      chk(awing[0] >= awing[1] && awing[1] >= awing[2] && (awing[0] - awing[2]) >= 2 && blueLead(awing) < 20,
-        `${t} the agent wing is the warm cream, not blue`, m.agentWing && m.agentWing.bg);
+      // The wing inherits the agent box fill (background-color: inherit), so it tracks
+      // the same tone: warm cream in light, cool dark gray in dark (#3340).
+      const awingToneOk = theme === 'dark'
+        ? (spread(awing) <= 20 && blueLead(awing) < 20 && Math.max(awing[0], awing[1], awing[2]) <= 80)
+        : (awing[0] >= awing[1] && awing[1] >= awing[2] && (awing[0] - awing[2]) >= 2 && blueLead(awing) < 20);
+      chk(awingToneOk,
+        `${t} the agent wing inherits the agent tone (warm cream in light, cool dark gray in dark), not blue`, m.agentWing && m.agentWing.bg);
       const owing = parse(m.opWing && m.opWing.bg);
       // #3267: the wing inherits the SOLID --usermsg-tint (background-color: inherit), so it reads
       // the same painted blue as the box at (b) -- floor 8, same recalibration rationale.
