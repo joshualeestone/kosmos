@@ -257,7 +257,7 @@ const now = () => new Date().toISOString();
       // the user's blue -- the distinctness arm (d) is the strong blue/agent separator.
       chk(ag[3] > 0, `${t} the agent body box (.msg:not(.you) .msg-bd) carries a fill`, m.agentBd);
       const agentToneOk = theme === 'dark'
-        ? (spread(ag) <= 20 && blueLead(ag) < 20 && Math.max(ag[0], ag[1], ag[2]) <= 80)
+        ? (spread(ag) <= 20 && blueLead(ag) < 20 && blueLead(ag) >= -2 && Math.max(ag[0], ag[1], ag[2]) <= 80)
         : (ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20);
       chk(agentToneOk,
         `${t} the agent box is its own tone (warm cream in light, cool dark gray in dark), not the blue`,
@@ -299,7 +299,7 @@ const now = () => new Date().toISOString();
       // The wing inherits the agent box fill (background-color: inherit), so it tracks
       // the same tone: warm cream in light, cool dark gray in dark (#3340).
       const awingToneOk = theme === 'dark'
-        ? (spread(awing) <= 20 && blueLead(awing) < 20 && Math.max(awing[0], awing[1], awing[2]) <= 80)
+        ? (spread(awing) <= 20 && blueLead(awing) < 20 && blueLead(awing) >= -2 && Math.max(awing[0], awing[1], awing[2]) <= 80)
         : (awing[0] >= awing[1] && awing[1] >= awing[2] && (awing[0] - awing[2]) >= 2 && blueLead(awing) < 20);
       chk(awingToneOk,
         `${t} the agent wing inherits the agent tone (warm cream in light, cool dark gray in dark), not blue`, m.agentWing && m.agentWing.bg);
@@ -482,6 +482,49 @@ const now = () => new Date().toISOString();
       } finally {
         await consPage.close();
       }
+    }
+
+    /* #3340: the TAB-view Plus exclusion, the common code path. All four tab night-mode rules
+       (.msg text, .thread ground, .composer, .msg-bd::after mask) carry :not(.plus-active); this
+       arm proves the guard by entering dark + body.plus-active WITHOUT the consolidated layout and
+       confirming NONE of them blacked the Kosmos Plus navy dialogue (a dropped guard would turn the
+       paid tier's navy tab black -- the regression this pins). */
+    const tabPlusPage = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: 'dark' });
+    try {
+      await tabPlusPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await tabPlusPage.goto(PAGE);
+      const tp = await tabPlusPage.evaluate((ts) => {
+        document.body.classList.add('plus-active');
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const wrap = document.createElement('div'); wrap.className = 'pjmid';
+        const thread = document.createElement('div'); thread.className = 'thread';
+        thread.innerHTML = pjRoomRow({ id: 'm-a', from: 'april', at: ts, text: 'on it.' }, p);
+        const composer = document.createElement('div'); composer.className = 'composer';
+        wrap.appendChild(thread); wrap.appendChild(composer); document.body.appendChild(wrap);
+        const cs = getComputedStyle;
+        const bd = thread.querySelector('.msg:not(.you) .msg-bd');
+        const pEl = thread.querySelector('.msg-bd p');
+        const out = {
+          threadBg: cs(thread).backgroundColor,
+          composerBg: cs(composer).backgroundColor,
+          textColor: pEl ? cs(pEl).color : null,
+          maskBg: bd ? cs(bd, '::after').backgroundColor : null,
+        };
+        wrap.remove(); document.body.classList.remove('plus-active');
+        return out;
+      }, now());
+      const isBlack = (s) => { const c = parse(s); return c[3] > 0 && c[0] <= 8 && c[1] <= 8 && c[2] <= 8; };
+      const isWhite = (s) => { const c = parse(s); return c[0] >= 240 && c[1] >= 240 && c[2] >= 240; };
+      chk(!isBlack(tp.threadBg), `[dark/tab/plus] the Plus navy thread ground is NOT blacked (:not(.plus-active) holds)`, tp.threadBg);
+      chk(!isBlack(tp.composerBg), `[dark/tab/plus] the Plus navy composer is NOT blacked`, tp.composerBg);
+      chk(!isWhite(tp.textColor), `[dark/tab/plus] the Plus message text is NOT forced white`, tp.textColor);
+      chk(!isBlack(tp.maskBg), `[dark/tab/plus] the Plus tail mask is NOT blacked`, tp.maskBg);
+    } finally {
+      await tabPlusPage.close();
     }
   } finally {
     await browser.close();
