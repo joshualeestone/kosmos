@@ -453,9 +453,12 @@ test('the Claude card on Windows: PowerShell steps, a Copy button, no macOS clau
   assert.match(page.lift(SCRIPT, 'copyCommandFrom'), /navigator\.clipboard\.writeText\(text\)/);
 });
 
-test('MAC UNCHANGED: both confirm sentences', () => {
+test('MAC confirm sentences (#3341: the "large download" line is deleted from the known arm, kept in the uncertain hedge)', () => {
+  // #3341 (Josh 6.83): on the screen he saw (the KNOWN arm, willInstall === true) the
+  // "It is a large download." line is gone. The UNCERTAIN arm keeps the magnitude, where
+  // the "if it is not here already" hedge makes a size heads-up still appropriate.
   assert.equal(confirmSentence('darwin', { platform: 'darwin', canInstallClaude: true, willInstall: true }),
-    'In order to connect to Claude, we need to install Claude Code first. It is a large download, about 231MB.');
+    'In order to connect to Claude, we need to install Claude Code first.');
   assert.equal(confirmSentence('darwin', { platform: 'darwin', canInstallClaude: true }),
     'Connecting to Claude needs Claude Code on this computer. If it is not here already we will install it, a large download, about 231MB.');
 });
