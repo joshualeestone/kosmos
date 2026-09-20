@@ -128,8 +128,8 @@ of the engine's own helpers, run with the bundle's node:
   so there is no admin prompt. It carries DisplayName, DisplayIcon, DisplayVersion
   (from manifest.json), InstallLocation, UninstallString and QuietUninstallString
   (`"<exe>" --uninstall`), NoModify, NoRepair and EstimatedSize. **Publisher is
-  left out** (`PublisherLegalName` is empty) until it can be the legal company
-  name on the signing certificate, like AssemblyCompany.
+  the legal company name** (`PublisherLegalName` = "Kosmos Agent Manager, Inc."),
+  the same name AssemblyCompany carries.
 - **`Kosmos.exe --uninstall`.**
   - It asks "Remove Kosmos from this PC? Your agents will stop." and then "Also
     delete your agents' chats and settings? Your projects and your agents'
