@@ -47405,7 +47405,11 @@ function frClaudeConfirmSentence(conn) {
      true there. Keyed on the served platform and on canInstallClaude, like the note. */
   if (onWindows(st && st.platform) && !(st && st.canInstallClaude === true)) return windowsCopy('claudeConfirmSentence');
   return known
-    ? 'In order to connect to Claude, we need to install Claude Code first. It is ' + size + '.'
+    // #3341 (Josh 6.83): the "It is a large download." line was deleted from the CONFIRM copy
+    // on the screen he saw (the known arm, willInstall === true). The magnitude survives in the
+    // UNCERTAIN arm below, where the "if it is not here already" hedge makes a size heads-up
+    // still appropriate; `size` is therefore still used and not dead. Josh quoted only this arm.
+    ? 'In order to connect to Claude, we need to install Claude Code first.'
     : 'Connecting to Claude needs Claude Code on this computer. If it is not here already we will install it, ' + size + '.';
 }
 
