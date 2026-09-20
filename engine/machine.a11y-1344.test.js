@@ -170,13 +170,13 @@ test('9screen: the S2 Allow Access button is present and wired to open-file-acce
   const handler = PAGE.slice(start, PAGE.indexOf('});', start) + 3);
   assert.match(handler, /closest\('\.s2-allow'\)/, 'nothing keys on the .s2-allow button');
   assert.match(handler, /\/api\/open-file-access-settings/, 'the Allow Access click does not POST the file-access opener');
-  // Josh 2026-09-08 (blue-Allow, no card): the mock dialog's blue Allow forwards a click through the real .s2-allow
-  // button, guarded so it cannot re-fire. Pin the forward + both guards against
-  // silent removal (a static presence check, matching this handler's existing
-  // string-assertion style; the render check covers the screen, the guard LOGIC was
-  // reviewed).
-  assert.match(handler, /closest\('\.s2-mockallow'\)/, 'the mock Allow no longer forwards a click');
-  assert.match(handler, /querySelector\('#fr-pane-2 \.s2-allow'\)/, 'the mock no longer routes through the real Allow Access button');
+  // #3336 (Josh 6.83): the demo box's mock Allow was REMOVED, so the handler no longer
+  // references .s2-mockallow and no longer routes a mock click through the real .s2-allow.
+  // (History: Josh 2026-09-08 added that forwarding for the mock blue Allow; the mock is gone
+  // as of #3336.) Assert the mock routing is ABSENT, so a re-introduced mock reference reds.
+  assert.doesNotMatch(handler, /s2-mockallow/, '#3336 removed the mock Allow; the handler still references it');
+  assert.doesNotMatch(handler, /querySelector\('#fr-pane-2 \.s2-allow'\)/, '#3336 removed the mock; the handler still routes a mock click through the real Allow Access button');
+  // The real Allow Access button (.s2-allow) path is unchanged: both guards still stand.
   assert.match(handler, /b\.disabled\)\s*return/, 'the in-flight guard (return when the real button is disabled) is gone');
   assert.match(handler, /data-granted'\)\)\s*return/, 'the post-grant guard (return when the gate row is granted) is gone');
 });

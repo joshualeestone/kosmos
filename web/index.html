@@ -9900,25 +9900,28 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         /* S2 macOS permission-dialog reproduction + the file-access gate row */
         /* #8 (Josh 0.6.39, screen 9.50.20): ONE compact macOS-style prompt preview
            instead of the old three-card stacked fan. Reads as a single real
-           "Terminal would like to access files" dialog with the Allow button ringed,
-           so the person recognizes the one prompt they will see and knows to click
-           Allow. The preview is aria-hidden (a mouse-only affordance). Josh,
-           2026-09-08: the mock's Allow now forwards a click into the real
-           file-access flow (.s2-mockallow), so it is no longer purely illustrative;
-           the keyboard/AT path stays the real Allow Access button in the
-           .s2-gate-row below. */
+           macOS "would like to access files" dialog, so the person recognizes the
+           one prompt they will see. The preview is aria-hidden and purely illustrative.
+           #3336 (Josh 6.83): the preview's Don't Allow / Allow buttons were REMOVED and
+           the box shrunk, so it is now a small icon+text prompt with no mock buttons; the
+           real, focusable grant is the Allow Access button in the .s2-gate-row below.
+           (History: 2026-09-08 the mock Allow forwarded a click into the real flow via
+           .s2-mockallow; that mock button and its forwarding are gone as of #3336.) */
         /* #3031 (Josh 2026-09-14) cut the earlier six-prompt, two-labelled-group layout
            (three folders x two apps) to a compact preview; 2026-09-19 (Josh, 0.6.81 QA) then
            removed the tmux preview, leaving ONE "Kosmos would like to access files." preview.
            The fan layout below is kept (it centres the single preview and would wrap gracefully
            if a second were ever restored). */
         .s2-dlg-fan{display:flex;flex-wrap:wrap;gap:14px;align-items:stretch;justify-content:center;margin:2px 0 16px}
-        /* flex:1 1 240px sizes the single preview on the ~552px onboarding pane; the flex-wrap
-           rule on .s2-dlg-fan is retained so the layout still degrades gracefully if a second
-           preview were ever restored. */
-        .s2-dlg{flex:1 1 240px;min-width:0;max-width:100%;text-align:left;border-radius:12px;padding:15px 16px 13px;
+        /* #3336 (Josh 6.83): the preview box is much smaller now -- roughly 1/3 the old width
+           and 1/2 the old height. It no longer grows to fill the ~552px pane (was flex:1 1 240px);
+           a fixed ~205px width + tighter padding + the removed Allow/Don't Allow buttons shrink it
+           to a compact macOS prompt. flex-wrap on .s2-dlg-fan still centres the single preview. */
+        .s2-dlg{flex:0 1 auto;width:205px;max-width:100%;text-align:left;border-radius:12px;padding:10px 12px 10px;
           background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
-        .s2-dlg-head{display:flex;align-items:flex-start;gap:11px;margin:0 0 14px}
+        /* #3336: margin-bottom was 14px to separate the header from the (now-removed) buttons;
+           with the header the only child of .s2-dlg, drop it so the box is ~1/2 the old height. */
+        .s2-dlg-head{display:flex;align-items:flex-start;gap:11px;margin:0}
         .s2-fold{flex:none;width:34px;height:34px;border-radius:7px;position:relative;
           background:linear-gradient(160deg,#7cc0ff,#3f92f0)}
         .s2-fold::before{content:"";position:absolute;top:-5px;left:5px;width:16px;height:7px;border-radius:3px 3px 0 0;background:#3f92f0}
@@ -9928,20 +9931,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            compact 13px/600 this box needs. Scope up to (1,2,1) to win, same pattern as
            #firstrun .fr-body p.fc-eyebrow / p.tier already use. */
         #firstrun .fr-body p.s2-say{font:600 .8125rem/1.4 var(--font-ui,-apple-system,sans-serif);margin:0;color:#1c1b19}
-        .s2-btns{display:flex;gap:9px;justify-content:flex-end}
-        .s2-db{font:600 .75rem var(--font-ui,-apple-system,sans-serif);white-space:nowrap;border:1px solid #b9b7b2;border-radius:7px;padding:5px 15px;background:#f6f6f4;color:#1c1b19}
-        /* Allow = the macOS blue "suggested" default button, called out with a gold ring.
-           #0a64fa is the deeper system-accent blue (white label ~4.98:1, clears AA); the
-           lighter #3f92f0 folder icon above intentionally differs, as the real dialog's
-           app icon and default button do. */
-        .s2-db.s2-hl{background:#0a64fa;border-color:#0a64fa;color:#fff;position:relative}
-        /* Josh, 2026-09-08: people click the mock "Allow" (they read it as the real
-           macOS button), so it is a live mouse affordance -- cursor signals that.
-           Deliberately interactive inside the aria-hidden preview: it is mouse-only,
-           and the real focusable "Allow Access" button is the keyboard/AT path, so
-           this adds no non-focusable-only control (not a bug, for the next reader). */
-        .s2-mockallow{cursor:pointer}
-        .s2-db.s2-hl::after{content:"";position:absolute;inset:-4px;border-radius:11px;border:2px solid var(--gold-bright,#e3b341);box-shadow:0 0 0 2px rgba(227,179,65,.35)}
+        /* #3336 (Josh 6.83): the demo box's Don't Allow / Allow buttons were removed, so their
+           CSS (.s2-btns, .s2-db, the .s2-db.s2-hl blue default + gold-ring ::after, and the
+           .s2-mockallow mouse affordance) is gone with them. The real, focusable grant control
+           is the .s2-gate-row Allow button below -- untouched. */
         /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
         .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
           background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px}
@@ -9971,16 +9964,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              agent FILE access (engine/fileaccessstatus.js); the Settings box still names tmux for
              that reason. This screen is FILE access only; the accessibility step is S3, handled
              separately. aria-hidden: the real focusable grant is the .s2-gate-row button below;
-             this is a mouse-only preview of what will pop up. Its mock Allow keeps .s2-mockallow,
-             so a click forwards into the one real file-access flow (the #fr-pane-2 click handler
-             targets the single .s2-allow). -->
+             this is a small illustrative preview of what will pop up. #3336 (Josh 6.83): the
+             preview's Don't Allow / Allow buttons were removed and the box shrunk, so it is
+             icon + a two-line "would like to access files." caption only; the #fr-pane-2 click
+             handler now fires solely for the real .s2-allow grant button. -->
         <div class="s2-dlg-fan" aria-hidden="true">
           <div class="s2-dlg">
             <div class="s2-dlg-head">
               <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-              <p class="s2-say">"Kosmos" would like to access files.</p>
+              <p class="s2-say">"Kosmos" would like<br>to access files.</p>
             </div>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
           </div>
         </div>
 
@@ -46341,12 +46334,14 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
 }
 
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
-  // Josh, 2026-09-08: the mock dialog's blue "Allow" (aria-hidden preview, mouse-only)
-  // routes a click through the real "Allow Access" button, firing the same flow (see commit).
-  const onMock = e.target.closest('.s2-mockallow');
-  const b = onMock ? document.querySelector('#fr-pane-2 .s2-allow') : e.target.closest('.s2-allow');
+  // #3336 (Josh 6.83): the demo box's mock "Allow" was removed, so the click-forwarding it
+  // needed is gone. This handler now fires only for the real focusable .s2-allow grant button
+  // in the .s2-gate-row. (Josh, 2026-09-08 history: the mock previously routed a click here.)
+  const b = e.target.closest('.s2-allow');
   if (!b || b.disabled) return;
-  // once granted, the real button is hidden but the mock stays visible; do not re-open.
+  // #3336: once granted, the real Allow Access button is hidden; the post-grant guard below
+  // prevents re-firing the flow on a stray click in the granted gate row. (The mock preview
+  // that used to sit alongside was removed in #3336.)
   const row = b.closest('.s2-gate-row');
   if (row && row.hasAttribute('data-granted')) return;
   const msg = document.getElementById('fr-s2-msg');
