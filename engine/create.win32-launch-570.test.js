@@ -26,6 +26,11 @@ process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify({ projects: {} }));
+// #3347 (sibling of #3011): sandbox AGENT_WORKFORCE_LAUNCH so create.plistPath
+// writes agent plists into the sandbox, never the operator's real
+// ~/Library/LaunchAgents (which would spawn phantom agents on the board).
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 
 const create = require('./create');
 const launcher = require('./win32launch');
