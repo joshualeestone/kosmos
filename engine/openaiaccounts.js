@@ -806,17 +806,33 @@ function resolveFreshChatgptDir(label) {
    user code, from codex login's stdout/stderr. DEVICE-AUTH output was MEASURED
    2026-09-09 against real codex 0.149.1 (URL https://auth.openai.com/codex/device
    plus a hyphenated uppercase code, e.g. 3PI3-2LM3M, a 4-5 form); BROWSER-mode
-   output stays gate-verified under a real subscription. Kept isolated so the gate
+   output MEASURED 2026-09-21 against real codex 0.149.1 on win32 (a loopback
+   callback-server line, then the real auth.openai.com URL). Kept isolated so the gate
    touches only this function: it recognises the general shapes (an https URL; a
    short hyphenated device code of variable group length) rather than a fixed line
    format. */
 function parseChatgptLoginOutput(text) {
   const out = {};
   const s = String(text);
-  const url = s.match(/https?:\/\/[^\s'"<>]+/);
-  // Trim trailing sentence punctuation the greedy class swallows ("...activate."
-  // or a parenthesised URL), so the client never opens a URL with a stray `.`/`)`.
-  if (url) out.authUrl = url[0].replace(/[.,;:!?)\]}'"]+$/, '');
+  // BROWSER mode prints TWO URLs, in order: codex's OWN local callback server
+  // first ("Starting local login server on http://localhost:1455.") and the REAL
+  // sign-in URL second ("...navigate to this URL to authenticate:\n\n
+  // https://auth.openai.com/oauth/authorize?..."). MEASURED 2026-09-21 against
+  // real codex 0.149.1 on win32. The old "first https URL" grab locked onto the
+  // loopback server, so the client's open-page link (index.html sets openA.href =
+  // authUrl) pointed at a dead local address and browser sign-in stalled at
+  // awaiting-browser. Pick the first NON-loopback URL, and set authUrl ONLY then:
+  // codex streams, so an early chunk can hold just the loopback line -- leaving
+  // authUrl unset lets startChatgptLogin's `!session.authUrl` guard keep waiting
+  // for the real URL rather than locking the loopback. Device-auth mode is
+  // unaffected: its one URL (auth.openai.com/codex/device) is non-loopback.
+  const isLoopback = (u) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?:[:/]|$)/i.test(u);
+  const url = (s.match(/https?:\/\/[^\s'"<>]+/g) || [])
+    // Trim trailing sentence punctuation the greedy class swallows ("...activate."
+    // or a parenthesised URL), so the client never opens a URL with a stray `.`/`)`.
+    .map((u) => u.replace(/[.,;:!?)\]}'"]+$/, ''))
+    .find((u) => !isLoopback(u));
+  if (url) out.authUrl = url;
   // Search for the device code in text with URLs REMOVED: a verification URL often
   // contains an alnum token (a path segment or ?code=...), which would otherwise be
   // extracted as the user code in preference to the real one. The code is an uppercase
@@ -1703,6 +1719,7 @@ module.exports = {
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
   chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests
+  parseChatgptLoginOutput,   // pure codex-login output parser, exported for unit tests (browser/device URL + device code)
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };
