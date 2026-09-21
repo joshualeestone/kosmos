@@ -570,6 +570,31 @@ test('no field the board sends is unknown to the page', async (t) => {
   }
 });
 
+test('#fedgate producer: /api/status carries kosmos_plus + federationLive, boolean and fail-safe', async (t) => {
+  const board = await req('/api/status');
+  if (!board.type.includes('application/json')) { t.skip('no board on this machine'); return; }
+  const p = JSON.parse(board.body);
+  // Both fields the web fed gate reads are present and boolean.
+  assert.equal(typeof p.kosmos_plus, 'boolean', 'kosmos_plus is a boolean');
+  assert.equal(typeof p.federationLive, 'boolean', 'federationLive is a boolean');
+  // Fail-safe on a test board: no cached "good" standing -> not a member, so the
+  // paid federation UI is never offered by default.
+  assert.equal(p.kosmos_plus, false, 'no cached member standing -> kosmos_plus false');
+  // federationLive is the board config flag, read per request; default (unset) is false.
+  const had = process.env.AGENT_WORKFORCE_FEDERATION_LIVE;
+  assert.equal(p.federationLive, had === '1', 'federationLive matches the AGENT_WORKFORCE_FEDERATION_LIVE flag');
+  // The coordinated flip: setting the flag flips it true on the very next poll (read
+  // per request, no restart). Restored in finally so no other test sees the flip.
+  process.env.AGENT_WORKFORCE_FEDERATION_LIVE = '1';
+  try {
+    const flipped = JSON.parse((await req('/api/status')).body);
+    assert.equal(flipped.federationLive, true, 'the flip flag flips federationLive true on the next poll');
+  } finally {
+    if (had === undefined) delete process.env.AGENT_WORKFORCE_FEDERATION_LIVE;
+    else process.env.AGENT_WORKFORCE_FEDERATION_LIVE = had;
+  }
+});
+
 test('a query string does not change which handler answers', async () => {
   // The regression test. Before the fix this returned the HTML page at 200.
   const plain = await req('/api/status');
