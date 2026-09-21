@@ -104,6 +104,10 @@ function chk(ok, label, extra) {
         tzExists: !!tzEl,
         tzOptionCount: tzEl ? tzEl.options.length : 0,
         tzValue: tzEl ? tzEl.value : '',
+        // #3338: the Central option's friendly label (not the raw IANA id), and
+        // whether the city/ZIP search accelerator is present on the step.
+        tzChicagoLabel: tzEl ? (Array.from(tzEl.options).find((o) => o.value === 'America/Chicago') || {}).textContent || '' : '',
+        tzSearchExists: !!document.getElementById('fr-you-tz-search'),
         nameMaxWidth: nameCs ? nameCs.maxWidth : '',
         nameWidthPx: nameEl ? nameEl.getBoundingClientRect().width : 0,
         doMaxWidth: doCs ? doCs.maxWidth : '',
@@ -121,6 +125,28 @@ function chk(ok, label, extra) {
     chk(m.tzExists, 'the time zone <select id=fr-you-tz> is present (restored)');
     chk(m.tzOptionCount > 1, 'the tz picker is populated (Intl zones / fallback)', 'options=' + m.tzOptionCount);
     chk(m.tzValue !== '', 'the tz picker defaults to a value (machine zone / saved)', 'value=' + m.tzValue);
+
+    // #3338: friendly labels + the city/ZIP search accelerator, exercised LIVE.
+    // The raw ~400-entry IANA list is gone; the friendly set is short and labelled.
+    chk(m.tzOptionCount <= 20, '#3338 the friendly list is short, not the ~400-entry raw IANA list', 'options=' + m.tzOptionCount);
+    chk(m.tzChicagoLabel === 'Central Time (CT)',
+      '#3338 the Central zone shows a friendly label, not "America/Chicago"', 'label=' + m.tzChicagoLabel);
+    chk(m.tzSearchExists, '#3338 the "search by city or ZIP" input is present on the step');
+    // Type a city, then a ZIP: the select must JUMP to the right zone (real input
+    // events through the shipped youTzWireSearch, not a stub).
+    await page.fill('#fr-you-tz-search', 'Dallas');
+    const tzAfterCity = await page.evaluate(() => document.getElementById('fr-you-tz').value);
+    chk(tzAfterCity === 'America/Chicago', '#3338 typing "Dallas" jumps the zone to Central', 'value=' + tzAfterCity);
+    await page.fill('#fr-you-tz-search', '90210');
+    const tzAfterZip = await page.evaluate(() => document.getElementById('fr-you-tz').value);
+    chk(tzAfterZip === 'America/Los_Angeles', '#3338 typing a Beverly Hills ZIP (90210) jumps the zone to Pacific', 'value=' + tzAfterZip);
+    await page.fill('#fr-you-tz-search', 'zzzzzz');
+    const tzAfterMiss = await page.evaluate(() => document.getElementById('fr-you-tz').value);
+    chk(tzAfterMiss === 'America/Los_Angeles', '#3338 an unrecognized query does NOT move the selection (no wrong jump)', 'value=' + tzAfterMiss);
+    // Restore the machine-default selection + clear the search so the save arm
+    // below (which captured tzToSave = m.tzValue before this) behaves unchanged.
+    await page.fill('#fr-you-tz-search', '');
+    await page.evaluate((v) => { document.getElementById('fr-you-tz').value = v; }, m.tzValue);
 
     // (5) three labelled fields (name, does, tz) -- reverses #1345's "exactly two".
     chk(m.labelledFor.length === 3

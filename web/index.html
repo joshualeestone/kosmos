@@ -18011,6 +18011,13 @@ const YOU_TZ_PLACES = {
   'london': 'Europe/London', 'dublin': 'Europe/London', 'paris': 'Europe/Paris', 'berlin': 'Europe/Paris',
   'tokyo': 'Asia/Tokyo', 'sydney': 'Australia/Sydney', 'mumbai': 'Asia/Kolkata',
   'delhi': 'Asia/Kolkata', 'bengaluru': 'Asia/Kolkata', 'bangalore': 'Asia/Kolkata',
+  // Zone abbreviations, as exact keys so a 2-3 char abbrev resolves even though the
+  // free-text substring match below is length-gated (>= 4) to avoid single-letter jumps.
+  'et': 'America/New_York', 'est': 'America/New_York', 'edt': 'America/New_York',
+  'ct': 'America/Chicago', 'cst': 'America/Chicago', 'cdt': 'America/Chicago',
+  'mt': 'America/Denver', 'mst': 'America/Denver', 'mdt': 'America/Denver',
+  'pt': 'America/Los_Angeles', 'pst': 'America/Los_Angeles', 'pdt': 'America/Los_Angeles',
+  'akt': 'America/Anchorage', 'ht': 'Pacific/Honolulu', 'hst': 'Pacific/Honolulu',
 };
 /* US ZIP first-3-digit -> zone, CONSERVATIVE: only ranges lying wholly inside one
    zone are listed. Genuinely split prefixes (FL panhandle, most of TN/IN, the
@@ -18063,8 +18070,15 @@ function youTzResolve(query) {
     }
     return '';   // a ZIP we do not confidently place: no jump, never a wrong one
   }
-  const hit = YOU_TZ_FRIENDLY.find((e) => e.label.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
-  return hit ? hit.id : '';
+  // Free-text substring over the friendly label or IANA id, but only at >= 4 chars:
+  // a shorter substring (e.g. "d") would match "america/denver" and jump the select
+  // around while the operator is still typing a city. Exact place/abbrev keys above
+  // already cover the short cases that should resolve.
+  if (q.length >= 4) {
+    const hit = YOU_TZ_FRIENDLY.find((e) => e.label.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
+    if (hit) return hit.id;
+  }
+  return '';
 }
 /* Select `id` in a <select>, inserting a raw option for a zone the friendly list
    does not carry (so a machine/saved zone outside the set is honored and

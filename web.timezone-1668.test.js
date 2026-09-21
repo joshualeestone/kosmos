@@ -138,6 +138,29 @@ test('#3338: an unrecognized query does NOT move the selection (no wrong jump)',
   assert.match(msg.textContent, /No match/, 'and it says so rather than silently doing nothing');
 });
 
+test('#3338: a single letter does NOT jump the select (no mid-typing flicker)', async () => {
+  const { paint, sel, search } = makePaint('America/New_York', null);
+  await paint();
+  const before = sel.value;
+  // "d" is the first letter of "Dallas"; without the length gate it matched
+  // "america/denver" and jumped the select to Denver before the city was typed.
+  search.type('d');
+  assert.equal(sel.value, before, 'one letter does not resolve');
+  search.type('da');
+  assert.equal(sel.value, before, 'two letters do not resolve');
+});
+
+test('#3338: zone abbreviations and zone words resolve (CT, central, pacific)', async () => {
+  const { paint, sel, search } = makePaint('America/New_York', null);
+  await paint();
+  search.type('CT');
+  assert.equal(sel.value, 'America/Chicago', '"CT" resolves to Central');
+  search.type('central');
+  assert.equal(sel.value, 'America/Chicago', '"central" resolves to Central');
+  search.type('pacific');
+  assert.equal(sel.value, 'America/Los_Angeles', '"pacific" resolves to Pacific');
+});
+
 test('#3338: the search accelerator input is present in the Settings markup', () => {
   const at = PAGE.indexOf('id="you-tz-search"');
   assert.ok(at > -1, 'the city/ZIP search input sits with the time-zone control');
