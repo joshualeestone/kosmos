@@ -4809,14 +4809,24 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg.you { flex-direction: row-reverse; }
 .msg.you .msg-b { display: flex; flex-direction: column; align-items: flex-end; }
 /* #3340-followup (Josh, 2026-09-21 small-size QA): a bubble must NEVER grow into the OPPOSITE
-   side's avatar column. The row already reserves the near avatar + gap (34 + 14) before the body;
-   mirror that exact gutter on the FAR side so the message band is symmetric and a bubble stops
-   short of the column where the other side's avatars sit. This is width-agnostic on purpose: at
-   wide widths the 78ch max-width on .msg-bd binds first, so the reserved gutter is slack and the
-   approved wide look is unchanged; only at narrow widths, where 78ch used to reach the far edge,
-   does the gutter cap the bubble and keep the avatar column clear. No media query, no magic
-   breakpoint -- the cap engages exactly when the space runs out. The tail wing/mask live on the
-   NEAR side (toward the avatar), so the far gutter never touches them. */
+   side's avatar column. The row reserves the near avatar + gap before the body (.msg-av width 34px
+   + .msg gap 14px); mirror that exact gutter on the FAR side so the message band is symmetric and a
+   bubble stops short of the column where the other side's avatars sit.
+   ⚠️ The calc(34px + 14px) DUPLICATES the .msg-av width and the .msg gap by value (CLAUDE.md
+   convention #5, "two derivations of one fact"). render-room-msgbox-2806.js's narrow arm pins the
+   three equal at RUNTIME: it asserts the measured far gutter equals the measured near gutter
+   (which IS avatar + gap, since the row lays out [avatar][gap][body]), so changing either literal
+   without changing this one reds the check. That is the sanctioned guard for the duplication.
+   Width behaviour: the gutter binds only when .msg-bd's 78ch max-width no longer fits, i.e. below
+   roughly the width at which a 78ch bubble plus both gutters exceeds the row (~760px for this font).
+   ABOVE that -- genuinely wide windows, the look Josh likes -- 78ch binds first, the gutter is
+   slack, and the bubble is exactly what it was before this change (the wide arm proves it: far
+   gutter is far larger than 48px at a 1200px row). BELOW it -- narrow windows, the bug -- the
+   gutter caps the bubble and keeps the avatar column clear. So the 640/760px fixtures are on the
+   narrow side of that threshold and DO get capped; that is correct, not a regression. No media
+   query, no magic breakpoint. The tail wing/mask live on the NEAR side (toward the avatar), so the
+   far gutter never touches them. Applies only to the room's .msg rows (pjRoomRow); the agent-detail
+   Talk view renders .dm bubbles (dmRow), which this never selects. */
 .msg:not(.you) .msg-b { margin-right: calc(34px + 14px); }
 .msg.you .msg-b { margin-left: calc(34px + 14px); }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
