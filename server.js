@@ -416,10 +416,13 @@ function fedKosmosPlusNow() {
 /* The coordinated-flip flag for the federation UI. A board config that DEFAULTS
    FALSE: until federation is actually live (the coordinator redeployed with the
    fed routes + the slice-3 message pipe proven), the web gate keeps the fed UI
-   hidden on prod even from members. The flip is a deliberate ops action -- set
-   AGENT_WORKFORCE_FEDERATION_LIVE=1 in the board's environment and restart -- and
-   is sequenced at flip-time by the launch coordinator, NOT here. Fail-safe: any
-   value other than the exact "1" is false (hidden). */
+   hidden on prod even from members. Read PER REQUEST off the process env, so it is
+   evaluated live on every /api/status poll (nothing caches it). The coordinated
+   flip is the launch coordinator's action, NOT here: set AGENT_WORKFORCE_FEDERATION_LIVE=1
+   on the board's launchd job and restart it -- a live process cannot have the env it
+   inherited at spawn changed from outside, so production needs that one restart; the
+   per-request read is why an in-process test flips it without one. A one-time,
+   coordinated-launch action. Fail-safe: any value other than the exact "1" is false. */
 function federationLiveNow() {
   return process.env.AGENT_WORKFORCE_FEDERATION_LIVE === '1';
 }

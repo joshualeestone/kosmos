@@ -179,11 +179,15 @@ function read() {
     ok: true,
   };
 }
-/* Cache the coordinator standing whenever a sign-in response carries it. A
-   non-string / empty value is ignored so a short-circuit path (already-set-up,
-   standing '') does not clobber a real cached standing. */
-function cacheStanding(standing) {
-  if (typeof standing === 'string' && standing !== '') write({ standing });
+/* SET the cached coordinator standing from a FRESH enrolment/register response
+   (setupComplete / signinRegister's register path). SET-OR-CLEAR, never inherit: a
+   fresh enrolment writes the coordinator's value, or '' when it is absent/non-string
+   -- so a stale 'good' from a prior life (e.g. a state dir wiped without a full
+   forget()) can NEVER survive into a new account and leak the paid fed UI. The
+   already-set-up SHORT-CIRCUIT paths do NOT call this: there the account is
+   unchanged, so the existing cache is kept. forget() clears it outright. */
+function fedSetStanding(standing) {
+  write({ standing: typeof standing === 'string' ? standing : '' });
 }
 /* Federation Kosmos+ gate: is THIS account an authenticated Kosmos+ member?
    True iff the cached coordinator standing is exactly "good" (ICK's contract:
@@ -555,7 +559,7 @@ async function setupComplete(code, name) {
   ]);
   if (result.ok) ensure(localPort);
   // fed gate: cache the coordinator standing if this setup response carried one.
-  if (result.ok && result.data && typeof result.data === 'object') cacheStanding(result.data.standing);
+  if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
   return result;
 }
 
@@ -992,7 +996,7 @@ async function signinRegister(name) {
   signinSession = null;   // the token is spent; it must not linger in this process
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
-  cacheStanding(d.standing);   // fed gate: cache the coordinator standing for kosmosPlus()
+  fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register
   return { ok: true, because: null, data: {
     stage: 'registered',
     address: typeof d.address === 'string' ? d.address : address(),
@@ -1005,6 +1009,7 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   FILE,
   read,
   kosmosPlus,
+  fedSetStanding,
   setOn,
   setRelay,
   enrolled,

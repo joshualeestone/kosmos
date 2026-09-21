@@ -63,6 +63,20 @@ test('standing survives an unrelated write() (the cache is not dropped)', () => 
   assert.equal(remote.kosmosPlus(), true, 'and kosmosPlus still sees it');
 });
 
+test('fedSetStanding: a FRESH enrolment sets-or-clears, and an absent standing never inherits a stale "good"', () => {
+  // WARNING-2 leak edge: a prior life left standing 'good' in the settings file (e.g.
+  // the state dir was wiped without a full forget). A fresh register/setup whose
+  // coordinator response OMITS standing must CLEAR it, not keep the stale 'good'.
+  writeSettings({ on: true, standing: 'good' });
+  remote.fedSetStanding(undefined);   // fresh enrolment, coordinator gave no standing
+  assert.equal(remote.read().standing, '', 'absent standing on a fresh enrolment CLEARS, does not inherit');
+  assert.equal(remote.kosmosPlus(), false, 'so a fresh non-member cannot inherit the paid feature');
+  remote.fedSetStanding('good');
+  assert.equal(remote.kosmosPlus(), true, 'a real good standing sets member');
+  remote.fedSetStanding('lapsed');
+  assert.equal(remote.kosmosPlus(), false, 'a non-good standing sets non-member');
+});
+
 test('forget() CLEARS the standing -- the account-switch leak (a gone account is not a member)', async () => {
   writeSettings({ on: true, standing: 'good' });
   assert.equal(remote.kosmosPlus(), true, 'precondition: a member');
