@@ -9054,10 +9054,13 @@ const server = http.createServer((req, res) => {
            good. Validated like its siblings so a mangled value is a 400 rather
            than a silent falsy, then passed to `connect.start`, where it skips the
            already-connected short-circuit `checkLive` cannot see past.
-           📌 Threaded ONLY into the known-account (accountDir) start below; the
-           `another`/default branches deliberately never receive it, because a
-           re-auth only makes sense for an existing account. A client sending it on
-           those shapes has it ignored, not leaked into a new-account flow. */
+           📌 Threaded into the known-account (accountDir) start below AND, as of
+           #3326 (Josh option 2), into the DEFAULT first-run start: sign-up always
+           forces a real login, even when the default config already looks connected,
+           because that "connected" is a shallow checkLive presence a stale/expired
+           credential passes. The `another`/second-account branch still never receives
+           it (a brand-new second account has nothing to re-auth). A client that omits
+           reauth (or sends false) still gets the old connected short-circuit. */
         if ('reauth' in body && typeof body.reauth !== 'boolean') { sendJson(res, 400, { error: 'reauth must be true or false' }); return null; }
         const reauth = body.reauth === true;
         /* 🛑 SIGNING IN AGAIN TO AN ACCOUNT THAT ALREADY EXISTS (#1492). Without
@@ -9191,7 +9194,12 @@ const server = http.createServer((req, res) => {
           }
           return connect.start({ configDir: prep.dir, requireInstallConfirm: true, installConfirmed });
         }
-        return connect.start({ requireInstallConfirm: true, installConfirmed });
+        /* #3326: the DEFAULT first-run start forwards reauth. With reauth:true (which
+           frConnectStart now always sends in sign-up) connect.start() skips the
+           already-connected short-circuit and runs a real `claude auth login`, so a
+           stale/expired-but-present credential can never let sign-up finish on a dead
+           login. Without reauth it is false and the old short-circuit behaviour stands. */
+        return connect.start({ requireInstallConfirm: true, installConfirmed, reauth });
       })
       .then((st) => { if (st) sendJson(res, 200, st); })
       .catch((err) => sendJson(res, 500, {

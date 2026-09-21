@@ -5696,6 +5696,29 @@ test('no subscription state renders a verdict about the person\'s Claude account
     'even the verified-connected state renders no row, so the assertions above pass on an empty page and prove nothing');
 });
 
+test('#3326: the default /api/connect/start path forwards reauth to connect.start()', () => {
+  /* The #3326 blind review found that reauth:true was READ from the body (validated at the
+     top of the handler) but forwarded ONLY on the accountDir "known account" branch -- the
+     DEFAULT first-run path dropped it, so connect.start() got reauth=false, the connected
+     short-circuit fired, and sign-up finished on a stale credential: the exact bug #3326
+     exists to kill, inert. This guards the fix: the default call (the one WITHOUT configDir)
+     must carry reauth. Source-level because the behaviour lives in one line and a full route
+     harness is not built here. */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf("pathname === '/api/connect/start'");
+  assert.notEqual(at, -1, 'the /api/connect/start handler moved; re-point this test');
+  // Bound to THIS handler (up to the next route) so a connect.start() in another route
+  // cannot match and so the region always reaches the default call at the handler's end.
+  const nextRoute = src.indexOf("pathname === '/api/", at + 40);
+  const region = src.slice(at, nextRoute > at ? nextRoute : src.length);
+  // The default call is the one WITHOUT configDir (the accountDir/another calls carry configDir),
+  // so this pattern uniquely names it.
+  const defaultCall = region.match(/return connect\.start\(\{ requireInstallConfirm: true, installConfirmed[^}]*\}\)/);
+  assert.ok(defaultCall, 'the default connect.start() call (no configDir) moved or changed shape; re-point this test');
+  assert.ok(/\breauth\b/.test(defaultCall[0]),
+    'the default /api/connect/start path does not forward reauth to connect.start(): reauth:true from sign-up is dropped and a stale credential can finish sign-up (#3326)');
+});
+
 test('the way back is on the last step, on every ending a person can get', () => {
   /**
    * 🔑 THE LINE MOVED HERE FROM STEP 1 on 2026-08-22, and the reason is the

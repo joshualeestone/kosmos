@@ -46698,6 +46698,12 @@ function frConnWatch() {
       frConnStopWatch();
       FR_CONN_LAST = null;
       if (st.phase === 'connected') {
+        /* #3326: the watch reaching `connected` is the genuine login-success signal --
+           the flow gets here only after a real `claude auth login` completes (sign-up
+           forces reauth:true, so the start never short-circuits to connected). This is
+           the ONLY place FR_SUB_LOGIN_VERIFIED is set, so a cancel or idle-terminal phase
+           (which reach frConnSettle without this arm) never mark the login verified. */
+        FR_SUB_LOGIN_VERIFIED = true;
         // The one phase the panel painter never paints, announced here so a
         // screen-reader user hears the finish, not just the buttons changing.
         const say = document.getElementById('fr-conn-say');
@@ -46925,14 +46931,13 @@ async function frConnSubmitCode() {
  * repainted verdict (or the person's next click) takes it from there.
  */
 async function frConnSettle() {
-  /* #3326: reaching here means a real connect flow completed -- and since sign-up
-     always sends reauth:true, that flow ran a real `claude auth login` with
-     login-success evidence, not a checkLive short-circuit. So a `connected` verdict
-     from HERE on is backed by a login we just watched succeed, which is what lets
-     frPaintSubscription paint the terminal "Connected" (vs the shallow, must-still-
-     sign-in state). "Check again" (frRecheck) alone never sets this -- only a
-     completed forced-login connect does. */
-  FR_SUB_LOGIN_VERIFIED = true;
+  /* #3326: frConnSettle is NOT where FR_SUB_LOGIN_VERIFIED is set -- it is reached on
+     cancel (frConnCancel) and idle (a second window cancelled) as well as on a real
+     login, so setting the flag here would let a CANCELLED sign-in read as a verified
+     login. The flag is set only in frConnWatch's `connected` arm, which the flow reaches
+     only after a real `claude auth login` completes (reauth:true forces that login, so
+     the start never short-circuits to connected for sign-up). This function just
+     re-reads and repaints. */
   const ok = await frRecheck();
   if (!ok) setTimeout(() => { if (FR_STEP === 5) frRecheck(); }, 2000);
 }
