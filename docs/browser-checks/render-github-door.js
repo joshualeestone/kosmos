@@ -34,7 +34,7 @@ let failed = 0;
    pill). Every pill's opener waits, bounded, for the probe to settle. */
 const settled = (p, pillName) => p.waitForFunction((n) => { const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === n); const door = pill && pill.closest('.boardrow').nextElementSibling; return door && !/Checking…/.test(door.innerText); }, pillName, { timeout: 15000 }).catch(() => {});
 const openDoor = async (p, base) => {
-    await p.goto(base + '/?tab=settings', { waitUntil: 'networkidle' });
+    await p.goto(base + '/?tab=settings', { waitUntil: 'load' });
     await p.evaluate(() => settingsGo('connect'));
     await p.waitForTimeout(400);
     await p.evaluate(() => { document.querySelectorAll('#s-sec-connect details').forEach((d) => { d.open = true; }); const pill = [...document.querySelectorAll('#s-sec-connect button.boardname')].find((x) => x.innerText.trim() === 'GitHub'); pill.click(); });

@@ -40,10 +40,10 @@ let failed = 0;
   if (!r.ok) { console.log('FAIL  could not complete first run on the board'); process.exit(1); }
   const b = await pw.chromium.launch({ headless: true }); const p = await b.newPage();
   const say = (k, v, d) => { if (!v) failed += 1; console.log((v ? 'PASS' : 'FAIL') + '  ' + k + (d ? '  ' + d : '')); };
-  await p.goto(BASE + '/?tab=settings', { waitUntil: 'networkidle' });
+  await p.goto(BASE + '/?tab=settings', { waitUntil: 'load' });
   await p.waitForTimeout(500);
   if (await p.evaluate(() => document.getElementById('panel-settings').hidden)) {
-    await p.goto(BASE + '/#settings', { waitUntil: 'networkidle' });
+    await p.goto(BASE + '/#settings', { waitUntil: 'load' });
     await p.waitForTimeout(500);
   }
   if (await p.evaluate(() => document.getElementById('panel-settings').hidden)) {
@@ -403,7 +403,7 @@ let failed = 0;
      says -- so headless is sound.
      📌 It runs LAST on purpose: it removes the account the create-form
      assertions above need. */
-  await p.goto(BASE + '/?tab=settings', { waitUntil: 'networkidle' });
+  await p.goto(BASE + '/?tab=settings', { waitUntil: 'load' });
   await p.waitForTimeout(400);
   if (await p.evaluate(() => document.getElementById('panel-settings').hidden)) {
     await p.evaluate(() => { document.getElementById('panel-settings').hidden = false; });

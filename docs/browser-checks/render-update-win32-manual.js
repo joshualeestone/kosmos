@@ -97,7 +97,7 @@ function stateAnswers(state, served) {
 }
 
 async function openUpdatesCard(pg) {
-  await pg.goto(URL, { waitUntil: 'networkidle' });
+  await pg.goto(URL, { waitUntil: 'load' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
   await pg.evaluate(() => showTab('settings'));
   await pg.waitForSelector('#panel-settings:not([hidden])');
