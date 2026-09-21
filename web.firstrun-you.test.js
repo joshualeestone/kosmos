@@ -37,11 +37,11 @@ const path = require('node:path');
 
 const HTML = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
-test('#1345/#1994: the About-you step asks name, what-you-do, and time zone (the know box stays gone)', () => {
+test('#3338: the About-you step asks name and what-you-do (no time zone; the know box stays gone)', () => {
   assert.match(HTML, /id="fr-you-name"/, 'the name field is gone: this step asks nothing');
   assert.match(HTML, /id="fr-you-do"/, 'the "what do you do" field is gone');
-  assert.match(HTML, /id="fr-you-tz"/,
-    'the time-zone picker is gone from the About-you step (#1994 restored it)');
+  assert.doesNotMatch(HTML, /id="fr-you-tz"/,
+    'the time-zone picker was REMOVED from the About-you step (#3338, Josh 0.6.84: invasive to ask)');
   assert.doesNotMatch(HTML, /id="fr-you-know"/,
     'the "anything they should always know" box is back on the About-you step');
   assert.doesNotMatch(HTML, /Anything they should always know\?/,

@@ -103,15 +103,15 @@ test('the two Save buttons on the agent panel say which they are', () => {
      the condition that makes the labels necessary. If one is ever renamed this
      test should be revisited rather than silently kept. */
   /* #2054: was 6. The Automation auto-handoff (#1724) and heartbeat/Prompter (#1722)
-     Save buttons are GONE -- those controls became `.toggle` sliders that commit on
-     flip, so there are 4 visible Save buttons left. */
-  assert.equal((PAGE.match(/>Save</g) || []).length, 4,
+     Save buttons are GONE (sliders commit on flip). #3338 removal (2026-09-21): the
+     time-zone Save is GONE too -- the zone is auto-detected and shown read-only, so
+     there are 3 visible Save buttons left. */
+  assert.equal((PAGE.match(/>Save</g) || []).length, 3,
     'the number of buttons visibly reading Save changed, so this pairing needs re-checking');
-  /* The third (settings-nav, 2026-08-23) is the Your name field's and the fourth
-     (#1668) is the Your time zone field's, both on the Settings page; named for the
-     same reason, pinned here so the count stays explained. */
+  /* The third (settings-nav, 2026-08-23) is the Your name field's, on the Settings
+     page; named for the same reason, pinned here so the count stays explained. */
   assert.match(PAGE, /id="you-name-save" aria-label="Save your name"/, 'the Settings Save button announces as a bare Save');
-  assert.match(PAGE, /id="you-tz-save" aria-label="Save your time zone"/, 'the time-zone Save button announces distinctly');
+  assert.ok(!PAGE.includes('id="you-tz-save"'), '#3338: the time-zone Save button is gone (auto-detected, read-only)');
   // #2054: the auto-handoff and Prompter Save buttons are gone (sliders commit on flip).
   assert.ok(!PAGE.includes('id="ah-save"'), 'the auto-handoff Save button should be gone');
   assert.ok(!PAGE.includes('id="hb-save"'), 'the Prompter Save button should be gone');
