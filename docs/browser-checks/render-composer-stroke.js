@@ -20,6 +20,12 @@
  * HERMETIC: loads web/index.html over file://, seeds one project, renders pj-one-view. Reds on
  * origin/main, where the project composers still carry the 1px --k-rule border.
  *
+ * WHY BOTH LAYOUTS. The override selector is layout-independent today, so tab and consolidated
+ * currently resolve the same computed border. The consolidated arm is kept deliberately as a
+ * tripwire: if a future consolidated-only composer rule re-adds a border (there are already
+ * consolidated-scoped .pjmid .composer overrides in this file), this arm reds while the tab arm
+ * stays green. It is defensive coverage of a real seam, not redundant belt-and-suspenders.
+ *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-composer-stroke.js
  * HEADED by default; HEADED=0 on a console-less machine.

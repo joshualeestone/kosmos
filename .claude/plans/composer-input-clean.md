@@ -21,6 +21,7 @@ The stroke was the visible cause of the boxy/broken look; removing it and lettin
 ## Test
 - New browser-check `render-composer-stroke.js`: renders a seeded project one-view, asserts `#pj-post` and `#pj-say` composerbox border-width is 0 in tab AND consolidated layouts, both themes; CONTROL asserts `#d-say` (agent dialogue) keeps its border, proving the scoping. Reds on origin/main. 16 assertions pass.
 - Wired into the runner (tools/browser-checks.sh hermetic loop, #1387), README row added (parity), and the emit-site/catch counts bumped (+2/+2, structural clone of render-user-menu-3051).
-- web.focus-ring-1303d still passes (base rule untouched). Full suite green.
+- web.focus-ring-1303d still passes (base rule untouched).
+- The #2518 surface gate scans the web/index.html diff AS TEXT, so the CSS comment must not name a surface id another check owns (an early draft named the agent-dialogue and post-box ids and the gate flagged the checks that own them). The comment was reworded to describe them in prose; after that the full suite (including both browser-check gates) is green.
 
 Ships staged for the next build.
