@@ -82,11 +82,16 @@ test('#1345 + #1994: the painter emits three labelled fields (name, does, time z
   const doc = stubDoc(captured);
   const actions = [];
 
-  const painter = new Function('document', 'FR_YOU_GEN', 'frActions', 'fetch', 'youTzMachine', 'YOU_TZ_FALLBACK',
-    `${page.lift(SCRIPT, 'frPaintYou')}\nreturn frPaintYou;`)(
+  // #3338: frPaintYou now closes over the friendly-zone data + helpers (the raw
+  // Intl list was replaced). Lift the REAL helpers into scope so the painter runs
+  // to completion exactly as shipped, rather than stubbing them away.
+  const tzHelpers = ['YOU_TZ_FRIENDLY', 'YOU_TZ_PLACES', 'YOU_TZ_ZIP3'].map((c) => page.liftConst(SCRIPT, c)).join('\n')
+    + '\n' + ['youTzMachine', 'youTzLabel', 'youTzResolve', 'youTzSelect', 'youTzFillSelect', 'youTzWireSearch']
+      .map((f) => page.lift(SCRIPT, f)).join('\n');
+  const painter = new Function('document', 'FR_YOU_GEN', 'frActions', 'fetch',
+    `${tzHelpers}\n${page.lift(SCRIPT, 'frPaintYou')}\nreturn frPaintYou;`)(
     doc, 0, (spec) => { actions.push(spec); },
     () => new Promise(() => {}),
-    () => 'UTC', ['UTC'],   // #1994: the tz helpers frPaintYou now closes over
   );
   painter();
 
