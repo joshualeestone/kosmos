@@ -204,6 +204,20 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' picking Appearance closes the menu', afterTheme.menuClosed === true, JSON.stringify(afterTheme));
     ok(t + ' picking Appearance still applies the theme', afterTheme.themeApplied === true, JSON.stringify(afterTheme));
 
+    // ── #3302/#3360 symmetry: picking a View (data-layout-switch) option also closes the menu
+    //    and applies the layout, matching the widened [data-layout-switch], [data-theme-set] close. ──
+    await page.click('#userpop-btn');
+    await page.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
+    await page.click('#userpop-menu .laypick [data-layout-switch="consolidated"]');
+    await page.waitForTimeout(120);
+    // Only the menu-close is asserted here -- that is the #3360 behaviour this check owns. The
+    // layout actually switching needs PUT /api/style, which is unreachable over file://; that is
+    // covered against a booted board in render-viewtoggle-header-2154.js, not here.
+    const afterView = await page.evaluate(() => ({
+      menuClosed: document.getElementById('userpop-menu').hidden === true,
+    }));
+    ok(t + ' picking View closes the menu', afterView.menuClosed === true, JSON.stringify(afterView));
+
     // ── Escape closes the open menu. ──
     await page.click('#userpop-btn');
     await page.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
