@@ -176,6 +176,12 @@ function read() {
        backstop (fed routes 403 a non-member) covers any staleness between
        sign-ins; this cache only drives which UI the board shows. */
     standing: typeof parsed.standing === 'string' ? parsed.standing : '',
+    /* Federation Kosmos+ gate, W1 refresh: the client-clock ms when `standing` was
+       last written. Drives the TTL re-fetch -- an enrolled board re-checks standing
+       from the coordinator once this is older than STANDING_TTL_MS, so an UPGRADE
+       (paid after enrolment) takes effect within ~one TTL, no re-sign-in. 0 = never
+       stamped -> immediately stale. */
+    standing_at: typeof parsed.standing_at === 'number' ? parsed.standing_at : 0,
     ok: true,
   };
 }
@@ -187,7 +193,62 @@ function read() {
    already-set-up SHORT-CIRCUIT paths do NOT call this: there the account is
    unchanged, so the existing cache is kept. forget() clears it outright. */
 function fedSetStanding(standing) {
-  write({ standing: typeof standing === 'string' ? standing : '' });
+  // Stamp standing_at on every write so the TTL refresh (below) can tell a fresh
+  // cache from a stale one, and a definite coordinator answer resets the clock.
+  write({ standing: typeof standing === 'string' ? standing : '', standing_at: Date.now() });
+}
+/* Federation Kosmos+ gate, W1 refresh (ICK's v1 ruling, 2026-09-21). An enrolled
+   board's `standing` is otherwise frozen at enrolment time, so a member who UPGRADES
+   after enrolling could not see the feature until re-sign-in. This TTL re-fetch keeps
+   the cached standing current: the /api/status poll serves the CACHED kosmos_plus
+   immediately (never blocks) and, when the cache is older than the TTL, fires this
+   lazy refresh so the next poll reflects reality within ~one TTL. A LAPSE is also
+   caught within a TTL (UI off), but the fed-route 403 stays the hard security gate --
+   this only keeps the UI honest. */
+const STANDING_TTL_MS = 60 * 1000;   // ICK's ~60s; deliberately not per-poll (5s) to spare the coordinator
+let standingRefreshInFlight = false;
+/* The isolated coordinator read: the CURRENT standing string, or null when it could
+   not be determined (offline, auth, or -- today -- the source is not wired yet). A
+   null NEVER changes the cache, so a transient failure keeps the last-known standing
+   (no flicker) and the 403 backstop remains the hard gate.
+   🛑 PENDING ICK's mechanism answer: the board holds NO persistent bearer token (the
+   sign-in session token is spent at register) and keeps crypto in the kosmos-tunnel
+   binary ("NO CRYPTO HERE"), so this must call the binary's account verb via
+   setupRun(['account','me',...]) once ICK confirms it exists (or its exact shape).
+   Until then it returns null -> the refresh is a safe no-op and kosmosPlus() keeps
+   serving the enrolment-time cache exactly as the merged #3353 producer does. */
+async function fetchStanding() {
+  // The mac-cert GET /v1/mac/standing lives in its own module (engine/mac-standing.js),
+  // NOT here: remote.js keeps the "NO CRYPTO HERE" boundary, exactly as updating.js is a
+  // separate module for its mac-cert POST. Lazy require breaks the remote<->mac-standing
+  // cycle (mac-standing reads remote.stateDir/coordinator/read/enrolled). Best-effort:
+  // any failure -> null -> the refresh keeps the last-known cached value.
+  try { return await require('./mac-standing').fetchStanding(); } catch { return null; }
+}
+/* Lazily refresh the cached standing when it is older than `ttlMs`. NON-BLOCKING by
+   contract: callers do NOT await it; the poll serves the cached value and this updates
+   it for next time. A no-op unless enrolled, single-flighted so concurrent polls do
+   not stack fetches, and best-effort (never throws into the status tick). */
+async function refreshStandingIfStale(opts) {
+  opts = opts || {};
+  const ttl = typeof opts.ttlMs === 'number' ? opts.ttlMs : STANDING_TTL_MS;
+  const now = typeof opts.now === 'number' ? opts.now : Date.now();
+  const fetcher = typeof opts.fetcher === 'function' ? opts.fetcher : fetchStanding;
+  if (standingRefreshInFlight) return;
+  if (!enrolled()) return;                  // no account on this board -> nothing to refresh
+  const s = read();
+  if (s.ok !== true) return;
+  if (now - (s.standing_at || 0) < ttl) return;   // still fresh
+  standingRefreshInFlight = true;
+  try {
+    const standing = await fetcher();
+    if (typeof standing === 'string') {
+      fedSetStanding(standing);             // a definite answer: update the value + reset the clock
+    } else {
+      write({ standing_at: Date.now() });   // could not determine: KEEP the last-known value, back the retry off to the next TTL
+    }
+  } catch { /* refresh is best-effort; a poll must never see this throw */ }
+  finally { standingRefreshInFlight = false; }
 }
 /* Federation Kosmos+ gate: is THIS account an authenticated Kosmos+ member?
    True iff the cached coordinator standing is exactly "good" (ICK's contract:
@@ -1010,6 +1071,7 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   read,
   kosmosPlus,
   fedSetStanding,
+  refreshStandingIfStale,
   setOn,
   setRelay,
   enrolled,
