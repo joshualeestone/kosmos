@@ -408,8 +408,14 @@ function sourceChannelNow() {
 /* Federation Kosmos+ gate (producer). Whether THIS account is an authenticated
    Kosmos+ member, for the /api/status poll the web gate reads. remote.kosmosPlus()
    is already fail-safe (an unreadable settings file -> false); the try/catch is a
-   second belt so a status tick can never throw on this field. Fail-safe false. */
+   second belt so a status tick can never throw on this field. Fail-safe false.
+   W1 refresh: SERVE the cached value immediately (never block the tick) and, on this
+   same poll, fire remote.refreshStandingIfStale() -- a non-blocking, single-flighted,
+   best-effort re-fetch that updates the cache when it is older than the TTL, so an
+   UPGRADE takes effect within ~one TTL without a re-sign-in. The refresh promise is
+   deliberately not awaited; the NEXT poll reads its result. */
 function fedKosmosPlusNow() {
+  try { Promise.resolve(remote.refreshStandingIfStale()).catch(() => {}); } catch { /* never let the refresh touch the tick */ }
   try { return remote.kosmosPlus() === true; } catch { return false; }
 }
 
