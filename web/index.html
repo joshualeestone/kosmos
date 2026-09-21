@@ -7710,7 +7710,7 @@ html:not([data-source-channel="staging"]) .pj-mode,html:not([data-source-channel
    rule above sets to 100%, so the box shrinks on a wide wizard without needing
    to out-specify that rule. "What do you do?" keeps the full width -- it is a
    sentence. Two ids so it wins over `#firstrun .inp` cleanly. */
-#firstrun #fr-you-name, #firstrun #fr-you-tz { max-width: 20rem; }
+#firstrun #fr-you-name, #firstrun #fr-you-tz, #firstrun #fr-you-tz-search { max-width: 20rem; }
 
 /* ⚠️ `p.fr-next`, not `.fr-next`. `.fr-body p` is one specificity point higher
    than a bare class, so the italic caption rendered as ordinary body copy and
@@ -12685,6 +12685,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <div class="field" style="margin-top:18px;">
         <label class="flabel" for="you-tz">Your time zone</label>
         <div class="fhint">So your agents know your local time when you write to them.</div>
+        <!-- #3338: a "search by city or ZIP" accelerator over the friendly zone
+             select. Typing a city (Dallas) or a US ZIP (75454) jumps the select;
+             the select stays the source of truth and holds the saved IANA id. -->
+        <input class="inp" type="text" id="you-tz-search" placeholder="Search by city or ZIP, e.g. Dallas or 75454" aria-label="Search your time zone by city or ZIP" autocomplete="off" style="margin-bottom:8px;">
         <div class="frow">
           <select id="you-tz" aria-label="Your time zone" disabled></select>
           <button class="btn uprime" type="button" id="you-tz-save" aria-label="Save your time zone" disabled>Save</button>
@@ -17952,35 +17956,201 @@ document.getElementById('you-name-save').addEventListener('click', async () => {
    and defaults to this computer's own, so a person who never opens Settings
    still has the right one; saving it is what makes each direct message carry the
    local time (server.js reads it at delivery). */
-const YOU_TZ_FALLBACK = ['America/Chicago', 'America/New_York', 'America/Denver', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'UTC', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Tokyo', 'Australia/Sydney'];
 function youTzMachine() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
+}
+/* #3338 (Josh, 6.83 feedback: "timezone / city search confusion"). The raw Intl
+   zone list (~400 IANA ids like "America/Chicago") is exactly what confused
+   people on this step. Replace it with a FRIENDLY, US-first list plus a "search
+   by city or ZIP" accelerator. The saved VALUE is still the canonical IANA id
+   (the /api/settings {timezone} contract is unchanged) -- only the presentation
+   is friendly. All static, all renderer-side: no engine change. The machine zone
+   (youTzMachine) still always works: a zone outside the friendly set is carried
+   in as a raw option and preselected, exactly as before. */
+const YOU_TZ_FRIENDLY = [
+  { id: 'America/New_York',    label: 'Eastern Time (ET)',              us: true },
+  { id: 'America/Chicago',     label: 'Central Time (CT)',              us: true },
+  { id: 'America/Denver',      label: 'Mountain Time (MT)',             us: true },
+  { id: 'America/Phoenix',     label: 'Arizona (Mountain, no DST)',     us: true },
+  { id: 'America/Los_Angeles', label: 'Pacific Time (PT)',              us: true },
+  { id: 'America/Anchorage',   label: 'Alaska Time (AKT)',              us: true },
+  { id: 'Pacific/Honolulu',    label: 'Hawaii Time (HT)',               us: true },
+  // A modest set of common non-US zones so an operator abroad is not stranded.
+  { id: 'UTC',                 label: 'UTC',                            us: false },
+  { id: 'Europe/London',       label: 'UK time (London, Dublin)',       us: false },
+  { id: 'Europe/Paris',        label: 'Central Europe (Paris, Berlin)', us: false },
+  { id: 'Asia/Kolkata',        label: 'India (IST)',                    us: false },
+  { id: 'Asia/Shanghai',       label: 'China (Beijing, Shanghai)',      us: false },
+  { id: 'Asia/Tokyo',          label: 'Japan (Tokyo)',                  us: false },
+  { id: 'Australia/Sydney',    label: 'Australia East (Sydney)',        us: false },
+];
+/* The friendly label for an IANA id, or the id itself when we have no friendly
+   name (a machine zone outside the list still renders readably). */
+function youTzLabel(id) {
+  const z = YOU_TZ_FRIENDLY.find((e) => e.id === id);
+  return z ? z.label : id;
+}
+/* City -> IANA, lowercased. Curated common US set (incl. Josh's own Dallas /
+   McKinney), plus a few big non-US cities. Not exhaustive: youTzResolve also
+   tries the ZIP table and a label substring, so a miss here has two more shots. */
+const YOU_TZ_PLACES = {
+  'new york': 'America/New_York', 'nyc': 'America/New_York', 'brooklyn': 'America/New_York',
+  'boston': 'America/New_York', 'philadelphia': 'America/New_York', 'philly': 'America/New_York',
+  'washington': 'America/New_York', 'dc': 'America/New_York', 'atlanta': 'America/New_York',
+  'miami': 'America/New_York', 'orlando': 'America/New_York', 'tampa': 'America/New_York',
+  'jacksonville': 'America/New_York', 'charlotte': 'America/New_York', 'raleigh': 'America/New_York',
+  'detroit': 'America/New_York', 'columbus': 'America/New_York', 'cleveland': 'America/New_York',
+  'pittsburgh': 'America/New_York', 'baltimore': 'America/New_York', 'richmond': 'America/New_York',
+  'chicago': 'America/Chicago', 'dallas': 'America/Chicago', 'mckinney': 'America/Chicago',
+  'fort worth': 'America/Chicago', 'houston': 'America/Chicago', 'austin': 'America/Chicago',
+  'san antonio': 'America/Chicago', 'plano': 'America/Chicago', 'frisco': 'America/Chicago',
+  'nashville': 'America/Chicago', 'memphis': 'America/Chicago', 'new orleans': 'America/Chicago',
+  'kansas city': 'America/Chicago', 'st louis': 'America/Chicago', 'saint louis': 'America/Chicago',
+  'minneapolis': 'America/Chicago', 'milwaukee': 'America/Chicago', 'oklahoma city': 'America/Chicago',
+  'omaha': 'America/Chicago', 'des moines': 'America/Chicago',
+  'denver': 'America/Denver', 'salt lake city': 'America/Denver', 'albuquerque': 'America/Denver',
+  'colorado springs': 'America/Denver', 'boise': 'America/Denver',
+  'phoenix': 'America/Phoenix', 'tucson': 'America/Phoenix', 'mesa': 'America/Phoenix',
+  'scottsdale': 'America/Phoenix',
+  'los angeles': 'America/Los_Angeles', 'la': 'America/Los_Angeles', 'san francisco': 'America/Los_Angeles',
+  'san diego': 'America/Los_Angeles', 'san jose': 'America/Los_Angeles', 'seattle': 'America/Los_Angeles',
+  'portland': 'America/Los_Angeles', 'las vegas': 'America/Los_Angeles', 'sacramento': 'America/Los_Angeles',
+  'anchorage': 'America/Anchorage', 'honolulu': 'Pacific/Honolulu',
+  'london': 'Europe/London', 'dublin': 'Europe/London', 'paris': 'Europe/Paris', 'berlin': 'Europe/Paris',
+  'tokyo': 'Asia/Tokyo', 'sydney': 'Australia/Sydney', 'mumbai': 'Asia/Kolkata',
+  'delhi': 'Asia/Kolkata', 'bengaluru': 'Asia/Kolkata', 'bangalore': 'Asia/Kolkata',
+  // Zone abbreviations, as exact keys so a 2-3 char abbrev resolves even though the
+  // free-text substring match below is length-gated (>= 4) to avoid single-letter jumps.
+  'et': 'America/New_York', 'est': 'America/New_York', 'edt': 'America/New_York',
+  'ct': 'America/Chicago', 'cst': 'America/Chicago', 'cdt': 'America/Chicago',
+  'mt': 'America/Denver', 'mst': 'America/Denver', 'mdt': 'America/Denver',
+  'pt': 'America/Los_Angeles', 'pst': 'America/Los_Angeles', 'pdt': 'America/Los_Angeles',
+  'akt': 'America/Anchorage', 'ht': 'Pacific/Honolulu', 'hst': 'Pacific/Honolulu',
+};
+/* US ZIP first-3-digit -> zone, CONSERVATIVE: only ranges lying wholly inside one
+   zone are listed. Genuinely split prefixes (FL panhandle, most of TN/IN, the
+   KS/NE/SD/ND borders, El Paso, east OR/ID) are DELIBERATELY OMITTED so a ZIP
+   never jumps to the WRONG zone -- an omitted prefix does not jump, and the
+   operator picks from the friendly list. Range = [lo, hi, id] over the integer
+   first three digits. */
+const YOU_TZ_ZIP3 = [
+  [10, 199, 'America/New_York'],     // New England, NY, NJ, PA, DE
+  [200, 219, 'America/New_York'],    // DC, MD
+  [220, 268, 'America/New_York'],    // VA, WV
+  [270, 299, 'America/New_York'],    // NC, SC
+  [300, 319, 'America/New_York'],    // GA
+  [330, 349, 'America/New_York'],    // south/central FL (panhandle omitted)
+  [350, 369, 'America/Chicago'],     // AL
+  [380, 397, 'America/Chicago'],     // west TN (Memphis), MS
+  [500, 528, 'America/Chicago'],     // IA
+  [530, 549, 'America/Chicago'],     // WI
+  [550, 567, 'America/Chicago'],     // MN
+  [600, 629, 'America/Chicago'],     // IL
+  [630, 658, 'America/Chicago'],     // MO
+  [700, 714, 'America/Chicago'],     // LA
+  [716, 729, 'America/Chicago'],     // AR
+  [730, 749, 'America/Chicago'],     // OK
+  [750, 797, 'America/Chicago'],     // TX (El Paso 798-799 omitted)
+  [590, 599, 'America/Denver'],      // MT
+  [800, 816, 'America/Denver'],      // CO
+  [820, 831, 'America/Denver'],      // WY
+  [870, 884, 'America/Denver'],      // NM
+  [850, 865, 'America/Phoenix'],     // AZ (no DST)
+  [889, 898, 'America/Los_Angeles'], // NV
+  [900, 961, 'America/Los_Angeles'], // CA
+  [980, 994, 'America/Los_Angeles'], // WA
+  [967, 968, 'Pacific/Honolulu'],    // HI
+  [995, 999, 'America/Anchorage'],   // AK
+];
+/* Resolve a free-text query (city, US ZIP, or zone label) to an IANA id, or ''
+   when nothing matches confidently. Order: exact place, ZIP prefix, then a
+   label/id substring. Case- and space-insensitive. A ZIP we cannot confidently
+   place returns '' (no jump) rather than a wrong zone. */
+function youTzResolve(query) {
+  const q = String(query || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!q) return '';
+  if (Object.prototype.hasOwnProperty.call(YOU_TZ_PLACES, q)) return YOU_TZ_PLACES[q];
+  if (/^[0-9]/.test(q)) {
+    const digits = q.replace(/[^0-9]/g, '');
+    if (digits.length >= 3) {
+      const p = parseInt(digits.slice(0, 3), 10);
+      for (const r of YOU_TZ_ZIP3) { if (p >= r[0] && p <= r[1]) return r[2]; }
+    }
+    return '';   // a ZIP we do not confidently place: no jump, never a wrong one
+  }
+  // Free-text substring over the friendly label or IANA id, but only at >= 4 chars:
+  // a shorter substring (e.g. "d") would match "america/denver" and jump the select
+  // around while the operator is still typing a city. Exact place/abbrev keys above
+  // already cover the short cases that should resolve.
+  if (q.length >= 4) {
+    const hit = YOU_TZ_FRIENDLY.find((e) => e.label.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
+    if (hit) return hit.id;
+  }
+  return '';
+}
+/* Select `id` in a <select>, inserting a raw option for a zone the friendly list
+   does not carry (so a machine/saved zone outside the set is honored and
+   readable). No-op on the value while the user has the select focused. */
+function youTzSelect(sel, id) {
+  if (!id) return;
+  if (!Array.from(sel.options).some((o) => o.value === id)) {
+    const o = document.createElement('option'); o.value = id; o.textContent = youTzLabel(id);
+    if (sel.firstChild) sel.insertBefore(o, sel.firstChild); else sel.appendChild(o);
+  }
+  if (document.activeElement !== sel) sel.value = id;
+}
+/* Populate a <select> with the friendly zones (US first by array order, then the
+   handful of common non-US zones) and select `want`. Idempotent: rebuilds options
+   only when empty, but always re-applies `want`. A flat list rather than optgroups
+   keeps it simple and clearly labelled -- the 14 entries are few and the labels
+   ("Eastern Time (ET)", ...) carry the grouping meaning on their own. */
+function youTzFillSelect(sel, want) {
+  if (!sel.options.length) {
+    for (const e of YOU_TZ_FRIENDLY) {
+      const o = document.createElement('option'); o.value = e.id; o.textContent = e.label; sel.appendChild(o);
+    }
+  }
+  youTzSelect(sel, want);
+}
+/* Wire a "search by city or ZIP" input to jump the select. onPick(id, label) on
+   a confident match (id set); onPick('', null) when the (non-empty) query has no
+   confident match; onPick(null, null) when the field is cleared. */
+function youTzWireSearch(input, sel, onPick) {
+  input.addEventListener('input', () => {
+    const raw = input.value.trim();
+    if (!raw) { onPick(null, null); return; }
+    const id = youTzResolve(input.value);
+    if (id) { youTzSelect(sel, id); onPick(id, youTzLabel(id)); }
+    else { onPick('', null); }
+  });
 }
 async function paintYouTz() {
   const sel = document.getElementById('you-tz');
   const btn = document.getElementById('you-tz-save');
   const msg = document.getElementById('you-tz-msg');
-  if (!sel.options.length) {
-    let zones;
-    try { zones = (typeof Intl.supportedValuesOf === 'function') ? Intl.supportedValuesOf('timeZone') : YOU_TZ_FALLBACK.slice(); }
-    catch { zones = YOU_TZ_FALLBACK.slice(); }
-    for (const z of zones) {
-      const o = document.createElement('option'); o.value = z; o.textContent = z; sel.appendChild(o);
-    }
-  }
+  const search = document.getElementById('you-tz-search');
   let saved = null;
   try {
     const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
     saved = r && r.timezone ? r.timezone : null;
   } catch { /* fall through to this computer's own time zone */ }
   const want = saved || youTzMachine();
-  /* the machine's zone is not always in the enumerated list; make it selectable */
-  if (want && !Array.from(sel.options).some((o) => o.value === want)) {
-    const o = document.createElement('option'); o.value = want; o.textContent = want; sel.insertBefore(o, sel.firstChild);
+  /* #3338: friendly, US-first zone select; `want` (saved or machine zone) is
+     inserted+selected even when outside the friendly set, so detection and a
+     previously-saved custom zone are both honored. */
+  youTzFillSelect(sel, want);
+  /* #3338: wire the search accelerator once. A confident city/ZIP match jumps the
+     select; a miss leaves the selection and says so (the select is the value). */
+  if (search && !search.dataset.wired) {
+    search.dataset.wired = '1';
+    youTzWireSearch(search, sel, (id, label) => {
+      if (id) msg.textContent = 'Set to ' + label + '. Save to confirm.';
+      else if (id === '') msg.textContent = 'No match yet. Keep typing, or pick from the list.';
+      else msg.textContent = '';
+    });
   }
-  if (document.activeElement !== sel) sel.value = want;
   sel.disabled = false; btn.disabled = false;
-  msg.textContent = saved ? '' : "Set to this computer's time zone. Save to confirm.";
+  msg.textContent = saved ? '' : "Set to this computer's time zone (" + youTzLabel(want) + '). Save to confirm.';
 }
 document.getElementById('you-tz-save').addEventListener('click', async () => {
   const sel = document.getElementById('you-tz');
@@ -46123,7 +46293,10 @@ async function frPaintYou() {
        used to sit here was removed on the same instruction ("that is nonsense
        copy, take that out"). */
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-tz">Your time zone</label>' +
-    '<select class="inp" id="fr-you-tz" aria-label="Your time zone"></select></div>';
+    // #3338: a "search by city or ZIP" accelerator above the friendly zone select.
+    '<input class="inp" type="text" id="fr-you-tz-search" placeholder="Search by city or ZIP, e.g. Dallas or 75454" aria-label="Search your time zone by city or ZIP" autocomplete="off">' +
+    '<select class="inp" id="fr-you-tz" aria-label="Your time zone"></select>' +
+    '<p class="fmsg" id="fr-you-tz-hint" role="status" aria-live="polite"></p></div>';
   const nameEl = document.getElementById('fr-you-name');
   const doEl = document.getElementById('fr-you-do');
   /* #1994: the restored time-zone picker. Populate the same zone set Settings
@@ -46132,14 +46305,21 @@ async function frPaintYou() {
      always carries a valid value (the machine zone), so it never blocks. It is
      saved on Continue via POST /api/settings, in the go() below. */
   const tzEl = document.getElementById('fr-you-tz');
-  if (tzEl && !tzEl.options.length) {
-    let zones;
-    try { zones = (typeof Intl.supportedValuesOf === 'function') ? Intl.supportedValuesOf('timeZone') : YOU_TZ_FALLBACK.slice(); }
-    catch { zones = YOU_TZ_FALLBACK.slice(); }
-    const machine = youTzMachine();
-    if (machine && !zones.includes(machine)) zones = [machine].concat(zones);
-    for (const z of zones) { const o = document.createElement('option'); o.value = z; o.textContent = z; tzEl.appendChild(o); }
-    tzEl.value = machine;
+  const tzSearch = document.getElementById('fr-you-tz-search');
+  const tzHint = document.getElementById('fr-you-tz-hint');
+  /* #3338: friendly, US-first select defaulted to this computer's zone (mapped
+     to a plain label like "Central Time (CT)"), plus a city/ZIP search that jumps
+     it. The select's value is still the canonical IANA id saved on Continue. */
+  if (tzEl) {
+    youTzFillSelect(tzEl, youTzMachine());
+    if (tzHint) tzHint.textContent = 'Set to ' + youTzLabel(tzEl.value) + ' for this computer. Change it if that is not right.';
+    if (tzSearch) youTzWireSearch(tzSearch, tzEl, (id, label) => {
+      if (!tzHint) return;
+      if (id) tzHint.textContent = 'Set to ' + label + '.';
+      else if (id === '') tzHint.textContent = 'No match yet. Keep typing, or pick from the list.';
+      else tzHint.textContent = 'Set to ' + youTzLabel(tzEl.value) + '.';
+    });
+    tzEl.addEventListener('change', () => { if (tzHint) tzHint.textContent = 'Set to ' + youTzLabel(tzEl.value) + '.'; });
   }
   /* 🛑 THE BOX IS GONE, THE VALUE IS NOT (#1345). Josh asked for two fields, and
      `know` still feeds the you-block that goes into every agent's instructions
@@ -46243,10 +46423,10 @@ async function frPaintYou() {
     const sr = await (await fetch('/api/settings', { cache: 'no-store' })).json();
     if (entry !== FR_YOU_GEN) return;
     if (tzEl && sr && sr.timezone && document.activeElement !== tzEl) {
-      if (!Array.from(tzEl.options).some((o) => o.value === sr.timezone)) {
-        const o = document.createElement('option'); o.value = sr.timezone; o.textContent = sr.timezone; tzEl.insertBefore(o, tzEl.firstChild);
-      }
-      tzEl.value = sr.timezone;
+      // #3338: youTzSelect inserts a friendly-labelled option when the saved zone
+      // is outside the friendly set, and selects it (honoring the focus guard).
+      youTzSelect(tzEl, sr.timezone);
+      if (tzHint) tzHint.textContent = 'Set to ' + youTzLabel(sr.timezone) + '.';
     }
   } catch { /* keep the machine-zone default already selected */ }
 }
