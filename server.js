@@ -419,18 +419,30 @@ function fedKosmosPlusNow() {
   try { return remote.kosmosPlus() === true; } catch { return false; }
 }
 
-/* The coordinated-flip flag for the federation UI. A board config that DEFAULTS
-   FALSE: until federation is actually live (the coordinator redeployed with the
-   fed routes + the slice-3 message pipe proven), the web gate keeps the fed UI
-   hidden on prod even from members. Read PER REQUEST off the process env, so it is
-   evaluated live on every /api/status poll (nothing caches it). The coordinated
-   flip is the launch coordinator's action, NOT here: set AGENT_WORKFORCE_FEDERATION_LIVE=1
-   on the board's launchd job and restart it -- a live process cannot have the env it
-   inherited at spawn changed from outside, so production needs that one restart; the
-   per-request read is why an in-process test flips it without one. A one-time,
-   coordinated-launch action. Fail-safe: any value other than the exact "1" is false. */
+/* The coordinated-flip flag for the federation UI. DEFAULTS FALSE: until federation is
+   live, the web gate keeps the fed UI hidden on prod even from members. TWO sources,
+   ORed:
+   1. The GLOBAL coordinator flag (option 2, the CUSTOMER un-hide): the board caches a
+      "federation live" bool from the coordinator (remote.federationLive()), refreshed on
+      a TTL from the /api/status poll. This is how a CUSTOMER -- who cannot set an env var
+      -- gets the flip: central on/off + rollback-without-a-release. (The real coordinator
+      fetch is a stub pending ICK's endpoint; until wired it returns false, so the env is
+      the only live source and behaviour is unchanged.)
+   2. The AGENT_WORKFORCE_FEDERATION_LIVE env override, for an OPERATOR/dev board:
+      set it on the launchd job and restart (a live process cannot have its inherited env
+      changed from outside, so production needs that one restart; the per-request read is
+      why an in-process test flips it without one).
+   Fail-safe: any error, and any env value other than the exact "1", is false. */
 function federationLiveNow() {
-  return process.env.AGENT_WORKFORCE_FEDERATION_LIVE === '1';
+  // Option 2 (the CUSTOMER un-hide): a customer cannot set an env var, so federationLive
+  // also comes from a GLOBAL coordinator flag the board caches. Fire its lazy TTL refresh
+  // on the poll (non-blocking, single-flighted, best-effort -- exactly like the standing
+  // refresh above), then OR the operator/dev env override on top of the cached flag.
+  try { Promise.resolve(remote.refreshFederationLiveIfStale()).catch(() => {}); } catch { /* never let the refresh touch the tick */ }
+  const envFlip = process.env.AGENT_WORKFORCE_FEDERATION_LIVE === '1';
+  let coord = false;
+  try { coord = remote.federationLive() === true; } catch { coord = false; }
+  return envFlip || coord;
 }
 
 /* #2036 observability slice (behavior-preserving; changes no channel resolution and moves no
