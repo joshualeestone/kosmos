@@ -33,13 +33,27 @@ Josh, 2026-09-21 (via Splinter). Federation goes live as a **Kosmos+** feature:
   domain (Josh's ruling: the Plus section owns where sign-up goes).
 - Replaces the #3330 `data-source-channel` gate + its check `render-fed-prod-gate-3330.js`.
 
-## The ICK/engine seam
+## The ICK/engine seam (membership CONFIRMED; two reads still to settle)
 The Kosmos+ **membership** signal is distinct from `engine/subscription.checkMachine()`
-(that is the CLAUDE-AI sub) and is genuinely unwired today (the Plus section is
-"shipped unwired" — nothing tells the app whether the person has paid). Two /api/status
-fields are needed from ICK: `federationLive` (the flip) + `plusEntitled` (member state).
-Proposed names are used as PLACEHOLDERS, isolated in `fedGateStamp`, so wiring the
-confirmed fields is a one-line edit. Asked ICK; fail-safe defaults keep it safe meanwhile.
+(that is the CLAUDE-AI sub) and was genuinely unwired.
+
+**CONFIRMED by ICK (kosmos-relay `fed-plus-gate-3311`):** the membership signal is a
+boolean **`kosmos_plus`** (== the coordinator's `standing == "good"`), the SAME field the
+coordinator's own gate reads, on `GET /v1/account/me`. The gate now reads `data.kosmos_plus`
+(bool: true -> show, false -> sign-up) and ignores the fed-route 403's body (no machine
+`code` field, by ICK's anti-probing design). `fedGateMode` takes the bool directly.
+
+**Two reads still to settle with ICK (asked; both fail-safe until wired):**
+1. **Membership endpoint.** `kosmos_plus` is on the RELAY's `/v1/account/me`; my gate reads
+   the LOCAL board's `/api/status` poll. Assumed: the local server surfaces `kosmos_plus`
+   on `/api/status` (proxied via the engine's relay seam). If instead the frontend must call
+   `/v1/account/me` directly, only fedGateStamp's read changes (a client-side fetch).
+2. **The flip signal.** `federationLive` (kept separate from membership, so prod stays
+   hidden even from members before slice-3) — where the server exposes it + who sets it
+   (Splinter's config) is TBD. Absent today -> `hidden`, so nothing flips until wired.
+
+Reads are isolated in `fedGateStamp`; each is a one-line swap. Fail-safe: absent
+`kosmos_plus` -> sign-up (never leak), absent `federationLive` -> hidden.
 
 ## Verification
 - `web.fed-plus-gate.test.js` (5): fedGateMode modes, the fail-safe (unknown/absent on a

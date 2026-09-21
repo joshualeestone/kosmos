@@ -115,32 +115,32 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
   }
 
   // ARM 1: prod, NOT flipped -> both fed UI and sign-up hidden; control shown (ready-to-flip).
-  await stamp(page, { sourceChannel: 'prod', federationLive: false, plusEntitled: 'member' });
+  await stamp(page, { sourceChannel: 'prod', federationLive: false, kosmos_plus: true });
   let d = await displays(page, FED.concat([SIGNUP, CONTROL]));
   check('prod NOT flipped: the federation entry points are hidden', FED.every((s) => d[s] === 'none'), JSON.stringify(d));
   check('prod NOT flipped: the sign-up prompt is hidden too', d[SIGNUP] === 'none', SIGNUP + ' = ' + d[SIGNUP]);
   check('prod NOT flipped: the local "Add an agent" control is still shown', shown(d[CONTROL]), CONTROL + ' = ' + d[CONTROL]);
 
   // ARM 2: prod, flipped + member -> fed UI shown, sign-up hidden.
-  await stamp(page, { sourceChannel: 'prod', federationLive: true, plusEntitled: 'member' });
+  await stamp(page, { sourceChannel: 'prod', federationLive: true, kosmos_plus: true });
   d = await displays(page, FED.concat([SIGNUP]));
   check('prod flipped + MEMBER: the federation entry points are shown', FED.every((s) => shown(d[s])), JSON.stringify(d));
   check('prod flipped + MEMBER: the sign-up prompt is hidden', d[SIGNUP] === 'none', SIGNUP + ' = ' + d[SIGNUP]);
 
   // ARM 3: prod, flipped + non-member -> fed UI hidden, sign-up SHOWN.
-  await stamp(page, { sourceChannel: 'prod', federationLive: true, plusEntitled: 'none' });
+  await stamp(page, { sourceChannel: 'prod', federationLive: true, kosmos_plus: false });
   d = await displays(page, FED.concat([SIGNUP]));
   check('prod flipped + NON-MEMBER: the federation entry points are hidden', FED.every((s) => d[s] === 'none'), JSON.stringify(d));
   check('prod flipped + NON-MEMBER: the sign-up prompt is shown instead', shown(d[SIGNUP]), SIGNUP + ' = ' + d[SIGNUP]);
 
   // ARM 4 (THE LEAK CONTROL): prod, flipped + UNKNOWN entitlement -> fed hidden, sign-up shown.
-  await stamp(page, { sourceChannel: 'prod', federationLive: true, plusEntitled: undefined });
+  await stamp(page, { sourceChannel: 'prod', federationLive: true, kosmos_plus: undefined });
   d = await displays(page, FED.concat([SIGNUP]));
   check('prod flipped + UNKNOWN: the federation entry points stay hidden (FAIL-SAFE, no leak)', FED.every((s) => d[s] === 'none'), JSON.stringify(d));
   check('prod flipped + UNKNOWN: the sign-up prompt is shown', shown(d[SIGNUP]), SIGNUP + ' = ' + d[SIGNUP]);
 
   // ARM 5: staging, entitlement unwired -> fed UI shown (review continuity), sign-up hidden.
-  await stamp(page, { sourceChannel: 'staging', federationLive: false, plusEntitled: undefined });
+  await stamp(page, { sourceChannel: 'staging', federationLive: false, kosmos_plus: undefined });
   d = await displays(page, FED.concat([SIGNUP]));
   check('staging (entitlement unwired): the federation entry points are shown for review', FED.every((s) => shown(d[s])), JSON.stringify(d));
   check('staging: the sign-up prompt is hidden', d[SIGNUP] === 'none', SIGNUP + ' = ' + d[SIGNUP]);
@@ -154,7 +154,7 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
   // ARM 7 (the prompt is an ACTUAL go-sign-up, not dead copy): clicking it routes into the
   // in-app Kosmos Plus section (Josh's spec). Verified by driving the real click handler and
   // reading that the Plus section becomes the shown settings section.
-  await stamp(page, { sourceChannel: 'prod', federationLive: true, plusEntitled: 'none' });
+  await stamp(page, { sourceChannel: 'prod', federationLive: true, kosmos_plus: false });
   const routed = await page.evaluate(() => {
     document.getElementById('pj-plus-signup-go').click();
     const plus = document.querySelector('#panel-settings .dsec[data-sec="plus"]');

@@ -28,15 +28,15 @@ const fedGateMode = new Function(lift(SCRIPT, 'fedGateMode') + '\nreturn fedGate
 
 test('#fedgate: prod stays HIDDEN until the coordinated flip (federationLive !== true)', () => {
   // Ready-to-flip: whatever the entitlement, an un-flipped prod shows nothing.
-  assert.equal(fedGateMode('prod', false, 'member'), 'hidden', 'not flipped + member');
-  assert.equal(fedGateMode('prod', undefined, 'member'), 'hidden', 'flag absent + member');
-  assert.equal(fedGateMode('prod', false, 'none'), 'hidden', 'not flipped + non-member');
+  assert.equal(fedGateMode('prod', false, true), 'hidden', 'not flipped + member');
+  assert.equal(fedGateMode('prod', undefined, true), 'hidden', 'flag absent + member');
+  assert.equal(fedGateMode('prod', false, false), 'hidden', 'not flipped + non-member');
   assert.equal(fedGateMode('prod', false, undefined), 'hidden', 'not flipped + unknown');
 });
 
 test('#fedgate: a live prod shows the fed UI to a member, the sign-up prompt to everyone else', () => {
-  assert.equal(fedGateMode('prod', true, 'member'), 'show', 'member -> fed UI');
-  assert.equal(fedGateMode('prod', true, 'none'), 'signup', 'non-member -> sign-up prompt');
+  assert.equal(fedGateMode('prod', true, true), 'show', 'member -> fed UI');
+  assert.equal(fedGateMode('prod', true, false), 'signup', 'non-member -> sign-up prompt');
 });
 
 test('#fedgate: FAIL-SAFE -- an unknown/absent entitlement on a live prod is NEVER the fed UI', () => {
@@ -44,16 +44,16 @@ test('#fedgate: FAIL-SAFE -- an unknown/absent entitlement on a live prod is NEV
   // resolve must not see federation on prod. Unknown resolves to the sign-up prompt.
   assert.equal(fedGateMode('prod', true, undefined), 'signup', 'unknown -> sign-up, not show');
   assert.equal(fedGateMode('prod', true, null), 'signup', 'null -> sign-up, not show');
-  assert.equal(fedGateMode('prod', true, ''), 'signup', 'empty -> sign-up, not show');
-  assert.equal(fedGateMode('prod', true, 'garbage'), 'signup', 'unrecognized -> sign-up, not show');
+  assert.equal(fedGateMode('prod', true, 0), 'signup', '0 (falsy non-bool) -> sign-up, not show');
+  assert.equal(fedGateMode('prod', true, 'yes'), 'signup', 'a truthy non-true string -> sign-up, not show');
 });
 
 test('#fedgate: staging is always a live review surface', () => {
   // A member reviewer sees the fed UI; a non-member reviewer sees the sign-up prompt;
   // and while entitlement is not yet wired (unknown), staging keeps SHOWING the fed UI
   // so review is not blocked -- this is the #3330 staging-review continuity.
-  assert.equal(fedGateMode('staging', false, 'member'), 'show', 'staging member (no flag needed)');
-  assert.equal(fedGateMode('staging', false, 'none'), 'signup', 'staging explicit non-member');
+  assert.equal(fedGateMode('staging', false, true), 'show', 'staging member (no flag needed)');
+  assert.equal(fedGateMode('staging', false, false), 'signup', 'staging explicit non-member');
   assert.equal(fedGateMode('staging', false, undefined), 'show', 'staging + unwired entitlement -> show (review continuity)');
 });
 

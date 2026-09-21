@@ -23271,21 +23271,28 @@ function paintBuildLine(version) {
      - plusEntitled: is THIS viewer an authenticated Kosmos+ member? Members get
        the fed UI; everyone else gets a "sign up for Kosmos+" prompt instead.
    Returns the gate mode: 'show' (fed UI), 'signup' (sign-up prompt), or 'hidden'.
-   ⚠️ FIELD NAMES (data.federationLive / data.plusEntitled) are pending ICK/engine
-   confirmation; the reads are isolated in fedGateStamp so wiring the confirmed
-   fields is a one-line edit. FAIL-SAFE by construction: an unknown/absent signal
-   never resolves to 'show' on prod -- a non-member or unknown viewer there gets
-   'signup', and before the flip everything is 'hidden'. */
-function fedGateMode(sourceChannel, federationLive, plusEntitled) {
+   MEMBERSHIP signal (ICK, kosmos-relay fed-plus-gate-3311): a boolean `kosmos_plus`
+   (== the coordinator's standing == "good"), the SAME field the coordinator's own gate
+   reads, so the UI and the API cannot disagree. ⚠️ ENDPOINT still to settle with ICK:
+   this reads data.kosmos_plus off the /api/status poll, which assumes the LOCAL server
+   surfaces the relay's /v1/account/me bool there; if instead the frontend must call
+   /v1/account/me directly, only fedGateStamp's read changes. The FLIP signal
+   (data.federationLive) -- who sets it, where -- is likewise pending. FAIL-SAFE by
+   construction: an unknown/absent signal never resolves to 'show' on prod -- a
+   non-member or unknown viewer there gets 'signup', and before the flip everything is
+   'hidden'. */
+function fedGateMode(sourceChannel, federationLive, kosmosPlus) {
   const staging = sourceChannel === 'staging';
   // Staging is always a live review surface; prod is live only once flipped.
   const live = federationLive === true || staging;
   if (!live) return 'hidden';
-  if (plusEntitled === 'member') return 'show';
-  // Staging review continuity: while entitlement is not yet wired (unknown), keep
-  // showing the fed UI on staging so reviewers are not blocked. On PROD an unknown
+  // kosmosPlus is ICK's coordinator entitlement bool (standing == "good"), the SAME field
+  // the coordinator gate reads -- so the badge shown and the access granted cannot disagree.
+  if (kosmosPlus === true) return 'show';
+  // Staging review continuity: while entitlement is not yet wired (neither true nor false),
+  // keep showing the fed UI on staging so reviewers are not blocked. On PROD an unknown
   // entitlement is treated as NOT a member (fail-safe) -> the sign-up prompt.
-  const unknownPlus = plusEntitled !== 'member' && plusEntitled !== 'none';
+  const unknownPlus = kosmosPlus !== true && kosmosPlus !== false;
   if (staging && unknownPlus) return 'show';
   return 'signup';
 }
@@ -23295,7 +23302,7 @@ function fedGateMode(sourceChannel, federationLive, plusEntitled) {
    hidden until a real signal resolves. */
 function fedGateStamp(data) {
   data = data || {};
-  const mode = fedGateMode(data.sourceChannel, data.federationLive, data.plusEntitled);
+  const mode = fedGateMode(data.sourceChannel, data.federationLive, data.kosmos_plus);
   document.documentElement.setAttribute('data-fed-ui', mode);
 }
 /* The "sign up for Kosmos+" prompt (shown when data-fed-ui="signup") routes into
