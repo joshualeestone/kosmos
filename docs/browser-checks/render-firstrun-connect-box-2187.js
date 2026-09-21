@@ -120,6 +120,11 @@ function isGold(rgb) {
     // 1. CONNECTED arm -- the checkbox Josh named, inside the gold box.
     const connected = await page.evaluate(() => {
       try { FR = { subscription: { state: 'connected', plan: 'Claude Max 20' } }; } catch { /* not writable */ }
+      /* #3326: the terminal "... is connected" checkrow now paints only once a real login has
+         verified the credential THIS session (FR_SUB_LOGIN_VERIFIED); a shallow checkLive
+         `connected` no longer shows it (it falls through to the verdict-free arm). This arm
+         tests the verified-connected box, so set the flag before painting. */
+      try { FR_SUB_LOGIN_VERIFIED = true; } catch { /* not writable */ }
       frPaintSubscription();
       const host = document.getElementById('fr-sub');
       const row = host.querySelector('.fr-check.ok');

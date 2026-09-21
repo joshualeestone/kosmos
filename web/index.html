@@ -10461,10 +10461,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                 <div id="fr-openai-pick" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-pick-t">
                   <p class="fr-confirm-t" id="fr-openai-pick-t">Download complete. Choose how to connect OpenAI.</p>
                   <div class="frow" style="margin-top:8px;">
-                    <button class="btn uprime" id="fr-openai-pick-sub" type="button">Sign in with ChatGPT</button>
+                    <!-- #3335 (Josh 0.6.83 feedback): "Sign in with ChatGPT" -> "Sign in with
+                         Subscription", and the explainer paragraph below is deleted (Josh: the
+                         two buttons already say what they are). Clicking this now opens the OpenAI
+                         sign-in IMMEDIATELY (frOpenaiPickSub starts the flow) rather than showing an
+                         intermediate step whose only job was to make the person press "Sign in"
+                         again. Scoped to first-run, where Josh ruled; Settings keeps its own copy. -->
+                    <button class="btn uprime" id="fr-openai-pick-sub" type="button">Sign in with Subscription</button>
                     <button class="btn" id="fr-openai-pick-key" type="button">Use an API key</button>
                   </div>
-                  <p class="dhint" style="margin:8px 0 0;">A ChatGPT subscription signs in through OpenAI, with nothing to paste. An API key is a string you create on OpenAI's site.</p>
                 </div>
                 <div id="fr-openai-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-sub-t">
                   <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
@@ -46693,6 +46698,12 @@ function frConnWatch() {
       frConnStopWatch();
       FR_CONN_LAST = null;
       if (st.phase === 'connected') {
+        /* #3326: the watch reaching `connected` is the genuine login-success signal --
+           the flow gets here only after a real `claude auth login` completes (sign-up
+           forces reauth:true, so the start never short-circuits to connected). This is
+           the ONLY place FR_SUB_LOGIN_VERIFIED is set, so a cancel or idle-terminal phase
+           (which reach frConnSettle without this arm) never mark the login verified. */
+        FR_SUB_LOGIN_VERIFIED = true;
         // The one phase the panel painter never paints, announced here so a
         // screen-reader user hears the finish, not just the buttons changing.
         const say = document.getElementById('fr-conn-say');
@@ -46750,6 +46761,14 @@ function frConnWatch() {
  */
 let FR_CONN_CONFIRMED = false;
 
+/* #3326 (Josh option 2): true once a real forced-login connect has completed this
+   session (set in frConnSettle). Until then, a `connected` subscription state is only
+   the shallow checkLive presence signal -- a credential EXISTS but may be expired --
+   so frPaintSubscription must NOT let sign-up finish on it; it shows the sign-in as an
+   action, not a done "Connected" the user can skip past. Per-session (a fresh sign-up
+   re-verifies), mirroring FR_CONN_CONFIRMED. */
+let FR_SUB_LOGIN_VERIFIED = false;
+
 /* 🛑 #1574: `FR_CONN_CONFIRMED` USED TO BE SET ON THE SKIP PATH TOO, WHICH IS HOW
    THE PAGE CAME TO ASSERT A CONFIRMATION NOBODY GAVE. When `frClaudeInstallNeeded()`
    answered false the gate was skipped and this flag went true anyway, so the very
@@ -46792,7 +46811,14 @@ async function frConnectStartConfirmed(installConfirmed, opener) {
       headers: { 'content-type': 'application/json' },
       /* #1574: what a PERSON did, not what the page concluded. The server pairs it
          with a live probe and refuses if an install would start unconfirmed. */
-      body: JSON.stringify({ installConfirmed: installConfirmed === true }),
+      /* #3326 (Josh, 2026-09-19, option 2): sign-up ALWAYS forces a real Claude login,
+         even when the machine already looks connected. reauth:true makes connect.start()
+         skip the CONNECTED short-circuit (connect.js ~1475 `&& !reauth`) and run a real
+         `claude auth login` with login-success evidence (connect.js #2645 needsLogin path),
+         so a stale/expired "Connected" credential can never let sign-up finish on a dead
+         login. Josh: "what's it cost us - if they're connected it's no big deal to force it,
+         and if they're not, great, we got them to fully connect." */
+      body: JSON.stringify({ installConfirmed: installConfirmed === true, reauth: true }),
     });
     const st = await res.json();
     if (!res.ok) throw new Error(st.error || ('status ' + res.status));
@@ -46905,6 +46931,13 @@ async function frConnSubmitCode() {
  * repainted verdict (or the person's next click) takes it from there.
  */
 async function frConnSettle() {
+  /* #3326: frConnSettle is NOT where FR_SUB_LOGIN_VERIFIED is set -- it is reached on
+     cancel (frConnCancel) and idle (a second window cancelled) as well as on a real
+     login, so setting the flag here would let a CANCELLED sign-in read as a verified
+     login. The flag is set only in frConnWatch's `connected` arm, which the flow reaches
+     only after a real `claude auth login` completes (reauth:true forces that login, so
+     the start never short-circuits to connected for sign-up). This function just
+     re-reads and repaints. */
   const ok = await frRecheck();
   if (!ok) setTimeout(() => { if (FR_STEP === 5) frRecheck(); }, 2000);
 }
@@ -47620,7 +47653,16 @@ function frOpenaiChoose(which) {
   if (sub) sub.hidden = which !== 'sub';
   if (which === 'key') { const k = document.getElementById('fr-openai-key'); if (k) k.focus(); }
   else {
-    const g = document.getElementById('fr-openai-sub-go'); if (g) g.focus();
+    /* #3335 (Josh 0.6.83): open the OpenAI sign-in IMMEDIATELY -- no intermediate screen
+       whose only job is to make the person press "Sign in" a second time. Hide that step's
+       now-redundant Sign-in button (frOpenaiSubStart re-shows it if the start fails, so a
+       failed start still has a retry) and start the flow right away. The sub-step stays for
+       the live status it hosts (the browser is opening, the device code, Stop this sign-in). */
+    const g = document.getElementById('fr-openai-sub-go'); if (g) g.hidden = true;
+    /* pick-sub is now hidden, so move focus to the status region (mirrors the Claude flow's
+       #fr-sub focus) rather than dropping a screen reader / keyboard to <body>. */
+    if (sub) { if (!sub.hasAttribute('tabindex')) sub.setAttribute('tabindex', '-1'); sub.focus(); }
+    frOpenaiSubStart();
   }
 }
 function frOpenaiSubShowStart(out) {
@@ -47711,10 +47753,13 @@ async function frOpenaiSubConnected(_account) {
 }
 document.getElementById('fr-openai-pick-sub').addEventListener('click', () => frOpenaiChoose('sub'));
 document.getElementById('fr-openai-pick-key').addEventListener('click', () => frOpenaiChoose('key'));
-document.getElementById('fr-openai-sub-go').addEventListener('click', async (e) => {
-  const go = e.currentTarget;
+/* #3335 (Josh 0.6.83): the subscription sign-in start, extracted from the sub-go button
+   handler so the pick step can run it IMMEDIATELY (frOpenaiChoose('sub')) instead of
+   sending the person to an intermediate screen to press "Sign in" a second time. */
+async function frOpenaiSubStart() {
+  const go = document.getElementById('fr-openai-sub-go');
   const msg = document.getElementById('fr-openai-msg');
-  go.disabled = true;
+  if (go) go.disabled = true;
   if (msg) { msg.className = 'dhint'; msg.textContent = 'Starting the sign-in…'; }
   try {
     const res = await fetch('/api/accounts/openai/subscription/start', {
@@ -47733,10 +47778,13 @@ document.getElementById('fr-openai-sub-go').addEventListener('click', async (e) 
     frOpenaiSubShowStart(out);
     frOpenaiSubWatch();
   } catch (err) {
-    go.disabled = false;
+    /* #3335: the sign-in did not start. On the immediate-open path the manual Sign-in
+       button is hidden, so re-show it here to leave a retry, and say why. */
+    if (go) { go.hidden = false; go.disabled = false; }
     if (msg) { msg.className = 'dhint'; msg.textContent = String((err && err.message) || 'We could not start that sign-in.'); }
   }
-});
+}
+document.getElementById('fr-openai-sub-go').addEventListener('click', () => frOpenaiSubStart());
 document.getElementById('fr-openai-sub-cancel').addEventListener('click', async () => {
   acctOpenaiSubStop();
   const id = ACCT_OPENAI_SUB_SESSION;
@@ -48124,14 +48172,28 @@ function frPaintSubscription() {
   frClaudeConfirmClose();
 
   if (connectBtn) {
-    const done = sub.state === 'connected';
+    /* #3326 (Josh option 2): "Connected" (green, disabled, done) requires a REAL login
+       we watched succeed this session (FR_SUB_LOGIN_VERIFIED), not the shallow checkLive
+       presence in `sub.state`. A stale/expired credential reads `connected` here, and the
+       old code painted a terminal "Connected" tick over it -- the exact false-confidence
+       Josh hit (green Connected, then agent creation fails on the dead login). Until a
+       forced login verifies it, the button stays an ACTION ("Connect"), so pressing it runs
+       the real login (reauth:true) rather than letting sign-up finish on a dead credential. */
+    const done = sub.state === 'connected' && FR_SUB_LOGIN_VERIFIED;
     connectBtn.innerHTML = done ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';
     connectBtn.disabled = done;
     if (connectBtn.classList) connectBtn.classList.toggle('is-connected', done);
     if (connectBtn.setAttribute) connectBtn.setAttribute('aria-disabled', String(done));
   }
 
-  if (sub.state === 'connected') {
+  /* #3326 (Josh option 2): only paint the terminal "connected" verdict + skip-ahead Next
+     once a real login has succeeded this session (FR_SUB_LOGIN_VERIFIED). A shallow
+     checkLive `connected` (a credential that merely EXISTS, possibly 6 months expired)
+     falls through to the verdict-free default arm below, where the Claude row's Connect
+     button runs the forced login -- so sign-up can never finish on a "Connected" that a
+     later agent-creation probe rejects. (Respects #1008: no Claude verdict is shown for
+     the unverified state; the verdict only appears once the login is genuinely confirmed.) */
+  if (sub.state === 'connected' && FR_SUB_LOGIN_VERIFIED) {
     box.innerHTML = frCheckRow({
       state: 'ok',
       title: (sub.plan || 'A Claude subscription') + ' is connected',
