@@ -5533,6 +5533,11 @@ function firstRunHarness(name, state, opts = {}) {
     const __els = {};
     const document = { getElementById: (id) => (__els[id] = __els[id] || { innerHTML: '', textContent: '' }) };
     let FR = ${JSON.stringify(state.FR)};
+    /* #3326: frPaintSubscription now shows the terminal "connected" verdict + skip-ahead only
+       once a real login has verified the credential this session. Defaults false (the shallow /
+       unverified state); a caller testing the verified-connected paint passes
+       state.FR_SUB_LOGIN_VERIFIED: true. */
+    let FR_SUB_LOGIN_VERIFIED = ${JSON.stringify(state.FR_SUB_LOGIN_VERIFIED === true)};
     let FR_MACHINE = ${JSON.stringify(state.FR_MACHINE === undefined ? null : state.FR_MACHINE)};
     /* THE SEARCH FOR AGENTS ALREADY ON THE DISK. Null is not a default here: it
        means "we have not looked yet", which is now a real state of the create
@@ -5681,9 +5686,14 @@ test('no subscription state renders a verdict about the person\'s Claude account
      right control now: it proves the harness CAN render an `fr-check` row, and
      therefore that "no fr-check for any unreadable state" above is a real
      finding rather than an empty page. */
-  const { els } = firstRunHarness('frPaintSubscription', { FR: { subscription: { state: 'connected' } } });
+  /* #3326: the surviving verdict row is the VERIFIED-connected one -- a shallow checkLive
+     `connected` no longer paints it (it falls through to the same verdict-free arm as the
+     unreadable states above). So the control drives the verified-connected case, which is the
+     one state that still renders an fr-check row; it proves the harness CAN render one, keeping
+     the "no fr-check for any unreadable state" assertions above a real finding. */
+  const { els } = firstRunHarness('frPaintSubscription', { FR: { subscription: { state: 'connected' } }, FR_SUB_LOGIN_VERIFIED: true });
   assert.match(els['fr-sub'].innerHTML, /fr-check /,
-    'even the connected state renders no row, so the assertions above pass on an empty page and prove nothing');
+    'even the verified-connected state renders no row, so the assertions above pass on an empty page and prove nothing');
 });
 
 test('the way back is on the last step, on every ending a person can get', () => {
