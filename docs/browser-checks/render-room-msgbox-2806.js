@@ -526,6 +526,121 @@ const now = () => new Date().toISOString();
     } finally {
       await tabPlusPage.close();
     }
+
+    /* #3361 (Josh, 2026-09-21 small-size QA): at NARROW widths a message bubble must not grow into
+       the OPPOSITE side's avatar column (user msgs reaching left into the agent-avatar column, agent
+       msgs reaching right into the user-avatar column). The row reserves the near avatar+gap (34+14)
+       before the body; #3340-followup mirrors that gutter on the FAR side so the bubble stops short
+       of the opposite column at every width. Render a deliberately NARROW host (360px), where the
+       78ch max-width no longer binds and the bubble would otherwise reach the far edge, and assert
+       BOTH bubbles leave a >=47px far gutter (the ~48px opposite avatar column) while the bubble is
+       still WIDE (control: the cap is doing real work, not passing on a short message that never
+       reached the column). The wide-width look is covered by the 640/760/1400 fixtures above, which
+       the far gutter leaves unchanged because 78ch binds first there. */
+    const narrowPage = await browser.newPage({ viewport: { width: 420, height: 900 }, colorScheme: 'light' });
+    try {
+      await narrowPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await narrowPage.goto(PAGE);
+      const nar = await narrowPage.evaluate((ts) => {
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const long = 'this is a deliberately long message so the bubble fills the whole available width at a narrow window and would reach the far edge if it were not capped short of the opposite avatar column.';
+        const host = document.createElement('div');
+        host.className = 'thread';
+        host.style.cssText = 'position:absolute;left:0;top:0;width:360px;';
+        host.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long }, p)
+          + pjRoomRow({ operator: true, at: ts, text: long }, p);
+        document.body.appendChild(host);
+        const rows = Array.from(host.querySelectorAll('.msg'));
+        const agentRow = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const opRow = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const rr = (el) => el.getBoundingClientRect();
+        const aRow = rr(agentRow), aBd = rr(agentRow.querySelector('.msg-bd'));
+        const oRow = rr(opRow), oBd = rr(opRow.querySelector('.msg-bd'));
+        const out = {
+          // agent avatar is on the LEFT, so the OPPOSITE (user) column is the RIGHT: far gutter = row.right - bubble.right
+          agentFarGap: Math.round(aRow.right - aBd.right),
+          agentNearGap: Math.round(aBd.left - aRow.left),
+          agentBdW: Math.round(aBd.width),
+          // operator avatar is on the RIGHT, so the OPPOSITE (agent) column is the LEFT: far gutter = bubble.left - row.left
+          opFarGap: Math.round(oBd.left - oRow.left),
+          opNearGap: Math.round(oRow.right - oBd.right),
+          opBdW: Math.round(oBd.width),
+          hostW: Math.round(aRow.width),
+        };
+        host.remove();
+        return out;
+      }, now());
+      const GUT = 47; // 34 avatar + 14 gap, minus 1px rounding tolerance
+      chk(nar.agentFarGap >= GUT, `[narrow] the agent bubble clears the opposite (right) avatar column`, `farGap=${nar.agentFarGap}px (need >=${GUT})`);
+      chk(nar.opFarGap >= GUT, `[narrow] the operator bubble clears the opposite (left) avatar column`, `farGap=${nar.opFarGap}px (need >=${GUT})`);
+      // Non-vacuous control: the cap is engaging on a WIDE bubble at 360px (without the far gutter it
+      // would have reached the far edge). A short bubble that never reached the column would pass the
+      // gutter arms vacuously; requiring width >=180 rules that out.
+      chk(nar.agentBdW >= 180, `[narrow] the agent bubble is wide (control: the cap is doing work, not a short message)`, `bubbleW=${nar.agentBdW}px at host ${nar.hostW}px, nearGap=${nar.agentNearGap}px`);
+      chk(nar.opBdW >= 180, `[narrow] the operator bubble is wide (control: the cap is doing work)`, `bubbleW=${nar.opBdW}px at host ${nar.hostW}px, nearGap=${nar.opNearGap}px`);
+      // CLAUDE.md convention #5: the CSS far gutter is `calc(34px + 14px)`, a by-VALUE duplicate of
+      // the .msg-av width and the .msg gap. Pin the three equal at runtime: the near gutter IS
+      // avatar+gap (the row lays out [avatar][gap][body]), so asserting far == near catches any
+      // future change to the avatar size or the row gap that is not mirrored into the margin literal.
+      chk(Math.abs(nar.agentFarGap - nar.agentNearGap) <= 1, `[narrow] the agent far gutter equals the near avatar+gap (convention #5 pin: margin literal == the row's real avatar+gap)`, `far=${nar.agentFarGap} near=${nar.agentNearGap}`);
+      chk(Math.abs(nar.opFarGap - nar.opNearGap) <= 1, `[narrow] the operator far gutter equals the near avatar+gap`, `far=${nar.opFarGap} near=${nar.opNearGap}`);
+    } finally {
+      await narrowPage.close();
+    }
+
+    /* #3361 (WARNING 2 from iter-1 review): the fix's claim is that at GENUINELY WIDE widths the
+       78ch max-width binds first, so the far gutter is slack and the approved wide look is UNCHANGED
+       (only narrow widths get capped). Prove it: at a 1200px row the 78ch bubble plus both gutters
+       fits with room to spare, so the far gutter is far larger than the 48px margin (the margin is
+       not the binding constraint) and the bubble is the same 78ch-capped width it was before this
+       change. If the margin ever became the binding constraint at wide widths (a regression that
+       narrowed the wide look), agentFarGap would collapse toward 48 and this reds. */
+    const widePage = await browser.newPage({ viewport: { width: 1360, height: 900 }, colorScheme: 'light' });
+    try {
+      await widePage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await widePage.goto(PAGE);
+      const wide = await widePage.evaluate((ts) => {
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const long = 'this is a deliberately long message so the bubble grows to its 78ch cap at a wide window, where the far gutter should be slack and the wide look unchanged.';
+        const host = document.createElement('div');
+        host.className = 'thread';
+        host.style.cssText = 'position:absolute;left:0;top:0;width:1200px;';
+        host.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long }, p)
+          + pjRoomRow({ operator: true, at: ts, text: long }, p);
+        document.body.appendChild(host);
+        const rows = Array.from(host.querySelectorAll('.msg'));
+        const agentRow = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const opRow = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const rr = (el) => el.getBoundingClientRect();
+        const aRow = rr(agentRow), aBd = rr(agentRow.querySelector('.msg-bd'));
+        const oRow = rr(opRow), oBd = rr(opRow.querySelector('.msg-bd'));
+        const out = {
+          agentFarGap: Math.round(aRow.right - aBd.right),
+          opFarGap: Math.round(oBd.left - oRow.left),
+          agentBdW: Math.round(aBd.width),
+          rowW: Math.round(aRow.width),
+        };
+        host.remove();
+        return out;
+      }, now());
+      // The margin (48px) is NOT the binding constraint at 1200px: 78ch binds, so the far gutter is
+      // far larger than 48. >=100 cleanly separates "78ch binds (slack margin)" from "margin binds".
+      chk(wide.agentFarGap >= 100, `[wide] at 1200px the agent bubble is capped by 78ch, not the 48px gutter (margin slack -> wide look unchanged)`, `farGap=${wide.agentFarGap}px`);
+      chk(wide.opFarGap >= 100, `[wide] at 1200px the operator bubble is capped by 78ch, not the 48px gutter`, `farGap=${wide.opFarGap}px`);
+      // Control: the bubble is the 78ch cap, NOT stretched to fill the ~1104px available (which is what
+      // it would do if only the margin bound). A capped-by-78ch bubble stays well under the row width.
+      chk(wide.agentBdW >= 300 && wide.agentBdW < wide.rowW - 300, `[wide] the wide bubble is the 78ch cap, not stretched to the far gutter`, `bubbleW=${wide.agentBdW}px at row ${wide.rowW}px`);
+    } finally {
+      await widePage.close();
+    }
   } finally {
     await browser.close();
   }
