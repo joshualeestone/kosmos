@@ -5560,7 +5560,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    .composerbox border stays for the focus-ring test that guards it.
    NB: this comment names no other check's surface id on purpose -- the #2518 gate scans the
    web/index.html diff as text and would flag a check that merely owns an id mentioned here. */
-.pjmid .composer .composerbox, .pj-say.composerbox { border: 0; background: var(--k-sunk); }
+.pjmid .composer .composerbox, .pj-say.composerbox { border: 0; }
+/* The recessed fill applies EXCEPT while a file is dragged over the box. Without :not(.dragging)
+   this selector (0,3,0 / 0,2,0) would outrank .composerbox.dragging (0,2,0) and its gold
+   drag-over tint (#2868) would never show; the :not keeps the drag rule winning on drag-over. */
+.pjmid .composer .composerbox:not(.dragging), .pj-say.composerbox:not(.dragging) { background: var(--k-sunk); }
 /* 🔑 NO FOCUS STROKE ON THE TEXT COMPOSER (Josh 0.6.47, item 6.01.26; Mona's
    ruling (a)). Josh raised the composer's focus border AGAIN in his 0.6.47
    live test -- "the black inner stroke when you click into a text box" -- after

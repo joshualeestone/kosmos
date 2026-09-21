@@ -83,6 +83,13 @@ async function readBorders(page, layout, plus) {
         const contBg = bg(container);
         return { boxBg, contBg, distinct: boxBg !== transparent && boxBg !== contBg };
       };
+      // #2868 drag affordance: on drag-over the box wears .composerbox.dragging, whose gold tint
+      // must still win over the new recessed fill. The fill rule is :not(.dragging) exactly so it
+      // does not outrank the drag rule; assert the drag-over background is the gold tint, not the
+      // recessed fill. (web.composer-drop-2868.test.js only matches CSS source text, not the cascade.)
+      const postBox = boxOf('pj-post');
+      let dragBg = null;
+      if (postBox) { postBox.classList.add('dragging'); dragBg = getComputedStyle(postBox).backgroundColor; postBox.classList.remove('dragging'); }
       return {
         consolidated: document.body.classList.contains('consolidated'),
         plusActive: document.body.classList.contains('plus-active'),
@@ -91,6 +98,7 @@ async function readBorders(page, layout, plus) {
         dsay: bw(boxOf('d-say')),   // control: the agent-dialogue composer keeps its border
         postBoundary: boundary('pj-post'),
         sayBoundary: boundary('pj-say'),
+        dragBg: dragBg,   // #2868: gold tint must win on drag-over, not the recessed fill
       };
     } catch (e) { return { err: e && e.message ? e.message : String(e) }; }
   }, { lay: layout, plus: !!plus });
@@ -139,6 +147,8 @@ async function readBorders(page, layout, plus) {
       // alpha fill would pass); that is an accepted limit, and the fill token is design-owned.
       ok(lt + ' the room post composer (#pj-post) keeps a visible boundary (fill declared-distinct from its bar)', r && r.postBoundary && r.postBoundary.distinct === true, JSON.stringify(r && r.postBoundary));
       ok(lt + ' the agent-say composer (#pj-say) keeps a visible boundary (fill declared-distinct from its bar)', r && r.sayBoundary && r.sayBoundary.distinct === true, JSON.stringify(r && r.sayBoundary));
+      // #2868: the file-drag gold tint must still win over the recessed fill on drag-over.
+      ok(lt + ' the drag-over affordance (#2868 gold tint) still wins over the recessed fill', r && r.dragBg === 'rgba(214, 166, 46, 0.06)', JSON.stringify(r && { dragBg: r.dragBg }));
       // Control: the agent-dialogue composer keeps its border, proving the removal is scoped.
       ok(lt + ' CONTROL the agent-dialogue composer (#d-say) keeps its border', r && r.dsay != null && r.dsay > 0, JSON.stringify(r));
       await page.close();
