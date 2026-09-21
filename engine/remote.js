@@ -182,6 +182,17 @@ function read() {
        (paid after enrolment) takes effect within ~one TTL, no re-sign-in. 0 = never
        stamped -> immediately stale. */
     standing_at: typeof parsed.standing_at === 'number' ? parsed.standing_at : 0,
+    /* Federation launch flag (option 2, the CUSTOMER un-hide): the last-known GLOBAL
+       "federation is live" bool from the coordinator. UNLIKE `standing` this is not
+       per-account -- it gates the whole fed UI (members AND the non-member signup
+       prompt), so every board reads it and it is not gated on enrolment. Absent/unknown
+       -> federationLive() is false (fail-safe: the fed UI stays hidden until the
+       coordinator says live). The env override (AGENT_WORKFORCE_FEDERATION_LIVE) is
+       ORed on top in server.federationLiveNow() for operator/dev boards. */
+    fedLive: parsed.fedLive === true,
+    /* client-clock ms when fedLive was last written; drives the TTL refresh. 0 = never
+       stamped -> immediately stale. */
+    fedLive_at: typeof parsed.fedLive_at === 'number' ? parsed.fedLive_at : 0,
     ok: true,
   };
 }
@@ -207,6 +218,8 @@ function fedSetStanding(standing) {
    this only keeps the UI honest. */
 const STANDING_TTL_MS = 60 * 1000;   // ICK's ~60s; deliberately not per-poll (5s) to spare the coordinator
 let standingRefreshInFlight = false;
+const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
+let fedLiveRefreshInFlight = false;
 /* The isolated coordinator read: the CURRENT standing string, or null when it could
    not be determined (offline, auth, or -- today -- the source is not wired yet). A
    null NEVER changes the cache, so a transient failure keeps the last-known standing
@@ -257,6 +270,54 @@ async function refreshStandingIfStale(opts) {
 function kosmosPlus() {
   const s = read();
   return s.ok === true && s.standing === 'good';
+}
+/* The isolated coordinator read for the GLOBAL federation-live flag: true/false, or
+   null when it could not be determined (offline, or -- today -- the source is not wired
+   yet). A null NEVER changes the cache, so a transient failure keeps the last-known
+   value (no flicker) and the default stays FALSE (hidden).
+   🛑 PENDING ICK/Baron's coordinator field (routed after their wire-proof): the exact
+   endpoint/shape is theirs to confirm. Proposal: an unauthenticated global
+   `GET /v1/meta` carrying a `federation_live` bool (it already returns 200, and this is
+   a PUBLIC launch flag, so a per-account mac-signed path is wrong for it). Until that is
+   confirmed and wired here, this returns null -> refreshFederationLiveIfStale is a safe
+   no-op and federationLive() keeps the default false, so the producer behaves EXACTLY as
+   the merged #3353 env-only producer. Wiring the real fetch is then a one-function change.
+   This mirrors how fetchStanding() shipped a null stub pending ICK's standing mechanism. */
+async function fetchFederationLive() {
+  return null;
+}
+/* Lazily refresh the cached federation-live flag when it is older than `ttlMs`.
+   NON-BLOCKING by contract (callers do NOT await it), single-flighted, best-effort.
+   UNLIKE refreshStandingIfStale this is NOT gated on enrolled(): the flag is global and
+   a non-member board needs it to show the signup prompt. A definite bool updates the
+   cache + resets the clock; a null KEEPS the last-known value and backs the retry off to
+   the next TTL. */
+async function refreshFederationLiveIfStale(opts) {
+  opts = opts || {};
+  const ttl = typeof opts.ttlMs === 'number' ? opts.ttlMs : FED_LIVE_TTL_MS;
+  const now = typeof opts.now === 'number' ? opts.now : Date.now();
+  const fetcher = typeof opts.fetcher === 'function' ? opts.fetcher : fetchFederationLive;
+  if (fedLiveRefreshInFlight) return;
+  const s = read();
+  if (s.ok !== true) return;                       // state file unreadable -> keep default (false), do not stamp
+  if (now - (s.fedLive_at || 0) < ttl) return;     // still fresh
+  fedLiveRefreshInFlight = true;
+  try {
+    const live = await fetcher();
+    if (typeof live === 'boolean') {
+      write({ fedLive: live, fedLive_at: Date.now() });   // a definite answer: update the value + reset the clock
+    } else {
+      write({ fedLive_at: Date.now() });                  // could not determine: KEEP the last-known value, back off to the next TTL
+    }
+  } catch { /* refresh is best-effort; a poll must never see this throw */ }
+  finally { fedLiveRefreshInFlight = false; }
+}
+/* The GLOBAL federation-live flag as the board last knew it. Fail-safe: unknown/unreadable
+   -> false, so the fed UI stays hidden until the coordinator says live. server.js ORs the
+   AGENT_WORKFORCE_FEDERATION_LIVE env override on top for operator/dev boards. */
+function federationLive() {
+  const s = read();
+  return s.ok === true && s.fedLive === true;
 }
 function write(patch) {
   const next = { ...read(), ...patch };
@@ -1072,6 +1133,8 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   kosmosPlus,
   fedSetStanding,
   refreshStandingIfStale,
+  federationLive,
+  refreshFederationLiveIfStale,
   setOn,
   setRelay,
   enrolled,
