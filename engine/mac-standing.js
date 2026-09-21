@@ -57,15 +57,17 @@ function parseStanding(bodyText) {
 async function fetchStanding() {
   // Lazy require: remote.js freezes its data root at module scope, so requiring it at
   // call time (not import time) follows the same ordering discipline updating.js keeps.
+  /* 🛑 SUITE GUARD FIRST, before any require() -- aligning with updating.js, which checks
+     it ahead of loading ./remote to avoid a module-load/data-root-freeze ordering trap.
+     Under node's test runner NEVER dial the real coordinator unless a fake transport is
+     injected: NODE_TEST_CONTEXT is set by node --test, and without this any test that
+     enrols a sandbox Mac and lets the shipped fetcher run would GET the PAID production
+     coordinator (login.kosmosplus.com) with a bogus cert. Keyed on the injected factory so
+     a test that supplies its own transport still runs the real path. */
+  if (!requestFactory && process.env.NODE_TEST_CONTEXT) return null;
   let remote;
   try { remote = require('./remote'); } catch { return null; }
   try {
-    /* 🛑 SUITE GUARD, exactly like updating.js: under node's test runner, NEVER dial the
-       real coordinator unless a fake transport is injected. NODE_TEST_CONTEXT is set by
-       node --test; without this, any test that enrols a sandbox Mac and lets the shipped
-       fetcher run would POST/GET to the PAID production coordinator with a bogus cert.
-       Keyed on the injected factory so a test that supplies its own transport still runs. */
-    if (!requestFactory && process.env.NODE_TEST_CONTEXT) return null;
     // Gate on the switch AND enrolment, like updating.js: a PAID route must not be
     // called when the feature is off, and there is no mac identity when not enrolled.
     if (!remote.read().on || !remote.enrolled()) return null;
@@ -92,10 +94,19 @@ async function fetchStanding() {
          (setting `ca` REPLACES the store and would break the public coordinator for a
          self-hoster who set it for their relay). TLS verification is never disabled. */
     };
-    const make = requestFactory || defaultRequest;
+    // module.exports.dispatch (not the bare defaultRequest) so a test can spy on the
+    // DEFAULT transport and prove the suite guard actually prevents a real dial.
+    const make = requestFactory || module.exports.dispatch;
     return await new Promise((resolve) => {
       let settled = false;
-      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      let hardStop;
+      const done = (v) => { if (!settled) { settled = true; if (hardStop) clearTimeout(hardStop); resolve(v); } };
+      /* An overall backstop so this ALWAYS settles and the caller's single-flight flag
+         always clears -- even against a pathological socket that stays active (resetting
+         the inactivity `timeout`) yet never ends. The socket timeout bounds inactivity;
+         this bounds the rest. unref so it never keeps the process alive. */
+      hardStop = setTimeout(() => done(null), TIMEOUT_MS + 1000);
+      if (typeof hardStop.unref === 'function') hardStop.unref();
       let req;
       try { req = make(opts); } catch { return done(null); }
       if (!req || typeof req.on !== 'function') return done(null);

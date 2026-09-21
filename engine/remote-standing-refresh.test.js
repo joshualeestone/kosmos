@@ -101,8 +101,10 @@ test('refresh: best-effort -- a throwing fetcher never propagates (a status tick
 test('refresh: the SHIPPED default fetcher is a safe no-op today (source pending ICK) -- keeps the cache', async () => {
   enroll();
   writeSettings({ on: true, standing: 'good', standing_at: 1000 });
-  // No injected fetcher -> the real fetchStanding(), which returns null until the
-  // coordinator mechanism is wired. The refresh must be a safe no-op: value kept.
+  // No injected fetcher -> the real fetchStanding() -> mac-standing, which under the
+  // suite guard (NODE_TEST_CONTEXT, no injected transport) never dials and returns null.
+  // This asserts the REFRESH's cache-preservation on a null fetch; that the guard itself
+  // blocks a real dial is proven non-vacuously in engine/mac-standing.test.js.
   await remote.refreshStandingIfStale({ now: 10 ** 12, ttlMs: TTL });
   assert.equal(remote.kosmosPlus(), true, 'the enrolment-cache value is preserved (no-op refresh)');
 });

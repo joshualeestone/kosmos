@@ -117,6 +117,23 @@ test('fetchStanding: an unparseable 200 body -> null', async () => {
   assert.equal(await withFake({ status: 200, body: 'not json at all' }, () => macStanding.fetchStanding()), null);
 });
 
+test('the SUITE GUARD prevents any real coordinator dial (no injected transport) -- non-vacuous', async () => {
+  // NODE_TEST_CONTEXT is set by node --test. With NO injected factory, the guard must fire
+  // BEFORE the default transport is reached, so nothing dials login.kosmosplus.com with the
+  // bogus test cert. Spy on the DEFAULT transport (module.exports.dispatch, which fetchStanding
+  // uses when no factory is set): if the guard regressed, the spy would be called -> this fails.
+  enroll();
+  macStanding.setRequestFactory(null);
+  const realDispatch = macStanding.dispatch;
+  let dialed = false;
+  macStanding.dispatch = () => { dialed = true; throw new Error('the guard should have prevented a real dial'); };
+  try {
+    const r = await macStanding.fetchStanding();
+    assert.equal(dialed, false, 'the default transport was NEVER invoked -- no real coordinator dial under test');
+    assert.equal(r, null, 'and it returned null');
+  } finally { macStanding.dispatch = realDispatch; }
+});
+
 test('fetchStanding: a transport error or timeout -> null, never throws', async () => {
   enroll();
   await assert.doesNotReject(async () => {
