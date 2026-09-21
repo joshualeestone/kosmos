@@ -5550,6 +5550,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .composerbox { display: flex; align-items: center; gap: 6px;
   border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
   padding: 6px 6px 6px 4px; }
+/* #3369 (Josh, 2026-09-21): the PROJECT composers read cleaner as a filled field with no
+   stroke. Drop the resting border on the project post box (#pj-post, .pjmid .composer) and
+   the project agent-say box (#pj-say), in both the tab and consolidated views. The filled
+   --k-surface ground plus the 12px radius still marks it as an input, so nothing is lost.
+   SCOPED to the project composers on purpose: the agent-dialogue composers (.dmbar, #d-say /
+   #d-term) keep their border, and the base .composerbox border stays for the focus-ring test
+   that guards it. */
+.pjmid .composer .composerbox, .pj-say.composerbox { border: 0; }
 /* 🔑 NO FOCUS STROKE ON THE TEXT COMPOSER (Josh 0.6.47, item 6.01.26; Mona's
    ruling (a)). Josh raised the composer's focus border AGAIN in his 0.6.47
    live test -- "the black inner stroke when you click into a text box" -- after
