@@ -152,6 +152,29 @@ test('an environment failure (osascript fails / headless board) is a 503, not a 
   assert.match(String(r.body.because || ''), /could not open a terminal/, JSON.stringify(r.body));
 });
 
+test('an Automation-permission denial (-1743) returns an actionable grant message, not the raw AppleScript code', async () => {
+  /* "Not authorized to send Apple events to Terminal (-1743)" is the macOS AUTOMATION grant
+     Kosmos lacks -- a SEPARATE TCC bucket from the agent-folder trust the "Trust & Restart"
+     button gives. The raw AppleScript code is what a user sees today (Josh, 0.6.84) and cannot
+     act on. The route must instead name the one step (turn on Terminal under Kosmos in System
+     Settings > Privacy & Security > Automation) and flag needsAutomationGrant so the UI can offer
+     a direct affordance. Still an environment condition, so still 503, not a 400. */
+  const name = 'lt-automation';
+  born(name);
+  terminal.setRunner(() => ({ ok: false, because: 'Command failed: osascript -e ... execution error: Not authorized to send Apple events to Terminal. (-1743)' }));
+  let r;
+  try {
+    r = await launch(name);
+  } finally {
+    terminal.setRunner((file, args) => { lastRun = { file, args }; return { ok: true }; });
+  }
+  assert.equal(r.status, 503, 'a permission denial is an environment condition (503), not a bad request: ' + JSON.stringify(r.body));
+  assert.equal(r.body.needsAutomationGrant, true, 'the route must flag the Automation-grant case for the UI: ' + JSON.stringify(r.body));
+  assert.match(String(r.body.because || ''), /Privacy & Security > Automation/, 'the message must name the exact grant location: ' + JSON.stringify(r.body));
+  assert.match(String(r.body.because || ''), /Terminal under Kosmos/, JSON.stringify(r.body));
+  assert.doesNotMatch(String(r.body.because || ''), /-1743|Apple events/, 'the raw AppleScript code must NOT leak to the user: ' + JSON.stringify(r.body));
+});
+
 /* --- module-level arms: force states paneRoster cannot honestly produce, to
    prove the two guards that protect the shell command. paneRoster is stubbed
    synchronously and restored in the same test body (openTerminal is sync). --- */

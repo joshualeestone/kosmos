@@ -116,7 +116,19 @@ function openTerminal(name) {
     // osascript failing is an environment condition -- most often a headless
     // board with no window server, or a transient AppleScript error -- not a
     // bad request. `unavailable` routes it to 503, not 400.
-    return { ok: false, unavailable: true, because: `we could not open a terminal window (${(r && r.because) || 'unknown'}).` };
+    const raw = (r && r.because) || 'unknown';
+    /* -1743 (errAEEventNotPermitted) / "Not authorized to send Apple events" is the macOS
+       AUTOMATION-permission denial: Kosmos is not authorized to control Terminal.app. This is a
+       SEPARATE TCC grant from the agent-folder trust the "Trust & Restart" button gives --
+       Automation is per-TARGET-app, and onboarding primes System Events (Accessibility), not
+       Terminal (Automation), so the Terminal grant is never asked for. Surfacing the raw
+       AppleScript code (which is what a user sees today, and cannot act on) is the bug; give the
+       one actionable step instead. `needsAutomationGrant` lets the UI offer a direct affordance. */
+    if (/-1743|Not authorized to send Apple events/i.test(raw)) {
+      return { ok: false, unavailable: true, needsAutomationGrant: true,
+        because: `macOS is blocking Kosmos from controlling Terminal, so ${clean}'s window could not open. Grant it once: open System Settings, go to Privacy & Security > Automation, and turn on Terminal under Kosmos. Then try Open Terminal again.` };
+    }
+    return { ok: false, unavailable: true, because: `we could not open a terminal window (${raw}).` };
   }
   return { ok: true, session };
 }
