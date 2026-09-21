@@ -12,8 +12,8 @@ converged: true
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 1 (one independent blind adversarial review of the full diff by a fresh
-reviewer with no anchoring on the author's reasoning; one nit fixed, no blockers).
+**Iterations:** 3 (an independent blind adversarial review found no blockers + one nit;
+then wiring ICK's confirmed kosmos_plus contract; then a self-caught CI-index reconciliation).
 **Converged:** Yes.
 **Net:** the federation UI launches as a Kosmos+ feature. A member on a live channel sees
 the fed UI; a non-member / not-logged-in viewer gets a working "sign up for Kosmos+"
@@ -83,7 +83,8 @@ adversarial questions in priority order. Result: **no blockers.**
 (incl. the fail-safe leak control and the sign-up-routes-to-Plus arm); full web suite 1519
 pass / 0 fail; `server.test.js` 305/305; the browser-check surface gate + coarse gate green;
 screenshots confirm both the member (create/join toggle) and non-member (sign-up card)
-states. One residual dependency, safe by construction: the exact `federationLive` /
-`plusEntitled` field names are pending ICK/engine confirmation (isolated in `fedGateStamp`;
-fail-safe defaults mean an unwired signal never opens the fed UI on prod). Pixel + night-mode
+states. One residual dependency, safe by construction: the membership read ENDPOINT (kosmos_plus
+on the relay /v1/account/me vs the local /api/status poll) and the federationLive FLIP signal
+are pending ICK/engine confirmation (isolated in `fedGateStamp`; fail-safe defaults mean an
+unwired signal never opens the fed UI on prod). Pixel + night-mode
 QA is Josh's on the cut.
