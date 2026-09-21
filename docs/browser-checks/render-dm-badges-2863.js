@@ -94,11 +94,13 @@ function chk(ok, label, extra) {
             hasBadge: !!b,
             txt: b ? b.textContent : null,
             laidOut: !!(br && br.width > 0 && br.height > 0),
-            // over the avatar's top half, near its right edge, and inside the row
-            // box (a badge clipped away by the avatar would fail width/height above;
-            // one mispositioned off the row would fail this).
-            atAvatarCorner: !!(br && ar && br.left >= ar.left - 2 && br.left <= ar.right + 18
-              && br.top <= ar.top + ar.height / 2 && br.left >= rr.left && br.top >= rr.top - 8),
+            // #3339: the badge now sits at the ROW's top-right corner (right:-6px; top:-6px),
+            // not over the avatar/name. So its right edge is at the row's right edge (a ~6px
+            // outward hang), its top is at the row top (a ~6px hang above), and it is clearly
+            // to the RIGHT of the avatar -- off the name. A badge left over the avatar/name
+            // (br.left near the avatar) fails this; one clipped away fails width/height above.
+            atRightOfCell: !!(br && ar && br.right >= rr.right - 2 && br.right <= rr.right + 12
+              && br.top <= rr.top + 2 && br.top >= rr.top - 14 && br.left > ar.right),
           };
         });
       });
@@ -106,8 +108,8 @@ function chk(ok, label, extra) {
       const cleoL = list.find((r) => r.agent === 'cleo');
       chk(!!adaL && adaL.hasBadge && adaL.laidOut && adaL.txt === '3',
         theme + ' list: an agent with 3 unread DMs shows a laid-out badge reading 3', JSON.stringify(adaL));
-      chk(!!adaL && adaL.atAvatarCorner,
-        theme + ' list: the badge sits at the avatar corner, not clipped or off-row', JSON.stringify(adaL));
+      chk(!!adaL && adaL.atRightOfCell,
+        theme + ' list: #3339 the badge sits at the ROW\'s right corner (right of the avatar/name), not clipped or off-row', JSON.stringify(adaL));
       chk(!!cleoL && !cleoL.hasBadge,
         theme + ' list: an agent with no unread DMs shows NO badge (control)', JSON.stringify(cleoL));
 

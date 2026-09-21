@@ -2562,12 +2562,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* #2863: the unread-DM bubble on a list row. The default list's .lav is
    overflow:hidden (it clips a corner badge) and cannot be wrapped -- the
    consolidated rail selects `.lrow > .lav` as a direct child (grid-row spans) --
-   so the badge is a direct child of the position:relative .lrow instead, placed
-   over the avatar's top-right corner. The avatar's right edge is at 16px padding +
-   34px = 50px; the badge sits at left:44px, a ~6px inward overlap onto that corner
-   (the hang the grid card's -6px gives), and top:6px just above the 12px-padded
-   avatar top. Same red dmBadge() and a.dmUnread as the grid card and org node. */
-.lrow > .dmbadge { top: 6px; left: 44px; right: auto; }
+   so the badge is a direct child of the position:relative .lrow.
+   #3339 (Josh, 0.6.83): it USED to sit at left:44px, over the avatar's top-right
+   corner -- which reads as sitting on top of the agent's NAME (the name column
+   starts just right of the 34px avatar). Josh: "the notification bubble is right
+   over top of his name. Let's put the notifications out to the right of their cell."
+   Moved to the ROW's top-right corner (right:-6px; top:-6px), the same -6px hang the
+   grid card and org node use -- clear of the name, mirroring those views. Same red
+   dmBadge() and a.dmUnread as the grid card and org node. */
+.lrow > .dmbadge { top: -6px; right: -6px; left: auto; }
 .ltitle { font-size: .8125rem; color: var(--k-ink-2); }
 .lmodel { font-size: .75rem; color: var(--k-ink-2); overflow: hidden;
           text-overflow: ellipsis; white-space: nowrap; }
