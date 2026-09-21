@@ -1358,7 +1358,13 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .userpop-ico { flex: none; color: var(--k-ink-2); }
 .userpop-sep { height: 0; margin: 4px 6px; border: 0; border-top: 0.5px solid var(--separator); }
 .userpop-plus { font-weight: 600; }
-.userpop-plus .userpop-ico { color: var(--gold); }
+/* --gold-deep, not --gold: --gold (#d6a62e) is only 2.25:1 on the light menu bg (#ffffff),
+   under the 3:1 non-text-contrast floor (WCAG SC 1.4.11) this file measures every accent
+   against. --gold-deep (#b88920) clears it on all three grounds -- light 3.16:1, dark
+   #2c2c2e 4.40:1, plus-navy #1c2c4f 4.36:1 -- and reads more clearly on light. The icon is
+   aria-hidden with a visible label beside it, so this is the promo staying legible, not a
+   hard SC 1.4.11 case. */
+.userpop-plus .userpop-ico { color: var(--gold-deep); }
 /* The logged-in member line: a check + "Kosmos+ member". Dormant until a real membership
    signal exists (plusMember() is a stub returning false today, same gap as #plus-state2),
    so the logged-out promo shows for everyone for now. */
@@ -1375,7 +1381,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .userpop-status .checked { text-align: left; }
 /* #3051: the moved .themepick (< 40rem) and .laypick (< 960px) carry their own
    hide-when-too-narrow media gates, so hide the WHOLE menu row (label included) at the
-   same breakpoints -- otherwise the "Appearance" / "Board view" label sits in the open
+   same breakpoints -- otherwise the "Appearance" / "View" label sits in the open
    menu with no control beside it. Same px as the .themepick / .laypick gates above. */
 @media (max-width: 40rem) { .userpop-row-theme { display: none; } }
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }

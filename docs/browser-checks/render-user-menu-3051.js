@@ -217,6 +217,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       menuClosed: document.getElementById('userpop-menu').hidden === true,
     }));
     ok(t + ' picking View closes the menu', afterView.menuClosed === true, JSON.stringify(afterView));
+    // Reset to the tab view explicitly: clicking the consolidated segment can flip data-layout,
+    // and the following Escape / outside-click checks are written against the plain tab view.
+    // Don't let this step's layout leak into them by ordering side effect.
+    await page.evaluate(() => { document.documentElement.setAttribute('data-layout', 'tabs'); document.body.classList.remove('consolidated'); if (typeof showTab === 'function') showTab('agents'); });
+    await page.waitForTimeout(60);
 
     // ── Escape closes the open menu. ──
     await page.click('#userpop-btn');
