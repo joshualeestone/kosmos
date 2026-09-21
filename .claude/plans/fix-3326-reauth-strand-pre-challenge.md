@@ -1,7 +1,7 @@
 ---
 method: challenge-loop
 branch: fix-3326-reauth-strand
-diff_hash: 979114e57837415e78d21910a630f190d1ef19096cc3c082fba7b57198a60728
+diff_hash: cf46584ee587e2b9b909e3d335363fc265597f7e0f79980243fc8e7375e3a74f
 converged: true
 ---
 
