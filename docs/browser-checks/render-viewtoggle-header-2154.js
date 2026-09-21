@@ -79,10 +79,11 @@ const { chromium } = require('playwright');
     say(await visible(LAY), 'tabbed view: the board-view toggle is in the user menu');
     say((await pg.$$(LAY + ' [data-layout-switch]')).length === 2, 'the menu toggle has two segments (tabs, consolidated)');
     say(!(await visible(RAIL)), 'tabbed view: the rail copy is not shown');
-    // #3051: in the menu the board-view row sits BELOW the appearance (light/dark)
-    // row (menu order: Settings, Appearance, Board view, Agent status). A RENDERED
-    // position read, replacing the old #2194 header "toggle to the right of the
-    // switcher" now that both controls stack in the dropdown.
+    // #3051/#3360: in the menu the view row sits BELOW the appearance (light/dark)
+    // row (menu order after #3360: Kosmos+, the settings deep-links, Appearance, View
+    // [renamed from "Board view"], Agent status). A RENDERED position read, replacing the
+    // old #2194 header "toggle to the right of the switcher" now that both controls stack
+    // in the dropdown.
     const belowTheme = await pg.evaluate(() => {
       const lay = document.querySelector('#userpop-menu .laypick');
       const th = document.querySelector('#userpop-menu .themepick');

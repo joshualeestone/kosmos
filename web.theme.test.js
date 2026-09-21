@@ -217,9 +217,10 @@ test('it is the same shape and height as the grid, list and org group', () => {
 
 test('the agent-status stamp is the LAST item in the user menu, below the light and dark control', () => {
   /* #3051 (Josh, 0.6.63 for 6.65): the light/dark control and the agent-status
-     stamp moved OFF the header row INTO the upper-right user menu (#userpop). The
-     menu order is Settings, Appearance (light/dark), Board view, Agent status, so
-     the stamp is now drawn AFTER the theme control. This supersedes the 2026-08-22
+     stamp moved OFF the header row INTO the upper-right user menu (#userpop). After
+     #3360 the menu order is Kosmos+, the settings deep-links, Appearance (light/dark),
+     View (renamed from "Board view"), Agent status, so the stamp is still drawn AFTER
+     the theme control (the property this test asserts). This supersedes the 2026-08-22
      header order ("the light/dark mode is to the far right and the agent status is
      to the left of it") -- that ordering was a property of the old header row,
      which #3051 replaces; the menu-order property is asserted rendered in

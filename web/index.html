@@ -1343,20 +1343,45 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   min-width: 244px; max-width: 320px; padding: 6px; background: var(--bg-elevated);
   border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card);
   display: flex; flex-direction: column; gap: 2px; }
-.userpop-settings { display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
+/* #3360 (Josh, 2026-09-21): every menu line is now a real clickable ROW (icon + label),
+   so the whole menu reads as active, not as a header for the two toggles. .userpop-item
+   is the shared row style; the old .userpop-settings selector became this (the id
+   #userpop-settings is kept -- see the "View All Settings" line -- so the sibling checks
+   that click it still work). */
+.userpop-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
   padding: 9px 8px; border-radius: 7px; color: var(--k-ink); font: var(--text-callout) var(--font-ui); }
-.userpop-settings:hover { background: var(--k-sunk); }
-.userpop-settings:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.userpop-item:hover { background: var(--k-sunk); }
+.userpop-item:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+/* Leading icon on every line -- the menu items AND the two toggle rows -- so they read as
+   one set. Muted like the labels; the Kosmos+ star is the one accent (gold, the app's
+   primary colour), so the promo stands out without a heavy background. */
+.userpop-ico { flex: none; color: var(--k-ink-2); }
+.userpop-sep { height: 0; margin: 4px 6px; border: 0; border-top: 0.5px solid var(--separator); }
+.userpop-plus { font-weight: 600; }
+/* --gold-deep, not --gold: --gold (#d6a62e) is only 2.25:1 on the light menu bg (#ffffff),
+   under the 3:1 non-text-contrast floor (WCAG SC 1.4.11) this file measures every accent
+   against. --gold-deep (#b88920) clears it on all three grounds -- light 3.16:1, dark
+   #2c2c2e 4.40:1, plus-navy #1c2c4f 4.36:1 -- and reads more clearly on light. The icon is
+   aria-hidden with a visible label beside it, so this is the promo staying legible, not a
+   hard SC 1.4.11 case. */
+.userpop-plus .userpop-ico { color: var(--gold-deep); }
+/* The logged-in member line: a check + "Kosmos+ member". Dormant until a real membership
+   signal exists (plusMember() is a stub returning false today, same gap as #plus-state2),
+   so the logged-out promo shows for everyone for now. */
+/* .userpop-plus-member always co-occurs with .userpop-plus on the same button, so
+   `.userpop-plus .userpop-ico` above already golds its icon -- no separate rule needed. */
+.userpop-plus-badge { margin-left: auto; padding: 1px 7px; border-radius: 999px; background: var(--k-sunk);
+  color: var(--k-ink-2); font: 600 var(--text-caption) var(--font-ui); letter-spacing: 0.02em; }
 .userpop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 7px 8px; font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
-.userpop-lbl { color: var(--k-ink-2); }
+.userpop-lbl { display: flex; align-items: center; gap: 10px; color: var(--k-ink-2); }
 /* The agent-status stamp keeps its own two-line label; left-align it in the row
    (it is right-aligned in its header home) so it reads as a menu line. */
 .userpop-status { justify-content: flex-start; }
 .userpop-status .checked { text-align: left; }
 /* #3051: the moved .themepick (< 40rem) and .laypick (< 960px) carry their own
    hide-when-too-narrow media gates, so hide the WHOLE menu row (label included) at the
-   same breakpoints -- otherwise the "Appearance" / "Board view" label sits in the open
+   same breakpoints -- otherwise the "Appearance" / "View" label sits in the open
    menu with no control beside it. Same px as the .themepick / .laypick gates above. */
 @media (max-width: 40rem) { .userpop-row-theme { display: none; } }
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
@@ -8218,9 +8243,45 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <svg class="userpop-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
       </button>
       <div class="userpop-menu" id="userpop-menu" hidden>
-        <button class="userpop-settings" id="userpop-settings" type="button">Settings</button>
+        <!-- #3360: Kosmos+ promo at the top. Logged-out shows "Log in to Kosmos+" (deep-links
+             to Settings > Kosmos Plus, the real sign-in surface -- sign-up itself happens on
+             the site). The member line below is DORMANT until a membership signal exists (the
+             plusMember() stub returns false, the same gap #plus-state2 already carries by
+             design), so the promo shows for everyone for now. syncUserpopPlus() shows exactly
+             one of the two. -->
+        <button class="userpop-item userpop-plus" id="userpop-plus" type="button">
+          <svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6.1.6-4.6 4.1 1.4 6L12 18.9 6.5 19.3l1.4-6L3.3 9.2l6.1-.6z"/></svg>
+          <span>Log in to Kosmos+</span>
+        </button>
+        <button class="userpop-item userpop-plus userpop-plus-member" id="userpop-plus-member" type="button" hidden>
+          <svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6.1.6-4.6 4.1 1.4 6L12 18.9 6.5 19.3l1.4-6L3.3 9.2l6.1-.6z"/></svg>
+          <span>Kosmos+ member</span>
+          <span class="userpop-plus-badge">Plus</span>
+        </button>
+        <hr class="userpop-sep">
+        <!-- #3360: the settings deep-links. Each opens Settings on the named section and
+             closes the menu. Ids are new EXCEPT #userpop-settings ("View All Settings"), which
+             keeps its id so the consolidated-settings (#2842) and new-agent (#3053) checks that
+             click it keep working. -->
+        <button class="userpop-item" id="userpop-go-you" type="button">
+          <svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>
+          <span>Your Profile</span>
+        </button>
+        <button class="userpop-item" id="userpop-go-models" type="button">
+          <svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2.2"/><path d="M9.5 3.2v2.4M14.5 3.2v2.4M9.5 18.4v2.4M14.5 18.4v2.4M3.2 9.5h2.4M3.2 14.5h2.4M18.4 9.5h2.4M18.4 14.5h2.4"/></svg>
+          <span>AI Models</span>
+        </button>
+        <button class="userpop-item" id="userpop-go-usage" type="button">
+          <svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15a8 8 0 0 1 16 0"/><path d="M12 15l3.5-3"/><path d="M4 15h1.5M18.5 15H20"/></svg>
+          <span>Token Usage</span>
+        </button>
+        <button class="userpop-item" id="userpop-settings" type="button">
+          <svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h4M12 7h8M4 12h10M18 12h2M4 17h6M14 17h6"/><circle cx="10" cy="7" r="1.9"/><circle cx="16" cy="12" r="1.9"/><circle cx="12" cy="17" r="1.9"/></svg>
+          <span>View All Settings</span>
+        </button>
+        <hr class="userpop-sep">
         <div class="userpop-row userpop-row-theme">
-          <span class="userpop-lbl">Appearance</span>
+          <span class="userpop-lbl"><svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg>Appearance</span>
           <div class="themepick" role="radiogroup" aria-label="Appearance">
             <button type="button" class="themeopt" data-theme-set="light" role="radio" aria-checked="false" title="Light">
               <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"/></svg>
@@ -8239,8 +8300,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              the CSS carries that gate (on .laypick) so no dead affordance appears on a
              narrow window, here inside the menu exactly as it did in the header. -->
         <div class="userpop-row userpop-row-view">
-          <span class="userpop-lbl">Board view</span>
-          <div class="laypick" role="radiogroup" aria-label="Board view">
+          <span class="userpop-lbl"><svg class="userpop-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9.5h18M9.5 9.5v10"/></svg>View</span>
+          <div class="laypick" role="radiogroup" aria-label="View">
             <button type="button" class="layopt" data-layout-switch="tabs" role="radio" aria-checked="false" title="Separate tabs">
               <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 6.1H14.4"/></svg>
               <span class="vh">Agents and Projects as separate tabs</span>
@@ -13933,7 +13994,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        order, so the two controls do not swap sides when you flip between views;
        both instances carry data-layout-switch, so the one document-level handler
        and applyLayout's sync serve both places, verbatim. -->
-  <span class="laypick railme-lay" role="radiogroup" aria-label="Board view">
+  <span class="laypick railme-lay" role="radiogroup" aria-label="View">
       <button type="button" class="layopt" data-layout-switch="tabs" role="radio" aria-checked="false" title="Separate tabs">
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 6.1H14.4"/></svg>
         <span class="vh">Agents and Projects as separate tabs</span>
@@ -21230,40 +21291,89 @@ async function worldHideSubmit() {
   });
   worldsFetch().catch(() => {});
 })();
-// #3051: the upper-right user menu popover. Same shape as wireWorldsw above: the
+// #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
 // button toggles a hidden menu (aria-expanded tracks it), an outside click or Escape
-// closes it. The Settings link routes to #panel-settings and closes; the light/dark
-// control inside runs off its own document-level handler and is left with the menu
-// OPEN (a person may toggle and compare).
-// #3302 (Josh 2026-09-19): the Board-view control now CLOSES the menu on a pick and
-// shows the new view, superseding the earlier "leave open to compare" for the view
-// control specifically (Josh: today he has to click his name again to dismiss it).
-// Appearance still stays open. The close fires from the outside-click handler below,
-// which now makes an exception for a [data-layout-switch] click inside the menu.
+// closes it. #3360 (Josh 2026-09-21): EVERY menu line takes its action AND closes the
+// menu. The settings links (Your Profile / AI Models / Token Usage / View All Settings,
+// and the Kosmos+ line) close via their own click handlers through userpopSettingsGo();
+// the Appearance (data-theme-set) and View (data-layout-switch) picks run off their own
+// document-level handlers to apply the change and are closed by the exception in the
+// outside-click handler below. #3302 first made the View pick close the menu; #3360
+// extended that to Appearance too, so nothing is left open to "toggle and compare".
 (function wireUserpop() {
   const btn = document.getElementById('userpop-btn');
   const menu = document.getElementById('userpop-menu');
   if (!btn || !menu) return;
-  function open() { if (!menu.hidden) return; menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); }
+  function open() { if (!menu.hidden) return; syncUserpopPlus(); menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); }
   function close() { if (menu.hidden) return; menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
+  /* #3360: the Kosmos+ line has two states -- the logged-out "Log in to Kosmos+" promo and a
+     logged-in "Kosmos+ member" line -- and exactly one shows. plusMember() is the signal, and
+     there is none in the app yet (the same gap #plus-state2 carries: reachable by design, not
+     by a signal), so it returns false and the promo shows for everyone. When a real membership
+     signal lands, wire it here and the member line appears with no other change. The signal
+     itself is the engine piece, flagged to Splinter/Angel. Re-checked on every open so it
+     tracks a signal that can change at runtime. */
+  function plusMember() { return false; }
+  function syncUserpopPlus() {
+    const promo = document.getElementById('userpop-plus');
+    const member = document.getElementById('userpop-plus-member');
+    if (!promo || !member) return;
+    const m = plusMember();
+    promo.hidden = m;
+    member.hidden = !m;
+  }
   btn.addEventListener('click', (e) => { e.stopPropagation(); if (menu.hidden) open(); else close(); });
-  const setBtn = document.getElementById('userpop-settings');
-  // Mirror #rail-me-go: in the consolidated view open Settings IN PLACE
-  // (openConsolidatedSettings, #2842) so the Settings link does not kick the person
-  // back to the tab view; in the tab view route to the panel (showTab('settings'),
-  // which shows #panel-settings via BUTTONLESS). Close the menu either way.
-  if (setBtn) setBtn.addEventListener('click', () => {
-    if (layoutConsolidated()) openConsolidatedSettings();
-    else showTab('settings');
+  // #3360: every settings line routes through one helper. It mirrors #rail-me-go: in the
+  // consolidated view open Settings IN PLACE (openConsolidatedSettings, #2842) so the line does
+  // not kick the person back to the tab view; in the tab view route to the panel
+  // (showTab('settings'), which shows #panel-settings via BUTTONLESS). An optional section lands
+  // on that settings section; no section = "View All Settings", the old #userpop-settings
+  // behaviour. Close the menu either way. openConsolidatedSettings reads SETTINGS_SEC, so set it
+  // first for a deep-link.
+  function userpopSettingsGo(section) {
+    // Discriminate on body.consolidated -- the exact class openConsolidatedSettings() guards on
+    // -- NOT layoutConsolidated(). The two can differ: layoutConsolidated() is true on any tab at
+    // a wide window, but showTab only sets body.consolidated for the agents/projects tabs. Keying
+    // on layoutConsolidated() would call openConsolidatedSettings() in the gap where it early-
+    // returns, closing the menu with nothing opened -- a dead action. Keying on body.consolidated
+    // opens in place when it will actually work and falls through to showTab('settings') (which
+    // always works) otherwise. render-consolidated-settings-2842.js sets body.consolidated before
+    // clicking, so its consolidated arm still exercises openConsolidatedSettings, and its tab-view
+    // control still lands on showTab('settings').
+    if (document.body.classList.contains('consolidated')) {
+      if (section) SETTINGS_SEC = section;
+      openConsolidatedSettings();
+    } else {
+      showTab('settings');
+      if (section) settingsOpen(section);
+    }
     close();
+  }
+  // The "AI Models" line lands on the 'accounts' settings section (its data-go is "accounts",
+  // labelled "AI Models" in the nav). "Log in to Kosmos+" and the dormant member line both open
+  // Settings > Kosmos Plus, the real in-app sign-in surface. #userpop-settings keeps its id.
+  const goMap = {
+    'userpop-settings': null,
+    'userpop-go-you': 'you',
+    'userpop-go-models': 'accounts',
+    'userpop-go-usage': 'usage',
+    'userpop-plus': 'plus',
+    'userpop-plus-member': 'plus',
+  };
+  Object.keys(goMap).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', () => userpopSettingsGo(goMap[id]));
   });
   document.addEventListener('click', (e) => {
     if (menu.hidden) return;
     if (e.target.closest && e.target.closest('#userpop')) {
-      /* #3302: a Board-view pick inside the menu dismisses it (and applyLayout, wired
-         on its own document-level handler, shows the new view). Every other in-menu
-         click -- Appearance, a stray press -- still leaves the menu open. */
-      if (e.target.closest('[data-layout-switch]')) close();
+      /* #3302 + #3360: a View pick (data-layout-switch) or an Appearance pick
+         (data-theme-set) inside the menu now BOTH dismiss it -- their own document-level
+         handlers apply the change, this closes the menu. Josh, 2026-09-21: every item takes
+         its action and closes the dropdown, the appearance toggle included (it used to stay
+         open). The settings-link buttons close via their own handlers above; a stray press on
+         empty menu chrome still leaves it open. */
+      if (e.target.closest('[data-layout-switch], [data-theme-set]')) close();
       return;
     }
     close();
