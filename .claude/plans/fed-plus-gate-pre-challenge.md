@@ -2,18 +2,19 @@
 pre_challenge: true
 method: challenge-loop
 branch: fed-plus-gate
-diff_hash: 633c4fee0f97450ac71dd3258321b8c237683af86fa74dd3f9eace523607d4f2
+diff_hash: 9358604f5038aa3b684ea41ba7488c78ecf08742b88b1c197ffc8f11abf64661
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-21T13:00:00Z
-iterations: 3
+iterations: 5
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3 (an independent blind adversarial review found no blockers + one nit;
-then wiring ICK's confirmed kosmos_plus contract; then a self-caught CI-index reconciliation).
+**Iterations:** 5 (blind review of the consumer, no blockers; wiring ICK's kosmos_plus
+contract; a self-caught CI-index reconciliation; building the PRODUCER side; and an
+independent blind review of the producer, no blockers + two warnings addressed).
 **Converged:** Yes.
 **Net:** the federation UI launches as a Kosmos+ feature. A member on a live channel sees
 the fed UI; a non-member / not-logged-in viewer gets a working "sign up for Kosmos+"
@@ -78,10 +79,52 @@ adversarial questions in priority order. Result: **no blockers.**
   and the workflow validator now pass. Root cause: I first ran only web.* + server locally, a
   subset of what CI runs -- re-ran the full `engine/*.test.js *.test.js` set to converge.
 
+#### Iteration 4 (build the producer -- both ends now)
+
+- **[STRENGTH] the two /api/status fields the gate reads.** Splinter assigned the producer
+  (ICK off agent-workforce); ICK's field contracts locked. `engine/remote.js` gains
+  `kosmosPlus()` (the cached coordinator standing == "good", cached from the sign-in seam)
+  and `server.js`/`api/status` gains `kosmos_plus` (fedKosmosPlusNow) + `federationLive`
+  (federationLiveNow, the AGENT_WORKFORCE_FEDERATION_LIVE board flag, default false, left
+  false). Both fail-safe (unknown -> false/hidden), both read per-poll and never throw on
+  the listen path. Covered by engine/remote-kosmosplus.test.js + a server.test.js addition;
+  the "no field the board sends is unknown to the page" contract confirms the page reads both.
+
+#### Iteration 5 (independent blind review of the producer)
+
+A fresh reviewer read the auth-adjacent producer (kosmosPlus, cacheStanding, the sign-in/
+forget hooks, the two status helpers) for leaks, status-tick throws, premature flip, and
+sign-in regressions. Result: **no blockers.**
+
+- **[BLOCKER, I caught it pre-review] account-switch leak in forget().** forget() rewrote
+  settings keeping the old standing, so a signed-out member left `kosmos_plus:true` for the
+  next account. Fixed: forget() clears standing. (Found + fixed while building; the review
+  confirmed the clear + its test.)
+- **[WARNING -> fixed] the inherit-stale-good edge.** The fresh-enrolment seams IGNORED an
+  absent standing, so a fresh register whose coordinator response omitted standing could
+  inherit a stale 'good' from a prior life. Changed cacheStanding -> fedSetStanding
+  (SET-OR-CLEAR): a fresh enrolment writes the coordinator value or '' -- never inherits.
+  New test covers it. The leak-closure no longer rests on the coordinator always emitting
+  a non-empty standing.
+- **[WARNING -> flagged to ICK, not blocking] no post-enrolment refresh.** An enrolled
+  board's kosmos_plus is frozen at enrolment-time standing; an UPGRADE (pays after
+  enrolling) can't see the feature until re-sign-in (a LAPSE is covered by the fed-route
+  403). Asked ICK whether v1 wants a status-poll re-fetch or documents "changes take effect
+  on re-sign-in" (a v1 limit like one-Mac-per-account). Fail-safe holds either way, so it
+  does not block the merge; it gates only the ideal upgrade UX before the flip.
+- **[NIT -> fixed] the federationLive comment** overstated "restart"; clarified per-request
+  read vs the production launchd env + one restart.
+- **[STRENGTH] non-throwing + default-false verified.** kosmosPlus/read swallow all fs/JSON
+  errors to false; fedKosmosPlusNow adds a try/catch belt; federationLiveNow is a pure
+  env==='1' compare. Neither status field can throw on the 5s tick; federationLive is only
+  ever true for the exact flag.
+
 ### Validation
-`web.fed-plus-gate.test.js` 5/5; `render-fed-plus-gate.js` 14 arms green in real Chromium
-(incl. the fail-safe leak control and the sign-up-routes-to-Plus arm); full web suite 1519
-pass / 0 fail; `server.test.js` 305/305; the browser-check surface gate + coarse gate green;
+`web.fed-plus-gate.test.js` 5/5; `render-fed-plus-gate.js` 14 arms in real Chromium (incl.
+the leak control + the sign-up-routes-to-Plus arm); `engine/remote-kosmosplus.test.js` 7/7
+(kosmosPlus fail-safe matrix, the inherit-stale + forget leak edges); `server.test.js` 306/306
+(the two /api/status fields boolean + fail-safe + the flip); the full node suite 7968 tests /
+0 fail (engine + root); the browser-check surface gate + coarse gate green;
 screenshots confirm both the member (create/join toggle) and non-member (sign-up card)
 states. One residual dependency, safe by construction: the membership read ENDPOINT (kosmos_plus
 on the relay /v1/account/me vs the local /api/status poll) and the federationLive FLIP signal
