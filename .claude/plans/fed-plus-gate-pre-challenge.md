@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: fed-plus-gate
-diff_hash: 7738bc99b7e30c8bfb8a781a3ae8fbbee927a2f1c7fc5a574bbe4211432dfd28
+diff_hash: 633c4fee0f97450ac71dd3258321b8c237683af86fa74dd3f9eace523607d4f2
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-21T13:00:00Z
-iterations: 1
+iterations: 3
 converged: true
 ---
 
@@ -55,6 +55,28 @@ adversarial questions in priority order. Result: **no blockers.**
 - **[NIT] fixed:** the browser-check header claimed the `#pj-add-agent` control "stays shown
   in every arm" while only arm 1 asserts it. Corrected the comment to name arm 1 (the
   assertion itself is sufficient; the doc oversold the coverage). Commit f648775c.
+
+#### Iteration 2 (wire ICK's confirmed entitlement contract)
+
+- **[STRENGTH] membership signal confirmed + wired.** ICK (kosmos-relay fed-plus-gate-3311)
+  confirmed the signal is a boolean `kosmos_plus` (== the coordinator's standing == "good"),
+  the SAME field the coordinator's own gate reads. Swapped the placeholder `plusEntitled`
+  string for the `kosmos_plus` bool in `fedGateMode`/`fedGateStamp` and updated the unit test
+  + browser-check to the bool; all still green. Two reads remain to settle (documented, both
+  fail-safe): the membership ENDPOINT (kosmos_plus is on the relay's /v1/account/me, the gate
+  reads the local /api/status poll) and the federationLive FLIP signal. Absent kosmos_plus ->
+  signup (no leak); absent federationLive -> hidden.
+
+#### Iteration 3 (CI-index reconciliation)
+
+- **[BLOCKER, self-caught in CI] removing a browser-check requires updating ALL its indices.**
+  The first push went CI-red: the check swap updated the runner list but not (a) the README
+  table (asserted by browser-checks-indexed.test.js -- "names every script and no script it
+  lacks"; my new README row even re-named the old file in prose, which the parser re-flagged)
+  nor (b) the CI DOM-state allowlist in .github/workflows/browser-checks.yml (browser-checks.sh
+  FAILS a name that never runs). Fixed both; the full node suite (7960 tests, engine + root)
+  and the workflow validator now pass. Root cause: I first ran only web.* + server locally, a
+  subset of what CI runs -- re-ran the full `engine/*.test.js *.test.js` set to converge.
 
 ### Validation
 `web.fed-plus-gate.test.js` 5/5; `render-fed-plus-gate.js` 14 arms green in real Chromium
