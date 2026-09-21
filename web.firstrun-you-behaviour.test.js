@@ -98,14 +98,15 @@ test('#1345 + #1994: the painter emits three labelled fields (name, does, time z
   const html = captured.html || '';
   assert.ok(html.length > 0, 'the painter wrote nothing into the box: this test proves nothing');
 
-  // #1994 (Josh, live 2026-09-04): the time zone picker was restored to this
-  // step, so it now paints THREE labelled fields (name, does, time zone), up
-  // from the two #1345 left after removing the "know" box.
+  // #3338 removal (Josh, 0.6.84): the time-zone picker is gone from this step
+  // (asking for a city/ZIP read as invasive data collection), so it paints TWO
+  // labelled fields (name, does) again -- the machine zone is captured silently
+  // on Continue instead of asked.
   const labels = (html.match(/class="fieldlab"/g) || []).length;
-  assert.equal(labels, 3, `the About-you step painted ${labels} labelled fields, not three`);
+  assert.equal(labels, 2, `the About-you step painted ${labels} labelled fields, not two`);
   assert.match(html, /id="fr-you-name"/);
   assert.match(html, /id="fr-you-do"/);
-  assert.match(html, /id="fr-you-tz"/);
+  assert.doesNotMatch(html, /id="fr-you-tz"/);
 
   /* 🛑 THE ABSENCES, ASSERTED BESIDE PROOF THE STRING IS READABLE. An absence on
      its own can come from an empty read; next to the two positives above it

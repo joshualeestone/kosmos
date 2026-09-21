@@ -12725,17 +12725,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            defaults to this computer's own time zone; saving it makes each
            direct message carry the local time. -->
       <div class="field" style="margin-top:18px;">
-        <label class="flabel" for="you-tz">Your time zone</label>
-        <div class="fhint">So your agents know your local time when you write to them.</div>
-        <!-- #3338: a "search by city or ZIP" accelerator over the friendly zone
-             select. Typing a city (Dallas) or a US ZIP (75454) jumps the select;
-             the select stays the source of truth and holds the saved IANA id. -->
-        <input class="inp" type="text" id="you-tz-search" placeholder="Search by city or ZIP, e.g. Dallas or 75454" aria-label="Search your time zone by city or ZIP" autocomplete="off" style="margin-bottom:8px;">
-        <div class="frow">
-          <select id="you-tz" aria-label="Your time zone" disabled></select>
-          <button class="btn uprime" type="button" id="you-tz-save" aria-label="Save your time zone" disabled>Save</button>
-        </div>
-        <p class="fmsg" id="you-tz-msg" role="status" aria-live="polite"></p>
+        <div class="flabel">Your time zone</div>
+        <!-- #3338 removal (Josh, 0.6.84): no picker and no city/ZIP ask -- asking
+             for a location read as invasive data collection. The zone is
+             auto-detected from this computer's system clock and shown READ-ONLY;
+             nothing is asked. -->
+        <div class="fhint">Detected automatically from your computer, so your agents know your local time when you write to them. Nothing to fill in.</div>
+        <div id="you-tz-display" role="status" aria-live="polite" style="margin-top:6px;font-weight:600;">…</div>
       </div>
     </section>
   </section>
@@ -18169,56 +18165,32 @@ function youTzWireSearch(input, sel, onPick) {
     else { onPick('', null); }
   });
 }
+/* #3338 removal (Josh, 0.6.84): the time zone is auto-detected and shown READ-ONLY --
+   no picker, no city/ZIP ask, no Save. The zone is captured SILENTLY (the machine
+   zone) if it was never saved, so an agent still knows the operator's local time. */
 async function paintYouTz() {
-  const sel = document.getElementById('you-tz');
-  const btn = document.getElementById('you-tz-save');
-  const msg = document.getElementById('you-tz-msg');
-  const search = document.getElementById('you-tz-search');
+  const display = document.getElementById('you-tz-display');
+  if (!display) return;
+  const machine = youTzMachine();
   let saved = null;
   try {
     const r = await (await fetch('/api/settings', { cache: 'no-store' })).json();
     saved = r && r.timezone ? r.timezone : null;
   } catch { /* fall through to this computer's own time zone */ }
-  const want = saved || youTzMachine();
-  /* #3338: friendly, US-first zone select; `want` (saved or machine zone) is
-     inserted+selected even when outside the friendly set, so detection and a
-     previously-saved custom zone are both honored. */
-  youTzFillSelect(sel, want);
-  /* #3338: wire the search accelerator once. A confident city/ZIP match jumps the
-     select; a miss leaves the selection and says so (the select is the value). */
-  if (search && !search.dataset.wired) {
-    search.dataset.wired = '1';
-    youTzWireSearch(search, sel, (id, label) => {
-      if (id) msg.textContent = 'Set to ' + label + '. Save to confirm.';
-      else if (id === '') msg.textContent = 'No match yet. Keep typing, or pick from the list.';
-      else msg.textContent = '';
-    });
+  const zone = saved || machine;
+  display.textContent = youTzLabel(zone);
+  /* Never asked: if nothing was ever saved (an install predating onboarding capture,
+     or onboarding skipped), silently persist this computer's zone so agents get the
+     operator's local time. Best-effort; a failure just leaves the display as-is. */
+  if (!saved) {
+    try {
+      await fetch('/api/settings', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ timezone: machine }),
+      });
+    } catch { /* best-effort */ }
   }
-  sel.disabled = false; btn.disabled = false;
-  msg.textContent = saved ? '' : "Set to this computer's time zone (" + youTzLabel(want) + '). Save to confirm.';
 }
-document.getElementById('you-tz-save').addEventListener('click', async () => {
-  const sel = document.getElementById('you-tz');
-  const btn = document.getElementById('you-tz-save');
-  const msg = document.getElementById('you-tz-msg');
-  const timezone = sel.value;
-  if (!timezone) { msg.textContent = 'Pick a time zone first.'; return; }
-  btn.disabled = true;
-  msg.textContent = 'Saving…';
-  try {
-    const res = await fetch('/api/settings', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ timezone }),
-    });
-    const out = await res.json().catch(() => ({}));
-    if (!res.ok) { msg.textContent = out.because || 'That did not save.'; return; }
-    msg.textContent = 'Saved. Your agents will see your local time.';
-  } catch {
-    msg.textContent = 'We could not reach Kosmos to save that.';
-  } finally {
-    btn.disabled = false;
-  }
-});
 /* #1724: the auto-handoff control in Settings > Automation. Loads the stored
    setting (on/85 by default, #2013) and saves {enabled, threshold} to /api/settings.
    #2054: now a `.toggle` slider that saves on flip, with the threshold saving on
@@ -46381,20 +46353,12 @@ async function frPaintYou() {
        matters, a neutral example (e.g. "Sam") satisfies both. */
     '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Josh" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
-    '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
-    /* #1994 (Josh, live 2026-09-04): the time zone picker is restored to this
-       step. It had been taken away (it lives in Settings, but Josh wants it here
-       in first run too). Same job as the settings one: so an agent knows the
-       operator's local time when they write. It defaults to this computer's own
-       zone and is saved on Continue via POST /api/settings, alongside the
-       name/does PUT. The "Continue saves this into every agent..." line that
-       used to sit here was removed on the same instruction ("that is nonsense
-       copy, take that out"). */
-    '<div class="fr-youfield"><label class="fieldlab" for="fr-you-tz">Your time zone</label>' +
-    // #3338: a "search by city or ZIP" accelerator above the friendly zone select.
-    '<input class="inp" type="text" id="fr-you-tz-search" placeholder="Search by city or ZIP, e.g. Dallas or 75454" aria-label="Search your time zone by city or ZIP" autocomplete="off">' +
-    '<select class="inp" id="fr-you-tz" aria-label="Your time zone"></select>' +
-    '<p class="fmsg" id="fr-you-tz-hint" role="status" aria-live="polite"></p></div>';
+    '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>';
+    /* #3338 removal (Josh, 0.6.84): the time-zone field is GONE from onboarding.
+       Asking for a city/ZIP read as invasive data collection ("I don't want to ask
+       for it"). The zone is still CAPTURED silently (this computer's own zone, via
+       youTzMachine()) on Continue, so an agent still knows the operator's local time
+       -- it is just never ASKED -- and it is shown read-only in Settings. */
   const nameEl = document.getElementById('fr-you-name');
   const doEl = document.getElementById('fr-you-do');
   /* #1994: the restored time-zone picker. Populate the same zone set Settings
@@ -46402,23 +46366,8 @@ async function frPaintYou() {
      then prefill the saved one from /api/settings. Not gated for Continue: it
      always carries a valid value (the machine zone), so it never blocks. It is
      saved on Continue via POST /api/settings, in the go() below. */
-  const tzEl = document.getElementById('fr-you-tz');
-  const tzSearch = document.getElementById('fr-you-tz-search');
-  const tzHint = document.getElementById('fr-you-tz-hint');
-  /* #3338: friendly, US-first select defaulted to this computer's zone (mapped
-     to a plain label like "Central Time (CT)"), plus a city/ZIP search that jumps
-     it. The select's value is still the canonical IANA id saved on Continue. */
-  if (tzEl) {
-    youTzFillSelect(tzEl, youTzMachine());
-    if (tzHint) tzHint.textContent = 'Set to ' + youTzLabel(tzEl.value) + ' for this computer. Change it if that is not right.';
-    if (tzSearch) youTzWireSearch(tzSearch, tzEl, (id, label) => {
-      if (!tzHint) return;
-      if (id) tzHint.textContent = 'Set to ' + label + '.';
-      else if (id === '') tzHint.textContent = 'No match yet. Keep typing, or pick from the list.';
-      else tzHint.textContent = 'Set to ' + youTzLabel(tzEl.value) + '.';
-    });
-    tzEl.addEventListener('change', () => { if (tzHint) tzHint.textContent = 'Set to ' + youTzLabel(tzEl.value) + '.'; });
-  }
+  // #3338 removal: no tz picker in onboarding. The machine zone is captured
+  // silently on Continue (see the /api/settings POST in go() below).
   /* 🛑 THE BOX IS GONE, THE VALUE IS NOT (#1345). Josh asked for two fields, and
      `know` still feeds the you-block that goes into every agent's instructions
      (engine/you.js:147). The PUT is a whole-record replace: `save()` maps an
@@ -46472,18 +46421,19 @@ async function frPaintYou() {
          Settings for correction. We await the POST so it lands in the normal case,
          then advance regardless of its outcome. (Two blind reviews flagged a
          blocking tz-save gating the whole step as a wart; this is the fix.) */
-      if (tzEl && tzEl.value) {
-        try {
-          await fetch('/api/settings', {
-            method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ timezone: tzEl.value }),
-          });
-        } catch { /* best-effort: a tz-save failure does not block advancing */ }
-        // The awaits above are followed by the generation guard before advancing,
-        // so a re-entry during the save cannot advance a pane that now belongs to
-        // a newer paint.
-        if (entry !== FR_YOU_GEN) return;
-      }
+      /* #3338 removal: capture this computer's zone SILENTLY (never asked), so an
+         agent still knows the operator's local time. Best-effort and non-blocking --
+         a tz-save failure never blocks advancing. */
+      try {
+        await fetch('/api/settings', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ timezone: youTzMachine() }),
+        });
+      } catch { /* best-effort: a tz-save failure does not block advancing */ }
+      // The await above is followed by the generation guard before advancing,
+      // so a re-entry during the save cannot advance a pane that now belongs to
+      // a newer paint.
+      if (entry !== FR_YOU_GEN) return;
       frGo(frStepAfter(FR_STEP_YOU));   // #3112: route through the sequence, not FR_STEP_YOU + 1 (numeric)
     } catch {
       if (entry !== FR_YOU_GEN) return;
@@ -46511,22 +46461,7 @@ async function frPaintYou() {
       gate();
     }
   } catch { /* absent is the normal start; the fields just start empty */ }
-  /* #1994: prefill the saved time zone (a separate store), so returning to this
-     step shows the zone already chosen rather than resetting to the machine
-     default. Left untouched while the person has the select focused. (A select
-     always carries a value, so the "only fill when empty" test the name/does
-     fields use does not apply; the focus guard is the analog, matching the
-     Settings paintYouTz prefill.) */
-  try {
-    const sr = await (await fetch('/api/settings', { cache: 'no-store' })).json();
-    if (entry !== FR_YOU_GEN) return;
-    if (tzEl && sr && sr.timezone && document.activeElement !== tzEl) {
-      // #3338: youTzSelect inserts a friendly-labelled option when the saved zone
-      // is outside the friendly set, and selects it (honoring the focus guard).
-      youTzSelect(tzEl, sr.timezone);
-      if (tzHint) tzHint.textContent = 'Set to ' + youTzLabel(sr.timezone) + '.';
-    }
-  } catch { /* keep the machine-zone default already selected */ }
+  // #3338 removal: no tz prefill here -- the zone is not shown or asked in onboarding.
 }
 
 /* --------------------------------------------------------------------------

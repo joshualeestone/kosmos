@@ -3,8 +3,11 @@
 /**
  * The first-run name/identity step (frPaintYou -> #fr-you), #1994 live fixes.
  *
- * Josh's live test, Mona Lisa's build (2026-09-04):
- *   1. The time zone picker is RESTORED to this step (it had been taken away).
+ * Josh's live test, Mona Lisa's build (2026-09-04); tz REMOVAL by Angel (#3338, 2026-09-21):
+ *   1. The time zone picker is REMOVED from this step (#3338, Josh 0.6.84: asking
+ *      for a city/ZIP read as invasive data collection). The machine zone is
+ *      captured SILENTLY on Continue instead, so an agent still knows the
+ *      operator's local time.
  *   2. The name input is width-capped so it is not full-width; "What do you do?"
  *      (a sentence) keeps the full width.
  *   3. The "Continue saves this into every agent already set up on this
@@ -13,12 +16,12 @@
  *
  * 🛑 ASSERTED IN A REAL RENDER, not by grepping the file. The width cap is a
  * COMPUTED-style comparison (a class/rule that no longer matches would pass a
- * source grep and fail on screen), the tz picker is read off the rendered pane,
- * and the save is verified by CATCHING the real POST /api/settings the Continue
- * fires -- so the check proves the wiring, not just the markup. Each arm is
- * written so it would FAIL on the pre-#1994 markup (tz select absent, name box
- * full-width, reach copy present, Continue not saving a timezone), so the check
- * discriminates.
+ * source grep and fail on screen), the tz picker's ABSENCE is read off the
+ * rendered pane, and the SILENT save is verified by CATCHING the real POST
+ * /api/settings the Continue fires -- so the check proves the wiring, not just the
+ * markup. Each arm is written so it would FAIL on the wrong markup (tz select
+ * PRESENT, name box full-width, reach copy present, Continue not saving a
+ * timezone), so the check discriminates.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-firstrun-namestep-1994wiz.js
  */
@@ -71,22 +74,19 @@ function chk(ok, label, extra) {
     await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
     await page.waitForSelector(`#fr-pane-${step}:not([hidden])`, { timeout: 8000 });
     await page.waitForSelector('#fr-you-name', { timeout: 8000 });
-    // The tz picker is populated after a GET /api/settings; wait for its options.
-    await page.waitForFunction(() => {
-      const s = document.getElementById('fr-you-tz');
-      return s && s.options && s.options.length > 1;
-    }, { timeout: 8000 }).catch(() => { /* asserted below; do not mask a real absence */ });
-
     const m = await page.evaluate((paneStep) => {
       const pane = document.getElementById('fr-pane-' + paneStep);
       const you = document.getElementById('fr-you');
       const nameEl = document.getElementById('fr-you-name');
       const doEl = document.getElementById('fr-you-do');
-      const tzEl = document.getElementById('fr-you-tz');
       // Absence assertion: the removed fr-you-reach copy must be gone. Written as
       // a `=== null` test (not a bare lookup) so the #758 selector guard reads it
       // as an absence check rather than a live id reference.
       const reachGone = document.getElementById('fr-you-reach') === null;
+      // #3338 removal: the time-zone picker is gone from this step. `=== null` so
+      // the #758 selector guard reads it as an absence check, not a live id ref.
+      const tzGone = document.getElementById('fr-you-tz') === null
+        && document.getElementById('fr-you-tz-search') === null;
       const nameCs = nameEl ? getComputedStyle(nameEl) : null;
       const doCs = doEl ? getComputedStyle(doEl) : null;
       // Count LABELLED fields inside the you-block (a <label for=…> with a control
@@ -99,15 +99,9 @@ function chk(ok, label, extra) {
       return {
         paneText: (pane ? pane.textContent : '').replace(/\s+/g, ' ').trim(),
         reachGone,
+        tzGone,
         nameExists: !!nameEl,
         doExists: !!doEl,
-        tzExists: !!tzEl,
-        tzOptionCount: tzEl ? tzEl.options.length : 0,
-        tzValue: tzEl ? tzEl.value : '',
-        // #3338: the Central option's friendly label (not the raw IANA id), and
-        // whether the city/ZIP search accelerator is present on the step.
-        tzChicagoLabel: tzEl ? (Array.from(tzEl.options).find((o) => o.value === 'America/Chicago') || {}).textContent || '' : '',
-        tzSearchExists: !!document.getElementById('fr-you-tz-search'),
         nameMaxWidth: nameCs ? nameCs.maxWidth : '',
         nameWidthPx: nameEl ? nameEl.getBoundingClientRect().width : 0,
         doMaxWidth: doCs ? doCs.maxWidth : '',
@@ -121,39 +115,16 @@ function chk(ok, label, extra) {
     chk(!/Continue saves this into every agent already set up on this computer/.test(m.paneText),
       'the "Continue saves this into every agent..." copy line is gone', m.paneText.slice(0, 70));
 
-    // (1) the time zone picker is restored, populated, and defaulted.
-    chk(m.tzExists, 'the time zone <select id=fr-you-tz> is present (restored)');
-    chk(m.tzOptionCount > 1, 'the tz picker is populated (Intl zones / fallback)', 'options=' + m.tzOptionCount);
-    chk(m.tzValue !== '', 'the tz picker defaults to a value (machine zone / saved)', 'value=' + m.tzValue);
+    // (1) #3338 removal (Josh, 0.6.84): the time-zone picker is GONE from this
+    // step -- asking for a city/ZIP read as invasive data collection. The machine
+    // zone is captured SILENTLY on Continue instead (proven in the save arm below).
+    chk(m.tzGone, 'the time-zone picker (#fr-you-tz) and its city/ZIP search are removed from the step');
 
-    // #3338: friendly labels + the city/ZIP search accelerator, exercised LIVE.
-    // The raw ~400-entry IANA list is gone; the friendly set is short and labelled.
-    chk(m.tzOptionCount <= 20, '#3338 the friendly list is short, not the ~400-entry raw IANA list', 'options=' + m.tzOptionCount);
-    chk(m.tzChicagoLabel === 'Central Time (CT)',
-      '#3338 the Central zone shows a friendly label, not "America/Chicago"', 'label=' + m.tzChicagoLabel);
-    chk(m.tzSearchExists, '#3338 the "search by city or ZIP" input is present on the step');
-    // Type a city, then a ZIP: the select must JUMP to the right zone (real input
-    // events through the shipped youTzWireSearch, not a stub).
-    await page.fill('#fr-you-tz-search', 'Dallas');
-    const tzAfterCity = await page.evaluate(() => document.getElementById('fr-you-tz').value);
-    chk(tzAfterCity === 'America/Chicago', '#3338 typing "Dallas" jumps the zone to Central', 'value=' + tzAfterCity);
-    await page.fill('#fr-you-tz-search', '90210');
-    const tzAfterZip = await page.evaluate(() => document.getElementById('fr-you-tz').value);
-    chk(tzAfterZip === 'America/Los_Angeles', '#3338 typing a Beverly Hills ZIP (90210) jumps the zone to Pacific', 'value=' + tzAfterZip);
-    await page.fill('#fr-you-tz-search', 'zzzzzz');
-    const tzAfterMiss = await page.evaluate(() => document.getElementById('fr-you-tz').value);
-    chk(tzAfterMiss === 'America/Los_Angeles', '#3338 an unrecognized query does NOT move the selection (no wrong jump)', 'value=' + tzAfterMiss);
-    // Restore the machine-default selection + clear the search so the save arm
-    // below (which captured tzToSave = m.tzValue before this) behaves unchanged.
-    await page.fill('#fr-you-tz-search', '');
-    await page.evaluate((v) => { document.getElementById('fr-you-tz').value = v; }, m.tzValue);
-
-    // (5) three labelled fields (name, does, tz) -- reverses #1345's "exactly two".
-    chk(m.labelledFor.length === 3
+    // (5) two labelled fields (name, does) -- the tz field is gone again.
+    chk(m.labelledFor.length === 2
         && m.labelledFor.includes('fr-you-name')
-        && m.labelledFor.includes('fr-you-do')
-        && m.labelledFor.includes('fr-you-tz'),
-      'three labelled fields: name, does, tz (#1345 "exactly two" deliberately reversed)',
+        && m.labelledFor.includes('fr-you-do'),
+      'two labelled fields: name, does (the tz field was removed, #3338)',
       'labels=' + m.labelledFor.join(','));
 
     // (2) the name box is width-capped; "What do you do?" is NOT (full width).
@@ -181,7 +152,9 @@ function chk(ok, label, extra) {
     console.log('screenshot: ' + path.join(OUT, `fr-pane-${step}-namestep.png`));
     chk(errs.length === 0, 'no page errors rendering the name step', errs.join(' | '));
 
-    const tzToSave = m.tzValue;
+    // #3338 removal: Continue captures the machine zone SILENTLY (never asked), so
+    // an agent still knows the operator's local time.
+    const machineZone = await page.evaluate(() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ''; } });
     const settingsPost = page.waitForRequest(
       (r) => r.url().includes('/api/settings') && r.method() === 'POST',
       { timeout: 8000 });
@@ -190,9 +163,9 @@ function chk(ok, label, extra) {
     try { postBody = JSON.parse((await settingsPost).postData() || 'null'); }
     catch { postBody = null; }
     chk(!!postBody && typeof postBody.timezone === 'string' && postBody.timezone !== '',
-      'Continue POSTs /api/settings with a timezone', 'body=' + JSON.stringify(postBody));
-    chk(!!postBody && postBody.timezone === tzToSave,
-      'the POSTed timezone matches the selected zone', 'posted=' + (postBody && postBody.timezone) + ' selected=' + tzToSave);
+      'Continue silently POSTs /api/settings with a timezone (never asked)', 'body=' + JSON.stringify(postBody));
+    chk(!!postBody && postBody.timezone === machineZone,
+      'the POSTed timezone is this computer\'s zone (silent auto-detect, not a picked value)', 'posted=' + (postBody && postBody.timezone) + ' machine=' + machineZone);
   } finally {
     await browser.close();
     server.close();
