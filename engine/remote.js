@@ -218,7 +218,12 @@ let standingRefreshInFlight = false;
    Until then it returns null -> the refresh is a safe no-op and kosmosPlus() keeps
    serving the enrolment-time cache exactly as the merged #3353 producer does. */
 async function fetchStanding() {
-  return null;
+  // The mac-cert GET /v1/mac/standing lives in its own module (engine/mac-standing.js),
+  // NOT here: remote.js keeps the "NO CRYPTO HERE" boundary, exactly as updating.js is a
+  // separate module for its mac-cert POST. Lazy require breaks the remote<->mac-standing
+  // cycle (mac-standing reads remote.stateDir/coordinator/read/enrolled). Best-effort:
+  // any failure -> null -> the refresh keeps the last-known cached value.
+  try { return await require('./mac-standing').fetchStanding(); } catch { return null; }
 }
 /* Lazily refresh the cached standing when it is older than `ttlMs`. NON-BLOCKING by
    contract: callers do NOT await it; the poll serves the cached value and this updates
