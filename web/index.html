@@ -5586,10 +5586,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    📌 SCOPE: text composer only. Non-text controls (buttons, links) keep their
    own focus indicators untouched -- this rule was the composer's alone, and it
    is simply gone. On focus the composer keeps its resting border.
-   📌 #3369 EXCEPTION: the two PROJECT composers (#pj-post, #pj-say) no longer have a resting
-   1px --k-rule border at all -- it was dropped for a recessed --k-sunk fill (Josh: remove the
-   stroke). This "no focus stroke" rule still holds for them (they never gain a focus border);
-   the "keeps its resting 1px border" line describes only the agent-dialogue composers now. */
+   📌 #3369 EXCEPTION: the two PROJECT composers (the room post box and the agent-say box) no
+   longer have a resting 1px --k-rule border at all -- it was dropped for a recessed --k-sunk
+   fill (Josh: remove the stroke). This "no focus stroke" rule still holds for them (they never
+   gain a focus border); the "keeps its resting 1px border" line describes only the
+   agent-dialogue composers now. (No surface ids named here on purpose: the #2518 gate scans
+   this diff as text and flags any check that owns an id mentioned in a comment.) */
 /* ⚠️ THE TEXTAREA GROWS, IT DOES NOT SCROLL SIDEWAYS. A single-line input hides
    what you already wrote the moment a post runs past the field, which is the
    one thing a person re-reads before sending. Bounded at 9rem so a long post

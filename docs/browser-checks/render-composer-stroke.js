@@ -52,8 +52,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 // The boundary read is the #3369 lesson: border:0 alone can leave the box invisible when its
 // fill equals its container's (light theme: both --k-surface white). A recessed --k-sunk fill
 // restores the boundary, and this asserts that, not merely that the stroke is gone.
-async function readBorders(page, layout) {
-  return page.evaluate((lay) => {
+async function readBorders(page, layout, plus) {
+  return page.evaluate((args) => {
+    const lay = args.lay, plus = args.plus;
     const mk = (id, name) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
     try {
       PROJECTS = [mk('k', 'Kosmos')];
@@ -63,6 +64,11 @@ async function readBorders(page, layout) {
       document.documentElement.setAttribute('data-layout', lay);
       showTab('projects');
       if (typeof pjView === 'function') pjView('one');
+      // Set plus-active LAST, after showTab/pjView (which can call syncPlusChrome and toggle the
+      // class), so it holds through the read. In plus-active the bar's `body:not(.plus-active)`
+      // #000 override does NOT apply, which is exactly the "box and bar could match" case the
+      // recessed fill defends against, so this arm is the plus regression tripwire.
+      if (plus) document.body.classList.add('plus-active');
       const bw = (el) => el ? Math.round(parseFloat(getComputedStyle(el).borderTopWidth)) : null;
       const boxOf = (id) => { const e = document.getElementById(id); return e ? e.closest('.composerbox') : null; };
       const bg = (el) => el ? getComputedStyle(el).backgroundColor : null;
@@ -79,6 +85,7 @@ async function readBorders(page, layout) {
       };
       return {
         consolidated: document.body.classList.contains('consolidated'),
+        plusActive: document.body.classList.contains('plus-active'),
         post: bw(boxOf('pj-post')),
         say: bw(boxOf('pj-say')),
         dsay: bw(boxOf('d-say')),   // control: the agent-dialogue composer keeps its border
@@ -86,7 +93,7 @@ async function readBorders(page, layout) {
         sayBoundary: boundary('pj-say'),
       };
     } catch (e) { return { err: e && e.message ? e.message : String(e) }; }
-  }, layout);
+  }, { lay: layout, plus: !!plus });
 }
 
 (async () => {
@@ -99,24 +106,39 @@ async function readBorders(page, layout) {
     process.exit(1);
   }
 
-  for (const theme of ['light', 'dark']) {
-    const t = '[' + theme + ']';
+  // Three theme states: light, dark, and plus-active (dark scheme + the paid navy reskin). Plus
+  // is included because the bar's `body:not(.plus-active)` #000 override does NOT apply there, so
+  // it is one of the combos the recessed fill defends -- verifying it here, not only by hand.
+  const THEMES = [
+    { name: 'light', scheme: 'light', plus: false },
+    { name: 'dark', scheme: 'dark', plus: false },
+    { name: 'plus', scheme: 'dark', plus: true },
+  ];
+  for (const theme of THEMES) {
+    const t = '[' + theme.name + ']';
     for (const layout of ['tabs', 'consolidated']) {
       // consolidated view is offered at >= 960px; give it room.
-      const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, colorScheme: theme });
+      const page = await browser.newPage({ viewport: { width: 1400, height: 900 }, colorScheme: theme.scheme });
       page.on('pageerror', (e) => problems.push(t + ' pageerror: ' + e.message));
       await page.goto(PAGE);
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(200); }
-      const r = await readBorders(page, layout);
+      const r = await readBorders(page, layout, theme.plus);
       const lt = t + '[' + layout + ']';
       ok(lt + ' render setup succeeded', r && r.err == null && r.post != null && r.say != null, JSON.stringify(r));
+      // Self-verify the two dimensions this arm claims to exercise, so a silently-inactive layout
+      // or plus state cannot re-test a combo already covered while reporting as this one.
+      if (layout === 'consolidated') ok(lt + ' the consolidated layout actually activated', r && r.consolidated === true, JSON.stringify(r && { consolidated: r.consolidated }));
+      if (theme.plus) ok(lt + ' plus-active actually activated', r && r.plusActive === true, JSON.stringify(r && { plusActive: r.plusActive }));
       ok(lt + ' the room post composer (#pj-post) has no stroke', r && r.post === 0, JSON.stringify(r));
       ok(lt + ' the agent-say composer (#pj-say) has no stroke', r && r.say === 0, JSON.stringify(r));
-      // #3369: no stroke must not mean no boundary. With border:0 the fill is the only boundary,
-      // so assert each project composer's background is set and distinct from the bar behind it.
-      // This reds if the box fill equals its container (the light-theme invisibility this fix cures).
-      ok(lt + ' the room post composer (#pj-post) keeps a visible boundary (distinct fill, not invisible)', r && r.postBoundary && r.postBoundary.distinct === true, JSON.stringify(r && r.postBoundary));
-      ok(lt + ' the agent-say composer (#pj-say) keeps a visible boundary (distinct fill, not invisible)', r && r.sayBoundary && r.sayBoundary.distinct === true, JSON.stringify(r && r.sayBoundary));
+      // #3369: no stroke must not mean no boundary. With border:0 the fill is the only boundary, so
+      // assert each project composer's background is DECLARED distinct from the bar behind it. This
+      // is a declared-value check (getComputedStyle returns --k-sunk's own rgba, not the composited
+      // pixel), which catches the exact regression that occurred -- border:0 with an inherited
+      // --k-surface fill equal to the container. It does NOT prove perceptual contrast (a near-zero
+      // alpha fill would pass); that is an accepted limit, and the fill token is design-owned.
+      ok(lt + ' the room post composer (#pj-post) keeps a visible boundary (fill declared-distinct from its bar)', r && r.postBoundary && r.postBoundary.distinct === true, JSON.stringify(r && r.postBoundary));
+      ok(lt + ' the agent-say composer (#pj-say) keeps a visible boundary (fill declared-distinct from its bar)', r && r.sayBoundary && r.sayBoundary.distinct === true, JSON.stringify(r && r.sayBoundary));
       // Control: the agent-dialogue composer keeps its border, proving the removal is scoped.
       ok(lt + ' CONTROL the agent-dialogue composer (#d-say) keeps its border', r && r.dsay != null && r.dsay > 0, JSON.stringify(r));
       await page.close();
@@ -129,6 +151,6 @@ async function readBorders(page, layout) {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-composer-stroke: ' + pass + ' passed (the project composers #pj-post and #pj-say render with no border AND a distinct, visible fill boundary in tab + consolidated views, both themes; the agent-dialogue composer #d-say keeps its border, proving the removal is scoped). problems: none');
+  console.log('render-composer-stroke: ' + pass + ' passed (the project composers #pj-post and #pj-say render with no border AND a fill declared-distinct from the bar behind them, in tab + consolidated views across light, dark and plus-active; the agent-dialogue composer #d-say keeps its border, proving the removal is scoped). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-composer-stroke: ' + (e && e.message ? e.message.split('\n')[0] : e)); process.exit(1); });
