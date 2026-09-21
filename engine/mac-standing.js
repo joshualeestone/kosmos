@@ -40,10 +40,12 @@ let requestFactory = null;
 function setRequestFactory(f) { requestFactory = typeof f === 'function' ? f : null; }
 function defaultRequest(opts) { return (opts.protocol === 'http:' ? http : https).request(opts); }
 
-/* Pull the standing string out of the coordinator's JSON, tolerant of either shape
-   ICK's contract might carry: a { standing: 'good' } string wins; else a boolean
-   { kosmos_plus } maps to 'good' / 'none'; else null. (kosmos_plus == standing=='good'
-   is ICK's own identity, so the mapping cannot disagree with the coordinator's gate.) */
+/* Pull the standing string out of the coordinator's JSON. ICK's confirmed StandingResp
+   is { standing: 'good'|'off'|<other>, valid_until, grace_until, receipt } -- kosmos_plus
+   is DERIVED (== standing=='good'), there is no bool field. Read `standing`. The
+   `{ kosmos_plus:bool }` arm is kept only as a defensive fallback (harmless -- the string
+   wins when present; kosmos_plus==standing=='good' is ICK's own identity so it cannot
+   disagree); null when neither is present. */
 function parseStanding(bodyText) {
   let j;
   try { j = JSON.parse(bodyText); } catch { return null; }
@@ -80,12 +82,20 @@ async function fetchStanding() {
     const base = new URL(remote.coordinator());
     // Keep a self-hosted coordinator's path prefix: https://h/kosmos -> /kosmos/v1/mac/standing.
     const prefix = base.pathname.replace(/\/+$/, '');
+    /* POST with an empty JSON body, exactly like updating.js's /v1/mac/updating: the
+       coordinator's verify_mac_request requires POST, and the "mac signature" is the
+       mTLS CLIENT CERT (tls.crt/tls.key) presented in the TLS handshake -- updating.js
+       authenticates the same family of routes with cert+key and no explicit signature
+       header, so /v1/mac/standing does too. The body carries nothing; the standing is
+       identified by the mac cert alone. */
+    const body = '{}';
     const opts = {
       protocol: base.protocol,
       hostname: base.hostname,
       port: base.port || undefined,
       path: prefix + ROUTE,
-      method: 'GET',
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
       cert,
       key,
       timeout: TIMEOUT_MS,
@@ -126,7 +136,7 @@ async function fetchStanding() {
           res.on('error', () => done(null));
         } catch { done(null); }
       });
-      try { req.end(); } catch { return done(null); }
+      try { req.end(body); } catch { return done(null); }
     });
   } catch { return null; }
 }

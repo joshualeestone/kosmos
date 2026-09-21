@@ -2,7 +2,7 @@
 
 /**
  * Federation Kosmos+ gate, W1 refresh: engine/mac-standing.js -- the board-side
- * mac-cert GET /v1/mac/standing.
+ * mac-cert POST /v1/mac/standing.
  *
  *   node --test engine/mac-standing.test.js
  *
@@ -94,9 +94,10 @@ test('fetchStanding: a 200 good body -> "good", and it used the mac cert + the s
   enroll();
   const r = await withFake({ status: 200, body: '{"standing":"good"}' }, () => macStanding.fetchStanding());
   assert.equal(r, 'good');
-  assert.equal(lastOpts.method, 'GET');
+  assert.equal(lastOpts.method, 'POST', 'POST, not GET (verify_mac_request requires POST)');
   assert.ok(String(lastOpts.path).endsWith('/v1/mac/standing'), 'hit the standing route: ' + lastOpts.path);
-  assert.ok(lastOpts.cert && lastOpts.key, 'sent the mac client cert + key');
+  assert.ok(lastOpts.cert && lastOpts.key, 'the mac signature = the mTLS client cert + key (same as updating.js)');
+  assert.match(String(lastOpts.headers['content-type']), /application\/json/, 'JSON content-type');
   assert.equal(lastOpts.hostname, 'coord.example', 'to the coordinator host');
 });
 
