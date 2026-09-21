@@ -2,19 +2,19 @@
 pre_challenge: true
 method: challenge-loop
 branch: fed-standing-refresh
-diff_hash: 6797c7eadfa331829d7aac8a8b0faa0c5bbf9684e9a709bd72decd0a47d5b94e
+diff_hash: 7ce26e5ba9018f4cc14f3f2de5bc1a4fb0133da0748cadc101b2e191b7c120e9
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-21T15:10:00Z
-iterations: 1
+iterations: 2
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 1 (one independent blind adversarial review of the full diff by a fresh
-reviewer, compared against the proven engine/updating.js precedent; no blockers, one
-warning + two nits all fixed).
+**Iterations:** 2 (a blind review, no blockers + a warning/two nits fixed; then a CONTRACT
+CORRECTION from ICK -- POST not GET + the mac-auth confirmed -- that green tests could not
+catch, caught by cross-checking the source contract before merge).
 **Converged:** Yes.
 **Net:** completes W1 (the pre-flip entitlement refresh for the merged federation Kosmos+
 gate): a ~60s-TTL re-fetch of account standing from the mac-signed GET /v1/mac/standing, so
@@ -52,6 +52,25 @@ against updating.js. Result: **no blockers.**
   never ends would leave the promise unresolved and pin standingRefreshInFlight=true,
   disabling future refreshes (non-fatal -- kosmosPlus keeps serving the cache). Added an
   overall unref'd backstop timeout so fetchStanding ALWAYS settles and the flag always clears.
+
+#### Iteration 2 (ICK contract correction -- a silent bug green could not catch)
+
+- **[BLOCKER -> fixed, pre-merge] wrong HTTP method: GET, must be POST + mac-signed.** ICK's
+  exact contract: /v1/mac/standing is POST (verify_mac_request requires it), mac-authenticated,
+  with an empty {} body; response { standing:'good'|'off'|<other>, valid_until, grace_until,
+  receipt } -- no kosmos_plus field (derive it); a 200 non-'good' flips a member off; 401
+  account_gone only if the row is deleted. My code was GET + no body. As GET it would have
+  401'd at the REAL coordinator -> null -> keep cache -> the upgrade-refresh a SILENT NO-OP
+  (the exact problem W1 fixes). ⚠️ GREEN TESTS COULD NOT CATCH THIS: the suite guard blocks
+  the real dial under test, so the fake transport passes for any method/signature. Caught by
+  cross-checking ICK's source contract, not by the suite -- and Splinter is adding a
+  real-coordinator upgrade-refresh check to the flip verification because of it. FIXED: POST +
+  {} body + JSON headers; the test now asserts POST.
+- **[STRENGTH] the "mac signature" is the mTLS client cert, verified in source.** ICK said
+  "reuse updating.js's signer"; reading engine/updating.js shows it authenticates the whole
+  /v1/mac/* family with the mTLS client cert (tls.crt/tls.key) and NO explicit signature
+  header -- so there is no separate signer, and mac-standing already sends the same cert+key.
+  Matching the deployed, working precedent (updating.js) rather than inventing signing.
 
 ### Validation
 `engine/mac-standing.test.js` 9/9 (parse both shapes; not-enrolled/off no-request; 200 good
