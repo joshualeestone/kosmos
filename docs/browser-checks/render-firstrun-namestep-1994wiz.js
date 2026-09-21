@@ -118,7 +118,7 @@ function chk(ok, label, extra) {
     // (1) #3338 removal (Josh, 0.6.84): the time-zone picker is GONE from this
     // step -- asking for a city/ZIP read as invasive data collection. The machine
     // zone is captured SILENTLY on Continue instead (proven in the save arm below).
-    chk(m.tzGone, 'the time-zone picker (#fr-you-tz) and its city/ZIP search are removed from the step');
+    chk(m.tzGone, 'the time-zone picker (fr-you-tz) and its city/ZIP search are removed from the step');
 
     // (5) two labelled fields (name, does) -- the tz field is gone again.
     chk(m.labelledFor.length === 2
