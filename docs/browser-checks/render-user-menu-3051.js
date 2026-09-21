@@ -8,14 +8,21 @@
 /*
  * kosmos#3051 (Josh, 0.6.63 review, for 6.65): the upper-right nav is a user AVATAR + NAME that
  * opens a dropdown. The Settings LINK lives in the dropdown (Settings is GONE from the top nav,
- * which is now just Agents + Projects), together with the light/dark control, the board-view
- * toggle, and the agent-status line. Removing the Settings tab is safe because 'settings' is in
- * the BUTTONLESS array, so showTab('settings') still shows #panel-settings with no tab lit.
+ * which is now just Agents + Projects), together with the light/dark control, the view toggle,
+ * and the agent-status line. Removing the Settings tab is safe because 'settings' is in the
+ * BUTTONLESS array, so showTab('settings') still shows #panel-settings with no tab lit.
+ *
+ * kosmos#3360 (Josh, 2026-09-21): the dropdown was reworked so every line is a real clickable
+ * row -- a Kosmos+ promo (dormant member line behind it), the four settings deep-links (Your
+ * Profile / AI Models / Token Usage / View All Settings, the last keeping the #userpop-settings
+ * id), and the Appearance + renamed "View" toggle rows -- each taking its action AND closing the
+ * menu, the Appearance pick included. This check asserts that structure and those interactions.
  *
  * WHY A BROWSER. The dropdown is a real popover (aria-expanded, hidden menu, click-away/Escape
- * close) driven by wireUserpop, and the Settings link routes through the real showTab. A source
- * grep cannot tell whether the menu opens, whether the four items render in it, or whether the
- * Settings link actually reaches #panel-settings once the tab button is gone.
+ * close) driven by wireUserpop, and the settings links route through the real showTab /
+ * settingsOpen. A source grep cannot tell whether the menu opens, whether the rows render in it,
+ * whether each deep-link lands on its settings section and closes the menu, or whether the
+ * Settings link still reaches #panel-settings once the tab button is gone.
  *
  * HERMETIC: loads web/index.html over file://, boots no server. The name comes from /api/you at
  * runtime (unreachable over file://), so the button reads its "You" default here -- this check
@@ -134,7 +141,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' the menu holds the light/dark control', open.theme === true, JSON.stringify(open));
     ok(t + ' the menu holds the view toggle', open.view === true, JSON.stringify(open));
     ok(t + ' the view toggle row is renamed "View" (not "Board view")', open.viewRenamed === true, JSON.stringify(open));
-    ok(t + ' every menu line carries a leading icon (>= 6)', open.icons >= 6, JSON.stringify(open.icons));
+    // Exactly 8 .userpop-ico: Kosmos+ promo + dormant member + 4 settings deep-links + the
+    // Appearance and View toggle rows. An exact count catches a dropped icon; a loose floor would not.
+    ok(t + ' every menu line carries a leading icon (exactly 8)', open.icons === 8, JSON.stringify(open.icons));
     ok(t + ' the menu holds the agent-status line (#checked)', open.status === true, JSON.stringify(open));
 
     // The structure block left the menu OPEN. Close it so each re-open below toggles a CLOSED
@@ -208,6 +217,42 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     await page.mouse.click(20, 400);   // well away from #userpop
     await page.waitForTimeout(120);
     ok(t + ' an outside click closes the menu', await page.evaluate(() => document.getElementById('userpop-menu').hidden === true));
+
+    // ── #3360: the CONSOLIDATED-view branch of userpopSettingsGo. When body.consolidated is set,
+    //    a deep-link opens Settings IN PLACE (openConsolidatedSettings + the section) without
+    //    kicking to the tab view, and still closes the menu. Mirrors render-consolidated-settings-
+    //    2842.js's setup: seed PROJECTS, enter the consolidated layout via the real showTab, then
+    //    drive the real button handlers. Done in one evaluate so the consolidated layout's
+    //    geometry does not trip Playwright actionability. ──
+    const consolidated = await page.evaluate(() => {
+      const mk = (id, name) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      try {
+        PROJECTS = [mk('k', 'Kosmos'), mk('s', 'Site')];
+        PJ_SORT = 'az';
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        PJ_CURRENT = 'k';
+        showTab('projects');   // sets body.consolidated and relocates #panel-settings into #panel-projects
+        const enteredConsolidated = document.body.classList.contains('consolidated');
+        // Open the menu and click a deep-link with a real section (Your Profile -> 'you').
+        document.getElementById('userpop-btn').click();
+        const menuOpened = document.getElementById('userpop-menu').hidden === false;
+        document.getElementById('userpop-go-you').click();
+        const youBtn = document.querySelector('#s-nav button[data-go="you"]');
+        return {
+          enteredConsolidated,
+          menuOpened,
+          stillConsolidated: document.body.classList.contains('consolidated'),  // NOT kicked to tab view
+          settingsShown: document.getElementById('panel-settings').hidden === false,
+          settingsInDisplay: document.getElementById('panel-settings').parentElement === document.getElementById('panel-projects'),
+          onSection: !!youBtn && youBtn.getAttribute('aria-current') === 'true',
+          menuClosed: document.getElementById('userpop-menu').hidden === true,
+        };
+      } catch (e) { return { err: e && e.message ? e.message : String(e) }; }
+    });
+    ok(t + ' consolidated deep-link setup entered the consolidated view', consolidated.err == null && consolidated.enteredConsolidated === true && consolidated.menuOpened === true, JSON.stringify(consolidated));
+    ok(t + ' consolidated deep-link opens Settings IN PLACE on its section (no kick to tab view)', consolidated.stillConsolidated === true && consolidated.settingsShown === true && consolidated.settingsInDisplay === true && consolidated.onSection === true, JSON.stringify(consolidated));
+    ok(t + ' consolidated deep-link closes the menu', consolidated.menuClosed === true, JSON.stringify(consolidated));
 
     await page.screenshot({ path: nodePath.join(process.argv[2] || '/tmp', 'user-menu-' + theme + '.png') }).catch(() => {});
     await page.close();

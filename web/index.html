@@ -1362,9 +1362,10 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* The logged-in member line: a check + "Kosmos+ member". Dormant until a real membership
    signal exists (plusMember() is a stub returning false today, same gap as #plus-state2),
    so the logged-out promo shows for everyone for now. */
-.userpop-plus-member .userpop-ico { color: var(--gold); }
+/* .userpop-plus-member always co-occurs with .userpop-plus on the same button, so
+   `.userpop-plus .userpop-ico` above already golds its icon -- no separate rule needed. */
 .userpop-plus-badge { margin-left: auto; padding: 1px 7px; border-radius: 999px; background: var(--k-sunk);
-  color: var(--k-ink-2); font: 600 var(--text-caption-1, 0.72rem) var(--font-ui); letter-spacing: 0.02em; }
+  color: var(--k-ink-2); font: 600 var(--text-caption) var(--font-ui); letter-spacing: 0.02em; }
 .userpop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 7px 8px; font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
 .userpop-lbl { display: flex; align-items: center; gap: 10px; color: var(--k-ink-2); }
@@ -21291,16 +21292,15 @@ async function worldHideSubmit() {
   });
   worldsFetch().catch(() => {});
 })();
-// #3051: the upper-right user menu popover. Same shape as wireWorldsw above: the
+// #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
 // button toggles a hidden menu (aria-expanded tracks it), an outside click or Escape
-// closes it. The Settings link routes to #panel-settings and closes; the light/dark
-// control inside runs off its own document-level handler and is left with the menu
-// OPEN (a person may toggle and compare).
-// #3302 (Josh 2026-09-19): the Board-view control now CLOSES the menu on a pick and
-// shows the new view, superseding the earlier "leave open to compare" for the view
-// control specifically (Josh: today he has to click his name again to dismiss it).
-// Appearance still stays open. The close fires from the outside-click handler below,
-// which now makes an exception for a [data-layout-switch] click inside the menu.
+// closes it. #3360 (Josh 2026-09-21): EVERY menu line takes its action AND closes the
+// menu. The settings links (Your Profile / AI Models / Token Usage / View All Settings,
+// and the Kosmos+ line) close via their own click handlers through userpopSettingsGo();
+// the Appearance (data-theme-set) and View (data-layout-switch) picks run off their own
+// document-level handlers to apply the change and are closed by the exception in the
+// outside-click handler below. #3302 first made the View pick close the menu; #3360
+// extended that to Appearance too, so nothing is left open to "toggle and compare".
 (function wireUserpop() {
   const btn = document.getElementById('userpop-btn');
   const menu = document.getElementById('userpop-menu');
