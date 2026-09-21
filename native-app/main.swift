@@ -1364,25 +1364,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("tmux-a11y: no bundled tmux under \(kosmosHome) (AGENT_WORKFORCE_TMUX_BIN / tmux/bin/tmux); skipping (gate stays fail-safe)")
             return
         }
-        // ⚠️ THE ONE VERIFY-PINNED STRING (#2911/#3113). A fresh-install verify confirms which
-        // TCC service fires (Accessibility via System Events, Automation/AppleEvents via
-        // Terminal, or BOTH) and which binary macOS names. `System Events` UI-scripting raises
-        // the Accessibility ("control your computer") prompt Josh described; `get name of first
-        // process` is read-only, so it has NO side effect (no window, no state change). If the
-        // verify names a different op or a second service is needed, swap/extend this string.
-        let probe = "tell application \"System Events\" to get name of first process"
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tmux)
-        // Run osascript DIRECTLY under tmux so the responsible process is the tmux server.
-        // The command is one shell string tmux hands to /bin/sh; the probe carries double
-        // quotes and no single quote, so single-quoting the -e argument is safe.
-        p.arguments = ["-L", "kosmos-axcheck", "new-session", "-d", "/usr/bin/osascript -e '\(probe)'"]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        do {
-            try p.run()
-        } catch {
-            logLine("tmux-a11y: could not spawn tmux for the automation prompt: \(error.localizedDescription)")
+        // Two DISTINCT TCC grants must be primed here, because they are separate services and
+        // macOS grants Automation PER TARGET APP:
+        //   (a) System Events -> the Accessibility ("control your computer") grant the a11y gate reads;
+        //   (b) Terminal      -> the Automation grant engine/terminal.js needs to open an agent's
+        //       window (`tell application "Terminal" ... do script "tmux attach"`). WITHOUT this
+        //       probe the runtime is the FIRST thing to touch Terminal, and it fails with
+        //       -1743 "Not authorized to send Apple events to Terminal" mid-work -- exactly the
+        //       ambush this onboarding priming exists to prevent (Josh, 0.6.84). Priming System
+        //       Events does NOT cover Terminal: Automation is keyed on the (source, target) pair.
+        // ⚠️ BOTH probes are VERIFY-PINNED (#2911/#3113): a fresh-install verify confirms which
+        // service each raises and which binary macOS names. The Terminal probe is `get version`
+        // (read-only, no `do script`, no window); confirm on the verify that it raises the
+        // Automation-to-Terminal prompt and note whether it briefly launches Terminal.app.
+        let probes = [
+            "tell application \"System Events\" to get name of first process",
+            "tell application \"Terminal\" to get version",
+        ]
+        for probe in probes {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: tmux)
+            // Run osascript DIRECTLY under tmux so the responsible process is the tmux server --
+            // matching engine/terminal.js, which drives Terminal under an agent's tmux. The command
+            // is one shell string tmux hands to /bin/sh; each probe carries double quotes and no
+            // single quote, so single-quoting the -e argument is safe.
+            p.arguments = ["-L", "kosmos-axcheck", "new-session", "-d", "/usr/bin/osascript -e '\(probe)'"]
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            do {
+                try p.run()
+            } catch {
+                logLine("tmux-a11y: could not spawn tmux for the automation prompt (\(probe)): \(error.localizedDescription)")
+            }
         }
     }
 
