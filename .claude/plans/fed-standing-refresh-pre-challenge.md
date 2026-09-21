@@ -17,7 +17,7 @@ CORRECTION from ICK -- POST not GET + the mac-auth confirmed -- that green tests
 catch, caught by cross-checking the source contract before merge).
 **Converged:** Yes.
 **Net:** completes W1 (the pre-flip entitlement refresh for the merged federation Kosmos+
-gate): a ~60s-TTL re-fetch of account standing from the mac-signed GET /v1/mac/standing, so
+gate): a ~60s-TTL re-fetch of account standing from the mac-signed POST /v1/mac/standing, so
 an UPGRADE (paid after enrolment) takes effect without re-sign-in. Fail-safe throughout; the
 fed-route 403 stays the hard security gate.
 
