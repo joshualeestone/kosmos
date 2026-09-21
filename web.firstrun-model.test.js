@@ -240,38 +240,55 @@ test('the Connect button says Connected once it is, and stops saying it if we lo
     setAttribute: (k, v) => { attrs[k] = v; },
   };
   const els = { 'fr-llm-connect': btn, 'fr-sub': { innerHTML: '' } };
-  const run = (subscription) => {
+  const run = (subscription, verified) => {
     // eslint-disable-next-line no-new-func
     /* frClaudeConfirmClose joined the dependency list when the install confirm
        arrived: the painter closes the panel on every repaint, so a verdict that
        flips while it is open cannot leave a live Confirm under a green
        Connected button. The harness models it like the others. */
-    new Function('document', 'FR', 'frCheckRow', 'frActions', 'frGo', 'frRecheck', 'frClaudeConfirmClose',
+    /* #3326: FR_SUB_LOGIN_VERIFIED joined the list. The painter now shows the terminal
+       green "Connected" only after a real login has verified the credential THIS session
+       (set in frConnSettle), not from the shallow checkLive `connected` presence alone.
+       Injected here so the slice sees the same global the function reads. */
+    new Function('document', 'FR', 'frCheckRow', 'frActions', 'frGo', 'frRecheck', 'frClaudeConfirmClose', 'FR_SUB_LOGIN_VERIFIED',
       body + '\nfrPaintSubscription();')(
       { getElementById: (id) => els[id] || null },
       { subscription },
       () => '', () => {}, () => {}, () => {}, () => {},
+      verified === true,
     );
   };
 
-  run({ state: 'connected', plan: 'Claude Max' });
-  assert.match(btn.innerHTML, /Connected/, 'a connected machine is still offered Connect');
-  assert.equal(btn.disabled, true, 'the button still invites a press with nothing to do');
+  /* #3326 (Josh option 2): the green "Connected" appears ONLY once a real login has
+     succeeded this session (verified). A shallow checkLive `connected` (a credential
+     that merely exists, maybe expired) must read as an ACTION, not a done tick. */
+  run({ state: 'connected', plan: 'Claude Max' }, true);
+  assert.match(btn.innerHTML, /Connected/, 'a verified-connected machine reads Connected');
+  assert.equal(btn.disabled, true, 'verified-connected: nothing left to press');
   /* Green with a check, Josh 09:27: a greyed-out control reads as "this
      stopped working", which is the opposite of the news it is delivering. */
   assert.ok(btn.classList.has('is-connected'), 'the connected row is no longer green: disabled alone reads as deactivated');
   assert.equal(attrs['aria-disabled'], 'true', 'aria-disabled is not set, so a browse mode may skip the outcome');
   assert.match(btn.innerHTML, /aria-hidden="true"/, 'the check glyph is announced as well as the word');
 
+  /* #3326: connected but NOT verified (the shallow checkLive presence). The button must
+     stay an action so pressing it runs the real forced login -- never a "Connected" the
+     user skips past onto a dead credential (the exact bug Josh hit with his neighbor). */
+  run({ state: 'connected', plan: 'Claude Max' }, false);
+  assert.equal(btn.innerHTML, 'Connect', 'a shallow (unverified) connected still claimed it was Connected');
+  assert.equal(btn.disabled, false, 'the shallow connected disabled the button, letting sign-up finish on an unverified login');
+  assert.ok(!btn.classList.has('is-connected'), 'the green stayed on an unverified connected');
+  assert.equal(attrs['aria-disabled'], 'false', 'aria-disabled stayed true on an unverified connected');
+
   /* ⚠️ AND BACK AGAIN. Without this the test passes on a one-way change, which
      is the version that leaves "Connected" standing over "we could not tell". */
-  run({ state: 'unknown', because: 'we could not read the settings' });
+  run({ state: 'unknown', because: 'we could not read the settings' }, false);
   assert.equal(btn.innerHTML, 'Connect', 'a state we cannot read still claims it is connected');
   assert.equal(btn.disabled, false, 'the way to connect was taken away on a state that is not an answer');
   assert.ok(!btn.classList.has('is-connected'), 'the green stayed on a state that is not an answer -- the same defect the label half of this test exists to prevent');
   assert.equal(attrs['aria-disabled'], 'false', 'aria-disabled stayed true after the verdict stopped being connected');
 
-  run({ state: 'none' });
+  run({ state: 'none' }, false);
   assert.equal(btn.innerHTML, 'Connect');
   assert.equal(btn.disabled, false);
 });

@@ -46750,6 +46750,14 @@ function frConnWatch() {
  */
 let FR_CONN_CONFIRMED = false;
 
+/* #3326 (Josh option 2): true once a real forced-login connect has completed this
+   session (set in frConnSettle). Until then, a `connected` subscription state is only
+   the shallow checkLive presence signal -- a credential EXISTS but may be expired --
+   so frPaintSubscription must NOT let sign-up finish on it; it shows the sign-in as an
+   action, not a done "Connected" the user can skip past. Per-session (a fresh sign-up
+   re-verifies), mirroring FR_CONN_CONFIRMED. */
+let FR_SUB_LOGIN_VERIFIED = false;
+
 /* 🛑 #1574: `FR_CONN_CONFIRMED` USED TO BE SET ON THE SKIP PATH TOO, WHICH IS HOW
    THE PAGE CAME TO ASSERT A CONFIRMATION NOBODY GAVE. When `frClaudeInstallNeeded()`
    answered false the gate was skipped and this flag went true anyway, so the very
@@ -46792,7 +46800,14 @@ async function frConnectStartConfirmed(installConfirmed, opener) {
       headers: { 'content-type': 'application/json' },
       /* #1574: what a PERSON did, not what the page concluded. The server pairs it
          with a live probe and refuses if an install would start unconfirmed. */
-      body: JSON.stringify({ installConfirmed: installConfirmed === true }),
+      /* #3326 (Josh, 2026-09-19, option 2): sign-up ALWAYS forces a real Claude login,
+         even when the machine already looks connected. reauth:true makes connect.start()
+         skip the CONNECTED short-circuit (connect.js ~1475 `&& !reauth`) and run a real
+         `claude auth login` with login-success evidence (connect.js #2645 needsLogin path),
+         so a stale/expired "Connected" credential can never let sign-up finish on a dead
+         login. Josh: "what's it cost us - if they're connected it's no big deal to force it,
+         and if they're not, great, we got them to fully connect." */
+      body: JSON.stringify({ installConfirmed: installConfirmed === true, reauth: true }),
     });
     const st = await res.json();
     if (!res.ok) throw new Error(st.error || ('status ' + res.status));
@@ -46905,6 +46920,14 @@ async function frConnSubmitCode() {
  * repainted verdict (or the person's next click) takes it from there.
  */
 async function frConnSettle() {
+  /* #3326: reaching here means a real connect flow completed -- and since sign-up
+     always sends reauth:true, that flow ran a real `claude auth login` with
+     login-success evidence, not a checkLive short-circuit. So a `connected` verdict
+     from HERE on is backed by a login we just watched succeed, which is what lets
+     frPaintSubscription paint the terminal "Connected" (vs the shallow, must-still-
+     sign-in state). "Check again" (frRecheck) alone never sets this -- only a
+     completed forced-login connect does. */
+  FR_SUB_LOGIN_VERIFIED = true;
   const ok = await frRecheck();
   if (!ok) setTimeout(() => { if (FR_STEP === 5) frRecheck(); }, 2000);
 }
@@ -48124,14 +48147,28 @@ function frPaintSubscription() {
   frClaudeConfirmClose();
 
   if (connectBtn) {
-    const done = sub.state === 'connected';
+    /* #3326 (Josh option 2): "Connected" (green, disabled, done) requires a REAL login
+       we watched succeed this session (FR_SUB_LOGIN_VERIFIED), not the shallow checkLive
+       presence in `sub.state`. A stale/expired credential reads `connected` here, and the
+       old code painted a terminal "Connected" tick over it -- the exact false-confidence
+       Josh hit (green Connected, then agent creation fails on the dead login). Until a
+       forced login verifies it, the button stays an ACTION ("Connect"), so pressing it runs
+       the real login (reauth:true) rather than letting sign-up finish on a dead credential. */
+    const done = sub.state === 'connected' && FR_SUB_LOGIN_VERIFIED;
     connectBtn.innerHTML = done ? '<span aria-hidden="true">\u2713</span> Connected' : 'Connect';
     connectBtn.disabled = done;
     if (connectBtn.classList) connectBtn.classList.toggle('is-connected', done);
     if (connectBtn.setAttribute) connectBtn.setAttribute('aria-disabled', String(done));
   }
 
-  if (sub.state === 'connected') {
+  /* #3326 (Josh option 2): only paint the terminal "connected" verdict + skip-ahead Next
+     once a real login has succeeded this session (FR_SUB_LOGIN_VERIFIED). A shallow
+     checkLive `connected` (a credential that merely EXISTS, possibly 6 months expired)
+     falls through to the verdict-free default arm below, where the Claude row's Connect
+     button runs the forced login -- so sign-up can never finish on a "Connected" that a
+     later agent-creation probe rejects. (Respects #1008: no Claude verdict is shown for
+     the unverified state; the verdict only appears once the login is genuinely confirmed.) */
+  if (sub.state === 'connected' && FR_SUB_LOGIN_VERIFIED) {
     box.innerHTML = frCheckRow({
       state: 'ok',
       title: (sub.plan || 'A Claude subscription') + ' is connected',
