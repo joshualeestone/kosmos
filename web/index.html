@@ -1363,6 +1363,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    signal exists (plusMember() is a stub returning false today, same gap as #plus-state2),
    so the logged-out promo shows for everyone for now. */
 .userpop-plus-member .userpop-ico { color: var(--gold); }
+.userpop-plus-badge { margin-left: auto; padding: 1px 7px; border-radius: 999px; background: var(--k-sunk);
+  color: var(--k-ink-2); font: 600 var(--text-caption-1, 0.72rem) var(--font-ui); letter-spacing: 0.02em; }
 .userpop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 7px 8px; font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
 .userpop-lbl { display: flex; align-items: center; gap: 10px; color: var(--k-ink-2); }
@@ -13968,7 +13970,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        order, so the two controls do not swap sides when you flip between views;
        both instances carry data-layout-switch, so the one document-level handler
        and applyLayout's sync serve both places, verbatim. -->
-  <span class="laypick railme-lay" role="radiogroup" aria-label="Board view">
+  <span class="laypick railme-lay" role="radiogroup" aria-label="View">
       <button type="button" class="layopt" data-layout-switch="tabs" role="radio" aria-checked="false" title="Separate tabs">
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 6.1H14.4"/></svg>
         <span class="vh">Agents and Projects as separate tabs</span>
@@ -21330,7 +21332,16 @@ async function worldHideSubmit() {
   // behaviour. Close the menu either way. openConsolidatedSettings reads SETTINGS_SEC, so set it
   // first for a deep-link.
   function userpopSettingsGo(section) {
-    if (layoutConsolidated()) {
+    // Discriminate on body.consolidated -- the exact class openConsolidatedSettings() guards on
+    // -- NOT layoutConsolidated(). The two can differ: layoutConsolidated() is true on any tab at
+    // a wide window, but showTab only sets body.consolidated for the agents/projects tabs. Keying
+    // on layoutConsolidated() would call openConsolidatedSettings() in the gap where it early-
+    // returns, closing the menu with nothing opened -- a dead action. Keying on body.consolidated
+    // opens in place when it will actually work and falls through to showTab('settings') (which
+    // always works) otherwise. render-consolidated-settings-2842.js sets body.consolidated before
+    // clicking, so its consolidated arm still exercises openConsolidatedSettings, and its tab-view
+    // control still lands on showTab('settings').
+    if (document.body.classList.contains('consolidated')) {
       if (section) SETTINGS_SEC = section;
       openConsolidatedSettings();
     } else {

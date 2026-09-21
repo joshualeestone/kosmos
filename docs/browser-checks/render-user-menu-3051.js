@@ -148,6 +148,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       ['#userpop-go-you', 'you', 'Your Profile'],
       ['#userpop-go-models', 'accounts', 'AI Models'],
       ['#userpop-go-usage', 'usage', 'Token Usage'],
+      // The headline action: "Log in to Kosmos+" routes to Settings > Kosmos Plus, the real
+      // in-app sign-in surface. Click-through it like the others, not presence-only.
+      ['#userpop-plus', 'plus', 'Log in to Kosmos+'],
     ];
     for (const [sel, sec, label] of deepLinks) {
       await page.click('#userpop-btn');
