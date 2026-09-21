@@ -68,13 +68,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     document.getElementById('fr-openai-pick-key').click();
     out.keyRevealed = vis('fr-openai-flow');
     out.subHiddenOnKey = !vis('fr-openai-sub-step');
-    // Subscription branch.
+    // Subscription branch. #3335 (Josh 0.6.83): the subscription option opens the sign-in
+    // IMMEDIATELY -- there is no intermediate step whose only job is to make the person press
+    // "Sign in" a second time. So the fetch stub is installed FIRST, then a SINGLE pick-sub
+    // click both reveals the (status-only) sub-step AND POSTs subscription/start; the manual
+    // sub-go button is hidden on this path (frOpenaiSubStart re-shows it only on a start error).
     frOpenaiShowPick();
-    document.getElementById('fr-openai-pick-sub').click();
-    out.subRevealed = vis('fr-openai-sub-step');
-    out.keyHiddenOnSub = !vis('fr-openai-flow');
-    out.hasSubGo = !!document.getElementById('fr-openai-sub-go');
-    // Stub the subscription flow and drive it to connected.
     const seen = { start: false, reauthDirSent: undefined };
     window.fetch = (u, opts) => {
       const url = String(u);
@@ -91,7 +90,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       }
       return Promise.resolve({ ok: true, json: async () => ({}) });
     };
-    document.getElementById('fr-openai-sub-go').click();
+    document.getElementById('fr-openai-pick-sub').click();
+    out.subRevealed = vis('fr-openai-sub-step');
+    out.keyHiddenOnSub = !vis('fr-openai-flow');
+    // #3335: the manual "Sign in" button (fr-openai-sub-go) exists but is now HIDDEN -- the
+    // immediate-open path means the person never presses it. (It re-shows only on a start error.)
+    out.subGoHidden = (() => { const g = document.getElementById('fr-openai-sub-go'); return !!g && g.hidden; })();
+    // #3335: the start POST fires from the pick-sub click itself (frOpenaiSubStart runs
+    // synchronously up to the stubbed fetch), no second press.
     out.startCalled = seen.start;
     // First-run is a fresh add: it must NOT send a reauthDir.
     out.reauthDirOmitted = seen.reauthDirSent === undefined;
@@ -128,7 +134,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (typeof frGo !== 'function') return { error: 'frGo is not defined' };
       frGo(5);
       frOpenaiShowPick();
-      document.getElementById('fr-openai-pick-sub').click();
+      // #3335: stub BEFORE the pick-sub click -- that click now starts the sign-in immediately
+      // (no separate sub-go press), so the stub must already be in place to catch the start POST.
       window.fetch = (u) => {
         const url = String(u);
         if (url.indexOf('/subscription/start') !== -1) return Promise.resolve({ ok: true, json: async () => ({ sessionId: 's9', authUrl: 'https://openai.example/s', mode: 'browser' }) });
@@ -137,7 +144,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         if (url.indexOf('/subscription/status') !== -1) return Promise.resolve({ ok: true, status: 200, json: async () => ({ state: 'awaiting-browser' }) });
         return Promise.resolve({ ok: true, json: async () => ({}) });
       };
-      document.getElementById('fr-openai-sub-go').click();
+      document.getElementById('fr-openai-pick-sub').click();   // #3335: this alone starts the poll
       return { ok: true };
     });
     if (started && started.error) { await p2.close(); return started; }
@@ -171,10 +178,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   checkAbandon('switching to the key branch (#2621-iter4 WARNING)', branchSwitch);
   checkAbandon('switching provider away from OpenAI (#2621-iter4 BLOCKER)', providerSwitch);
   if (!r.pickShown) problems.push('the first-run picker (#fr-openai-pick) did not show at the runner-present hand-off');
-  if (!r.hasSubBtn) problems.push('no "Sign in with ChatGPT" option (#fr-openai-pick-sub) in the install flow -- the #2621 gap');
+  if (!r.hasSubBtn) problems.push('no "Sign in with Subscription" option (#fr-openai-pick-sub) in the install flow -- the #2621 gap');
   if (!r.hasKeyBtn) problems.push('no "Use an API key" option (#fr-openai-pick-key) in the picker');
   if (!(r.keyRevealed && r.subHiddenOnKey)) problems.push('"Use an API key" did not reveal only the key form');
-  if (!(r.subRevealed && r.keyHiddenOnSub && r.hasSubGo)) problems.push('"Sign in with ChatGPT" did not reveal only the subscription step');
+  if (!(r.subRevealed && r.keyHiddenOnSub && r.subGoHidden)) problems.push('#3335: "Sign in with Subscription" did not open the sign-in immediately (want: sub-step status shown, key form hidden, manual sub-go button hidden)');
   if (!r.startCalled) problems.push('the subscription Sign-in did not POST subscription/start');
   if (!r.reauthDirOmitted) problems.push('first-run sent a reauthDir on a fresh add (must be a new account, never a reauth)');
   if (!after.goldBox) problems.push('a connected subscription did not paint the gold #fr-openai-msg box');
