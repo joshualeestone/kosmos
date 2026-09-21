@@ -169,8 +169,33 @@ function read() {
        shape is checked where it is minted/used (signinDeviceId), not here, the
        same way relay/email carry through unvalidated. */
     device_id: typeof parsed.device_id === 'string' ? parsed.device_id : '',
+    /* Federation Kosmos+ gate: the account's last-known coordinator standing,
+       cached from the sign-in flow (the only place the coordinator surfaces it,
+       per ICK's contract). '' means unknown -> kosmosPlus() is false (fail-safe:
+       an unknown standing never opens the paid fed UI). The live server-side
+       backstop (fed routes 403 a non-member) covers any staleness between
+       sign-ins; this cache only drives which UI the board shows. */
+    standing: typeof parsed.standing === 'string' ? parsed.standing : '',
     ok: true,
   };
+}
+/* SET the cached coordinator standing from a FRESH enrolment/register response
+   (setupComplete / signinRegister's register path). SET-OR-CLEAR, never inherit: a
+   fresh enrolment writes the coordinator's value, or '' when it is absent/non-string
+   -- so a stale 'good' from a prior life (e.g. a state dir wiped without a full
+   forget()) can NEVER survive into a new account and leak the paid fed UI. The
+   already-set-up SHORT-CIRCUIT paths do NOT call this: there the account is
+   unchanged, so the existing cache is kept. forget() clears it outright. */
+function fedSetStanding(standing) {
+  write({ standing: typeof standing === 'string' ? standing : '' });
+}
+/* Federation Kosmos+ gate: is THIS account an authenticated Kosmos+ member?
+   True iff the cached coordinator standing is exactly "good" (ICK's contract:
+   kosmos_plus == standing=="good"). Fail-safe: any other/unknown value is false,
+   so the board never shows the paid federation UI to a non-member. */
+function kosmosPlus() {
+  const s = read();
+  return s.ok === true && s.standing === 'good';
 }
 function write(patch) {
   const next = { ...read(), ...patch };
@@ -449,7 +474,12 @@ async function forget() {
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
   const r = read();
-  write({ ...r, on: false });
+  /* Fed gate: CLEAR the cached standing on forget. This account is gone from this
+     Mac; leaving a 'good' standing behind would make kosmosPlus() (and so the paid
+     federation UI) true for the NEXT account that has not signed in yet -- a leak
+     of a member-only feature to a non-member. A real sign-in re-caches the new
+     account's standing; until then, unknown -> not a member. */
+  write({ ...r, on: false, standing: '' });
   return {
     ok: true,
     retired,
@@ -528,6 +558,8 @@ async function setupComplete(code, name) {
     '--state-dir', STATE_DIR(),
   ]);
   if (result.ok) ensure(localPort);
+  // fed gate: cache the coordinator standing if this setup response carried one.
+  if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
   return result;
 }
 
@@ -964,6 +996,7 @@ async function signinRegister(name) {
   signinSession = null;   // the token is spent; it must not linger in this process
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
+  fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register
   return { ok: true, because: null, data: {
     stage: 'registered',
     address: typeof d.address === 'string' ? d.address : address(),
@@ -975,6 +1008,8 @@ async function signinRegister(name) {
 module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
+  kosmosPlus,
+  fedSetStanding,
   setOn,
   setRelay,
   enrolled,

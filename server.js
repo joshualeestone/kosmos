@@ -405,6 +405,28 @@ function sourceChannelNow() {
   } catch { return 'staging'; }
 }
 
+/* Federation Kosmos+ gate (producer). Whether THIS account is an authenticated
+   Kosmos+ member, for the /api/status poll the web gate reads. remote.kosmosPlus()
+   is already fail-safe (an unreadable settings file -> false); the try/catch is a
+   second belt so a status tick can never throw on this field. Fail-safe false. */
+function fedKosmosPlusNow() {
+  try { return remote.kosmosPlus() === true; } catch { return false; }
+}
+
+/* The coordinated-flip flag for the federation UI. A board config that DEFAULTS
+   FALSE: until federation is actually live (the coordinator redeployed with the
+   fed routes + the slice-3 message pipe proven), the web gate keeps the fed UI
+   hidden on prod even from members. Read PER REQUEST off the process env, so it is
+   evaluated live on every /api/status poll (nothing caches it). The coordinated
+   flip is the launch coordinator's action, NOT here: set AGENT_WORKFORCE_FEDERATION_LIVE=1
+   on the board's launchd job and restart it -- a live process cannot have the env it
+   inherited at spawn changed from outside, so production needs that one restart; the
+   per-request read is why an in-process test flips it without one. A one-time,
+   coordinated-launch action. Fail-safe: any value other than the exact "1" is false. */
+function federationLiveNow() {
+  return process.env.AGENT_WORKFORCE_FEDERATION_LIVE === '1';
+}
+
 /* #2036 observability slice (behavior-preserving; changes no channel resolution and moves no
    bytes). A box INSTALLED from the staging channel but RESOLVING prod has silently lost its
    staging subscription at login (#2969): the board's launchd job carries no channel, so
@@ -3419,6 +3441,17 @@ const server = http.createServer((req, res) => {
            a cached-pointer check that can downgrade it to prod. Never a network call
            on this path, and every unknown keeps the stamp. */
         sourceChannel: sourceChannelNow(),
+        /* Federation Kosmos+ gate (producer side; the web gate reads these two off
+           this same 5s poll). kosmos_plus: is THIS account an authenticated Kosmos+
+           member (coordinator standing == "good"), cached from the sign-in seam --
+           fail-safe false on any unknown/unreadable, so the board never shows the
+           paid fed UI to a non-member. federationLive: the coordinated-flip flag,
+           a board config that DEFAULTS FALSE and is set true ONLY at the launch
+           flip (coordinator redeployed with fed routes + slice-3 live) -- so prod
+           stays hidden even from members until then. Both drive presentation only;
+           the fed routes enforce membership server-side regardless. */
+        kosmos_plus: fedKosmosPlusNow(),
+        federationLive: federationLiveNow(),
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
            install route answers "it updates from git, not from here". But the
