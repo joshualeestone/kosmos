@@ -32,6 +32,11 @@ process.env.AGENT_WORKFORCE_CODEX_HOME = CODEX_HOME;
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = CONFIG_ROOT;
 process.env.AGENT_WORKFORCE_HOME = SB;
 process.env.AGENT_WORKFORCE_DATA = STORE;
+// #3347 (sibling of #3011): sandbox AGENT_WORKFORCE_LAUNCH so create.plistPath
+// writes agent plists into the sandbox, never the operator's real
+// ~/Library/LaunchAgents (which would spawn phantom agents on the board).
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'LaunchAgents');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 
 const store = require('./store');
 const codexsession = require('./codexsession');
