@@ -4302,7 +4302,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      ground -- .pjmid left --k-surface for --k-bg, and the sticky composer
      keeping the base surface drew a mismatched band across the bottom
      (glaring in dark: #17191c on #0c0d0f), a sliver of the boxed look
-     this pass removes. The bordered composerbox inside it is unchanged. */
+     this pass removes. (#3369 later dropped the project composerbox's resting stroke for a
+     recessed --k-sunk fill; this bar-background rule is unaffected.) */
   html[data-layout="consolidated"] body.consolidated .pjmid .composer { background: var(--k-surface); } /* #3267: lockstep with the white pjmid ground above (was --k-bg for #980's cream) */
   /* #3218: Files is a header grid now (increment 5), so its label is a fixed cell in the header row
      -- it never scrolls, so it needs no sticky positioning and no background patch. `background: none`
@@ -5559,7 +5560,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    .composerbox border stays for the focus-ring test that guards it.
    NB: this comment names no other check's surface id on purpose -- the #2518 gate scans the
    web/index.html diff as text and would flag a check that merely owns an id mentioned here. */
-.pjmid .composer .composerbox, .pj-say.composerbox { border: 0; }
+.pjmid .composer .composerbox, .pj-say.composerbox { border: 0; background: var(--k-sunk); }
 /* 🔑 NO FOCUS STROKE ON THE TEXT COMPOSER (Josh 0.6.47, item 6.01.26; Mona's
    ruling (a)). Josh raised the composer's focus border AGAIN in his 0.6.47
    live test -- "the black inner stroke when you click into a text box" -- after
@@ -5584,7 +5585,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    failure of it.
    📌 SCOPE: text composer only. Non-text controls (buttons, links) keep their
    own focus indicators untouched -- this rule was the composer's alone, and it
-   is simply gone. On focus the composer keeps its resting 1px --k-rule border. */
+   is simply gone. On focus the composer keeps its resting border.
+   📌 #3369 EXCEPTION: the two PROJECT composers (#pj-post, #pj-say) no longer have a resting
+   1px --k-rule border at all -- it was dropped for a recessed --k-sunk fill (Josh: remove the
+   stroke). This "no focus stroke" rule still holds for them (they never gain a focus border);
+   the "keeps its resting 1px border" line describes only the agent-dialogue composers now. */
 /* ⚠️ THE TEXTAREA GROWS, IT DOES NOT SCROLL SIDEWAYS. A single-line input hides
    what you already wrote the moment a post runs past the field, which is the
    one thing a person re-reads before sending. Bounded at 9rem so a long post

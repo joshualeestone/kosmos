@@ -46,8 +46,12 @@ const problems = [];
 let pass = 0;
 function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name + (detail ? ' -- ' + detail : '')); }
 
-// Seed a project and open its one-view in the given layout, then read the computed
-// top-border-width of the two project composers and the agent-dialogue control.
+// Seed a project and open its one-view in the given layout, then read, for the two project
+// composers and the agent-dialogue control: the computed top-border-width AND whether the box
+// has a VISIBLE boundary against the bar behind it (a distinct, non-transparent background).
+// The boundary read is the #3369 lesson: border:0 alone can leave the box invisible when its
+// fill equals its container's (light theme: both --k-surface white). A recessed --k-sunk fill
+// restores the boundary, and this asserts that, not merely that the stroke is gone.
 async function readBorders(page, layout) {
   return page.evaluate((lay) => {
     const mk = (id, name) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
@@ -61,11 +65,25 @@ async function readBorders(page, layout) {
       if (typeof pjView === 'function') pjView('one');
       const bw = (el) => el ? Math.round(parseFloat(getComputedStyle(el).borderTopWidth)) : null;
       const boxOf = (id) => { const e = document.getElementById(id); return e ? e.closest('.composerbox') : null; };
+      const bg = (el) => el ? getComputedStyle(el).backgroundColor : null;
+      const transparent = 'rgba(0, 0, 0, 0)';
+      // A project composer has a VISIBLE boundary if its own background is set (not transparent)
+      // AND differs from the bar/container immediately behind it. With border:0 that fill is the
+      // only boundary, so this is what "the field is still visible" means.
+      const boundary = (id) => {
+        const box = boxOf(id); if (!box) return null;
+        const boxBg = bg(box);
+        const container = box.parentElement;   // the composer bar (pj-post) / section (pj-say)
+        const contBg = bg(container);
+        return { boxBg, contBg, distinct: boxBg !== transparent && boxBg !== contBg };
+      };
       return {
         consolidated: document.body.classList.contains('consolidated'),
         post: bw(boxOf('pj-post')),
         say: bw(boxOf('pj-say')),
         dsay: bw(boxOf('d-say')),   // control: the agent-dialogue composer keeps its border
+        postBoundary: boundary('pj-post'),
+        sayBoundary: boundary('pj-say'),
       };
     } catch (e) { return { err: e && e.message ? e.message : String(e) }; }
   }, layout);
@@ -94,6 +112,11 @@ async function readBorders(page, layout) {
       ok(lt + ' render setup succeeded', r && r.err == null && r.post != null && r.say != null, JSON.stringify(r));
       ok(lt + ' the room post composer (#pj-post) has no stroke', r && r.post === 0, JSON.stringify(r));
       ok(lt + ' the agent-say composer (#pj-say) has no stroke', r && r.say === 0, JSON.stringify(r));
+      // #3369: no stroke must not mean no boundary. With border:0 the fill is the only boundary,
+      // so assert each project composer's background is set and distinct from the bar behind it.
+      // This reds if the box fill equals its container (the light-theme invisibility this fix cures).
+      ok(lt + ' the room post composer (#pj-post) keeps a visible boundary (distinct fill, not invisible)', r && r.postBoundary && r.postBoundary.distinct === true, JSON.stringify(r && r.postBoundary));
+      ok(lt + ' the agent-say composer (#pj-say) keeps a visible boundary (distinct fill, not invisible)', r && r.sayBoundary && r.sayBoundary.distinct === true, JSON.stringify(r && r.sayBoundary));
       // Control: the agent-dialogue composer keeps its border, proving the removal is scoped.
       ok(lt + ' CONTROL the agent-dialogue composer (#d-say) keeps its border', r && r.dsay != null && r.dsay > 0, JSON.stringify(r));
       await page.close();
@@ -106,6 +129,6 @@ async function readBorders(page, layout) {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-composer-stroke: ' + pass + ' passed (the project composers #pj-post and #pj-say render with no border in tab + consolidated views, both themes; the agent-dialogue composer #d-say keeps its border, proving the removal is scoped). problems: none');
+  console.log('render-composer-stroke: ' + pass + ' passed (the project composers #pj-post and #pj-say render with no border AND a distinct, visible fill boundary in tab + consolidated views, both themes; the agent-dialogue composer #d-say keeps its border, proving the removal is scoped). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-composer-stroke: ' + (e && e.message ? e.message.split('\n')[0] : e)); process.exit(1); });
