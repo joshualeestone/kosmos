@@ -21,7 +21,8 @@
  *   - prod + flipped + unknown  -> fed hidden, sign-up SHOWN           (FAIL-SAFE, no leak)
  *   - staging + unwired plus    -> fed SHOWN, sign-up hidden           (review continuity)
  *   - default (no stamp)        -> fed hidden, sign-up hidden          (no first-tick flash)
- *   - CONTROL #pj-add-agent (local agent add) stays shown in every arm.
+ *   - CONTROL #pj-add-agent (local agent add) is asserted SHOWN in arm 1, proving the gate
+ *     hides only the federation surfaces and never the local (non-federation) controls.
  *
  * HERMETIC: loads web/index.html over file://, boots no server; boot fetches stubbed before load.
  *
