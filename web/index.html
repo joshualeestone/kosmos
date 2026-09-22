@@ -22326,7 +22326,7 @@ document.getElementById('set-reveal').addEventListener('click', async () => {
 
 // kosmos#3359: the way back into the guided setup. Escape marks first run seen
 // and it never returns on its own, so a person who left the welcome flow (or a
-// second person on this computer) needs a door back in. firstRunBoot(true)
+// second person on this computer) needs a door back in. firstRunBoot(true, 1)
 // opens the same overlay first run shows even though the seen flag is set --
 // the forced-open path, without a reload, so the board underneath is not thrown
 // away. frOpen re-enters at the welcome screen and frActions re-enables

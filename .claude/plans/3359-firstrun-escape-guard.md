@@ -1,4 +1,4 @@
-# kosmos#3359 — First-run: a way back into guided setup
+# kosmos#3359, First-run: a way back into guided setup
 
 ## Problem
 
@@ -18,7 +18,7 @@ action reversible, which is the principle the org optimises for.
 
 - Add a "Guided setup" box in **Settings > This computer** (the orientation section that already
   holds "Opening Kosmos") with a quiet button `#set-rerun-setup` that calls `firstRunBoot(true, 1)`
-  — the forced-open path (same as the `?first-run=1` deep link) without a reload, so the board
+  the forced-open path (same as the `?first-run=1` deep link) without a reload, so the board
   underneath is not thrown away. `frOpen` re-enters at the welcome screen and `frActions`
   re-enables Continue, so a Continue left disabled by the prior Escape completion does not stick.
 - Update the screen-reader warning: it no longer claims the wizard is gone for good; it names the
@@ -43,7 +43,7 @@ action reversible, which is the principle the org optimises for.
   settings-nav, browser-checks-selectors/indexed.
 
 ## Files
-- `web/index.html` — new Settings box + `#set-rerun-setup` handler + warning copy.
-- `docs/browser-checks/render-firstrun-reentry-3359.js` — new check.
-- `tools/browser-checks.sh` — runner registration.
-- `docs/browser-checks/README.md` — table row.
+- `web/index.html`, new Settings box + `#set-rerun-setup` handler + warning copy.
+- `docs/browser-checks/render-firstrun-reentry-3359.js`, new check.
+- `tools/browser-checks.sh`, runner registration.
+- `docs/browser-checks/README.md`, table row.
