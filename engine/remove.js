@@ -1779,7 +1779,7 @@ function restore(name, opts) { return markDryRun(restoreInner(name, opts && opts
  * pane merely borrowing the name is somebody else's work, and killing it would
  * be the most destructive thing this product can do to a bystander.
  */
-function restartInner(name, cause, platform) {
+function restartInner(name, cause, platform, startIfDead) {
   const clean = create.cleanName(name);
   const unsafe = unsafeToActOn(clean);
   if (unsafe) return { outcome: OUTCOME.REFUSED, because: unsafe, steps: [] };
@@ -1809,8 +1809,23 @@ function restartInner(name, cause, platform) {
      code). `fromDead` carries this through the SAME disruption + relaunch + loaded-verify path
      below, skipping only the kill (there is nothing to close). FOUND.UNTIED / UNKNOWN still refuse
      -- a session we cannot tie to this agent is a bystander's, and touching it is the worst thing
-     this product can do. */
+     this product can do.
+     🛑 SCOPED to callers that OPT IN via `startIfDead` (the /restart and /trust-and-restart
+     buttons -- explicit start/restart affordances). A caller that did NOT opt in (the
+     model/provider/account config-SWITCH routes) keeps the prior behavior: it saves the config
+     but does not START a dead agent as a side effect, and its own "starting again" copy is never
+     shown to a never-run agent. Whether a config switch should also start a dead agent is a
+     separate, deliberate decision, not an incidental effect of this change. */
   const fromDead = found.kind === FOUND.NONE;
+  if (fromDead && !startIfDead) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      steps: [],
+      /* The launch model in create's words (#671): one spelling of the self-starting fact. */
+      because: `${shown} is not running, so there is nothing to restart. `
+        + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1) + '.',
+    };
+  }
   if (!fromDead && found.kind !== FOUND.OURS) {
     return {
       outcome: OUTCOME.REFUSED,
@@ -1955,7 +1970,7 @@ function restartInner(name, cause, platform) {
   };
 }
 
-function restart(name, cause, opts) { return markDryRun(restartInner(name, cause, opts && opts.platform)); }
+function restart(name, cause, opts) { return markDryRun(restartInner(name, cause, opts && opts.platform, opts && opts.startIfDead)); }
 
 /**
  * Drops an agent's removal record, and nothing else.

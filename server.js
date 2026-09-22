@@ -5197,7 +5197,10 @@ const server = http.createServer((req, res) => {
            the previous behaviour exactly. */
         const cause = body && typeof body.cause === 'string' ? body.cause : 'restart';
         let out;
-        try { out = removal.restart(name, cause); }
+        // #3410: this IS the "Start this agent" affordance (Mona #3433 reuses this route), so it
+        // opts into starting a fully-dead agent (no session) rather than refusing it. The config-
+        // switch routes below deliberately do NOT pass startIfDead.
+        try { out = removal.restart(name, cause, { startIfDead: true }); }
         catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err) }); return; }
         sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, out);
       })
@@ -5293,7 +5296,9 @@ const server = http.createServer((req, res) => {
        without that copy shows a blank state, so this route stays cause-neutral
        and leaves a nicer label as a frontend follow-up. */
     let out;
-    try { out = removal.restart(clean, 'restart'); }
+    // #3410: Trust-and-Restart is an explicit restart affordance, so it too starts a fully-dead
+    // agent (opt in), matching the /restart button. The config-switch routes do not.
+    try { out = removal.restart(clean, 'restart', { startIfDead: true }); }
     catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err), trusted }); return; }
     sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ...out, trusted });
     return;

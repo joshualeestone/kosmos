@@ -39,8 +39,15 @@ disruption + relaunch + loaded-verify path as a live restart, skipping only the 
 5. disruption.begin runs for fromDead too (the board shows "starting", not "doesn't
    exist"); disruption.clear on the PARTIAL path, as the live path does.
 
-No route change: POST /api/agent/<name>/restart already maps RESTARTED to success, so
-Mona's button gets a real start (then verifies the agent comes up, per her PR).
+SCOPED via a `startIfDead` opt-in (challenge iter2): starting a dead agent happens ONLY
+when the caller opts in. The two explicit restart affordances opt in -- POST
+/api/agent/<name>/restart (Mona's Start button reuses this) and
+/api/agent/<name>/trust-and-restart. The model/provider/account config-SWITCH routes do
+NOT opt in, so they keep their prior behavior (save the config, do not start a dead agent
+as a side effect) and their "starting again" copy is never shown to a never-run agent.
+Whether a config switch should also start a dead agent is a separate, deliberate decision,
+not an incidental effect of this change. Both affordance routes already map RESTARTED to
+200, so the Start button gets a real start (then verifies the agent comes up, per her PR).
 
 ## Tests (engine/remove.test.js)
 - Updated "refuses on an untied window, but STARTS one that is not running": FOUND.UNTIED
@@ -63,3 +70,7 @@ KeepAlive-transient), bootout+bootstrap reloads it; loaded-verify still confirms
 - #3432 (codex CODEX_HOME) and #3419(a) (send-truncation): separate cards.
 - A time-bounded session-existence poll inside restartInner: the loaded-verify catches
   the "job never loaded" symptom synchronously; the button owns the come-up poll.
+- Whether the config-SWITCH routes (model/provider/account) should ALSO start a dead
+  agent (currently they do not, via the startIfDead opt-in). Arguably an improvement
+  (fixes the "saved but never comes up" shape), but a deliberate product decision for a
+  follow-up, not an incidental side effect of this card.
