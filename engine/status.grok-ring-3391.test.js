@@ -154,6 +154,24 @@ test('#3391: readGrokContext reads a real-shaped session end-to-end via the plis
   assert.equal(ctx.confidence, 'structured');
 });
 
+test('#3391: end-to-end, a signals.json with a used-count but NO window reads MEASURED, no-ceiling', () => {
+  // The Grok-specific measured-with-ceiling path is proven e2e above; this closes the
+  // sibling gap -- a real on-disk signals.json that carries contextTokensUsed but omits
+  // contextWindowTokens (a partial write) must reach the noCeiling branch through the
+  // full workerDir -> read chain, not only via injection.
+  reset();
+  writePlist('grok', null);
+  store.writeProfile(NAME, { dir: WORKDIR, provider: 'xai' });
+  writeSession({ encDir: 'enc-noceil', sessionId: 'sess-noceil', cwd: WORKDIR, model: 'grok-4.6',
+    numMessages: 2, lastActive: '2026-09-22T02:37:10.586Z', lastTurn: 'DONE', tokensUsed: 500 }); // windowTokens omitted
+  const ctx = status.readGrokContext(NAME);
+  assert.equal(ctx.tokens, 500, 'end-to-end: contextTokensUsed with no window still yields the measured count');
+  assert.equal(ctx.noCeiling, true, 'no contextWindowTokens on disk -> no ceiling');
+  assert.equal(ctx.ceiling, null);
+  assert.equal(ctx.percent, null, 'no window -> no fabricated percentage');
+  assert.match(ctx.because, /grok-4\.6/, 'the model is named end-to-end too');
+});
+
 test('#3391: readGrokContext returns no readout for a folder with no session (never a wrong number)', () => {
   reset();
   writePlist('grok', null);
