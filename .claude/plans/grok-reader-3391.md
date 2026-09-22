@@ -57,6 +57,10 @@ the classic hand-rolled-fixture trap, caught by checking the serde attributes be
   not assume "green off it = a real recent turn".
 
 ## Not in this slice
+⚠️ For the status-wiring slice: Grok's `messages` is `number | null` (null when num_messages is
+absent metadata -- the null-when-unknown rule), whereas codex/gemini's `messages` is always a
+`number` (a computed count). A consumer must handle the null for Grok.
+
 status.js `readGrokContext` wiring + snapshot arm (the status-ring consumer, mirrors the Gemini
 slice-2 wiring; needs a `runner:'grok'` recognition, and create.plistFor already round-trips any
 non-claude runner as of the gemini slice); the create.js launcher (provider validation + accounts +

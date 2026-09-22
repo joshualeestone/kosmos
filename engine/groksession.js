@@ -133,8 +133,9 @@ function forWorkdir(dir, home) {
  * ⭐ BOTH context halves are MEASURED for Grok (contextTokensUsed +
  * contextWindowTokens from signals.json), like Codex and firmer than Gemini/Claude
  * whose window is only assumed -- so a Grok agent's memory ring rests on a real
- * ceiling. contextUsedAt is the last-activity time (summary.last_active_at, RFC3339)
- * when usage is known, the freshness anchor a future account badge would use.
+ * ceiling. contextUsedAt is an epoch-ms "usage measured at" anchor -- signals.json's
+ * mtime when usage is known, null otherwise (see the read() body for why the mtime,
+ * not last_active_at); the freshness anchor a future account badge must gate on.
  */
 function read(dir, home) {
   /* NOTE for the status-wiring slice: unlike codexsession/geminisession, this reader
