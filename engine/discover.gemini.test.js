@@ -11,7 +11,9 @@ const path = require('node:path');
  * found()/foundCodex walked ~/.claude/projects and ~/.codex; a person whose agent
  * files sit beside a GEMINI.md (the disk sibling of CLAUDE.md/AGENTS.md) was a
  * whole missing population. Measured layout on this machine:
- *   <GEMINI_CLI_HOME>/projects.json = { "projects": { "<abs-cwd>": "<name>" } }
+ *   <.gemini-home>/projects.json  = { "projects": { "<abs-cwd>": "<name>" } }
+ *     (the .gemini storage dir -- GEMINI_CLI_HOME is its PARENT; see
+ *      geminisession.HOME, #3296)
  *   <cwd>/GEMINI.md                 = the project instructions ("You are <name>...")
  * foundGemini reads projects.json for the cwds and identityFromText on each
  * GEMINI.md for the name, exactly as the CLAUDE.md arm does.

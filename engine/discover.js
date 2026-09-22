@@ -449,7 +449,8 @@ function foundCodex(roster) {
 
 /* #2243: Gemini agents already on this computer, the third provider path and the
    analogue of foundCodex. Gemini keeps its project cwds in a JSON MAP at
-   <GEMINI_CLI_HOME>/projects.json, and a project's instructions live in
+   <.gemini-home>/projects.json (the .gemini storage dir; GEMINI_CLI_HOME is its
+   PARENT, see geminisession.HOME #3296), and a project's instructions live in
    <cwd>/GEMINI.md, the disk sibling of CLAUDE.md and AGENTS.md. So a directory
    listed in projects.json whose GEMINI.md INTRODUCES somebody ("You are
    <name>...") IS a discoverable Gemini agent, read with the same identityFromText
