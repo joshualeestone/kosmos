@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_GROK_HOME = SANDBOX;
 const grok = require('./groksession');
 const { NO_READING } = require('./status');
 
-const WORKDIR = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-grok-wd-')));
+const WORKDIR = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-grok-wd-')));
 
 /* Write a session under sessions/<encDir>/<sessionId>/ with a real-shaped summary.json
    (snake) + optional signals.json (camel). `encDir` is normally the url-encoded cwd, but
