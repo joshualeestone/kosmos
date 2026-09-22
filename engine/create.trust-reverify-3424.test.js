@@ -232,12 +232,24 @@ test('#3424 #2129 used-machine regression: a default-account agent IGNORES a poi
     process.env.CLAUDE_CONFIG_DIR = poison;             // the stray inherited var a used machine carries
     ensureLaunchTrust(workdir, '');                     // default account (empty configDir)
 
+    // CONFIG (trust) side: routed through configTarget -> defaultAgentConfig.
     const homeConfig = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json');
     const poisonConfig = path.join(poison, '.claude.json');
     assert.ok(isTrusted(homeConfig, workdir),
       'default-account trust must land in the HOME .claude.json (defaultAgentConfig ignores CLAUDE_CONFIG_DIR)');
     assert.equal(fs.existsSync(poisonConfig), false,
       'default-account trust must NOT follow the poisoned CLAUDE_CONFIG_DIR - a write there is the exact #2129 write-A-read-B bug');
+
+    // SETTINGS (bypass) side: a SEPARATE code path (settingsTarget -> defaultAgentSettings),
+    // and ensureLaunchTrust ran preacceptBypass in the same call. A regression isolated to the
+    // settings path would land bypass in poison/settings.json while the agent reads
+    // HOME/.claude/settings.json - the same wedge one prompt over - so assert it too, not just config.
+    const homeSettings = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude', 'settings.json');
+    const poisonSettings = path.join(poison, 'settings.json');
+    assert.equal(readJson(homeSettings)[BYPASS_KEY], true,
+      'default-account bypass must land in the HOME settings.json (defaultAgentSettings ignores CLAUDE_CONFIG_DIR too)');
+    assert.equal(fs.existsSync(poisonSettings), false,
+      'default-account bypass must NOT follow the poisoned CLAUDE_CONFIG_DIR either');
   } finally {
     delete process.env.CLAUDE_CONFIG_DIR;
     if (savedConfig !== undefined) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = savedConfig;
