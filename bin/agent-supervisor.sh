@@ -493,13 +493,9 @@ if [ -z "$adopt" ]; then
   # is a truly clean launch: nothing is pinned (leaving CLAUDE_CONFIG_DIR unset, which is exactly
   # what #3383c's HOME re-injection relies on), and the trust write takes the default path.
   # Claude only -- codex uses CODEX_HOME and has no folder-trust gate, so it has no
-  # equivalent PROMPT to fix here.
-  # ⚠️ KNOWN GAP, tracked separately (not this card): the server-global LEAK itself is not
-  # Claude-specific. A board cold-started under one account's CODEX_HOME would leak it into a
-  # default-account codex pane exactly as it does CLAUDE_CONFIG_DIR here, misdirecting where
-  # codex reads its per-account config -- silently, with no trust-dialog symptom to point at
-  # it. This fix does NOT close that; it is scoped to the reported #3417 trust prompt. A codex
-  # CODEX_HOME resolution mirroring this block is its own follow-up.
+  # equivalent PROMPT. The CODEX_HOME arm of the SAME leak is handled by the #3430 block just
+  # below (it is not Claude-specific: a board cold-started under one account's CODEX_HOME leaks
+  # it into a default-account codex pane the same way).
   EFFECTIVE_CCD="${CLAUDE_CONFIG_DIR:-}"
   if [ "$RUNNER" != codex ] && [ -z "$EFFECTIVE_CCD" ]; then
     _srv_ccd="$("$TMUX_BIN" show-environment -g CLAUDE_CONFIG_DIR 2>/dev/null || true)"
@@ -514,6 +510,25 @@ if [ -z "$adopt" ]; then
     # double-push with the loop: this branch runs only when the loop forwarded nothing.
     if [ -n "$EFFECTIVE_CCD" ]; then
       PANE_ENV+=(-e "CLAUDE_CONFIG_DIR=$EFFECTIVE_CCD")
+    fi
+  fi
+  # 🛑 #3430: the CODEX_HOME arm of the #3417 leak, and it is FUNCTIONAL, not cosmetic. codex
+  # stores its AUTH in $CODEX_HOME/auth.json (ICK's investigation), so a default-account codex
+  # pane that inherits the tmux server-global CODEX_HOME reads a DIFFERENT auth.json than the one
+  # Kosmos set the account up in -- a misdirected home = a silently UNAUTHENTICATED codex agent,
+  # with NO prompt to point at it (codex has no folder-trust dialog). Same fix shape as the
+  # CLAUDE_CONFIG_DIR block above: own env when set (the loop forwarded it, a per-account plist
+  # sets it), else the tmux server-global CODEX_HOME the pane would otherwise inherit, pinned
+  # explicitly so the pane and the codex writes below agree on one home. Codex arm only; empty
+  # stays empty (not pushed), same "set-but-empty vs unset" caution as above.
+  EFFECTIVE_CODEX_HOME="${CODEX_HOME:-}"
+  if [ "$RUNNER" = codex ] && [ -z "$EFFECTIVE_CODEX_HOME" ]; then
+    _srv_ch="$("$TMUX_BIN" show-environment -g CODEX_HOME 2>/dev/null || true)"
+    case "$_srv_ch" in
+      CODEX_HOME=?*) EFFECTIVE_CODEX_HOME="${_srv_ch#CODEX_HOME=}" ;;
+    esac
+    if [ -n "$EFFECTIVE_CODEX_HOME" ]; then
+      PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
     fi
   fi
   if [ "$RUNNER" = codex ]; then
@@ -541,7 +556,11 @@ if [ -z "$adopt" ]; then
       # silently fail (|| true) and the codex agent would hit the update prompt this
       # shim exists to dismiss. Empty NODE_BIN (no node anywhere) skips it, same
       # best-effort posture.
-      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
+      # #3430: EFFECTIVE_CODEX_HOME (resolved above), not ${CODEX_HOME:-}: the bare env var is
+      # empty for a default-account codex agent whose pane nonetheless inherits the server-global
+      # CODEX_HOME, so the dismiss must target the SAME home the pane reads or it writes the
+      # update-notice dismissal into a different home than the running agent.
+      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1
