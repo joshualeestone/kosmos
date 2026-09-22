@@ -24957,16 +24957,15 @@ async function paintTalk(sessionName, agentName) {
   // not paint last.
   const mine = ++TALK_LOAD;
   /**
-   * ⚠️ THE FIVE SENTENCES THAT NAME THE AGENT ARE WRITTEN FIRST, before the
+   * ⚠️ THE FOUR SENTENCES THAT NAME THE AGENT ARE WRITTEN FIRST, before the
    * fetch, because not one of them depends on its answer.
    *
    * Written after it, they carried the PREVIOUS agent's name over every failed
    * open — and a 404 is a standing condition here, not a blip: a pane holding a
    * name untied answers 404 on every poll forever. Measured: open April, then
    * open a borrowed-name agent, and the panel reads "Talk to April", "Just
-   * between you and April", "April will not remember it", with an aria-label
-   * and placeholder naming April, over the sentence saying this conversation
-   * cannot be shown. Indefinitely.
+   * between you and April", with an aria-label and placeholder naming April,
+   * over the sentence saying this conversation cannot be shown. Indefinitely.
    *
    * The markup ships these EMPTY for exactly this reason — "a shipped sentence
    * naming an agent would be a claim about whichever agent happens to be open"
@@ -24977,15 +24976,12 @@ async function paintTalk(sessionName, agentName) {
   document.getElementById('d-talk-label').textContent = 'Talk to ' + name;
   document.getElementById('d-talk-hint').textContent =
     'Just between you and ' + name + '. Nothing here belongs to a project.';
-  /* ⚠️ WRITTEN WITH THE LABEL, not on the fetch's success path, for the reason
-     the comment below gives: whether a line names the right agent does not
-     depend on the fetch, and one set on the success path carries the PREVIOUS
-     agent's name on a borrowed-name pane, which returns early.
-     ⚠️ THAT COMMENT STATES A TWO-PART RULE — "THE TEXT HERE, THE VISIBILITY ON
-     THE SUCCESS PATH" — and this line now obeys both: the text is written here,
-     and whether it may be SHOWN is decided after the answer arrives, beside the
-     persistence line's own decision. An earlier version did the text half and
-     cited the whole rule. */
+  /* ⚠️ WRITTEN WITH THE LABEL, not on the fetch's success path: whether a line
+     names the right agent does not depend on the fetch, and one set on the
+     success path carries the PREVIOUS agent's name on a borrowed-name pane,
+     which returns early. The aria-label and placeholder only NAME the agent and
+     have no visibility that turns on the answer, so writing them here is the
+     whole of it. */
   /* 🛑 THE SENTENCE THAT WAS HERE IS NOW FALSE, and it was shipped four hours
      ago in 0.2.12: "Replies come back there rather than here, for now." That
      was true while an agent had nowhere to write; this branch is what gave it
