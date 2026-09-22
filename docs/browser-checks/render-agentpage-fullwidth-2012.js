@@ -10,14 +10,24 @@
  * design-vs-built gap: `#panel-detail .dbody` capped the content column at a
  * fixed 34rem (~544px) and `#d-window` capped the dialogue at 560px.
  *
- * 🛑 THESE ARE COMPARISONS AGAINST THE OLD CAPS, NOT PROPERTIES OF ONE ELEMENT.
- * Each assertion is written so it would have FAILED on the pre-#2012 build:
+ * 🛑 THESE ARE COMPARISONS AGAINST THE OLD BUILDS, NOT PROPERTIES OF ONE ELEMENT.
+ * Each assertion is written so it would have FAILED on an earlier build:
  *   - the content column renders far wider than the old 544px cap,
- *   - the header's max-width is `none` (was calc(...+34rem)),
+ *   - the identity header is a NARROW LEFT column beside the content (#3385),
+ *     not the full-width banner it was before -- so its width is bounded and it
+ *     sits to the left of the content column (the pre-#3385 banner spanned the
+ *     whole width and would fail both),
  *   - #d-window's max-height resolves well past 560px (was exactly 560px),
  *   - the message body carries a finite ~66ch measure (was unbounded).
  * A check that only read the new values without a control would pass on any
- * layout; the "far wider than 544" and ">560" forms are the control.
+ * layout; the "far wider than 544", "narrow + left of the content" and ">560"
+ * forms are the control.
+ *
+ * #3385 moved the header out of a full-width banner into the 220px .dleft
+ * identity column (grid-template-columns: 220px minmax(0,1fr)); assertion 2 was
+ * updated from "header max-width:none && headWidth > 800" to the left-column
+ * reality. The #2012 win it guards -- the CONTENT/dialogue filling the width --
+ * is unchanged and still asserted (1 and 3).
  *
  *   node docs/browser-checks/render-agentpage-fullwidth-2012.js            # headed
  *   HEADED=0 node docs/browser-checks/render-agentpage-fullwidth-2012.js   # headless
@@ -75,6 +85,8 @@ function chk(ok, label, extra) {
       const dbody = panel.querySelector('.dbody');
       const dsecs = panel.querySelector('.dsecs');
       const dhead = panel.querySelector('.dhead');
+      const dheadRect = dhead.getBoundingClientRect();
+      const dsecsRect = dsecs ? dsecs.getBoundingClientRect() : null;
       const dwin = document.getElementById('d-window');
       // Inject a message body inside the panel so its measure cap resolves,
       // then read and remove it (a conversation-less fixture has no .msg-b).
@@ -89,7 +101,9 @@ function chk(ok, label, extra) {
         contentWidth: dsecs ? Math.round(dsecs.getBoundingClientRect().width) : null,
         dbodyCols: getComputedStyle(dbody).gridTemplateColumns,
         headMaxWidth: getComputedStyle(dhead).maxWidth,
-        headWidth: Math.round(dhead.getBoundingClientRect().width),
+        headWidth: Math.round(dheadRect.width),
+        headRight: Math.round(dheadRect.right),
+        secsLeft: dsecsRect ? Math.round(dsecsRect.left) : null,
         winMaxHeight: getComputedStyle(dwin).maxHeight,
         msgMaxWidth: probeMax,
       };
@@ -100,10 +114,13 @@ function chk(ok, label, extra) {
       'the dialogue/content column fills the width (far past the old 544px cap)',
       'contentWidth=' + m.contentWidth + ' cols=' + m.dbodyCols);
 
-    // 2. The header spans full width: its max-width is none (was calc(...34rem)).
-    chk(m.headMaxWidth === 'none' && m.headWidth > 800,
-      'the header spans the full width (max-width:none), aligned with the body',
-      'headMaxWidth=' + m.headMaxWidth + ' headWidth=' + m.headWidth);
+    // 2. The identity header is a NARROW LEFT column beside the content (#3385),
+    //    not the pre-#3385 full-width banner. Control: the old banner had
+    //    headWidth > 800 and spanned the width, so it fails both a bounded
+    //    width and "sits to the left of the content column".
+    chk(m.headWidth > 0 && m.headWidth < 400 && m.secsLeft !== null && m.headRight <= m.secsLeft + 1,
+      'the identity header is a narrow left column beside the content (not a full-width banner)',
+      'headWidth=' + m.headWidth + ' headRight=' + m.headRight + ' secsLeft=' + m.secsLeft);
 
     // 3. The dialogue fills the page: max-height resolves well past 560px.
     const winPx = parseFloat(m.winMaxHeight);

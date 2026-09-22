@@ -8473,11 +8473,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              The classes are set by the painter, not here, because the state
              is not known until an agent is opened. -->
         <span class="detail-state" id="d-state"></span>
-        <!-- ⚠️ TO THE RIGHT OF THE BADGE, Josh's item C, and a SEPARATE element
-             rather than more text inside it. The badge said "Needs you: Mac" as
-             one string, so the state and the thing it is about were one
-             unstyleable run. Split, the badge is a badge and the task can sit
-             beside it the way the pack draws it. -->
+        <!-- ⚠️ A SEPARATE element from the badge, Josh's item C: the badge said
+             "Needs you: Mac" as one string, so the state and the thing it is
+             about were one unstyleable run. Split, the badge is a badge and the
+             task is its own line, styled on its own (that split is the durable
+             half of item C and is preserved).
+             #3385: item C originally placed this TO THE RIGHT OF THE BADGE,
+             which fit the old full-width header row. #3385 moved the identity
+             into the 220px .dleft column and made .dnamerow a flex COLUMN
+             (name -> title -> badge -> task), so the task now stacks BELOW the
+             badge. That is deliberate here, not a regression: taskLine can be a
+             full short sentence ("this agent cannot work"), and beside a badge
+             in a 220px column it would ellipsis away to nothing; stacked, it
+             keeps the whole column width. This matches Josh's approved #3385
+             mock. If Josh wants it beside again, wrap #d-state + #d-task in a
+             nested flex-row inside .dnamerow (one-commit change). -->
         <span class="dtask" id="d-task" hidden></span>
       </div>
       <!-- #569: where the state came from, under the badge, in Mona Lisa's
@@ -25846,7 +25856,12 @@ function openDetail(sessionName, section, fromProject) {
    */
   document.getElementById('d-file').value = '';
   document.getElementById('d-name').textContent = a.name;
-  fitDetailName();   // #3385: shrink the name to fit the left column, never wrap
+  /* #3385: the name is SET here but FITTED at the end of openDetail, after
+     showTab('detail') reveals the panel. fitDetailName measures the column's
+     clientWidth, which is 0 while #panel-detail[hidden] is display:none, so a
+     fit here no-ops on a cold open (the panel is not shown until showTab far
+     below). Fitting after the reveal, synchronously in the same task before the
+     first paint, shrinks the name with no flash. */
   /* ⚠️ ON OPEN AS WELL AS ON THE POLL. Painted only by the poll, the line is
      absent for up to five seconds after somebody opens the page — which is
      exactly the moment they are looking, and an empty box with no indicator
@@ -26246,6 +26261,13 @@ function openDetail(sessionName, section, fromProject) {
   loadRemoval(a.sessionName);
   detailGo(section || 'talk', { focus: false });
   showTab('detail');
+  /* #3385: fit the name NOW, after showTab revealed #panel-detail (set hidden
+     =false at PANELS.forEach in showTab). The column has a real clientWidth
+     only once the panel is displayed; reading it here forces a synchronous
+     reflow, so the shrink lands before the first paint. Called on the cold
+     open path (a board click straight into detail), which the earlier in-line
+     call could not serve because the panel was still display:none. */
+  fitDetailName();
 }
 
 /* The raw window is captured ONLY while the Terminal section is on screen

@@ -131,20 +131,32 @@ function chk(ok, label, extra) {
     });
     chk(!/Collections Coordinator/.test(roleless), 'Part 4 (#3385): a role-less agent shows no title', JSON.stringify(roleless));
 
-    // ── Part 5 (#3385): fitDetailName shrinks the name to fit the left column. A short name keeps
-    // the base 1.5rem; a very long name scales --dname-size below it so it never wraps. ─────────
+    // ── Part 5 (#3385): fitDetailName shrinks the name to fit the left column, and it must fire
+    // on a COLD open (a board click straight into detail), not only a warm re-open. The identity
+    // column has a real clientWidth only once #panel-detail is shown, so the fit MUST run AFTER
+    // showTab reveals the panel (BLOCKER-1); if it ran before, clientWidth would be 0 on the cold
+    // path and --dname-size would stay 1.5rem. We reproduce the cold condition by returning to the
+    // board (showTab('agents') -> #panel-detail display:none) before each open, exactly as a fresh
+    // board click sees it. The earlier version opened while the panel was ALREADY visible, which
+    // MASKED the cold-open no-op (it passed with the bug present). ──────────────────────────────
     const shrink = await page.evaluate(() => {
       const el = document.getElementById('d-name');
-      const short = el.style.getPropertyValue('--dname-size').trim();   // Beatrix, short
       const real = LAST[0];
+      // Short name, cold: keeps the base 1.5rem.
+      showTab('agents');
+      openDetail(real.sessionName);
+      const short = el.style.getPropertyValue('--dname-size').trim();
+      // Long name, cold: must shrink below the base. This is the exact path BLOCKER-1 broke
+      // (fit before the reveal -> clientWidth 0 -> no shrink).
+      showTab('agents');
       LAST[0] = { ...real, name: 'Maximilian Alexander Thornbury-Whitfield the Third' };
       openDetail(real.sessionName);
       const long = el.style.getPropertyValue('--dname-size').trim();
-      LAST[0] = real; openDetail(real.sessionName);   // restore
+      LAST[0] = real; openDetail(real.sessionName);   // restore (panel back on detail, Beatrix)
       return { short, long };
     });
-    chk(shrink.short === '1.5rem', 'Part 5 (#3385): a short name keeps the base 1.5rem size', shrink.short);
-    chk(parseFloat(shrink.long) > 0 && parseFloat(shrink.long) < 1.5, 'Part 5 (#3385): a very long name shrinks below the base size', shrink.long);
+    chk(shrink.short === '1.5rem', 'Part 5 (#3385): a short name keeps the base 1.5rem size on a cold open', shrink.short);
+    chk(parseFloat(shrink.long) > 0 && parseFloat(shrink.long) < 1.5, 'Part 5 (#3385): a long name shrinks below the base size on a COLD open (fit runs after the panel is shown)', shrink.long);
 
     // ── Part 3 (#3043 -> #3271, Josh 2026-09-18): the agent's self-reported quote does not
     // print beside the bubble (#d-task), AND there is NO reason line under the name. #3043 had
