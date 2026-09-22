@@ -17,24 +17,29 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 test('Settings keeps its 34rem column; the agent page (#panel-detail) now goes full-width (#2012)', () => {
   // #2012 REVERSES the 2026-08-25 "match settings width" decision FOR THE AGENT
   // PAGE ONLY: Josh asked for it to be full-width ("a small box in a mostly-empty
-  // window"). Settings stays a 34rem reading column; the base rule is now SPLIT,
-  // not grouped. The narrow-window media rules still group both (settings relaxes
-  // to fluid at 60rem, both stack at 56rem; the agent page is already fluid, so
-  // the grouped media rule is a harmless no-op for it).
+  // window"). Settings stays a 34rem reading column; the base rule is SPLIT, not
+  // grouped. #3385 ALSO split the 60rem media rule: the agent page now holds the
+  // identity in a 220px left column, so the grouped 60rem rule's 176px was NOT a
+  // no-op -- it squeezed the identity back to the old nav width in the 56-60rem
+  // band. So at 60rem settings relaxes to fluid (176px) while the agent page KEEPS
+  // 220px; both stack to one column at 56rem.
   assert.match(PAGE, /#panel-settings \.dbody \{ grid-template-columns: 176px 34rem; justify-content: center; \}/);
   assert.match(PAGE, /#panel-detail \.dbody \{ grid-template-columns: 220px minmax\(0, 1fr\); justify-content: stretch; \}/);
-  assert.match(PAGE, /@media \(max-width: 60rem\) \{ #panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: 176px minmax\(0, 1fr\); justify-content: stretch; \} \}/);
-  const i60 = PAGE.indexOf('@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody');
-  const i56 = PAGE.indexOf('@media (max-width: 56rem) {', i60); // the sheet has several 56rem blocks; the one that counts follows the 60rem rule
-  assert.ok(i60 > 0 && i56 > i60, 'the 56rem block comes after the 60rem rule');
+  // The 60rem rule is split: settings -> fluid 176px; detail -> keeps 220px (the #3385 fix).
+  assert.match(PAGE, /@media \(max-width: 60rem\) \{ #panel-settings \.dbody \{ grid-template-columns: 176px minmax\(0, 1fr\); justify-content: stretch; \} \}/);
+  assert.match(PAGE, /@media \(max-width: 60rem\) \{ #panel-detail \.dbody \{ grid-template-columns: 220px minmax\(0, 1fr\); justify-content: stretch; \} \}/);
+  const i60 = PAGE.indexOf('@media (max-width: 60rem) { #panel-settings .dbody {');
+  const i56 = PAGE.indexOf('@media (max-width: 56rem) {', i60); // the sheet has several 56rem blocks; the one that counts follows the 60rem rules
+  assert.ok(i60 > 0 && i56 > i60, 'the 56rem block comes after the 60rem rules');
   // each rule exactly once: a copy pasted after the block would win there while the originals stay put
   const count = (s) => PAGE.split(s).length - 1;
   assert.equal(count('#panel-settings .dbody { grid-template-columns: 176px 34rem;'), 1, 'one settings base rule');
-  // leading newline: the base rule sits at line start; the grouped media rules
-  // carry `#panel-detail .dbody` after `, ` (mid-line), so `\n#panel-detail`
-  // counts only the standalone base rule, not the 60rem/56rem restatements.
+  // leading newline: the base rule sits at line start; the split media rule carries
+  // `#panel-detail .dbody` after `{ ` (mid-line), so `\n#panel-detail` counts only
+  // the standalone base rule, not the 60rem restatement.
   assert.equal(count('\n#panel-detail .dbody { grid-template-columns: 220px minmax(0, 1fr); justify-content: stretch;'), 1, 'one detail full-width base rule (#3385: left column widened to 220px for the identity)');
-  assert.equal(count('@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody'), 1, 'one 60rem rule');
+  assert.equal(count('@media (max-width: 60rem) { #panel-settings .dbody {'), 1, 'one 60rem settings rule');
+  assert.equal(count('@media (max-width: 60rem) { #panel-detail .dbody {'), 1, 'one 60rem detail rule (#3385: keeps 220px, not squeezed to 176px)');
   assert.equal(count('#panel-settings .dbody, #panel-detail .dbody { grid-template-columns: minmax(0, 1fr); }'), 1, 'one restatement');
   // both base rules sit above the media blocks (same specificity; below them they would win there)
   const iSet = PAGE.indexOf('#panel-settings .dbody { grid-template-columns: 176px 34rem;');
@@ -43,7 +48,7 @@ test('Settings keeps its 34rem column; the agent page (#panel-detail) now goes f
   assert.ok(iDet > 0 && iDet < i60 && iDet < i56, 'the detail base rule sits above the media blocks');
   const end56 = PAGE.indexOf('\n}', i56);
   assert.ok(end56 > i56, 'the 56rem block closes');
-  assert.match(PAGE.slice(i56, end56), /#panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: minmax\(0, 1fr\); \}/, 'the restatement sits inside the FIRST 56rem block after the 60rem rule');
+  assert.match(PAGE.slice(i56, end56), /#panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: minmax\(0, 1fr\); \}/, 'the restatement sits inside the FIRST 56rem block after the 60rem rules');
 });
 
 /* #3385 (Josh, 2026-09-21) SUPERSEDES #2012's full-width header: the identity (.dhead) moved OUT of
