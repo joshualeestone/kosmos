@@ -104,39 +104,64 @@ function chk(ok, label, extra) {
     chk(struct.addLabel === 'Add Instructions & Restart', 'Part 1: the doctrine button reads "Add Instructions & Restart"', struct.addLabel);
     chk(struct.reportsLabel === 'Add Instructions & Restart', 'Part 1: the reports button reads "Add Instructions & Restart"', struct.reportsLabel);
 
-    // ── Part 4: the role is bold in #d-meta; the model is not. ───────────────
+    // ── Part 4 (#3385, Josh 2026-09-21): #d-meta is now the TITLE ONLY. The provider, account
+    // and model segments (#2833) were dropped to simplify the page when the header moved into the
+    // left column ("remove the provider account and model information ... to simplify this page").
+    // So #d-meta reads as a plain title line under the name: no <b>, no middot, no model. ───────
     const meta = await page.evaluate(() => {
       const el = document.getElementById('d-meta');
-      const b = el.querySelector('b');
-      return {
-        html: el.innerHTML,
-        boldText: b ? b.textContent : null,
-        boldCount: el.querySelectorAll('b').length,
-        // the model segment is the text AFTER the bold, outside any <b>
-        tail: el.innerHTML.replace(/^<b>[^<]*<\/b>/, ''),
-      };
+      return { html: el.innerHTML, text: el.textContent, boldCount: el.querySelectorAll('b').length, hidden: el.hidden };
     });
-    chk(meta.boldCount === 1 && meta.html.startsWith('<b>'), 'Part 4: exactly the first segment (the title) is bold', JSON.stringify(meta));
-    chk(meta.boldText === 'Collections Coordinator', 'Part 4: the bold segment is the role', meta.boldText);
-    chk(/·/.test(meta.tail) && /Claude Sonnet 5/i.test(meta.tail) && !/<b>/.test(meta.tail),
-      'Part 4: the model follows, unbolded', meta.tail);
+    chk(meta.text.includes('Collections Coordinator'), 'Part 4 (#3385): #d-meta carries the title', JSON.stringify(meta));
+    chk(meta.hidden === false, 'Part 4 (#3385): #d-meta is shown when it has a title (not hidden)', JSON.stringify(meta));
+    chk(meta.boldCount === 0 && !/·/.test(meta.html), 'Part 4 (#3385): no bold segment and no middot subtitle', JSON.stringify(meta));
+    chk(!/Claude Sonnet 5/i.test(meta.html) && !/Anthropic|OpenAI/.test(meta.html),
+      'Part 4 (#3385): the provider and model are gone from the header', meta.html);
 
-    // ── Part 4, the role-less arm: an agent with no role must NOT bold the
-    // model. roleLine returns '' with no role, so a bold keyed to post-filter
-    // position would wrap the model; keyed to the role itself, there is no <b>
-    // at all. Driven through the real openDetail on a role-less clone. ────────
+    // ── Part 4, the role-less arm: an agent with no role AND a real (non-derived) name leaves
+    // #d-meta with nothing to show, so it renders EMPTY *and hidden* -- an empty-but-shown element
+    // would still take a flex slot and double the name->badge gap in the column (#3385 iter-9).
+    // Driven through the real openDetail on a role-less clone. ────────────────────────────────
     const roleless = await page.evaluate(() => {
       const real = LAST[0];
       const sn = real.sessionName;
-      LAST[0] = { ...real, role: '', profile: null };
+      LAST[0] = { ...real, role: '', profile: null, nameDerived: true };
       openDetail(sn);
-      const html = document.getElementById('d-meta').innerHTML;
+      const el = document.getElementById('d-meta');
+      const out = { html: el.innerHTML, hidden: el.hidden };
       LAST[0] = real;
       openDetail(sn); // restore
-      return html;
+      return out;
     });
-    chk(!/<b>/.test(roleless), 'Part 4: a role-less agent does not bold the model', roleless);
-    chk(/Claude Sonnet 5/i.test(roleless), 'Part 4 CONTROL: the model still renders for a role-less agent', roleless);
+    chk(roleless.html === '' && !/Collections Coordinator/.test(roleless.html), 'Part 4 (#3385): a role-less named agent shows no title (empty #d-meta)', JSON.stringify(roleless));
+    chk(roleless.hidden === true, 'Part 4 (#3385): an empty #d-meta is hidden so it does not double the name->badge gap', JSON.stringify(roleless));
+
+    // ── Part 5 (#3385): fitDetailName shrinks the name to fit the left column, and it must fire
+    // on a COLD open (a board click straight into detail), not only a warm re-open. The identity
+    // column has a real clientWidth only once #panel-detail is shown, so the fit MUST run AFTER
+    // showTab reveals the panel (BLOCKER-1); if it ran before, clientWidth would be 0 on the cold
+    // path and --dname-size would stay 1.5rem. We reproduce the cold condition by returning to the
+    // board (showTab('agents') -> #panel-detail display:none) before each open, exactly as a fresh
+    // board click sees it. The earlier version opened while the panel was ALREADY visible, which
+    // MASKED the cold-open no-op (it passed with the bug present). ──────────────────────────────
+    const shrink = await page.evaluate(() => {
+      const el = document.getElementById('d-name');
+      const real = LAST[0];
+      // Short name, cold: keeps the base 1.5rem.
+      showTab('agents');
+      openDetail(real.sessionName);
+      const short = el.style.getPropertyValue('--dname-size').trim();
+      // Long name, cold: must shrink below the base. This is the exact path BLOCKER-1 broke
+      // (fit before the reveal -> clientWidth 0 -> no shrink).
+      showTab('agents');
+      LAST[0] = { ...real, name: 'Maximilian Alexander Thornbury-Whitfield the Third' };
+      openDetail(real.sessionName);
+      const long = el.style.getPropertyValue('--dname-size').trim();
+      LAST[0] = real; openDetail(real.sessionName);   // restore (panel back on detail, Beatrix)
+      return { short, long };
+    });
+    chk(shrink.short === '1.5rem', 'Part 5 (#3385): a short name keeps the base 1.5rem size on a cold open', shrink.short);
+    chk(parseFloat(shrink.long) > 0 && parseFloat(shrink.long) < 1.5, 'Part 5 (#3385): a long name shrinks below the base size on a COLD open (fit runs after the panel is shown)', shrink.long);
 
     // ── Part 3 (#3043 -> #3271, Josh 2026-09-18): the agent's self-reported quote does not
     // print beside the bubble (#d-task), AND there is NO reason line under the name. #3043 had
