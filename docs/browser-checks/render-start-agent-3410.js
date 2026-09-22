@@ -111,8 +111,10 @@ function chk(ok, label, extra) {
     let restartHit = null;
     await page.route('**/api/agent/*/restart', async (route) => {
       restartHit = route.request().url();
+      // The real route answers 400 for a refused restart (see the restartTook
+      // comment in web/index.html); match that so the fixture is faithful.
       await route.fulfill({
-        status: 200,
+        status: 400,
         contentType: 'application/json',
         body: JSON.stringify({ outcome: 'refused', because: 'Test refusal, not started.' }),
       });
@@ -139,6 +141,51 @@ function chk(ok, label, extra) {
     chk(!!clicked.msg && /Test refusal, not started\./.test(clicked.msg),
       'a refused start shows the honest failure line, not "started"', clicked.msg);
     chk(clicked.btnDisabled === false, 'the button re-enables after a failed start', JSON.stringify(clicked.btnDisabled));
+
+    // ── Part 4: the #3418 honesty path -- the novel behaviour this button exists
+    // for. The route ACCEPTS the restart (outcome:'restarted', the false-success
+    // restartInner returns even when the launchd relaunch never loaded), but the
+    // agent never actually comes up (nyx stays 'stopped' in the fixture, so
+    // /api/status never reports it ready). The button must NOT claim "Started";
+    // it must wait on restartReadyWait and then show the honest "has not come
+    // back yet" line. Shorten the readiness window so the timeout arm runs fast
+    // (the same let-seam render-autohello-2686 / render-restart-kloader-2831 use).
+    await page.unroute('**/api/agent/*/restart');
+    await page.evaluate(() => { RESTART_READY_WINDOW_MS = 800; RESTART_READY_POLL_MS = 60; });
+    let restartedHit = null;
+    await page.route('**/api/agent/*/restart', async (route) => {
+      restartedHit = route.request().url();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ outcome: 'restarted' }),   // the #3418 false-success
+      });
+    });
+    await page.evaluate(() => openDetail('nyx'));
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.waitForTimeout(300);
+    await page.click('#d-start-agent');
+    // restartReadyWait times out after ~800ms without ever seeing the agent ready
+    // (nyx is stopped, so restartedAndReady is false every poll); then the handler
+    // writes the "has not come back" line. Wait for it, with margin.
+    await page.waitForFunction(() => {
+      const m = document.getElementById('d-start-msg');
+      return m && /has not come back/i.test(m.textContent);
+    }, { timeout: 8000 }).catch(() => {});
+    const unready = await page.evaluate(() => {
+      const btn = document.getElementById('d-start-agent');
+      const msg = document.getElementById('d-start-msg');
+      return {
+        msg: msg ? msg.textContent.trim() : null,
+        btnDisabled: btn ? btn.disabled : null,
+      };
+    });
+    chk(!!restartedHit, 'restarted-but-never-ready: the restart was POSTed', String(restartedHit));
+    chk(!!unready.msg && /has not come back/i.test(unready.msg),
+      'a restart that never becomes ready shows the honest "has not come back" line (#3418 defense)', unready.msg);
+    chk(!!unready.msg && !/\bStarted\b/.test(unready.msg),
+      'and it does NOT falsely claim "Started" on the restart false-success', unready.msg);
+    chk(unready.btnDisabled === false, 'the button re-enables so the person can try again', JSON.stringify(unready.btnDisabled));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.screenshot({ path: path.join(OUT, 'start-agent.png'), clip: { x: 0, y: 0, width: 480, height: 700 } }).catch(() => {});
