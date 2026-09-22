@@ -104,27 +104,21 @@ function chk(ok, label, extra) {
     chk(struct.addLabel === 'Add Instructions & Restart', 'Part 1: the doctrine button reads "Add Instructions & Restart"', struct.addLabel);
     chk(struct.reportsLabel === 'Add Instructions & Restart', 'Part 1: the reports button reads "Add Instructions & Restart"', struct.reportsLabel);
 
-    // ── Part 4: the role is bold in #d-meta; the model is not. ───────────────
+    // ── Part 4 (#3385, Josh 2026-09-21): #d-meta is now the TITLE ONLY. The provider, account
+    // and model segments (#2833) were dropped to simplify the page when the header moved into the
+    // left column ("remove the provider account and model information ... to simplify this page").
+    // So #d-meta reads as a plain title line under the name: no <b>, no middot, no model. ───────
     const meta = await page.evaluate(() => {
       const el = document.getElementById('d-meta');
-      const b = el.querySelector('b');
-      return {
-        html: el.innerHTML,
-        boldText: b ? b.textContent : null,
-        boldCount: el.querySelectorAll('b').length,
-        // the model segment is the text AFTER the bold, outside any <b>
-        tail: el.innerHTML.replace(/^<b>[^<]*<\/b>/, ''),
-      };
+      return { html: el.innerHTML, text: el.textContent, boldCount: el.querySelectorAll('b').length };
     });
-    chk(meta.boldCount === 1 && meta.html.startsWith('<b>'), 'Part 4: exactly the first segment (the title) is bold', JSON.stringify(meta));
-    chk(meta.boldText === 'Collections Coordinator', 'Part 4: the bold segment is the role', meta.boldText);
-    chk(/·/.test(meta.tail) && /Claude Sonnet 5/i.test(meta.tail) && !/<b>/.test(meta.tail),
-      'Part 4: the model follows, unbolded', meta.tail);
+    chk(meta.text.includes('Collections Coordinator'), 'Part 4 (#3385): #d-meta carries the title', JSON.stringify(meta));
+    chk(meta.boldCount === 0 && !/·/.test(meta.html), 'Part 4 (#3385): no bold segment and no middot subtitle', JSON.stringify(meta));
+    chk(!/Claude Sonnet 5/i.test(meta.html) && !/Anthropic|OpenAI/.test(meta.html),
+      'Part 4 (#3385): the provider and model are gone from the header', meta.html);
 
-    // ── Part 4, the role-less arm: an agent with no role must NOT bold the
-    // model. roleLine returns '' with no role, so a bold keyed to post-filter
-    // position would wrap the model; keyed to the role itself, there is no <b>
-    // at all. Driven through the real openDetail on a role-less clone. ────────
+    // ── Part 4, the role-less arm: with the title as the only segment, an agent with no role
+    // leaves #d-meta EMPTY. Driven through the real openDetail on a role-less clone. ───────────
     const roleless = await page.evaluate(() => {
       const real = LAST[0];
       const sn = real.sessionName;
@@ -135,8 +129,7 @@ function chk(ok, label, extra) {
       openDetail(sn); // restore
       return html;
     });
-    chk(!/<b>/.test(roleless), 'Part 4: a role-less agent does not bold the model', roleless);
-    chk(/Claude Sonnet 5/i.test(roleless), 'Part 4 CONTROL: the model still renders for a role-less agent', roleless);
+    chk(!/Collections Coordinator/.test(roleless), 'Part 4 (#3385): a role-less agent shows no title', JSON.stringify(roleless));
 
     // ── Part 3 (#3043 -> #3271, Josh 2026-09-18): the agent's self-reported quote does not
     // print beside the bubble (#d-task), AND there is NO reason line under the name. #3043 had

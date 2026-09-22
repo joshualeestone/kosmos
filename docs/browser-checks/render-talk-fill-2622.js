@@ -204,9 +204,11 @@ async function measure(page) {
         const lab = document.getElementById('d-qask-lab');
         if (lab) lab.textContent = 'The agent is asking you something';
         const txt = document.getElementById('d-qask-text');
-        if (txt) { txt.hidden = false; txt.textContent = Array.from({ length: 12 }, (_, i) => 'command line ' + i).join('\n'); }
+        // #3385: the talk box now fills the full height (the header moved to the left column), so
+        // it is much taller -- inject enough to still overflow it, or A9a's control goes vacuous.
+        if (txt) { txt.hidden = false; txt.textContent = Array.from({ length: 60 }, (_, i) => 'command line ' + i).join('\n'); }
         const opts = document.getElementById('d-qopts');
-        if (opts) { opts.hidden = false; opts.innerHTML = Array.from({ length: 6 }, (_, i) => '<button class="btn">Option ' + i + '</button>').join(''); }
+        if (opts) { opts.hidden = false; opts.innerHTML = Array.from({ length: 24 }, (_, i) => '<button class="btn">Option ' + i + '</button>').join(''); }
       }
     });
     await page.waitForTimeout(150);

@@ -494,7 +494,13 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    k-surface box pairs values from two systems that flip separately). */
 .detail { background: none;
           border: 0; box-shadow: none; padding: 0; color: var(--k-ink); }
-.dhead { display: flex; gap: 18px; align-items: center; margin-bottom: 30px; }
+/* #3385 (Josh, 2026-09-21): the identity moved into the left column, so .dhead stacks
+   vertically and centered (avatar, then name, title, status) above the nav, instead of the
+   old horizontal top banner. Agent-panel only (one .dhead in the file). */
+.dhead { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; margin-bottom: 16px; }
+/* #3385: the text block is full column-width (not content-width) so the name has a fixed width
+   to shrink against and the notes wrap inside the column instead of bleeding past its edge. */
+.dtext { width: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .dav-wrap { position: relative; width: 88px; height: 88px; flex: 0 0 88px; }
 .dav-wrap .detail-av { width: 88px; height: 88px; }
 .dav-wrap .membadge { top: 0; right: -8px; }
@@ -507,7 +513,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    stack above it. */
 .dring { position: absolute; inset: -6px; width: 100px; height: 100px; pointer-events: none; }
 .dring svg { width: 100px; height: 100px; display: block; }
-.dnamerow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+/* #3385: the name row stacks (name, then the title, then the status bubble), centered. */
+.dnamerow { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; width: 100%; }
 /* ⚠️ Beats `.astate`'s own `margin: 12px auto 0` on specificity (0,2,0 to
    0,1,0), which is what stops the badge dropping a line and centring itself
    when it joined the name row. */
@@ -531,7 +538,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    in code this branch added. */
 .dtask { font: var(--text-body) var(--font-ui); color: var(--k-ink-2);
          min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dname { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); }
+/* #3385: the name never wraps; it is shrunk to fit the column by JS (fitDetailName) which sets
+   --dname-size, falling back to 1.5rem. white-space:nowrap + max-width:100% keep it on one line. */
+.dname { font-size: var(--dname-size, 1.5rem); font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* A hairline between the two halves of Runs on: the model above, the account
    below. Without it the second "Right now" line reads as a continuation of the
    first control rather than the start of a second one. */
@@ -725,7 +734,11 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
              display: flex; align-items: center; justify-content: center; }
 .detail-av img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
 .detail-initials { font: 600 var(--text-title-3) var(--font-ui); color: var(--label-3); }
-.detail-meta { font: var(--text-callout) var(--font-ui); color: var(--label-3); margin-top: 2px; }
+/* #3385: #d-meta now carries the TITLE only (no provider/account/model), reading as the title
+   line under the name -- a touch stronger than the old subtitle grey. */
+.detail-meta { font: var(--text-callout) var(--font-ui); font-weight: 600; color: var(--label-2); margin-top: 0; }
+/* #3385/#684: the machine-name disclosure under the title -- lighter and smaller than the title. */
+.detail-meta .dmeta-note { display: block; font-weight: 400; color: var(--label-3); font-size: 0.8125rem; margin-top: 3px; }
 /* ⚠️ NO `color` HERE ANY MORE. This declared `--label-2` and, sitting before
    `.astate` at equal specificity, its colour survived while `.astate`'s size and
    weight won — so the card's badge rendered in `--k-ink` and the detail page's
@@ -2292,7 +2305,10 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
    from the Settings rule above on purpose -- Settings stays capped; only
    #panel-detail widens. (Restated rather than left to the base rule because the
    60rem/56rem media rules below still name this selector.) */
-#panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; }
+#panel-detail .dbody { grid-template-columns: 220px minmax(0, 1fr); justify-content: stretch; }
+/* #3385: the left column stacks the identity (.dhead) above the nav; it is the grid's first
+   column, holding both. Widened from 176px so the name/title/status read comfortably. */
+#panel-detail .dleft { display: flex; flex-direction: column; min-width: 0; }
 /* #2012: prose keeps a readable measure even though the column is now wide -- a
    1000px-long line is unreadable. The message BODY caps near 66ch, left-aligned
    in the wide column. The chrome that sits OUTSIDE the body -- the avatar beside
@@ -2313,8 +2329,8 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
    under is a deliberate follow-up: .snav is already sticky, so a sticky header
    must coordinate the nav's `top` with the header's height, which wants
    interactive visual verification. */
-#panel-detail .dhead { max-width: none; margin: 0 0 30px; }
-@media (max-width: 60rem) { #panel-detail .dhead { max-width: none; margin: 0 0 30px; } }
+#panel-detail .dhead { max-width: none; margin: 0 0 16px; }
+@media (max-width: 60rem) { #panel-detail .dhead { max-width: none; margin: 0 0 16px; } }
 /* #2622 part 2 (Josh product-review): the Talk dialog box fills to the bottom of
    the window, no empty gap below it ("the dialog box should fill the bottom of the
    screen 100%... regardless of where the window's bottom edge is dragged"). This is
@@ -8401,6 +8417,35 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        pack's model/account selects and fresh-start actions have no engine
        yet and are drawn as the honest not-built line instead (recorded
        gaps in the plan). -->
+  <p id="d-untied" hidden></p>
+  <!-- The removed-agent sentence, visible from every section since the page
+       grew them (it used to sit at the foot of the one column; now it would
+       be only in Remove, and a person on Talk would see controls go grey with
+       nothing saying why). Same painter as the Remove block's copy. -->
+  <p id="d-withdrawn" role="status" aria-live="polite" hidden></p>
+
+  <!-- ⚠️ THE LEFT NAV (Mona Lisa's agent-page mock, 2026-08-22; Josh 08-23:
+       "the agent subpage design ... implemented"). Seven sections, one on
+       screen at a time, and the nav says which. The boxes inside each section
+       are the SAME elements that shipped in the single column, ids intact, so
+       every painter and every test that reaches in by id keeps working; only
+       their grouping moved. A hidden section is still painted by the poll,
+       because the painters write by id and never ask whether they are on
+       screen, which is what lets a switch be instant.
+       🔑 TWO LABELS CARRY THE AGENT'S NAME ("Talk to April", "Remove April")
+       and are painted by `detailNavNames` from `a.name`, on open and after a
+       rename. The markup ships the nameless form so a painter that returns
+       early never leaves the previous agent's name on a button.
+       🔑 THE DOT IS A SHAPE, so it survives greyscale; colour reinforces. It is
+       set by `detailDots` from the same facts the sections render (an open
+       question in the talk box; the instructions needing the person, which is
+       either the running copy older than the file or the file changed under
+       the editor since it was opened), which
+       watches those elements' `hidden` attribute rather than being called by
+       each painter, so the nav cannot say "needs you" about a section that
+       does not. -->
+  <div class="dbody">
+  <div class="dleft">
   <div class="dhead">
     <div class="dav-wrap">
       <span class="dring" id="d-ring" aria-hidden="true"></span>
@@ -8410,9 +8455,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
       <span class="membadge" id="d-membadge" hidden></span>
     </div>
-    <div>
+    <div class="dtext">
       <div class="dnamerow">
         <span class="dname" id="d-name"></span>
+        <!-- #3385: the title sits directly under the name (name -> title -> status). -->
+        <div class="detail-meta" id="d-meta"></div>
         <!-- ⚠️ THE SAME BADGE THE CARD DRAWS, off the same three derivations
              (`cardStOf` for the class, `stateCopyOf` for the word -- the shared
              wrapper over STATE_COPY that also names a restarting cause, #2019 --
@@ -8466,7 +8513,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            case. It reads there as an "updated working rules" section with an
            "Add Instructions & Restart" button, and the Instructions tab dot
            lights while it shows. Header is quieter for it. See #d-sec-instr. -->
-      <div class="detail-meta" id="d-meta"></div>
       <!-- #3271 (Josh, 2026-09-18): NO status/reason line under the agent name. The
            reported reason (`a.because`, e.g. "Finished responding.") used to render here as
            #d-why (added by #3043); Josh: "there's not supposed to be anything up there around
@@ -8525,34 +8571,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            no projects, which is a claim nobody made. -->
     </div>
   </div>
-  <p id="d-untied" hidden></p>
-  <!-- The removed-agent sentence, visible from every section since the page
-       grew them (it used to sit at the foot of the one column; now it would
-       be only in Remove, and a person on Talk would see controls go grey with
-       nothing saying why). Same painter as the Remove block's copy. -->
-  <p id="d-withdrawn" role="status" aria-live="polite" hidden></p>
-
-  <!-- ⚠️ THE LEFT NAV (Mona Lisa's agent-page mock, 2026-08-22; Josh 08-23:
-       "the agent subpage design ... implemented"). Seven sections, one on
-       screen at a time, and the nav says which. The boxes inside each section
-       are the SAME elements that shipped in the single column, ids intact, so
-       every painter and every test that reaches in by id keeps working; only
-       their grouping moved. A hidden section is still painted by the poll,
-       because the painters write by id and never ask whether they are on
-       screen, which is what lets a switch be instant.
-       🔑 TWO LABELS CARRY THE AGENT'S NAME ("Talk to April", "Remove April")
-       and are painted by `detailNavNames` from `a.name`, on open and after a
-       rename. The markup ships the nameless form so a painter that returns
-       early never leaves the previous agent's name on a button.
-       🔑 THE DOT IS A SHAPE, so it survives greyscale; colour reinforces. It is
-       set by `detailDots` from the same facts the sections render (an open
-       question in the talk box; the instructions needing the person, which is
-       either the running copy older than the file or the file changed under
-       the editor since it was opened), which
-       watches those elements' `hidden` attribute rather than being called by
-       each painter, so the nav cannot say "needs you" about a section that
-       does not. -->
-  <div class="dbody">
   <nav class="snav" id="d-nav" aria-label="Sections of this page">
     <button type="button" data-go="talk" aria-controls="d-sec-talk" class="on" aria-current="true"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <!-- #2916 (Josh 6.59): Model and Memory share one pill; Instructions holds Skills below it;
@@ -8565,6 +8583,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="sep" role="separator"></div>
     <button type="button" data-go="remove" aria-controls="d-sec-remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
   </nav>
+  </div>
   <div class="dsecs">
   <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
 
@@ -25725,6 +25744,25 @@ async function sendTalk(text, chose, attachment) {
   }
 }
 
+/* #3385 (Josh, 2026-09-21): the agent name never wraps -- it shrinks to fit the left column
+   however long the name is ("no matter how long it is, will fit ... it would just shrink it down
+   to fit within that column"). Measured, not guessed: reset to the base size, read the name's
+   natural (nowrap) width against the row's available width, and if it overflows, scale
+   --dname-size down by that ratio with a legible floor. Called wherever #d-name is written; a
+   no-op when the element has no layout (hidden panel, avail 0). */
+function fitDetailName() {
+  const el = document.getElementById('d-name');
+  if (!el) return;
+  el.style.setProperty('--dname-size', '1.5rem');   // measure at the base size
+  const row = el.closest('.dnamerow') || el.parentElement;
+  const avail = row ? row.clientWidth : 0;
+  const natural = el.scrollWidth;                     // full nowrap width at the base size
+  if (avail > 0 && natural > avail) {
+    const scaled = Math.max(0.55, 1.5 * (avail / natural));   // rem; floor keeps it readable, ellipsis catches the rest
+    el.style.setProperty('--dname-size', scaled.toFixed(3) + 'rem');
+  }
+}
+
 function openDetail(sessionName, section, fromProject) {
   // #3050: opening ANY agent - INCLUDING one no longer in LAST (removed while its
   // Update reload was in flight), which is why this precedes the `if (!a) return`
@@ -25804,6 +25842,7 @@ function openDetail(sessionName, section, fromProject) {
    */
   document.getElementById('d-file').value = '';
   document.getElementById('d-name').textContent = a.name;
+  fitDetailName();   // #3385: shrink the name to fit the left column, never wrap
   /* ⚠️ ON OPEN AS WELL AS ON THE POLL. Painted only by the poll, the line is
      absent for up to five seconds after somebody opens the page — which is
      exactly the moment they are looking, and an empty box with no indicator
@@ -25851,23 +25890,18 @@ function openDetail(sessionName, section, fromProject) {
      role-less agent gets an unbolded "model · disclosure", as it read before
      this change. */
   const roleSeg = roleLine(a, ROLE_TITLES);
-  /* #2833 (Josh, 2026-09-11): the header subtitle reads Title · Provider · Account · Model.
-     🔑 Provider and Account come from the SHARED derivations this same panel already uses, not
-     a second copy: `providerOf` (reads the card's `a.runner`) and `acctParenthetical` (reads the
-     card's nested `a.account`, the same value the Runs-on box shows). `a` here is an agent CARD,
-     so the account is NOT at the top level -- `a.name` is the agent's own display name, not an
-     account. `acctParenthetical` returns '' when nothing identifies the account (a default
-     account, or an unresolved Codex account per #2811), so the segment degrades out with no
-     dangling separator. Provider and Model are always shown. Middot separator, not a new glyph. */
-  const providerLabel = providerOf(a) === 'openai' ? 'OpenAI' : 'Anthropic';
-  const acctIdent = acctParenthetical(a);
-  const metaParts = [];
-  if (roleSeg) metaParts.push('<b>' + esc(roleSeg) + '</b>');
-  metaParts.push(esc(providerLabel));
-  if (acctIdent) metaParts.push(esc(acctIdent));
-  if (runs.name) metaParts.push(esc(runs.name));
-  if (!a.nameDerived) metaParts.push(esc('no name was chosen for it, so this is the one it runs under'));
-  document.getElementById('d-meta').innerHTML = metaParts.join(' · ');
+  /* #3385 (Josh, 2026-09-21): the header moved into the left column and simplified to identity
+     only -- name, then TITLE, then the status bubble. The #2833 subtitle (Title · Provider ·
+     Account · Model) is dropped here per Josh: "remove the provider account and model information
+     that we had on the other view just to simplify this page." So #d-meta now carries ONLY the
+     title, reading as the title line under the name. The model still shows in the Model and Memory
+     section (drun) and the account in Settings, so nothing is lost, only moved off this header. */
+  const metaBits = [];
+  if (roleSeg) metaBits.push(esc(roleSeg));
+  // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
+  // in the stranger's words -- only the #2833 provider/account/model segments are dropped (#3385).
+  if (!a.nameDerived) metaBits.push('<span class="dmeta-note">' + esc('no name was chosen for it, so this is the one it runs under') + '</span>');
+  document.getElementById('d-meta').innerHTML = metaBits.join('<br>');
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
