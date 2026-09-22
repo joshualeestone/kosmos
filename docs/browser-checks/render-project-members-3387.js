@@ -172,6 +172,28 @@ const SETUP = () => {
         && groupedThenEmpty.plusLabel === 'New agent' && groupedThenEmpty.hdrs === 0
         && groupedThenEmpty.hasEmpty === true, JSON.stringify(groupedThenEmpty));
 
+    // 6) TRANSITION grouped -> failed poll: tick()'s catch writes the "could not refresh" state into
+    //    #alist, which shows no rows, so the head must revert to "Agents" there too. Guards the
+    //    setAgentsGrouped(false) added to the failure branch (the genuine empty-board path already
+    //    had it, and the two same-looking empty lists must not disagree on the head/+ state).
+    await page.goto(PAGE);
+    const groupedThenFail = await page.evaluate(async (setup) => {
+      // eslint-disable-next-line no-eval
+      (0, eval)('(' + setup + ')')();                 // grouped "Project Members"
+      const wasGrouped = (document.querySelector('#rail-agents .railname') || {}).textContent === 'Project Members';
+      window.fetch = () => Promise.reject(new Error('simulated poll failure'));   // the next poll fails
+      await tick();                                    // its catch writes boardEmpty() into #alist
+      return {
+        wasGrouped,
+        railName: (document.querySelector('#rail-agents .railname') || {}).textContent,
+        plusLabel: document.getElementById('rail-agents-new').getAttribute('aria-label'),
+        hdrs: [...document.getElementById('alist').children].filter((k) => k.classList && k.classList.contains('alist-grouphdr')).length,
+      };
+    }, SETUP.toString());
+    ok(t + ' #3387 a failed poll while grouped reverts the head to "Agents" and drops the sub-header',
+      groupedThenFail.wasGrouped === true && groupedThenFail.railName === 'Agents'
+        && groupedThenFail.plusLabel === 'New agent' && groupedThenFail.hdrs === 0, JSON.stringify(groupedThenFail));
+
     await page.close();
   }
   await browser.close();

@@ -17801,6 +17801,10 @@ async function tick() {
     const boardErr = boardEmpty();
     document.getElementById('grid').innerHTML = boardErr;
     document.getElementById('alist').innerHTML = boardErr;
+    /* #3387: a failed poll shows no rows, so the consolidated head must not keep reading
+       "Project Members" with the top + wired to add-member over a "could not refresh" list.
+       Revert to "Agents" / New agent, the same reset the genuine empty-board path makes. */
+    setAgentsGrouped(false);
     /* ⚠️ AND THE FAILURE REACHES THE THIRD VIEW TOO. Left alone it would keep
        drawing the last good diagram beside a header saying we cannot read the
        agents -- a picture of a fleet this poll just failed to see, which is
