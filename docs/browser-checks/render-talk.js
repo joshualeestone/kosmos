@@ -771,12 +771,6 @@ function unreachableStates() {
             .filter((r) => r.getBoundingClientRect().height > 0)
             .map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
           sendDisabled: el('d-send').disabled,
-          /* ⚠️ THE PROMISE, PER STATE. The persistence line was read by nothing
-             in this sweep, and one state contradicts it outright: with
-             `historyUnfilable` the thread says "Nothing said here is kept for
-             April." and the line under it said "This stays here after a
-             restart." Both were in the committed screenshot for two days. */
-          persistVisible: vis(el('d-persist')),
           /* ⚠️ THE RESOLVED ALIGNMENT OF THE RECEIPT, which is the property
              and not a proxy for it. `.dm.mine` is `align-items: flex-end`, so
              it right-aligns the SPAN -- and that stops being the same thing as
@@ -1035,16 +1029,6 @@ function unreachableStates() {
           problems.push(`${tag}: the receipt under the person's own bubble aligns ${m.metaAlign}, `
             + 'so a verdict long enough to wrap leaves its message behind');
         }
-      }
-      /* Hidden in exactly one state, and SAID BOTH WAYS: a promise missing from
-         a state that keeps things is as wrong as one standing over a state that
-         does not, and only the second half was ever the bug. (This comment had
-         drifted sixty lines up from the check it describes, over two blocks
-         about something else entirely.) */
-      const keepsNothing = fx.historyUnfilable === true;
-      if (m.persistVisible === keepsNothing) {
-        problems.push(`${tag}: the persistence promise is ${m.persistVisible ? 'standing over' : 'missing from'} `
-          + `a thread that ${keepsNothing ? 'keeps nothing' : 'is kept'}`);
       }
       if (m.onTop !== 'the box') problems.push(`${tag}: something else is painted over the box: ${m.onTop}`);
       if (m.pageOverflow > 0) problems.push(`${tag}: the PAGE scrolls sideways by ${m.pageOverflow}px`);
@@ -1900,84 +1884,6 @@ function unreachableStates() {
       }
       if (/no agent by that name/i.test(both.borrowed || '')) {
         problems.push(`[${theme}] refusal: the route's own sentence reached the panel: ${JSON.stringify(both.borrowed)}`);
-      }
-
-      /* 8. THE PERSISTENCE LINE, on both sides of a refusal.
-         ⚠️ "This stays here after a restart" is a promise about a conversation
-         and it was printed under the sentence saying there is none to show --
-         the same contradiction the arm already clears two other sentences for.
-         Hiding it is only half: it must come BACK, or the next agent opened
-         after a failed one has a box that quietly stopped saying what it does.
-         The good-state read is the CONTROL: without it, a regex typo below
-         passes on a line the check never saw in the first place. */
-      const persistence = await page.evaluate(async (f) => {
-        const line = () => {
-          const el = document.getElementById('d-persist');
-          // Rendered text (#687); `hidden` alone misses CSS-hidden children.
-          return { hidden: el.hidden || !el.getBoundingClientRect().height, text: el.innerText.trim() };
-        };
-        window.__fx = f;
-        await paintTalk('april', 'April');
-        const good = line();
-        const real = window.fetch;
-        window.fetch = async () => new Response('{"error":"no agent by that name","because":"borrowed"}',
-          { status: 404, headers: { 'content-type': 'application/json' } });
-        try { await paintTalk('april', 'April'); } finally { window.fetch = real; }
-        const refused = line();
-        await paintTalk('april', 'April');
-        return { good, refused, recovered: line() };
-      }, menu);
-      if (persistence.good.hidden || !/stays here after a restart/.test(persistence.good.text)) {
-        problems.push(`[${theme}] persist: CONTROL FAILED, the line is not on a good paint: ${JSON.stringify(persistence.good)}`);
-      }
-      if (!persistence.refused.hidden) {
-        problems.push(`[${theme}] persist: the box promises it keeps things, under the sentence saying it cannot show them`);
-      }
-      if (persistence.recovered.hidden) {
-        problems.push(`[${theme}] persist: the line never came back after a refusal`);
-      }
-
-      /* 8b. AND MID-FLIGHT, which is the only place the first version of this
-         fix was wrong. Writing `hidden = false` with the five sentences that
-         run BEFORE the fetch re-showed the promise for the whole of every
-         poll's round trip on a standing refusal, then hid it again on arrival:
-         the same contradiction, on a five-second cadence, in a window no check
-         that awaits its paints can see. So this one deliberately does not
-         await -- it samples the DOM while the fetch is still out. */
-      const midFlight = await page.evaluate(async () => {
-        const el = document.getElementById('d-persist');
-        const real = window.fetch;
-        window.fetch = async () => {
-          await new Promise((r) => setTimeout(r, 300));
-          return new Response('{"error":"no agent by that name","because":"borrowed"}',
-            { status: 404, headers: { 'content-type': 'application/json' } });
-        };
-        try {
-          /* ⚠️ THE SECOND REFUSED POLL, NOT THE FIRST. A standing refusal is
-             refused on EVERY tick, so the state this is about is "already
-             refused, refusing again". Sampling the first one instead measures
-             the last good paint still being on screen during the round trip,
-             which is not a contradiction: the whole box is still showing what
-             it last knew. Getting this wrong is how the check reported a
-             defect the fix had already closed. */
-          await paintTalk('april', 'April');
-          const settled = el.hidden;
-          const settling = paintTalk('april', 'April');
-          await new Promise((r) => setTimeout(r, 120));
-          const during = { hidden: el.hidden };
-          await settling;
-          return { settled, during, after: el.hidden };
-        } finally {
-          window.fetch = real;
-        }
-      });
-      if (midFlight.during.hidden === false) {
-        problems.push(`[${theme}] persist: the promise is back on screen for the whole of every poll `
-          + 'on a standing refusal, and hidden again only when the answer lands');
-      }
-      if (midFlight.settled !== true || midFlight.after !== true) {
-        problems.push(`[${theme}] persist: CONTROL FAILED, a refusal did not hide the line at all `
-          + `(settled ${midFlight.settled}, after ${midFlight.after}), so the mid-flight read proves nothing`);
       }
 
       /* 9. THE QUESTION BOX ON A POLL, with a reader standing inside it.

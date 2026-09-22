@@ -8804,9 +8804,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          that falsified this was in the SCRIPT and the false sentence was in the
          MARKUP, and the commit that made it updated the comment at the line it
          edited. Prose goes stale at a distance from the edit that kills it. -->
-    <!-- ⚠️ THE THREAD PERSISTS, THE AGENT'S RECOLLECTION DOES NOT, and a chat
-         window normally conflates the two. The pack's sentence, verbatim. -->
-    <p class="dhint" id="d-persist" style="margin:12px 0 0;"></p>
   </section>
   </section>
   <!-- #2916: the "Model and Memory" pill reveals THIS model region plus the adjacent d-sec-memory
@@ -9052,10 +9049,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          and that is the half that tells somebody why anything belongs in the
          field at all (#198, Mona Lisa).
 
-         🔑 IT ALSO CLOSES A SPLIT ACROSS TWO BOXES. The talk box on this same
-         page says "Anything that needs to last belongs in their instructions",
-         which points at SURVIVES and not at does-not-change. The two screens
-         were making different claims about one fact.
+         🔑 IT ONCE CLOSED A SPLIT ACROSS TWO BOXES. The talk box used to say
+         "Anything that needs to last belongs in their instructions", pointing
+         at SURVIVES and not at does-not-change, and this lede was worded to
+         agree with it. Josh had that talk-box line removed on 2026-09-22, so
+         there is no longer a second box to agree with; the consequence framing
+         below is kept on its own merits (#198) and for the disambiguation the
+         next paragraph describes.
 
          ⚠️ The earlier wording was chosen to stop a reader carrying the wrong
          subject across from the Memory box, which also talks about restarts.
@@ -24957,16 +24957,15 @@ async function paintTalk(sessionName, agentName) {
   // not paint last.
   const mine = ++TALK_LOAD;
   /**
-   * ⚠️ THE FIVE SENTENCES THAT NAME THE AGENT ARE WRITTEN FIRST, before the
+   * ⚠️ THE FOUR SENTENCES THAT NAME THE AGENT ARE WRITTEN FIRST, before the
    * fetch, because not one of them depends on its answer.
    *
    * Written after it, they carried the PREVIOUS agent's name over every failed
    * open — and a 404 is a standing condition here, not a blip: a pane holding a
    * name untied answers 404 on every poll forever. Measured: open April, then
    * open a borrowed-name agent, and the panel reads "Talk to April", "Just
-   * between you and April", "April will not remember it", with an aria-label
-   * and placeholder naming April, over the sentence saying this conversation
-   * cannot be shown. Indefinitely.
+   * between you and April", with an aria-label and placeholder naming April,
+   * over the sentence saying this conversation cannot be shown. Indefinitely.
    *
    * The markup ships these EMPTY for exactly this reason — "a shipped sentence
    * naming an agent would be a claim about whichever agent happens to be open"
@@ -24977,15 +24976,12 @@ async function paintTalk(sessionName, agentName) {
   document.getElementById('d-talk-label').textContent = 'Talk to ' + name;
   document.getElementById('d-talk-hint').textContent =
     'Just between you and ' + name + '. Nothing here belongs to a project.';
-  /* ⚠️ WRITTEN WITH THE LABEL, not on the fetch's success path, for the reason
-     the comment below gives: whether a line names the right agent does not
-     depend on the fetch, and one set on the success path carries the PREVIOUS
-     agent's name on a borrowed-name pane, which returns early.
-     ⚠️ THAT COMMENT STATES A TWO-PART RULE — "THE TEXT HERE, THE VISIBILITY ON
-     THE SUCCESS PATH" — and this line now obeys both: the text is written here,
-     and whether it may be SHOWN is decided after the answer arrives, beside the
-     persistence line's own decision. An earlier version did the text half and
-     cited the whole rule. */
+  /* ⚠️ WRITTEN WITH THE LABEL, not on the fetch's success path: whether a line
+     names the right agent does not depend on the fetch, and one set on the
+     success path carries the PREVIOUS agent's name on a borrowed-name pane,
+     which returns early. The aria-label and placeholder only NAME the agent and
+     have no visibility that turns on the answer, so writing them here is the
+     whole of it. */
   /* 🛑 THE SENTENCE THAT WAS HERE IS NOW FALSE, and it was shipped four hours
      ago in 0.2.12: "Replies come back there rather than here, for now." That
      was true while an agent had nowhere to write; this branch is what gave it
@@ -25001,19 +24997,6 @@ async function paintTalk(sessionName, agentName) {
      has never been told the command will not answer, and nothing here can tell
      which. That is said where it is actionable rather than as a standing
      caveat — see the send verdict. */
-  /* ⚠️ THE TEXT HERE, THE VISIBILITY ON THE SUCCESS PATH, and the first
-     version of this fix got that backwards. Whether the line says the right
-     agent's name does not depend on the fetch, so it is written with the other
-     four; whether the box may PROMISE it keeps things does depend on it. Set
-     `hidden = false` here and a standing refusal re-shows "This stays here
-     after a restart" for the whole of every poll's round trip -- two uncached
-     `list-panes` plus a capture per agent, easily hundreds of milliseconds --
-     and hides it again on arrival: the contradiction this fix removed, back on
-     a five-second cadence and only visible mid-flight, where a check that
-     awaits each paint cannot see it. */
-  document.getElementById('d-persist').textContent =
-    'This stays here after a restart. ' + name + ' will not remember it. '
-    + 'Anything that needs to last belongs in their instructions.';
   const say = document.getElementById('d-say');
   say.setAttribute('aria-label', 'A message for ' + name);
   say.placeholder = 'Message ' + name + '…';
@@ -25079,19 +25062,13 @@ async function paintTalk(sessionName, agentName) {
        screen asserting a count it just said it could not see. */
     document.getElementById('d-dmoff').hidden = true;
     document.getElementById('d-talk-older').hidden = true;
-    /* ⚠️ AND THE PERSISTENCE LINE, which is the same contradiction and was the
-       one left standing: "This stays here after a restart" is a promise about
-       a conversation, printed directly under the sentence saying there is no
-       conversation to show. It is written before the fetch (with the other
-       four that name the agent) precisely because it does not depend on the
-       answer -- but "there is a box that keeps things" does. */
-    document.getElementById('d-persist').hidden = true;
     /* ⚠️ AND THE REPLY-LOCATION LINE, WHICH IS THE SAME CONTRADICTION AGAIN,
        reintroduced two elements above the comment that records fixing it. "Dan
        will see this in their own window" is a promise about an agent, printed
        under a sentence saying we cannot resolve that agent at all. Written
-       before the fetch for the reason above; HIDDEN here for the reason the
-       persistence line is. */
+       before the fetch for the reason above; HIDDEN here because it is the same
+       promise-under-a-refusal as the sentences above, which cannot stand over a
+       panel saying we cannot resolve this agent. */
     document.getElementById('d-say').disabled = true;
     document.getElementById('d-send').disabled = true;
     /* The section itself, never the composer this arm just closed: the
@@ -25369,17 +25346,6 @@ async function paintTalk(sessionName, agentName) {
     ANSWER_WANTS_FOCUS = null;
     if (!qask.hidden && !qtext.hidden) qtext.focus();
   }
-  /* The persistence line's other half (its text is written before the fetch):
-     shown once an answer is in hand, so a panel that recovers from a refusal
-     -- or an agent opened after one that failed -- has it back.
-     ⚠️ EXCEPT WHERE IT IS FALSE. `historyUnfilable` means we cannot keep a
-     conversation under this agent's name at all, and the thread arm says so in
-     as many words ("Nothing said here is kept for April."). "This stays here
-     after a restart" printed underneath that is the two sentences
-     contradicting each other on one screen, and the committed screenshot
-     talk-9-unfilable shows it happening. The thread arm already splits on this
-     fact; the promise splits with it. */
-  document.getElementById('d-persist').hidden = body.historyUnfilable === true;
   /**
    * ⚠️ THE BUTTONS DIE WITH THE COMPOSER (Mona Lisa, state 6). A live option
    * above a closed box promises a route that is shut, which is the same lie as

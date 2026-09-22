@@ -548,7 +548,7 @@ async function main() {
       'an untied agent\u2019s Terminal section hides the window box and says why (nothing here is its window to show)', JSON.stringify(rookWindow));
     /* Back to Talk before reading the talk box: `innerText` on an unrendered
        element falls back to textContent, hidden lines included, so a read
-       from the Terminal section would report the persist line as shown. */
+       from the Terminal section would report hidden lines as shown. */
     await page.click('#d-nav button[data-go="talk"]');
     await page.waitForTimeout(200);
     /* ⚠️ THE SAME RULE, ONE BOX LOWER, and it is the whole reason the 404
@@ -575,9 +575,6 @@ async function main() {
       JSON.stringify(rookTalk.text));
     check(!/no agent by that name/i.test(rookTalk.text || ''),
       'and it does not paint the route\u2019s own "no agent by that name" beside a card carrying it',
-      JSON.stringify(rookTalk.text));
-    check(!/stays here after a restart/i.test(rookTalk.text || ''),
-      'and it does not promise the conversation is kept, under the sentence saying there is none to show',
       JSON.stringify(rookTalk.text));
     check(rookTalk.sayDisabled === true && rookTalk.sendDisabled === true,
       'the composer is closed over a conversation we cannot read (a box that accepts text here is the two-state lie)',
