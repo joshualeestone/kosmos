@@ -82,7 +82,12 @@ test('read() returns the codex-shaped contract, with BOTH context halves measure
   /* MEASURED both halves, from signals.json's camelCase keys. */
   assert.equal(r.contextUsed, 12000, 'contextTokensUsed');
   assert.equal(r.contextWindow, 256000, 'contextWindowTokens -- measured, not assumed');
-  assert.equal(r.contextUsedAt, Date.parse('2026-09-22T02:05:10.000Z'));
+  /* contextUsedAt anchors on signals.json's mtime (when usage was written), not
+     last_active_at -- so assert it is a real timestamp near the file's mtime rather
+     than a fixed value. */
+  assert.equal(typeof r.contextUsedAt, 'number', 'usage known -> a numeric measured-at anchor');
+  const sigMtime = fs.statSync(nodePath.join(SANDBOX, 'sessions', 'enc-cwd', 'sess-abc', 'signals.json')).mtimeMs;
+  assert.equal(r.contextUsedAt, sigMtime, 'contextUsedAt is signals.json mtime');
   assert.equal(r.messages, 4);
   assert.equal(r.lastAt, '2026-09-22T02:05:10.000Z');
   assert.equal(r.lastAgentMessage, 'did the thing');
@@ -93,7 +98,9 @@ test('the launch folder is matched by summary.info.cwd through the /private cano
   reset();
   writeSession({ encDir: 'enc', sessionId: 's1', cwd: WORKDIR, model: 'grok-4.6', numMessages: 1, lastActive: '2026-09-22T02:05:00.000Z', lastTurn: 'x', tokensUsed: 5, windowTokens: 100 });
   /* Query with the /var raw spelling: canonicalOnDisk folds it to /private/var to match
-     the info.cwd Grok stored. */
+     the info.cwd Grok stored. macOS-specific (tmpdir under /private/var); on a platform
+     where it is not, the replace is a no-op and this degrades to a plain re-check --
+     acceptable, and it mirrors the sibling readers' test style. */
   const raw = WORKDIR.replace('/private/var/', '/var/');
   const r = grok.read(raw === WORKDIR ? WORKDIR : raw);
   assert.equal(r.found, true, r.because);

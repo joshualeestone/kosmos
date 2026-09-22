@@ -49,6 +49,12 @@ the classic hand-rolled-fixture trap, caught by checking the serde attributes be
   launcher/status slice's e2e run is the verification.
 - `provider: 'xai'` is a constant (summary carries no model_provider), honest since this reader only
   reads a Grok session dir.
+- `contextUsedAt` anchors on signals.json's MTIME (when usage was written), not summary.last_active_at
+  (challenge iter 1): Grok has no per-turn usage timestamp inside signals.json the way codex's
+  token_count event does, and last_active_at can stay fresh on non-usage activity. signals.json is
+  rewritten each usage-changing turn, so its mtime is the closest on-disk "usage measured at" signal.
+  It is still weaker than a content timestamp, so the launcher slice's liveness badge must GATE on it,
+  not assume "green off it = a real recent turn".
 
 ## Not in this slice
 status.js `readGrokContext` wiring + snapshot arm (the status-ring consumer, mirrors the Gemini

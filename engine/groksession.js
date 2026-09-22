@@ -137,23 +137,44 @@ function forWorkdir(dir, home) {
  * when usage is known, the freshness anchor a future account badge would use.
  */
 function read(dir, home) {
+  /* NOTE for the status-wiring slice: unlike codexsession/geminisession, this reader
+     never returns NO_READING.UNREADABLE. forWorkdir must PARSE summary.json to match
+     by info.cwd, so a corrupt/unparseable summary is skipped there and a workdir with
+     only such a session surfaces as NO_TRANSCRIPT (we cannot identify it), not
+     UNREADABLE. signals.json failing to read degrades to null halves, not UNREADABLE.
+     So a Grok consumer's UNREADABLE branch is unreachable -- correct, just asymmetric. */
   const found = forWorkdir(dir, home);
   if (!found) return { found: false, because: NO_READING.NO_TRANSCRIPT };
   const s = found.summary;
 
   /* signals.json (camelCase) carries the token counts; absent/malformed -> null
-     halves rather than a throw (a session early in its first turn may have none). */
+     halves rather than a throw (a session early in its first turn may have none).
+     Capture its mtime as the "when usage was measured" anchor below. */
+  const signalsPath = path.join(found.dir, 'signals.json');
   let signals = null;
-  try { signals = JSON.parse(fs.readFileSync(path.join(found.dir, 'signals.json'), 'utf8')); }
-  catch { signals = null; }
+  let signalsMtime = null;
+  try {
+    signals = JSON.parse(fs.readFileSync(signalsPath, 'utf8'));
+    try { signalsMtime = fs.statSync(signalsPath).mtimeMs; } catch { signalsMtime = null; }
+  } catch { signals = null; }
   const num = (v) => (typeof v === 'number' ? v : null);
   const contextUsed = signals ? num(signals.contextTokensUsed) : null;
   const contextWindow = signals ? num(signals.contextWindowTokens) : null;
 
   const lastAt = (typeof s.last_active_at === 'string' && s.last_active_at)
     || (typeof s.updated_at === 'string' && s.updated_at) || null;
-  const t = lastAt ? Date.parse(lastAt) : NaN;
-  const contextUsedAt = (contextUsed != null && Number.isFinite(t)) ? t : null;
+
+  /* ⭐ contextUsedAt anchors on signals.json's MTIME -- WHEN the usage was written --
+     NOT on summary.last_active_at (challenge iter 1). Grok has no per-turn usage
+     TIMESTAMP inside signals.json (unlike codex's token_count event, whose own
+     timestamp codexsession uses), and last_active_at can stay fresh on ANY activity
+     while the recorded usage is stale, which would make a future liveness badge
+     green off non-usage traffic (the #874 harm). signals.json is rewritten each turn
+     usage changes, so its mtime is the closest "usage measured at" signal on disk.
+     Null unless usage is actually known. This is the freshness anchor the launcher
+     slice's account badge should use; it is still weaker than a content timestamp,
+     so that badge must gate on it, not assume it. */
+  const contextUsedAt = (contextUsed != null && typeof signalsMtime === 'number') ? signalsMtime : null;
 
   const sessionId = s.info && typeof s.info.id === 'string' ? s.info.id : null;
   /* current_model_id is a ModelId; in practice a string. Take it only when it IS a
