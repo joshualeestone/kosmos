@@ -21,7 +21,7 @@ process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { ensureLaunchTrust } = require('./ensure-launch-trust');
-const { KEY, BYPASS_KEY, canonicalOnDisk } = require('./trust');
+const { KEY, BYPASS_KEY, ONBOARDING_KEY, canonicalOnDisk } = require('./trust');
 
 // The key trust.js writes is the folder's ON-DISK-CASE realpath (fs.realpathSync.native,
 // NOT the plain fs.realpathSync, which returns the INPUT case on a case-insensitive fs -
@@ -43,7 +43,7 @@ const clear = () => {
   try { fs.rmSync(SETTINGS, { force: true }); } catch { /* fine */ }
 };
 
-test('re-applies BOTH the folder-trust key and the bypass pre-accept for a default-account agent', () => {
+test('re-applies the folder-trust key, the bypass pre-accept, AND the onboarding pre-accept for a default-account agent', () => {
   clear();
   const f = folder();
   ensureLaunchTrust(f, ''); // empty configDir => default account (~/.claude.json + settings.json)
@@ -51,6 +51,8 @@ test('re-applies BOTH the folder-trust key and the bypass pre-accept for a defau
   const cfg = readConfig();
   assert.ok(cfg.projects && cfg.projects[K(f)], `no trust entry for ${K(f)}: ${JSON.stringify(cfg.projects)}`);
   assert.equal(cfg.projects[K(f)][KEY], true, 'the folder-trust key must be set true');
+  // Onboarding pre-accept (#3383): the first-run theme-picker gate, in the SAME .claude.json.
+  assert.equal(cfg[ONBOARDING_KEY], true, 'the onboarding pre-accept key must be set true (else a relaunched pre-fix agent wedges on the picker)');
   // Bypass pre-accept: the one-time "Bypass Permissions mode" acceptance.
   assert.equal(readSettings()[BYPASS_KEY], true, 'the bypass pre-accept key must be set true');
 });
@@ -63,6 +65,7 @@ test('is idempotent - a second (re)launch re-writes nothing and still leaves bot
   const set1 = fs.readFileSync(SETTINGS, 'utf8');
   ensureLaunchTrust(f, ''); // the restart case: same folder, keys already set
   assert.equal(readConfig().projects[K(f)][KEY], true, 'trust key still true after the second call');
+  assert.equal(readConfig()[ONBOARDING_KEY], true, 'onboarding key still true after the second call');
   assert.equal(readSettings()[BYPASS_KEY], true, 'bypass key still true after the second call');
   // Idempotent in the strong sense: the files are byte-identical (no churn on a restart).
   assert.equal(fs.readFileSync(CONFIG, 'utf8'), cfg1, 'config unchanged on the idempotent second call');
