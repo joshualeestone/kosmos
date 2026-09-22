@@ -531,11 +531,16 @@ if [ -z "$adopt" ]; then
   # only for a default agent (own env empty).
   EFFECTIVE_CODEX_HOME="${CODEX_HOME:-}"
   if [ "$RUNNER" = codex ] && [ -z "$EFFECTIVE_CODEX_HOME" ]; then
-    # defaultAgentCodexHome(): AGENT_WORKFORCE_CODEX_HOME (test seam) else $HOME/.codex, matching
-    # engine/create.js. A CONCRETE path, so no "set-but-empty vs unset" ambiguity; idempotent on a
-    # clean box (codex's own default is $HOME/.codex anyway) and it defeats the leak on a board
-    # cold-started under a stray CODEX_HOME. NOT the server-global (that was the #3432-v1 bug).
-    EFFECTIVE_CODEX_HOME="${AGENT_WORKFORCE_CODEX_HOME:-$HOME/.codex}"
+    # defaultAgentCodexHome(), reproduced FAITHFULLY as its three tiers so it cannot silently
+    # diverge from engine/create.js:defaultAgentCodexHome() =
+    #   AGENT_WORKFORCE_CODEX_HOME || path.join(AGENT_WORKFORCE_HOME || os.homedir(), '.codex').
+    # An earlier version dropped the AGENT_WORKFORCE_HOME tier and leaned implicitly on the plist
+    # baking HOME=homeDir() (create.js), which is true today but is exactly the write-A-read-B
+    # coupling this card exists to close, so the tier is written out here rather than depended on.
+    # A CONCRETE path (no "set-but-empty vs unset" ambiguity); idempotent on a clean box (codex's
+    # own default is $HOME/.codex anyway) and it defeats the leak on a board cold-started under a
+    # stray CODEX_HOME. NOT the server-global (that was the #3432-v1 bug Pete + ICK caught).
+    EFFECTIVE_CODEX_HOME="${AGENT_WORKFORCE_CODEX_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.codex}"
     PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
   fi
   if [ "$RUNNER" = codex ]; then
