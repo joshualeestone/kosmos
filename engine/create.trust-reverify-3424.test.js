@@ -151,9 +151,13 @@ test('#3424 bar (2): a reboot proxy - re-running the relaunch seed for every age
     assert.ok(isTrusted(a.configFile, a.workdir), `agent ${a.k}: trust still set after reboot re-seed`);
     assert.equal(readJson(a.settingsFile)[BYPASS_KEY], true, `agent ${a.k}: bypass still set after reboot re-seed`);
     assert.equal(readJson(a.configFile)[ONBOARDING_KEY], true, `agent ${a.k}: onboarding still set (top-level in .claude.json) after reboot re-seed`);
-    // Idempotent: the re-seed rewrote nothing (a second write would churn the file / risk drift).
-    assert.equal(fs.readFileSync(a.configFile, 'utf8'), before[i].cfg, `agent ${a.k}: config unchanged by the idempotent re-seed`);
-    assert.equal(fs.readFileSync(a.settingsFile, 'utf8'), before[i].set, `agent ${a.k}: settings unchanged by the idempotent re-seed`);
+    // Idempotent at the FILE level: the re-seed leaves each file byte-identical. This asserts
+    // the OUTCOME we depend on (a relaunch cannot corrupt, churn, or reshuffle a seeded file),
+    // not the internal no-write - an identical rewrite would also pass, and that is fine, byte
+    // stability is the guarantee. (trust.js does short-circuit on already:true, but this test
+    // pins the observable, not the implementation detail.)
+    assert.equal(fs.readFileSync(a.configFile, 'utf8'), before[i].cfg, `agent ${a.k}: config byte-identical after the idempotent re-seed`);
+    assert.equal(fs.readFileSync(a.settingsFile, 'utf8'), before[i].set, `agent ${a.k}: settings byte-identical after the idempotent re-seed`);
     // Still no leak to default after the reboot.
     assert.ok(!isTrusted(DEFAULT_CONFIG, a.workdir), `agent ${a.k}: still no leak to the default config after reboot`);
   });
@@ -173,6 +177,29 @@ test('#3424 default-account path: a no-CLAUDE_CONFIG_DIR agent is seeded in the 
     'default-account agent: bypass in the default settings.json');
   assert.equal(readJson(DEFAULT_CONFIG)[ONBOARDING_KEY], true,
     'default-account agent: onboarding top-level in the default .claude.json (the ~/.claude.json equivalent)');
+});
+
+test('#3424 bar (1), default-account variant: SEVERAL default-account agents seeded back-to-back all survive in the ONE shared config, no lost update', () => {
+  // The realistic #2129 shape and the more dangerous one: multiple default-account agents
+  // (no CLAUDE_CONFIG_DIR) all write the SAME ~/.claude.json / ~/.claude/settings.json.
+  // Unlike the per-account case there is no isolation to check - they SHARE the file - so the
+  // failure mode is a LOST UPDATE: a later agent's read-modify-write drops an earlier agent's
+  // trust entry (exactly the concurrent hazard trust.js's #3088 file lock exists for). Assert
+  // the shared default config ends up carrying EVERY agent's trust entry, not just the last.
+  const workdirs = [];
+  for (let i = 0; i < N; i++) {
+    const wd = path.join(SANDBOX, 'workers', `default-b2b-${i}`);
+    fs.mkdirSync(wd, { recursive: true });
+    ensureLaunchTrust(wd, ''); // default account: shares DEFAULT_CONFIG / DEFAULT_SETTINGS
+    workdirs.push(wd);
+  }
+  for (const wd of workdirs) {
+    assert.ok(isTrusted(DEFAULT_CONFIG, wd),
+      `default-account back-to-back: ${wd}'s trust must survive in the shared default config (a lost update would have dropped it)`);
+  }
+  // The shared settings keys survive N sequential writers too.
+  assert.equal(readJson(DEFAULT_SETTINGS)[BYPASS_KEY], true, 'shared default settings.json still carries bypass after N default agents');
+  assert.equal(readJson(DEFAULT_CONFIG)[ONBOARDING_KEY], true, 'shared default .claude.json still carries onboarding after N default agents');
 });
 
 test('#3424 CONTROL: an un-seeded agent has NO trust key anywhere - proving the assertions above are non-vacuous (they would fire the #2129 wedge)', () => {
