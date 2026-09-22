@@ -138,6 +138,26 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      CLAUDE_CONFIG_DIR handling above is unchanged for every runner. */
   const accountKey = accountEnvVar(runner);
   if (accountKey !== 'CLAUDE_CONFIG_DIR' && configDir) env[accountKey] = String(configDir);
+  /* 🛑 A CODEX AGENT REPLIES THROUGH POWERSHELL, AND THE DEFAULT POLICY BLOCKS IT
+     (#3380 round 2). Measured on the box 2026-09-22: codex 0.149.1 runs every shell
+     command as `powershell.exe -Command '<cmd>'`, and PowerShell resolves a bare
+     `kosmos` to the `kosmos.ps1` shim on PATH. But this machine's ExecutionPolicy is
+     Undefined in every scope (= Restricted on Windows client), so loading kosmos.ps1
+     fails with `PSSecurityException / UnauthorizedAccess: running scripts is disabled
+     on this system`, the turn ends with an empty agent_message, and NO reply reaches
+     the board. That is the whole "the agent took the message but never answered"
+     symptom: the reply IS the agent's own `kosmos reply` call, and the call could
+     not run. PowerShell reads the PROCESS-scope policy from this environment variable
+     (`Get-ExecutionPolicy -List` shows it as `Process`), and it is inherited by the
+     powershell.exe codex spawns, so setting it here is exactly enough to let the shim
+     load. `Bypass`, not `RemoteSigned`, because a downloaded zip's kosmos.ps1 can
+     carry the mark-of-the-web (a remote unsigned script RemoteSigned still blocks) and
+     an unattended agent has no console to answer a trust prompt on -- the same
+     full-autonomy posture the `--dangerously-bypass-approvals-and-sandbox` launch
+     already takes. CODEX ONLY: the claude path runs its `kosmos` through Git Bash's
+     extensionless shim, which never consults an execution policy, so it is left
+     byte-identical and this variable is not added to a claude child. */
+  if (runner === 'codex') env.PSExecutionPolicyPreference = 'Bypass';
   return env;
 }
 
