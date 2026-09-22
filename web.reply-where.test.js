@@ -47,26 +47,15 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
    it should be there, and geometry is the easiest thing to keep asserting about
    an element that renders nothing. Nothing here measured whether it drew. */
 
-test('the box still says the two things it said before', () => {
+test('the box still says the between-you sentence it said before', () => {
   /**
-   * ⚠️ A CONTROL ON THE EDIT, not decoration. Both sentences are ruled copy and
-   * neither is what was wrong: "just between you and <name>" is true, and the
-   * thread really does outlive the agent's recollection. The defect was
-   * something MISSING, so nothing should have been removed.
+   * ⚠️ A CONTROL ON THE EDIT, not decoration. This sentence is ruled copy and
+   * is not what was wrong: "just between you and <name>" is true.
+   * (The persistence line "This stays here after a restart…" was removed on
+   * Josh's instruction 2026-09-22; its element and every setter/hide are gone
+   * from the page, so there is no longer a persistence assertion here.)
    */
   assert.match(PAGE, /Just between you and ' \+ name \+ '\. Nothing here belongs to a project\./);
-  /* 🛑 THE SENTENCE, NOT THE ELEMENT. This read /id="d-persist"/, which is the
-     markup's id attribute — MEASURED: deleting the whole
-     `d-persist.textContent = 'This stays here after a restart. '…` assignment
-     left an empty <p> and passed. A control that an empty element satisfies is
-     not a control on the words.
-     ⚠️ And it must be pinned at the ASSIGNMENT, because the phrase occurs twice
-     in the file and the second is inside a comment about it, which survives the
-     deletion on its own. */
-  const persistAt = PAGE.indexOf("document.getElementById('d-persist').textContent");
-  assert.notEqual(persistAt, -1, 'the persistence sentence is no longer written anywhere');
-  assert.match(PAGE.slice(persistAt, persistAt + 200), /stays here after a restart/,
-    'the persistence sentence was removed or changed');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -273,10 +262,12 @@ test('the reply-location line is gone, and gone rather than reworded', () => {
   assert.doesNotMatch(code, /will see this in their own window/,
     'a reworded version of the same apology came back');
   /* ⚠️ AND THE STRIPPER NEEDS ITS OWN CONTROL, or a regex that ate the file
-     would make every absence above vacuous. It cannot be keyed on the element
-     any more -- that is what the next assertion is about -- so it is keyed on
-     the note that still sits beside it. */
-  assert.ok(code.includes("getElementById('d-persist')"), 'the comment stripper removed code');
+     would make every absence above vacuous. It was keyed on
+     getElementById('d-persist'), which is gone with the persistence line
+     (removed 2026-09-22); it is now keyed on getElementById('d-say'), the
+     composer field, which is real code the box always sets and no comment
+     stands in for. */
+  assert.ok(code.includes("getElementById('d-say')"), 'the comment stripper removed code');
 
   /* 🛑 AND THE ELEMENT IS GONE TOO, NOT JUST HIDDEN. It sat empty for a day with
      three surviving decisions about whether to show it, and the markup comment

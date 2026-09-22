@@ -30,12 +30,11 @@ test('the lede states the consequence, not that the file is stable (#198)', () =
     'the lede no longer says what survives, which is the reason to put anything in that field');
   assert.ok(!/a restart does not change what it says/.test(PAGE),
     'the file-stability wording came back');
-  /* ⚠️ AND IT MUST AGREE WITH THE TALK BOX ON THE SAME PAGE, which is the split
-     this fixed: that box says anything that needs to last belongs in their
-     instructions, which points at survival and not at stability. Two boxes on
-     one screen making different claims about one fact is the whole card. */
-  assert.match(PAGE, /needs to last belongs in their instructions/,
-    'the talk box lost the sentence the lede was made to agree with');
+  /* The talk box used to carry a matching sentence ("anything that needs to
+     last belongs in their instructions") and this test cross-checked the two
+     boxes agreed. Josh had that talk-box line removed on 2026-09-22, so there
+     is no longer a second box to agree with; the lede's own consequence
+     wording (checked above) is what remains. */
 });
 
 test('the lede names the agent, and does not render a hole when it cannot', () => {
