@@ -18,7 +18,7 @@ reads the wrong (or no) auth and runs UNAUTHENTICATED, silently, with NO prompt
 OpenAI/ChatGPT client on shared-account installs, and Josh wants both clients
 working.
 
-## The change (bin/agent-supervisor.sh, codex arm only) — the MIRROR of #3417, not a copy
+## The change (bin/agent-supervisor.sh, codex arm only), the MIRROR of #3417, not a copy
 🛑 CORRECTED after PigeonPete + ICK review of #3432-v1 (which wrongly pinned the leak).
 Claude and codex need OPPOSITE fixes because Josh's account lives in a different
 place per provider:
@@ -35,7 +35,7 @@ already inherited it) and leaves the agent unauthenticated. The fix must point t
 at where auth already is:
 1. `EFFECTIVE_CODEX_HOME` = own env when set (a per-account codex agent, plist CODEX_HOME;
    left to the forwarding loop), else, for a DEFAULT codex agent (own env empty),
-   `defaultAgentCodexHome()` = `${AGENT_WORKFORCE_CODEX_HOME:-$HOME/.codex}` — NOT the
+   `defaultAgentCodexHome()` = `${AGENT_WORKFORCE_CODEX_HOME:-$HOME/.codex}`, NOT the
    server-global.
 2. Pin that concrete default path into the pane, OVERRIDING whatever the leak would have
    supplied (mirroring #3406's HOME re-injection for a default claude agent). A concrete
