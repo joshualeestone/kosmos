@@ -239,10 +239,11 @@ const path = require('path');
     });
     say(grounds.rail === grounds.head && grounds.pj3 === grounds.head, '#3308: the agents rail + tasks/files column use the top-header ground', JSON.stringify(grounds));
 
-    /* #3218 increment 2: the open project's agents sort to the TOP of the single Agents list, then a
-       rule, then the rest. Drive paintAgentList directly with a known roster + board sample so the
-       ordering is deterministic without live tmux. running:false rows render from record fields only
-       (the branch lrow keeps for a stopped agent), so the fixture cannot take a field-hungry path. */
+    /* #3218 increment 2 / #3387: the open project's agents sort to the TOP of the single Agents list,
+       then an "Other Agents" sub-header (was a plain rule), then the rest. Drive paintAgentList
+       directly with a known roster + board sample so the ordering is deterministic without live tmux.
+       running:false rows render from record fields only (the branch lrow keeps for a stopped agent),
+       so the fixture cannot take a field-hungry path. */
     const grouping = await pg.evaluate(() => {
       const proj = pjById(PJ_CURRENT);
       proj.agents = [{ sessionName: 'mem-1' }, { sessionName: 'mem-2' }];
@@ -250,36 +251,49 @@ const path = require('path');
       LAST = [mk('out-a'), mk('mem-1'), mk('out-b'), mk('mem-2')];
       paintAgentList();
       const kids = [...document.getElementById('alist').children];
-      const seps = kids.filter((k) => k.classList && k.classList.contains('alist-sep'));
-      const sepAt = kids.findIndex((k) => k.classList && k.classList.contains('alist-sep'));
-      return { total: kids.length, sepCount: seps.length, sepAt };
+      const hdrs = kids.filter((k) => k.classList && k.classList.contains('alist-grouphdr'));
+      const hdrAt = kids.findIndex((k) => k.classList && k.classList.contains('alist-grouphdr'));
+      const hdr = hdrs[0] || null;
+      return {
+        total: kids.length, hdrCount: hdrs.length, hdrAt,
+        hdrLabel: hdr ? (hdr.querySelector('.railname') || {}).textContent : null,
+        hdrHasPlus: !!(hdr && hdr.querySelector('.alist-newagent')),
+        railName: (document.querySelector('#rail-agents .railname') || {}).textContent,
+      };
     });
-    // 4 rows + 1 rule; the two project members are the two rows above the rule (index 0,1), the rule
-    // is at index 2, the two non-members below it.
-    say(grouping.sepCount === 1 && grouping.sepAt === 2 && grouping.total === 5,
-      '#3218: the Agents list groups project members first, then a rule, then the rest', JSON.stringify(grouping));
+    // 4 rows + 1 sub-header; the two project members are the two rows above it (index 0,1), the
+    // "Other Agents" header is at index 2, the two non-members below it. The top rail head reads
+    // "Project Members" while grouped.
+    say(grouping.hdrCount === 1 && grouping.hdrAt === 2 && grouping.total === 5
+        && grouping.hdrLabel === 'Other Agents' && grouping.hdrHasPlus === true
+        && grouping.railName === 'Project Members',
+      '#3387: the Agents list groups Project Members first, then an "Other Agents" sub-header, then the rest', JSON.stringify(grouping));
 
-    // negative control: no project open -> a flat list with no rule (proves the rule is conditional).
-    const flatSeps = await pg.evaluate(() => {
+    // negative control: no project open -> a flat list with no sub-header, and the head back to
+    // "Agents" (proves the grouping + rename are conditional).
+    const flat = await pg.evaluate(() => {
       PJ_CURRENT = null;
       const mk = (s) => ({ sessionName: s, name: s, role: '', running: false, state: 'stopped', context: null });
       LAST = [mk('x'), mk('y')];
       paintAgentList();
-      return [...document.getElementById('alist').children].filter((k) => k.classList && k.classList.contains('alist-sep')).length;
+      return {
+        hdrs: [...document.getElementById('alist').children].filter((k) => k.classList && k.classList.contains('alist-grouphdr')).length,
+        railName: (document.querySelector('#rail-agents .railname') || {}).textContent,
+      };
     });
-    say(flatSeps === 0, '#3218: with no project open the Agents list is flat (no rule)', String(flatSeps));
+    say(flat.hdrs === 0 && flat.railName === 'Agents', '#3387: with no project open the Agents list is flat and the head reads "Agents"', JSON.stringify(flat));
 
     // #3218: paintAgentList() keeps the empty-board fallback -- with no agents it draws boardEmpty(),
     // not a blank list. Drive LAST=[] through it (the pre-first-poll / removed-last-agent shape) and
-    // assert the empty-state markup, no rows, no rule. This is the runtime execution coverage the
-    // node source-regex test cannot give.
+    // assert the empty-state markup, no rows, no sub-header. This is the runtime execution coverage
+    // the node source-regex test cannot give.
     const emptyBoard = await pg.evaluate(() => {
       LAST = [];
       paintAgentList();
       const al = document.getElementById('alist');
-      return { hasEmpty: !!al.querySelector('.pj-empty'), hasRows: !!al.querySelector('.lrow'), hasSep: !!al.querySelector('.alist-sep') };
+      return { hasEmpty: !!al.querySelector('.pj-empty'), hasRows: !!al.querySelector('.lrow'), hasHdr: !!al.querySelector('.alist-grouphdr') };
     });
-    say(emptyBoard.hasEmpty && !emptyBoard.hasRows && !emptyBoard.hasSep,
+    say(emptyBoard.hasEmpty && !emptyBoard.hasRows && !emptyBoard.hasHdr,
       '#3218: paintAgentList with no agents draws the empty board, not a blank list', JSON.stringify(emptyBoard));
   } else {
     say(false, 'the board has a project to open (this check needs one)');

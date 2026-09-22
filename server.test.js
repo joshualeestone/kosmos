@@ -3268,12 +3268,12 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     else if (script[k] === '}') { d -= 1; if (d === 0) { beEnd = k + 1; break; } }
   }
   // eslint-disable-next-line no-new-func
-  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
+  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'setAgentsGrouped',
     /* win32-board-copy: boardEmpty asks the platform copy layer ("not Windows" here). */
     require('./test-support/page').PLATFORM_COPY_FNS.map(pageFnSource).join('\n') + '\n'
     + script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
-    true, 'boom', false);
+    true, 'boom', false, () => {}); // #3387: setAgentsGrouped no-op (the catch resets the grouped head; not under test here)
 
   // The rendered failure card proves the extracted block really ran.
   assert.match(els.grid.innerHTML, /cannot read your agents/,

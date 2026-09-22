@@ -3535,11 +3535,19 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the agents side already wins against that shared rule; the projects side
      joins it here rather than growing a third mechanism. */
   html[data-layout="consolidated"] body.consolidated > #alist#alist { padding-top: 4px; }
-  /* #3218: the divider in the single grouped Agents list, between the open project's agents (top)
-     and the rest of the fleet. Only emitted when a project is open in the consolidated view. A thin
-     rule on the shared --k-rule token, so it tracks light/dark; small margins because #alist is a
-     4px-gap flex column and the gap already spaces it from the rows either side. */
-  html[data-layout="consolidated"] body.consolidated #alist .alist-sep { border: 0; border-top: 1px solid var(--k-rule); height: 0; margin: 2px 2px; flex: 0 0 auto; }
+  /* #3387: the "Other Agents" sub-header in the single grouped Agents list, between the open
+     project's members (top) and the rest of the fleet. Only rendered when a project is open in the
+     consolidated view. It draws the divider (a thin border-top on the shared --k-rule token, so it
+     tracks light/dark; replaces the plain rule #3218 drew here) plus the rail-head grammar: an
+     uppercase .railname label on the left and a square .fold.plus + on the right (both styled by
+     the shared rules below). */
+  html[data-layout="consolidated"] body.consolidated #alist .alist-grouphdr { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 22px; margin: 6px 2px 2px 6px; padding-top: 8px; border-top: 1px solid var(--k-rule); flex: 0 0 auto; }
+  /* Folded to letters (fold-a): hide the label and the +, leaving only the divider line --
+     the same reduction the rail's own .railname (#rail-agents .railname) and its + (#rail-agents-new)
+     make when the column collapses. */
+  html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr { justify-content: center; margin-left: 0; margin-right: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr .railname,
+  html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr .alist-newagent { display: none; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   /* #3187: the consolidated rail used to strip the row ground (background: none)
@@ -17072,32 +17080,96 @@ function ageCheckedStamp() {
   checked.innerHTML = '<span>Agent status</span><b>' + freshWords(age) + '</b>';
 }
 
-/* #3218: paint the single Agents list (#alist) from the last board sample (LAST). Called by tick()
-   every poll AND by pjMarkOpen() the instant a project opens or closes, so the grouping tracks
+/* #3387: whether the consolidated agents list is currently GROUPED by an open project
+   (its members on top, an "Other Agents" sub-header, then the rest). Read by the top
+   rail + handler so the same + means "add an existing agent to this project" while a
+   project is open, and "New agent" otherwise. */
+let AGENTS_GROUPED = false;
+
+/* #3387: which control opened the add-member modal, so amClose can return focus there.
+   Set only by the consolidated-rail opener (openAddMemberModal); the tab-view "Add member"
+   button leaves it null and amClose falls back to focusing that button, its prior behaviour. */
+let AM_OPENER = null;
+
+/* #3387: reflect the grouped state onto the TOP rail head. The static HTML keeps
+   `railname">Agents` (the layout-picker test asserts that markup); the LABEL is set
+   live here, so it reads "Project Members" only while a project's members are grouped
+   at the top. The top + is repurposed with it -- its behaviour switches in the click
+   handler, its aria-label/title switch here so the tooltip matches what it will do. */
+function setAgentsGrouped(on) {
+  AGENTS_GROUPED = on;
+  const name = document.querySelector('#rail-agents .railname');
+  if (name) name.textContent = on ? 'Project Members' : 'Agents';
+  const plus = document.getElementById('rail-agents-new');
+  if (plus) {
+    const label = on ? 'Add an agent to this project' : 'New agent';
+    plus.setAttribute('aria-label', label);
+    plus.title = label;
+  }
+}
+
+/* #3387: the "Other Agents" sub-header drawn between the project's members and the
+   rest, in place of the old plain rule. It reuses the rail-head grammar (.railname
+   label + a square .fold.plus) so it matches the top head; its + is the New-agent
+   action, reached by delegation off #alist since the list is rebuilt each poll. */
+function otherAgentsHeaderHtml() {
+  return '<div class="alist-grouphdr">'
+    + '<span class="railname">Other Agents</span>'
+    + '<span class="railacts"><button class="fold plus alist-newagent" type="button" aria-label="New agent" title="New agent">+</button></span>'
+    + '</div>';
+}
+
+/* #3387: open the existing add-a-member modal from the consolidated rail. The modal,
+   its free-agent picker (paintFreeAgentPicker) and its commit (addMemberToProject ->
+   POST /api/project/:id/agent/:name) already exist and are used by the tab-view
+   project card's "Add member" button; this just opens the same modal for the open
+   project. Painting the picker here means it is populated at once, not only on the
+   next projects poll. Falls back to New agent if somehow no project is open. */
+function openAddMemberModal() {
+  const p = PJ_CURRENT ? pjById(PJ_CURRENT) : null;
+  if (!p) { document.getElementById('new-agent').click(); return; }
+  const where = document.getElementById('am-project');
+  if (where) where.textContent = p.name || '';
+  paintFreeAgentPicker(p, document.getElementById('pj-one-add'), document.getElementById('pj-one-add-go'));
+  AM_OPENER = document.getElementById('rail-agents-new');   // #3387: return focus here on close
+  const modal = document.getElementById('am-modal');
+  if (modal) modal.hidden = false;
+  const sel = document.getElementById('pj-one-add');
+  if (sel) sel.focus();
+}
+
+/* #3218/#3387: paint the single Agents list (#alist) from the last board sample (LAST). Called by
+   tick() every poll AND by pjMarkOpen() the instant a project opens or closes, so the grouping tracks
    PJ_CURRENT without a ~5s lag. In the CONSOLIDATED view with a project open, that project's agents
-   sort to the TOP (then a plain rule, then the rest) -- one grouped Agents list, no separate Members
-   block, no agent shown twice, header stays "Agents". Flat everywhere else (tab view, no project
-   open, or none of the fleet is on the open project). Joined to the open project's roster by
-   sessionName -- the same key lrow(a) and pjMember(m) share. boardEmpty() honours BOARD_SEEN, so a
-   pre-first-poll call (LAST still []) draws the honest "Looking..." state, never a false empty. */
+   sort to the TOP, then an "Other Agents" sub-header, then the rest -- one grouped Agents list, no
+   separate Members block, no agent shown twice; the top rail head reads "Project Members" (#3387).
+   Flat everywhere else (tab view, no project open, or none of the fleet is on the open project), where
+   the head stays "Agents". Joined to the open project's roster by sessionName -- the same key lrow(a)
+   and pjMember(m) share. boardEmpty() honours BOARD_SEEN, so a pre-first-poll call (LAST still [])
+   draws the honest "Looking..." state, never a false empty. */
 function paintAgentList() {
   const alist = document.getElementById('alist');
   if (!alist) return;
   const lim = new URLSearchParams(location.search).get('limit');
   const src = Array.isArray(LAST) ? LAST : [];
   const shown = lim ? src.slice(0, Number(lim)) : src;
-  if (!shown.length) { alist.innerHTML = boardEmpty(); return; }
+  if (!shown.length) { setAgentsGrouped(false); alist.innerHTML = boardEmpty(); return; }
   const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
   const inProj = (openProj && Array.isArray(openProj.agents))
     ? new Set(openProj.agents.map((m) => m && m.sessionName).filter(Boolean)) : null;
   const members = (inProj && inProj.size) ? shown.filter((a) => inProj.has(a.sessionName)) : [];
   if (members.length) {
     const rest = shown.filter((a) => !inProj.has(a.sessionName));
+    // #3387: the members/rest split carries a labelled "Other Agents" sub-header (with its own
+    // New-agent +) in place of the plain rule; drawn even when the rest is empty so New agent
+    // stays reachable. The top head + become "Project Members" / add-existing via setAgentsGrouped.
     alist.innerHTML = members.map(lrow).join('')
-      + (rest.length ? '<hr class="alist-sep" aria-hidden="true">' : '')
+      + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
+    setAgentsGrouped(true);
   } else {
     alist.innerHTML = shown.map(lrow).join('');
+    setAgentsGrouped(false);
   }
 }
 async function tick() {
@@ -17729,6 +17801,10 @@ async function tick() {
     const boardErr = boardEmpty();
     document.getElementById('grid').innerHTML = boardErr;
     document.getElementById('alist').innerHTML = boardErr;
+    /* #3387: a failed poll shows no rows, so the consolidated head must not keep reading
+       "Project Members" with the top + wired to add-member over a "could not refresh" list.
+       Revert to "Agents" / New agent, the same reset the genuine empty-board path makes. */
+    setAgentsGrouped(false);
     /* ⚠️ AND THE FAILURE REACHES THE THIRD VIEW TOO. Left alone it would keep
        drawing the last good diagram beside a header saying we cannot read the
        agents -- a picture of a fleet this poll just failed to see, which is
@@ -31953,7 +32029,18 @@ document.querySelectorAll('[data-fold]').forEach((btn) => {
     railFoldsApply();
   });
 });
-document.getElementById('rail-agents-new').addEventListener('click', () => document.getElementById('new-agent').click());
+/* #3387: while a project's members are grouped at the top of the consolidated list, the
+   top + adds an EXISTING agent to that project (opens the shared add-member modal); in
+   every other state it stays the board's own New agent, byte-for-byte as before. */
+document.getElementById('rail-agents-new').addEventListener('click', () => {
+  if (AGENTS_GROUPED) { openAddMemberModal(); return; }
+  document.getElementById('new-agent').click();
+});
+/* #3387: the "Other Agents" sub-header's + is the New-agent action. Delegated off #alist
+   because the list is rebuilt on every poll, so a bound listener would not survive. */
+document.getElementById('alist').addEventListener('click', (e) => {
+  if (e.target.closest('.alist-newagent')) document.getElementById('new-agent').click();
+});
 /* The K mark is gone from the rail head (#1188), so there is nothing here to
    bind. Its painter a few thousand lines up is already null-guarded. */
 document.getElementById('rail-projects-new').addEventListener('click', () => document.getElementById('pj-new').click());
@@ -45923,6 +46010,7 @@ document.getElementById('pj-add-member').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   const where = document.getElementById('am-project');
   if (where) where.textContent = p ? p.name : '';
+  AM_OPENER = document.getElementById('pj-add-member');   // #3387: return focus here on close
   document.getElementById('am-modal').hidden = false;
   document.getElementById('pj-one-add').focus();
 });
@@ -45931,8 +46019,17 @@ document.getElementById('pj-add-member').addEventListener('click', () => {
    still on it. The backdrop closes too, matching every other modal on this page. */
 function amClose() {
   document.getElementById('am-modal').hidden = true;
-  const b = document.getElementById('pj-add-member');
-  if (b && !b.hidden) b.focus();
+  /* #3387: return focus to whatever opened the modal. BOTH openers record themselves in
+     AM_OPENER (the rail + and the tab-view "Add member" button), so it always reflects the
+     open that this close pairs with, never a stale value from an earlier open closed by some
+     other path (e.g. pjView hiding the modal directly). Falls back to the tab-view button if
+     AM_OPENER is unset. offsetParent (not the .hidden attribute) is the visibility test, because
+     the rail + is hidden via an ANCESTOR (#rail-agents), which .hidden on the button cannot see;
+     focusing an off-screen control would silently drop focus to <body>. Reset after either way. */
+  const shown = (el) => !!el && el.offsetParent !== null;
+  const opener = shown(AM_OPENER) ? AM_OPENER : document.getElementById('pj-add-member');
+  if (shown(opener)) opener.focus();
+  AM_OPENER = null;
 }
 document.getElementById('am-keep').addEventListener('click', amClose);
 document.getElementById('am-modal').addEventListener('click', (e) => { if (e.target.id === 'am-modal') amClose(); });
