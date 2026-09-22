@@ -110,26 +110,31 @@ function chk(ok, label, extra) {
     // So #d-meta reads as a plain title line under the name: no <b>, no middot, no model. ───────
     const meta = await page.evaluate(() => {
       const el = document.getElementById('d-meta');
-      return { html: el.innerHTML, text: el.textContent, boldCount: el.querySelectorAll('b').length };
+      return { html: el.innerHTML, text: el.textContent, boldCount: el.querySelectorAll('b').length, hidden: el.hidden };
     });
     chk(meta.text.includes('Collections Coordinator'), 'Part 4 (#3385): #d-meta carries the title', JSON.stringify(meta));
+    chk(meta.hidden === false, 'Part 4 (#3385): #d-meta is shown when it has a title (not hidden)', JSON.stringify(meta));
     chk(meta.boldCount === 0 && !/·/.test(meta.html), 'Part 4 (#3385): no bold segment and no middot subtitle', JSON.stringify(meta));
     chk(!/Claude Sonnet 5/i.test(meta.html) && !/Anthropic|OpenAI/.test(meta.html),
       'Part 4 (#3385): the provider and model are gone from the header', meta.html);
 
-    // ── Part 4, the role-less arm: with the title as the only segment, an agent with no role
-    // leaves #d-meta EMPTY. Driven through the real openDetail on a role-less clone. ───────────
+    // ── Part 4, the role-less arm: an agent with no role AND a real (non-derived) name leaves
+    // #d-meta with nothing to show, so it renders EMPTY *and hidden* -- an empty-but-shown element
+    // would still take a flex slot and double the name->badge gap in the column (#3385 iter-9).
+    // Driven through the real openDetail on a role-less clone. ────────────────────────────────
     const roleless = await page.evaluate(() => {
       const real = LAST[0];
       const sn = real.sessionName;
-      LAST[0] = { ...real, role: '', profile: null };
+      LAST[0] = { ...real, role: '', profile: null, nameDerived: true };
       openDetail(sn);
-      const html = document.getElementById('d-meta').innerHTML;
+      const el = document.getElementById('d-meta');
+      const out = { html: el.innerHTML, hidden: el.hidden };
       LAST[0] = real;
       openDetail(sn); // restore
-      return html;
+      return out;
     });
-    chk(!/Collections Coordinator/.test(roleless), 'Part 4 (#3385): a role-less agent shows no title', JSON.stringify(roleless));
+    chk(roleless.html === '' && !/Collections Coordinator/.test(roleless.html), 'Part 4 (#3385): a role-less named agent shows no title (empty #d-meta)', JSON.stringify(roleless));
+    chk(roleless.hidden === true, 'Part 4 (#3385): an empty #d-meta is hidden so it does not double the name->badge gap', JSON.stringify(roleless));
 
     // ── Part 5 (#3385): fitDetailName shrinks the name to fit the left column, and it must fire
     // on a COLD open (a board click straight into detail), not only a warm re-open. The identity

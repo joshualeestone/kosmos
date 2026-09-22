@@ -25956,7 +25956,12 @@ function openDetail(sessionName, section, fromProject) {
   // before it stacked a redundant blank line when both the title and the #684 disclosure show.
   // The block note already starts on its own line; the title alone or the note alone are single
   // segments where the separator never renders.
-  document.getElementById('d-meta').innerHTML = metaBits.join('');
+  const dmeta = document.getElementById('d-meta');
+  dmeta.innerHTML = metaBits.join('');
+  // Hide #d-meta when it has nothing (a role-less agent with a real name): .dnamerow is a
+  // flex column with gap:4px, so an empty-but-shown #d-meta would still take a slot and
+  // double the gap between the name and the status badge (#3385 iteration-9).
+  dmeta.hidden = metaBits.length === 0;
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
