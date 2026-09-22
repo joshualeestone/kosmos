@@ -484,3 +484,25 @@ test('agentCliDir finds <zip>\\bin only when the kosmos CLI is there', () => {
   assert.equal(launcher.agentCliDir(root, (f) => f === nodePath.join(bin, 'kosmos-cli.js')), bin);
   assert.equal(launcher.agentCliDir(root, () => false), null, 'a source checkout has no bin to put on PATH');
 });
+
+// ── #3380 round 2: a codex agent replies through powershell, whose default ──
+// policy blocks the kosmos.ps1 shim. childEnv lifts it for the codex child only.
+
+test('#3380 a codex child gets PSExecutionPolicyPreference=Bypass so its kosmos.ps1 shim can load', () => {
+  /* Measured on the box 2026-09-22: codex runs every command as
+     `powershell.exe -Command '<cmd>'`, PowerShell resolves bare `kosmos` to
+     kosmos.ps1, and the default Restricted policy refuses it with a
+     PSSecurityException -- so the agent's `kosmos reply` never runs and no reply
+     lands. The variable is the PROCESS-scope policy source powershell inherits. */
+  const env = launcher.childEnv({}, 'deadbeef', null, null, 'codex');
+  assert.equal(env.PSExecutionPolicyPreference, 'Bypass');
+});
+
+test('#3380 the claude path is byte-identical: no execution-policy variable is added', () => {
+  /* Claude Code runs its `kosmos` through Git Bash\'s extensionless shim, which
+     never consults an execution policy, so the claude child must be untouched. */
+  assert.equal('PSExecutionPolicyPreference' in launcher.childEnv({}, 'deadbeef', null, null, 'claude'), false);
+  assert.equal('PSExecutionPolicyPreference' in launcher.childEnv({}, 'deadbeef', null, null), false, 'no runner named: unchanged');
+  /* And it never clobbers a value the base env already carried for a non-codex runner. */
+  assert.equal(launcher.childEnv({ PSExecutionPolicyPreference: 'RemoteSigned' }, 't', null, null, 'claude').PSExecutionPolicyPreference, 'RemoteSigned');
+});
