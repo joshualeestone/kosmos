@@ -3535,15 +3535,12 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the agents side already wins against that shared rule; the projects side
      joins it here rather than growing a third mechanism. */
   html[data-layout="consolidated"] body.consolidated > #alist#alist { padding-top: 4px; }
-  /* #3218: the divider in the single grouped Agents list, between the open project's agents (top)
-     and the rest of the fleet. Only emitted when a project is open in the consolidated view. A thin
-     rule on the shared --k-rule token, so it tracks light/dark; small margins because #alist is a
-     4px-gap flex column and the gap already spaces it from the rows either side. */
-  html[data-layout="consolidated"] body.consolidated #alist .alist-sep { border: 0; border-top: 1px solid var(--k-rule); height: 0; margin: 2px 2px; flex: 0 0 auto; }
-  /* #3387: the "Other Agents" sub-header that now sits between a project's members and the
-     rest. It carries the same divider the plain .alist-sep drew (border-top on --k-rule, so
-     it tracks light/dark) plus the rail-head grammar: an uppercase .railname label on the
-     left and a square .fold.plus + on the right (both styled by the shared rules below). */
+  /* #3387: the "Other Agents" sub-header in the single grouped Agents list, between the open
+     project's members (top) and the rest of the fleet. Only rendered when a project is open in the
+     consolidated view. It draws the divider (a thin border-top on the shared --k-rule token, so it
+     tracks light/dark; replaces the plain rule #3218 drew here) plus the rail-head grammar: an
+     uppercase .railname label on the left and a square .fold.plus + on the right (both styled by
+     the shared rules below). */
   html[data-layout="consolidated"] body.consolidated #alist .alist-grouphdr { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 22px; margin: 6px 2px 2px 6px; padding-top: 8px; border-top: 1px solid var(--k-rule); flex: 0 0 auto; }
   /* Folded to letters (fold-a): hide the label and the +, leaving only the divider line --
      the same reduction the rail's own .railname (#rail-agents .railname) and its + (#rail-agents-new)
@@ -17089,6 +17086,11 @@ function ageCheckedStamp() {
    project is open, and "New agent" otherwise. */
 let AGENTS_GROUPED = false;
 
+/* #3387: which control opened the add-member modal, so amClose can return focus there.
+   Set only by the consolidated-rail opener (openAddMemberModal); the tab-view "Add member"
+   button leaves it null and amClose falls back to focusing that button, its prior behaviour. */
+let AM_OPENER = null;
+
 /* #3387: reflect the grouped state onto the TOP rail head. The static HTML keeps
    `railname">Agents` (the layout-picker test asserts that markup); the LABEL is set
    live here, so it reads "Project Members" only while a project's members are grouped
@@ -17129,6 +17131,7 @@ function openAddMemberModal() {
   const where = document.getElementById('am-project');
   if (where) where.textContent = p.name || '';
   paintFreeAgentPicker(p, document.getElementById('pj-one-add'), document.getElementById('pj-one-add-go'));
+  AM_OPENER = document.getElementById('rail-agents-new');   // #3387: return focus here on close
   const modal = document.getElementById('am-modal');
   if (modal) modal.hidden = false;
   const sel = document.getElementById('pj-one-add');
@@ -46011,8 +46014,12 @@ document.getElementById('pj-add-member').addEventListener('click', () => {
    still on it. The backdrop closes too, matching every other modal on this page. */
 function amClose() {
   document.getElementById('am-modal').hidden = true;
-  const b = document.getElementById('pj-add-member');
-  if (b && !b.hidden) b.focus();
+  /* #3387: return focus to whatever opened the modal. The rail opener records itself in
+     AM_OPENER; the tab-view button leaves it null, so this falls back to that button, the
+     prior behaviour. Reset after, so a later tab-view open does not restore to a stale rail +. */
+  const opener = (AM_OPENER && !AM_OPENER.hidden) ? AM_OPENER : document.getElementById('pj-add-member');
+  if (opener && !opener.hidden) opener.focus();
+  AM_OPENER = null;
 }
 document.getElementById('am-keep').addEventListener('click', amClose);
 document.getElementById('am-modal').addEventListener('click', (e) => { if (e.target.id === 'am-modal') amClose(); });

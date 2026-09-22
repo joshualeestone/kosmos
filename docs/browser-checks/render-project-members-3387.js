@@ -70,12 +70,13 @@ const SETUP = () => {
         total: kids.length,
         hdrLabel: hdr ? (hdr.querySelector('.railname') || {}).textContent : null,
         hdrHasNewAgent: !!(hdr && hdr.querySelector('.alist-newagent')),
-        err: null,
       };
       return res;
     }, SETUP.toString());
+    // A throw inside evaluate rejects the promise and fails the run via the outer .catch, so
+    // these assert the observed values directly rather than carrying a vestigial err flag.
     ok(t + ' #3387 the head reads "Project Members" while a project is grouped',
-      grouped.err === null && grouped.railName === 'Project Members', JSON.stringify(grouped));
+      grouped.railName === 'Project Members', JSON.stringify(grouped));
     ok(t + ' #3387 the top + is repurposed to add an existing agent (aria-label + title)',
       grouped.plusLabel === 'Add an agent to this project' && grouped.plusTitle === 'Add an agent to this project', JSON.stringify(grouped));
     ok(t + ' #3387 an "Other Agents" sub-header with its own + sits between members and the rest (index 2 of 5)',
