@@ -1818,6 +1818,20 @@ function defaultAgentCodexHome() {
     || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.codex');
 }
 
+/* #3296: the DEFAULT-account Gemini home, the exact sibling of
+   defaultAgentCodexHome. A default-account Gemini agent (a launch job with a null
+   configDir) records its session under this home; the status reader resolves it
+   the same way readCodexSession resolves the codex one (job.configDir || this).
+   Mirrors geminisession.HOME()'s default/AGENT_WORKFORCE_GEMINI_HOME branches --
+   the .gemini STORAGE dir, which is where the CLI writes projects.json + tmp/. The
+   GEMINI_CLI_HOME-appends-.gemini branch geminisession.HOME() also carries is not
+   duplicated here: a default agent uses the standard ~/.gemini, exactly as
+   defaultAgentCodexHome uses ~/.codex rather than honouring CODEX_HOME. */
+function defaultAgentGeminiHome() {
+  return process.env.AGENT_WORKFORCE_GEMINI_HOME
+    || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.gemini');
+}
+
 /**
  * Trust an agent's folder for the codex runner, the way the Yes button on
  * codex's own trust dialog would. MEASURED (#245): the bypass flag does
@@ -2241,9 +2255,22 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   // written too (empty when no model was chosen) so the runner can never
   // slide into the model's slot. A claude agent's plist is byte-for-byte
   // what it was before runners existed.
-  const isCodex = runner === 'codex';
-  const modelLine = (modelArg || isCodex) ? `\n    <string>${xml(modelArg || '')}</string>` : '';
-  const runnerLine = isCodex ? `\n    <string>codex</string>` : '';
+  /* #3296: a THIRD runner (gemini) rides the same optional-seventh slot as codex,
+     so the same model-slot-protection invariant generalizes: when ANY non-claude
+     runner is written, the model line is written too (empty if none) so the runner
+     can never slide into the model's slot. A claude agent's plist stays
+     byte-for-byte what it was before runners existed (isNonClaudeRunner is false).
+     readJobVerdict reads this slot back with `s.runner || 'claude'` -- no
+     whitelist -- so writing the exact runner string round-trips it.
+     ⚠️ This generalizes the RUNNER slot only, NOT the account-env var below:
+     accountEnvVar(runner) still maps only codex -> CODEX_HOME (everything else,
+     gemini included, falls to CLAUDE_CONFIG_DIR). Harmless in this slice because a
+     default-account gemini agent carries no configDir, so no account-env line is
+     written; a PER-ACCOUNT gemini home (GEMINI_CLI_HOME, and readPlistJob's cfg
+     regex) is the launcher slice's job. */
+  const isNonClaudeRunner = runner === 'codex' || runner === 'gemini';
+  const modelLine = (modelArg || isNonClaudeRunner) ? `\n    <string>${xml(modelArg || '')}</string>` : '';
+  const runnerLine = isNonClaudeRunner ? `\n    <string>${xml(runner)}</string>` : '';
   /* 🔑 WHICH CLAUDE ACCOUNT THIS AGENT RUNS ON, and it is one environment
      variable because that is genuinely all it is: `CLAUDE_CONFIG_DIR` selects
      the config directory, and everything a Claude Code process knows lives in
@@ -4605,6 +4632,7 @@ module.exports = {
   forgetCodexFolder,
   trustCodexFolder,
   defaultAgentCodexHome,
+  defaultAgentGeminiHome,
   setRunner,
   setDryRun,
   OUTCOME,

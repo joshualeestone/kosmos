@@ -944,7 +944,7 @@ function parsePanes(out) {
          optional runner argument carries (#245). Normalised to the two
          words the classifier dispatches on, so a truncated line cannot
          invent a runner. */
-      runner: raw.runner === 'codex' ? 'codex' : '',
+      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : '',
       title: raw.title || '',
     };
   /* ⚠️ AND THE ROW ITSELF (#603's other half, MEASURED before believed):
@@ -4704,6 +4704,82 @@ function codexLastCompletionAt(agentName) {
   return codexCompletionAt(readCodexSession(agentName));
 }
 
+/* ------------------------------------------------------------------------- *
+ * #3296: the GEMINI context ring, the exact sibling of the Codex arm above.
+ * A launched Gemini agent does not write a Claude `.jsonl`, so `readContext`
+ * returned NO_TRANSCRIPT for it and the ring read "Not yet read" forever -- the
+ * #2257 symptom, third provider. `geminisession.read` reads the Gemini session
+ * transcript instead and returns codexsession.read's exact contract, which
+ * `readGeminiContext` maps into the standard ring shape. Classify (busy/idle
+ * pane markers) and the account-badge overlay are DEFERRED to the launcher slice
+ * (classify needs a live pane to validate; the badge needs a GOOGLE provider in
+ * observed.js) -- the context ring is independent of both.
+ * ------------------------------------------------------------------------- */
+
+/* Resolve a Gemini agent's launch folder to its session and read it, ONCE.
+   Mirrors readCodexSession: workerDir + readJob, gate on runner 'gemini', read
+   the agent's OWN account home (job.configDir), FAIL CLOSED to the default-account
+   home only when configDir is null (never the board's). #2906 discipline. */
+function readGeminiSession(agentName) {
+  const create = require('./create');
+  let dir;
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'gemini') return { found: false };
+  const home = job.configDir || create.defaultAgentGeminiHome();
+  try { return require('./geminisession').read(dir, home); }
+  catch { return { found: false }; }
+}
+
+function readGeminiContext(agentName, sess) {
+  // Same pre-read-once contract as readCodexContext: `undefined` means "not
+  // supplied" (read it here); a supplied {found:false} is honoured.
+  if (sess === undefined) sess = readGeminiSession(agentName);
+
+  // A transcript that EXISTS but could not be read is a genuine read failure,
+  // not a fresh agent -- keep that admission (mirrors readCodexContext).
+  if (!sess.found && sess.because === NO_READING.UNREADABLE) {
+    return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
+  }
+
+  // #2803-analog: a transcript that WAS matched and read (`sess.found`) but has
+  // reported no usage yet (`contextUsed == null`) is a working agent early in
+  // its first turn, NOT a missing transcript -- answer `notYet` directly rather
+  // than walking the notYetStarted/neverRecorded/NO_TRANSCRIPT ladder (which
+  // would be provably false here, holding the read session is proof it exists).
+  if (sess.found && sess.contextUsed == null) return notYetResult();
+  if (!sess.found) {
+    /* ⚠️ SAME PRE-EXISTING RESIDUAL as the Codex arm (see readCodexContext's note):
+       notYetStarted/neverRecorded key off a Claude-only `.jsonl` signal, so a Gemini
+       agent that HAS run but whose session forWorkdir fails to MATCH can re-present
+       "not yet" rather than an honest fault admission. It fails SOFT (never a wrong
+       number). Identical, already-analyzed behavior; noted here so a reader of the
+       Gemini arm alone learns it too. */
+    if (notYetStarted(agentName)) return notYetResult();
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
+  }
+
+  const tokens = sess.contextUsed;
+  // Gemini's transcript never states its window (contextWindow is structurally
+  // null -- the Claude "assumed ceiling" case), so this always renders measured
+  // usage with no percentage. Unlike Codex, Gemini names the model, so pass
+  // sess.model rather than null -- the ring can show the real model.
+  if (!sess.contextWindow) return noCeilingResult(tokens, sess.model || null);
+  // Defensive: a future Gemini that DID state a window would render measured,
+  // not-assumed, exactly like Codex. Not reachable today (read() returns null).
+  return measuredResult(tokens, sess.contextWindow, false);
+}
+
+/* #2413-analog NOTE: the completion-time helper (geminiCompletionAt, the sibling of
+   codexCompletionAt) belongs with the launcher slice, NOT here. It is only meaningful
+   alongside the GOOGLE-provider account-badge observation arm that consumes it, and an
+   exported-but-wired-nowhere helper is the #265 dead-code signature engine.reachable
+   guards against. sess.contextUsedAt is already returned by geminisession.read, so the
+   launcher adds geminiCompletionAt + wires it into the snapshot observation arm + the
+   badge together, reachable from the start. */
+
 /**
  * Model IDs as a person should read them.
  *
@@ -6363,8 +6439,23 @@ function snapshot() {
     // untied pane (neither consumer reads a rollout for it).
     const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
     const codexSess = (isNamedOurs(pane) && isCodexPane) ? readCodexSession(pane.name) : null;
+    /* #3296: the Gemini arm. TAG-ONLY recognition -- a Gemini agent runs as
+       `node <bundle>/gemini.js`, so its pane command is `node` (the dev-server
+       ambiguity isCodexCommand exists to avoid), never a distinguishing binary.
+       So key ONLY on the @kosmos_runner tag the supervisor records, never on the
+       command. Read the session once for the context ring below (no observation
+       arm yet -- the account badge's GOOGLE provider is the launcher slice). */
+    const isGeminiPane = pane.runner === 'gemini';
+    const geminiSess = (isNamedOurs(pane) && isGeminiPane) ? readGeminiSession(pane.name) : null;
     try {
-      if (isNamedOurs(pane) && !isCodexPane) {
+      /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
+         `!isGeminiPane`, a gemini agent scraping WORKING would record a false
+         observed.saw(PROVIDER.ANTHROPIC, ok) -- the exact cross-provider false-green
+         the #1889/#2413 split exists to prevent -- because it is not a codex pane.
+         Gemini's own observation (a GOOGLE-provider witnessed completion, from the
+         sess.contextUsedAt geminisession.read already returns) is the launcher slice;
+         until then gemini takes NEITHER arm, only the context ring below. */
+      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane) {
         /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
            RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
            WORKING is a WITNESSED live streaming turn. #1889 added one scraped
@@ -6437,7 +6528,11 @@ function snapshot() {
     const context = tied
       // #2413: pass the PRE-READ `codexSess` so the rollout is not walked a second time
       // this tick (the observation arm above already read it).
-      ? (isCodexPane ? readCodexContext(pane.name, codexSess) : readContext(pane.name, model, pane.session))
+      ? (isCodexPane ? readCodexContext(pane.name, codexSess)
+        // #3296: a Gemini pane's context lives in its Gemini session, read by
+        // readGeminiContext (same pre-read-once contract as the codex arm).
+        : isGeminiPane ? readGeminiContext(pane.name, geminiSess)
+        : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
       // 'not yet' would be false about us as well as about the agent.
@@ -6518,7 +6613,7 @@ function snapshot() {
          'claude', with empty meaning claude the way it does everywhere the
          option is absent. The switch screen keys on this, and it is the
          supervisor's record, never an inference from the command. */
-      runner: pane.runner === 'codex' ? 'codex' : 'claude',
+      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
@@ -6838,6 +6933,8 @@ module.exports = {
   countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   codexLastCompletionAt,
+  // #3296: the Gemini context-ring reader (wired into snapshot's context ring).
+  readGeminiContext,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */
