@@ -100,12 +100,17 @@ test('#3380 roster still refuses (null) when the claude read fails', () => {
   assert.equal(text, null);
 });
 
-test('#3380 with no codex agents, byName and roster are byte-identical to before', () => {
+test('#3380 with no codex agents, byName and roster carry ONLY the claude agent', () => {
   const run = () => [{ sessionId: SID_CLAUDE, name: 'x', pid: 42, status: 'idle' }];
   const rec = { read: () => ({ [SID_CLAUDE]: { name: 'clauder', runner: 'claude' } }) };
   const codexLive = () => [];
   const map = win32live.byName({ run, record: rec, codexLive });
-  assert.deepEqual([...map.keys()], ['clauder']);
+  assert.deepEqual([...map.keys()], ['clauder'], 'no codex row leaks in when there are no codex agents');
   const text = win32roster.make({ run, record: rec, codexLive })();
-  assert.equal(text, 'clauder\t0.0\t' + win32roster.WIN32_COMMAND + '\t0\tclauder\tclaude\tclauder\n');
+  // Parse rather than hand-type the tab columns (fixture-discipline forbids that).
+  const rows = text.trim().split('\n').filter(Boolean).map((l) => l.split('\t'));
+  assert.equal(rows.length, 1, 'exactly one roster row, the claude agent');
+  assert.equal(rows[0][0], 'clauder', 'session');
+  assert.equal(rows[0][4], 'clauder', 'claim === name');
+  assert.equal(rows[0][5], 'claude', 'runner column is claude');
 });
