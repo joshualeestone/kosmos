@@ -323,6 +323,17 @@ const BLOCK = [
   'tell which folder a thing belongs in, that is one short question for them,',
   'not a licence to guess.',
   '',
+  '### Making a project',
+  '',
+  '**You can make a project yourself. You do not have to ask for one.** Run',
+  '`kosmos project create "Name" /path/to/folder` and it exists on the board with',
+  'your name on it. The folder is where that project keeps its files; a short',
+  'quoted description after the folder is optional.',
+  '',
+  'It prints the new project id when it works, or the reason it could not, such',
+  'as the hourly cap on how many one agent makes. Once it exists you post to it',
+  'and hand it work the same way as any other project.',
+  '',
   '### What you hand a person',
   '',
   '**When you make something for a person, make it in the format they would',
@@ -502,8 +513,23 @@ function block() {
  *     a renderer change is expected to widen support, not narrow it, so drift
  *     degrades to under-claiming. A machine-readable capability endpoint
  *     (deferred to a follow-up card) would remove the drift entirely.
+ *
+ *  11. kosmos#3405. Josh, talking to an agent in its dialogue: it could not make
+ *     a project itself and asked to add that to the instructions. The board
+ *     already accepts an agent-made project (POST /api/projects, valved at
+ *     12/hr, #327), and the `kosmos project create "<name>" <folder> ["<desc>"]`
+ *     verb now wraps it (same address + token resolution as `kosmos post`). This
+ *     block never told an agent the capability exists, so it did not use it. A
+ *     NEW section states it plainly.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
+ *     `missingFrom` matches by heading, so the existing fleet (the agents Josh
+ *     is already talking to) is re-offered it, not only newly created ones.
+ *     WEAKEST PREMISE, NAMED: the copy names the hourly cap as the likely
+ *     refusal, but the verb surfaces the board's own reason and exits non-zero
+ *     on any failure, so a different refusal still reaches the agent at runtime;
+ *     the copy degrades to naming one example rather than the full set.
  */
-const DOCTRINE_VERSION = 10;
+const DOCTRINE_VERSION = 11;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
