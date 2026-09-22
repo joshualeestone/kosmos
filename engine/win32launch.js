@@ -287,7 +287,12 @@ function launch(spec) {
      leaves the picker the agent would have met anyway, not a reason to refuse a launch whose
      folder is already vouched for. Same .claude.json trustFolder just wrote, so it is keyed
      the same way. */
-  try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* the picker is the agent's own first-run, not a failed launch */ }
+  /* Claude-only, matching the Mac create path's `if (provider !== 'openai')` fence: a codex
+     agent's `configDir` is a CODEX_HOME, and this is the CLAUDE .claude.json onboarding key -
+     writing it into a codex home would be Claude first-run state in an OpenAI agent's home. */
+  if (s.runner !== 'codex') {
+    try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* the picker is the agent's own first-run, not a failed launch */ }
+  }
 
   /* 2. PREPARE: mint the session id, write the ownership record, mint the token.
         On failure NOTHING was recorded, so there is nothing to abandon. */
@@ -432,7 +437,9 @@ function launchStreaming(spec) {
   if (!trusted.ok) return { ok: false, because: 'we did not start it, because we could not vouch for its folder first: ' + trusted.because };
   /* #3383: pre-accept first-run onboarding on resume too, best-effort, as in launch() -- the
      picker can reappear for an agent whose config was reset while it was down. */
-  try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* best-effort, as in launch() */ }
+  if (s.runner !== 'codex') {
+    try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* #3383: best-effort, as in launch() */ }
+  }
 
   let prepared;
   if (s.resumeSessionId) {
