@@ -1268,7 +1268,17 @@ test('the startup script, actually run, hands the pane its account and its board
        own AGENT_WORKFORCE_*). Passing the supervisor's own store as an override is
        the point: it is what a default pane needs to NOT inherit a named world's
        roots from a shared tmux server a named-world board cold-started. */
+    /* ⚠️ #3383c ADDS HOME, ALWAYS (both runners). A tmux pane inherits the shared
+       server's HOME, not this supervisor's; a default-account agent (no
+       CLAUDE_CONFIG_DIR) resolves its folder-trust as $HOME/.claude.json, so if the
+       pane's HOME != the home create.js wrote the trust to, it parks on the "trust
+       this folder?" prompt. Re-injecting HOME=$HOME makes read and write agree. It
+       is non-empty here (this test process always has a HOME), so it rides in every
+       branch -- written into the expected SET, not filtered, for the same reason the
+       token and renderer riders are: this assertion's value is that nothing
+       UNEXPECTED reaches a pane. */
     const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245',
+      `HOME=${process.env.HOME || ''}`,
       'KOSMOS_WORLD=',
       `AGENT_WORKFORCE_DATA=${process.env.AGENT_WORKFORCE_DATA || ''}`,
       `AGENT_WORKFORCE_PROJECTS=${process.env.AGENT_WORKFORCE_PROJECTS || ''}`,
@@ -1328,11 +1338,18 @@ test('the startup script, actually run, hands the pane its account and its board
            the token and the renderer preference are; the positive check below
            keeps the exclusion honest. */
         && !/^KOSMOS_WORLD=/.test(v)
-        && !/^AGENT_WORKFORCE_(DATA|PROJECTS|WORKERS)=/.test(v));
+        && !/^AGENT_WORKFORCE_(DATA|PROJECTS|WORKERS)=/.test(v)
+        /* #3383c: HOME rides ALWAYS (see the set-case comment) -- it is $HOME, always
+           non-empty here, and re-injected so a default-account agent reads the trust we
+           wrote rather than parking on the folder-trust prompt. An always-on rider like
+           KOSMOS_WORLD, excluded here and pinned present by the positive check below. */
+        && !/^HOME=/.test(v));
       assert.deepEqual(notToken, [],
         `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
       assert.ok(passed.includes('KOSMOS_WORLD='),
         `${label}: the KOSMOS_WORLD override stopped reaching the pane, so a default agent could inherit a named world: ` + JSON.stringify(r.newSession));
+      assert.ok(passed.some((v) => /^HOME=/.test(v)),
+        `${label}: HOME stopped reaching the pane, so a default-account agent would read a different .claude.json than we wrote and park on the trust prompt (#3383c): ` + JSON.stringify(r.newSession));
       /* And the exclusion above must not become a place things hide: on claude the
          thing it excludes has to actually be there. Without this, deleting the
          renderer preference entirely would pass both arms of this test. */
@@ -2993,7 +3010,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   assert.equal(launches.length, 4, 'the supervisor launch lines moved; update this test with them');
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently (#577, #540, #529).
-  assert.match(script, /for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do/);
+  assert.match(script, /for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do/);
   assert.match(script, /secrets\/cloudflare\.token/, 'the supervisor no longer reads the held Cloudflare token from the store beside it (#529)');
   assert.match(script, /secrets\/github\.token/, 'the supervisor no longer reads the held GitHub token, so a no-install connection cannot reach an agent (#620)');
   // Which variables ride, and that they ride as values rather than as a

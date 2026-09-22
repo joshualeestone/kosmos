@@ -415,7 +415,27 @@ if [ -z "$adopt" ]; then
   if [ "$RUNNER" != codex ]; then
     PANE_ENV+=(-e "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1")
   fi
-  for _var in KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
+  # 🛑 #3383c: HOME is the load-bearing addition here (its position in the loop is irrelevant --
+  # tmux -e order does not matter and HOME appears once). A tmux pane inherits the shared SERVER's
+  # env, NOT this supervisor's (measured on 3.6a: a pane made by a client with HOME=B on a server
+  # started with HOME=A gets A) -- the exact reason this whole block re-injects with -e. The plist
+  # sets HOME=homeDir() for THIS supervisor, but without re-injecting it the agent's pane runs with
+  # the tmux server's HOME. When an agent has NO CLAUDE_CONFIG_DIR (a default-account agent -- the
+  # plist sets none, and on a GUI-launched Kosmos.app launchd carries none either), Claude Code
+  # v2.1.278 resolves its folder-trust config as $HOME/.claude.json. engine/create.js writes that
+  # trust to homeDir()/.claude.json. So if the pane's HOME (the server's) != homeDir(), the agent
+  # reads a different .claude.json than we wrote and parks on the "trust this folder?" prompt on
+  # every newly-created agent -- Josh's "worked ~50 builds then broke", on a real laptop.
+  #   MEASURED with CLAUDE_CONFIG_DIR explicitly UNSET (the clean-machine case), WITH A CONTROL:
+  #   server HOME wrong + pane HOME re-injected to the home that holds the trust -> NO prompt; the
+  #   same WITHOUT the HOME re-injection -> the prompt fires. Re-injecting HOME=$HOME (this
+  #   supervisor's, = the plist's homeDir(), = where trustFolder wrote) makes read and write agree.
+  #   ⚠️ Safe when CLAUDE_CONFIG_DIR IS set (the fleet/used-machine case): the CLI then reads
+  #   $CLAUDE_CONFIG_DIR/.claude.json and ignores HOME, so this is a harmless no-op there; the
+  #   CLAUDE_CONFIG_DIR re-injection right beside it already handles that path. Do NOT instead try to
+  #   change the WRITE path to ~/.claude/.claude.json -- measured: a no-CLAUDE_CONFIG_DIR agent reads
+  #   ~/.claude.json, so that would regress every clean install (the confounded first theory).
+  for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi

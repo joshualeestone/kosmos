@@ -53,10 +53,16 @@ case "$1" in
 esac
 STUB
 chmod 755 "$SB/tmux"
-STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+mkdir -p "$SB/knownhome"   # #3383c: a KNOWN HOME so the re-injection assertion below is deterministic
+STUB_DIR="$SB" HOME="$SB/knownhome" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
   bash "$SB/bin/agent-supervisor.sh" envtest "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" > "$SB/out.log" 2>&1 || true
 ARGS="$SB/new-session.args"
 if [ -s "$ARGS" ]; then ok "the supervisor reached new-session"; else bad "new-session was never asked for: $(cat "$SB/out.log" | tail -5)"; fi
+# #3383c: HOME MUST be re-injected into the pane, or a no-CLAUDE_CONFIG_DIR (default-account) agent
+# reads the tmux server's HOME/.claude.json instead of homeDir()/.claude.json where trustFolder wrote,
+# and parks on Claude Code's folder-trust prompt on every new agent (Josh's laptop, 0.6.86). tmux hands
+# a pane the SERVER's env, not the client's, so only an -e puts the right HOME there.
+if grep -qx "HOME=$SB/knownhome" "$ARGS"; then ok "HOME is re-injected into the pane (a default-account agent reads the config trustFolder wrote, no trust prompt)"; else bad "HOME did NOT reach the pane: the agent would read the tmux server's HOME/.claude.json and hit the trust prompt: $(tr '\n' ' ' < "$ARGS")"; fi
 if grep -qx 'DISCORD_BOT_TOKEN=sekrit-discord' "$ARGS"; then ok "a token door's file rides into the pane as its variable"; else bad "DISCORD_BOT_TOKEN did not reach the pane: $(tr '\n' ' ' < "$ARGS")"; fi
 if grep -qx 'BRAVE_API_KEY=sekrit-brave' "$ARGS"; then ok "and a second one beside it, with no edit to the supervisor"; else bad "BRAVE_API_KEY did not reach the pane"; fi
 for junk in lower-case 1STARTS_WITH_DIGIT BAD.NAME EMPTY_TOKEN; do
