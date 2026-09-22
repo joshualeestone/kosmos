@@ -491,5 +491,8 @@ function launchStreaming(spec) {
 
 module.exports = {
   launch, launchStreaming, messageLine, streamArgvFor,
-  childEnv, agentCliDir, argvFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
+  /* binFor is exported for the codex supervisor (#3380), which spawns `codex exec`
+     per turn and needs the same path-hint-with-bare-name-fallback the streaming
+     launch uses. Pure, so it is safe to share. */
+  childEnv, agentCliDir, argvFor, binFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
 };

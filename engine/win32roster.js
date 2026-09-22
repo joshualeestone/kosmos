@@ -46,6 +46,7 @@
  */
 const { execFileSync } = require('node:child_process');
 const win32sessions = require('./win32sessions');
+const win32codexlive = require('./win32codexlive');
 
 /* The synthesized command. See the header: classifies as a Claude agent via
    isClaudeCommand, but is NOT a version string, so the ownership process arm
@@ -110,13 +111,23 @@ function defaultRun() {
 function make(opts) {
   const run = opts && typeof opts.run === 'function' ? opts.run : defaultRun;
   const record = opts && opts.record ? opts.record : win32sessions;
+  /* #3380: the codex live source, injectable for tests. */
+  const codexLive = opts && typeof opts.codexLive === 'function' ? opts.codexLive : win32codexlive.liveSessions;
   return function win32PaneSource() {
     const agents = run();
     // NULL, not "": a failed look must refuse, never read as an empty machine.
     if (!Array.isArray(agents)) return null;
+    /* #3380: UNION the live codex agents in, so an OpenAI agent draws a card. Only
+       on a SUCCESSFUL claude read: the null above is the load-bearing "we could not
+       look", and answering partially off a failed claude read is the false-zero this
+       module refuses. So the claude answer stays byte-identical, and codex is
+       additive. (A box with codex agents but NO readable claude still refuses --
+       named in the PR as the one gap, its fix being to make the null claude-only.) */
+    let codexRows = [];
+    try { codexRows = codexLive() || []; } catch { codexRows = []; }
     const owned = record.read();
     const lines = [];
-    for (const a of agents) {
+    for (const a of agents.concat(codexRows)) {
       if (!a || typeof a !== 'object') continue;
       const id = a.sessionId;
       // Re-validate the live id against the SAME gate record() writes under, so the
