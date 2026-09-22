@@ -567,9 +567,11 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* #3410 (Josh, 0.6.88 live test): the Start affordance sits right under the
    identity, so a person looking at a not-running agent has the one action they
    need in front of them instead of hunting for the buried Fresh-start section.
-   A flex column so the button and its status line stack and center under the
-   name, matching .dnamerow. Uses the shared .btn + .fmsg (both already
-   theme-aware, so light mode is covered without new colour tokens). */
+   A flex column so the button and its status line stack under the name: the
+   button stretches to the column width (align-items: stretch) and the status
+   line is centered under it (.fmsg text-align: center). Uses the shared .btn +
+   .fmsg (both already theme-aware, so light mode is covered without new colour
+   tokens). */
 .d-start-wrap { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 12px; width: 100%; }
 .d-start-wrap .fmsg:empty { display: none; margin: 0; }
 .d-start-wrap .fmsg { margin: 0; text-align: center; }

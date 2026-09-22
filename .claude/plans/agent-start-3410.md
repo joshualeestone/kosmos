@@ -37,12 +37,17 @@ parallel to how `#d-reauth` is toggled.
   on `restartReadyWait` to actually SEE the session running before saying
   "Started". A start that never comes back shows an honest "has not come back yet"
   line; a refused/partial outcome shows `restartFailureLine`.
-- **Honest under #3418.** `restartInner` returns `outcome:'restarted'` even when
-  the launchd relaunch never loaded (Alexandra's diagnosis, Angel's lane). So the
-  button does NOT trust the restart response: after the route accepts it, it waits
-  on `restartReadyWait` to actually SEE the session running before saying
-  "Started". A start that never comes back shows an honest "has not come back yet"
-  line; a refused/partial outcome shows `restartFailureLine`.
+- **Receipt lifecycle (open-time re-derive, deliberate).** Visibility/enabled/label
+  are derived in `openDetail` and the poll's withdrawn->reappear arm, NOT per-tick,
+  matching `#d-reauth` and every other status receipt in the app (doctrine
+  "Added and restarted", the restart modal): a receipt is cleared on reopen, not
+  live-re-derived. Residual (challenge-loop iter 7): if an agent changes state while
+  its panel stays open without a board withdrawal (e.g. success then crash-to-stopped),
+  the receipt is stale until reopen. It self-heals on reopen and never lies about the
+  CURRENT action (a "Started" line was true when written). Deferred rather than adding
+  a per-tick re-derive, which would make this the sole special-cased receipt and
+  complicate the message lifecycle (risk of wiping a live failure line). Surfaced for
+  Josh/Angel to confirm the scope.
 - **No cost-confirm modal.** A stopped agent has no live session to lose, so
   starting it is a direct action, unlike the running-agent restart modal
   (`openRestartModal`) whose whole purpose is showing what it stands to lose.
