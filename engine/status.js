@@ -4750,6 +4750,12 @@ function readGeminiContext(agentName, sess) {
   // would be provably false here, holding the read session is proof it exists).
   if (sess.found && sess.contextUsed == null) return notYetResult();
   if (!sess.found) {
+    /* ⚠️ SAME PRE-EXISTING RESIDUAL as the Codex arm (see readCodexContext's note):
+       notYetStarted/neverRecorded key off a Claude-only `.jsonl` signal, so a Gemini
+       agent that HAS run but whose session forWorkdir fails to MATCH can re-present
+       "not yet" rather than an honest fault admission. It fails SOFT (never a wrong
+       number). Identical, already-analyzed behavior; noted here so a reader of the
+       Gemini arm alone learns it too. */
     if (notYetStarted(agentName)) return notYetResult();
     if (neverRecorded(agentName)) return neverRecordedResult();
     return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };

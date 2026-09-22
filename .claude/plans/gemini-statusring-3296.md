@@ -68,4 +68,15 @@ are verified.
 ## Not in this slice (the launcher, its own PR)
 create.js provider validation + MODELS + provider->runner resolution + binPaths geminiBin + the
 per-account GEMINI_CLI_HOME (accountEnvVar) + auth pre-seed; agent-supervisor.sh spawn arm; the
-classify arm; observed.js GOOGLE provider; runners.js manifest; the connect-UI un-gate.
+classify arm; observed.js GOOGLE provider; the geminiCompletionAt/geminiLastCompletionAt
+completion-time helpers (wired into the GOOGLE observation arm there); runners.js manifest; the
+connect-UI un-gate.
+
+**Binary codex-vs-claude switches the launcher must make three-way** (challenge iter 3 found one;
+all are UNREACHABLE in this slice because createAgent refuses provider 'google', so no
+`runner:'gemini'` job/entry can exist yet -- deferred deliberately, not a regression):
+- `engine/worldstarts.js:515` `firstStartOfImport`: `entry.runner === 'codex' ? 'codex' : 'claude'`
+  -- an imported `runner:'gemini'` entry would be re-registered/started as Claude (wrong installJob
+  opts + trustFolder). The launcher slice adds the gemini arm here.
+- (and the binary resolutions inside create.js itself -- provider->runner at ~738/1354/1702,
+  binPaths, accountEnvVar -- already listed above.)
