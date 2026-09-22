@@ -48,7 +48,7 @@ left out. The function is agent-neutral, exactly like its siblings: one consent-
   same file with the same `withFileLock`. The two serialise cleanly rather than lost-updating.
 - Same safety as its siblings: refuse a symlinked target, refuse a non-object shape, **merge** (never
   replace, so `trustFolder`'s `projects` map and the person's other config survive), create-if-absent
-  (a `{ hasCompletedOnboarding, theme }` file is a minimal first-run PREFERENCE, not fabricated
+  (a `{ hasCompletedOnboarding: true }` file is a minimal first-run PREFERENCE, not fabricated
   session history), atomic `wx` write, preserve mode.
 - An already-onboarded account returns `already: true` and is left byte-identical — its own theme is
   never overridden.
@@ -68,8 +68,9 @@ left out. The function is agent-neutral, exactly like its siblings: one consent-
   `preacceptBypass` + `preacceptOnboarding`) launches interactively straight to the ready composer:
   **no theme picker, no trust prompt** (only "Not logged in / Run /login", the separate sign-in).
   PROVEN end-to-end in tmux on this box.
-- `preacceptOnboarding` unit-tested: create, idempotent, merge-preserves-trust-projects, respects an
-  existing theme, records a displaced value, refuses symlink / non-object, fills empty, and the
+- `preacceptOnboarding` unit-tested: create (writes ONLY the literal `hasCompletedOnboarding` key,
+  no theme/cosmetic key), idempotent, merge-preserves-trust-projects, leaves an already-onboarded
+  config byte-identical, records a displaced value, refuses symlink / non-object, fills empty, and the
   create-sequence integration (trust THEN onboarding leaves both gates in one file).
 - The full JS suite is green (`node --test engine/*.test.js *.test.js`).
 
