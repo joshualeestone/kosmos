@@ -79,7 +79,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
   await browser.close();
 
   if (problems.length) {
-    console.log('problems:\n  ' + problems.join('\n  '));
+    // Each problem on its own `FAIL`-prefixed line so tools/browser-checks.sh's run_one can
+    // grep the reason out of the captured log and name the failing assertion, instead of the
+    // unquotable `problems:\n  ...` blob that surfaces only "(no FAIL or error line)".
+    for (const p of problems) console.error('  FAIL  ' + p);
     console.log('\n' + pass + ' passed, ' + problems.length + ' FAILED');
     process.exit(1);
   }
