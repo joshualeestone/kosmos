@@ -3470,7 +3470,10 @@ test('the detail meta line is the title plus the #684 machine-name disclosure, n
   const drive = (card) => {
     const el = { innerHTML: 'seeded' };
     const from = script.indexOf('const roleSeg = roleLine(a, ROLE_TITLES);');
-    const write = script.indexOf(".join('<br>');", from);
+    // Anchor on the join CALL, not its argument: the meta segments are joined once, and
+    // keying on `metaBits.join(` survives a change to the separator (it went from '<br>' to
+    // '' in #3385 when .dmeta-note became a block, and this anchor should not care).
+    const write = script.indexOf('metaBits.join(', from);
     const end = script.indexOf('\n', write) + 1;
     assert.ok(from > -1 && write > from, 'the #d-meta title write fell outside the extracted slice');
     // ROLE_TITLES supplied as null, which is a CASE (the state until the roles route answers), so
