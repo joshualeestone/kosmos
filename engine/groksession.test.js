@@ -24,6 +24,7 @@ const nodePath = require('node:path');
 const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-grok-')));
 process.env.AGENT_WORKFORCE_GROK_HOME = SANDBOX;
 const grok = require('./groksession');
+const { NO_READING } = require('./status');
 
 const WORKDIR = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-grok-wd-')));
 
@@ -135,7 +136,33 @@ test('a workdir with no recorded session reads NO_TRANSCRIPT', () => {
   writeSession({ encDir: 'enc', sessionId: 's1', cwd: other, model: 'grok-4.6', numMessages: 1, lastActive: '2026-09-22T02:05:00.000Z', lastTurn: 'x', tokensUsed: 5, windowTokens: 100 });
   const r = grok.read(WORKDIR);
   assert.equal(r.found, false);
-  assert.ok(r.because);
+  /* the exact shared constant, not just truthy -- so a reader that invents its own
+     wording for a condition status.js already names would be caught. */
+  assert.equal(r.because, NO_READING.NO_TRANSCRIPT);
+});
+
+test('messages is null (not 0) when num_messages is absent -- null-when-unknown', () => {
+  reset();
+  const dir = nodePath.join(SANDBOX, 'sessions', 'enc', 'no-count');
+  fs.mkdirSync(dir, { recursive: true });
+  /* a summary with info.cwd but NO num_messages field. */
+  fs.writeFileSync(nodePath.join(dir, 'summary.json'), JSON.stringify({
+    info: { id: 'nc', cwd: WORKDIR }, last_active_at: '2026-09-22T02:05:00.000Z', current_model_id: 'grok-4.6',
+  }));
+  const r = grok.read(WORKDIR);
+  assert.equal(r.found, true, r.because);
+  assert.equal(r.messages, null, 'num_messages absent -> null, never a fabricated 0');
+});
+
+test('a malformed (present but invalid-JSON) signals.json -> null halves, still found, never throws', () => {
+  reset();
+  const dir = writeSession({ encDir: 'enc', sessionId: 's-badsig', cwd: WORKDIR, model: 'grok-4.6', numMessages: 2, lastActive: '2026-09-22T02:05:00.000Z', lastTurn: 'x' });
+  fs.writeFileSync(nodePath.join(dir, 'signals.json'), '{ not valid json');
+  const r = grok.read(WORKDIR);
+  assert.equal(r.found, true, r.because);
+  assert.equal(r.contextUsed, null, 'malformed signals -> null, not a throw');
+  assert.equal(r.contextWindow, null);
+  assert.equal(r.contextUsedAt, null);
 });
 
 test('the newest session (by summary mtime) wins among two for one workdir', () => {

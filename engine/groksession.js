@@ -155,6 +155,11 @@ function read(dir, home) {
   let signalsMtime = null;
   try {
     signals = JSON.parse(fs.readFileSync(signalsPath, 'utf8'));
+    /* mtime via a separate stat after the read: if Grok rewrote signals.json in the
+       tiny window between the two, this mtime is newer than the content parsed. Grok
+       writes it once per completed turn so the window is negligible, and contextUsedAt
+       is already documented as a weaker-than-content anchor the badge must gate on --
+       so the approximation is bounded, not silent. */
     try { signalsMtime = fs.statSync(signalsPath).mtimeMs; } catch { signalsMtime = null; }
   } catch { signals = null; }
   const num = (v) => (typeof v === 'number' ? v : null);
@@ -193,7 +198,11 @@ function read(dir, home) {
     contextWindow,
     contextUsed,
     contextUsedAt,
-    messages: messages == null ? 0 : messages,
+    /* null when num_messages is absent/non-numeric, honoring the null-when-unknown
+       rule above. Unlike codex/gemini, where `messages` is a COMPUTED count (never
+       unknown, 0 = genuinely zero), Grok's is READ from summary metadata, so a `0`
+       default would assert "zero messages" when the truth is "we do not know". */
+    messages,
     lastAt,
     lastAgentMessage,
     /* Extra beyond codex's contract (as geminisession does): Grok names the model
