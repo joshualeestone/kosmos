@@ -28,7 +28,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY } = require('./trust');
+const { trustFolder, forgetFolder, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, ONBOARDING_KEY } = require('./trust');
 
 let n = 0;
 /** A folder that exists, fresh per test. */
@@ -875,4 +875,100 @@ test('#2129: a DEFAULT-account agent IGNORES the engine\'s CLAUDE_CONFIG_DIR (tr
     if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
     if (savedAwHome === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = savedAwHome;
   }
+});
+
+// #3383 launch side: preacceptOnboarding writes hasCompletedOnboarding into the
+// ACCOUNT's .claude.json (the SAME file trustFolder writes, unlike preacceptBypass's
+// settings.json), CREATING it if absent (a first-run preference, not a fabricated
+// history), so a fresh Anthropic agent does not park on Claude Code's v2.1.278 theme
+// picker. preacceptOnboarding(dir) -> configTarget resolves <dir>/.claude.json.
+// ---------------------------------------------------------------------------
+
+test('#3383: preacceptOnboarding CREATES .claude.json with onboarding + a default theme when absent', () => {
+  const d = acctDir();
+  const r = preacceptOnboarding(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.already, false);
+  assert.equal(r.madeFile, true);
+  assert.equal(r.target, cfgPath(d), 'the RESOLVED .claude.json, not ~/.claude.json (a wrong path is a silent no-op)');
+  assert.deepEqual(cfgRead(d), { [ONBOARDING_KEY]: true, theme: 'dark' });
+});
+
+test('#3383: preacceptOnboarding on an already-onboarded config is already, writes nothing, keeps its theme', () => {
+  const d = acctDir();
+  fs.writeFileSync(cfgPath(d), JSON.stringify({ [ONBOARDING_KEY]: true, theme: 'light', numStartups: 9 }));
+  const before = fs.readFileSync(cfgPath(d), 'utf8');
+  const r = preacceptOnboarding(d);
+  assert.deepEqual(r, { ok: true, already: true, target: cfgPath(d) });
+  assert.equal(fs.readFileSync(cfgPath(d), 'utf8'), before, 'the file is byte-identical: an onboarded account keeps its own theme and everything else');
+});
+
+test('#3383: preacceptOnboarding MERGES into an existing config, keeping trustFolder projects and other keys', () => {
+  const d = acctDir();
+  // exactly the shape trustFolder leaves behind when it runs first in the create sequence
+  fs.writeFileSync(cfgPath(d), JSON.stringify({ projects: { '/w': { [KEY]: true } }, numStartups: 3 }));
+  const r = preacceptOnboarding(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.already, false);
+  assert.equal(r.displaced, undefined, 'the key was absent before');
+  const after = cfgRead(d);
+  assert.equal(after[ONBOARDING_KEY], true);
+  assert.equal(after.projects['/w'][KEY], true, 'a one-key replace would have deleted trustFolder\'s trust entry');
+  assert.equal(after.numStartups, 3, 'other top-level config survives');
+});
+
+test('#3383: preacceptOnboarding does NOT override a theme already recorded', () => {
+  const d = acctDir();
+  fs.writeFileSync(cfgPath(d), JSON.stringify({ theme: 'light' }));
+  const r = preacceptOnboarding(d);
+  assert.equal(r.ok, true);
+  assert.equal(cfgRead(d).theme, 'light', 'a real theme choice is never overwritten; the default is seeded ONLY when none is present');
+  assert.equal(cfgRead(d)[ONBOARDING_KEY], true);
+});
+
+test('#3383: preacceptOnboarding records a displaced explicit value (e.g. a prior false)', () => {
+  const d = acctDir();
+  fs.writeFileSync(cfgPath(d), JSON.stringify({ [ONBOARDING_KEY]: false }));
+  const r = preacceptOnboarding(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.displaced, false, 'the prior explicit value is reported, not silently overwritten unseen');
+  assert.equal(cfgRead(d)[ONBOARDING_KEY], true);
+});
+
+test('#3383: preacceptOnboarding refuses a symlinked config target rather than sever it', () => {
+  const d = acctDir();
+  fs.symlinkSync(nodePath.join(SANDBOX, 'nowhere'), cfgPath(d));
+  const r = preacceptOnboarding(d);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /symlink/);
+});
+
+test('#3383: preacceptOnboarding refuses a non-object config file rather than clobber it', () => {
+  const d = acctDir();
+  fs.writeFileSync(cfgPath(d), JSON.stringify(['not', 'an', 'object']));
+  const r = preacceptOnboarding(d);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /shaped the way we expect/);
+});
+
+test('#3383: preacceptOnboarding fills an EMPTY config file (safe: a first-run preference, no history)', () => {
+  const d = acctDir();
+  fs.writeFileSync(cfgPath(d), '');
+  const r = preacceptOnboarding(d);
+  assert.equal(r.ok, true);
+  assert.equal(cfgRead(d)[ONBOARDING_KEY], true);
+});
+
+test('#3383: the create-sequence order (trustFolder THEN preacceptOnboarding) leaves BOTH gates pre-accepted in one .claude.json', () => {
+  // guards the create.js wiring intent: trust runs first and creates the file, onboarding
+  // merges into it -- the exact real flow that clears the trust prompt AND the theme picker.
+  const d = acctDir();
+  const w = folder();
+  const t = trustFolder(w, { configDir: d, createIfAbsent: true, agentDefaultAccount: false });
+  assert.equal(t.ok, true);
+  const o = preacceptOnboarding(d, false);
+  assert.equal(o.ok, true);
+  const after = cfgRead(d);
+  assert.equal(after.projects[K(w)][KEY], true, 'trust survives the onboarding merge');
+  assert.equal(after[ONBOARDING_KEY], true, 'onboarding is set alongside it');
 });

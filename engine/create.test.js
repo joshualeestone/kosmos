@@ -2815,18 +2815,26 @@ test('an undo that could not run is recorded, because the sentence says it did',
    * unwritable fails both, and then there is nothing to take back.
    */
   create.setRunner((file, args) => {
-    if (args && args[0] === 'bootstrap') return { ok: false, stderr: 'nope' };
+    if (args && args[0] === 'bootstrap') { rollbackStarted = true; return { ok: false, stderr: 'nope' }; }
     return { ok: true };
   });
   create.setDryRun(false);
   writeCfg({ projects: {} });
 
+  /* #3383: target the UNDO's write by ROLLBACK PHASE, not by a raw rename count. The count
+     was fragile: the pre-accept writes before bootstrap (trustFolder's .claude.json,
+     preacceptBypass's settings.json, and now preacceptOnboarding's .claude.json) vary in
+     number with the account's prior state, so "the 2nd rename" no longer names the undo.
+     The undo (forgetFolder rewriting .claude.json) is the ONLY config write that happens
+     after bootstrap has been attempted, so gating on rollbackStarted hits it precisely no
+     matter how many pre-accepts ran first. */
+  let rollbackStarted = false;
   const realRename = fs.renameSync;
-  let n = 0;
+  let undoWrites = 0;
   fs.renameSync = function (...args) {
-    if (String(args[0]).includes('.kosmos-')) {
-      n += 1;
-      if (n === 2) { const e = new Error('injected'); e.code = 'EIO'; throw e; }
+    if (rollbackStarted && String(args[0]).includes('.kosmos-') && String(args[0]).includes('claude.json')) {
+      undoWrites += 1;
+      const e = new Error('injected'); e.code = 'EIO'; throw e;
     }
     return realRename.apply(fs, args);
   };
@@ -2839,12 +2847,12 @@ test('an undo that could not run is recorded, because the sentence says it did',
   }
 
   assert.equal(r.outcome, create.OUTCOME.PARTIAL, 'the start did not fail, so no rollback ran');
-  assert.equal(n, 2, 'the undo never attempted a write, so nothing was injected into');
+  assert.equal(undoWrites, 1, 'the undo attempted exactly one config write, which is what the failure was injected into');
   assert.ok(r.steps.some((s) => s.label === 'took back the folder trust' && s.ok === false),
     'the undo failed and nothing on the machine says so, while the person is told we took it back');
 
   assert.equal(Object.keys(readCfg().projects).length, 1,
-    'the entry was removed after all, so the injection did not reach the undo');
+    'the entry was NOT removed, because the injected failure reached the undo');
 });
 
 test('a successful undo adds no step, so the failure step means something', () => {
