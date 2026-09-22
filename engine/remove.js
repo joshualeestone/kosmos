@@ -411,6 +411,15 @@ function jobOps(platform) {
       stopNow: (name, job) => Boolean(win32job.end(name, job && job.worldId).ok),
       enable: (name, job) => Boolean(win32job.enable(name, job && job.worldId).ok),
       startNow: (name, job) => Boolean(win32job.start(name, job && job.worldId).ok),
+      /* #3418: confirm the task is REGISTERED after a start. ⚠️ This is NOT the full analog of
+         the Mac's launchd-loaded check below: win32job.status exposes {registered, enabled} but
+         no RUNNING state, so it cannot catch the win32 analog of Nora -- a /Run that reports ok
+         but whose process never comes up would still register as loaded. The real win32
+         protection remains win32job.start().ok (the relaunch result, captured as `relaunched`);
+         a genuine running-state probe is a win32job follow-up. `registered` is the strongest
+         signal available here today and is never weaker than the pre-#3418 behavior, which
+         trusted start().ok alone. */
+      loaded: (name, job) => win32job.status(name, job && job.worldId).registered === true,
       /* The Mac asks whether the plist is still on disk; the analog is whether
          the task is still registered. Same question, different substrate. */
       startableGone: (name, job) => win32job.status(name, job && job.worldId).registered !== true,
@@ -440,6 +449,17 @@ function jobOps(platform) {
       const up = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, record.plist]);
       // 5 is launchd for "already loaded", which is the end state we wanted.
       return Boolean(up && (up.ok !== false || up.code === 5));
+    },
+    /* #3418: is the job actually LOADED right now? A bootstrap returning 0 is NOT the same as
+       the job being loaded. Nora's launchd job was "registered on disk but never loaded" after
+       a restart -- bootout removed it, the bootstrap did not truly reload it, and nothing
+       checked, so the restart reported success while the agent had silently vanished with no
+       KeepAlive left to revive it. `launchctl print gui/<uid>/<label>` exits non-zero for a
+       label launchd does not hold loaded (measured), which is exactly the question the restart
+       path must ask -- "is it loaded?" -- rather than startableGone's "is the plist on disk?". */
+    loaded: (name, record) => {
+      const out = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${record.label}`]);
+      return Boolean(out && out.ok !== false);
     },
     startableGone: (name, record) => !record.plist || !fs.existsSync(record.plist),
   };
@@ -1847,10 +1867,16 @@ function restartInner(name, cause, platform) {
   }
 
   /**
-   * 📌 A NUDGE, NOT THE MECHANISM. `KeepAlive` brings the agent back within the
-   * throttle window on its own; this only asks launchd to do it now rather than
-   * in up to thirty seconds. Its failure is therefore not a failed restart and
-   * is not reported as one.
+   * 🛑 THE RELAUNCH IS THE MECHANISM, NOT A NUDGE -- AND THIS IS WHERE NORA VANISHED (#3418).
+   * `stopNow` is `bootout`, which UNLOADS the job from launchd. After it, there is no loaded
+   * job for `KeepAlive` to revive, so `startNow`'s `bootstrap` is REQUIRED, not a "do it now
+   * rather than in thirty seconds" nudge. An earlier version of this comment claimed KeepAlive
+   * brings the agent back on its own and that a failed start was therefore not a failed
+   * restart -- true for a job that STAYS loaded (a kickstart), FALSE for the bootout+bootstrap
+   * pair here. Its cost: a bootstrap that did not truly reload the job left Nora unloaded,
+   * `RESTARTED` was returned anyway, the class-1 auto-handler logged a false "handled", and she
+   * disappeared -- no error, no card, no `needs_you`. So the verdict below is CONDITIONED on
+   * the relaunch actually taking.
    *
    * 🛑 BOOTOUT THEN BOOTSTRAP, NOT KICKSTART, AND THE DIFFERENCE IS WHETHER A
    * CHANGED PLIST TAKES EFFECT. launchd holds a job's ProgramArguments from the
@@ -1867,10 +1893,40 @@ function restartInner(name, cause, platform) {
      comment above turns on: a task re-reads its command line when it is run, so
      a re-registered job (a model change, an account flip) takes effect rather
      than starting again with the arguments the old instance was holding. */
-  step('asked it to start again now', () => {
+  const relaunched = step('asked it to start again now', () => {
     ops.stopNow(clean, job);
     return ops.startNow(clean, job);
   });
+  /* #3418: bootstrap can return 0 without the job actually loading, so CONFIRM it is loaded
+     rather than trusting the OS call -- this is the exact check that would have caught Nora
+     (job registered on disk, not loaded). Routed through step() and short-circuited on a dead
+     relaunch: a SKIPPED confirmation is then never recorded as a FAILED one (the steps array is
+     rendered to the person verbatim, so a plain bootstrap failure must not read as two separate
+     failures), and the check gets the same try/catch every other op in this function has. The
+     verdict gates on `loaded` directly, not on `steps`. */
+  const loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job));
+
+  if (!loaded) {
+    /* The relaunch did not take: bootout already unloaded the job, so nothing will bring the
+       agent back on its own. Clear the restarting record (as the failed-kill path above does)
+       so a down agent is not left marked restarting, and report PARTIAL -- the agent is not
+       running. This is what stops the class-1 auto-handler logging a false "handled" and the
+       Restart button telling a person an agent is back when it is not. */
+    disruption.clear(clean);
+    /* A missing launch file cannot be bootstrapped at all (startNow returns true without ever
+       trying), so "try again" is not actionable in that sub-case -- say what actually has to
+       happen instead of sending the person into an indefinite retry that keeps no-opping. */
+    const gone = ops.startableGone(clean, job);
+    return {
+      outcome: OUTCOME.PARTIAL,
+      steps,
+      because: gone
+        ? `we closed ${shown}'s window but its launch file is gone, so we could not start it `
+          + 'again. It has to be created again.'
+        : `we closed ${shown}'s window but could not start it again. Its launch job did not `
+          + 'reload, so it is not running right now. It needs another restart.',
+    };
+  }
 
   return {
     outcome: OUTCOME.RESTARTED,
