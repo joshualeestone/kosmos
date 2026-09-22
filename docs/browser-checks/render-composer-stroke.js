@@ -87,13 +87,25 @@ async function readBorders(page, layout, plus) {
       // must still win over the new recessed fill. The fill rule is :not(.dragging) exactly so it
       // does not outrank the drag rule; assert the drag-over background is the gold tint, not the
       // recessed fill. (web.composer-drop-2868.test.js only matches CSS source text, not the cascade.)
-      const postBox = boxOf('pj-post');
-      let dragBg = null;
-      if (postBox) { postBox.classList.add('dragging'); dragBg = getComputedStyle(postBox).backgroundColor; postBox.classList.remove('dragging'); }
       // Josh, 2026-09-21: the dark inset. The two project composers are given a left/right
       // margin so the black ground shows on both sides (not a full-width bar). Read it so the
       // dark arm can assert both sides are inset.
       const marginOf = (id) => { const box = boxOf(id); if (!box) return null; const cs = getComputedStyle(box); return { left: Math.round(parseFloat(cs.marginLeft)), right: Math.round(parseFloat(cs.marginRight)) }; };
+      const postBox = boxOf('pj-post');
+      let dragBg = null, postDragMargin = null;
+      // Read BOTH the drag background AND the margin while .dragging is applied. The inset rule
+      // is deliberately un-gated by :not(.dragging) so the box does not jump width on a file
+      // drag; reading the margin here (not only at rest) is what makes that invariant red-capable
+      // -- a regression that re-adds :not(.dragging) to the inset would show margin 0 during drag.
+      if (postBox) {
+        postBox.classList.add('dragging');
+        dragBg = getComputedStyle(postBox).backgroundColor;
+        const dcs = getComputedStyle(postBox);
+        postDragMargin = { left: Math.round(parseFloat(dcs.marginLeft)), right: Math.round(parseFloat(dcs.marginRight)) };
+        postBox.classList.remove('dragging');
+      }
+      const threadEl = document.getElementById('pj-thread');
+      const threadMarginTop = threadEl ? Math.round(parseFloat(getComputedStyle(threadEl).marginTop)) : null;
       return {
         consolidated: document.body.classList.contains('consolidated'),
         plusActive: document.body.classList.contains('plus-active'),
@@ -104,6 +116,8 @@ async function readBorders(page, layout, plus) {
         sayBoundary: boundary('pj-say'),
         postMargin: marginOf('pj-post'),
         sayMargin: marginOf('pj-say'),
+        postDragMargin: postDragMargin,   // the inset must survive drag (no width jump)
+        threadMarginTop: threadMarginTop,   // Josh 2026-09-21: 32px gap below the input box
         dragBg: dragBg,   // #2868: gold tint must win on drag-over, not the recessed fill
       };
     } catch (e) { return { err: e && e.message ? e.message : String(e) }; }
@@ -162,12 +176,26 @@ async function readBorders(page, layout, plus) {
       if (theme.name === 'dark') {
         ok(lt + ' dark: the project composers fill a solid #17191c', r && r.postBoundary && r.postBoundary.boxBg === 'rgb(23, 25, 28)' && r.sayBoundary && r.sayBoundary.boxBg === 'rgb(23, 25, 28)', JSON.stringify(r && { post: r.postBoundary, say: r.sayBoundary }));
         ok(lt + ' dark: the project composers are inset both sides so black surrounds them', r && r.postMargin && r.postMargin.left > 0 && r.postMargin.right > 0 && r.sayMargin && r.sayMargin.left > 0 && r.sayMargin.right > 0, JSON.stringify(r && { postMargin: r.postMargin, sayMargin: r.sayMargin }));
+        // The inset must SURVIVE a file drag-over (the whole reason the inset rule is not gated
+        // :not(.dragging)). Reds if the inset is ever re-gated and the box jumps width on drag.
+        ok(lt + ' dark: the inset survives a drag (no width jump on file drag-over)', r && r.postDragMargin && r.postDragMargin.left > 0 && r.postDragMargin.right > 0, JSON.stringify(r && { postDragMargin: r.postDragMargin }));
       }
       // CONTROL that the dark fill is scoped: in light, the composers must NOT be #17191c (they
       // keep the #3369 recessed --k-sunk wash). This reds if the dark rule ever leaks to light.
       if (theme.name === 'light') {
         ok(lt + ' CONTROL light keeps the recessed fill, not the dark #17191c', r && r.postBoundary && r.postBoundary.boxBg !== 'rgb(23, 25, 28)', JSON.stringify(r && { post: r.postBoundary }));
       }
+      // CONTROL the dark fill/inset is scoped OUT of Kosmos Plus: plus is a dark-scheme navy
+      // reskin (body.plus-active), and both new rules carry body:not(.plus-active). If a future
+      // edit drops that guard, the #17191c fill + inset would leak into Plus's navy theme; this
+      // reds on exactly that. Symmetric to the light control above.
+      if (theme.name === 'plus') {
+        ok(lt + ' CONTROL plus keeps its navy design, not the dark #17191c fill or the inset', r && r.postBoundary && r.postBoundary.boxBg !== 'rgb(23, 25, 28)' && r.postMargin && r.postMargin.left === 0 && r.postMargin.right === 0, JSON.stringify(r && { post: r.postBoundary, postMargin: r.postMargin }));
+      }
+      // Josh, 2026-09-21: the 32px gap pushing the "Talk to one of them" section (#pj-thread) down
+      // from the input box. Theme-agnostic; asserted so a silent revert or an override does not
+      // ship undetected (the #1720 gate is file-level, not change-level).
+      ok(lt + ' the Talk-to-one-of-them section keeps its 32px gap below the input box', r && r.threadMarginTop === 32, JSON.stringify(r && { threadMarginTop: r.threadMarginTop }));
       // Control: the agent-dialogue composer keeps its border, proving the removal is scoped.
       ok(lt + ' CONTROL the agent-dialogue composer (#d-say) keeps its border', r && r.dsay != null && r.dsay > 0, JSON.stringify(r));
       await page.close();
