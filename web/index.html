@@ -539,7 +539,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .dtask { font: var(--text-body) var(--font-ui); color: var(--k-ink-2);
          min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* #3385: the name never wraps; it is shrunk to fit the column by JS (fitDetailName) which sets
-   --dname-size, falling back to 1.5rem. white-space:nowrap + max-width:100% keep it on one line. */
+   --dname-size, falling back to 1.5rem (this fallback must match DNAME_BASE_REM in the script).
+   white-space:nowrap + max-width:100% keep it on one line. */
 .dname { font-size: var(--dname-size, 1.5rem); font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* A hairline between the two halves of Runs on: the model above, the account
    below. Without it the second "Right now" line reads as a continuation of the
@@ -25772,15 +25773,21 @@ async function sendTalk(text, chose, attachment) {
    natural (nowrap) width against the row's available width, and if it overflows, scale
    --dname-size down by that ratio with a legible floor. Called wherever #d-name is written; a
    no-op when the element has no layout (hidden panel, avail 0). */
+/* #3385: the detail name's base size and the floor it shrinks to, in rem. DNAME_BASE_REM must
+   match the `.dname` CSS fallback (var(--dname-size, 1.5rem)); DNAME_MIN_REM keeps a shrunk name
+   readable, with CSS ellipsis catching anything past it. Named so the two fitDetailName uses and
+   the CSS fallback do not drift as three separate literals. */
+const DNAME_BASE_REM = 1.5;
+const DNAME_MIN_REM = 0.55;
 function fitDetailName() {
   const el = document.getElementById('d-name');
   if (!el) return;
-  el.style.setProperty('--dname-size', '1.5rem');   // measure at the base size
+  el.style.setProperty('--dname-size', DNAME_BASE_REM + 'rem');   // measure at the base size
   const row = el.closest('.dnamerow') || el.parentElement;
   const avail = row ? row.clientWidth : 0;
   const natural = el.scrollWidth;                     // full nowrap width at the base size
   if (avail > 0 && natural > avail) {
-    const scaled = Math.max(0.55, 1.5 * (avail / natural));   // rem; floor keeps it readable, ellipsis catches the rest
+    const scaled = Math.max(DNAME_MIN_REM, DNAME_BASE_REM * (avail / natural));   // rem; floor keeps it readable, ellipsis catches the rest
     el.style.setProperty('--dname-size', scaled.toFixed(3) + 'rem');
   }
 }
