@@ -246,14 +246,19 @@ test('#3424 #2129 used-machine regression: a default-account agent IGNORES a poi
 });
 
 test('#3424 CONTROL: an un-seeded agent reads as NOT trusted - proving the assertions above are non-vacuous (they would fire the #2129 wedge)', () => {
-  const a = freshAgent();
-  // Deliberately do NOT call ensureLaunchTrust. This runs last, so DEFAULT_CONFIG is populated
-  // by the default-account tests above - which means isTrusted() actually FIRES here against a
-  // real, non-empty config and must return false, rather than short-circuiting on a missing
-  // file. That is the non-vacuity proof: the reader can return true, and for this workdir it does not.
+  // Self-sufficient, NOT order-dependent: seed one throwaway DEFAULT-account agent here so
+  // DEFAULT_CONFIG is populated even when this test runs in isolation (a name-filtered subset
+  // run). Then isTrusted() fires against a real, non-empty config rather than short-circuiting
+  // on a missing file - which is what makes the negative below a real negative.
+  const seeded = path.join(SANDBOX, 'workers', 'control-seeded');
+  fs.mkdirSync(seeded, { recursive: true });
+  ensureLaunchTrust(seeded, ''); // populates DEFAULT_CONFIG with a DIFFERENT workdir
+  const a = freshAgent();        // the un-seeded subject
+
   assert.equal(isTrusted(DEFAULT_CONFIG, a.workdir), false,
     'an un-seeded workdir must read NOT trusted in the populated default config - else every positive assertion above is vacuous');
-  // And nothing wrote its per-account config file at all.
+  assert.ok(isTrusted(DEFAULT_CONFIG, seeded),
+    'sanity: the default config IS populated (the seeded sibling reads true), so the false above is a real negative, not an empty-file artifact');
   assert.equal(fs.existsSync(a.configFile), false,
     'the un-seeded agent has no per-account .claude.json (the seed is the only writer)');
 });
