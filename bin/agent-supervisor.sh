@@ -512,24 +512,31 @@ if [ -z "$adopt" ]; then
       PANE_ENV+=(-e "CLAUDE_CONFIG_DIR=$EFFECTIVE_CCD")
     fi
   fi
-  # 🛑 #3430: the CODEX_HOME arm of the #3417 leak, and it is FUNCTIONAL, not cosmetic. codex
-  # stores its AUTH in $CODEX_HOME/auth.json (ICK's investigation), so a default-account codex
-  # pane that inherits the tmux server-global CODEX_HOME reads a DIFFERENT auth.json than the one
-  # Kosmos set the account up in -- a misdirected home = a silently UNAUTHENTICATED codex agent,
-  # with NO prompt to point at it (codex has no folder-trust dialog). Same fix shape as the
-  # CLAUDE_CONFIG_DIR block above: own env when set (the loop forwarded it, a per-account plist
-  # sets it), else the tmux server-global CODEX_HOME the pane would otherwise inherit, pinned
-  # explicitly so the pane and the codex writes below agree on one home. Codex arm only; empty
-  # stays empty (not pushed), same "set-but-empty vs unset" caution as above.
+  # 🛑 #3430: the CODEX_HOME arm of the #3417 leak, and it is FUNCTIONAL (a silently
+  # UNAUTHENTICATED codex agent, no prompt). But the FIX IS THE MIRROR of #3417, NOT a copy,
+  # because Josh's account lives in a DIFFERENT place per provider (Pete + ICK, verified):
+  #   - Claude's login IS the server-global (.claude-work1), so #3417 PINS it and realigns the
+  #     trust write there (ensure-launch-trust). Read == write == the account. Right for Claude.
+  #   - Codex's login is the DEFAULT home: default signin leaves auth.json in $HOME/.codex, and
+  #     create.js writes default-account codex trust via defaultAgentCodexHome()=$HOME/.codex,
+  #     DELIBERATELY skipping the engine/server CODEX_HOME. So the leaked server-global is the
+  #     WRONG home for codex -- a default codex agent that INHERITS it reads a home with NO auth.
+  # And codex has NO launch-time write-realign (ensure-launch-trust is Claude-only; auth is the
+  # user's login Kosmos never writes), so we CANNOT pin the leak and move the write to it the way
+  # #3417 does -- pinning the leak just makes the wrong read explicit (the pane already inherited
+  # it) and leaves the agent unauthenticated. We must point the READ at where auth already is.
+  # So OVERRIDE the pane's CODEX_HOME to the DEFAULT home (mirroring #3406's HOME re-injection for
+  # a default claude agent), defeating whatever the leak would have supplied. own-env-set (a
+  # per-account codex agent, plist CODEX_HOME) is left to the forwarding loop above; this fires
+  # only for a default agent (own env empty).
   EFFECTIVE_CODEX_HOME="${CODEX_HOME:-}"
   if [ "$RUNNER" = codex ] && [ -z "$EFFECTIVE_CODEX_HOME" ]; then
-    _srv_ch="$("$TMUX_BIN" show-environment -g CODEX_HOME 2>/dev/null || true)"
-    case "$_srv_ch" in
-      CODEX_HOME=?*) EFFECTIVE_CODEX_HOME="${_srv_ch#CODEX_HOME=}" ;;
-    esac
-    if [ -n "$EFFECTIVE_CODEX_HOME" ]; then
-      PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
-    fi
+    # defaultAgentCodexHome(): AGENT_WORKFORCE_CODEX_HOME (test seam) else $HOME/.codex, matching
+    # engine/create.js. A CONCRETE path, so no "set-but-empty vs unset" ambiguity; idempotent on a
+    # clean box (codex's own default is $HOME/.codex anyway) and it defeats the leak on a board
+    # cold-started under a stray CODEX_HOME. NOT the server-global (that was the #3432-v1 bug).
+    EFFECTIVE_CODEX_HOME="${AGENT_WORKFORCE_CODEX_HOME:-$HOME/.codex}"
+    PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
   fi
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge
