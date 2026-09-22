@@ -30,7 +30,7 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-MSG_VERBS="msg post reply react report room feedback task"
+MSG_VERBS="msg post reply react report room feedback task project"
 
 # --- the fix: each message verb's --help exits 0 AND printed usage -----------
 for v in $MSG_VERBS; do
@@ -72,7 +72,7 @@ fi
 # They show read-only output on --help; their own status must stand. Pin that
 # they are a SEPARATE case from the message verbs (which get `exit 0`), so a
 # future edit cannot fold them into the exit-0 rule unnoticed.
-if grep -Eq '^[[:space:]]*msg\|reply\|post\|react\|report\|room\|feedback\|task\)' "$K" \
+if grep -Eq '^[[:space:]]*msg\|reply\|post\|react\|report\|room\|feedback\|task\|project\)' "$K" \
    && grep -Eq '^[[:space:]]*adopt\|whoami\)' "$K"; then
   ok "source: message verbs and adopt|whoami are separate --help cases"
 else
