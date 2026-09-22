@@ -147,6 +147,31 @@ const SETUP = () => {
     ok(t + ' #3387 CONTROL: with no project open the top + opens create, never the add-member modal',
       control.createShown === true && control.modalHidden === true, JSON.stringify(control));
 
+    // 5) TRANSITION grouped -> empty board: if the whole board empties while a project is still
+    //    open, paintAgentList's empty-board early return must still revert the head to "Agents" and
+    //    drop the sub-header. Guards the setAgentsGrouped(false) call in that early-return branch
+    //    specifically, entered straight from the grouped state (the one path no other assertion hits).
+    await page.goto(PAGE);
+    const groupedThenEmpty = await page.evaluate((setup) => {
+      // eslint-disable-next-line no-eval
+      (0, eval)('(' + setup + ')')();                 // establishes the grouped "Project Members" state
+      const wasGrouped = (document.querySelector('#rail-agents .railname') || {}).textContent === 'Project Members';
+      BOARD_SEEN = true;                              // the board was seen, then emptied (not a cold start)
+      LAST = [];                                      // whole board goes empty, project still open
+      paintAgentList();
+      return {
+        wasGrouped,
+        railName: (document.querySelector('#rail-agents .railname') || {}).textContent,
+        plusLabel: document.getElementById('rail-agents-new').getAttribute('aria-label'),
+        hdrs: [...document.getElementById('alist').children].filter((k) => k.classList && k.classList.contains('alist-grouphdr')).length,
+        hasEmpty: !!document.getElementById('alist').querySelector('.pj-empty'),
+      };
+    }, SETUP.toString());
+    ok(t + ' #3387 grouped -> empty board reverts the head to "Agents", drops the sub-header, and draws the empty state',
+      groupedThenEmpty.wasGrouped === true && groupedThenEmpty.railName === 'Agents'
+        && groupedThenEmpty.plusLabel === 'New agent' && groupedThenEmpty.hdrs === 0
+        && groupedThenEmpty.hasEmpty === true, JSON.stringify(groupedThenEmpty));
+
     await page.close();
   }
   await browser.close();
