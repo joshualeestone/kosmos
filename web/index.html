@@ -521,8 +521,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* #3385: the name row stacks (name, then the title, then the status bubble), centered. */
 .dnamerow { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; width: 100%; }
 /* ⚠️ Beats `.astate`'s own `margin: 12px auto 0` on specificity (0,2,0 to
-   0,1,0), which is what stops the badge dropping a line and centring itself
-   when it joined the name row. */
+   0,1,0), which is what stops the badge adding a stray top gap now that it
+   stacks in the name column (#3385: .dnamerow is a flex column). */
 .dnamerow .detail-state { margin: 0; }
 /* The agent's own words, marked as a quotation rather than as our sentence: a
    rule down the left, the terminal's own face, and no italics (this is copied
@@ -532,10 +532,11 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
                border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
                white-space: pre-wrap; overflow-wrap: anywhere; }
-/* What the agent is doing, beside the badge rather than inside it. Reads as
-   the quieter half of the pair: the badge is the state, this is the subject. */
-/* `min-width: 0` WITH the overflow pair, or it does nothing: on its own the
-   element neither shrinks nor truncates, it just wraps the flex row. */
+/* What the agent is doing, its own element rather than merged into the badge.
+   Reads as the quieter half of the pair: the badge is the state, this is the
+   subject. #3385 stacks it BELOW the badge in the identity column (see the
+   #3385 note on .dtask below) and lets it wrap, so the old beside-the-badge
+   nowrap + overflow-pair rationale no longer applies. */
 /* ⚠️ `--k-ink-2`, matching `.atask`, its card counterpart. This took `--label-2`
    inside `.detail`, which sets `color: var(--k-ink)` — the two tokens are
    byte-identical in light (`--label-2` IS the pack's k-ink-2) and diverge in
@@ -2317,11 +2318,12 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
    block; render-settings-nav.js renders the result at 420, 920 and 1400. */
 #panel-settings .dbody { grid-template-columns: 176px 34rem; justify-content: center; }
 /* #2012: the AGENT page goes full-width (Josh's ask + Mona Lisa's mock). It
-   drops the 34rem centre cap that Settings keeps and restates the base .dbody's
-   176px + fluid column, so the dialogue grows into what was empty margin. Split
-   from the Settings rule above on purpose -- Settings stays capped; only
-   #panel-detail widens. (Restated rather than left to the base rule because the
-   60rem/56rem media rules below still name this selector.) */
+   drops the 34rem centre cap that Settings keeps so the dialogue grows into what
+   was empty margin. Split from the Settings rule above on purpose -- Settings
+   stays capped; only #panel-detail widens. (Restated rather than left to the
+   base rule because the 60rem/56rem media rules below still name this selector.)
+   #3385 then set the left column to 220px, up from the base .dbody's 176px, for
+   the identity block that now lives there (see the .dleft note below). */
 #panel-detail .dbody { grid-template-columns: 220px minmax(0, 1fr); justify-content: stretch; }
 /* #3385: the left column stacks the identity (.dhead) above the nav; it is the grid's first
    column, holding both. Widened from 176px so the name/title/status read comfortably.
@@ -2332,12 +2334,18 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
 #panel-detail .dleft { display: flex; flex-direction: column; min-width: 0; padding-top: 6px; }
 /* #2012: prose keeps a readable measure even though the column is now wide -- a
    1000px-long line is unreadable. The message BODY caps near 66ch, left-aligned
-   in the wide column. The chrome that sits OUTSIDE the body -- the avatar beside
-   it and the composer below -- still spans; the name/timestamp header rides
-   INSIDE the body and shares its measure, which is what we want. This is the
-   mock's full-width principle: outer chrome spans, prose keeps a measure. */
+   in the wide column, while the composer below still spans. The name/timestamp
+   header rides INSIDE the body and shares its measure, which is what we want.
+   This is the mock's full-width principle: the frame spans, prose keeps a
+   measure. (#3385 moved the identity/avatar into the .dleft column INSIDE .dbody,
+   so it is no longer outer chrome beside the body -- but the msg-b measure is
+   unchanged.) */
 #panel-detail .msg-b { max-width: 66ch; }
-@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
+@media (max-width: 60rem) { #panel-settings .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
+/* #3385: in the 56rem-60rem band the detail left column keeps its 220px identity width (it now
+   holds the avatar/name/title/status, not just the nav like Settings does); 176px would squeeze the
+   identity back to the pre-#3385 nav width. Below 56rem the grid stacks to one column (rule below). */
+@media (max-width: 60rem) { #panel-detail .dbody { grid-template-columns: 220px minmax(0, 1fr); justify-content: stretch; } }
 /* HISTORY, superseded twice. #2012 first: under Josh's 2026-08-25 "match settings
    width" request the header WAS capped to Settings' 34rem to line up with the
    then-capped .dbody; #2012 dropped that cap (max-width:none) when the body went
@@ -2410,9 +2418,10 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; max-height: none; }
 /* The panel is a flex column, so its direct children stretch by default. That is right for
-   .dhead/.dbody (full-width), but .back is a button whose content would then CENTER instead of
-   sitting top-left, and only on the Talk section (this is :has()-gated), so it would visibly
-   jump between sections. Pin it to its intrinsic left-aligned width (#2622 iter-4). */
+   .dbody (full-width; #3385 moved .dhead inside it, so .dbody is the panel's stretching child now),
+   but .back is a button whose content would then CENTER instead of sitting top-left, and only on
+   the Talk section (this is :has()-gated), so it would visibly jump between sections. Pin it to its
+   intrinsic left-aligned width (#2622 iter-4). */
 #panel-detail:has(#d-sec-talk:not([hidden])) > .back { align-self: flex-start; }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
 .snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
@@ -25927,16 +25936,10 @@ function openDetail(sessionName, section, fromProject) {
      read the code (the first-run journey walk hit it in minute two). The fact
      it carries -- nobody chose a name, so the one on screen is the internal
      one -- now says itself in the stranger's words. */
-  /* #1841 (Josh, 2026-09-02): bold the title only, so it stands out against the
-     model. No size change, no other change. The role is user-supplied, so this
-     escapes every part by hand (what textContent did for free) and wraps ONLY
-     the role in <b>.
-     🛑 THE BOLD IS KEYED TO THE ROLE ITSELF, NOT TO POSITION 0. roleLine returns
-     '' for an agent with no role, and a post-filter `i === 0` would then bold
-     whatever fell into first place -- the MODEL -- which is exactly what "bold
-     the title only" forbids. Building the role segment separately means a
-     role-less agent gets an unbolded "model · disclosure", as it read before
-     this change. */
+  /* roleLine returns the sentence-cased title (the same capitals the card uses), or '' for an
+     agent with no role -- in which case #d-meta renders empty (see the metaBits build below).
+     #3385 dropped the #1841 <b> title bolding along with the rest of the #2833 subtitle; the
+     title is now plain text, so nothing wraps the role in markup. */
   const roleSeg = roleLine(a, ROLE_TITLES);
   /* #3385 (Josh, 2026-09-21): the header moved into the left column and simplified to identity
      only -- name, then TITLE, then the status bubble. The #2833 subtitle (Title · Provider ·
