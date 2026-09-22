@@ -570,6 +570,13 @@ async function measure(engine, scheme) {
     let flipped = 0;
     for (const id of Object.keys(lightById)) {
       if (!darkById[id]) continue;
+      /* #3388 (Josh, shipped in 0.6.86): the agent-say composer #pj-say is a #17191c input
+         DELIBERATELY inset in a black ground in dark -- "a distinct dark field the black ground
+         surrounds", not a full-width recessed wash. That design makes it read raised-in-light and
+         recessed-in-dark BY INTENT, so the cross-theme-consistency rule below is one his shipped
+         design supersedes for THIS one field. Scoped to the exact id and no wider: every OTHER
+         field is still held to the rule, so an UNINTENDED flip elsewhere still fails. */
+      if (id === '#pj-say') continue;
       const dl = dir(lightById[id]), dd = dir(darkById[id]);
       if (dl !== 'n/a' && dd !== 'n/a' && dl !== dd) {
         flipped += 1;
