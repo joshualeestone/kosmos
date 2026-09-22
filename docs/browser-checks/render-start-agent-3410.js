@@ -142,6 +142,32 @@ function chk(ok, label, extra) {
       'a refused start shows the honest failure line, not "started"', clicked.msg);
     chk(clicked.btnDisabled === false, 'the button re-enables after a failed start', JSON.stringify(clicked.btnDisabled));
 
+    // ── Part 3b: a refused start with NO `because` must not double up on the
+    // restart-worded generic. restartFailureLine's shared fallback is "We could
+    // not restart them."; in this START context the handler must suppress it (our
+    // lead already said the generic, start-worded), so the message is just "We
+    // could not start Nyx." and never contains "restart".
+    await page.unroute('**/api/agent/*/restart');
+    await page.route('**/api/agent/*/restart', async (route) => {
+      await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ outcome: 'refused' }) });
+    });
+    await page.evaluate(() => openDetail('nyx'));
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.waitForTimeout(300);
+    await page.click('#d-start-agent');
+    await page.waitForFunction(() => {
+      const m = document.getElementById('d-start-msg');
+      return m && /could not start/i.test(m.textContent);
+    }, { timeout: 6000 }).catch(() => {});
+    const noReason = await page.evaluate(() => {
+      const m = document.getElementById('d-start-msg');
+      return m ? m.textContent.trim() : null;
+    });
+    chk(noReason === 'We could not start Nyx.',
+      'a refused start with no reason reads cleanly, no restart-worded double-up', noReason);
+    chk(!!noReason && !/restart/i.test(noReason),
+      'and it never says "restart" in the start context', noReason);
+
     // ── Part 4: the #3418 honesty path -- the novel behaviour this button exists
     // for. The route ACCEPTS the restart (outcome:'restarted', the false-success
     // restartInner returns even when the launchd relaunch never loaded), but the

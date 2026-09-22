@@ -46,7 +46,7 @@ honest, and is already honest on its own via the readiness re-check.
 - `tools/browser-checks.sh` + `docs/browser-checks/README.md`: wiring.
 
 ## Test plan
-`render-start-agent-3410.js` (self-serve, 14/14 green) asserts: visible + enabled
+`render-start-agent-3410.js` (self-serve, 16/16 green) asserts: visible + enabled
 + "Start this agent" on a stopped agent; hidden on a running one; the click POSTs
 `/api/agent/<name>/restart` and a refused outcome (HTTP 400) shows the honest
 failure line, not "started", and re-enables the button; and Part 4 exercises the

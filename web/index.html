@@ -30965,7 +30965,15 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
     return;
   }
   if (!restartTook(rr.ok, rout)) {
-    say('We could not start ' + shown + '. ' + restartFailureLine(rout));
+    /* restartFailureLine is shared with the restart modal, so its no-detail
+       fallback is restart-worded ("We could not restart them."). In this START
+       context that would double up as "We could not start X. We could not restart
+       them.", so only append it when it carries specifics (a reason, or a
+       what-failed/what-worked step list) beyond that generic; our lead already
+       said the generic, start-worded. */
+    const hasDetail = rout && (rout.because || rout.error
+      || (Array.isArray(rout.steps) && rout.steps.length));
+    say('We could not start ' + shown + '.' + (hasDetail ? ' ' + restartFailureLine(rout) : ''));
     reenable();
     return;
   }
