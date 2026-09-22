@@ -5012,6 +5012,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   :root:not([data-theme="light"]) body:not(.plus-active) .msg p, :root:not([data-theme="light"]) body:not(.plus-active) .msg.you p { color: #ffffff; }
   :root:not([data-theme="light"]) body:not(.consolidated):not(.plus-active) .pjmid .thread { background: #000000; }
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer { background: #000000; }
+  /* Josh, 2026-09-21: in dark mode the two project composers (the room post box
+     and the agent-say box) read cleaner as a distinct dark field the black
+     ground surrounds, not a full-width recessed wash that looked like a bar
+     between the dialogue and the input. Fill them a solid #17191c and inset them
+     so the black shows on both sides. Dark only: the black ground is what they
+     sit in; light keeps the #3369 recessed fill. The inset is always on so the
+     box does not jump width during a file drag; only the FILL is gated
+     :not(.dragging) so the #2868 gold drag tint still wins over it. */
+  :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox, :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
+  :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
   :root:not([data-theme="light"]) body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root:not([data-theme="light"]) body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
 }
 @media (min-width: 960px) {
@@ -6019,6 +6029,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    wants the person's eyes. */
 .pj-msg.unsure { border-left: 2px solid var(--warn-ink); }
 .pj-msg.unsure .pj-msg-said { color: var(--label); }
+/* Josh, 2026-09-21: more breathing room between the room input box and the
+   "Talk to one of them" agent-picker section below it (engineering mode). */
+#pj-thread { margin-top: 32px; }
 .pj-say { margin-top: var(--space-5); }
 /* #pj-say's own flex came with the bare row; .cinput carries it now (#385). */
 .pj-crumbs { font: var(--text-caption) var(--font-ui); color: var(--label-2); margin-bottom: var(--space-4); word-break: break-all; }
@@ -7886,6 +7899,16 @@ html:not([data-fed-ui="signup"]) #pj-plus-signup { display: none !important; }
 :root[data-theme="dark"] body:not(.plus-active) .msg p, :root[data-theme="dark"] body:not(.plus-active) .msg.you p { color: #ffffff; }
 :root[data-theme="dark"] body:not(.consolidated):not(.plus-active) .pjmid .thread { background: #000000; }
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer { background: #000000; }
+/* Josh, 2026-09-21: in dark mode the two project composers (the room post box
+     and the agent-say box) read cleaner as a distinct dark field the black
+     ground surrounds, not a full-width recessed wash that looked like a bar
+     between the dialogue and the input. Fill them a solid #17191c and inset them
+     so the black shows on both sides. Dark only: the black ground is what they
+     sit in; light keeps the #3369 recessed fill. The inset is always on so the
+     box does not jump width during a file drag; only the FILL is gated
+     :not(.dragging) so the #2868 gold drag tint still wins over it. */
+:root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox, :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
+:root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
 :root[data-theme="dark"] body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root[data-theme="dark"] body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
 
 @media (min-width: 960px) {
