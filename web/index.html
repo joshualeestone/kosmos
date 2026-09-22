@@ -501,8 +501,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 /* #3385: the text block is full column-width (not content-width) so the name has a fixed width
    to shrink against and the notes wrap inside the column instead of bleeding past its edge. */
 /* overflow-wrap:anywhere so a long scraped token in the column notes (#d-said, #d-conflict, the
-   restart card) breaks inside the 220px column instead of overflowing. .dname keeps white-space:
-   nowrap, which suppresses wrapping, so it is unaffected (it is fitted by JS + ellipsis instead). */
+   restart card) breaks inside the 220px column instead of overflowing. The detail name keeps
+   white-space:nowrap (via the .dnamerow .dname rule, scoped so it does not reach the shared .dname
+   titles on other screens), which suppresses wrapping, so it is unaffected -- it is fitted by JS
+   with an ellipsis floor instead. */
 .dtext { width: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; overflow-wrap: anywhere; }
 .dav-wrap { position: relative; width: 88px; height: 88px; flex: 0 0 88px; }
 .dav-wrap .detail-av { width: 88px; height: 88px; }
@@ -546,10 +548,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    keeps it in the column; .dtext's overflow-wrap breaks any long scraped token. */
 .dtask { font: var(--text-body) var(--font-ui); color: var(--k-ink-2);
          min-width: 0; max-width: 100%; text-align: center; }
-/* #3385: the name never wraps; it is shrunk to fit the column by JS (fitDetailName) which sets
-   --dname-size, falling back to 1.5rem (this fallback must match DNAME_BASE_REM in the script).
-   white-space:nowrap + max-width:100% keep it on one line. */
-.dname { font-size: var(--dname-size, 1.5rem); font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* .dname is a SHARED class (the agent name #d-name, but also #tk-title task titles, #pj-one-name
+   and the static project headings). The base rule keeps only the shared type; font-size reads
+   --dname-size with a 1.5rem fallback (this fallback must match DNAME_BASE_REM in the script), and
+   --dname-size is set inline on #d-name ONLY, so every other .dname falls back to 1.5rem unchanged. */
+.dname { font-size: var(--dname-size, 1.5rem); font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); }
+/* #3385: the agent-detail name never wraps; it is shrunk to fit the 220px column by JS
+   (fitDetailName), with nowrap + ellipsis as the floor fallback. SCOPED to .dnamerow so it does
+   NOT reach the shared .dname title elements on other screens (#tk-title wraps a task sentence and
+   must keep doing so -- editing the base rule truncated it, kosmos#3385 iteration-7). */
+.dnamerow .dname { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* A hairline between the two halves of Runs on: the model above, the account
    below. Without it the second "Right now" line reads as a continuation of the
    first control rather than the start of a second one. */
