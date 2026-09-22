@@ -24,6 +24,18 @@ create.js's create-time calls) and asserts on the REAL files:
 4. `#3424 CONTROL`: an un-seeded agent has NO trust key anywhere - proving the assertions
    are non-vacuous (they would fire the #2129 wedge).
 
+5. `#3424 bar (1), default-account variant`: SEVERAL default-account agents seeded
+   back-to-back all survive in the ONE shared config (no dropped entry) - the
+   read-modify-MERGE correctness for the shared ~/.claude.json. Explicitly SEQUENTIAL
+   (the acceptance bar), not the #3088 concurrent file lock.
+6. `#3424 #2129 used-machine regression`: a default-account agent IGNORES a poisoned
+   CLAUDE_CONFIG_DIR - the clean-env-vs-used-env split that actually broke #2129. Asserts
+   BOTH the config (trust) and settings (bypass) sides land in the sandboxed HOME, not the
+   poison dir (they are separate code paths, configTarget vs settingsTarget).
+
+(The above grew from the original 4 during the challenge loop: the concurrent-default merge
+case and the poison used-machine regression were added in response to blind-review findings.)
+
 The live post-reboot no-prompt BEHAVIOURAL check (real launchd auto-start + a live Claude
 coming up) cannot run in CI (no reboot, no real account, and observing "no prompt" would
 scrape a pane - the thing Kosmos is moving away from), so it is a documented runbook in
