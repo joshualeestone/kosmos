@@ -1198,7 +1198,7 @@ fi
 # render-start-agent-3410 joins the same way (#3410, the "Start this agent" affordance
 # in the detail identity column): own mktemp roots, OS-chosen port via srv.start(0),
 # server.js in-process, fleet.install (a stopped agent + an idle one), runs bare.
-# Proven standalone 10/10 green; the visibility arms RED on a page without the
+# Proven standalone 14/14 green; the visibility arms RED on a page without the
 # affordance (stopped shows nothing, or the running agent shows it), and the click
 # arm RED if Start does not POST /restart or claims success on a refused outcome.
 # render-agentpage-fullwidth-2012 joins the same way (#2012, the full-width agent

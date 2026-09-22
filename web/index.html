@@ -30945,7 +30945,12 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
   const shown = (CURRENT && CURRENT.name) || name;
   const sb = document.getElementById('d-start-agent');
   const sm = document.getElementById('d-start-msg');
-  const onPanel = () => CURRENT && CURRENT.sessionName === name && sm && sm.isConnected;
+  /* !PANEL_WITHDRAWN too: if the agent vanishes from the board mid-flight, the
+     poll's "no longer under Agents" arm shows #d-withdrawn and disables this
+     button, so a late say() here would print a start status UNDERNEATH that
+     banner -- two contradictory lines at once. Gating on PANEL_WITHDRAWN makes
+     every say()/reenable() a no-op once the panel has gone withdrawn. */
+  const onPanel = () => CURRENT && CURRENT.sessionName === name && sm && sm.isConnected && !PANEL_WITHDRAWN;
   const say = (t) => { if (onPanel()) sm.textContent = t; };
   const reenable = () => { if (onPanel() && sb) sb.disabled = false; };
   if (sb) sb.disabled = true;
@@ -30987,11 +30992,18 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
       body: JSON.stringify({ text: 'hello' }),
     });
     const hout = await hr.json().catch(() => null);
+    /* Re-check the token AFTER the hello resolves, exactly as autoHelloAfterRestart
+       does: a newer restart of this same agent (rst-go, trust-and-restart, the
+       stale-instructions notice) can supersede us WHILE this POST is in flight,
+       and without this we would overwrite its status with a stale "started + said
+       hello" and fire a redundant second hello. */
+    if (token !== RESTART_HELLO_SEQ[name]) return;
     const placed = hr.ok && hout && hout.delivery && hout.delivery.state === 'placed';
     say(placed
       ? 'Started ' + shown + ', and said hello to wake them.'
       : 'Started ' + shown + '. Say ‘hello’ to wake them.');
   } catch {
+    if (token !== RESTART_HELLO_SEQ[name]) return;
     say('Started ' + shown + '. Say ‘hello’ to wake them.');
   }
   /* Leave the button disabled: the agent is running now, so Start no longer
