@@ -4766,18 +4766,13 @@ function readGeminiContext(agentName, sess) {
   return measuredResult(tokens, sess.contextWindow, false);
 }
 
-/* #2413-analog: WHEN this Gemini agent last completed a turn that reported usage,
-   as epoch ms, or null. Pure -- derives from an already-read session so the
-   caller controls when the transcript is read. Reserved for the account-badge
-   overlay the launcher slice adds (a witnessed completion greens a live key);
-   exported now so that slice needs no status.js change to reach it. */
-function geminiCompletionAt(sess) {
-  return sess && sess.found && typeof sess.contextUsedAt === 'number' ? sess.contextUsedAt : null;
-}
-
-function geminiLastCompletionAt(agentName) {
-  return geminiCompletionAt(readGeminiSession(agentName));
-}
+/* #2413-analog NOTE: the completion-time helper (geminiCompletionAt, the sibling of
+   codexCompletionAt) belongs with the launcher slice, NOT here. It is only meaningful
+   alongside the GOOGLE-provider account-badge observation arm that consumes it, and an
+   exported-but-wired-nowhere helper is the #265 dead-code signature engine.reachable
+   guards against. sess.contextUsedAt is already returned by geminisession.read, so the
+   launcher adds geminiCompletionAt + wires it into the snapshot observation arm + the
+   badge together, reachable from the start. */
 
 /**
  * Model IDs as a person should read them.
@@ -6447,7 +6442,14 @@ function snapshot() {
     const isGeminiPane = pane.runner === 'gemini';
     const geminiSess = (isNamedOurs(pane) && isGeminiPane) ? readGeminiSession(pane.name) : null;
     try {
-      if (isNamedOurs(pane) && !isCodexPane) {
+      /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
+         `!isGeminiPane`, a gemini agent scraping WORKING would record a false
+         observed.saw(PROVIDER.ANTHROPIC, ok) -- the exact cross-provider false-green
+         the #1889/#2413 split exists to prevent -- because it is not a codex pane.
+         Gemini's own observation (a GOOGLE-provider witnessed completion, from the
+         sess.contextUsedAt geminisession.read already returns) is the launcher slice;
+         until then gemini takes NEITHER arm, only the context ring below. */
+      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane) {
         /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
            RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
            WORKING is a WITNESSED live streaming turn. #1889 added one scraped
@@ -6925,9 +6927,8 @@ module.exports = {
   countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   codexLastCompletionAt,
-  // #3296: the Gemini context-ring reader + its completion-time helper (the
-  // latter reserved for the launcher slice's account-badge overlay).
-  readGeminiContext, geminiLastCompletionAt,
+  // #3296: the Gemini context-ring reader (wired into snapshot's context ring).
+  readGeminiContext,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */

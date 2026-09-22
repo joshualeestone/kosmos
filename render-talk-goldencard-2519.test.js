@@ -991,7 +991,7 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
        mtime, an epoch-ms timestamp that must not reach a committed file verbatim. */
     const PINNED_NUMBER = ['avatarVer'];
     const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN, PINNED_NUMBER);
-    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (ELEVEN objects share that one key set, derived by the arm; an earlier version said six by counting only readContext and missing readCodexContext and the two inline card literals), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
+    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (THIRTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
        CARDS HERE ARE DIFFERENT ONES. The fleet agent has no transcript, so its context is
        the no-reading shape; the committed recording was captured from an agent with a
        measured context. A single expected list would have been wrong for one of them, and
@@ -1637,7 +1637,7 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      MEASURED on an 18-agent board: TWO distinct `profile` shapes among our pane cards,
      17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty, because
      store.readProfile() returns {} for an agent with no profile file. `profile` is a
-     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (ELEVEN objects share that one key set, derived by the arm; an earlier version said six by counting only readContext and missing readCodexContext and the two inline card literals), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (THIRTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
      that agent's transcript and ceiling, so no two cards are guaranteed to share a
      nested shape.
      ⚠️ And WHICH card was compared was arbitrary: liveCard() takes the first pane card

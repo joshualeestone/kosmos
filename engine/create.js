@@ -2261,7 +2261,13 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      can never slide into the model's slot. A claude agent's plist stays
      byte-for-byte what it was before runners existed (isNonClaudeRunner is false).
      readJobVerdict reads this slot back with `s.runner || 'claude'` -- no
-     whitelist -- so writing the exact runner string round-trips it. */
+     whitelist -- so writing the exact runner string round-trips it.
+     ⚠️ This generalizes the RUNNER slot only, NOT the account-env var below:
+     accountEnvVar(runner) still maps only codex -> CODEX_HOME (everything else,
+     gemini included, falls to CLAUDE_CONFIG_DIR). Harmless in this slice because a
+     default-account gemini agent carries no configDir, so no account-env line is
+     written; a PER-ACCOUNT gemini home (GEMINI_CLI_HOME, and readPlistJob's cfg
+     regex) is the launcher slice's job. */
   const isNonClaudeRunner = runner === 'codex' || runner === 'gemini';
   const modelLine = (modelArg || isNonClaudeRunner) ? `\n    <string>${xml(modelArg || '')}</string>` : '';
   const runnerLine = isNonClaudeRunner ? `\n    <string>${xml(runner)}</string>` : '';

@@ -134,6 +134,10 @@ test('#3296: the runner gate -- readGeminiContext gives no readout for a NON-gem
   writeSession(WORKDIR, 'gizmo-slug', 6937, 'gemini-2.5-flash'); // even with a gemini session on disk
   const ctx = status.readGeminiContext(NAME);
   // readGeminiSession gates on job.runner === 'gemini' -> {found:false} for a codex agent,
-  // so the ring falls through to the no-transcript answer rather than reading the session.
+  // so readGeminiContext never reads the gemini session on disk. (The {found:false} then
+  // resolves through the notYetStarted/neverRecorded ladder -- a codex agent with a job but
+  // no Claude transcript hits notYetStarted -> notYetResult -- but the point under test is
+  // only that tokens stays null: a MISSING gate would have read the session and returned
+  // tokens: 6937.)
   assert.equal(ctx.tokens, null, 'a non-gemini agent must not read a gemini session');
 });

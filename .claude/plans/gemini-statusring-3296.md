@@ -28,8 +28,10 @@ context ring reads a Gemini agent's real usage, the exact sibling of the Codex a
    drift). REQUIRED for `readGeminiSession`'s `job.runner === 'gemini'` gate to fire -- and a
    prerequisite the launcher needs too. Unreachable in production until the launcher writes
    such a plist (createAgent still refuses provider 'google'), so dead-but-ready.
-3. **status.js `readGeminiSession` / `readGeminiContext` / `geminiCompletionAt` /
-   `geminiLastCompletionAt`** -- exact mirrors of the Codex arm: gate on runner, read the
+3. **status.js `readGeminiSession` / `readGeminiContext`** -- exact mirrors of the Codex arm
+   (the completion-time helper geminiCompletionAt/geminiLastCompletionAt moved to the launcher
+   slice, where the GOOGLE-provider observation arm that consumes it lives -- an
+   exported-but-unwired helper is the #265 dead-code signature). Gate on runner, read the
    agent's own account home, map the session to the ring. `contextWindow` is structurally
    null for Gemini (the Claude "assumed ceiling" case) so it renders measured-usage /
    no-ceiling, but with the model NAMED (Gemini carries it, unlike Codex). Same #2803-analog
@@ -37,7 +39,11 @@ context ring reads a Gemini agent's real usage, the exact sibling of the Codex a
 4. **status.js snapshot** -- an `isGeminiPane` discriminator (TAG-ONLY: gemini fronts as
    `node`, so key on `pane.runner === 'gemini'`, never a command classifier), `geminiSess`
    read once, the context-ring ternary extended, and the runner field (both the raw-tag
-   normalize at ~947 and the snapshot field at ~6596) passing 'gemini' through.
+   normalize at ~947 and the snapshot field at ~6596) passing 'gemini' through. The Anthropic
+   observation-arm gate is `!isCodexPane && !isGeminiPane` (challenge iter 1): without the
+   `!isGeminiPane`, a live gemini pane scraping WORKING would record a false
+   observed.saw(PROVIDER.ANTHROPIC) -- the cross-provider false-green the #1889/#2413 split
+   exists to prevent. Gemini takes NEITHER observation arm in this slice, only the context ring.
 5. **The #2519 golden-card count** -- `readGeminiContext` adds two `{ ...NONE_BASE, ... }`
    branches (mirroring the Codex per-provider duplication), so the NONE_BASE-family count
    grows 11 -> 13. Updated the guard's assertion and the derived doc
