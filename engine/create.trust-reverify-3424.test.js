@@ -92,6 +92,10 @@ function freshAgent() {
   return { k, workdir, configDir, configFile: path.join(configDir, '.claude.json'), settingsFile: path.join(configDir, 'settings.json') };
 }
 
+// N is the "SEVERAL agents back-to-back" count from the acceptance bar. 5 is chosen as
+// comfortably more than the 1-2 a create-then-restart smoke exercises - enough to surface an
+// ordering / lost-update / cross-contamination bug that N=2 could mask - while staying fast.
+// The assertions are per-agent, so the exact value is not load-bearing above ~3.
 const N = 5;
 
 test('#3424 bar (1): N per-account agents created back-to-back are EACH seeded in the dir they read, with no leak and no cross-contamination', () => {
@@ -179,13 +183,17 @@ test('#3424 default-account path: a no-CLAUDE_CONFIG_DIR agent is seeded in the 
     'default-account agent: onboarding top-level in the default .claude.json (the ~/.claude.json equivalent)');
 });
 
-test('#3424 bar (1), default-account variant: SEVERAL default-account agents seeded back-to-back all survive in the ONE shared config, no lost update', () => {
-  // The realistic #2129 shape and the more dangerous one: multiple default-account agents
-  // (no CLAUDE_CONFIG_DIR) all write the SAME ~/.claude.json / ~/.claude/settings.json.
-  // Unlike the per-account case there is no isolation to check - they SHARE the file - so the
-  // failure mode is a LOST UPDATE: a later agent's read-modify-write drops an earlier agent's
-  // trust entry (exactly the concurrent hazard trust.js's #3088 file lock exists for). Assert
-  // the shared default config ends up carrying EVERY agent's trust entry, not just the last.
+test('#3424 bar (1), default-account variant: SEVERAL default-account agents seeded back-to-back all survive in the ONE shared config, no dropped entry', () => {
+  // Multiple default-account agents (no CLAUDE_CONFIG_DIR) all write the SAME ~/.claude.json /
+  // ~/.claude/settings.json. Unlike the per-account case there is no isolation to check - they
+  // SHARE the file - so the failure mode is a DROPPED ENTRY: a later agent's read-modify-write
+  // clobbers an earlier agent's trust instead of merging it (trustFolderInner does
+  // data.projects[key] = Object.assign(...); a merge/replace bug there drops the others).
+  // SCOPE: this is SEQUENTIAL back-to-back, matching the acceptance bar - NOT concurrent. It
+  // exercises the read-modify-MERGE correctness, NOT the #3088 file lock, which serialises
+  // genuinely simultaneous writers and cannot be reproduced by single-threaded synchronous
+  // calls (that would need real concurrency - separate processes or overlapping async writes).
+  // Assert the shared default config ends up carrying EVERY agent's trust entry, not just the last.
   const workdirs = [];
   for (let i = 0; i < N; i++) {
     const wd = path.join(SANDBOX, 'workers', `default-b2b-${i}`);
@@ -202,13 +210,52 @@ test('#3424 bar (1), default-account variant: SEVERAL default-account agents see
   assert.equal(readJson(DEFAULT_CONFIG)[ONBOARDING_KEY], true, 'shared default .claude.json still carries onboarding after N default agents');
 });
 
-test('#3424 CONTROL: an un-seeded agent has NO trust key anywhere - proving the assertions above are non-vacuous (they would fire the #2129 wedge)', () => {
+test('#3424 #2129 used-machine regression: a default-account agent IGNORES a poisoned CLAUDE_CONFIG_DIR (the used-env split that actually broke)', () => {
+  // The #2129 bug was NOT file-absent-vs-present - a fresh Mac Mini worked. It was
+  // clean-env-vs-used-env: on a USED machine the Kosmos board inherits a stray
+  // CLAUDE_CONFIG_DIR, and CONFIG(null) HONOURS it (trust.js:108), so a default-account trust
+  // landed in the ENGINE's config while the agent read ~/.claude.json - trust written, prompt
+  // still fires. The fix routes default-account writes through defaultAgentConfig() /
+  // defaultAgentSettings(), which IGNORE CLAUDE_CONFIG_DIR. To exercise that ignore we must
+  // drop the AGENT_WORKFORCE_CLAUDE_CONFIG/SETTINGS overrides (so defaultAgent* falls to
+  // AGENT_WORKFORCE_HOME, still fully sandboxed) and set a poison CLAUDE_CONFIG_DIR: a
+  // regression to CONFIG(null) would then follow the poison, which this asserts against.
+  const savedConfig = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  const savedSettings = process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS;
+  const poison = path.join(SANDBOX, 'POISON-config-dir');
+  const workdir = path.join(SANDBOX, 'workers', 'used-machine');
+  fs.mkdirSync(poison, { recursive: true });
+  fs.mkdirSync(workdir, { recursive: true });
+  try {
+    delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;   // defaultAgentConfig -> AGENT_WORKFORCE_HOME/.claude.json
+    delete process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS; // defaultAgentSettings -> AGENT_WORKFORCE_HOME/.claude/settings.json
+    process.env.CLAUDE_CONFIG_DIR = poison;             // the stray inherited var a used machine carries
+    ensureLaunchTrust(workdir, '');                     // default account (empty configDir)
+
+    const homeConfig = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json');
+    const poisonConfig = path.join(poison, '.claude.json');
+    assert.ok(isTrusted(homeConfig, workdir),
+      'default-account trust must land in the HOME .claude.json (defaultAgentConfig ignores CLAUDE_CONFIG_DIR)');
+    assert.equal(fs.existsSync(poisonConfig), false,
+      'default-account trust must NOT follow the poisoned CLAUDE_CONFIG_DIR - a write there is the exact #2129 write-A-read-B bug');
+  } finally {
+    delete process.env.CLAUDE_CONFIG_DIR;
+    if (savedConfig !== undefined) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = savedConfig;
+    if (savedSettings !== undefined) process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS = savedSettings;
+  }
+});
+
+test('#3424 CONTROL: an un-seeded agent reads as NOT trusted - proving the assertions above are non-vacuous (they would fire the #2129 wedge)', () => {
   const a = freshAgent();
-  // Deliberately do NOT call ensureLaunchTrust.
-  assert.ok(!fs.existsSync(a.configFile) || !isTrusted(a.configFile, a.workdir),
-    'an agent that never ran the seed must NOT read as trusted - else every assertion above passes vacuously');
-  assert.ok(!isTrusted(DEFAULT_CONFIG, a.workdir),
-    'and its (absent) trust must not appear in the default config either');
+  // Deliberately do NOT call ensureLaunchTrust. This runs last, so DEFAULT_CONFIG is populated
+  // by the default-account tests above - which means isTrusted() actually FIRES here against a
+  // real, non-empty config and must return false, rather than short-circuiting on a missing
+  // file. That is the non-vacuity proof: the reader can return true, and for this workdir it does not.
+  assert.equal(isTrusted(DEFAULT_CONFIG, a.workdir), false,
+    'an un-seeded workdir must read NOT trusted in the populated default config - else every positive assertion above is vacuous');
+  // And nothing wrote its per-account config file at all.
+  assert.equal(fs.existsSync(a.configFile), false,
+    'the un-seeded agent has no per-account .claude.json (the seed is the only writer)');
 });
 
 /*
