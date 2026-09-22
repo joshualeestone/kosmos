@@ -415,7 +415,8 @@ if [ -z "$adopt" ]; then
   if [ "$RUNNER" != codex ]; then
     PANE_ENV+=(-e "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1")
   fi
-  # 🛑 #3383c: HOME is FIRST and it is load-bearing. A tmux pane inherits the shared SERVER's
+  # 🛑 #3383c: HOME is the load-bearing addition here (its position in the loop is irrelevant --
+  # tmux -e order does not matter and HOME appears once). A tmux pane inherits the shared SERVER's
   # env, NOT this supervisor's (measured on 3.6a: a pane made by a client with HOME=B on a server
   # started with HOME=A gets A) -- the exact reason this whole block re-injects with -e. The plist
   # sets HOME=homeDir() for THIS supervisor, but without re-injecting it the agent's pane runs with
