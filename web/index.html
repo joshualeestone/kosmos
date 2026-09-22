@@ -46010,6 +46010,7 @@ document.getElementById('pj-add-member').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   const where = document.getElementById('am-project');
   if (where) where.textContent = p ? p.name : '';
+  AM_OPENER = document.getElementById('pj-add-member');   // #3387: return focus here on close
   document.getElementById('am-modal').hidden = false;
   document.getElementById('pj-one-add').focus();
 });
@@ -46018,11 +46019,16 @@ document.getElementById('pj-add-member').addEventListener('click', () => {
    still on it. The backdrop closes too, matching every other modal on this page. */
 function amClose() {
   document.getElementById('am-modal').hidden = true;
-  /* #3387: return focus to whatever opened the modal. The rail opener records itself in
-     AM_OPENER; the tab-view button leaves it null, so this falls back to that button, the
-     prior behaviour. Reset after, so a later tab-view open does not restore to a stale rail +. */
-  const opener = (AM_OPENER && !AM_OPENER.hidden) ? AM_OPENER : document.getElementById('pj-add-member');
-  if (opener && !opener.hidden) opener.focus();
+  /* #3387: return focus to whatever opened the modal. BOTH openers record themselves in
+     AM_OPENER (the rail + and the tab-view "Add member" button), so it always reflects the
+     open that this close pairs with, never a stale value from an earlier open closed by some
+     other path (e.g. pjView hiding the modal directly). Falls back to the tab-view button if
+     AM_OPENER is unset. offsetParent (not the .hidden attribute) is the visibility test, because
+     the rail + is hidden via an ANCESTOR (#rail-agents), which .hidden on the button cannot see;
+     focusing an off-screen control would silently drop focus to <body>. Reset after either way. */
+  const shown = (el) => !!el && el.offsetParent !== null;
+  const opener = shown(AM_OPENER) ? AM_OPENER : document.getElementById('pj-add-member');
+  if (shown(opener)) opener.focus();
   AM_OPENER = null;
 }
 document.getElementById('am-keep').addEventListener('click', amClose);
