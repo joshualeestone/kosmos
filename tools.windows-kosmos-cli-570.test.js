@@ -171,6 +171,35 @@ test('room and task sanitize the project id the way install/kosmos does, and pre
   assert.equal(close.calls.length, 0);
 });
 
+test('project create: POST /api/projects with name+folder and the BOARD token (not the agent token); id -> 0; error -> 1; missing args -> 2', async () => {
+  const okBody = { project: { id: 'my-project' }, told: [], id: 'my-project', agentsUnreadable: false };
+  const ok = await run(['project', 'create', 'My Project', '/tmp/mp', 'a demo'], () => ({ body: okBody }));
+  assert.equal(ok.code, 0);
+  assert.equal(ok.calls[0].route, '/api/projects');
+  assert.equal(ok.calls[0].method, 'POST');
+  assert.deepEqual(ok.calls[0].body, { name: 'My Project', folder: '/tmp/mp', from_pane: '', description: 'a demo' });
+  assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], undefined, 'a board write: the create route does not name the sender from the agent token');
+  assert.equal(ok.calls[0].headers['x-kosmos-board-token'], BOARD, 'an enforcing board would 403 without the board token');
+  assert.equal(ok.out, 'Created project "My Project" (id: my-project). It\'s on your board now.');
+
+  // description omitted when not given
+  const nod = await run(['project', 'create', 'Nodesc', '/tmp/nd'], () => ({ body: okBody }));
+  assert.equal(Object.prototype.hasOwnProperty.call(nod.calls[0].body, 'description'), false,
+    'description must be absent from the body when the caller did not pass one');
+
+  // the load-bearing control: a refused create exits non-zero with the board's reason
+  const rate = await run(['project', 'create', 'Rate', '/tmp/r'],
+    () => ({ status: 429, body: { error: 'agents have made 12 projects in the last hour, so Kosmos is pausing agent-made projects' } }));
+  assert.equal(rate.code, 1);
+  assert.match(rate.err, /did not create that project/);
+  assert.match(rate.err, /pausing agent-made projects/);
+
+  // missing folder is a usage error, sent nowhere
+  const bad = await run(['project', 'create', 'OnlyName']);
+  assert.equal(bad.code, 2);
+  assert.equal(bad.calls.length, 0);
+});
+
 test('no verb, or an unknown one, is a usage error', async () => {
   assert.equal((await run([])).code, 2);
   assert.equal((await run(['start'])).code, 2, 'the board is Kosmos.exe; this command has no start');
