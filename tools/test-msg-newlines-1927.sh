@@ -122,11 +122,12 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
 # fragment are matched literally. #2662 added two more sites (cmd_task's
 # esc_sentence + esc_detail), both using this same guarded pipeline, taking the
 # whitelist count from 4 to 6; #768 added one more (cmd_task's `message` verb's
-# esc_text), 6 to 7; the broken-form guard below still enforces zero.
+# esc_text), 6 to 7; #3388 added cmd_project's esc_desc (the `kosmos project
+# create` description), 7 to 8; the broken-form guard below still enforces zero.
 n_new="$(grep -cF "sed -e ':a' -e '\$!{N;ba' -e '}' -e 's/" install/kosmos)"
-[ "$n_new" -eq 7 ] \
-  && ok "all 7 multi-line JSON-escape sites use the paragraph-preserving, single-line-safe (\$!-guarded) pipeline" \
-  || bad "expected 7 fixed multi-line JSON-escape sites, found $n_new"
+[ "$n_new" -eq 8 ] \
+  && ok "all 8 multi-line JSON-escape sites use the paragraph-preserving, single-line-safe (\$!-guarded) pipeline" \
+  || bad "expected 8 fixed multi-line JSON-escape sites, found $n_new"
 
 # --- regression guard: BOTH broken forms must NOT return --------------------
 # (1) the GNU-only one-liner that dies on BSD sed, and (2) the UNGUARDED `N`

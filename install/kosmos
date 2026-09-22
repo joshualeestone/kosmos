@@ -1782,7 +1782,7 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|task)
+    msg|reply|post|react|report|room|feedback|task|project)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -1806,7 +1806,7 @@ if [ "$_kosmos_help" = 1 ]; then
       # Keep the bare re-dispatch and let their status stand.
       set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | adopt | whoami\n\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | adopt | whoami\n\n'
       printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
@@ -2078,6 +2078,85 @@ cmd_task() {
   esac
 }
 
+# kosmos#3388: let an agent create a project with one command, instead of a raw
+# curl that has to resolve the board address and send the board token off-argv
+# (the fragile thing we do not want pasted into agent instructions). Shaped like
+# cmd_task: validate the subcommand + its args BEFORE the health check, one
+# board_token read, then the action inline. The backend already exists
+# (POST /api/projects, server.js) and is rate-valved at 12 process-made
+# projects/hour (#327); this is a pure CLI wrapper, no server change.
+cmd_project() {
+  local sub; sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    ''|help|-h|--help)
+      say "Usage: kosmos project <create>"
+      say "  kosmos project create \"<name>\" <folder> [\"<description>\"]   make a new project (it shows on your board, tagged as made by you)"
+      say "  <folder> is a path on this machine; the project's files live there."
+      exit 2 ;;
+    # Validate BEFORE the health check, the same order cmd_post / cmd_task use, so a
+    # malformed call is named even when the board is stopped (not hidden behind
+    # "not running").
+    create)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos project create \"<name>\" <folder> [\"<description>\"]   (quote the name; folder is a path)"; exit 2; } ;;
+    *)
+      say "Unknown: kosmos project $sub. Try: create"
+      exit 2 ;;
+  esac
+  if ! healthy; then
+    say "Kosmos is not running, so a project cannot be created. Start it with: kosmos start"
+    exit 1
+  fi
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  case "$sub" in
+    create)
+      local name folder description esc_name esc_folder esc_desc esc_pane _desc_field _data body rc=0 because pid
+      name="$1"; folder="$2"; description="${3:-}"
+      # Hand-rolled JSON escaping, same as cmd_post/cmd_msg (the shebang is bash 3.2
+      # and there is no jq dependency): backslash first, then the quote; the
+      # multiline sed collapses a description's newlines to \n the way room text is.
+      esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_folder=$(printf '%s' "$folder" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_desc=$(printf '%s' "$description" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+      # from_pane lets the board tag WHO made it (roster match on $TMUX_PANE, the
+      # same field cmd_post/cmd_task send); a screen/non-pane caller sends empty.
+      esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      _desc_field=""
+      [ -n "$description" ] && _desc_field=",\"description\":\"$esc_desc\""
+      _data="{\"name\":\"$esc_name\",\"folder\":\"$esc_folder\",\"from_pane\":\"$esc_pane\"$_desc_field}"
+      # rc via `|| rc=$?`, NOT a bare `body=$(...); rc=$?`: under set -euo pipefail a
+      # failing substitution in a bare assignment aborts the process at that line
+      # (the #2321 lesson cmd_post documents).
+      body=$(kosmos_curl "$_bt" "" -sS -m 30 -X POST "$URL/api/projects" \
+        -H 'content-type: application/json' \
+        --data "$_data" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ]; then
+        say "We could not reach Kosmos to create that project. Is it running at $URL?"
+        exit 1
+      fi
+      # {"error":...} covers the 400 (bad field) and the 429 rate valve alike --
+      # kosmos_curl uses -sS not -f, so the JSON error rides in $body with rc 0,
+      # the same as cmd_post. (This is a board write, not one of the five agent
+      # sends, so it is NOT answered with a 421 wrongWorld -- task add, its
+      # sibling, has no such branch either.)
+      case "$body" in '{"error":'*)
+        because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+        say "Kosmos did not create that project: ${because:-it did not say why}."
+        exit 1 ;;
+      esac
+      # Success is {"project":...,"told":...,"id":"...",...}. Require the id the
+      # board assigned before claiming success (greedy match takes the top-level
+      # id, = made.id); an answer with neither an error nor an id is not a create.
+      pid=$(printf '%s' "$body" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+      if [ -n "$pid" ]; then
+        say "Created project \"$name\" (id: $pid). It's on your board now."
+      else
+        say "Kosmos gave an answer we could not read when creating that project."
+        exit 1
+      fi
+      ;;
+  esac
+}
+
 # #3079: let a test `source` this file to reach the pure helpers
 # (_kosmos_reclaim_decision et al.) without running a verb. Executed directly,
 # BASH_SOURCE[0] == $0 and we fall through to the dispatch; sourced, they differ and
@@ -2104,8 +2183,9 @@ case "${1:-}" in
   room)    shift; cmd_room "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
   task)    shift; cmd_task "$@" ;;
+  project) shift; cmd_project "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | adopt | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | adopt | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;

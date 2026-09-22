@@ -92,6 +92,11 @@ const USAGE = {
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
+  project: [
+    'Usage: kosmos project <create>',
+    '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
+    '  <folder> is a path on this machine; the project\'s files live there.',
+  ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or pipe the report in on stdin)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today)',
@@ -417,6 +422,28 @@ async function taskMessage(ctx, args) {
   return 1;
 }
 
+/* kosmos#3388, as install/kosmos cmd_project create: make a project from one
+   command. A board write, so it presents the board token, not the agent token
+   ({agent:false}, like task add/close); from_pane is empty because a Windows
+   agent has no tmux pane and the board tags it as a process caller. The success
+   answer carries the id ({project,told,id,...}); an answer with neither an error
+   nor an id is not a create. */
+async function projectCreate(ctx, args) {
+  const name = args[0];
+  const folder = args[1];
+  const description = args[2];
+  if (!name || !folder) { ctx.err(USAGE.project); return 2; }
+  const body = { name, folder, from_pane: '' };
+  if (description) body.description = description;
+  const r = await ctx.call('POST', '/api/projects', body, { agent: false });
+  if (!r.reached) return ctx.unreachable('create that project');
+  const id = r.json && (r.json.id || (r.json.project && r.json.project.id));
+  if (id) { ctx.out('Created project "' + name + '" (id: ' + id + '). It\'s on your board now.'); return 0; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not create that project: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when creating that project.');
+  return 1;
+}
+
 /* The feedback verbs are engine-direct, as install/kosmos's `node -e` snippets are:
    the report store is local (engine/feedback.js), so they work with no board. */
 async function feedbackWrite(ctx, args) {
@@ -528,12 +555,14 @@ const VERB_HANDLERS = {
   whoami: verbWhoami,
   room: verbRoom,
   task: subcommandRequired('task'),
+  project: subcommandRequired('project'),
   feedback: subcommandRequired('feedback'),
 };
 const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage },
+  project: { create: projectCreate },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
