@@ -2209,31 +2209,67 @@ test("restart reports PARTIAL when bootstrap returns 0 but the job never loads -
   }
 });
 
-test('restart refuses on a window it cannot tie to the agent, and on one that is not running', () => {
+test('restart refuses on a window it cannot tie to the agent, but STARTS one that is not running (#3410)', () => {
   /**
-   * 🛑 THE SAME RULE AS REMOVAL, and for the same reason: killing a window that
-   * merely borrows an agent's name is the most destructive thing this product
-   * can do to somebody else's work.
+   * 🛑 THE SAME RULE AS REMOVAL for an UNTIED window, and for the same reason: killing a window
+   * that merely borrows an agent's name is the most destructive thing this product can do to
+   * somebody else's work. But a FULLY-DEAD agent (no session at all, FOUND.NONE) is a different
+   * case: #3410 STARTS it (bootstraps the launchd job) instead of refusing, because that is the
+   * state Nora and the never-connected agents are in and the "Start this agent" button drives it.
    */
   const name = madeAgent('restartsafe');
   status.setPaneSource(() => fleet.line({ session: name, claim: '', title: '✳ Claude Code' }));
   const calls = world();
   try {
+    // FOUND.UNTIED: a window we cannot tie to this agent is a bystander's -- still refuse, no kill.
     const out = mac.restart(name);
     assert.equal(out.outcome, remove.OUTCOME.REFUSED, 'an untied window was restarted anyway');
     assert.match(out.because, /cannot confirm it is this agent/);
     assert.equal(calls.filter((c) => c[1][0] === 'kill-session').length, 0,
       'it killed a window it had just refused to act on');
 
-    /* Nothing running at all is a refusal too, and a different sentence: there
-       is nothing to restart, and the agent starts itself. */
+    /* #3410: nothing running at all (FOUND.NONE) is now a START, not a refusal. It bootstraps the
+       launch job and never claims a false "starting again" for an agent that may never have run. */
     status.setPaneSource(() => '');
     const none = mac.restart(name);
-    assert.equal(none.outcome, remove.OUTCOME.REFUSED);
-    assert.match(none.because, /not running/);
+    assert.equal(none.outcome, remove.OUTCOME.RESTARTED, none.because);
+    assert.match(none.because, /starting/);
+    assert.doesNotMatch(none.because, /nothing to restart|starting again/,
+      'it refused a dead agent, or claimed a re-start for one that may never have run');
+    // It bootstrapped the launch job (the start-from-dead mechanism) and never tried to close a
+    // window that does not exist (no kill across either arm).
+    assert.ok(calls.some((c) => c[0] === '/bin/launchctl' && c[1][0] === 'bootstrap'),
+      'it did not bootstrap the dead agent launch job');
+    assert.equal(calls.filter((c) => c[1] && c[1][0] === 'kill-session').length, 0,
+      'it tried to close a window that does not exist');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
+  }
+});
+
+test('restart of a fully-dead agent reports PARTIAL when the launch job fails to bootstrap (#3410)', () => {
+  /* The honest failure the "Start this agent" button relies on: if bootstrapping a dead agent's
+     job fails, say so plainly (not a false "starting"), with no window-closing language since
+     there was no session, and do not leave it marked restarting. */
+  const name = madeAgent('deadbootfail');
+  status.setPaneSource(() => '');   // FOUND.NONE: a job (plist) but no session
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'bootstrap') return { ok: false, code: 5000 };   // the start fails
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const out = mac.restart(name);
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.match(out.because, /could not start|did not load/);
+    assert.doesNotMatch(out.because, /closed .*window|starting\b/,
+      'it claims a window close or a start that did not happen for a dead agent');
+    assert.ok(!disruption.active(name), 'a dead agent that failed to start was left marked restarting');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
   }
 });
 

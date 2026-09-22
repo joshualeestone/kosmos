@@ -1797,17 +1797,21 @@ function restartInner(name, cause, platform) {
   }
 
   const found = sessionFor(clean);
-  if (found.kind === FOUND.NONE) {
-    return {
-      outcome: OUTCOME.REFUSED,
-      steps: [],
-      /* The launch model in create's words (#671): one spelling of the
-         self-starting fact, shared with the board's offline sentence. */
-      because: `${shown} is not running, so there is nothing to restart. `
-        + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1) + '.',
-    };
-  }
-  if (found.kind !== FOUND.OURS) {
+  /* #3410: a FULLY-DEAD agent (no live session) is no longer REFUSED -- it is STARTED. This is
+     the state Josh's never-connected agents and Nora are in (server.js builds them
+     state:'stopped', session:null = FOUND.NONE), and it is the primary population the "Start this
+     agent" button targets. `jobFor` above already proved the launch job exists (its plist is on
+     disk), so there is a job to bootstrap; there is simply no session to close first. Before this,
+     restartInner refused with "it starts itself when this computer is on" -- but that copy's
+     promise has NO mechanism behind it for an agent whose launchd job is not loaded, which is
+     exactly Nora (launchctl list showed nothing). Bootstrapping the job IS that missing mechanism
+     (Alexandra's manual `launchctl bootstrap gui/<uid> .../com.kosmos.agent.<name>.plist`, in
+     code). `fromDead` carries this through the SAME disruption + relaunch + loaded-verify path
+     below, skipping only the kill (there is nothing to close). FOUND.UNTIED / UNKNOWN still refuse
+     -- a session we cannot tie to this agent is a bystander's, and touching it is the worst thing
+     this product can do. */
+  const fromDead = found.kind === FOUND.NONE;
+  if (!fromDead && found.kind !== FOUND.OURS) {
     return {
       outcome: OUTCOME.REFUSED,
       steps: [],
@@ -1844,13 +1848,16 @@ function restartInner(name, cause, platform) {
     }
   };
 
-  const session = found.session;
+  const session = found.session;   // null when fromDead: there is no session to close
   /* The kill and its look-again live in `sessionOps` -- one dispatch shared with
      `removeInner`, which is what gives this path a win32 arm. Restart is the
      caller that NEEDS the session ended without the job being disabled: the
      supervisor answers the death by starting a fresh session, which is the whole
-     mechanism the comment above describes. */
-  const ended = step('closed its window', () => sessionOps(platform).end(session));
+     mechanism the comment above describes.
+     #3410: a fully-dead agent has no session, so there is nothing to close -- skip straight to
+     the relaunch (which bootstraps the launchd job). `ended` is vacuously true there; the kill
+     runs only for a live (FOUND.OURS) agent. */
+  const ended = fromDead ? true : step('closed its window', () => sessionOps(platform).end(session));
 
   if (!ended) {
     /* #2019: the kill failed, so the agent is still running the older
@@ -1917,22 +1924,34 @@ function restartInner(name, cause, platform) {
        trying), so "try again" is not actionable in that sub-case -- say what actually has to
        happen instead of sending the person into an indefinite retry that keeps no-opping. */
     const gone = ops.startableGone(clean, job);
+    /* #3410: the messages differ for a fully-dead start -- there was no window to close, so
+       "we closed X's window but..." would be false. Say what actually happened in each case. */
     return {
       outcome: OUTCOME.PARTIAL,
       steps,
       because: gone
-        ? `we closed ${shown}'s window but its launch file is gone, so we could not start it `
-          + 'again. It has to be created again.'
-        : `we closed ${shown}'s window but could not start it again. Its launch job did not `
-          + 'reload, so it is not running right now. It needs another restart.',
+        ? (fromDead
+            ? `${shown}'s launch file is gone, so we could not start it. It has to be created again.`
+            : `we closed ${shown}'s window but its launch file is gone, so we could not start it `
+              + 'again. It has to be created again.')
+        : (fromDead
+            ? `we could not start ${shown}. Its launch job did not load, so it is not running. `
+              + 'It needs another try.'
+            : `we closed ${shown}'s window but could not start it again. Its launch job did not `
+              + 'reload, so it is not running right now. It needs another restart.'),
     };
   }
 
   return {
     outcome: OUTCOME.RESTARTED,
     steps,
-    because: `${shown} is starting again. It reads its instructions when it starts, `
-      + 'so it will have the current ones. Its window comes back on its own.',
+    /* #3410: no "again" for a fully-dead agent that may never have run. Both say the window
+       comes up on its own, which is the supervisor answering the now-loaded job. */
+    because: fromDead
+      ? `${shown} is starting. It reads its instructions when it starts, `
+        + 'so it will have the current ones. Its window comes up on its own.'
+      : `${shown} is starting again. It reads its instructions when it starts, `
+        + 'so it will have the current ones. Its window comes back on its own.',
   };
 }
 
