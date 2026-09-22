@@ -15,7 +15,8 @@
  * remedy was never better copy.
  *
  * What survives here are the checks that outlived it: the Settings row, and the
- * box's own two standing sentences.
+ * box's own between-you sentence. (It once checked two standing sentences; the
+ * second, the persistence line, was removed on Josh's instruction 2026-09-22.)
  *
  * The line that stopped the direct box implying a reply it could not carry.
  *

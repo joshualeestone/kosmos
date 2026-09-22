@@ -548,7 +548,7 @@ async function main() {
       'an untied agent\u2019s Terminal section hides the window box and says why (nothing here is its window to show)', JSON.stringify(rookWindow));
     /* Back to Talk before reading the talk box: `innerText` on an unrendered
        element falls back to textContent, hidden lines included, so a read
-       from the Terminal section would report the persist line as shown. */
+       from the Terminal section would report hidden lines as shown. */
     await page.click('#d-nav button[data-go="talk"]');
     await page.waitForTimeout(200);
     /* ⚠️ THE SAME RULE, ONE BOX LOWER, and it is the whole reason the 404
