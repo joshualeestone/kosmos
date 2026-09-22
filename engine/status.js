@@ -278,6 +278,17 @@ const STATE = {
      A rate limit is the one blocked the pane can see, and it keeps its own
      state above because the screens treat it specially. */
   BLOCKED: 'blocked',
+  /* #3410: the agent's Claude Code hit a transient network/API failure
+     (ENOTFOUND / "can't reach the API server" / "went to sleep mid-response")
+     and is WEDGED on it. The process is UP -- so the supervisor's alive-check
+     (bin/agent-supervisor.sh) correctly leaves it -- but Claude does not retry
+     out of a fatal network error on its own, so it sits dead until restarted.
+     Distinct from AUTH_FAILED (a bad token no retry fixes) and RATE_LIMITED (a
+     working account that just waits): this CLEARS the moment the network returns
+     AND the agent is restarted, which is what the board's auto-recover does.
+     Keyed on the exact pane line, NEVER on UNKNOWN, so a thinking/idle/working
+     agent is never mistaken for it. */
+  CONNECTION_LOST: 'connection_lost',
   UNKNOWN: 'unknown', // the default, deliberately
 };
 
@@ -1983,6 +1994,30 @@ function activeWhileWaitingFrom(state, freshest, askedAtMs) {
 const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Your session has expired/i;
 const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
 
+/* #3410: a transient network/API failure the agent's Claude Code is WEDGED on.
+   Sibling to AUTH_FRIENDLY_MESSAGE but a DIFFERENT class: auth is a bad token
+   (only a reconnect fixes it); this is the network dropping under a working
+   token, and it self-heals on a restart once the network is back. The strings
+   are the ones Claude Code / the runner actually print, measured on Josh's
+   0.6.88 laptop (#3410): the ENOTFOUND "can't reach the API server" line, and
+   the "went to sleep mid-response" line a laptop sleep produces. Matched on ONE
+   row -- capture-pane -J re-joins soft wraps before we see it, the same contract
+   friendlyAuthLine relies on. Deliberately NARROW: only these known-fatal,
+   restart-clearable lines classify CONNECTION_LOST, so a mid-turn agent that
+   merely mentions "internet" in prose is never swept in. */
+const NETWORK_LOST_MESSAGE = /Can't reach the API server|ENOTFOUND|check your internet or DNS|(?:computer|Mac|machine|laptop) went to sleep mid-response/i;
+
+function networkLost(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n');
+  for (const row of rows) {
+    if (!NETWORK_LOST_MESSAGE.test(row)) continue;
+    const line = row.replace(/^[\s>│├└─*❯›●]+/, '').trim();
+    if (!line) continue;
+    return line.length > 240 ? line.slice(0, 240) + '…' : line;
+  }
+  return null;
+}
+
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
    marker sets. Whitespace INSIDE the timer group is \s+ too, so a
@@ -3435,6 +3470,23 @@ function classify(pane, paneText) {
       confidence: CONFIDENCE.SCRAPED,
       because: 'its Claude sign-in is not working',
       evidence: authLine,
+    };
+  }
+  /* #3410: a transient network/API drop the agent is WEDGED on. Checked HERE, in
+     the auth/rate-limit tier BEFORE the working/idle/needs-you chrome checks,
+     because a pane that lost its connection mid-response still carries
+     working-shaped chrome ("went to sleep MID-RESPONSE" is literally mid-turn) --
+     the same reason auth_failed sits above them. The board's auto-recover keys
+     on this state to restart the agent once the network is back; that it is
+     scraped from the exact fatal line (not inferred from UNKNOWN) is what makes
+     an auto-restart safe. */
+  const networkLostEvidence = networkLost(tail);
+  if (networkLostEvidence !== null) {
+    return {
+      state: STATE.CONNECTION_LOST,
+      confidence: CONFIDENCE.SCRAPED,
+      because: 'it lost its connection to the API and is not retrying on its own',
+      evidence: networkLostEvidence,
     };
   }
   /**
