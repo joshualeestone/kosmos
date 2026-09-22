@@ -750,9 +750,10 @@ test('#2519: the context key-set claim is DERIVED from status.js, not restated',
      a twelfth object with the family shape, this reds and the three copies get updated in
      the same commit, which is the point. */
   const family = Math.max(...shapes.values());
-  assert.equal(family, 11,
-    `the NONE_BASE family shape occurs ${family} times in status.js, not the ELEVEN three documents state. `
-    + 'Update those three copies in this commit rather than relaxing this assertion.');
+  assert.equal(family, 13,
+    `the NONE_BASE family shape occurs ${family} times in status.js, not the THIRTEEN the documents state. `
+    + 'Update those copies in this commit rather than relaxing this assertion. '
+    + '(#3296 raised it 11 -> 13: readGeminiContext adds the codex-mirrored UNREADABLE + NO_TRANSCRIPT branches for the third provider.)');
 });
 
 test('#2519: the CATEGORY list is ascending, gap-free, and the same categories in both documents', () => {
