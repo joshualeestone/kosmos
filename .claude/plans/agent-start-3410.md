@@ -13,9 +13,30 @@ which is state 'stopped' alone today). Toggled at open time in `openDetail`,
 parallel to how `#d-reauth` is toggled.
 
 - **Reuse, do not add an endpoint.** The button drives the EXISTING
-  `POST /api/agent/<name>/restart` route (the one that starts a stopped agent,
-  already used by Fresh start and Trust & Restart), via the shared `restartTook` /
-  `restartFailureLine` helpers.
+  `POST /api/agent/<name>/restart` route (already used by Fresh start and Trust &
+  Restart), via the shared `restartTook` / `restartFailureLine` helpers.
+- **🛑 What `/restart` does and does NOT do today (challenge-loop iter 6).**
+  `restartInner` (engine/remove.js ~1779) has three branches: FOUND.OURS (a live
+  session exists, e.g. a wedged agent or a pane whose Claude exited) -> it restarts;
+  FOUND.NONE (no session at all) -> it REFUSES with "X is not running, so there is
+  nothing to restart. It starts itself." A genuinely-offline agent is built by
+  server.js (~3193) as state:'stopped' with `session:null`, i.e. FOUND.NONE. So for
+  a fully-dead agent -- exactly the "seven that never connected" / Nora case, and
+  part of the pres:'off' population this button shows for -- `/restart` does NOT
+  start it today. Neither does the existing Fresh-start Restart (same route). The
+  gap is filled by **Angel's #3418 (relaunch-from-fully-dead)**, which must make the
+  FOUND.NONE branch bootstrap the launchd job (Alexandra's manual
+  `launchctl bootstrap gui/<uid> .../com.kosmos.agent.<name>.plist`) instead of
+  refusing. Both ride 0.6.89; I sent Angel a HEADS-UP to confirm #3418 covers
+  FOUND.NONE. The button is HONEST regardless (it shows the refusal, never a false
+  "Started"); it only DELIVERS for the fully-dead case once #3418 lands. This is the
+  UI/engine seam: I own the button, Angel owns the engine.
+- **Honest under #3418.** `restartInner` returns `outcome:'restarted'` even when
+  the launchd relaunch never loaded (Alexandra's diagnosis, Angel's lane). So the
+  button does NOT trust the restart response: after the route accepts it, it waits
+  on `restartReadyWait` to actually SEE the session running before saying
+  "Started". A start that never comes back shows an honest "has not come back yet"
+  line; a refused/partial outcome shows `restartFailureLine`.
 - **Honest under #3418.** `restartInner` returns `outcome:'restarted'` even when
   the launchd relaunch never loaded (Alexandra's diagnosis, Angel's lane). So the
   button does NOT trust the restart response: after the route accepts it, it waits

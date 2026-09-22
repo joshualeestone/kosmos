@@ -8561,11 +8561,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            'stopped'; parallel to #d-reauth). Josh had seven agents that never
            connected and no way to start one from the UI without the buried
            Fresh-start section. It drives the EXISTING POST /api/agent/<name>/restart
-           (the route that starts a stopped agent) and VERIFIES the agent actually
-           comes up via restartReadyWait before claiming success, so it never lies on
-           the #3418 false-success (restartInner returns RESTARTED even when the
-           launchd relaunch never loaded). No cost-confirm modal: a stopped agent has
-           no live session to lose, so starting it is a direct action. -->
+           and VERIFIES the agent actually comes up via restartReadyWait before
+           claiming success, so it never lies on the #3418 false-success
+           (restartInner returns RESTARTED even when the launchd relaunch never
+           loaded). 🛑 SEAM: /restart RESTARTS an agent with a live session
+           (FOUND.OURS, e.g. wedged); for a genuinely-offline agent (session:null ->
+           FOUND.NONE, the seven-never-connected / Nora case) it currently REFUSES,
+           so this button DELIVERS for that population only once Angel's #3418 makes
+           the FOUND.NONE branch bootstrap the launchd job. The button is honest
+           either way (shows the refusal). No cost-confirm modal: a not-running agent
+           has no live Claude work to lose, so this is a direct action. -->
       <div class="d-start-wrap" id="d-start-wrap" hidden>
         <button type="button" class="btn" id="d-start-agent">Start this agent</button>
         <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
@@ -23971,7 +23976,7 @@ function refreshStartAffordance(a) {
      would not catch the resulting second restart. Keying on START_EPOCH means a
      later open (which DID bump it) still re-enables normally. */
   const inFlight = START_FLIGHT !== null && START_FLIGHT === START_EPOCH;
-  if (notRunning && btn && !inFlight) { btn.disabled = false; btn.textContent = 'Start this agent'; }
+  if (notRunning && btn && !inFlight) { btn.hidden = false; btn.disabled = false; btn.textContent = 'Start this agent'; }
 }
 
 /* The pack's Memory box: a READING, not a control panel. The same
@@ -31053,10 +31058,14 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
     await sendWakeHello(name, token, say,
       'Started ' + shown + ', and said hello to wake them.',
       'Started ' + shown + '. Say ‘hello’ to wake them.');
-    /* Leave the button disabled: the agent is running now, so Start no longer
-       applies. It is re-derived (shown/hidden/enabled) the next time this panel is
-       opened or when the poll's reappear arm runs refreshStartAffordance; there is
-       no general per-tick re-derive, matching the open-time-only #d-reauth pattern. */
+    /* The agent is running now, so Start no longer applies: hide the BUTTON (the
+       common restart keeps the row present -- state 'restarting' then a live state
+       -- so the poll's withdrawn->reappear arm does not fire, and there is no
+       general per-tick re-derive; without this the disabled button would sit under
+       the "Started" receipt until reopen). Keep the wrap + message as the receipt;
+       refreshStartAffordance un-hides the button again if a later open finds the
+       agent stopped once more. */
+    if (onPanel() && sb) sb.hidden = true;
   } finally {
     /* Release the in-flight marker if it is still ours: a later open bumps
        START_EPOCH and may start its own, and clearing unconditionally would wipe

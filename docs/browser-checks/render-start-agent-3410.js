@@ -39,6 +39,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const create = require('../../engine/create');
+const store = require('../../engine/store');
 const srv = require('../../server.js');
 
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'sa-shots-'));
@@ -58,6 +59,16 @@ function chk(ok, label, extra) {
     fs.writeFileSync(create.plistPath(n),
       create.plistFor(n, '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-sonnet-5'), 'utf8');
   }
+  // A genuinely-OFFLINE agent for Part 7: a profile + worker folder + a plist (job)
+  // but NO pane, which the server builds as state:'stopped' with session:null, i.e.
+  // FOUND.NONE. Unlike 'nyx' (a login-shell pane = FOUND.OURS, which is why Parts
+  // 3-6 must MOCK /restart), 'ghost' lets Part 7 exercise the REAL /restart route
+  // and observe restartInner's honest FOUND.NONE refusal. (Recipe from
+  // render-made-before.js: writeProfile + workerDir make a known offline row.)
+  store.writeProfile('ghost', { displayName: 'Ghost' });
+  fs.mkdirSync(create.workerDir('ghost'), { recursive: true });
+  fs.writeFileSync(create.plistPath('ghost'),
+    create.plistFor('ghost', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-sonnet-5'), 'utf8');
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -260,6 +271,42 @@ function chk(ok, label, extra) {
       'an in-flight Start keeps the button disabled through a re-derive (no double-restart)', JSON.stringify(guarded));
     chk(guarded.afterClear === false,
       'and once the start clears, a re-derive re-enables it', JSON.stringify(guarded));
+
+    // ── Part 7: the REAL /restart route against a genuinely-offline agent
+    // (FOUND.NONE). Parts 3-6 mock /restart because 'nyx' has a login-shell pane
+    // (FOUND.OURS); this arm removes the mock and opens 'ghost' (profile + folder +
+    // plist, no pane -> session:null -> FOUND.NONE), so restartInner runs for real
+    // and REFUSES ("...is not running, so there is nothing to restart. It starts
+    // itself."). The button must surface that honest refusal, never a false
+    // "Started". This documents the current behaviour and the #3418 dependency: it
+    // will go red (agent actually starts) once #3418 makes FOUND.NONE bootstrap the
+    // launchd job, which is the correct signal to update this arm.
+    await page.unroute('**/api/agent/*/restart');   // let the real route run
+    await page.evaluate(() => openDetail('ghost'));
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.waitForTimeout(300);
+    const ghostShows = await page.evaluate(() => {
+      const wrap = document.getElementById('d-start-wrap');
+      const btn = document.getElementById('d-start-agent');
+      return { wrapHidden: !wrap || wrap.hidden, btnHidden: btn ? btn.hidden : null };
+    });
+    chk(!ghostShows.wrapHidden && ghostShows.btnHidden === false,
+      'offline (FOUND.NONE) agent: the Start button shows', JSON.stringify(ghostShows));
+    await page.click('#d-start-agent');
+    await page.waitForFunction(() => {
+      const m = document.getElementById('d-start-msg');
+      return m && /could not start/i.test(m.textContent);
+    }, { timeout: 8000 }).catch(() => {});
+    const ghostMsg = await page.evaluate(() => {
+      const btn = document.getElementById('d-start-agent');
+      const m = document.getElementById('d-start-msg');
+      return { msg: m ? m.textContent.trim() : null, btnDisabled: btn ? btn.disabled : null };
+    });
+    chk(!!ghostMsg.msg && /could not start/i.test(ghostMsg.msg),
+      'the REAL route’s FOUND.NONE refusal is surfaced honestly (not a false "Started")', ghostMsg.msg);
+    chk(!!ghostMsg.msg && !/Started /.test(ghostMsg.msg),
+      'and no false-success "Started X" line on the real refusal', ghostMsg.msg);
+    chk(ghostMsg.btnDisabled === false, 'the button re-enables after the real refusal', JSON.stringify(ghostMsg.btnDisabled));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.screenshot({ path: path.join(OUT, 'start-agent.png'), clip: { x: 0, y: 0, width: 480, height: 700 } }).catch(() => {});
