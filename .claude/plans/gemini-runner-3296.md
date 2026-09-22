@@ -61,11 +61,14 @@ kosmos#3296, 3 capture comments):
   header carries no `model_provider` the way codex's does). It is honest -- this reader
   only ever reads a Gemini session dir -- but if a future multi-backend Gemini variant
   emerges, revisit.
-- Message ordering uses first-seen (append-log) order, not a timestamp re-sort. The
-  append-log is chronological in every captured session; if Gemini ever writes a
-  `$set.messages` snapshot out of order relative to bare lines, "last gemini" could pick
-  wrong. Mitigated by dedup-by-id + the fact that the snapshot seeds BEFORE the bare
-  appends in every observed file.
+- (RESOLVED in challenge iter 1) Message ordering originally used first-seen (append-log)
+  order to pick "last gemini". That premise is now removed: `read()` selects the newest
+  gemini turn by parsed TIMESTAMP (insertion index as tiebreak), so an out-of-order
+  `$set.messages` snapshot still yields the genuinely newest turn. Tested directly.
+- `messages` is a provider-local activity count and NOT comparable to codex's `messages`
+  (codex counts raw response_items incl tool calls; this counts de-duped user/gemini
+  conversation entries incl the synthetic session_context seed). Documented at the return
+  site so a future cross-provider consumer does not read them as the same unit.
 
 ## Not in this slice (subsequent PRs, same card)
 create.js launcher arm (spawn with `--skip-trust --approval-mode yolo --model <id>`,

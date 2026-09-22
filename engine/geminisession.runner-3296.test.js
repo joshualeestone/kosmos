@@ -224,6 +224,73 @@ test('HOME() resolves each override to the .gemini storage dir (#3296 fix)', () 
   }
 });
 
+test('a malformed projects.json (bad JSON / non-object / non-string slug) is not found, never throws', () => {
+  const wd = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-gemini-bad-')));
+  const projPath = nodePath.join(SANDBOX, 'projects.json');
+
+  fs.writeFileSync(projPath, '{ this is not json');
+  assert.equal(gemini.read(wd).found, false);
+
+  fs.writeFileSync(projPath, JSON.stringify({ projects: 'not-an-object' }));
+  assert.equal(gemini.read(wd).found, false);
+
+  /* A projects.json that maps our workdir to a NON-STRING slug must not be used
+     to build a path -- it falls through to not-found rather than throwing on
+     path.join. */
+  fs.writeFileSync(projPath, JSON.stringify({ projects: { [wd]: { unexpected: 'shape' } } }));
+  assert.equal(gemini.read(wd).found, false);
+
+  /* A projects.json with no `projects` key at all. */
+  fs.writeFileSync(projPath, JSON.stringify({ other: 1 }));
+  assert.equal(gemini.read(wd).found, false);
+});
+
+test('the newest gemini turn is picked by timestamp even when a $set snapshot lists it out of order', () => {
+  const slug = 'out-of-order';
+  const wd = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-gemini-ooo-')));
+  writeProjects({ [wd]: slug });
+  const earlier = {
+    id: 'g-earlier', timestamp: '2026-09-22T02:37:10.000Z', type: 'gemini',
+    content: 'EARLIER', tokens: { input: 100, output: 1, cached: 0, thoughts: 0, tool: 0, total: 101 },
+    model: 'gemini-2.5-flash',
+  };
+  const later = {
+    id: 'g-later', timestamp: '2026-09-22T02:37:20.000Z', type: 'gemini',
+    content: 'LATER', tokens: { input: 200, output: 1, cached: 0, thoughts: 0, tool: 0, total: 201 },
+    model: 'gemini-2.5-flash',
+  };
+  /* A single $set.messages snapshot that lists the LATER turn BEFORE the earlier
+     one (a re-serialization by id, not by time). Insertion order would pick
+     EARLIER as "last"; timestamp selection must pick LATER. */
+  const snapshot = { $set: { messages: [later, earlier], lastUpdated: later.timestamp } };
+  writeSession(slug, [HEADER, snapshot]);
+  const r = gemini.read(wd);
+  assert.equal(r.found, true, r.because);
+  assert.equal(r.lastAgentMessage, 'LATER');
+  assert.equal(r.contextUsed, 200);
+  assert.equal(r.contextUsedAt, Date.parse(later.timestamp));
+});
+
+test('contextUsed comes from the newest TOKENED turn when the newest turn has no tokens yet', () => {
+  const slug = 'inprogress';
+  const wd = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-gemini-ip-')));
+  writeProjects({ [wd]: slug });
+  const tokened = {
+    id: 'g1', timestamp: '2026-09-22T02:37:10.000Z', type: 'gemini', content: 'DONE',
+    tokens: { input: 500, output: 3, cached: 0, thoughts: 0, tool: 0, total: 503 }, model: 'gemini-2.5-flash',
+  };
+  /* A newer gemini line with NO tokens object (an in-progress / interrupted reply). */
+  const untokened = { id: 'g2', timestamp: '2026-09-22T02:37:30.000Z', type: 'gemini', content: 'PARTIAL', model: 'gemini-2.5-flash' };
+  writeSession(slug, [HEADER, tokened, untokened]);
+  const r = gemini.read(wd);
+  assert.equal(r.found, true, r.because);
+  /* lastAgentMessage/model track the newest turn overall (the partial one). */
+  assert.equal(r.lastAgentMessage, 'PARTIAL');
+  /* contextUsed tracks the newest turn that actually reported tokens. */
+  assert.equal(r.contextUsed, 500);
+  assert.equal(r.contextUsedAt, Date.parse(tokened.timestamp));
+});
+
 test('an explicit home arg reads that home, not the process default', () => {
   const altRoot = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-gemini-alt-'));
   const altHome = nodePath.join(altRoot, '.gemini');

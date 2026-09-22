@@ -256,18 +256,19 @@ function forWorkdir(dir, home) {
   const chatsDir = path.join(h, 'tmp', slug, 'chats');
   let entries;
   try { entries = fs.readdirSync(chatsDir); } catch { return null; }
-  const sessions = entries.filter((n) => /^session-.*\.jsonl$/.test(n));
-  if (!sessions.length) return null;
-  /* Newest by mtime; name breaks a tie. A file that vanished between readdir and
-     stat sorts oldest (mtime 0) rather than throwing. */
-  sessions.sort((a, b) => {
-    let ma = 0; let mb = 0;
-    try { ma = fs.statSync(path.join(chatsDir, a)).mtimeMs; } catch { ma = 0; }
-    try { mb = fs.statSync(path.join(chatsDir, b)).mtimeMs; } catch { mb = 0; }
-    if (mb !== ma) return mb - ma;
-    return a < b ? 1 : a > b ? -1 : 0;
+  const names = entries.filter((n) => /^session-.*\.jsonl$/.test(n));
+  if (!names.length) return null;
+  /* Newest by mtime; name breaks a tie. Decorate-sort-undecorate so each file is
+     stat'd ONCE (challenge iter 1), not on every comparator call. A file that
+     vanished between readdir and stat decorates with mtime 0 rather than throwing,
+     so it sorts oldest. */
+  const decorated = names.map((n) => {
+    let mtime = 0;
+    try { mtime = fs.statSync(path.join(chatsDir, n)).mtimeMs; } catch { mtime = 0; }
+    return { n, mtime };
   });
-  return { file: path.join(chatsDir, sessions[0]), slug };
+  decorated.sort((a, b) => (b.mtime !== a.mtime ? b.mtime - a.mtime : (a.n < b.n ? 1 : a.n > b.n ? -1 : 0)));
+  return { file: path.join(chatsDir, decorated[0].n), slug };
 }
 
 /**
@@ -338,23 +339,50 @@ function read(dir, home) {
   const msgs = order.map((k) => byId.get(k));
   const messages = msgs.length;
 
-  let lastGemini = null;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].type === 'gemini') { lastGemini = msgs[i]; break; }
-  }
+  /* THE LATEST gemini turn, chosen by TIMESTAMP, not insertion order (challenge
+     iter 1). The append-log is chronological in every captured session, so
+     insertion order agreed with time here -- but a future CLI that re-serializes
+     a `$set.messages` snapshot by id rather than by time would make "last in the
+     file" a stale turn, and no fixture could catch it because the fixture would
+     encode the same assumption. Selecting by parsed timestamp removes that
+     premise: an out-of-order snapshot still yields the genuinely newest turn.
+     Insertion index breaks a tie (equal or unparseable timestamps), which keeps
+     the old append-log behavior as the fallback. `parseTs` returns -Infinity for
+     a missing/unparseable stamp so it never beats a real one. */
+  const parseTs = (m) => {
+    const t = m && m.timestamp ? Date.parse(m.timestamp) : NaN;
+    return Number.isFinite(t) ? t : -Infinity;
+  };
+  /* Reduce once, keeping the newest so far; `>=` means a later insertion index
+     wins a tie, matching the reader's "the last one written" intent. `pred`
+     narrows the candidates (all gemini turns, or only those reporting tokens). */
+  const latestGemini = (pred) => {
+    let best = null; let bestTs = -Infinity;
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      if (m.type !== 'gemini' || !pred(m)) continue;
+      const ts = parseTs(m);
+      if (best === null || ts >= bestTs) { best = m; bestTs = ts; }
+    }
+    return best;
+  };
+
+  const lastGemini = latestGemini(() => true);
   const lastAgentMessage = lastGemini ? contentText(lastGemini.content) : null;
   const model = lastGemini && typeof lastGemini.model === 'string' ? lastGemini.model : null;
 
+  /* contextUsed is the window occupancy of the newest turn that REPORTED tokens
+     -- independently selected, because the newest turn overall may be an
+     in-progress reply that has not yet written a `tokens` object (the codex
+     analog: lastAgentMessage from the last task_complete, contextUsed from the
+     last token_count, each "latest of its own kind"). */
+  const lastTokened = latestGemini((m) => m.tokens && typeof m.tokens.input === 'number');
   let contextUsed = null;
   let contextUsedAt = null;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i];
-    if (m.type === 'gemini' && m.tokens && typeof m.tokens.input === 'number') {
-      contextUsed = m.tokens.input;
-      const t = m.timestamp ? Date.parse(m.timestamp) : NaN;
-      contextUsedAt = Number.isFinite(t) ? t : null;
-      break;
-    }
+  if (lastTokened) {
+    contextUsed = lastTokened.tokens.input;
+    const t = lastTokened.timestamp ? Date.parse(lastTokened.timestamp) : NaN;
+    contextUsedAt = Number.isFinite(t) ? t : null;
   }
 
   return {
@@ -366,6 +394,15 @@ function read(dir, home) {
     contextWindow: null,
     contextUsed,
     contextUsedAt,
+    /* ⚠️ `messages` is a PROVIDER-LOCAL activity count, NOT a cross-provider
+       comparable number (challenge iter 1). codex's `messages` counts every raw
+       `response_item` (tool calls and outputs included); this counts de-duped
+       user/gemini CONVERSATION entries only, and includes the one synthetic
+       session_context seed the CLI writes as the first user message. So the
+       shared field NAME and the "one shape" framing are about the CONTRACT the
+       ring reads through, not about the counts being equal across providers -- a
+       consumer comparing agent activity across providers must not read these as
+       the same unit. It is a monotone within-provider progress signal. */
     messages,
     lastAt,
     lastAgentMessage,
