@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 /*
- * #2808 class-1 / #2129: re-apply the folder-trust write + the bypass-permissions
- * pre-accept on EVERY (re)launch, not only at create.
+ * #2808 class-1 / #2129 / #3383: re-apply the folder-trust write + the
+ * bypass-permissions pre-accept + the first-run onboarding pre-accept on EVERY
+ * (re)launch, not only at create.
  *
  * WHY THIS EXISTS. engine/create.js writes trustFolder + preacceptBypass once, at
  * CREATE. But agents restart constantly (launchd KeepAlive, `kosmos restart`, a
@@ -27,9 +28,10 @@
  *     codex arm has its own trustCodexFolder + codex-dismiss-update shim, and configDir
  *     there is a CODEX_HOME, so a CLAUDE trust/consent write must never run against it.
  *
- * It mirrors engine/create.js's exact create-time call so the two agree:
+ * It mirrors engine/create.js's exact create-time calls so the two agree:
  *   trustFolder(workdir, { configDir, createIfAbsent: true, agentDefaultAccount: !configDir })
  *   preacceptBypass(configDir, !configDir)
+ *   preacceptOnboarding(configDir, !configDir)
  *
  * argv[2] = workdir  - the CWD the agent launches in (`new-session -c`), i.e. the folder
  *                      whose on-disk realpath is Claude Code's trust key. Required; an
@@ -49,6 +51,13 @@ function ensureLaunchTrust(workdir, rawConfigDir) {
   // exactly the state that was there before, which is the safe direction for a relaunch.
   trust.trustFolder(workdir, { configDir, createIfAbsent: true, agentDefaultAccount });
   trust.preacceptBypass(configDir, agentDefaultAccount);
+  // #3383: re-apply the first-run onboarding pre-accept too, the same reason as trust/bypass.
+  // A relaunch is the ONLY recovery for an agent CREATED BEFORE this fix (its .claude.json has
+  // no hasCompletedOnboarding, so it would wedge on the v2.1.278 theme picker on restart); and
+  // it keeps this in parity with win32launch's resume path, which also re-seeds onboarding.
+  // Idempotent (already-onboarded returns already:true, writes nothing). Claude-only, like the
+  // rest of this script (the supervisor calls it on the Claude arm only).
+  trust.preacceptOnboarding(configDir, agentDefaultAccount);
 }
 
 module.exports = { ensureLaunchTrust };
