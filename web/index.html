@@ -500,7 +500,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .dhead { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; margin-bottom: 16px; }
 /* #3385: the text block is full column-width (not content-width) so the name has a fixed width
    to shrink against and the notes wrap inside the column instead of bleeding past its edge. */
-.dtext { width: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+/* overflow-wrap:anywhere so a long scraped token in the column notes (#d-said, #d-conflict, the
+   restart card) breaks inside the 220px column instead of overflowing. .dname keeps white-space:
+   nowrap, which suppresses wrapping, so it is unaffected (it is fitted by JS + ellipsis instead). */
+.dtext { width: 100%; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; overflow-wrap: anywhere; }
 .dav-wrap { position: relative; width: 88px; height: 88px; flex: 0 0 88px; }
 .dav-wrap .detail-av { width: 88px; height: 88px; }
 .dav-wrap .membadge { top: 0; right: -8px; }
@@ -536,8 +539,13 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    byte-identical in light (`--label-2` IS the pack's k-ink-2) and diverge in
    dark and again under prefers-contrast. The `.dhead` hazard this file records,
    in code this branch added. */
+/* #3385: the task line is a status SENTENCE and now lives stacked in the 220px identity column,
+   so it WRAPS (centered) instead of the old beside-the-badge nowrap+ellipsis, which in a
+   centre-aligned column had no max-width and overflowed the column (measured: a timed-out
+   "This is taking longer than usual" ran to 296px and bled into the talk panel). max-width:100%
+   keeps it in the column; .dtext's overflow-wrap breaks any long scraped token. */
 .dtask { font: var(--text-body) var(--font-ui); color: var(--k-ink-2);
-         min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+         min-width: 0; max-width: 100%; text-align: center; }
 /* #3385: the name never wraps; it is shrunk to fit the column by JS (fitDetailName) which sets
    --dname-size, falling back to 1.5rem (this fallback must match DNAME_BASE_REM in the script).
    white-space:nowrap + max-width:100% keep it on one line. */
@@ -2322,18 +2330,15 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
    mock's full-width principle: outer chrome spans, prose keeps a measure. */
 #panel-detail .msg-b { max-width: 66ch; }
 @media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch; } }
-/* HISTORY (superseded by #2012 below): under Josh's 2026-08-25 "match settings
-   width" request ("...it could all kind of fit centered"), this header WAS
-   capped to Settings' 34rem total so it lined up with the then-capped .dbody.
-   The load-bearing principle from that note still holds and is why the rule
-   below exists: .dhead sits BEFORE .dbody as a sibling, so the two must AGREE
-   on width or the header and the sections visibly disagree about the page. */
-/* #2012: so now that the body is full-width, the header spans the full width
-   too (max-width: none) -- capping it to 34rem while the body went wide would
-   recreate that disagreement in reverse. Making it a sticky banner the nav pins
-   under is a deliberate follow-up: .snav is already sticky, so a sticky header
-   must coordinate the nav's `top` with the header's height, which wants
-   interactive visual verification. */
+/* HISTORY, superseded twice. #2012 first: under Josh's 2026-08-25 "match settings
+   width" request the header WAS capped to Settings' 34rem to line up with the
+   then-capped .dbody; #2012 dropped that cap (max-width:none) when the body went
+   full-width, because a header capped narrower than a wide body disagree about the
+   page. #3385 then moved .dhead INSIDE .dbody as the first child of the 220px .dleft
+   identity column (it is no longer a full-width sibling before .dbody), so the
+   width now comes from the .dleft grid track and `max-width: none` below is inert --
+   kept only so nothing re-imposes the old 34rem cap. The bottom margin still spaces
+   the identity block above the nav in the column. */
 #panel-detail .dhead { max-width: none; margin: 0 0 16px; }
 @media (max-width: 60rem) { #panel-detail .dhead { max-width: none; margin: 0 0 16px; } }
 /* #2622 part 2 (Josh product-review): the Talk dialog box fills to the bottom of
@@ -6572,8 +6577,9 @@ svg { display: block; }
    one sentence the design leans on to say why every write vanished rendered as
    unstyled body text. An explanation nobody's eye lands on is not one. */
 #d-untied, #d-withdrawn {
-  /* Sits between the header and the nav since agent-page-nav; the nav's
-     first pill needs room under it or the note reads as part of the nav. */
+  /* #3385: sits above the whole detail body (before .dbody, so above the identity
+     column and the sections), with room below so the note reads as its own line
+     rather than as part of what follows. */
   margin: 0 0 18px;
   padding: var(--space-2) var(--space-3);
   /* ⚠️ `--warn` does not exist either; the fallback kept it valid, so the token
