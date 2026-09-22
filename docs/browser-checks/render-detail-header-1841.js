@@ -151,17 +151,24 @@ function chk(ok, label, extra) {
       showTab('agents');
       openDetail(real.sessionName);
       const short = el.style.getPropertyValue('--dname-size').trim();
+      // #3415: the name element keeps `overflow: hidden` for the width ellipsis, so a line-box
+      // shorter than the glyphs clips the descenders off the bottom. scrollHeight > clientHeight
+      // is that clip.
+      const shortClipped = el.scrollHeight > el.clientHeight;
       // Long name, cold: must shrink below the base. This is the exact path BLOCKER-1 broke
       // (fit before the reveal -> clientWidth 0 -> no shrink).
       showTab('agents');
       LAST[0] = { ...real, name: 'Maximilian Alexander Thornbury-Whitfield the Third' };
       openDetail(real.sessionName);
       const long = el.style.getPropertyValue('--dname-size').trim();
+      const longClipped = el.scrollHeight > el.clientHeight;
       LAST[0] = real; openDetail(real.sessionName);   // restore (panel back on detail, Beatrix)
-      return { short, long };
+      return { short, long, shortClipped, longClipped };
     });
     chk(shrink.short === '1.5rem', 'Part 5 (#3385): a short name keeps the base 1.5rem size on a cold open', shrink.short);
     chk(parseFloat(shrink.long) > 0 && parseFloat(shrink.long) < 1.5, 'Part 5 (#3385): a long name shrinks below the base size on a COLD open (fit runs after the panel is shown)', shrink.long);
+    chk(shrink.shortClipped === false && shrink.longClipped === false,
+      'Part 5 (#3415, Josh 2026-09-22): the identity name is not clipped at the bottom (line-height fits the glyphs, not the inherited ~16px length)', JSON.stringify(shrink));
 
     // ── Part 3 (#3043 -> #3271, Josh 2026-09-18): the agent's self-reported quote does not
     // print beside the bubble (#d-task), AND there is NO reason line under the name. #3043 had

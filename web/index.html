@@ -558,7 +558,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    (fitDetailName), with nowrap + ellipsis as the floor fallback. SCOPED to .dnamerow so it does
    NOT reach the shared .dname title elements on other screens (#tk-title wraps a task sentence and
    must keep doing so -- editing the base rule truncated it, kosmos#3385 iteration-7). */
-.dnamerow .dname { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* line-height is proportional (1.15), NOT the ~16px length this element inherits from the detail
+   column: the identity name renders at up to 1.5rem (24px, shrunk by fitDetailName), and an inherited
+   16px line-box is shorter than the glyphs, so `overflow: hidden` (kept for the width ellipsis) clipped
+   the descenders off the bottom of every name (Josh, 2026-09-22). Unitless so it tracks the shrunk
+   size fitDetailName sets. */
+.dnamerow .dname { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; line-height: 1.15; }
 /* A hairline between the two halves of Runs on: the model above, the account
    below. Without it the second "Right now" line reads as a continuation of the
    first control rather than the start of a second one. */
