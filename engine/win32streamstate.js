@@ -190,6 +190,27 @@ function stateFor(name, live) {
 }
 
 /**
+ * The pid and session id `name`'s state file was last stamped with, or null. Never
+ * throws.
+ *
+ * 🔑 THE STATE FILE DOUBLES AS A CODEX AGENT'S PRESENCE (#3380). A claude agent is
+ * enumerated live by `claude agents --json`, which reports its pid; a codex agent
+ * has no persistent process there (it is driven per turn by `codex exec`), so its
+ * live pid is its SUPERVISOR's, which is exactly what the codex supervisor stamps
+ * here at start and clears on stop. `win32codexlive` reads it back to join the
+ * ownership record against a supervisor that is still alive -- the codex analog of
+ * a session appearing in `agents --json`. Only the pid and id are exposed; the
+ * busy/idle token stays `stateFor`'s to interpret.
+ */
+function liveIdentity(name) {
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION) return null;
+  if (!Number.isInteger(rec.pid) || typeof rec.sessionId !== 'string' || !rec.sessionId) return null;
+  return { pid: rec.pid, sessionId: rec.sessionId };
+}
+
+/**
  * The supervisor's side: keep `name`'s state file in step with its agent.
  *
  * Writes only on a TRANSITION, so a turn of a hundred events costs two writes.
@@ -287,4 +308,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { lineReader, parseEvent, publisher, stateFor };
+module.exports = { lineReader, parseEvent, publisher, stateFor, liveIdentity };

@@ -244,7 +244,15 @@ function main(argv, deps) {
     process.exit(2);
   }
   let last = null;
-  const handle = superviseStreaming(spec, {
+  /* 🔑 THE RUNNER PICKS THE SUPERVISION SHAPE (#3380). A codex agent cannot be held
+     as a persistent `stream-json` child -- codex does not speak that protocol -- so
+     it gets its own per-turn loop. The claude path is UNCHANGED and remains the
+     default; the codex path reuses the same channel, host-watch and stop wiring
+     below because its handle exposes the same `send`/`stop`/`sessionId` surface. */
+  const superviseFor = spec.runner === 'codex'
+    ? (sp, op) => require('./win32codexsup').superviseCodexStreaming(sp, op)
+    : superviseStreaming;
+  const handle = superviseFor(spec, {
     /* 🛑 NEVER START AN AGENT FOR A TASK THAT WAS JUST ENDED (#570 headless). `/End`
        kills the host at once but this process for up to a second after, and a
        remove kills the agent right after its `/End` -- so without this check the

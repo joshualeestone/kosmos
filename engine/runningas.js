@@ -483,6 +483,14 @@ function runningAsWin32(session, deps = {}) {
      Checking it and concluding about the platform is exactly the error a reviewer
      had NAMED as their own weakest premise two rounds earlier. */
   if (!entry) return { ok: false, because: `no session called ${session} that Kosmos owns on this computer` };
+  /* 🔑 #3380 CLOSED THE UPSTREAM HALF OF THE GAP ABOVE. The ownership join now HAS a
+     codex arm (`win32live.byName` unions `win32codexlive`), so a live codex agent
+     REACHES this line instead of failing `!entry`. It answers through `win32Answer`
+     like any other win32 entry: account and model honestly null (its live pid is
+     its SUPERVISOR, not a codex process, and this platform cannot read either from
+     it), with the same `because`. Its account and model ARE readable -- from codex's
+     own rollout via `codexsession.js` -- but that is a different reader than this
+     process-inspection arm, so it is deliberately not folded in here. */
   return win32Answer(entry, cmdlines([entry.pid]));
 }
 

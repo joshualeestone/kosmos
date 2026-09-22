@@ -42,6 +42,7 @@
  */
 const win32sessions = require('./win32sessions');
 const win32roster = require('./win32roster');
+const win32codexlive = require('./win32codexlive');
 
 /**
  * The live owned sessions, keyed by emitted name.
@@ -58,6 +59,9 @@ const win32roster = require('./win32roster');
 function byName(opts) {
   const run = opts && typeof opts.run === 'function' ? opts.run : win32roster.defaultRun;
   const record = opts && opts.record ? opts.record : win32sessions;
+  /* #3380: the codex live source, injectable for tests. Its default reads the
+     ownership record and the codex supervisors' presence, never `agents --json`. */
+  const codexLive = opts && typeof opts.codexLive === 'function' ? opts.codexLive : win32codexlive.liveSessions;
 
   const agents = run();
   // NULL, not an empty map: a failed look must not read as an empty machine.
@@ -73,6 +77,16 @@ function byName(opts) {
   const live = new Map();
   for (const a of agents) {
     if (a && typeof a === 'object' && typeof a.sessionId === 'string') live.set(a.sessionId, a);
+  }
+  /* #3380: UNION the live codex agents into the same map, so a codex agent joins
+     the ownership record below with no branch. Additive only: when there are no
+     codex agents this is a no-op and the claude answer is byte-identical. Guarded
+     against overwriting a claude row of the same id (ids are UUIDs; a collision is
+     ~0, but the record is the trust root and a claude row must win if it happens). */
+  let codexRows = [];
+  try { codexRows = codexLive() || []; } catch { codexRows = []; }
+  for (const c of codexRows) {
+    if (c && typeof c === 'object' && typeof c.sessionId === 'string' && !live.has(c.sessionId)) live.set(c.sessionId, c);
   }
 
   const out = new Map();
@@ -99,7 +113,11 @@ function byName(opts) {
     // Re-checked against the same visible-character gate for the same reason
     // validId is re-checked: a corrupted store must not key a degenerate row.
     if (!win32sessions.validName(name)) continue;
-    out.set(name, { sessionId: sid, pid: a.pid, status: a.status, liveName: a.name });
+    /* #3380: the recorded runner rides along so `runningas` can answer for a codex
+       agent (whose pid is its supervisor, not a claude process). Additive: a claude
+       row carries 'claude'/'' and nothing read it before. */
+    const runner = win32roster.flat(rec.runner || (a && a.runner) || '');
+    out.set(name, { sessionId: sid, pid: a.pid, status: a.status, liveName: a.name, runner });
   }
   return out;
 }
