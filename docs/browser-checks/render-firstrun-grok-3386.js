@@ -67,10 +67,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3386 Grok uses the "X" initial-letter chip, not a (wrong-brand) SVG', res.markText === 'X' && res.markHasSvg === false, JSON.stringify(res));
     ok(t + ' #3386 Grok is grouped with Gemini before the "Runs on this computer" divider', res.geminiIdx >= 0 && res.grokIdx === res.geminiIdx + 1 && res.dividerIdx > res.grokIdx, JSON.stringify(res));
     ok(t + ' #3386 nine coming-soon tiles in the model step (Gemini + Grok + seven)', res.offCount === 9, JSON.stringify(res));
-    // Visual: only meaningful if the pane actually laid out (file:// nav can bail). Fixture-sanity
-    // first, so a not-laid-out pane is distinguishable from a real render failure.
-    ok(t + ' #3386 fixture sanity: the Grok chip is laid out (else the render assertion is inconclusive)', res.markVisible === true, JSON.stringify(res));
-    ok(t + ' #3386 the Grok chip renders (visible "X")', res.markVisible === true && res.markText === 'X', JSON.stringify(res));
+    // Visual: only meaningful if the pane actually laid out (file:// nav can bail). This is a flat
+    // assertion harness with no real gating, so the two arms below are companion diagnostics, not a
+    // gate: if the pane did not lay out BOTH fail, and the first tells you WHY (not laid out) vs the
+    // second (laid out but wrong glyph). Kept because that split is worth having when one goes red.
+    ok(t + ' #3386 the Grok chip is laid out (diagnostic: if this fails the pane did not render)', res.markVisible === true, JSON.stringify(res));
+    ok(t + ' #3386 the Grok chip renders the visible "X"', res.markVisible === true && res.markText === 'X', JSON.stringify(res));
 
     await page.close();
   }
