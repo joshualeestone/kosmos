@@ -114,7 +114,7 @@ function resolvers() {
    and either `confidence:` or `...NONE_BASE`, whose keys include tokens and because) and
    EXPANDS the `...NONE_BASE` spread, which a named-function walk cannot see.
    🛑 SHARED BY TWO ARMS ON PURPOSE. The "context key-set" arm counts these (four distinct,
-   the family shape eleven times); the #2553 nested-drift arm asserts the recorded fixture
+   the family shape thirteen times); the #2553 nested-drift arm asserts the recorded fixture
    matches one of them. An inline byte-copy in each would be the drift this very tree keeps
    catching in its own guards, so the scan lives once, here. */
 function contextShapes(statusSrc) {
