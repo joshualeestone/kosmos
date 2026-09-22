@@ -2242,9 +2242,14 @@ test('restart refuses on a window it cannot tie to the agent, but STARTS one tha
       'it did not bootstrap the dead agent launch job');
     assert.equal(calls.filter((c) => c[1] && c[1][0] === 'kill-session').length, 0,
       'it tried to close a window that does not exist');
+    /* #2019 seam for the fromDead path: a successful start records the disruption, so the board
+       shows the dead agent as "starting" rather than "doesn't exist" while its window comes up. */
+    assert.ok(disruption.active(name),
+      'a dead-agent start left no disruption record, so the board would read it as gone mid-start');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
+    disruption.clear(name);
   }
 });
 
