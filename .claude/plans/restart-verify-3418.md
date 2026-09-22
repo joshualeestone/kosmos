@@ -1,4 +1,4 @@
-# Plan: #3418 — restart reports RESTARTED even when the relaunch silently failed
+# Plan: #3418: restart reports RESTARTED even when the relaunch silently failed
 
 ## What "finished" looks like
 `remove.restartInner` returns `RESTARTED` only when the agent's launch job was
@@ -11,14 +11,14 @@ happy-path restart test still returns RESTARTED, and the full suite green.
 
 ## Root cause (Alexandra's #3418 forensics + code)
 `restartInner` runs `step('asked it to start again now', () => { ops.stopNow;
-return ops.startNow })` and then returns `RESTARTED` UNCONDITIONALLY — the
+return ops.startNow })` and then returns `RESTARTED` UNCONDITIONALLY, the
 `startNow` result is discarded. Two failure modes both read as success:
-1. `startNow` (launchd `bootstrap`) returns false (bootstrap errored) — ignored.
-2. `bootstrap` returns 0 but the job never actually loads — never checked. This
+1. `startNow` (launchd `bootstrap`) returns false (bootstrap errored), ignored.
+2. `bootstrap` returns 0 but the job never actually loads, never checked. This
    is exactly what happened to Nora: her job was "registered on disk but never
    loaded"; `launchctl list | grep nora` showed nothing.
 
-The comment justified this as "a nudge, not the mechanism — KeepAlive brings it
+The comment justified this as "a nudge, not the mechanism, KeepAlive brings it
 back on its own." That premise is FALSE for the bootout+bootstrap sequence:
 `stopNow` is `bootout`, which UNLOADS the job, so there is no loaded job for
 KeepAlive to revive. `bootstrap` is required, not a nudge. When it fails, the
@@ -27,7 +27,7 @@ agent is DOWN with nothing to restart it, and `RESTARTED` is a lie.
 ## The change (engine/remove.js)
 1. Add a `loaded(name, record)` op to `jobOps` (both platforms):
    - mac: `launchctl print gui/<uid>/<label>` exits non-zero for a label launchd
-     does not hold loaded — the exact "is it loaded?" question, distinct from
+     does not hold loaded, the exact "is it loaded?" question, distinct from
      `startableGone`'s "is the plist on disk?". Synchronous (bootstrap is
      synchronous), so no polling/race.
    - win32: `win32job.status(...).registered === true` (the registered-state
@@ -42,7 +42,7 @@ agent is DOWN with nothing to restart it, and `RESTARTED` is a lie.
    mechanism (bootout unloads → bootstrap is required → verify it took).
 
 ## Why the `loaded` verify short-circuits on `!relaunched`
-`relaunched && ops.loaded(...)` — a dead relaunch is not chased with a
+`relaunched && ops.loaded(...)`, a dead relaunch is not chased with a
 `launchctl print`. Keeps the failed-bootstrap path (mode 1) from making a
 pointless call and keeps the test for mode 1 free of a `print` call.
 
@@ -55,7 +55,7 @@ pointless call and keeps the test for mode 1 free of a `print` call.
 - NEW: bootstrap returns 0 but `print` shows not-loaded (Nora) → PARTIAL, with an
   assertion that the `print` load-check actually ran (non-vacuity guard).
 - The `world()` mock defaults unknown commands to `{ok:true}`, so a successful
-  restart's `print` returns loaded — the happy path is unaffected beyond the one
+  restart's `print` returns loaded, the happy path is unaffected beyond the one
   added call.
 
 ## Weakest premise (name it)
@@ -71,7 +71,7 @@ attempted), which the new `loaded` check then correctly reports as not loaded �
 PARTIAL (an improvement over the old false RESTARTED). Reachability: `jobFor`
 (remove.js:559) filters candidates to those whose plist EXISTS, so a
 persistently-gone plist makes `jobFor` return null and restart REFUSES with a
-clear "not started by Kosmos" message — it never reaches this PARTIAL path. The
+clear "not started by Kosmos" message, it never reaches this PARTIAL path. The
 only way to hit plist-gone in `restartInner` is the plist vanishing BETWEEN the
 `jobFor` check and `startNow` (a TOCTOU race). For that race the generic "needs
 another restart" advice is not actionable (a retry keeps no-opping), so the PARTIAL
@@ -81,11 +81,11 @@ and has to be created again. Not unit-tested (simulating the race requires mocki
 message covering it.
 
 ## Out of scope
-- The trust-prompt fix (#3417) — separate PR (#3425).
+- The trust-prompt fix (#3417), separate PR (#3425).
 - **A genuine win32 running-state verify** (follow-up). The mac `loaded` op is the real
   hardening (`launchctl print` confirms the loaded state that bootstrap's exit code does
   not). The win32 `loaded` returns `win32job.status().registered`, which confirms the task
-  EXISTS, not that its process is running — win32job exposes no running state — so it cannot
+  EXISTS, not that its process is running, win32job exposes no running state, so it cannot
   catch the win32 analog of Nora (a `/Run` that reports ok but whose process never comes up).
   win32 still relies on `win32job.start().ok` (the `relaunched` result), unchanged from before
   this fix. The incident was mac-only; a win32 running-state probe is its own card.
