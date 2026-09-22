@@ -91,10 +91,24 @@ function chk(ok, label, extra) {
     chk(afterPolls.probe === 'orig',
       'repeated polls do NOT recreate the .act node (animation runs continuously)', JSON.stringify(afterPolls));
 
+    // A WORKING agent's stateEvidence changes poll-to-poll (its screen text). The
+    // key must IGNORE evidence while working, or the .act dots would rebuild every
+    // poll again -- the exact reset this fix removes. Assert the node survives an
+    // evidence change while working.
+    const evWorking = await page.evaluate(() => {
+      CURRENT.stateEvidence = 'some changing screen text ' + Date.now();
+      paintBusy(CURRENT, CURRENT.name);
+      const act = document.querySelector('#d-busy .act');
+      return { probe: act ? (act.dataset.probe || '') : '(no .act)' };
+    });
+    chk(evWorking.probe === 'orig',
+      'a WORKING agent ignores stateEvidence changes (animation not reset by screen churn)', JSON.stringify(evWorking));
+
     // Control: a real change (state -> auth_failed) MUST rebuild the line, so the
     // guard is a change-guard, not a frozen node.
     const changed = await page.evaluate(() => {
       CURRENT.state = 'auth_failed';
+      CURRENT.stateEvidence = 'first evidence';
       paintBusy(CURRENT, CURRENT.name);
       const el = document.getElementById('d-busy');
       const act = el && el.querySelector('.act');
@@ -104,6 +118,21 @@ function chk(ok, label, extra) {
       };
     });
     chk(changed.rebuilt, 'CONTROL: a real state change rebuilds the line (guard is not a frozen node)', JSON.stringify(changed));
+
+    // An auth_failed agent renders "last seen: <stateEvidence>". Unlike working,
+    // that line MUST refresh when the evidence changes (it has no .act dots to
+    // preserve), so the key includes stateEvidence ONLY for auth_failed. Assert a
+    // second evidence value re-renders the line.
+    const evAuth = await page.evaluate(() => {
+      const before = (document.getElementById('d-busy').textContent || '');
+      CURRENT.state = 'auth_failed';
+      CURRENT.stateEvidence = 'second evidence CHANGED';
+      paintBusy(CURRENT, CURRENT.name);
+      const after = (document.getElementById('d-busy').textContent || '');
+      return { before, after, refreshed: /second evidence CHANGED/.test(after) };
+    });
+    chk(evAuth.refreshed,
+      'an auth_failed line refreshes when its "last seen" evidence changes', JSON.stringify(evAuth.after.slice(0, 80)));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.screenshot({ path: path.join(OUT, 'busy-anim.png'), clip: { x: 0, y: 0, width: 480, height: 200 } }).catch(() => {});

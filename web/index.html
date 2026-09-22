@@ -24245,7 +24245,13 @@ function paintBusy(fresh, name) {
      every poll anyway. Key on the inputs busyRow actually varies on instead, so
      an unchanged working agent keeps ONE continuous animation. */
   const busyKey = [
-    fresh.sessionName, fresh.state, name || '', fresh.hasAvatar ? '1' : '0',
+    fresh.sessionName, fresh.state, (name || fresh.name || ''), fresh.hasAvatar ? '1' : '0',
+    /* auth_failed renders "last seen: <stateEvidence>" (busyRow); include it ONLY
+       there so that line refreshes as the evidence changes poll-to-poll. NOT for
+       working: a working agent's evidence also changes every poll, and keying on
+       it there would rebuild the .act dots each poll -- the exact reset this fix
+       removes. The auth_failed line has no dots, so rebuilding it is free. */
+    fresh.state === 'auth_failed' ? (fresh.stateEvidence || '') : '',
   ].join('\u0001');
   if (el.dataset.busyKey !== busyKey) {
     el.innerHTML = busyRow(fresh, name);
