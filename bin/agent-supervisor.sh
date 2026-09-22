@@ -492,7 +492,14 @@ if [ -z "$adopt" ]; then
   # ensure-launch-trust below, so the write and the read agree by construction. An empty result
   # is a truly clean launch: nothing is pinned (leaving CLAUDE_CONFIG_DIR unset, which is exactly
   # what #3383c's HOME re-injection relies on), and the trust write takes the default path.
-  # Claude only -- codex uses CODEX_HOME and has no folder-trust gate.
+  # Claude only -- codex uses CODEX_HOME and has no folder-trust gate, so it has no
+  # equivalent PROMPT to fix here.
+  # ⚠️ KNOWN GAP, tracked separately (not this card): the server-global LEAK itself is not
+  # Claude-specific. A board cold-started under one account's CODEX_HOME would leak it into a
+  # default-account codex pane exactly as it does CLAUDE_CONFIG_DIR here, misdirecting where
+  # codex reads its per-account config -- silently, with no trust-dialog symptom to point at
+  # it. This fix does NOT close that; it is scoped to the reported #3417 trust prompt. A codex
+  # CODEX_HOME resolution mirroring this block is its own follow-up.
   EFFECTIVE_CCD="${CLAUDE_CONFIG_DIR:-}"
   if [ "$RUNNER" != codex ] && [ -z "$EFFECTIVE_CCD" ]; then
     _srv_ccd="$("$TMUX_BIN" show-environment -g CLAUDE_CONFIG_DIR 2>/dev/null || true)"

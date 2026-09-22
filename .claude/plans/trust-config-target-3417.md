@@ -99,6 +99,14 @@ If it turns out to be launchd-domain instead, the supervisor's own
 `$CLAUDE_CONFIG_DIR` branch already covers that (it would be non-empty), so the fix
 is correct either way — the resolution order handles both sources.
 
-## Out of scope (separate card #3418)
-`restartInner` returning RESTARTED on a silently-failed bootstrap. Tracked and
-built separately.
+## Out of scope
+- **#3418** — `restartInner` returning RESTARTED on a silently-failed bootstrap.
+  Tracked and built separately.
+- **Codex CODEX_HOME sibling leak** (own follow-up card) — the tmux-server-global
+  leak is not Claude-specific: a board cold-started under one account's CODEX_HOME
+  would leak it into a default-account codex pane the same way, misdirecting where
+  codex reads its per-account config. There is no trust-dialog symptom (codex has
+  no folder-trust gate), so it is not the reported #3417 defect, but the mechanism
+  is identical. A codex CODEX_HOME resolution mirroring the CLAUDE_CONFIG_DIR block
+  is a separate card; the supervisor comment now names this gap explicitly rather
+  than leaving it implicit in the codex-only exclusion.
