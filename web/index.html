@@ -564,6 +564,15 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    the descenders off the bottom of every name (Josh, 2026-09-22). Unitless so it tracks the shrunk
    size fitDetailName sets. */
 .dnamerow .dname { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; line-height: 1.15; }
+/* #3410 (Josh, 0.6.88 live test): the Start affordance sits right under the
+   identity, so a person looking at a not-running agent has the one action they
+   need in front of them instead of hunting for the buried Fresh-start section.
+   A flex column so the button and its status line stack and center under the
+   name, matching .dnamerow. Uses the shared .btn + .fmsg (both already
+   theme-aware, so light mode is covered without new colour tokens). */
+.d-start-wrap { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 12px; width: 100%; }
+.d-start-wrap .fmsg:empty { display: none; margin: 0; }
+.d-start-wrap .fmsg { margin: 0; text-align: center; }
 /* A hairline between the two halves of Runs on: the model above, the account
    below. Without it the second "Right now" line reads as a continuation of the
    first control rather than the start of a second one. */
@@ -8545,6 +8554,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              mock. If Josh wants it beside again, wrap #d-state + #d-task in a
              nested flex-row inside .dnamerow (one-commit change). -->
         <span class="dtask" id="d-task" hidden></span>
+      </div>
+      <!-- #3410 (Josh, 0.6.88 live test, 2026-09-22): a "Start this agent" action
+           right under the identity, shown ONLY when the agent is confidently not
+           running (openDetail toggles it on cardStOf(a).pres === 'off', i.e.
+           'stopped'; parallel to #d-reauth). Josh had seven agents that never
+           connected and no way to start one from the UI without the buried
+           Fresh-start section. It drives the EXISTING POST /api/agent/<name>/restart
+           (the route that starts a stopped agent) and VERIFIES the agent actually
+           comes up via restartReadyWait before claiming success, so it never lies on
+           the #3418 false-success (restartInner returns RESTARTED even when the
+           launchd relaunch never loaded). No cost-confirm modal: a stopped agent has
+           no live session to lose, so starting it is a direct action. -->
+      <div class="d-start-wrap" id="d-start-wrap" hidden>
+        <button type="button" class="btn" id="d-start-agent">Start this agent</button>
+        <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
       <!-- #569: where the state came from, under the badge, in Mona Lisa's
            words ("Said so itself" / "Read from its screen"); and the two
@@ -17421,7 +17445,7 @@ async function tick() {
      * The honest thing to say here is smaller: this agent is not on the board
      * any more, so nothing on this screen should offer to change it.
      */
-    for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
+    for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save', 'd-start-agent']) {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     }
@@ -26135,6 +26159,24 @@ function openDetail(sessionName, section, fromProject) {
      the existing re-auth surface. */
   const reauthBtn = document.getElementById('d-reauth');
   if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
+  /* #3410: the Start affordance, shown ONLY when the agent is confidently not
+     running -- cardStOf(a).pres === 'off', which is 'stopped' alone today (the
+     same single-pres:'off' fact modelLine relies on). Set at open time, the same
+     as #d-reauth above; the poll's "no longer on the board" arm (search
+     'd-start-agent') disables it if the agent vanishes. When the engine adds a
+     distinct not-running state (Angel #3418, e.g. connection_lost) it will fall
+     under this same gate; give it a "Reconnect" label there. Reset the button
+     and its status line on every open so a stale message from a previous agent
+     never lingers. */
+  const startWrap = document.getElementById('d-start-wrap');
+  if (startWrap) {
+    const notRunning = cardStOf(a).pres === 'off';
+    startWrap.hidden = !notRunning;
+    const startBtn = document.getElementById('d-start-agent');
+    const startMsg = document.getElementById('d-start-msg');
+    if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Start this agent'; }
+    if (startMsg) startMsg.textContent = '';
+  }
   /* The pack's header badge and the two reading boxes, all off the same
      shared derivations the board uses (memBand/pctOf/modelLine). */
   const dpct = pctOf(a.context);
@@ -30885,6 +30927,77 @@ function restartFailureLine(out) {
     + (failed.length ? ' What failed: ' + failed.join(', ') + '.' : '')
     + (done.length ? ' What worked: ' + done.join(', ') + '.' : '');
 }
+
+/* #3410: the "Start this agent" click. It reuses the proven restart plumbing
+   (POST /restart, restartTook, restartFailureLine, restartReadyWait, the wake
+   'hello') rather than adding a second start path, and it stays HONEST on the
+   #3418 false-success: restartInner returns outcome:'restarted' even when the
+   launchd relaunch never loaded, so restartTook alone would claim success on a
+   dead agent. So after the route accepts it, this waits for restartReadyWait to
+   actually SEE the session running before it says "Started"; a start that never
+   comes back falls to the honest "has not come back" line, not a lie. No
+   cost-confirm modal (unlike rst-go below): a stopped agent has no live session
+   to lose, so this is a direct action. Guarded on the open agent still being this
+   one, so a mid-wait switch never lands a line in another agent's panel. */
+document.getElementById('d-start-agent').addEventListener('click', async () => {
+  const name = CURRENT && CURRENT.sessionName;
+  if (!name) return;
+  const shown = (CURRENT && CURRENT.name) || name;
+  const sb = document.getElementById('d-start-agent');
+  const sm = document.getElementById('d-start-msg');
+  const onPanel = () => CURRENT && CURRENT.sessionName === name && sm && sm.isConnected;
+  const say = (t) => { if (onPanel()) sm.textContent = t; };
+  const reenable = () => { if (onPanel() && sb) sb.disabled = false; };
+  if (sb) sb.disabled = true;
+  say('Starting ' + shown + '…');
+  let rr, rout;
+  try {
+    rr = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
+    rout = await rr.json().catch(() => null);
+  } catch {
+    say('We could not reach Kosmos to start ' + shown + '.');
+    reenable();
+    return;
+  }
+  if (!restartTook(rr.ok, rout)) {
+    say('We could not start ' + shown + '. ' + restartFailureLine(rout));
+    reenable();
+    return;
+  }
+  /* The route accepted it; confirm it actually came back before saying so.
+     PER-AGENT token so a newer start/restart of the same agent supersedes this
+     wait (the same RESTART_HELLO_SEQ contract autoHelloAfterRestart uses). */
+  const token = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
+  const ready = await restartReadyWait(name, token);
+  if (token !== RESTART_HELLO_SEQ[name]) return;   // superseded by a newer start/restart of this agent
+  if (!ready) {
+    say('We asked ' + shown + ' to start, but it has not come back yet. Try Start again, or open Advanced to see what happened.');
+    reenable();
+    return;
+  }
+  /* It is up. Wake it with the same 'hello' the restart paths send (#2686),
+     inlined here rather than via autoHelloAfterRestart because that re-runs
+     restartReadyWait, which needs to see an unready->ready gap and would now
+     time out (the gap is already past). Claim "said hello" only on 'placed'
+     (the composer's own reached-the-session signal), never on 'recorded'. */
+  say('Started ' + shown + '. Waking them…');
+  try {
+    const hr = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'hello' }),
+    });
+    const hout = await hr.json().catch(() => null);
+    const placed = hr.ok && hout && hout.delivery && hout.delivery.state === 'placed';
+    say(placed
+      ? 'Started ' + shown + ', and said hello to wake them.'
+      : 'Started ' + shown + '. Say ‘hello’ to wake them.');
+  } catch {
+    say('Started ' + shown + '. Say ‘hello’ to wake them.');
+  }
+  /* Leave the button disabled: the agent is running now, so Start no longer
+     applies, and reopening the panel re-derives visibility (pres is no longer
+     'off', so openDetail hides the affordance). */
+});
 
 document.getElementById('rst-go').addEventListener('click', async () => {
   const btn = RST_FOR;
