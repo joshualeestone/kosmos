@@ -141,22 +141,22 @@ test('OpenAI is choosable too, with its own key-entry connect', () => {
     'the outcome line #fr-openai-msg sits inside #fr-openai-flow, where the connected paint hides it');
 });
 
-test('no disclosure survives: all ten providers render in the open', () => {
+test('no disclosure survives: all eleven providers render in the open', () => {
   assert.ok(!/<details/.test(STEP), 'a collapsed disclosure came back');
   assert.ok(!/<summary/.test(STEP), 'a collapsed disclosure came back');
-  for (const name of ['Claude', 'Gemini', 'GPT', 'Llama', 'Qwen', 'Mistral', 'DeepSeek', 'GLM', 'Kimi', 'MiniMax']) {
+  for (const name of ['Claude', 'Gemini', 'Grok', 'GPT', 'Llama', 'Qwen', 'Mistral', 'DeepSeek', 'GLM', 'Kimi', 'MiniMax']) {
     assert.ok(STEP.includes(name), name + ' is missing from the step');
   }
-  /* Eight coming-soon rows (Gemini, Llama, Qwen, Mistral, then #1040's DeepSeek,
-     GLM, Kimi, MiniMax), all at the same `.llm off` weight. OpenAI moved out of
-     this group (#944-adjacent): it already works via Settings, so first-run
-     stopped saying otherwise. #1040 added four more, honouring Josh's "show all
-     the models" (2026-08-25) as new providers arrived; the sticky footer already
-     removed the fold tension six rows once created. */
-  assert.equal((STEP.match(/class="llm off"/g) || []).length, 8,
-    'expected exactly the eight coming-soon providers at .llm off weight');
-  assert.equal((STEP.match(/class="soon"/g) || []).length, 8,
-    'expected a "Coming soon" pill on each of the eight still-unavailable providers');
+  /* Nine coming-soon rows (Gemini, then #3386's Grok grouped with it, then Llama,
+     Qwen, Mistral, and #1040's DeepSeek, GLM, Kimi, MiniMax), all at the same
+     `.llm off` weight. OpenAI moved out of this group (#944-adjacent): it already
+     works via Settings, so first-run stopped saying otherwise. #1040 added four
+     more, and #3386 added Grok up front (Josh, 2026-09-21), honouring "show all the
+     models"; the sticky footer already removed the fold tension six rows once created. */
+  assert.equal((STEP.match(/class="llm off"/g) || []).length, 9,
+    'expected exactly the nine coming-soon providers at .llm off weight');
+  assert.equal((STEP.match(/class="soon"/g) || []).length, 9,
+    'expected a "Coming soon" pill on each of the nine still-unavailable providers');
 });
 
 test('every provider carries a real, inlined vendor mark', () => {
