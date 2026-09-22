@@ -236,6 +236,31 @@ function chk(ok, label, extra) {
       'a reopen during the readiness wait suppresses the stale handler’s late write (epoch guard)',
       JSON.stringify(afterReopen));
 
+    // ── Part 6: the in-flight guard (START_FLIGHT). When a Start is in flight for
+    // the current open, refreshStartAffordance (the poll's reappear arm re-derive)
+    // must NOT re-enable the disabled button, or a person could fire a second
+    // restart mid-wait. Drive it directly: open nyx (stopped), mark a start
+    // in-flight for this open and disable the button as the click would, then run
+    // refreshStartAffordance and assert the button stays disabled. Without the
+    // guard it re-enables (notRunning is true), so this arm is red-capable.
+    await page.evaluate(() => openDetail('nyx'));
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.waitForTimeout(200);
+    const guarded = await page.evaluate(() => {
+      const btn = document.getElementById('d-start-agent');
+      START_FLIGHT = START_EPOCH;      // a start owns this open
+      btn.disabled = true;             // as the click handler sets it
+      refreshStartAffordance(CURRENT); // the reappear-arm re-derive
+      const held = btn.disabled;
+      START_FLIGHT = null;             // clean up so later state is unaffected
+      refreshStartAffordance(CURRENT);
+      return { held, afterClear: btn.disabled };
+    });
+    chk(guarded.held === true,
+      'an in-flight Start keeps the button disabled through a re-derive (no double-restart)', JSON.stringify(guarded));
+    chk(guarded.afterClear === false,
+      'and once the start clears, a re-derive re-enables it', JSON.stringify(guarded));
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.screenshot({ path: path.join(OUT, 'start-agent.png'), clip: { x: 0, y: 0, width: 480, height: 700 } }).catch(() => {});
   } finally {

@@ -23944,6 +23944,11 @@ function refreshAvatar() {
    underneath it (the RESTART_HELLO_SEQ token only catches a NEWER restart, not a
    mere reopen). */
 let START_EPOCH = 0;
+/* #3410: the START_EPOCH of a Start currently in flight, or null. The click sets
+   it and clears it in a finally; refreshStartAffordance reads it so a re-derive
+   for THIS open does not re-enable a button the in-flight click deliberately
+   disabled (which would let a person fire a second restart mid-wait). */
+let START_FLIGHT = null;
 
 /* #3410: derive the Start affordance's visibility, enabled state and label from
    the live card, shared by openDetail (on open) and the poll's reappear arm (so a
@@ -23960,7 +23965,13 @@ function refreshStartAffordance(a) {
   const notRunning = !!a && cardStOf(a).pres === 'off';
   wrap.hidden = !notRunning;
   const btn = document.getElementById('d-start-agent');
-  if (notRunning && btn) { btn.disabled = false; btn.textContent = 'Start this agent'; }
+  /* Do NOT re-enable while a Start for THIS open is mid-flight: a withdraw+reappear
+     during the ~30s wait would otherwise re-enable the button the click disabled,
+     and since a reappear does not bump START_EPOCH the click's own onPanel guard
+     would not catch the resulting second restart. Keying on START_EPOCH means a
+     later open (which DID bump it) still re-enables normally. */
+  const inFlight = START_FLIGHT !== null && START_FLIGHT === START_EPOCH;
+  if (notRunning && btn && !inFlight) { btn.disabled = false; btn.textContent = 'Start this agent'; }
 }
 
 /* The pack's Memory box: a READING, not a control panel. The same
@@ -30981,65 +30992,77 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
      start status under the "no longer under Agents" banner. Together they make
      every say()/reenable() a no-op once this action no longer owns the panel. */
   const epoch = START_EPOCH;
+  /* Mark a Start in flight for this open so refreshStartAffordance (poll reappear
+     arm) does not re-enable the button we are about to disable, which would let a
+     second restart fire mid-wait. Cleared in the finally, only if still ours. */
+  START_FLIGHT = epoch;
   const onPanel = () => START_EPOCH === epoch && sm && sm.isConnected && !PANEL_WITHDRAWN;
   const say = (t) => { if (onPanel()) sm.textContent = t; };
   const reenable = () => { if (onPanel() && sb) sb.disabled = false; };
-  if (sb) sb.disabled = true;
-  say('Starting ' + shown + '…');
-  let rr, rout;
   try {
-    rr = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
-    rout = await rr.json().catch(() => null);
-  } catch {
-    say('We could not reach Kosmos to start ' + shown + '.');
-    reenable();
-    return;
+    if (sb) sb.disabled = true;
+    say('Starting ' + shown + '…');
+    let rr, rout;
+    try {
+      rr = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
+      rout = await rr.json().catch(() => null);
+    } catch {
+      say('We could not reach Kosmos to start ' + shown + '.');
+      reenable();
+      return;
+    }
+    if (!restartTook(rr.ok, rout)) {
+      /* restartFailureLine is shared with the restart modal, so its no-detail
+         fallback is restart-worded ("We could not restart them."). In this START
+         context that would double up as "We could not start X. We could not restart
+         them.", so only append it when it carries specifics (a reason, or a
+         what-failed/what-worked step list) beyond that generic; our lead already
+         said the generic, start-worded. */
+      /* NB: a PARTIAL outcome (steps present, restart could not close the old
+         window) reaches here too, and restartFailureLine would then add its
+         window-closing language, which is restart-shaped. That is acceptable
+         because a genuinely 'stopped' agent -- the only state that shows this
+         button -- has no live window to fail closing, so the partial-close arm is
+         not reachable from here in practice; if a future not-running state can
+         reach it, revisit the wording. */
+      const hasDetail = rout && (rout.because || rout.error
+        || (Array.isArray(rout.steps) && rout.steps.length));
+      say('We could not start ' + shown + '.' + (hasDetail ? ' ' + restartFailureLine(rout) : ''));
+      reenable();
+      return;
+    }
+    /* The route accepted it; confirm it actually came back before saying so.
+       PER-AGENT token so a newer start/restart of the same agent supersedes this
+       wait (the same RESTART_HELLO_SEQ contract autoHelloAfterRestart uses). */
+    const token = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
+    const ready = await restartReadyWait(name, token);
+    if (token !== RESTART_HELLO_SEQ[name]) return;   // superseded by a newer start/restart of this agent
+    if (!ready) {
+      say('We asked ' + shown + ' to start, but it has not come back yet. Try Start again, or open Advanced to see what happened.');
+      reenable();
+      return;
+    }
+    /* It is up. Wake it with the shared sendWakeHello (#2686), NOT via
+       autoHelloAfterRestart, because that re-runs restartReadyWait, which needs an
+       unready->ready gap and would time out here (the gap is already past). The
+       `token` re-check inside sendWakeHello covers a newer restart of this same
+       agent (rst-go, trust-and-restart, the stale-instructions notice) landing
+       while the hello is in flight; `say` additionally no-ops if the panel was
+       switched or reopened (the epoch guard). */
+    say('Started ' + shown + '. Waking them…');
+    await sendWakeHello(name, token, say,
+      'Started ' + shown + ', and said hello to wake them.',
+      'Started ' + shown + '. Say ‘hello’ to wake them.');
+    /* Leave the button disabled: the agent is running now, so Start no longer
+       applies. It is re-derived (shown/hidden/enabled) the next time this panel is
+       opened or when the poll's reappear arm runs refreshStartAffordance; there is
+       no general per-tick re-derive, matching the open-time-only #d-reauth pattern. */
+  } finally {
+    /* Release the in-flight marker if it is still ours: a later open bumps
+       START_EPOCH and may start its own, and clearing unconditionally would wipe
+       that newer one. */
+    if (START_FLIGHT === epoch) START_FLIGHT = null;
   }
-  if (!restartTook(rr.ok, rout)) {
-    /* restartFailureLine is shared with the restart modal, so its no-detail
-       fallback is restart-worded ("We could not restart them."). In this START
-       context that would double up as "We could not start X. We could not restart
-       them.", so only append it when it carries specifics (a reason, or a
-       what-failed/what-worked step list) beyond that generic; our lead already
-       said the generic, start-worded. */
-    /* NB: a PARTIAL outcome (steps present, restart could not close the old
-       window) reaches here too, and restartFailureLine would then add its
-       window-closing language, which is restart-shaped. That is acceptable
-       because a genuinely 'stopped' agent -- the only state that shows this
-       button -- has no live window to fail closing, so the partial-close arm is
-       not reachable from here in practice; if a future not-running state can
-       reach it, revisit the wording. */
-    const hasDetail = rout && (rout.because || rout.error
-      || (Array.isArray(rout.steps) && rout.steps.length));
-    say('We could not start ' + shown + '.' + (hasDetail ? ' ' + restartFailureLine(rout) : ''));
-    reenable();
-    return;
-  }
-  /* The route accepted it; confirm it actually came back before saying so.
-     PER-AGENT token so a newer start/restart of the same agent supersedes this
-     wait (the same RESTART_HELLO_SEQ contract autoHelloAfterRestart uses). */
-  const token = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
-  const ready = await restartReadyWait(name, token);
-  if (token !== RESTART_HELLO_SEQ[name]) return;   // superseded by a newer start/restart of this agent
-  if (!ready) {
-    say('We asked ' + shown + ' to start, but it has not come back yet. Try Start again, or open Advanced to see what happened.');
-    reenable();
-    return;
-  }
-  /* It is up. Wake it with the shared sendWakeHello (#2686), NOT via
-     autoHelloAfterRestart, because that re-runs restartReadyWait, which needs an
-     unready->ready gap and would time out here (the gap is already past). The
-     `token` re-check inside sendWakeHello covers a newer restart of this same
-     agent (rst-go, trust-and-restart, the stale-instructions notice) landing
-     while the hello is in flight; `say` additionally no-ops if the panel was
-     switched or reopened (the epoch guard). */
-  say('Started ' + shown + '. Waking them…');
-  await sendWakeHello(name, token, say,
-    'Started ' + shown + ', and said hello to wake them.',
-    'Started ' + shown + '. Say ‘hello’ to wake them.');
-  /* Leave the button disabled: the agent is running now, so Start no longer
-     applies, and the next poll's refreshStartAffordance (or a reopen) hides the
-     affordance once the card reports it running (pres no longer 'off'). */
 });
 
 document.getElementById('rst-go').addEventListener('click', async () => {
