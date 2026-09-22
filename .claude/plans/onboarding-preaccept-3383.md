@@ -32,8 +32,16 @@ Three first-run gates a clean install meets, in order: **theme picker (onboardin
 ## The fix
 
 A new **`preacceptOnboarding(configDir, agentDefaultAccount)`** in `engine/trust.js`, a direct
-sibling of `preacceptBypass`, that seeds top-level `hasCompletedOnboarding: true` (and a default
-`theme` only when none is recorded) into the account's `.claude.json`.
+sibling of `preacceptBypass`, that seeds **only** the top-level boolean `hasCompletedOnboarding:
+true` into the account's `.claude.json`.
+
+It writes **no theme or any other cosmetic key** — measured: `hasCompletedOnboarding: true` alone
+suppresses the picker (the seeded agent jumps straight to the trust prompt). That matters because
+for a default-account agent the target is the operator's own `~/.claude.json`, so writing a theme
+there would silently change a UI preference they never set. Suppressing the onboarding gate on that
+shared config is the same scope `trustFolder` / `preacceptBypass` already take (they suppress the
+operator's trust / bypass prompts there too); writing a cosmetic preference would not be, so it is
+left out. The function is agent-neutral, exactly like its siblings: one consent-like boolean.
 
 - It writes the **same `.claude.json`** `trustFolder` writes (unlike `preacceptBypass`'s
   `settings.json`), so it targets the file via the same `configTarget()` derivation and locks on the

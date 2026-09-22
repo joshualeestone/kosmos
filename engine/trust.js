@@ -138,7 +138,6 @@ const KEY = 'hasTrustDialogAccepted';
    identical reason the bypass prompt only bites a fresh install. Kosmos never seeded it
    (git log -S is empty), so this is a MISSING pre-accept, not a regression. */
 const ONBOARDING_KEY = 'hasCompletedOnboarding';
-const THEME_KEY = 'theme';
 
 /* #1919 launch side. The Bypass-Permissions consent is lifted by this TOP-LEVEL key in
    settings.json (measured: every fleet config dir carries it, which is why fleet agents
@@ -846,13 +845,19 @@ function preacceptBypassInner(configDir, agentDefaultAccount) {
  * hangs while OpenAI (codex, no first-run gate) connects. Setting ONBOARDING_KEY true in the
  * account's .claude.json ahead of time marks first-run done, so the picker never shows.
  *
- * It GRANTS NOTHING and CHANGES NO BEHAVIOUR -- onboarding is a cosmetic setup step (a theme),
- * not a permission; this only removes an interactive gate for a background agent nobody is
- * watching. Scoped to the per-agent config dir, never global.
+ * It writes ONE agent-neutral boolean, exactly as its siblings do -- trustFolder writes the
+ * trust consent, preacceptBypass the bypass consent, this the first-run-done marker. It seeds
+ * NO cosmetic preference: measured on this box, ONBOARDING_KEY:true alone suppresses the picker
+ * (the seeded agent jumps straight to the trust prompt), so we do NOT write a theme. That
+ * matters because for a DEFAULT-account agent the target is the operator's own ~/.claude.json,
+ * and writing a theme there would silently change a UI choice they never made. Suppressing the
+ * onboarding gate on that shared config is the same scope trustFolder/preacceptBypass already
+ * take (they suppress the operator's trust/bypass prompts there too); writing a theme would not
+ * be, so it is left out.
  *
  * Like preacceptBypass (and unlike trustFolder, which refuses to CREATE .claude.json because
  * that file can hold session history), this CREATES .claude.json if absent: a config holding
- * only { hasCompletedOnboarding:true, theme } is a valid minimal first-run PREFERENCE, not a
+ * only { hasCompletedOnboarding:true } is a valid minimal first-run PREFERENCE, not a
  * fabricated session history (no lastSessionId / lastCost), which is what makes it work on a
  * clean product install -- the case #3383 was filed from. In the real create/move flow
  * trustFolder runs FIRST and has already created the file, so this usually MERGES. It writes
@@ -860,10 +865,6 @@ function preacceptBypassInner(configDir, agentDefaultAccount) {
  * the two serialise cleanly rather than lost-updating each other. Same safety otherwise:
  * refuse a symlink, refuse a non-object shape, merge (never replace) so trustFolder's projects
  * and the person's other config survive, preserve mode, atomic `wx` write.
- *
- * theme is seeded to a sensible default ONLY when we are seeding onboarding (a genuinely fresh
- * account) AND no theme is already recorded -- an account that already completed onboarding
- * keeps its own theme choice untouched.
  *
  * @param {string|null} configDir the ACCOUNT's config dir (null = this process's own).
  * @param {boolean} agentDefaultAccount the agent runs on the DEFAULT account (reads ~/.claude.json).
@@ -908,16 +909,16 @@ function preacceptOnboardingInner(configDir, agentDefaultAccount) {
   }
 
   // Already onboarded is a SUCCESS: the picker is already suppressed, which is the whole
-  // outcome. Return without touching the file, so an already-onboarded account keeps its
-  // theme and everything else exactly as it was.
+  // outcome. Return without touching the file, so an already-onboarded account keeps
+  // everything (its theme and all else) exactly as it was.
   if (data[ONBOARDING_KEY] === true) return { ok: true, already: true, target };
   const displaced = (ONBOARDING_KEY in data) ? data[ONBOARDING_KEY] : undefined;
 
   // Merge into the object rather than replace it: .claude.json carries trustFolder's projects
-  // map and the person's other config; a fresh one-key object would delete them.
+  // map and the person's other config; a fresh one-key object would delete them. We write ONLY
+  // this one boolean -- no theme or any other cosmetic key (see docblock): the target can be the
+  // operator's own ~/.claude.json, and this must not change a preference they never set.
   data[ONBOARDING_KEY] = true;
-  // Seed a deterministic theme only when none is recorded -- never override a real choice.
-  if (!(THEME_KEY in data)) data[THEME_KEY] = 'dark';
 
   // Read-modify-write on a file Claude Code also writes: the same milliseconds-wide race
   // trustFolder / preacceptBypass document (a concurrent whole-file save can drop this). The

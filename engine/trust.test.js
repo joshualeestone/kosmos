@@ -884,14 +884,19 @@ test('#2129: a DEFAULT-account agent IGNORES the engine\'s CLAUDE_CONFIG_DIR (tr
 // picker. preacceptOnboarding(dir) -> configTarget resolves <dir>/.claude.json.
 // ---------------------------------------------------------------------------
 
-test('#3383: preacceptOnboarding CREATES .claude.json with onboarding + a default theme when absent', () => {
+test('#3383: preacceptOnboarding CREATES .claude.json with ONLY the onboarding key when absent', () => {
   const d = acctDir();
   const r = preacceptOnboarding(d);
   assert.equal(r.ok, true);
   assert.equal(r.already, false);
   assert.equal(r.madeFile, true);
   assert.equal(r.target, cfgPath(d), 'the RESOLVED .claude.json, not ~/.claude.json (a wrong path is a silent no-op)');
-  assert.deepEqual(cfgRead(d), { [ONBOARDING_KEY]: true, theme: 'dark' });
+  // The key is pinned as a LITERAL (not [ONBOARDING_KEY]) on purpose: a typo in the constant
+  // would move the product and an [ONBOARDING_KEY] assertion together and stay green, while the
+  // real Claude Code v2.1.278 picker (which reads the literal `hasCompletedOnboarding`) would
+  // NOT be suppressed. And it is the WHOLE object: exactly one key, no theme or other cosmetic
+  // preference written into what can be the operator's own ~/.claude.json.
+  assert.deepEqual(cfgRead(d), { hasCompletedOnboarding: true });
 });
 
 test('#3383: preacceptOnboarding on an already-onboarded config is already, writes nothing, keeps its theme', () => {
@@ -917,13 +922,20 @@ test('#3383: preacceptOnboarding MERGES into an existing config, keeping trustFo
   assert.equal(after.numStartups, 3, 'other top-level config survives');
 });
 
-test('#3383: preacceptOnboarding does NOT override a theme already recorded', () => {
+test('#3383: preacceptOnboarding adds ONLY the onboarding key, no theme or other cosmetic write', () => {
+  // Guards the invariant that the function is agent-neutral like its siblings: for a
+  // default-account agent the target is the operator's own ~/.claude.json, so seeding a theme
+  // (or anything cosmetic) would change a preference they never set. Start from a config that
+  // has no theme, seed onboarding, and assert the ONLY new key is hasCompletedOnboarding.
   const d = acctDir();
-  fs.writeFileSync(cfgPath(d), JSON.stringify({ theme: 'light' }));
+  fs.writeFileSync(cfgPath(d), JSON.stringify({ numStartups: 4, projects: {} }));
   const r = preacceptOnboarding(d);
   assert.equal(r.ok, true);
-  assert.equal(cfgRead(d).theme, 'light', 'a real theme choice is never overwritten; the default is seeded ONLY when none is present');
-  assert.equal(cfgRead(d)[ONBOARDING_KEY], true);
+  const after = cfgRead(d);
+  assert.equal(after.hasCompletedOnboarding, true, 'the boolean marker is set (literal key)');
+  assert.ok(!('theme' in after), 'no theme is written -- it must not change the operator\'s UI on their shared config');
+  assert.deepEqual(new Set(Object.keys(after)), new Set(['numStartups', 'projects', 'hasCompletedOnboarding']),
+    'exactly one key was added and nothing else was touched');
 });
 
 test('#3383: preacceptOnboarding records a displaced explicit value (e.g. a prior false)', () => {
