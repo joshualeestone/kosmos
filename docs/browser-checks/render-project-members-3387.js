@@ -264,7 +264,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       document.getElementById('rail-agents-new').click();
       return {
         railName: (document.querySelector('#rail-agents .railname') || {}).textContent,
-        emptyHintShown: !!emptyHint,
+        emptyHintText: emptyHint ? emptyHint.textContent : null,
         modalOpen: document.getElementById('am-modal').hidden === false,
         addProject: (document.getElementById('am-project') || {}).textContent,
       };
@@ -273,8 +273,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       mismatch.railName === 'Project Members', JSON.stringify(mismatch));
     ok(t + ' #3387b the top + opens the add-member modal for that project (the dead + Josh hit)',
       mismatch.modalOpen === true && mismatch.addProject === 'Kosmos Growth', JSON.stringify(mismatch));
-    ok(t + ' #3387b an empty-members list shows the guidance hint, not a silent gap',
-      mismatch.emptyHintShown === true, JSON.stringify(mismatch));
+    // The hint must NOT claim the project is empty here -- it HAS members (off-board-1/2), they are
+    // just not on this board. Asserting the off-board wording guards the CLAUDE.md convention-5
+    // accuracy (copy must not assert a state the data contradicts).
+    ok(t + ' #3387b the empty-members hint tells the truth for off-board members (not "no agents yet")',
+      !!mismatch.emptyHintText && /not on this board/.test(mismatch.emptyHintText)
+        && !/no agents on this project yet/i.test(mismatch.emptyHintText), JSON.stringify(mismatch));
 
     await page.close();
   }

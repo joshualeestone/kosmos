@@ -17186,7 +17186,12 @@ function paintAgentList() {
     const rest = inProj ? shown.filter((a) => !inProj.has(a.sessionName)) : shown.slice();
     const membersHtml = members.length
       ? members.map(lrow).join('')
-      : '<div class="alist-emptymembers">No agents on this project yet. Use + above to add one.</div>';
+      // Two distinct empty states, told apart so the copy never claims a state the data
+      // contradicts: a project that HAS members none of which are on this board (the mismatch
+      // Josh hit) vs one with no members at all.
+      : (inProj && inProj.size
+        ? '<div class="alist-emptymembers">This project’s agents are not on this board right now. Use + above to add one.</div>'
+        : '<div class="alist-emptymembers">No agents on this project yet. Use + above to add one.</div>');
     alist.innerHTML = membersHtml
       + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
