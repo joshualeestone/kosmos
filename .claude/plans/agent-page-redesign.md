@@ -42,5 +42,14 @@ render for the record, no okay-gate (Josh asleep, per Splinter's steer).
 
 ## Files
 - web/index.html - markup move + .dleft/.dtext/.dhead/.dnamerow/.dname CSS + fitDetailName + #d-meta JS.
-- docs/browser-checks/render-detail-header-1841.js, render-talk-fill-2622.js - updated.
-- server.test.js - #2833 meta-line test rewritten for title + #684 disclosure.
+  Also: .dleft/.dsecs padding-top:6px (memory-ring clip + column alignment), fitDetailName on the
+  window-resize handler, and #d-meta segments joined with '' not '<br>'.
+- docs/browser-checks/render-detail-header-1841.js - updated (Part 4 title-only meta line, new Part 5
+  cold-open name-shrink). render-talk-fill-2622.js - updated.
+- docs/browser-checks/render-agentpage-fullwidth-2012.js - assertion 2 rewritten to the #3385
+  left-column header (was the full-width-banner assertion).
+- docs/browser-checks/README.md - descriptions for the two updated checks refreshed to the #3385 reality.
+- server.test.js - #2833 meta-line test rewritten for title + #684 disclosure; its slice anchor made
+  robust to the join separator.
+- web.settings-width.test.js - updated for the #3385 layout (agent page goes full-width; a new
+  assertion that the identity sits in the left .dleft column).
