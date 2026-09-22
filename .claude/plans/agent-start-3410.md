@@ -46,11 +46,13 @@ honest, and is already honest on its own via the readiness re-check.
 - `tools/browser-checks.sh` + `docs/browser-checks/README.md`: wiring.
 
 ## Test plan
-`render-start-agent-3410.js` (self-serve, 16/16 green) asserts: visible + enabled
+`render-start-agent-3410.js` (self-serve, all assertions green) asserts: visible + enabled
 + "Start this agent" on a stopped agent; hidden on a running one; the click POSTs
 `/api/agent/<name>/restart` and a refused outcome (HTTP 400) shows the honest
 failure line, not "started", and re-enables the button; and Part 4 exercises the
 #3418 honesty path itself: the route returns the false-success `outcome:'restarted'`
 while the agent never becomes ready (readiness window shortened via the
 `RESTART_READY_WINDOW_MS` let-seam), and the button must show "has not come back
-yet", must NOT claim "Started", and must re-enable.
+yet", must NOT claim "Started", and must re-enable. Part 5 exercises the
+START_EPOCH guard: reopening the panel during the readiness wait must suppress the
+stale handler's late write (no "has not come back" lands on the reopened panel).

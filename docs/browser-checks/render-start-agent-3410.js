@@ -213,6 +213,29 @@ function chk(ok, label, extra) {
       'and it does NOT falsely claim "Started" on the restart false-success', unready.msg);
     chk(unready.btnDisabled === false, 'the button re-enables so the person can try again', JSON.stringify(unready.btnDisabled));
 
+    // ── Part 5: reopening the panel DURING the readiness wait must suppress the
+    // stale handler's late write (the START_EPOCH guard). Reuses Part 4's
+    // restarted-but-never-ready route and shortened window. Click Start (begins
+    // the ~800ms wait), reopen nyx mid-wait (openDetail bumps START_EPOCH and
+    // clears the message), then let the stale wait resolve: its "has not come
+    // back" line must NOT land on the freshly-reopened panel. Without the epoch
+    // guard (a bare sessionName check) it would, since the reopened agent has the
+    // same sessionName.
+    await page.evaluate(() => openDetail('nyx'));
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.waitForTimeout(200);
+    await page.click('#d-start-agent');           // begins the ~800ms readiness wait
+    await page.waitForTimeout(150);               // still inside the wait
+    await page.evaluate(() => openDetail('nyx')); // reopen: START_EPOCH bumps, msg cleared
+    await page.waitForTimeout(1300);              // let the stale wait resolve past 800ms
+    const afterReopen = await page.evaluate(() => {
+      const m = document.getElementById('d-start-msg');
+      return m ? m.textContent.trim() : null;
+    });
+    chk(!/has not come back/i.test(afterReopen || ''),
+      'a reopen during the readiness wait suppresses the stale handler’s late write (epoch guard)',
+      JSON.stringify(afterReopen));
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.screenshot({ path: path.join(OUT, 'start-agent.png'), clip: { x: 0, y: 0, width: 480, height: 700 } }).catch(() => {});
   } finally {
