@@ -2307,8 +2307,12 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
    60rem/56rem media rules below still name this selector.) */
 #panel-detail .dbody { grid-template-columns: 220px minmax(0, 1fr); justify-content: stretch; }
 /* #3385: the left column stacks the identity (.dhead) above the nav; it is the grid's first
-   column, holding both. Widened from 176px so the name/title/status read comfortably. */
-#panel-detail .dleft { display: flex; flex-direction: column; min-width: 0; }
+   column, holding both. Widened from 176px so the name/title/status read comfortably.
+   padding-top:6px gives the memory ring room: .dring is inset:-6px on .dav-wrap (the first
+   child, flush with the column top), and in the Talk/fill state .dleft is overflow:auto,
+   which clips at the padding box and would shave the ring's top 6px (measured). The padding
+   is unconditional so the identity block does not jump 6px when switching in and out of Talk. */
+#panel-detail .dleft { display: flex; flex-direction: column; min-width: 0; padding-top: 6px; }
 /* #2012: prose keeps a readable measure even though the column is now wide -- a
    1000px-long line is unreadable. The message BODY caps near 66ch, left-aligned
    in the wide column. The chrome that sits OUTSIDE the body -- the avatar beside
@@ -25920,7 +25924,11 @@ function openDetail(sessionName, section, fromProject) {
   // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
   // in the stranger's words -- only the #2833 provider/account/model segments are dropped (#3385).
   if (!a.nameDerived) metaBits.push('<span class="dmeta-note">' + esc('no name was chosen for it, so this is the one it runs under') + '</span>');
-  document.getElementById('d-meta').innerHTML = metaBits.join('<br>');
+  // Join with '' not '<br>': .dmeta-note is display:block with its own margin-top, so a <br>
+  // before it stacked a redundant blank line when both the title and the #684 disclosure show.
+  // The block note already starts on its own line; the title alone or the note alone are single
+  // segments where the separator never renders.
+  document.getElementById('d-meta').innerHTML = metaBits.join('');
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
      class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
