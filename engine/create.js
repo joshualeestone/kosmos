@@ -1832,6 +1832,21 @@ function defaultAgentGeminiHome() {
     || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.gemini');
 }
 
+/* #3391: the DEFAULT-account Grok home, the exact sibling of
+   defaultAgentGeminiHome. A default-account Grok agent (a launch job with a null
+   configDir) records its session under this home; the status reader resolves it
+   the same way readGrokSession does (job.configDir || this). GROK_HOME is the
+   storage ROOT (sessions/ sits directly under it -- groksession.HOME() reads it),
+   so unlike the gemini helper there is no .gemini-style suffix to append: ~/.grok
+   directly. The operator's own GROK_HOME is deliberately NOT honoured here, exactly
+   as defaultAgentGeminiHome ignores GEMINI_CLI_HOME and defaultAgentCodexHome uses
+   ~/.codex over CODEX_HOME -- a DEFAULT-account agent is pinned to the standard home
+   the board knows, and a per-account home is carried by job.configDir, not this. */
+function defaultAgentGrokHome() {
+  return process.env.AGENT_WORKFORCE_GROK_HOME
+    || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.grok');
+}
+
 /**
  * Trust an agent's folder for the codex runner, the way the Yes button on
  * codex's own trust dialog would. MEASURED (#245): the bypass flag does
@@ -2268,7 +2283,14 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      default-account gemini agent carries no configDir, so no account-env line is
      written; a PER-ACCOUNT gemini home (GEMINI_CLI_HOME, and readPlistJob's cfg
      regex) is the launcher slice's job. */
-  const isNonClaudeRunner = runner === 'codex' || runner === 'gemini';
+  /* #3391: a FOURTH runner (grok) rides the same optional-seventh slot, for the
+     identical reason -- readJobVerdict reads it back with no whitelist, so writing
+     the exact 'grok' string round-trips it, which the status ring's readGrokSession
+     gate (job.runner === 'grok') depends on. Same account-env caveat as gemini: a
+     default-account grok agent carries no configDir, so accountEnvVar(runner) (still
+     codex -> CODEX_HOME only, everything else -> CLAUDE_CONFIG_DIR) writes no line;
+     a PER-ACCOUNT grok home (GROK_HOME) is the launcher slice's job. */
+  const isNonClaudeRunner = runner === 'codex' || runner === 'gemini' || runner === 'grok';
   const modelLine = (modelArg || isNonClaudeRunner) ? `\n    <string>${xml(modelArg || '')}</string>` : '';
   const runnerLine = isNonClaudeRunner ? `\n    <string>${xml(runner)}</string>` : '';
   /* 🔑 WHICH CLAUDE ACCOUNT THIS AGENT RUNS ON, and it is one environment
@@ -4633,6 +4655,7 @@ module.exports = {
   trustCodexFolder,
   defaultAgentCodexHome,
   defaultAgentGeminiHome,
+  defaultAgentGrokHome,
   setRunner,
   setDryRun,
   OUTCOME,

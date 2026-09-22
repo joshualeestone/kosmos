@@ -944,7 +944,7 @@ function parsePanes(out) {
          optional runner argument carries (#245). Normalised to the two
          words the classifier dispatches on, so a truncated line cannot
          invent a runner. */
-      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : '',
+      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : '',
       title: raw.title || '',
     };
   /* ⚠️ AND THE ROW ITSELF (#603's other half, MEASURED before believed):
@@ -4780,6 +4780,93 @@ function readGeminiContext(agentName, sess) {
    launcher adds geminiCompletionAt + wires it into the snapshot observation arm + the
    badge together, reachable from the start. */
 
+/* ------------------------------------------------------------------------- *
+ * #3391: the GROK (xAI) context ring, the exact sibling of the Gemini arm
+ * above. A launched Grok agent does not write a Claude `.jsonl`, so `readContext`
+ * returns NO_TRANSCRIPT for it and the ring reads "Not yet read" forever -- the
+ * #2257 symptom, fourth provider. `groksession.read` reads the Grok Build session
+ * (summary.json + signals.json) instead and returns codexsession.read's exact
+ * contract, which `readGrokContext` maps into the standard ring shape. Classify
+ * (busy/idle pane markers) and the account-badge overlay are DEFERRED to the
+ * launcher slice (classify needs a live pane to validate; the badge needs an XAI
+ * provider in observed.js) -- the context ring is independent of both, exactly as
+ * the Gemini ring landed before the Gemini launcher.
+ * ------------------------------------------------------------------------- */
+
+/* Resolve a Grok agent's launch folder to its session and read it, ONCE.
+   Mirrors readGeminiSession: workerDir + readJob, gate on runner 'grok', read the
+   agent's OWN account home (job.configDir), FAIL CLOSED to the default-account home
+   only when configDir is null (never the board's). #2906 discipline. */
+function readGrokSession(agentName) {
+  const create = require('./create');
+  let dir;
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'grok') return { found: false };
+  const home = job.configDir || create.defaultAgentGrokHome();
+  try { return require('./groksession').read(dir, home); }
+  catch { return { found: false }; }
+}
+
+function readGrokContext(agentName, sess) {
+  // Same pre-read-once contract as readGeminiContext: `undefined` means "not
+  // supplied" (read it here); a supplied {found:false} is honoured.
+  if (sess === undefined) sess = readGrokSession(agentName);
+
+  /* A transcript that EXISTS but could not be read is a genuine read failure, not a
+     fresh agent -- kept for exact sibling-symmetry with the codex/gemini arms.
+     ⚠️ UNREACHABLE FOR GROK TODAY, deliberately: groksession.read never returns
+     NO_READING.UNREADABLE (its own header explains why -- forWorkdir must PARSE
+     summary.json to match by info.cwd, so an unparseable summary is simply not
+     matched and surfaces as NO_TRANSCRIPT, and a bad signals.json degrades to null
+     halves, not UNREADABLE). This branch is defensive scaffolding: it keeps the
+     four provider arms structurally identical and would fire for free if a future
+     groksession gained an UNREADABLE path. Same idea as the gemini arm's
+     "future window" defensive branch below. */
+  if (!sess.found && sess.because === NO_READING.UNREADABLE) {
+    return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
+  }
+
+  // #2803-analog: a transcript that WAS matched and read (`sess.found`) but has
+  // reported no usage yet (`contextUsed == null`) is a working agent early in its
+  // first turn, NOT a missing transcript -- answer `notYet` directly. For Grok this
+  // also covers the signals.json-absent case (a session created but not yet through
+  // a completed turn writes summary.json but no signals.json), which read() maps to
+  // contextUsed == null, not {found:false}.
+  if (sess.found && sess.contextUsed == null) return notYetResult();
+  if (!sess.found) {
+    /* ⚠️ SAME PRE-EXISTING RESIDUAL as the codex/gemini arms (see readCodexContext's
+       note): notYetStarted/neverRecorded key off a Claude-only `.jsonl` signal, so a
+       Grok agent that HAS run but whose session forWorkdir fails to MATCH can
+       re-present "not yet" rather than an honest fault admission. It fails SOFT (never
+       a wrong number). Identical, already-analyzed behavior; noted here so a reader of
+       the Grok arm alone learns it too. */
+    if (notYetStarted(agentName)) return notYetResult();
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
+  }
+
+  const tokens = sess.contextUsed;
+  // Unlike Gemini (whose contextWindow is structurally null), Grok's signals.json
+  // CAN state contextWindowTokens, so the measured-with-percentage path below is
+  // genuinely reachable for Grok. When signals.json carried a window, render a real
+  // percentage (not-assumed, exactly like Codex -- measuredResult's `because` names
+  // no model, matching Codex); when it did not, render measured usage with no
+  // percentage and, since Grok names the model, pass sess.model to noCeilingResult
+  // (like Gemini) so that branch's `because` can show the real model.
+  if (!sess.contextWindow) return noCeilingResult(tokens, sess.model || null);
+  return measuredResult(tokens, sess.contextWindow, false);
+}
+
+/* #2413-analog NOTE: the completion-time helper (grokCompletionAt, the sibling of
+   codexCompletionAt/geminiCompletionAt) belongs with the launcher slice, NOT here --
+   an exported-but-wired-nowhere helper is the #265 dead-code signature. sess.contextUsedAt
+   is already returned by groksession.read (anchored on signals.json mtime, a
+   weaker-than-content signal the badge must GATE on, not assume), so the launcher adds
+   grokCompletionAt + wires it into the snapshot observation arm + the badge together,
+   reachable from the start. */
+
 /**
  * Model IDs as a person should read them.
  *
@@ -6447,6 +6534,14 @@ function snapshot() {
        arm yet -- the account badge's GOOGLE provider is the launcher slice). */
     const isGeminiPane = pane.runner === 'gemini';
     const geminiSess = (isNamedOurs(pane) && isGeminiPane) ? readGeminiSession(pane.name) : null;
+    /* #3391: the Grok arm. TAG-ONLY recognition, for the SAME reason as Gemini --
+       a Grok Build agent runs as `node <bundle>` (grok fronts as node too, the
+       dev-server ambiguity isCodexCommand exists to avoid), never a distinguishing
+       binary. So key ONLY on the @kosmos_runner tag the supervisor records, never on
+       the command. Read the session once for the context ring below (no observation
+       arm yet -- the account badge's XAI provider is the launcher slice). */
+    const isGrokPane = pane.runner === 'grok';
+    const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
     try {
       /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
          `!isGeminiPane`, a gemini agent scraping WORKING would record a false
@@ -6454,8 +6549,12 @@ function snapshot() {
          the #1889/#2413 split exists to prevent -- because it is not a codex pane.
          Gemini's own observation (a GOOGLE-provider witnessed completion, from the
          sess.contextUsedAt geminisession.read already returns) is the launcher slice;
-         until then gemini takes NEITHER arm, only the context ring below. */
-      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane) {
+         until then gemini takes NEITHER arm, only the context ring below.
+         #3391: `!isGrokPane` for the identical reason -- a Grok pane scraping WORKING
+         would otherwise record a false observed.saw(PROVIDER.ANTHROPIC, ok). Grok's
+         own XAI-provider observation is likewise the launcher slice; until then a grok
+         pane takes NEITHER arm, only the context ring below. */
+      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane && !isGrokPane) {
         /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
            RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
            WORKING is a WITNESSED live streaming turn. #1889 added one scraped
@@ -6532,6 +6631,9 @@ function snapshot() {
         // #3296: a Gemini pane's context lives in its Gemini session, read by
         // readGeminiContext (same pre-read-once contract as the codex arm).
         : isGeminiPane ? readGeminiContext(pane.name, geminiSess)
+        // #3391: a Grok pane's context lives in its Grok Build session, read by
+        // readGrokContext (same pre-read-once contract as the codex/gemini arms).
+        : isGrokPane ? readGrokContext(pane.name, grokSess)
         : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
@@ -6609,11 +6711,11 @@ function snapshot() {
          arm uses too, so chat.js reads a fact about the card rather than
          re-deciding what platform it is on. */
       reachedByChannel: require('./win32roster').isWin32Pane(pane),
-      /* Which runner this pane RECORDED at launch (#245/#246): 'codex' or
-         'claude', with empty meaning claude the way it does everywhere the
-         option is absent. The switch screen keys on this, and it is the
-         supervisor's record, never an inference from the command. */
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : 'claude',
+      /* Which runner this pane RECORDED at launch (#245/#246): 'codex',
+         'gemini', 'grok' or 'claude', with empty meaning claude the way it does
+         everywhere the option is absent. The switch screen keys on this, and it is
+         the supervisor's record, never an inference from the command. */
+      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : pane.runner === 'grok' ? 'grok' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
@@ -6935,6 +7037,8 @@ module.exports = {
   codexLastCompletionAt,
   // #3296: the Gemini context-ring reader (wired into snapshot's context ring).
   readGeminiContext,
+  // #3391: the Grok context-ring reader (wired into snapshot's context ring).
+  readGrokContext,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */
