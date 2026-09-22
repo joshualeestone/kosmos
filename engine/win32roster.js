@@ -115,19 +115,29 @@ function make(opts) {
   const codexLive = opts && typeof opts.codexLive === 'function' ? opts.codexLive : win32codexlive.liveSessions;
   return function win32PaneSource() {
     const agents = run();
-    // NULL, not "": a failed look must refuse, never read as an empty machine.
-    if (!Array.isArray(agents)) return null;
-    /* #3380: UNION the live codex agents in, so an OpenAI agent draws a card. Only
-       on a SUCCESSFUL claude read: the null above is the load-bearing "we could not
-       look", and answering partially off a failed claude read is the false-zero this
-       module refuses. So the claude answer stays byte-identical, and codex is
-       additive. (A box with codex agents but NO readable claude still refuses --
-       named in the PR as the one gap, its fix being to make the null claude-only.) */
+    /* #3380: the codex live source is INDEPENDENT of `claude agents --json` -- it
+       reads the ownership record and the codex supervisors' presence, never claude
+       -- so it is asked whether or not the claude read succeeded. */
     let codexRows = [];
     try { codexRows = codexLive() || []; } catch { codexRows = []; }
+    const claudeOk = Array.isArray(agents);
+    /* 🛑 #3380 THE null IS NOW CLAUDE-ONLY, and this closes the gap the prior comment
+       NAMED but left open. `null` is the load-bearing "we could not look" that makes
+       the roster refuse rather than read an empty machine off a failed look -- but a
+       failed CLAUDE read says nothing about CODEX, whose liveness is local and
+       deterministic (win32codexlive: the record + each supervisor's presence file +
+       a live pid). Refusing the WHOLE roster on a claude read failure made a running
+       codex agent vanish -- no card ("Can't tell"), and undeliverable, because
+       chat.deliver gates on a roster card. So we refuse ONLY when the claude read
+       failed AND there is no codex agent to show; a codex agent still draws its card
+       through a claude blip. The claude answer is byte-identical whenever the claude
+       read SUCCEEDS (the happy path): `agents` is used exactly as before and codex is
+       unioned exactly as before. */
+    if (!claudeOk && codexRows.length === 0) return null;
+    const claudeAgents = claudeOk ? agents : [];
     const owned = record.read();
     const lines = [];
-    for (const a of agents.concat(codexRows)) {
+    for (const a of claudeAgents.concat(codexRows)) {
       if (!a || typeof a !== 'object') continue;
       const id = a.sessionId;
       // Re-validate the live id against the SAME gate record() writes under, so the

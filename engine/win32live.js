@@ -64,27 +64,38 @@ function byName(opts) {
   const codexLive = opts && typeof opts.codexLive === 'function' ? opts.codexLive : win32codexlive.liveSessions;
 
   const agents = run();
-  // NULL, not an empty map: a failed look must not read as an empty machine.
-  if (!Array.isArray(agents)) return null;
+  const claudeOk = Array.isArray(agents);
+  /* #3380: the codex live source is INDEPENDENT of `claude agents --json` (it reads
+     the ownership record + each supervisor's presence, never claude), so it is asked
+     whether or not the claude read succeeded. */
+  let codexRows = [];
+  try { codexRows = codexLive() || []; } catch { codexRows = []; }
+  /* 🛑 #3380 THE null IS NOW CLAUDE-ONLY. `null` is the "we could not look" that makes
+     every caller refuse rather than read an empty machine -- but a failed CLAUDE read
+     says nothing about a CODEX agent, whose liveness is local and deterministic. When
+     the whole map refused on a claude blip, a running codex agent vanished from the
+     roster win32roster builds off this, so it drew no card ("Can't tell") and became
+     undeliverable (chat.deliver gates on a card). So refuse ONLY when the claude read
+     failed AND no codex agent is up. The claude answer is byte-identical whenever the
+     claude read SUCCEEDS: the array is consumed exactly as before and codex is unioned
+     exactly as before. */
+  if (!claudeOk && codexRows.length === 0) return null;
 
-  /* Read the record only AFTER the live read succeeded, so a persistently
-     failing `agents --json` costs no disk read -- the order win32roster and
-     win32capture both already use. */
+  /* Read the record only AFTER the live reads, so a persistently failing
+     `agents --json` with no codex agents costs no disk read -- the order win32roster
+     and win32capture both already use. */
   const owned = record.read();
 
   // sessionId -> the live entry. Built from the external array, so the entries
   // are shape-checked here rather than trusted at the join below.
   const live = new Map();
-  for (const a of agents) {
+  if (claudeOk) for (const a of agents) {
     if (a && typeof a === 'object' && typeof a.sessionId === 'string') live.set(a.sessionId, a);
   }
-  /* #3380: UNION the live codex agents into the same map, so a codex agent joins
-     the ownership record below with no branch. Additive only: when there are no
-     codex agents this is a no-op and the claude answer is byte-identical. Guarded
-     against overwriting a claude row of the same id (ids are UUIDs; a collision is
-     ~0, but the record is the trust root and a claude row must win if it happens). */
-  let codexRows = [];
-  try { codexRows = codexLive() || []; } catch { codexRows = []; }
+  /* UNION the live codex agents into the same map, so a codex agent joins the
+     ownership record below with no branch. Guarded against overwriting a claude row
+     of the same id (ids are UUIDs; a collision is ~0, but the record is the trust
+     root and a claude row must win if it happens). */
   for (const c of codexRows) {
     if (c && typeof c === 'object' && typeof c.sessionId === 'string' && !live.has(c.sessionId)) live.set(c.sessionId, c);
   }

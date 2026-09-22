@@ -73,11 +73,22 @@ test('#3380 win32live.byName UNIONS the codex agent into the ownership join', ()
   assert.equal(map.get('clauder').runner, 'claude');
 });
 
-test('#3380 byName still refuses (null) when the CLAUDE read fails, even with codex up', () => {
-  /* The load-bearing null: we could not see claude sessions, so we do not answer
-     partially. Codex being knowable does not change that. */
+test('#3380 byName STILL SEES the codex agent when the CLAUDE read fails (delivery gap)', () => {
+  /* 🛑 THE FIX. The claude read failing says nothing about a codex agent, whose
+     liveness is local and deterministic (record + presence + live pid). Refusing the
+     whole map on a claude blip made a running codex agent vanish -- no roster card, so
+     undeliverable and "Can't tell". So a failed claude read no longer hides codex. */
   const codexLive = () => codexlive.liveSessions({ record: record(), identity, pidAlive });
   const map = win32live.byName({ run: () => null, record: record(), codexLive });
+  assert.ok(map, 'the map is not refused when a codex agent is up');
+  assert.ok(map.has('coder'), 'the codex agent is enumerated through a failed claude read');
+  assert.ok(!map.has('clauder'), 'the claude agent is absent -- we genuinely could not read claude');
+});
+
+test('#3380 byName STILL refuses (null) on a failed claude read when NO codex agent is up', () => {
+  /* The load-bearing null is now CLAUDE-ONLY: with nothing local to show, a failed
+     claude read is still "we could not look", not an empty machine. */
+  const map = win32live.byName({ run: () => null, record: record(), codexLive: () => [] });
   assert.equal(map, null);
 });
 
@@ -94,9 +105,21 @@ test('#3380 win32roster.make draws a CARD for the codex agent, with runner=codex
   assert.equal(coder[2], win32roster.WIN32_COMMAND, 'classifies as a typeable win32 agent');
 });
 
-test('#3380 roster still refuses (null) when the claude read fails', () => {
+test('#3380 roster STILL draws the codex card when the claude read fails (delivery gap)', () => {
+  /* 🛑 THE FIX, roster side: a codex agent draws its card through a claude blip, so it
+     stays deliverable (chat.deliver gates on a roster card) instead of showing
+     "Can't tell". */
   const codexLive = () => codexlive.liveSessions({ record: record(), identity, pidAlive });
   const text = win32roster.make({ run: () => null, record: record(), codexLive })();
+  const rows = String(text).trim().split('\n').filter(Boolean).map((l) => l.split('\t'));
+  const coder = rows.find((r) => r[0] === 'coder');
+  assert.ok(coder, 'the codex agent still has a roster row through a failed claude read');
+  assert.equal(coder[5], 'codex');
+  assert.ok(!rows.some((r) => r[0] === 'clauder'), 'no claude row -- we could not read claude');
+});
+
+test('#3380 roster STILL refuses (null) on a failed claude read when NO codex agent is up', () => {
+  const text = win32roster.make({ run: () => null, record: record(), codexLive: () => [] })();
   assert.equal(text, null);
 });
 
