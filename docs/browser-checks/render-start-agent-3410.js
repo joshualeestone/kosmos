@@ -308,6 +308,54 @@ function chk(ok, label, extra) {
       'and no false-success "Started X" line on the real refusal', ghostMsg.msg);
     chk(ghostMsg.btnDisabled === false, 'the button re-enables after the real refusal', JSON.stringify(ghostMsg.btnDisabled));
 
+    // ── Part 8: the SUCCESS terminal state (the happy path). Mock /restart ->
+    // restarted, and flip /api/status so nyx reports unready first (the gap) then
+    // ready, so restartReadyWait returns true; mock /thread -> placed. Then the
+    // button must show "Started Nyx, and said hello to wake them." and HIDE itself
+    // (sb.hidden = true), leaving just the receipt. Mirrors render-autohello-2686's
+    // restarting->ready recovery pattern. (Readiness window already shortened to
+    // 800ms/60ms in Part 4.)
+    await page.unroute('**/api/agent/*/restart');
+    await page.route('**/api/agent/*/restart', (r) => r.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'restarted' }),
+    }));
+    await page.route('**/api/agent/*/thread', (r) => r.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ recorded: true, delivery: { state: 'placed' } }),
+    }));
+    let statusPolls = 0;
+    await page.route('**/api/status', async (route) => {
+      const resp = await route.fetch();
+      let json;
+      try { json = await resp.json(); } catch { return route.fulfill({ response: resp }); }
+      statusPolls++;
+      // Unready on the first poll (the gap restartReadyWait requires), then ready.
+      // restartedAndReady = boardCanSeeIt (isAgentSession && isNamedOurs && state
+      // !== 'stopped') && state !== 'restarting', so set all of them.
+      if (statusPolls >= 2 && Array.isArray(json.agents)) {
+        const a = json.agents.find((x) => x.sessionName === 'nyx');
+        if (a) { a.state = 'idle'; a.running = true; a.isAgentSession = true; a.isNamedOurs = true; }
+      }
+      return route.fulfill({ response: resp, body: JSON.stringify(json), contentType: 'application/json' });
+    });
+    await page.evaluate(() => openDetail('nyx'));
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.waitForTimeout(300);
+    await page.click('#d-start-agent');
+    await page.waitForFunction(() => {
+      const m = document.getElementById('d-start-msg');
+      return m && /said hello to wake them/i.test(m.textContent);
+    }, { timeout: 8000 }).catch(() => {});
+    const success = await page.evaluate(() => {
+      const btn = document.getElementById('d-start-agent');
+      const m = document.getElementById('d-start-msg');
+      return { msg: m ? m.textContent.trim() : null, btnHidden: btn ? btn.hidden : null };
+    });
+    chk(!!success.msg && /Started Nyx, and said hello to wake them\./.test(success.msg),
+      'success: the confirmed-started + said-hello receipt is shown', success.msg);
+    chk(success.btnHidden === true,
+      'and the button hides on success, leaving just the receipt', JSON.stringify(success.btnHidden));
+    await page.unroute('**/api/status');
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.screenshot({ path: path.join(OUT, 'start-agent.png'), clip: { x: 0, y: 0, width: 480, height: 700 } }).catch(() => {});
   } finally {
