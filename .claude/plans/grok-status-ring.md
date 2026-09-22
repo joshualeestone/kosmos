@@ -41,7 +41,7 @@ groksession.read (#3395), the status.js sibling machinery (#3394).
   end-to-end no-ceiling case added in the challenge-loop pass).
 
 ## Verification
-- `engine/status.grok-ring-3391.test.js` 7/7.
+- `engine/status.grok-ring-3391.test.js` 8/8.
 - render-talk-goldencard-2519.test.js 35/35 (family===15 confirmed).
 - Directly-affected suites (create, status, all provider rings, groksession,
   geminisession, golden card): 429/429.

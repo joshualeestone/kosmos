@@ -1832,16 +1832,19 @@ function defaultAgentGeminiHome() {
     || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.gemini');
 }
 
-/* #3391: the DEFAULT-account Grok home, the exact sibling of
-   defaultAgentGeminiHome. A default-account Grok agent (a launch job with a null
-   configDir) records its session under this home; the status reader resolves it
-   the same way readGrokSession does (job.configDir || this). GROK_HOME is the
-   storage ROOT (sessions/ sits directly under it -- groksession.HOME() reads it),
-   so unlike the gemini helper there is no .gemini-style suffix to append: ~/.grok
-   directly. The operator's own GROK_HOME is deliberately NOT honoured here, exactly
-   as defaultAgentGeminiHome ignores GEMINI_CLI_HOME and defaultAgentCodexHome uses
-   ~/.codex over CODEX_HOME -- a DEFAULT-account agent is pinned to the standard home
-   the board knows, and a per-account home is carried by job.configDir, not this. */
+/* #3391: the DEFAULT-account Grok home, the exact sibling of defaultAgentGeminiHome
+   and structurally identical to it -- it appends the runner's dir name (.grok) to the
+   home base, exactly as defaultAgentGeminiHome appends .gemini. A default-account Grok
+   agent (a launch job with a null configDir) records its session under this home; the
+   status reader resolves it the same way readGrokSession does (job.configDir || this).
+   The operator's own GROK_HOME is deliberately NOT honoured here, exactly as
+   defaultAgentGeminiHome ignores GEMINI_CLI_HOME and defaultAgentCodexHome uses ~/.codex
+   over CODEX_HOME -- a DEFAULT-account agent is pinned to the standard home the board
+   knows, and a per-account home is carried by job.configDir, not this.
+   ⚠️ The GROK_HOME-vs-GEMINI_CLI_HOME asymmetry (GROK_HOME is read VERBATIM as the
+   storage root by groksession.HOME(), while GEMINI_CLI_HOME gets .gemini appended by
+   geminisession.HOME()) is a property of the SESSION READERS, NOT of these default
+   helpers -- it does not distinguish this helper from its gemini sibling. */
 function defaultAgentGrokHome() {
   return process.env.AGENT_WORKFORCE_GROK_HOME
     || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), '.grok');
