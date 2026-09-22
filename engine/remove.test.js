@@ -2124,21 +2124,80 @@ test('restart closes the window and lets launchd bring the agent back', () => {
     assert.equal(killed[1][2], `=${name}`,
       'the target is not anchored, so a longer-named stranger could be killed by prefix');
 
-    /* 📌 The nudge is asked for but is not the mechanism: KeepAlive brings it
-       back within the throttle window regardless. */
     /* 🛑 BOOTOUT THEN BOOTSTRAP, not kickstart. launchd holds a job's arguments
        from the moment it was bootstrapped, so a kickstart after `setModel` has
        rewritten the plist would start the OLD model. Asserted as the pair, in
-       order, because either alone is the bug. */
+       order, because either alone is the bug.
+       #3418: `print` follows, confirming the job actually LOADED (bootstrap
+       returning 0 is not the same as loaded -- that gap is where Nora vanished).
+       The bootout-then-bootstrap premise that KeepAlive would revive her on its
+       own was false: bootout unloads the job, so a failed bootstrap leaves nothing
+       to revive, which is why the verdict now gates on this `print`. */
     const lc = calls.filter((c) => c[0] === '/bin/launchctl').map((c) => c[1][0]);
-    assert.deepEqual(lc, ['bootout', 'bootstrap'],
-      'a changed startup file would not take effect on the next start');
+    assert.deepEqual(lc, ['bootout', 'bootstrap', 'print'],
+      'a changed startup file would not take effect, or a silently-unloaded job would report as restarted');
 
     /* ⚠️ IT MUST NOT CLAIM THE AGENT IS BACK. The new window appears when
        launchd re-runs the supervisor, up to the throttle interval later. */
     assert.match(out.because, /starting again/);
     assert.doesNotMatch(out.because, /is running|has restarted|is back\b/,
       'the verdict claims something that has not happened yet');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+  }
+});
+
+test('restart reports PARTIAL when the launch job fails to reload, not a false RESTARTED (#3418)', () => {
+  /* 🛑 THE BUG THAT MADE NORA VANISH. bootout unloads the job; if bootstrap then fails there
+     is no loaded job for KeepAlive to revive, so the agent is DOWN. The old code returned the
+     bootstrap step's result unchecked and always reported RESTARTED, so a dead relaunch read as
+     success -- the class-1 auto-handler logged "handled" and the agent disappeared with no
+     error, no card, no needs_you. */
+  const name = madeAgent('bootstrapfails');
+  boardShows(name, name);
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'has-session') return { ok: false, code: 1 };   // the kill worked
+    if (cmd === 'bootstrap') return { ok: false, code: 5000 };  // the relaunch fails
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const out = mac.restart(name);
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.match(out.because, /not running|did not reload|could not start/,
+      'a failed relaunch was not reported as a failure');
+    assert.doesNotMatch(out.because, /starting again|is back\b/,
+      'it claims the agent is coming back when its job never reloaded');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+  }
+});
+
+test("restart reports PARTIAL when bootstrap returns 0 but the job never loads -- Nora's exact case (#3418)", () => {
+  /* 🛑 bootstrap can exit 0 without the job actually loading (Nora: "registered on disk but
+     never loaded"). Trusting the OS call is what let a vanished agent read as restarted, so the
+     verdict now CONFIRMS the job is loaded (`launchctl print`) rather than that bootstrap
+     returned. The `print` assertion below keeps this from passing for the wrong reason. */
+  const name = madeAgent('loadsilentfail');
+  boardShows(name, name);
+  const calls = [];
+  remove.setRunner((file, args) => {
+    calls.push([file, args]);
+    const cmd = args && args[0];
+    if (cmd === 'has-session') return { ok: false, code: 1 };   // the kill worked
+    if (cmd === 'bootstrap') return { ok: true, stdout: '' };    // bootstrap "succeeds"...
+    if (cmd === 'print') return { ok: false, code: 1 };          // ...but the job is NOT loaded
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const out = mac.restart(name);
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    const printed = calls.find((c) => c[0] === '/bin/launchctl' && c[1][0] === 'print');
+    assert.ok(printed, 'the restart never confirmed the job was loaded, so a silent no-load is invisible');
+    assert.doesNotMatch(out.because, /starting again|is back\b/,
+      'it claims the agent is coming back when its job never loaded');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
