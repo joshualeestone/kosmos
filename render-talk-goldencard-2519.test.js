@@ -744,11 +744,12 @@ test('#2519: the context key-set claim is DERIVED from status.js, not restated',
     + 'That count is the stated justification for the top-level-only anti-rot comparison, so it has to be re-argued, not just re-typed.');
   /* CONTROL: the scan must have found the family shape many times over, or a regex that
      matched almost nothing would report a plausible small number. */
-  /* 🛑 THE EXACT COUNT, BECAUSE THREE DOCUMENTS SAY "ELEVEN" AND CALL IT DERIVED. A
+  /* 🛑 THE EXACT COUNT, BECAUSE THE DOCUMENTS SAY "THIRTEEN" AND CALL IT DERIVED. A
      `>= 8` floor left that number unpinned while the prose presented it as arm-backed,
      which is the exact shape this branch is a record of. If status.js legitimately grows
-     a twelfth object with the family shape, this reds and the three copies get updated in
-     the same commit, which is the point. */
+     a fourteenth object with the family shape, this reds and the prose copies get updated
+     in the same commit, which is the point. (#3296 raised it 11 -> 13; the prose copies
+     are the two in this file, the shared contextShapes comment above, and render-talk.js.) */
   const family = Math.max(...shapes.values());
   assert.equal(family, 13,
     `the NONE_BASE family shape occurs ${family} times in status.js, not the THIRTEEN the documents state. `

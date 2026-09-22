@@ -80,3 +80,9 @@ all are UNREACHABLE in this slice because createAgent refuses provider 'google',
   opts + trustFolder). The launcher slice adds the gemini arm here.
 - (and the binary resolutions inside create.js itself -- provider->runner at ~738/1354/1702,
   binPaths, accountEnvVar -- already listed above.)
+- ILLUSTRATIVE, NOT EXHAUSTIVE: status.js also has codex-vs-claude switches a gemini pane
+  would reach once launchable -- the classify path at status.js:3326 (busy/idle markers) and
+  the codexauthprobe gate at ~status.js:6269. Both are already covered by the blanket
+  "Classify + account-badge DEFERRED to the launcher" scope statement above (a gemini pane
+  cannot exist in this slice), so they are honest deferrals, not gaps; the launcher slice
+  should grep for `runner === 'codex'` / `isCodexCommand` rather than trust this list.
