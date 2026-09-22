@@ -2209,31 +2209,107 @@ test("restart reports PARTIAL when bootstrap returns 0 but the job never loads -
   }
 });
 
-test('restart refuses on a window it cannot tie to the agent, and on one that is not running', () => {
+test('restart refuses on a window it cannot tie to the agent, but STARTS one that is not running (#3410)', () => {
   /**
-   * 🛑 THE SAME RULE AS REMOVAL, and for the same reason: killing a window that
-   * merely borrows an agent's name is the most destructive thing this product
-   * can do to somebody else's work.
+   * 🛑 THE SAME RULE AS REMOVAL for an UNTIED window, and for the same reason: killing a window
+   * that merely borrows an agent's name is the most destructive thing this product can do to
+   * somebody else's work. But a FULLY-DEAD agent (no session at all, FOUND.NONE) is a different
+   * case: #3410 STARTS it (bootstraps the launchd job) instead of refusing, because that is the
+   * state Nora and the never-connected agents are in and the "Start this agent" button drives it.
    */
   const name = madeAgent('restartsafe');
   status.setPaneSource(() => fleet.line({ session: name, claim: '', title: '✳ Claude Code' }));
   const calls = world();
   try {
+    // FOUND.UNTIED: a window we cannot tie to this agent is a bystander's -- still refuse, no kill.
     const out = mac.restart(name);
     assert.equal(out.outcome, remove.OUTCOME.REFUSED, 'an untied window was restarted anyway');
     assert.match(out.because, /cannot confirm it is this agent/);
     assert.equal(calls.filter((c) => c[1][0] === 'kill-session').length, 0,
       'it killed a window it had just refused to act on');
 
-    /* Nothing running at all is a refusal too, and a different sentence: there
-       is nothing to restart, and the agent starts itself. */
+    /* #3410: nothing running at all (FOUND.NONE). WITHOUT opting in (a config-switch caller), it
+       STILL refuses -- the switch-route behavior is preserved, so a switch never starts a dead
+       agent as a side effect nor shows "starting again" to a never-run one. */
     status.setPaneSource(() => '');
-    const none = mac.restart(name);
-    assert.equal(none.outcome, remove.OUTCOME.REFUSED);
-    assert.match(none.because, /not running/);
+    const noFlag = mac.restart(name);
+    assert.equal(noFlag.outcome, remove.OUTCOME.REFUSED, 'a dead agent was started without opting in (startIfDead)');
+    assert.match(noFlag.because, /nothing to restart/);
+
+    /* WITH startIfDead (the /restart and /trust-and-restart buttons), it STARTS the dead agent:
+       bootstraps the launch job and never claims a false "starting again" for one that may never
+       have run, and never tries to close a window that does not exist. */
+    const none = mac.restart(name, 'restart', { startIfDead: true });
+    assert.equal(none.outcome, remove.OUTCOME.RESTARTED, none.because);
+    assert.match(none.because, /starting/);
+    assert.doesNotMatch(none.because, /nothing to restart|starting again/,
+      'it refused a dead agent, or claimed a re-start for one that may never have run');
+    assert.ok(calls.some((c) => c[0] === '/bin/launchctl' && c[1][0] === 'bootstrap'),
+      'it did not bootstrap the dead agent launch job');
+    assert.equal(calls.filter((c) => c[1] && c[1][0] === 'kill-session').length, 0,
+      'it tried to close a window that does not exist');
+    /* #2019 seam for the fromDead path: a successful start records the disruption, so the board
+       shows the dead agent as "starting" rather than "doesn't exist" while its window comes up. */
+    assert.ok(disruption.active(name),
+      'a dead-agent start left no disruption record, so the board would read it as gone mid-start');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('restart of a fully-dead agent reports PARTIAL when the launch job fails to bootstrap (#3410)', () => {
+  /* The honest failure the "Start this agent" button relies on: if bootstrapping a dead agent's
+     job fails, say so plainly (not a false "starting"), with no window-closing language since
+     there was no session, and do not leave it marked restarting. */
+  const name = madeAgent('deadbootfail');
+  status.setPaneSource(() => '');   // FOUND.NONE: a job (plist) but no session
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'bootstrap') return { ok: false, code: 5000 };   // the start fails
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const out = mac.restart(name, 'restart', { startIfDead: true });
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.match(out.because, /could not start|did not load/);
+    assert.doesNotMatch(out.because, /closed .*window|starting\b/,
+      'it claims a window close or a start that did not happen for a dead agent');
+    assert.ok(!disruption.active(name), 'a dead agent that failed to start was left marked restarting');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('restart of a fully-dead agent reports PARTIAL when bootstrap returns 0 but the job never loads (#3410)', () => {
+  /* The dead-path equivalent of the #3418 loaded-verify: bootstrap can exit 0 without the job
+     actually loading (Nora's exact symptom). The verify must catch it on the fromDead path too,
+     not just FOUND.OURS. bootstrap ok:true, but `launchctl print` (the loaded check) fails. */
+  const name = madeAgent('deadnoload');
+  status.setPaneSource(() => '');   // FOUND.NONE
+  const calls = [];
+  remove.setRunner((file, args) => {
+    calls.push([file, args]);
+    const cmd = args && args[0];
+    if (cmd === 'bootstrap') return { ok: true, stdout: '' };   // bootstrap "succeeds"...
+    if (cmd === 'print') return { ok: false, code: 1 };          // ...but the job is NOT loaded
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const out = mac.restart(name, 'restart', { startIfDead: true });
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    // The loaded-verify actually ran on the dead path (guards against it being skipped).
+    assert.ok(calls.some((c) => c[0] === '/bin/launchctl' && c[1][0] === 'print'),
+      'the dead-start never confirmed the job was loaded, so a silent no-load is invisible');
+    assert.doesNotMatch(out.because, /starting\b/, 'it claims a start that did not take');
+    assert.ok(!disruption.active(name), 'a silently-unloaded dead start was left marked restarting');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
   }
 });
 
