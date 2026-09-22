@@ -2,26 +2,29 @@
 pre_challenge: true
 method: challenge-loop
 branch: onboarding-preaccept-3383
-diff_hash: 07dd53a77eb255c6ffbdbffcb75c3f305d6e55ad28a32610d44d88faa1aa4920
+diff_hash: 12f5d62a659ca16a4425bb0d4f1f9ec402a3168c814f19e6561444dddcac5f03
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-22T02:24:31Z
-iterations: 2
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2 (round 1: three parallel blind reviewers on independent axes; round 2: one fresh reviewer on the fixed diff)
+**Iterations:** 3 (round 1: three parallel blind reviewers on independent axes; round 2: one fresh reviewer on the fixed diff; round 3: the #2129-owner review on the PR)
 **Converged:** Yes
-**Total findings:** 4 actionable, ALL FIXED (0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 2 NITs, 6 STRENGTHs)
-**Fixed:** 4 | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 5 actionable, ALL RESOLVED (0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 2 NITs, 6 STRENGTHs) + 1 stale finding against superseded code (no-op)
+**Fixed:** 5 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 Round 1 surfaced exactly three real issues along three independent attack axes (correctness, wiring,
 test-quality); all three were fixed and the fix re-proven. Round 2 (a fresh reviewer that saw the fixed
 diff, including the round-1 changes) found **no code defect** — only one low-severity plan-doc
 inconsistency (the plan still described the superseded `{ hasCompletedOnboarding, theme }` file shape
-after the theme seed was dropped), since corrected. No open findings remain.
+after the theme seed was dropped), since corrected. Round 3 (PigeonPete, the #2129 seed-lane owner,
+reviewing the PR) confirmed the wedge fix correct and merge-ready, raised one real parity finding
+(relaunch-path onboarding) which was fixed same-loop, plus one finding against a SUPERSEDED commit (a
+theme write already dropped two commits earlier — a no-op against current HEAD). No open findings remain.
 
 ### The core claim is MEASURED, not reasoned
 
@@ -72,6 +75,22 @@ so they serialise).
   `{ hasCompletedOnboarding, theme }` after the theme seed was dropped. **FIXED:** corrected to
   `{ hasCompletedOnboarding: true }` (doc-only; no runtime impact).
 
+#### Iteration 3 — #2129-owner review (PigeonPete) on the PR
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 0 NITs — plus 1 stale finding against
+superseded code. **Merge-ready** per the owner; both live findings resolved same-loop.
+
+- [CONVENTION] engine/ensure-launch-trust.js — the Mac RELAUNCH path re-seeds `trustFolder` +
+  `preacceptBypass` on every relaunch but not `preacceptOnboarding`, while win32launch's resume path
+  (added in this branch) does — a Mac/Windows asymmetry, and the only recovery for an agent CREATED
+  BEFORE this fix (its config lacks the key, so it wedges on the picker on restart). **FIXED:** added
+  `preacceptOnboarding` there, mirroring the create-time calls; idempotent, Claude-only (the
+  supervisor calls it on the Claude arm only), tests assert the key is set on relaunch and stays true.
+- [STALE — no-op against HEAD] the review flagged a `theme:'dark'` write going to `.claude.json`
+  instead of `settings.json`. That write was already **dropped entirely** in commit a0f98b48 (two
+  commits before the review), after round-1's correctness finding — the review saw the first commit
+  (891e02de). Current HEAD writes no theme at all, so there is nothing to move or delete. No change
+  needed; confirmed by grep of HEAD `engine/trust.js` (no `THEME_KEY`, no theme assignment).
+
 ### Final Ledger
 
 | # | Iter | Category | File | Description | Status | Resolution |
@@ -80,8 +99,11 @@ so they serialise).
 | 2 | 1 | wiring | engine/win32launch.js | Windows onboarding calls not codex-guarded | RESOLVED | `if (s.runner !== 'codex')` on both (commit a0f98b48) |
 | 3 | 1 | test-quality | engine/trust.test.js | literal key `hasCompletedOnboarding` unpinned | RESOLVED | literal `deepEqual` + only-one-key test (commit a0f98b48) |
 | 4 | 2 | doc | .claude/plans/onboarding-preaccept-3383.md | stale `{ …, theme }` shape in plan | RESOLVED | corrected to `{ hasCompletedOnboarding: true }` (commit 7022c9fb) |
+| 5 | 3 | convention | engine/ensure-launch-trust.js | Mac relaunch path missing onboarding re-seed (parity + fossil-agent recovery) | RESOLVED | added `preacceptOnboarding` + tests (commit a8361372) |
+| — | 3 | (stale) | engine/trust.js | review flagged a theme write already removed in a0f98b48 | NO-OP | superseded before review; HEAD has no theme write |
 
-No open BLOCKER / WARNING / CONVENTION findings remain — all four raised were fixed.
+No open BLOCKER / WARNING / CONVENTION findings remain — all five raised were resolved; the stale
+theme finding is a no-op against current HEAD.
 
 ### NITs (non-blocking, all fixed)
 - [NIT] engine/trust.test.js — literal key was unpinned (iteration 1) — FIXED
