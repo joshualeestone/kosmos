@@ -90,6 +90,10 @@ async function readBorders(page, layout, plus) {
       const postBox = boxOf('pj-post');
       let dragBg = null;
       if (postBox) { postBox.classList.add('dragging'); dragBg = getComputedStyle(postBox).backgroundColor; postBox.classList.remove('dragging'); }
+      // Josh, 2026-09-21: the dark inset. The two project composers are given a left/right
+      // margin so the black ground shows on both sides (not a full-width bar). Read it so the
+      // dark arm can assert both sides are inset.
+      const marginOf = (id) => { const box = boxOf(id); if (!box) return null; const cs = getComputedStyle(box); return { left: Math.round(parseFloat(cs.marginLeft)), right: Math.round(parseFloat(cs.marginRight)) }; };
       return {
         consolidated: document.body.classList.contains('consolidated'),
         plusActive: document.body.classList.contains('plus-active'),
@@ -98,6 +102,8 @@ async function readBorders(page, layout, plus) {
         dsay: bw(boxOf('d-say')),   // control: the agent-dialogue composer keeps its border
         postBoundary: boundary('pj-post'),
         sayBoundary: boundary('pj-say'),
+        postMargin: marginOf('pj-post'),
+        sayMargin: marginOf('pj-say'),
         dragBg: dragBg,   // #2868: gold tint must win on drag-over, not the recessed fill
       };
     } catch (e) { return { err: e && e.message ? e.message : String(e) }; }
@@ -149,6 +155,19 @@ async function readBorders(page, layout, plus) {
       ok(lt + ' the agent-say composer (#pj-say) keeps a visible boundary (fill declared-distinct from its bar)', r && r.sayBoundary && r.sayBoundary.distinct === true, JSON.stringify(r && r.sayBoundary));
       // #2868: the file-drag gold tint must still win over the recessed fill on drag-over.
       ok(lt + ' the drag-over affordance (#2868 gold tint) still wins over the recessed fill', r && r.dragBg === 'rgba(214, 166, 46, 0.06)', JSON.stringify(r && { dragBg: r.dragBg }));
+      // Josh, 2026-09-21: in the standard dark theme (not plus), the two project composers fill a
+      // solid #17191c (rgb 23,25,28) and are inset left+right so the black ground surrounds them,
+      // instead of the full-width recessed wash that read as a bar. Dark-only: light keeps the
+      // #3369 recessed fill (asserted distinct above), and plus keeps its own navy design.
+      if (theme.name === 'dark') {
+        ok(lt + ' dark: the project composers fill a solid #17191c', r && r.postBoundary && r.postBoundary.boxBg === 'rgb(23, 25, 28)' && r.sayBoundary && r.sayBoundary.boxBg === 'rgb(23, 25, 28)', JSON.stringify(r && { post: r.postBoundary, say: r.sayBoundary }));
+        ok(lt + ' dark: the project composers are inset both sides so black surrounds them', r && r.postMargin && r.postMargin.left > 0 && r.postMargin.right > 0 && r.sayMargin && r.sayMargin.left > 0 && r.sayMargin.right > 0, JSON.stringify(r && { postMargin: r.postMargin, sayMargin: r.sayMargin }));
+      }
+      // CONTROL that the dark fill is scoped: in light, the composers must NOT be #17191c (they
+      // keep the #3369 recessed --k-sunk wash). This reds if the dark rule ever leaks to light.
+      if (theme.name === 'light') {
+        ok(lt + ' CONTROL light keeps the recessed fill, not the dark #17191c', r && r.postBoundary && r.postBoundary.boxBg !== 'rgb(23, 25, 28)', JSON.stringify(r && { post: r.postBoundary }));
+      }
       // Control: the agent-dialogue composer keeps its border, proving the removal is scoped.
       ok(lt + ' CONTROL the agent-dialogue composer (#d-say) keeps its border', r && r.dsay != null && r.dsay > 0, JSON.stringify(r));
       await page.close();
