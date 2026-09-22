@@ -24227,13 +24227,39 @@ function paintBusy(fresh, name) {
   const staleWorking = working && !!(spoke && spoke.learnedAt > LAST_AT);
   const show = (working && !staleWorking) || !!(fresh && fresh.state === 'auth_failed');
   el.hidden = !show;
-  if (!show) { el.innerHTML = ''; return; }
+  if (!show) { el.innerHTML = ''; el.dataset.busyKey = ''; return; }
   /* ⚠️ THE SAME AVATAR THE CARD DRAWS, off the same route, with the same
      initials fallback — Josh asked for the face and a second way of drawing one
      would drift from the board's. `aria-hidden` because the sentence beside it
      already names the agent, and a screen reader should not hear the name
      twice. Now shared with the room's line through `busyRow`. */
-  el.innerHTML = busyRow(fresh, name);
+  /* ⚠️ WRITTEN ONLY WHEN IT CHANGED (#3421). This runs every ~5s poll; an
+     unconditional el.innerHTML = busyRow(...) recreates the `.act` dots' DOM
+     nodes each time, which RESTARTS their CSS `work` loop from 0% -- ~4 loops
+     per poll, then the abrupt reset/pop Josh saw ("plays four times and then
+     hard-resets"). The dots' keyframes are already seamless + infinite; the
+     defect was the node being rebuilt under them. paintRoomBusy guards the same
+     way, but with an `el.innerHTML !== html` compare; busyRow's initials branch
+     carries an inline `style="background:...;color:..."` the browser reserializes
+     (spaces added), so a string compare there never matches and would rebuild
+     every poll anyway. Key on the inputs busyRow actually varies on instead, so
+     an unchanged working agent keeps ONE continuous animation. */
+  const busyKey = [
+    fresh.sessionName, fresh.state, (name || fresh.name || ''), fresh.hasAvatar ? '1' : '0',
+    /* auth_failed renders "last seen: <stateEvidence>" (busyRow); include it ONLY
+       there so that line refreshes as the evidence changes poll-to-poll. NOT for
+       working: a working agent's evidence also changes every poll, and keying on
+       it there would rebuild the .act dots each poll -- the exact reset this fix
+       removes. The auth_failed line has no dots, so rebuilding it is free. */
+    fresh.state === 'auth_failed' ? (fresh.stateEvidence || '') : '',
+    /* \u0001 (SOH) as the join separator: a control character that cannot appear
+       in a session name, agent name or screen evidence, so fields cannot collide
+       across the boundary (e.g. "a\u0001b" vs "a" + "b"). */
+  ].join('\u0001');
+  if (el.dataset.busyKey !== busyKey) {
+    el.innerHTML = busyRow(fresh, name);
+    el.dataset.busyKey = busyKey;
+  }
 }
 
 
