@@ -24252,6 +24252,9 @@ function paintBusy(fresh, name) {
        it there would rebuild the .act dots each poll -- the exact reset this fix
        removes. The auth_failed line has no dots, so rebuilding it is free. */
     fresh.state === 'auth_failed' ? (fresh.stateEvidence || '') : '',
+    /* \u0001 (SOH) as the join separator: a control character that cannot appear
+       in a session name, agent name or screen evidence, so fields cannot collide
+       across the boundary (e.g. "a\u0001b" vs "a" + "b"). */
   ].join('\u0001');
   if (el.dataset.busyKey !== busyKey) {
     el.innerHTML = busyRow(fresh, name);

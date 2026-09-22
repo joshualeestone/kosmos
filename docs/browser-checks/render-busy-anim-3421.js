@@ -1,3 +1,4 @@
+// Browser-check-surface: d-busy
 'use strict';
 /**
  * #3421 (Josh, 0.6.88 live test): the "X is working..." busy line's three-dot

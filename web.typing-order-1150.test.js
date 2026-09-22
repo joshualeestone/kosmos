@@ -464,7 +464,10 @@ test('#1150: both stamps come from this page, never from a server time', () => {
  * together and the next fix to either has to look at both.
  * ──────────────────────────────────────────────────────────────────────────*/
 function runDm({ fresh, lastAt, spoke }) {
-  const el = { hidden: null, innerHTML: '' };
+  // #3421: paintBusy now keys its rewrite on el.dataset.busyKey (a real DOM
+  // element always has .dataset). This lifted-fn mock must carry it too, or the
+  // guard throws; mirror a real element with an empty dataset bag.
+  const el = { hidden: null, innerHTML: '', dataset: {} };
   // eslint-disable-next-line no-new-func
   const paint = new Function(
     'FRESH', 'NAME', 'LAST_AT_IN', 'SPOKE', 'EL',
