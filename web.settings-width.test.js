@@ -22,7 +22,7 @@ test('Settings keeps its 34rem column; the agent page (#panel-detail) now goes f
   // to fluid at 60rem, both stack at 56rem; the agent page is already fluid, so
   // the grouped media rule is a harmless no-op for it).
   assert.match(PAGE, /#panel-settings \.dbody \{ grid-template-columns: 176px 34rem; justify-content: center; \}/);
-  assert.match(PAGE, /#panel-detail \.dbody \{ grid-template-columns: 176px minmax\(0, 1fr\); justify-content: stretch; \}/);
+  assert.match(PAGE, /#panel-detail \.dbody \{ grid-template-columns: 220px minmax\(0, 1fr\); justify-content: stretch; \}/);
   assert.match(PAGE, /@media \(max-width: 60rem\) \{ #panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: 176px minmax\(0, 1fr\); justify-content: stretch; \} \}/);
   const i60 = PAGE.indexOf('@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody');
   const i56 = PAGE.indexOf('@media (max-width: 56rem) {', i60); // the sheet has several 56rem blocks; the one that counts follows the 60rem rule
@@ -33,12 +33,12 @@ test('Settings keeps its 34rem column; the agent page (#panel-detail) now goes f
   // leading newline: the base rule sits at line start; the grouped media rules
   // carry `#panel-detail .dbody` after `, ` (mid-line), so `\n#panel-detail`
   // counts only the standalone base rule, not the 60rem/56rem restatements.
-  assert.equal(count('\n#panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch;'), 1, 'one detail full-width base rule');
+  assert.equal(count('\n#panel-detail .dbody { grid-template-columns: 220px minmax(0, 1fr); justify-content: stretch;'), 1, 'one detail full-width base rule (#3385: left column widened to 220px for the identity)');
   assert.equal(count('@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody'), 1, 'one 60rem rule');
   assert.equal(count('#panel-settings .dbody, #panel-detail .dbody { grid-template-columns: minmax(0, 1fr); }'), 1, 'one restatement');
   // both base rules sit above the media blocks (same specificity; below them they would win there)
   const iSet = PAGE.indexOf('#panel-settings .dbody { grid-template-columns: 176px 34rem;');
-  const iDet = PAGE.indexOf('#panel-detail .dbody { grid-template-columns: 176px minmax(0, 1fr); justify-content: stretch;');
+  const iDet = PAGE.indexOf('#panel-detail .dbody { grid-template-columns: 220px minmax(0, 1fr); justify-content: stretch;');
   assert.ok(iSet > 0 && iSet < i60 && iSet < i56, 'the settings base rule sits above the media blocks');
   assert.ok(iDet > 0 && iDet < i60 && iDet < i56, 'the detail base rule sits above the media blocks');
   const end56 = PAGE.indexOf('\n}', i56);
@@ -46,24 +46,26 @@ test('Settings keeps its 34rem column; the agent page (#panel-detail) now goes f
   assert.match(PAGE.slice(i56, end56), /#panel-settings \.dbody, #panel-detail \.dbody \{ grid-template-columns: minmax\(0, 1fr\); \}/, 'the restatement sits inside the FIRST 56rem block after the 60rem rule');
 });
 
-/* The agent page has one thing Settings does not: a header (.dhead: avatar,
-   name, state) that sits BEFORE .dbody as a sibling, not inside it. Its width
-   must AGREE with .dbody's, or the two disagree about the page's width. Under
-   the 2026-08-25 "match settings" decision that meant capping both to 34rem;
-   under #2012 (the agent page goes full-width) it means the OPPOSITE -- the
-   header spans full width too, matching the now-full-width body. Capping the
-   header at 34rem while the body went wide would recreate the disagreement in
-   reverse. (Making the header a sticky banner the nav pins under is a
-   deliberate #2012 follow-up: .snav is already sticky, so the coordination
-   wants interactive visual verification.) */
-test('the agent detail header spans full width, matching the now-full-width .dbody (#2012)', () => {
-  assert.match(PAGE, /#panel-detail \.dhead \{ max-width: none; margin: 0 0 30px; \}/);
-  // the 60rem rule stays (now a harmless no-op, since the base is already none),
-  // and still sits after .dbody's own 60rem rule
-  assert.match(PAGE, /@media \(max-width: 60rem\) \{ #panel-detail \.dhead \{ max-width: none; margin: 0 0 30px; \} \}/);
-  const iBodyRelax = PAGE.indexOf('@media (max-width: 60rem) { #panel-settings .dbody, #panel-detail .dbody');
-  const iHeadRelax = PAGE.indexOf('@media (max-width: 60rem) { #panel-detail .dhead');
-  assert.ok(iBodyRelax > 0 && iHeadRelax > iBodyRelax, 'the header’s 60rem rule follows .dbody’s own 60rem rule');
+/* #3385 (Josh, 2026-09-21) SUPERSEDES #2012's full-width header: the identity (.dhead) moved OUT of
+   the top banner and INTO the left column, wrapped with the nav in a new .dleft grid column. So the
+   header is no longer a full-width banner "matching .dbody"; it is the left column's vertical
+   identity stack (avatar, shrink-to-fit name, title, status), and the talk column fills the height. */
+test('the agent identity (.dhead) sits in a left column (.dleft) above the nav, not a full-width banner (#3385)', () => {
+  const body = codeOnly(PAGE);
+  assert.match(body, /<div class="dleft">/, 'the left-column wrapper exists');
+  // Inside .dbody: .dleft wraps .dhead then #d-nav, and .dsecs (the sections) is the second column.
+  const iDbody = body.indexOf('<div class="dbody">');
+  const iDleft = body.indexOf('<div class="dleft">', iDbody);
+  const iDhead = body.indexOf('<div class="dhead">', iDleft);
+  const iNav = body.indexOf('id="d-nav"', iDhead);
+  const iDsecs = body.indexOf('<div class="dsecs">', iNav);
+  assert.ok(iDbody > 0 && iDleft > iDbody && iDhead > iDleft && iNav > iDhead && iDsecs > iNav,
+    'inside .dbody the left column wraps the identity then the nav, and .dsecs follows');
+  // The header stacks vertically now (was a horizontal banner), the left column widened to 220px,
+  // and the header margin sits below it in the column.
+  assert.match(PAGE, /\.dhead \{ display: flex; flex-direction: column; align-items: center; text-align: center;/, 'the header stacks vertically');
+  assert.match(PAGE, /#panel-detail \.dbody \{ grid-template-columns: 220px minmax\(0, 1fr\); justify-content: stretch; \}/, 'the left column widened to 220px');
+  assert.match(PAGE, /#panel-detail \.dhead \{ max-width: none; margin: 0 0 16px; \}/, 'the header margin sits below it in the column');
 });
 
 test('You is Your Profile: one-size picture buttons, no disclaimer by default, a short name field, a yellow Save', () => {
