@@ -1894,25 +1894,32 @@ function restartInner(name, cause, platform) {
   });
   /* #3418: bootstrap can return 0 without the job actually loading, so CONFIRM it is loaded
      rather than trusting the OS call -- this is the exact check that would have caught Nora
-     (job registered on disk, not loaded). Short-circuits if the start already failed, so a
-     dead relaunch is not chased with a `launchctl print`. Recorded as its own step so a false
-     answer does not read as ok; the verdict gates on `loaded` directly, not on `steps`. */
-  const loaded = relaunched && ops.loaded(clean, job);
-  steps.push({ label: 'confirmed its job is loaded', ok: loaded });
+     (job registered on disk, not loaded). Routed through step() and short-circuited on a dead
+     relaunch: a SKIPPED confirmation is then never recorded as a FAILED one (the steps array is
+     rendered to the person verbatim, so a plain bootstrap failure must not read as two separate
+     failures), and the check gets the same try/catch every other op in this function has. The
+     verdict gates on `loaded` directly, not on `steps`. */
+  const loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job));
 
   if (!loaded) {
     /* The relaunch did not take: bootout already unloaded the job, so nothing will bring the
        agent back on its own. Clear the restarting record (as the failed-kill path above does)
        so a down agent is not left marked restarting, and report PARTIAL -- the agent is not
-       running and its launch job did not reload. This is what stops the class-1 auto-handler
-       logging a false "handled" and the Restart button telling a person an agent is back when
-       it is not. */
+       running. This is what stops the class-1 auto-handler logging a false "handled" and the
+       Restart button telling a person an agent is back when it is not. */
     disruption.clear(clean);
+    /* A missing launch file cannot be bootstrapped at all (startNow returns true without ever
+       trying), so "try again" is not actionable in that sub-case -- say what actually has to
+       happen instead of sending the person into an indefinite retry that keeps no-opping. */
+    const gone = ops.startableGone(clean, job);
     return {
       outcome: OUTCOME.PARTIAL,
       steps,
-      because: `we closed ${shown}'s window but could not start it again -- its launch job did `
-        + 'not reload, so it is not running right now. It needs another restart.',
+      because: gone
+        ? `we closed ${shown}'s window but its launch file is gone, so we could not start it `
+          + 'again. It has to be created again.'
+        : `we closed ${shown}'s window but could not start it again -- its launch job did not `
+          + 'reload, so it is not running right now. It needs another restart.',
     };
   }
 

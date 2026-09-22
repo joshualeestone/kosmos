@@ -65,6 +65,21 @@ on a loaded one, zero. If a future launchd changed that, the verify would need a
 different primitive (e.g. `launchctl list <label>`), but the startNow-result
 check (mode 1) still stands regardless.
 
+## Plist-gone during restart (a narrow TOCTOU, handled)
+`startNow` short-circuits `return true` when the plist is missing (no bootstrap
+attempted), which the new `loaded` check then correctly reports as not loaded →
+PARTIAL (an improvement over the old false RESTARTED). Reachability: `jobFor`
+(remove.js:559) filters candidates to those whose plist EXISTS, so a
+persistently-gone plist makes `jobFor` return null and restart REFUSES with a
+clear "not started by Kosmos" message — it never reaches this PARTIAL path. The
+only way to hit plist-gone in `restartInner` is the plist vanishing BETWEEN the
+`jobFor` check and `startNow` (a TOCTOU race). For that race the generic "needs
+another restart" advice is not actionable (a retry keeps no-opping), so the PARTIAL
+message distinguishes it via `ops.startableGone` and says the launch file is gone
+and has to be created again. Not unit-tested (simulating the race requires mocking
+`fs` mid-call); documented here per the challenge review, with the actionable
+message covering it.
+
 ## Out of scope
 - The trust-prompt fix (#3417) — separate PR (#3425).
 - A time-bounded verify that the tmux SESSION (not just the job) reappears a few

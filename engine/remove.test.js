@@ -2169,6 +2169,9 @@ test('restart reports PARTIAL when the launch job fails to reload, not a false R
       'a failed relaunch was not reported as a failure');
     assert.doesNotMatch(out.because, /starting again|is back\b/,
       'it claims the agent is coming back when its job never reloaded');
+    /* #2019 seam: a down agent must not be left marked restarting. A regression that dropped
+       the new PARTIAL branch's disruption.clear would otherwise pass the whole suite. */
+    assert.ok(!disruption.active(name), 'a failed relaunch left the agent marked restarting');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
@@ -2198,6 +2201,8 @@ test("restart reports PARTIAL when bootstrap returns 0 but the job never loads -
     assert.ok(printed, 'the restart never confirmed the job was loaded, so a silent no-load is invisible');
     assert.doesNotMatch(out.because, /starting again|is back\b/,
       'it claims the agent is coming back when its job never loaded');
+    /* #2019 seam: a silently-unloaded agent must not be left marked restarting. */
+    assert.ok(!disruption.active(name), 'a silently-unloaded relaunch left the agent marked restarting');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
