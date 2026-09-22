@@ -941,9 +941,9 @@ function parsePanes(out) {
       // same way.
       claim: raw.claim || '',
       /* Empty means claude, the same absent-means-default the supervisor's
-         optional runner argument carries (#245). Normalised to the two
-         words the classifier dispatches on, so a truncated line cannot
-         invent a runner. */
+         optional runner argument carries (#245). Normalised to the runner
+         words the classifier dispatches on (codex, gemini, grok; empty is
+         claude), so a truncated line cannot invent a runner. */
       runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : '',
       title: raw.title || '',
     };

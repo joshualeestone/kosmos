@@ -36,8 +36,9 @@ groksession.read (#3395), the status.js sibling machinery (#3394).
   NO_TRANSCRIPT NONE_BASE-family branches, same two the gemini arm added). Updated the
   assertion + every prose copy in the same commit: the two big inventory comments in the
   test file, the contextShapes comment, and docs/browser-checks/render-talk.js.
-- New test `engine/status.grok-ring-3391.test.js` (7 tests), mirrors the gemini-ring
-  test + a grok-specific measured-with-ceiling case.
+- New test `engine/status.grok-ring-3391.test.js` (8 tests), mirrors the gemini-ring
+  test + grok-specific measured-with-ceiling cases (injection + end-to-end, plus an
+  end-to-end no-ceiling case added in the challenge-loop pass).
 
 ## Verification
 - `engine/status.grok-ring-3391.test.js` 7/7.
