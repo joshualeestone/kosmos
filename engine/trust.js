@@ -127,6 +127,19 @@ const defaultAgentConfig = () =>
 
 const KEY = 'hasTrustDialogAccepted';
 
+/* #3383 launch side. Claude Code's own FIRST-RUN onboarding (the v2.1.278 "choose the
+   text style" theme picker, and any onboarding step behind it) is lifted by this TOP-LEVEL
+   key in the account's .claude.json -- the SAME file trustFolder writes, a DIFFERENT file
+   than BYPASS_KEY's settings.json. Measured on this box (same claude v2.1.278 Josh runs): a
+   fresh CLAUDE_CONFIG_DIR launched interactively parks on the theme picker; seeding
+   hasCompletedOnboarding:true makes it vanish (it jumps straight to the trust prompt, which
+   trustFolder already pre-accepts). It is the third first-run gate a CLEAN install meets,
+   after trust and bypass -- fleet dirs never see it because they are already onboarded, the
+   identical reason the bypass prompt only bites a fresh install. Kosmos never seeded it
+   (git log -S is empty), so this is a MISSING pre-accept, not a regression. */
+const ONBOARDING_KEY = 'hasCompletedOnboarding';
+const THEME_KEY = 'theme';
+
 /* #1919 launch side. The Bypass-Permissions consent is lifted by this TOP-LEVEL key in
    settings.json (measured: every fleet config dir carries it, which is why fleet agents
    never meet the prompt and a fresh product install does). settings.json is a DIFFERENT
@@ -822,6 +835,112 @@ function preacceptBypassInner(configDir, agentDefaultAccount) {
   return { ok: true, already: false, target, displaced, madeFile };
 }
 
+/**
+ * Pre-accept Claude Code's own FIRST-RUN onboarding for an agent KOSMOS created (#3383).
+ *
+ * A fresh agent launches interactively into tmux and, on a config dir that has never run
+ * Claude Code, parks on the v2.1.278 "choose the text style" theme picker (and any onboarding
+ * step behind it). The supervisor runs non-interactively, so nothing answers that picker and
+ * the agent never reaches a ready state -- indistinguishable from an ignored prompt, the same
+ * wedge trust and bypass have, one gate earlier. This is why a clean-setup Anthropic agent
+ * hangs while OpenAI (codex, no first-run gate) connects. Setting ONBOARDING_KEY true in the
+ * account's .claude.json ahead of time marks first-run done, so the picker never shows.
+ *
+ * It GRANTS NOTHING and CHANGES NO BEHAVIOUR -- onboarding is a cosmetic setup step (a theme),
+ * not a permission; this only removes an interactive gate for a background agent nobody is
+ * watching. Scoped to the per-agent config dir, never global.
+ *
+ * Like preacceptBypass (and unlike trustFolder, which refuses to CREATE .claude.json because
+ * that file can hold session history), this CREATES .claude.json if absent: a config holding
+ * only { hasCompletedOnboarding:true, theme } is a valid minimal first-run PREFERENCE, not a
+ * fabricated session history (no lastSessionId / lastCost), which is what makes it work on a
+ * clean product install -- the case #3383 was filed from. In the real create/move flow
+ * trustFolder runs FIRST and has already created the file, so this usually MERGES. It writes
+ * the SAME .claude.json trustFolder writes, so it locks on the same target (configTarget) --
+ * the two serialise cleanly rather than lost-updating each other. Same safety otherwise:
+ * refuse a symlink, refuse a non-object shape, merge (never replace) so trustFolder's projects
+ * and the person's other config survive, preserve mode, atomic `wx` write.
+ *
+ * theme is seeded to a sensible default ONLY when we are seeding onboarding (a genuinely fresh
+ * account) AND no theme is already recorded -- an account that already completed onboarding
+ * keeps its own theme choice untouched.
+ *
+ * @param {string|null} configDir the ACCOUNT's config dir (null = this process's own).
+ * @param {boolean} agentDefaultAccount the agent runs on the DEFAULT account (reads ~/.claude.json).
+ * @returns {{ok:true, already:boolean, target:string, displaced:*, madeFile:boolean}
+ *          | {ok:false, because:string}}
+ */
+function preacceptOnboarding(configDir, agentDefaultAccount) {
+  const target = configTarget({ configDir, agentDefaultAccount });
+  // Same parent-first-then-lock discipline as preacceptBypass: mkdir the parent (idempotent
+  // with the inner's own mkdir) so withWriteLock takes the lock; if that mkdir fails the
+  // parent is absent and withWriteLock runs the inner unlocked, surfacing its specific refusal
+  // rather than the lock's generic one.
+  try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* the inner reports a real write failure */ }
+  const r = withWriteLock(target, () => preacceptOnboardingInner(configDir, agentDefaultAccount));
+  return r.ok ? r.value : { ok: false, because: r.because };
+}
+
+function preacceptOnboardingInner(configDir, agentDefaultAccount) {
+  const target = configTarget({ configDir, agentDefaultAccount });
+
+  // A symlinked target is somebody's arrangement; renaming over it severs the link. Refuse,
+  // as trustFolder / preacceptBypass do. (Absent is the create case, handled below.)
+  try { if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'their config file is a symlink' }; }
+  catch { /* absent handled below */ }
+
+  let data;
+  let prevMode = 0o600;   // a created config is born private; an existing one keeps its mode
+  let madeFile = false;
+  try {
+    const st = fs.statSync(target);
+    prevMode = st.mode & 0o7777;
+    if (st.size === 0) data = {};   // an empty config is safe to fill (a first-run preference, no history)
+    else data = JSON.parse(fs.readFileSync(target, 'utf8'));
+  } catch (err) {
+    if (err && err.code === 'ENOENT') { data = {}; madeFile = true; }   // CREATE-if-absent (see docblock)
+    else if (err instanceof SyntaxError) return { ok: false, because: 'we could not read their config file' };
+    else return { ok: false, because: 'we could not read their config file' };
+  }
+
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { ok: false, because: 'their config file is not shaped the way we expect' };
+  }
+
+  // Already onboarded is a SUCCESS: the picker is already suppressed, which is the whole
+  // outcome. Return without touching the file, so an already-onboarded account keeps its
+  // theme and everything else exactly as it was.
+  if (data[ONBOARDING_KEY] === true) return { ok: true, already: true, target };
+  const displaced = (ONBOARDING_KEY in data) ? data[ONBOARDING_KEY] : undefined;
+
+  // Merge into the object rather than replace it: .claude.json carries trustFolder's projects
+  // map and the person's other config; a fresh one-key object would delete them.
+  data[ONBOARDING_KEY] = true;
+  // Seed a deterministic theme only when none is recorded -- never override a real choice.
+  if (!(THEME_KEY in data)) data[THEME_KEY] = 'dark';
+
+  // Read-modify-write on a file Claude Code also writes: the same milliseconds-wide race
+  // trustFolder / preacceptBypass document (a concurrent whole-file save can drop this). The
+  // rename is atomic, so the file is never half-written; "never corrupt" is not "never lost".
+  try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* exists, or the write reports it */ }
+  const tmp = tempPath(target);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { flag: 'wx', mode: prevMode });
+    fs.chmodSync(tmp, prevMode);   // umask exactness, as trustFolder / preacceptBypass
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    if (!err || err.code !== 'EEXIST') { try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ } }
+    return { ok: false, because: 'we could not write to their config file' };
+  }
+
+  return { ok: true, already: false, target, displaced, madeFile };
+}
+
+/* No forgetOnboarding, for the same reason there is no forgetBypass: ONBOARDING_KEY is a
+   per-ACCOUNT first-run marker, not a per-folder key, and undoing it on one agent's failed
+   creation could re-expose the picker for a concurrent or existing agent on the account.
+   Leaving an inert first-run-done marker set is the safe direction. */
+
 /* No forgetBypass: the bypass pre-accept is deliberately NOT undone. Unlike trustFolder's
    per-FOLDER key, BYPASS_KEY is per-ACCOUNT (settings.json) and shared by every agent on the
    account, so undoing it on one agent's failed creation could remove a key a concurrent or
@@ -874,4 +993,4 @@ function folderTrusted(dir, opts) {
   return entry[KEY] === true;
 }
 
-module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
+module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };

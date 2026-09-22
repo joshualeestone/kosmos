@@ -1158,6 +1158,7 @@ function setAccount(name, dir, opts) {
    */
   let trust = null;
   let bypass = null;
+  let onboarding = null;
   if (!DRY_RUN) {
     const configDir = acct.isDefault ? null : acct.dir;
     try {
@@ -1179,9 +1180,16 @@ function setAccount(name, dir, opts) {
     try {
       bypass = require('./trust').preacceptBypass(configDir, !configDir);
     } catch { bypass = { ok: false, because: 'we could not read that account\'s settings file' }; }
+    /* #3383: the same account also needs Claude Code's first-run onboarding pre-accepted in
+       ITS .claude.json, or a fresh Anthropic agent moved onto it parks on the v2.1.278 theme
+       picker -- the third first-run gate, one past the trust prompt trustFolder just cleared.
+       Best-effort / non-gating, exactly as trust and bypass are here. */
+    try {
+      onboarding = require('./trust').preacceptOnboarding(configDir, !configDir);
+    } catch { onboarding = { ok: false, because: 'we could not read that account\'s config file' }; }
   }
 
-  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass };
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass, onboarding };
 }
 
 /**
@@ -4309,6 +4317,16 @@ function createAgentInner(opts) {
        is fire-and-forget with no undo, unlike the trust write. */
     if (provider !== 'openai') {
       try { require('./trust').preacceptBypass(configDir, !configDir); }
+      catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+      /* #3383, THE SAME CREATE MOMENT, one gate further. Claude Code's own first-run
+         onboarding (the v2.1.278 theme picker) is asked at startup on a config dir that has
+         never run the CLI, so a freshly-created Anthropic agent parks on it AFTER clearing
+         the trust and bypass prompts above -- which is why a clean-setup Anthropic agent
+         hangs while OpenAI (no first-run gate) connects. Pre-accept it here, BEFORE bootstrap,
+         for the same timing reason as bypass. Claude-only (this is the CLAUDE .claude.json;
+         codex has no such gate). Non-gating / best-effort and NOT undone on rollback, for the
+         same per-ACCOUNT reasoning as the bypass write above. */
+      try { require('./trust').preacceptOnboarding(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
   }
