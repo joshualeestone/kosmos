@@ -411,9 +411,14 @@ function jobOps(platform) {
       stopNow: (name, job) => Boolean(win32job.end(name, job && job.worldId).ok),
       enable: (name, job) => Boolean(win32job.enable(name, job && job.worldId).ok),
       startNow: (name, job) => Boolean(win32job.start(name, job && job.worldId).ok),
-      /* #3418: after a start, confirm the task is actually registered, the analog of the
-         Mac's launchd-loaded check below. win32job.start's own .ok already signals the /Run
-         outcome; this is the registered-state confirmation the restart path gates on. */
+      /* #3418: confirm the task is REGISTERED after a start. ⚠️ This is NOT the full analog of
+         the Mac's launchd-loaded check below: win32job.status exposes {registered, enabled} but
+         no RUNNING state, so it cannot catch the win32 analog of Nora -- a /Run that reports ok
+         but whose process never comes up would still register as loaded. The real win32
+         protection remains win32job.start().ok (the relaunch result, captured as `relaunched`);
+         a genuine running-state probe is a win32job follow-up. `registered` is the strongest
+         signal available here today and is never weaker than the pre-#3418 behavior, which
+         trusted start().ok alone. */
       loaded: (name, job) => win32job.status(name, job && job.worldId).registered === true,
       /* The Mac asks whether the plist is still on disk; the analog is whether
          the task is still registered. Same question, different substrate. */
@@ -1918,7 +1923,7 @@ function restartInner(name, cause, platform) {
       because: gone
         ? `we closed ${shown}'s window but its launch file is gone, so we could not start it `
           + 'again. It has to be created again.'
-        : `we closed ${shown}'s window but could not start it again -- its launch job did not `
+        : `we closed ${shown}'s window but could not start it again. Its launch job did not `
           + 'reload, so it is not running right now. It needs another restart.',
     };
   }

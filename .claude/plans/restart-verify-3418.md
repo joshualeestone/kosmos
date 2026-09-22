@@ -82,6 +82,13 @@ message covering it.
 
 ## Out of scope
 - The trust-prompt fix (#3417) — separate PR (#3425).
+- **A genuine win32 running-state verify** (follow-up). The mac `loaded` op is the real
+  hardening (`launchctl print` confirms the loaded state that bootstrap's exit code does
+  not). The win32 `loaded` returns `win32job.status().registered`, which confirms the task
+  EXISTS, not that its process is running — win32job exposes no running state — so it cannot
+  catch the win32 analog of Nora (a `/Run` that reports ok but whose process never comes up).
+  win32 still relies on `win32job.start().ok` (the `relaunched` result), unchanged from before
+  this fix. The incident was mac-only; a win32 running-state probe is its own card.
 - A time-bounded verify that the tmux SESSION (not just the job) reappears a few
   seconds later. The job-loaded check catches Nora's exact symptom synchronously
   and without a race; a session-existence poll adds supervisor-startup latency and
