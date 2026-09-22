@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: alist-grouphdr alist-newagent openAddMemberModal setAgentsGrouped AGENTS_GROUPED
+// Browser-check-surface: alist-grouphdr alist-newagent openAddMemberModal setAgentsGrouped AGENTS_GROUPED alist-emptymembers
 // (#2518) the distinctive web/index.html tokens this check asserts: the grouped consolidated
 // agents list's "Other Agents" sub-header + its New-agent +, and the functions that switch the
 // top rail head to "Project Members" and open the add-member modal from the rail. A change to any
@@ -241,6 +241,40 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       focusReturn.railVisible === true, JSON.stringify(focusReturn));
     ok(t + ' #3387 focus returns to the rail + when the modal was opened from it and closed',
       focusReturn.afterRail === 'rail-agents-new', JSON.stringify(focusReturn));
+
+    // 9) THE MISMATCH STATE (#3387b, Josh 2026-09-22): a project is open but NONE of its members are
+    //    among the agents currently on the board. Before the fix this fell back to the flat "Agents"
+    //    list and the top + reverted to New agent, so there was NO way to add an EXISTING agent to
+    //    such a project (the dead + Josh reported). It must now STILL group on the open project: head
+    //    "Project Members", the top + opens the add-member modal, and an empty-members hint stands in
+    //    for the (empty) member rows so the section is guidance rather than a silent gap.
+    await page.goto(PAGE);
+    const mismatch = await page.evaluate(() => {
+      const mk = (id, name) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos Growth')]; PJ_SORT = 'az';
+      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      PJ_CURRENT = 'k'; showTab('projects');
+      const proj = pjById('k');
+      proj.agents = [{ sessionName: 'off-board-1' }, { sessionName: 'off-board-2' }];  // members NOT on the board
+      const a = (s) => ({ sessionName: s, name: s, role: '', running: false, state: 'stopped', context: null });
+      LAST = [a('on-board-a'), a('on-board-b')];         // board agents, none of them members of the project
+      paintAgentList();
+      const emptyHint = document.getElementById('alist').querySelector('.alist-emptymembers');
+      document.getElementById('rail-agents-new').click();
+      return {
+        railName: (document.querySelector('#rail-agents .railname') || {}).textContent,
+        emptyHintShown: !!emptyHint,
+        modalOpen: document.getElementById('am-modal').hidden === false,
+        addProject: (document.getElementById('am-project') || {}).textContent,
+      };
+    });
+    ok(t + ' #3387b a project whose members are not on the board still groups as "Project Members"',
+      mismatch.railName === 'Project Members', JSON.stringify(mismatch));
+    ok(t + ' #3387b the top + opens the add-member modal for that project (the dead + Josh hit)',
+      mismatch.modalOpen === true && mismatch.addProject === 'Kosmos Growth', JSON.stringify(mismatch));
+    ok(t + ' #3387b an empty-members list shows the guidance hint, not a silent gap',
+      mismatch.emptyHintShown === true, JSON.stringify(mismatch));
 
     await page.close();
   }

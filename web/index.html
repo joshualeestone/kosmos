@@ -3548,6 +3548,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr { justify-content: center; margin-left: 0; margin-right: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr .railname,
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr .alist-newagent { display: none; }
+  /* #3387b: the empty-Project-Members hint, shown when a project is open but none of its members are
+     among the agents on this board. Muted, so it reads as guidance under the "Project Members" head. */
+  html[data-layout="consolidated"] body.consolidated #alist .alist-emptymembers { color: var(--k-ink-2); font-size: 12px; line-height: 1.4; margin: 4px 6px 2px 8px; }
+  html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-emptymembers { display: none; }
   html[data-layout="consolidated"] body.consolidated > #rail-agents, html[data-layout="consolidated"] body.consolidated > #alist, html[data-layout="consolidated"] body.consolidated > #rail-me { border-right: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated #pj-list-view { border-right: 1px solid var(--k-rule); }
   /* #3187: the consolidated rail used to strip the row ground (background: none)
@@ -17170,12 +17174,20 @@ function paintAgentList() {
   const inProj = (openProj && Array.isArray(openProj.agents))
     ? new Set(openProj.agents.map((m) => m && m.sessionName).filter(Boolean)) : null;
   const members = (inProj && inProj.size) ? shown.filter((a) => inProj.has(a.sessionName)) : [];
-  if (members.length) {
-    const rest = shown.filter((a) => !inProj.has(a.sessionName));
-    // #3387: the members/rest split carries a labelled "Other Agents" sub-header (with its own
-    // New-agent +) in place of the plain rule; drawn even when the rest is empty so New agent
-    // stays reachable. The top head + become "Project Members" / add-existing via setAgentsGrouped.
-    alist.innerHTML = members.map(lrow).join('')
+  // #3387b (Josh, 2026-09-22): group whenever a project is OPEN, not only once it already has one
+  // of the board's agents on it. The old `members.length` gate meant a project whose members are
+  // not among the agents currently on the board fell back to the flat "Agents" list, and the top +
+  // reverted to New agent -- so there was NO way to add an EXISTING agent to such a project from
+  // the consolidated view (the exact dead + Josh hit). Grouping on the open project keeps the head
+  // "Project Members" and the top + on add-existing. An empty members list gets a one-line hint so
+  // the section is guidance rather than a silent gap; the rest render under "Other Agents" so New
+  // agent stays reachable.
+  if (openProj) {
+    const rest = inProj ? shown.filter((a) => !inProj.has(a.sessionName)) : shown.slice();
+    const membersHtml = members.length
+      ? members.map(lrow).join('')
+      : '<div class="alist-emptymembers">No agents on this project yet. Use + above to add one.</div>';
+    alist.innerHTML = membersHtml
       + otherAgentsHeaderHtml()
       + rest.map(lrow).join('');
     setAgentsGrouped(true);
