@@ -148,8 +148,11 @@ test('a Claude default-account agent: the trust key is the NATIVE realpath, and 
   assert.equal(r.body.trusted.runner, 'claude', JSON.stringify(r.body.trusted));
   assert.equal(r.body.outcome, 'restarted', 'the agent was not restarted: ' + JSON.stringify(r.body));
 
-  /* The default-account write lands in AGENT_WORKFORCE_HOME/.claude.json. */
-  const cfgPath = nodePath.join(HOME, '.claude.json');
+  /* #3383c: the default-account write lands in AGENT_WORKFORCE_HOME/.claude/.claude.json --
+     the file claude v2.1.278 reads (was AGENT_WORKFORCE_HOME/.claude.json). This is the
+     Trust & Restart route; pinning the new path is also what makes that button land where
+     the agent reads, so it actually clears the prompt. */
+  const cfgPath = nodePath.join(HOME, '.claude', '.claude.json');
   assert.ok(fs.existsSync(cfgPath), 'the default-account config was not created (createIfAbsent should have made it)');
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 

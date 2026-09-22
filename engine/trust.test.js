@@ -28,7 +28,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const { trustFolder, forgetFolder, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, ONBOARDING_KEY } = require('./trust');
+const { trustFolder, forgetFolder, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, ONBOARDING_KEY, defaultAgentConfig } = require('./trust');
 
 let n = 0;
 /** A folder that exists, fresh per test. */
@@ -859,13 +859,19 @@ test('#2129: a DEFAULT-account agent IGNORES the engine\'s CLAUDE_CONFIG_DIR (tr
     process.env.CLAUDE_CONFIG_DIR = engineDir;
     process.env.HOME = SANDBOX;
     process.env.AGENT_WORKFORCE_HOME = defaultHome;
-    fs.writeFileSync(cfgPath(defaultHome), '{}');   // Claude Code has run for the default account
+    // #3383c: claude v2.1.278 reads a default-account agent's config from
+    // <HOME>/.claude/.claude.json (inside the .claude dir), not <HOME>/.claude.json.
+    // defaultAgentConfig() targets that, so the config that must exist + the one the
+    // trust lands in is the .claude/ one.
+    const defaultCfg = nodePath.join(defaultHome, '.claude', '.claude.json');
+    fs.mkdirSync(nodePath.dirname(defaultCfg), { recursive: true });
+    fs.writeFileSync(defaultCfg, '{}');   // Claude Code has run for the default account
     const d = folder();
     const r = trustFolder(d, { agentDefaultAccount: true });
     assert.equal(r.ok, true, r.because);
     // WITH the carve-out: trust lands in the DEFAULT account's config
-    // (AGENT_WORKFORCE_HOME), ignoring the engine's CLAUDE_CONFIG_DIR.
-    assert.equal(cfgRead(defaultHome).projects[r.key][KEY], true, 'the default-account config did not get the trust flag');
+    // (AGENT_WORKFORCE_HOME/.claude/.claude.json), ignoring the engine's CLAUDE_CONFIG_DIR.
+    assert.equal(JSON.parse(fs.readFileSync(defaultCfg, 'utf8')).projects[r.key][KEY], true, 'the default-account config did not get the trust flag');
     // WITHOUT it (the #2129 bug), the write would have followed CLAUDE_CONFIG_DIR
     // into the engine's own account instead.
     assert.ok(!fs.existsSync(cfgPath(engineDir)), 'the default-account write followed the engine CLAUDE_CONFIG_DIR (#2129 bug)');
@@ -873,6 +879,26 @@ test('#2129: a DEFAULT-account agent IGNORES the engine\'s CLAUDE_CONFIG_DIR (tr
     if (savedOverride === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG; else process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = savedOverride;
     if (savedCcd === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedCcd;
     if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+    if (savedAwHome === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = savedAwHome;
+  }
+});
+
+test('#3383c: defaultAgentConfig resolves INSIDE the .claude dir (claude v2.1.278 moved the default config there)', () => {
+  // The load-bearing path of the whole fix, pinned as a literal so a refactor cannot
+  // silently revert it to the legacy ~/.claude.json (where the CLI no longer reads
+  // folder-trust, so every new default-account agent would park on the prompt again).
+  const savedOv = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  const savedAwHome = process.env.AGENT_WORKFORCE_HOME;
+  try {
+    delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;   // else it short-circuits to the override
+    process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'defhome');
+    assert.equal(defaultAgentConfig(), nodePath.join(SANDBOX, 'defhome', '.claude', '.claude.json'),
+      'default-account config must be <HOME>/.claude/.claude.json (v2.1.278), NOT the legacy <HOME>/.claude.json');
+    // and the AGENT_WORKFORCE_CLAUDE_CONFIG test-seam override still wins verbatim
+    process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = '/tmp/pinned-fixture.json';
+    assert.equal(defaultAgentConfig(), '/tmp/pinned-fixture.json', 'the explicit override must still win unchanged');
+  } finally {
+    if (savedOv === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG; else process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = savedOv;
     if (savedAwHome === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = savedAwHome;
   }
 });

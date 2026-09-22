@@ -332,7 +332,7 @@ test('trustAgentFolder on win32 writes the trust entry for a task-started Claude
   const t = create.trustAgentFolder('trusty', { platform: 'win32' });
   assert.equal(t.wrote, true, 'the trust step was skipped on win32: ' + JSON.stringify(t));
   assert.equal(t.runner, 'claude');
-  const cfg = JSON.parse(fs.readFileSync(path.join(HOME, '.claude.json'), 'utf8'));
+  const cfg = JSON.parse(fs.readFileSync(path.join(HOME, '.claude', '.claude.json'), 'utf8'));   // #3383c: default-account trust now lands inside .claude/
   /* Compared with separators normalised: the trust writer keys a Windows folder with
      forward slashes, a Mac one natively, and this arm is about WHETHER the entry was
      written, not its spelling (server.trust-restart-fallback-2129 pins that). */

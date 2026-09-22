@@ -37,8 +37,10 @@ test.afterEach(() => { for (const k of ENVKEYS) { if (saved[k] === undefined) de
 test('defaultAgentConfig SKIPS the engine CLAUDE_CONFIG_DIR (the update wedge)', () => {
   process.env.CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'engine-account-d');
   const got = trust.defaultAgentConfig();
-  assert.equal(got, path.join(SANDBOX, '.claude.json'),
-    'a default-account agent reads ~/.claude.json, so the write must target it, not the engine CLAUDE_CONFIG_DIR');
+  // #3383c: claude v2.1.278 reads a default-account agent's folder-trust from
+  // <HOME>/.claude/.claude.json (inside the .claude dir), not the legacy <HOME>/.claude.json.
+  assert.equal(got, path.join(SANDBOX, '.claude', '.claude.json'),
+    'a default-account agent reads <HOME>/.claude/.claude.json, so the write must target it, not the engine CLAUDE_CONFIG_DIR');
   assert.doesNotMatch(got, /engine-account-d/, 'the write must NOT follow the engine account config -- that is the wedge');
 });
 
@@ -70,8 +72,8 @@ test('trustFolder(agentDefaultAccount) lands in the AGENT home config, NOT the e
   // seam set the flag changes nothing and this assertion could never fail (a removed
   // or inverted ternary in trustFolder would stay green). Instead the engine carries
   // CLAUDE_CONFIG_DIR (the used-machine state) and the agent home is AGENT_WORKFORCE_HOME
-  // (= SANDBOX). So the FIXED path resolves to SANDBOX/.claude.json while CONFIG(null)
-  // resolves to engineDir/.claude.json -- the two genuinely differ.
+  // (= SANDBOX). So the FIXED path resolves to SANDBOX/.claude/.claude.json (#3383c) while
+  // CONFIG(null) resolves to engineDir/.claude.json -- the two genuinely differ.
   const engineDir = path.join(SANDBOX, 'engine-cfgdir-a');
   fs.mkdirSync(engineDir, { recursive: true });
   fs.writeFileSync(path.join(engineDir, '.claude.json'), JSON.stringify({ projects: {} }));
@@ -80,8 +82,8 @@ test('trustFolder(agentDefaultAccount) lands in the AGENT home config, NOT the e
   const folder = fs.realpathSync(fs.mkdtempSync(path.join(SANDBOX, 'w-')));
   const r = trust.trustFolder(folder, { configDir: null, createIfAbsent: true, agentDefaultAccount: true });
   assert.equal(r.ok, true, `write failed: ${r.because}`);
-  const agentData = JSON.parse(fs.readFileSync(path.join(SANDBOX, '.claude.json'), 'utf8'));
-  assert.equal(agentData.projects[folder][trust.KEY], true, 'the trust lands in the config the default agent reads (SANDBOX/.claude.json)');
+  const agentData = JSON.parse(fs.readFileSync(path.join(SANDBOX, '.claude', '.claude.json'), 'utf8'));
+  assert.equal(agentData.projects[folder][trust.KEY], true, 'the trust lands in the config the default agent reads (SANDBOX/.claude/.claude.json, #3383c)');
   const engineData = JSON.parse(fs.readFileSync(path.join(engineDir, '.claude.json'), 'utf8'));
   assert.equal(engineData.projects[folder], undefined,
     'the trust must NOT land in the engine CLAUDE_CONFIG_DIR config, even though it points somewhere real');

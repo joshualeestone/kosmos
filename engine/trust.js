@@ -110,20 +110,34 @@ const CONFIG = (dir) => {
 };
 
 // 🛑 #2129 (the wedge on UPDATE, not just fresh install). A DEFAULT-account agent
-// launches with NO CLAUDE_CONFIG_DIR in its plist, so Claude Code reads
-// ~/.claude.json. But the Kosmos board inherits the app's launch environment,
-// which on a used machine can carry CLAUDE_CONFIG_DIR -- and CONFIG(null) HONOURS
-// it (the branch right above). So the default-account trust write landed in the
-// ENGINE's account config while the agent read ~/.claude.json: trust written,
-// agent still stops on the prompt. That is why the fresh Mac Mini (clean env)
-// worked and an updated used machine did not -- a clean-env-vs-used-env split,
-// not a file-absent-vs-present one. The write for an agent that will run on the
-// DEFAULT account must therefore target what a no-CLAUDE_CONFIG_DIR agent reads,
-// IGNORING the engine's own CLAUDE_CONFIG_DIR. AGENT_WORKFORCE_CLAUDE_CONFIG stays
-// honoured so a test/sandbox redirects both the write and the simulated read.
+// launches with NO CLAUDE_CONFIG_DIR in its plist, so Claude Code reads its own
+// default config. The Kosmos board inherits the app's launch environment, which on
+// a used machine can carry CLAUDE_CONFIG_DIR -- and CONFIG(null) HONOURS it (the
+// branch right above). So the default-account trust write must target what a
+// no-CLAUDE_CONFIG_DIR agent reads, IGNORING the engine's own CLAUDE_CONFIG_DIR.
+// AGENT_WORKFORCE_CLAUDE_CONFIG stays honoured so a test/sandbox redirects both the
+// write and the simulated read.
+//
+// 🛑 #3383c: WHAT "a no-CLAUDE_CONFIG_DIR agent reads" IS changed under us. Claude
+// Code's NATIVE INSTALLER (v2.1.278) moved the default config dir from ~ to ~/.claude,
+// so the file a default-account agent reads its FOLDER-TRUST from is now
+// ~/.claude/.claude.json, NOT ~/.claude.json. Measured on this box (same v2.1.278 Josh
+// runs): answering the "trust this folder?" prompt writes hasTrustDialogAccepted into
+// ~/.claude/.claude.json, and re-launching in that folder does NOT prompt -- so that is
+// the file it reads. This is Josh's "worked ~50 builds then broke": the CLI installer
+// changed the path; our write to ~/.claude.json now lands where the agent never looks,
+// so EVERY new default-account agent parks on the trust prompt.
+//   ⚠️ AUTH IS A SEPARATE FILE AND STAYS ~/.claude.json. accounts.js/subscription read
+//   the account record (oauthAccount) from ~/.claude.json (its docblock warns that
+//   pointing auth at ~/.claude/ reads not-signed-in). Both files now carry oauth (~160KB
+//   each on this box), which is why auth keeps working while trust broke -- claude reads
+//   TRUST from ~/.claude/.claude.json but Kosmos's auth reader still (correctly) reads
+//   ~/.claude.json. So this change is TRUST-ONLY: defaultAgentConfig() has no callers
+//   outside trust.js (it drives configTarget -> the trust + onboarding writes and the
+//   folderTrusted read-check), so moving it does NOT touch the auth path.
 const defaultAgentConfig = () =>
   process.env.AGENT_WORKFORCE_CLAUDE_CONFIG
-  || path.join(process.env.AGENT_WORKFORCE_HOME || homeDir(), '.claude.json');
+  || path.join(process.env.AGENT_WORKFORCE_HOME || homeDir(), '.claude', '.claude.json');
 
 const KEY = 'hasTrustDialogAccepted';
 
