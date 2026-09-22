@@ -131,6 +131,21 @@ function chk(ok, label, extra) {
     });
     chk(!/Collections Coordinator/.test(roleless), 'Part 4 (#3385): a role-less agent shows no title', JSON.stringify(roleless));
 
+    // ── Part 5 (#3385): fitDetailName shrinks the name to fit the left column. A short name keeps
+    // the base 1.5rem; a very long name scales --dname-size below it so it never wraps. ─────────
+    const shrink = await page.evaluate(() => {
+      const el = document.getElementById('d-name');
+      const short = el.style.getPropertyValue('--dname-size').trim();   // Beatrix, short
+      const real = LAST[0];
+      LAST[0] = { ...real, name: 'Maximilian Alexander Thornbury-Whitfield the Third' };
+      openDetail(real.sessionName);
+      const long = el.style.getPropertyValue('--dname-size').trim();
+      LAST[0] = real; openDetail(real.sessionName);   // restore
+      return { short, long };
+    });
+    chk(shrink.short === '1.5rem', 'Part 5 (#3385): a short name keeps the base 1.5rem size', shrink.short);
+    chk(parseFloat(shrink.long) > 0 && parseFloat(shrink.long) < 1.5, 'Part 5 (#3385): a very long name shrinks below the base size', shrink.long);
+
     // ── Part 3 (#3043 -> #3271, Josh 2026-09-18): the agent's self-reported quote does not
     // print beside the bubble (#d-task), AND there is NO reason line under the name. #3043 had
     // relocated the reason to a #d-why note below the name; #3271 REMOVED that note entirely

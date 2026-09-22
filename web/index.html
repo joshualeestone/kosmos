@@ -2376,6 +2376,10 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
      LIMITATION note above for the notice-state caveat. */
   height: calc(100vh - var(--talk-fill-top, 157px)); }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+/* #3385: bound the left column in the fill state -- if its optional notes (#d-said auth quote,
+   #d-conflict, #d-instr-stale) grow taller than the panel they scroll inside the column rather than
+   stretching the grid row and pushing the talk composer below the fold (#761 dialog-always-visible). */
+#panel-detail:has(#d-sec-talk:not([hidden])) .dleft { min-height: 0; overflow: auto; }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-sec-talk { flex: 1 1 auto; min-height: 0; }
 /* overflow-y:auto is a FALLBACK: normally #d-dmthread (flex:1) absorbs the height and the box
@@ -2454,11 +2458,11 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
      matching-width request) and needs the same restatement for the same
      reason. */
   #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: minmax(0, 1fr); }
-  /* #2622 part 2, narrow width: when the grid collapses to one column the snav and
-     .dsecs stack as two rows. The talk fill gives .dbody a tall definite height, and a
-     single-column grid's default row sizing would stretch BOTH rows equally, ballooning
-     the snav row and re-opening the very gap this change closes. Pin the snav row to its
-     content (auto) and let only the .dsecs row grow. Talk-scoped, like the wide rule. */
+  /* #2622 part 2, narrow width: when the grid collapses to one column the left column (.dleft, which
+     since #3385 holds .dhead + the snav) and .dsecs stack as two rows. The talk fill gives .dbody a
+     tall definite height, and a single-column grid's default row sizing would stretch BOTH rows
+     equally, ballooning the .dleft row and re-opening the very gap this change closes. Pin the .dleft
+     row to its content (auto) and let only the .dsecs row grow. Talk-scoped, like the wide rule. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { grid-template-rows: auto minmax(0, 1fr); }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
@@ -25874,7 +25878,7 @@ function openDetail(sessionName, section, fromProject) {
      no tense, so it reads as THE model, and two elements naming one fact
      differently is precisely what this branch exists to stop. It takes the name
      the box resolved rather than deriving a second one. */
-  const runs = runsOnLine(a);   // one evaluation, read by the meta line and the box
+  const runs = runsOnLine(a);   // read by the Runs-on box below (#3385: the title line no longer reads it)
   /* #684: "shown by its machine name" only read as English to someone who had
      read the code (the first-run journey walk hit it in minute two). The fact
      it carries -- nobody chose a name, so the one on screen is the internal
@@ -31155,6 +31159,7 @@ document.getElementById('d-save').addEventListener('click', async () => {
       const h = document.getElementById('d-name');
       if (h) h.textContent = renameTo;
       detailNavNames(renameTo);
+      fitDetailName();   // #3385: re-fit the name to the column after a rename (long shrinks, short grows back)
     }
     /* #2139: the @mention picker sources each candidate's shown name from
        PROJECTS[].agents[].name (mentionCandidates -> pjById(PJ_CURRENT).agents),
