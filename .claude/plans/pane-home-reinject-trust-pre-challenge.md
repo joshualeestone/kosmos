@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: pane-home-reinject-trust
-diff_hash: fc780f3558e8e1e6a0858937571dc2ad554f98bbe87e17defdd4dbf261e585c6
+diff_hash: a68494460090882991e31d47653e30b1502427f04a6da753f459f205c7938c0d
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-22T14:52:00Z
-iterations: 3
+timestamp: 2026-09-22T15:14:14Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3 (round 1: 2 reviewers on a FIRST fix that turned out wrong; round 2: re-measurement with controls after the catch; round 3: 1 reviewer on the corrected fix)
+**Iterations:** 4 (round 1: 2 reviewers on a FIRST fix that turned out wrong; round 2: re-measurement with controls after the catch; round 3: 1 reviewer on the corrected fix; round 4: CI caught a missed pinned-test index, fixed)
 **Converged:** Yes
-**Total findings:** 1 BLOCKER (the first fix was wrong — CAUGHT and the whole approach replaced), 0 open. Corrected fix proven with controls.
-**Fixed:** 1 | **Deferred:** 0 | **Asked:** 0
+**Total findings:** 2 BLOCKER (the first fix was wrong — CAUGHT and replaced; then a missed pinned pane-env test — CAUGHT by CI), 0 open. Corrected fix proven with controls; all pinned tests updated.
+**Fixed:** 2 | **Deferred:** 0 | **Asked:** 0
 
 This is the challenge loop doing exactly its job: it caught a WRONG fix before it shipped and forced a
 re-derivation from the start.
@@ -57,10 +57,26 @@ store root fell back to the server's HOME, not the board's, when they differed �
 - [NIT] bin/agent-supervisor.sh — a comment said "HOME is FIRST and it is load-bearing", overstating
   ordering (tmux `-e` order is irrelevant). **FIXED** (reworded; behavior unchanged).
 
+#### Iteration 4 — CI caught a missed pinned-test index (the pane-env list is asserted in create.test.js, not only test-supervisor-env.sh)
+**New findings:** 1 BLOCKER (CI-caught), 0 WARNINGs. **FIXED.**
+- [BLOCKER] engine/create.test.js — adding HOME to the re-injection loop broke THREE pinned assertions that
+  exist precisely to force a new pane-env rider to be declared (#577/#1160/#1704 pattern): (1) the
+  text-match loop regex at ~2996, (2) the actually-run `deepEqual` expected SET (HOME rides because the
+  test process always has a $HOME), and (3) the unset/empty exclusion filter (+ a positive check). I had
+  run ONLY the shell supervisor tests (test-supervisor-env.sh), not `node --test engine/create.test.js`,
+  so the challenge loop's iteration-3 proof missed it and CI (the `test` job: node --test + yarn
+  test:shell) went red. **FIXED**: declared HOME as an always-on rider in all three spots, mirroring how
+  #1160/#1704 wrote their new riders INTO the expected set rather than filtering them out. Full
+  create.test.js green locally (165/165); shell tests green; repo swept for any other copy of the old loop
+  string (none). The FIX code (bin/agent-supervisor.sh) is unchanged — this iteration only updated the
+  tests that pin the list. Lesson: the pane-env list has TWO test indices (the shell test AND
+  create.test.js's pinned assertions); run the file the CI runs, not just the sibling shell test.
+
 ### Final Ledger
 | # | Iter | Category | File | Description | Status | Resolution |
 |---|------|----------|------|-------------|--------|------------|
 | 1 | 1 | correctness | engine/trust.js | first fix (move the WRITE path) rested on a confounded measurement; would regress clean installs | RESOLVED | abandoned that branch; re-measured with CCD unset + controls; replaced with HOME re-injection |
+| 2 | 4 | test-coverage | engine/create.test.js | HOME rider broke 3 pinned pane-env assertions; missed because only the shell test was run, not the CI's node --test | RESOLVED | declared HOME in all 3 (regex, deepEqual set, exclusion filter + positive check); full file green; fix code unchanged |
 
 No open BLOCKER / WARNING / CONVENTION findings remain.
 
