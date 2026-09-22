@@ -3011,6 +3011,16 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently (#577, #540, #529).
   assert.match(script, /for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do/);
+  // #3417: the loop above forwards CLAUDE_CONFIG_DIR only from THIS supervisor's OWN env. That
+  // misses a default-account agent whose own env is clean but whose pane still inherits the tmux
+  // SERVER-GLOBAL CLAUDE_CONFIG_DIR -- the #2129 "write file A, read file B" class one layer
+  // deeper. The block below resolves that effective dir (own env, else the server global), pins
+  // it, and hands the SAME value to ensure-launch-trust so the write lands where the pane reads.
+  // Pinned present here so the fix cannot be silently removed.
+  assert.match(script, /EFFECTIVE_CCD="\$\{CLAUDE_CONFIG_DIR:-\}"/, 'the supervisor no longer resolves the effective CLAUDE_CONFIG_DIR (#3417)');
+  assert.match(script, /show-environment -g CLAUDE_CONFIG_DIR/, 'the supervisor no longer falls back to the tmux server-global CLAUDE_CONFIG_DIR the pane would inherit (#3417)');
+  assert.match(script, /PANE_ENV\+=\(-e "CLAUDE_CONFIG_DIR=\$EFFECTIVE_CCD"\)/, 'the supervisor no longer pins the resolved server-global CLAUDE_CONFIG_DIR into the pane (#3417)');
+  assert.match(script, /ensure-launch-trust\.js" "\$WORKDIR" "\$\{EFFECTIVE_CCD:-\}"/, 'the trust write no longer targets the effective dir the pane reads (#3417)');
   assert.match(script, /secrets\/cloudflare\.token/, 'the supervisor no longer reads the held Cloudflare token from the store beside it (#529)');
   assert.match(script, /secrets\/github\.token/, 'the supervisor no longer reads the held GitHub token, so a no-install connection cannot reach an agent (#620)');
   // Which variables ride, and that they ride as values rather than as a

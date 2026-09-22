@@ -435,6 +435,9 @@ if [ -z "$adopt" ]; then
   #   CLAUDE_CONFIG_DIR re-injection right beside it already handles that path. Do NOT instead try to
   #   change the WRITE path to ~/.claude/.claude.json -- measured: a no-CLAUDE_CONFIG_DIR agent reads
   #   ~/.claude.json, so that would regress every clean install (the confounded first theory).
+  # This loop forwards CLAUDE_CONFIG_DIR from THIS supervisor's own env (the per-account case).
+  # The #3417 block below covers the gap it cannot: a DEFAULT-account agent whose own env is
+  # clean but whose pane still inherits the tmux SERVER-GLOBAL CLAUDE_CONFIG_DIR (the leak).
   for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
@@ -471,6 +474,41 @@ if [ -z "$adopt" ]; then
   PANE_ENV+=(-e "AGENT_WORKFORCE_DATA=${AGENT_WORKFORCE_DATA:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_WORKERS=${AGENT_WORKFORCE_WORKERS:-}")
+  # 🛑 #3417: TRUST THE CLAUDE CONFIG DIR THE PANE ACTUALLY READS. A tmux new-session inherits
+  # the shared server's GLOBAL environment (measured on 3.6a, and already handled for HOME,
+  # KOSMOS_WORLD + the store roots above). A board cold-started under CLAUDE_CONFIG_DIR=<account>
+  # leaves that value in the server global, so a "default account" pane (own env clean, so the
+  # loop above forwarded nothing) SILENTLY inherits <account> and reads <account>/.claude.json --
+  # while create.js and ensure-launch-trust.js wrote the folder-trust key to the DEFAULT
+  # ~/.claude.json. Trust written where the agent never reads it: every new agent re-hits the
+  # folder-trust prompt. That is #3417, the #2129 "write file A, read file B" class one layer
+  # deeper -- the tmux-server-global env, which #2129 could not see because it assumed a clean
+  # server env, and which the loop's own-env forward above cannot see either.
+  #
+  # EFFECTIVE_CCD is the dir the pane will read: our own env when set (the loop already forwarded
+  # it, and a per-account agent's plist sets it); else, on the Claude arm only, the tmux server
+  # global the pane would otherwise inherit -- resolved here and PINNED explicitly so the pane is
+  # deterministic instead of relying on inheritance. The SAME value is handed to
+  # ensure-launch-trust below, so the write and the read agree by construction. An empty result
+  # is a truly clean launch: nothing is pinned (leaving CLAUDE_CONFIG_DIR unset, which is exactly
+  # what #3383c's HOME re-injection relies on), and the trust write takes the default path.
+  # Claude only -- codex uses CODEX_HOME and has no folder-trust gate.
+  EFFECTIVE_CCD="${CLAUDE_CONFIG_DIR:-}"
+  if [ "$RUNNER" != codex ] && [ -z "$EFFECTIVE_CCD" ]; then
+    _srv_ccd="$("$TMUX_BIN" show-environment -g CLAUDE_CONFIG_DIR 2>/dev/null || true)"
+    case "$_srv_ccd" in
+      # `CLAUDE_CONFIG_DIR=<val>` sets it; a `-CLAUDE_CONFIG_DIR` unset line or an absent
+      # var leave it empty (the truly-clean launch).
+      CLAUDE_CONFIG_DIR=?*) EFFECTIVE_CCD="${_srv_ccd#CLAUDE_CONFIG_DIR=}" ;;
+    esac
+    # Pin the resolved leak value so the pane is deterministic and matches the trust write. Not
+    # pushed when empty: an empty string would risk the CLI treating "set-but-empty" differently
+    # from "unset" and (ICK, fleet reference) would strand a real per-account login. No
+    # double-push with the loop: this branch runs only when the loop forwarded nothing.
+    if [ -n "$EFFECTIVE_CCD" ]; then
+      PANE_ENV+=(-e "CLAUDE_CONFIG_DIR=$EFFECTIVE_CCD")
+    fi
+  fi
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge
     # with one JSON argument per event, from INSIDE the agent's pane, so
@@ -518,7 +556,12 @@ if [ -z "$adopt" ]; then
     # trust.js". Claude arm only: the codex arm has its own trustCodexFolder + dismiss shim,
     # and its CLAUDE_CONFIG_DIR is a CODEX_HOME that must never take a CLAUDE trust write.
     if [ -n "${_eng:-}" ] && [ -f "$_eng/ensure-launch-trust.js" ] && [ -n "${NODE_BIN:-}" ]; then
-      "$NODE_BIN" "$_eng/ensure-launch-trust.js" "$WORKDIR" "${CLAUDE_CONFIG_DIR:-}" >/dev/null 2>&1 || true
+      # #3417: EFFECTIVE_CCD (resolved above), NOT ${CLAUDE_CONFIG_DIR:-}. The bare env
+      # var is empty for a default-account agent whose pane nonetheless inherits the tmux
+      # server-global CLAUDE_CONFIG_DIR, which sent the trust write to ~/.claude.json while
+      # the pane read <server-global>/.claude.json. EFFECTIVE_CCD is exactly what the pane
+      # is launched with (the -e above), so the write and the read agree by construction.
+      "$NODE_BIN" "$_eng/ensure-launch-trust.js" "$WORKDIR" "${EFFECTIVE_CCD:-}" >/dev/null 2>&1 || true
     fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
