@@ -564,6 +564,17 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    the descenders off the bottom of every name (Josh, 2026-09-22). Unitless so it tracks the shrunk
    size fitDetailName sets. */
 .dnamerow .dname { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; line-height: 1.15; }
+/* #3410 (Josh, 0.6.88 live test): the Start affordance sits right under the
+   identity, so a person looking at a not-running agent has the one action they
+   need in front of them instead of hunting for the buried Fresh-start section.
+   A flex column so the button and its status line stack under the name: the
+   button stretches to the column width (align-items: stretch) and the status
+   line is centered under it (.fmsg text-align: center). Uses the shared .btn +
+   .fmsg (both already theme-aware, so light mode is covered without new colour
+   tokens). */
+.d-start-wrap { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 12px; width: 100%; }
+.d-start-wrap .fmsg:empty { display: none; margin: 0; }
+.d-start-wrap .fmsg { margin: 0; text-align: center; }
 /* A hairline between the two halves of Runs on: the model above, the account
    below. Without it the second "Right now" line reads as a continuation of the
    first control rather than the start of a second one. */
@@ -8545,6 +8556,26 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              mock. If Josh wants it beside again, wrap #d-state + #d-task in a
              nested flex-row inside .dnamerow (one-commit change). -->
         <span class="dtask" id="d-task" hidden></span>
+      </div>
+      <!-- #3410 (Josh, 0.6.88 live test, 2026-09-22): a "Start this agent" action
+           right under the identity, shown ONLY when the agent is confidently not
+           running (openDetail toggles it on cardStOf(a).pres === 'off', i.e.
+           'stopped'; parallel to #d-reauth). Josh had seven agents that never
+           connected and no way to start one from the UI without the buried
+           Fresh-start section. It drives the EXISTING POST /api/agent/<name>/restart
+           and VERIFIES the agent actually comes up via restartReadyWait before
+           claiming success, so it never lies on the #3418 false-success
+           (restartInner returns RESTARTED even when the launchd relaunch never
+           loaded). 🛑 SEAM: /restart RESTARTS an agent with a live session
+           (FOUND.OURS, e.g. wedged); for a genuinely-offline agent (session:null ->
+           FOUND.NONE, the seven-never-connected / Nora case) it currently REFUSES,
+           so this button DELIVERS for that population only once Angel's #3418 makes
+           the FOUND.NONE branch bootstrap the launchd job. The button is honest
+           either way (shows the refusal). No cost-confirm modal: a not-running agent
+           has no live Claude work to lose, so this is a direct action. -->
+      <div class="d-start-wrap" id="d-start-wrap" hidden>
+        <button type="button" class="btn" id="d-start-agent">Start this agent</button>
+        <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
       <!-- #569: where the state came from, under the badge, in Mona Lisa's
            words ("Said so itself" / "Read from its screen"); and the two
@@ -17421,7 +17452,7 @@ async function tick() {
      * The honest thing to say here is smaller: this agent is not on the board
      * any more, so nothing on this screen should offer to change it.
      */
-    for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save']) {
+    for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save', 'd-start-agent']) {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     }
@@ -17473,6 +17504,12 @@ async function tick() {
     PANEL_WITHDRAWN = false;
     document.getElementById('d-withdrawn').hidden = true;
     loadRemoval(fresh.sessionName);
+    /* #3410: the Start affordance was disabled by the withdrawn arm above; the
+       sibling write controls re-enable via setWritesOffered but that list does
+       not include d-start-agent (its enabled state depends on the agent's
+       running state, not on tied-ness), so re-derive it here from the returned
+       card, matching the "guard both directions" fix this branch exists for. */
+    refreshStartAffordance(fresh);
   }
   if (fresh) {
     setWritesOffered(fresh, fresh.isNamedOurs === true);
@@ -23907,6 +23944,43 @@ function refreshAvatar() {
   renderAvatar(a);
 }
 
+/* #3410: a monotonic per-open generation. openDetail bumps it on every open,
+   switch, and reopen; the Start click captures it and its onPanel guard treats a
+   changed value as "the panel this action belonged to is gone", so a late write
+   from a 30s restart wait never lands on a panel that was reopened or switched
+   underneath it (the RESTART_HELLO_SEQ token only catches a NEWER restart, not a
+   mere reopen). */
+let START_EPOCH = 0;
+/* #3410: the START_EPOCH of a Start currently in flight, or null. The click sets
+   it and clears it in a finally; refreshStartAffordance reads it so a re-derive
+   for THIS open does not re-enable a button the in-flight click deliberately
+   disabled (which would let a person fire a second restart mid-wait). */
+let START_FLIGHT = null;
+
+/* #3410: derive the Start affordance's visibility, enabled state and label from
+   the live card, shared by openDetail (on open) and the poll's reappear arm (so a
+   transient board dropout that disabled the button re-enables it when the agent
+   returns, rather than leaving it stuck disabled until reopen). Deliberately does
+   NOT clear #d-start-msg -- openDetail owns clearing a stale message, and the poll
+   must not wipe a just-written status line. Shown only when confidently not
+   running (cardStOf(a).pres === 'off', 'stopped' alone today; a future
+   connection_lost, Angel #3418, falls under the same gate and would get a
+   "Reconnect" label here). */
+function refreshStartAffordance(a) {
+  const wrap = document.getElementById('d-start-wrap');
+  if (!wrap) return;
+  const notRunning = !!a && cardStOf(a).pres === 'off';
+  wrap.hidden = !notRunning;
+  const btn = document.getElementById('d-start-agent');
+  /* Do NOT re-enable while a Start for THIS open is mid-flight: a withdraw+reappear
+     during the ~30s wait would otherwise re-enable the button the click disabled,
+     and since a reappear does not bump START_EPOCH the click's own onPanel guard
+     would not catch the resulting second restart. Keying on START_EPOCH means a
+     later open (which DID bump it) still re-enables normally. */
+  const inFlight = START_FLIGHT !== null && START_FLIGHT === START_EPOCH;
+  if (notRunning && btn && !inFlight) { btn.hidden = false; btn.disabled = false; btn.textContent = 'Start this agent'; }
+}
+
 /* The pack's Memory box: a READING, not a control panel. The same
    memBand/pctOf derivations as both board renderers, so this page and the
    grid agree about how full an agent is. The pack's fresh-start actions
@@ -26135,6 +26209,18 @@ function openDetail(sessionName, section, fromProject) {
      the existing re-auth surface. */
   const reauthBtn = document.getElementById('d-reauth');
   if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
+  /* #3410: the Start affordance. Bump the generation so any in-flight Start from
+     a prior open (this agent reopened, or a switch away and back) can no longer
+     write onto this fresh panel; reset PANEL_WITHDRAWN so a stale withdrawn flag
+     from a just-closed agent does not silence THIS agent's first click before the
+     next poll re-derives it; clear any stale status line; then derive visibility
+     and enabled state from the live card. Reserved for confidently not-running
+     (pres 'off'); see refreshStartAffordance. */
+  START_EPOCH++;
+  PANEL_WITHDRAWN = false;
+  const startMsg = document.getElementById('d-start-msg');
+  if (startMsg) startMsg.textContent = '';
+  refreshStartAffordance(a);
   /* The pack's header badge and the two reading boxes, all off the same
      shared derivations the board uses (memBand/pctOf/modelLine). */
   const dpct = pctOf(a.context);
@@ -30885,6 +30971,110 @@ function restartFailureLine(out) {
     + (failed.length ? ' What failed: ' + failed.join(', ') + '.' : '')
     + (done.length ? ' What worked: ' + done.join(', ') + '.' : '');
 }
+
+/* #3410: the "Start this agent" click. It reuses the proven restart plumbing
+   (POST /restart, restartTook, restartFailureLine, restartReadyWait, the wake
+   'hello') rather than adding a second start path, and it stays HONEST on the
+   #3418 false-success: restartInner returns outcome:'restarted' even when the
+   launchd relaunch never loaded, so restartTook alone would claim success on a
+   dead agent. So after the route accepts it, this waits for restartReadyWait to
+   actually SEE the session running before it says "Started"; a start that never
+   comes back falls to the honest "has not come back" line, not a lie. No
+   cost-confirm modal (unlike rst-go below): a stopped agent has no live session
+   to lose, so this is a direct action. Guarded on the open agent still being this
+   one, so a mid-wait switch never lands a line in another agent's panel. */
+document.getElementById('d-start-agent').addEventListener('click', async () => {
+  const name = CURRENT && CURRENT.sessionName;
+  if (!name) return;
+  const shown = (CURRENT && CURRENT.name) || name;
+  const sb = document.getElementById('d-start-agent');
+  const sm = document.getElementById('d-start-msg');
+  /* This action belongs to THIS panel open. Capture the generation now; onPanel
+     treats a changed START_EPOCH as "the panel is gone" -- covering a switch to
+     another agent AND a close+reopen of this same agent, either of which bumps
+     the epoch in openDetail (the RESTART_HELLO_SEQ token only catches a newer
+     restart, not a reopen). !PANEL_WITHDRAWN additionally covers the case where
+     this same agent vanishes from the board while the panel stays open (no
+     reopen, so the epoch is unchanged): a late say() would otherwise print a
+     start status under the "no longer under Agents" banner. Together they make
+     every say()/reenable() a no-op once this action no longer owns the panel. */
+  const epoch = START_EPOCH;
+  /* Mark a Start in flight for this open so refreshStartAffordance (poll reappear
+     arm) does not re-enable the button we are about to disable, which would let a
+     second restart fire mid-wait. Cleared in the finally, only if still ours. */
+  START_FLIGHT = epoch;
+  const onPanel = () => START_EPOCH === epoch && sm && sm.isConnected && !PANEL_WITHDRAWN;
+  const say = (t) => { if (onPanel()) sm.textContent = t; };
+  const reenable = () => { if (onPanel() && sb) sb.disabled = false; };
+  try {
+    if (sb) sb.disabled = true;
+    say('Starting ' + shown + '…');
+    let rr, rout;
+    try {
+      rr = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
+      rout = await rr.json().catch(() => null);
+    } catch {
+      say('We could not reach Kosmos to start ' + shown + '.');
+      reenable();
+      return;
+    }
+    if (!restartTook(rr.ok, rout)) {
+      /* restartFailureLine is shared with the restart modal, so its no-detail
+         fallback is restart-worded ("We could not restart them."). In this START
+         context that would double up as "We could not start X. We could not restart
+         them.", so only append it when it carries specifics (a reason, or a
+         what-failed/what-worked step list) beyond that generic; our lead already
+         said the generic, start-worded. */
+      /* NB: a PARTIAL outcome (steps present, restart could not close the old
+         window) reaches here too, and restartFailureLine would then add its
+         window-closing language, which is restart-shaped. That is acceptable
+         because a genuinely 'stopped' agent -- the only state that shows this
+         button -- has no live window to fail closing, so the partial-close arm is
+         not reachable from here in practice; if a future not-running state can
+         reach it, revisit the wording. */
+      const hasDetail = rout && (rout.because || rout.error
+        || (Array.isArray(rout.steps) && rout.steps.length));
+      say('We could not start ' + shown + '.' + (hasDetail ? ' ' + restartFailureLine(rout) : ''));
+      reenable();
+      return;
+    }
+    /* The route accepted it; confirm it actually came back before saying so.
+       PER-AGENT token so a newer start/restart of the same agent supersedes this
+       wait (the same RESTART_HELLO_SEQ contract autoHelloAfterRestart uses). */
+    const token = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
+    const ready = await restartReadyWait(name, token);
+    if (token !== RESTART_HELLO_SEQ[name]) return;   // superseded by a newer start/restart of this agent
+    if (!ready) {
+      say('We asked ' + shown + ' to start, but it has not come back yet. Try Start again, or open Advanced to see what happened.');
+      reenable();
+      return;
+    }
+    /* It is up. Wake it with the shared sendWakeHello (#2686), NOT via
+       autoHelloAfterRestart, because that re-runs restartReadyWait, which needs an
+       unready->ready gap and would time out here (the gap is already past). The
+       `token` re-check inside sendWakeHello covers a newer restart of this same
+       agent (rst-go, trust-and-restart, the stale-instructions notice) landing
+       while the hello is in flight; `say` additionally no-ops if the panel was
+       switched or reopened (the epoch guard). */
+    say('Started ' + shown + '. Waking them…');
+    await sendWakeHello(name, token, say,
+      'Started ' + shown + ', and said hello to wake them.',
+      'Started ' + shown + '. Say ‘hello’ to wake them.');
+    /* The agent is running now, so Start no longer applies: hide the BUTTON (the
+       common restart keeps the row present -- state 'restarting' then a live state
+       -- so the poll's withdrawn->reappear arm does not fire, and there is no
+       general per-tick re-derive; without this the disabled button would sit under
+       the "Started" receipt until reopen). Keep the wrap + message as the receipt;
+       refreshStartAffordance un-hides the button again if a later open finds the
+       agent stopped once more. */
+    if (onPanel() && sb) sb.hidden = true;
+  } finally {
+    /* Release the in-flight marker if it is still ours: a later open bumps
+       START_EPOCH and may start its own, and clearing unconditionally would wipe
+       that newer one. */
+    if (START_FLIGHT === epoch) START_FLIGHT = null;
+  }
+});
 
 document.getElementById('rst-go').addEventListener('click', async () => {
   const btn = RST_FOR;
@@ -37220,11 +37410,18 @@ async function restartReadyWait(name, mine) {
    msg); `saidText` / `manualText` are that site's own phrasings so the sentence
    fits where it lands. Fire-and-forget from the caller -- it resolves the notice
    on its own, exactly as watchForAgent's post-create work does. */
-async function autoHelloAfterRestart(name, report, saidText, manualText) {
-  const mine = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
-  const ready = await restartReadyWait(name, mine);
-  if (mine !== RESTART_HELLO_SEQ[name]) return;    // a newer restart of this agent superseded us
-  if (!ready) { report(manualText); return; }
+/* Send the wake 'hello' to an agent ALREADY confirmed ready, and report the
+   outcome. Factored (#3410) so the two callers share one copy rather than two
+   byte-similar ones (CLAUDE.md conv #5, the codebase's most-shipped defect): here
+   in autoHelloAfterRestart after its own readiness wait, and in the Start button,
+   which runs its OWN wait and so cannot reuse autoHelloAfterRestart (that would
+   re-run restartReadyWait and time out on an already-ready agent). `token` is the
+   caller's RESTART_HELLO_SEQ[name] value, re-checked after the fetch so a newer
+   restart of this agent supersedes cleanly. 'placed' is the composer's OWN signal
+   that the message reached the agent's session; NOT 'recorded' (only whether it
+   was filed in the thread, which can differ). Claim "said hello" only on placed,
+   so a person is never falsely told the agent was greeted (worse than manual). */
+async function sendWakeHello(name, token, report, saidText, manualText) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
       method: 'POST',
@@ -37232,19 +37429,21 @@ async function autoHelloAfterRestart(name, report, saidText, manualText) {
       body: JSON.stringify({ text: 'hello' }),
     });
     const out = await res.json().catch(() => null);
-    if (mine !== RESTART_HELLO_SEQ[name]) return;
-    // 'placed' is the composer's OWN signal that the message reached the agent's
-    // session (web/index.html talk send). NOT `recorded`: recorded is only
-    // whether it was filed in the thread, and a message can be placed but
-    // unrecorded (a name that cannot be filed under). Claim "said hello" only on
-    // placed; 'unconfirmed' or any failure falls to the manual line, so a person
-    // is never falsely told the agent was greeted (the worse-than-manual case).
+    if (token !== RESTART_HELLO_SEQ[name]) return;
     const placed = res.ok && out && out.delivery && out.delivery.state === 'placed';
     report(placed ? saidText : manualText);
   } catch {
-    if (mine !== RESTART_HELLO_SEQ[name]) return;
+    if (token !== RESTART_HELLO_SEQ[name]) return;
     report(manualText);
   }
+}
+
+async function autoHelloAfterRestart(name, report, saidText, manualText) {
+  const mine = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
+  const ready = await restartReadyWait(name, mine);
+  if (mine !== RESTART_HELLO_SEQ[name]) return;    // a newer restart of this agent superseded us
+  if (!ready) { report(manualText); return; }
+  await sendWakeHello(name, mine, report, saidText, manualText);
 }
 
 /**
