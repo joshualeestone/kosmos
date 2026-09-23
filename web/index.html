@@ -2609,6 +2609,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .setrow b { font-size: .9375rem; }
 .setrow.off { opacity: .6; }
 .setrow.off .toggle { pointer-events: none; }
+/* #3508: the Prompter's in-app check-in list. Minimal, in-lane; a fuller placement is
+   Mona's polish. Reuses .dlab/.dhint tokens so it matches the rest of Settings. */
+.hb-nudges { margin-top: 6px; }
+.hb-nudge { padding: 8px 0; border-top: 1px solid var(--k-line, rgba(127,127,127,.18)); line-height: 1.5; }
+.hb-nudge:first-of-type { border-top: 0; }
+.hb-nudge b { font-size: .9375rem; }
 .toggle { width: 42px; height: 24px; border-radius: 100px; flex: 0 0 42px;
           background: var(--k-track); position: relative; cursor: pointer; border: 0; padding: 0;
           transition: background .15s ease; }
@@ -13455,14 +13461,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            working and was meant to chase anyone that has stopped. The later
            addition the auto-save control above (#1724) reserved a slot for. On
            by default (#2013); the interval is adjustable.
-           ⚠️ #2632: the runner is still live (server.js) and computes which
-           agents stopped, but #2623 removed its ONLY delivery path (the
-           check_in that rode the phone-home notify.happened POST), and no
-           in-app channel exists yet, so the result reaches no one. The copy no
-           longer promises a notification it cannot deliver. Hiding the toggle
-           until an in-app delivery channel is built is the fuller fix and is a
-           paint change (paintHeartbeat), routed to Angel; this change is the
-           in-lane copy honesty half. -->
+           #2632 -> #3508 (DELIVERY RESTORED): #2623 removed the runner's only
+           delivery path (the check_in that rode the phone-home notify.happened
+           POST). For a while the runner still computed which agents stopped but
+           the result reached no one, and the copy said so. #3508 rebuilt the
+           delivery LOCAL: the runner writes each tick's `toAsk` to a 0600 file
+           (engine/prompternudge.js), the server exposes GET /api/prompter-nudges,
+           and the #hb-nudges panel below polls it and renders one check-in per
+           stalled agent. Nothing leaves the Mac, so it is not the telemetry #2623
+           removed. The copy no longer promises an undeliverable nudge because the
+           nudge is now deliverable. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
            "Prompter", so Settings > Automation reads as two named features a
            person can reason about, the Recommender (what to work on next) and
@@ -13478,7 +13486,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <h3 class="dlab">Prompter</h3>
       <div class="setrow" id="hb-row" style="margin-top:14px;">
         <div><b>Check on your agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks which of your agents have stopped. It can't nudge you about them yet. That part is still being built. On by default.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks which of your agents have stopped. When one has, it shows a check-in below so you can tell it whether the agent is mid-something, finished, or stopped. Everything stays on this computer. On by default.</p></div>
         <button class="toggle" id="hb-toggle" role="switch" aria-label="Check on your agents" hidden><i></i></button>
       </div>
       <!-- #2623: the "notifications are off" hint was removed with the notify
@@ -13488,6 +13496,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <select id="hb-interval" aria-label="How often to check on your agents"></select>
       </div>
       <p class="dhint" id="hb-msg" role="status" style="margin:8px 0 0;"></p>
+      <!-- #3508: the Prompter's IN-APP delivery surface -- the half #2623 removed,
+           rebuilt LOCAL. Polls /api/prompter-nudges and renders one check-in per
+           stalled agent. The store carries only who/from/to; the QUESTION is composed
+           here (never a stored sentence), matching the removed payload's own rule and
+           the heartbeat header. Self-contained (one container + paintPrompterNudges)
+           so a more prominent placement later is a pure move (Mona's polish). Hidden
+           while empty so it costs nothing when nothing is stalled. -->
+      <div id="hb-nudges" class="hb-nudges" role="region" aria-label="Agent check-ins" hidden></div>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own
@@ -18693,6 +18709,52 @@ async function paintHeartbeat() {
   }
   /* #2623: the notify-off hint was removed with the phone-home seam. */
 }
+/* #3508: paint the Prompter's IN-APP check-ins. Reads the LOCAL 0600 nudge store
+   through /api/prompter-nudges (nothing leaves the Mac) and renders one check-in per
+   stalled agent. The store carries only { session, from, to }; the QUESTION is
+   COMPOSED here, matching the removed payload's rule that no sentence is ever stored.
+   Best-effort: any failure hides the panel rather than showing error noise, because
+   the board's own status surfaces still show the truth and a missed nudge is only a
+   missed nudge. Empty -> hidden, so it costs nothing when nothing is stalled. */
+let HB_NUDGE_EPOCH = 0;
+function prompterCheckinQuestion(n) {
+  /* One honest question per the heartbeat header ("mid-something, finished, or
+     stopped?"). auth_failed is the one stall with a distinct cause worth naming. */
+  if (n && n.to === 'auth_failed') {
+    return 'lost its connection. Reconnect it, or is it done?';
+  }
+  return 'seems to have stopped. Still mid-something, finished, or stopped?';
+}
+async function paintPrompterNudges() {
+  const box = document.getElementById('hb-nudges');
+  if (!box) return;
+  const mine = ++HB_NUDGE_EPOCH;
+  let data;
+  try {
+    const res = await fetch('/api/prompter-nudges', { cache: 'no-store' });
+    if (mine !== HB_NUDGE_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    data = await res.json();
+    if (mine !== HB_NUDGE_EPOCH) return;
+  } catch {
+    if (mine !== HB_NUDGE_EPOCH) return;
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  const nudges = data && Array.isArray(data.nudges) ? data.nudges : [];
+  if (!nudges.length) { box.hidden = true; box.innerHTML = ''; return; }
+  const rows = nudges.map((n) =>
+    '<div class="hb-nudge" role="listitem">' +
+      '<b>' + esc(n.session) + '</b> ' +
+      '<span class="dhint">' + esc(prompterCheckinQuestion(n)) + '</span>' +
+    '</div>').join('');
+  const html =
+    '<p class="dlab" style="margin:14px 0 6px;">Agents that may need you</p>' +
+    '<div role="list">' + rows + '</div>';
+  if (box.innerHTML !== html) box.innerHTML = html;
+  box.hidden = false;
+}
 /* Save on interact, the lim pattern. Both handlers refuse to write until the setting
    has LOADED -- the toggle ships hidden and is unclickable until paintSwitch gives it
    a position, and the interval list is server-rendered (empty until read). Writing a
@@ -18742,11 +18804,23 @@ function hbIntervalChange() {
 }
 document.getElementById('hb-toggle') && document.getElementById('hb-toggle').addEventListener('click', hbToggleClick);
 document.getElementById('hb-interval') && document.getElementById('hb-interval').addEventListener('change', hbIntervalChange);
+/* #3508: keep the check-ins live while Settings is on screen. The store updates on the
+   Prompter's own (minutes-granularity) tick, so a 15s poll is ample; it is gated on the
+   panel being visible (offsetParent is null when Settings is not the shown view) so it
+   costs nothing on every other screen. */
+setInterval(() => {
+  /* Gate on the SETTINGS panel being on screen (not the nudge box, which is hidden
+     while empty -- gating on the box would stop the poll from ever discovering a new
+     nudge). offsetParent is null when #panel-settings is not the shown view. */
+  const panel = document.getElementById('panel-settings');
+  if (panel && panel.offsetParent !== null) paintPrompterNudges();
+}, 15000);
 async function paintSettings() {
   paintYouName();
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
+  paintPrompterNudges();
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */
   paintSwitch('snd-toggle', soundMasterOn());
