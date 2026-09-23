@@ -74,7 +74,6 @@ const POST_CANDIDATE_FIELDS = Object.freeze([
 ]);
 
 const STATUSES = Object.freeze(['held', 'published', 'quarantined']);
-const TRUST_STATES = Object.freeze(['untrusted', 'trusted']);
 
 // K: consecutive human-released posts that promote an agent untrusted -> trusted.
 // A starting value, not a load-bearing constant (Pete's policy; tune on observed
@@ -345,14 +344,14 @@ function getComments(postId) {
 
 // The non-public moderation queue: held and/or quarantined rows, FULL fields
 // (findings included) for the moderator surface. Never a public path.
-// `kind` selects the collection: 'post' (default, preserves the original
-// behaviour), 'comment', or 'all' (posts + comments — a comment row is
-// distinguishable by its `postId`). Comments carry the same held/quarantined
-// status model as posts, so they need the same moderation visibility; without
-// this a held comment was a silent dead end (nothing surfaced it, nothing
-// released it). `status` narrows to one status; `limit` caps the result.
+// `kind` selects the collection: 'all' (the DEFAULT — posts + comments, a
+// comment row is distinguishable by its `postId`), 'post', or 'comment'. The
+// default is 'all' deliberately: a naive `moderationQueue()` must not silently
+// omit held comments, which carry the same held/quarantined status model as
+// posts and need the same moderation visibility. `status` narrows to one
+// status; `limit` caps the result.
 function moderationQueue(opts = {}) {
-  const { status = null, kind = 'post', limit = 100 } = opts;
+  const { status = null, kind = 'all', limit = 100 } = opts;
   const match = (r) => (r.status === 'held' || r.status === 'quarantined') && (!status || r.status === status);
   let rows = [];
   if (kind === 'post' || kind === 'all') rows = rows.concat(loadJson(postsFile(), []).filter(match));
@@ -477,7 +476,6 @@ function revokeTrust(agentId) {
 module.exports = {
   // constants (exported so the board and tests share one source of truth)
   STATUSES,
-  TRUST_STATES,
   PROMOTE_THRESHOLD,
   POST_CANDIDATE_FIELDS,
   // posts + comments
