@@ -81,6 +81,32 @@ test('a file at our path that is NOT ours (no bridge marker) is left alone', () 
   assert.equal(fs.readFileSync(file, 'utf8'), theirs, 'someone else\'s file at that path must not be overwritten');
 });
 
+test('a valid-JSON ARRAY or PRIMITIVE at our path is NOT ours and is left alone (#3391 iter3)', () => {
+  // The ownership guard confirms our marker POSITIVELY; a valid-JSON array or a bare
+  // primitive is not a plain object, so an "is it a plain object? then check marker"
+  // shape would fall through to the rewrite and clobber it. Pin that it does not.
+  for (const body of ['[1,2,3]', '"just a string"', '42', 'true', 'null']) {
+    const { file } = tmpHookFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, body);
+    const r = groksettings.ensurePrepared(file, BRIDGE);
+    assert.equal(r.prepared, false, `${body} at our path must be refused, not overwritten`);
+    assert.match(r.because, /not ours/);
+    assert.equal(fs.readFileSync(file, 'utf8'), body, `${body} must be left byte-for-byte alone`);
+  }
+});
+
+test('an UNPARSEABLE file at our path is left alone, not overwritten (never-clobber over self-heal)', () => {
+  const { file } = tmpHookFile();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const garbage = '{ this is not json';
+  fs.writeFileSync(file, garbage);
+  const r = groksettings.ensurePrepared(file, BRIDGE);
+  assert.equal(r.prepared, false, 'we cannot confirm an unparseable file is ours, so it is left alone');
+  assert.match(r.because, /not ours/);
+  assert.equal(fs.readFileSync(file, 'utf8'), garbage, 'an unparseable file must not be overwritten');
+});
+
 test('an absent bridge path is refused', () => {
   const { file } = tmpHookFile();
   const r = groksettings.ensurePrepared(file, null);

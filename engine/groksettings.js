@@ -136,12 +136,20 @@ function ensurePrepared(hookFilePath, bridgePath) {
   const desired = desiredContent(bridgePath);
   const wantText = JSON.stringify(desired, null, 2) + '\n';
 
-  /* Read the existing file. It is OUR file, so the only question is whether it
-     already holds exactly what we want (idempotent no-op) or needs a rewrite. An
-     unreadable/unparseable file at our own path is ours to replace -- but only if it
-     is genuinely our file: guard on presence of our MARKER before overwriting, so we
-     never clobber a file a person happened to name the same and fill with their own
-     hooks. */
+  /* Read the existing file. The only question is whether it already holds exactly
+     what we want (idempotent no-op), or is a stale version of OUR OWN file to
+     repoint. We rewrite it ONLY when we can POSITIVELY confirm it is ours: a
+     parseable JSON OBJECT whose hooks carry our MARKER. Every other non-empty shape
+     -- a parseable object WITHOUT our marker, a JSON array, a JSON primitive
+     (string/number/boolean), or unparseable content -- is left alone, because we
+     cannot confirm it is ours and this file's whole discipline is never to clobber a
+     file a person happened to name the same.
+     🛑 The confirmation is POSITIVE, not "not a plain object": a valid-JSON array or
+     primitive is not a plain object, so an "is it a plain object? then check marker"
+     shape would fall THROUGH to the rewrite for those, silently overwriting a file
+     never confirmed ours -- the #120 comment-vs-code class this very paragraph
+     promises against. So we compute one boolean (is it our marker-bearing object?)
+     and refuse everything that is not. */
   let prevMode = null;
   try {
     const st = fs.statSync(target);
@@ -149,17 +157,13 @@ function ensurePrepared(hookFilePath, bridgePath) {
     if (st.size > 0) {
       const cur = fs.readFileSync(target, 'utf8');
       if (cur === wantText) return { prepared: true, changed: false };
-      let parsed = null;
-      try { parsed = JSON.parse(cur); } catch { parsed = null; }
-      /* A parseable file that is NOT ours (no bridge marker anywhere) is left alone:
-         someone else named a file the same and put their own hooks in it. A file that
-         IS ours (or is unparseable at our own path) we rewrite to the desired shape. */
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const anyOurs = parsed.hooks && typeof parsed.hooks === 'object'
-          && Object.values(parsed.hooks).some((arr) => Array.isArray(arr) && arr.some(entryIsOurs));
-        if (!anyOurs) {
-          return { prepared: false, because: 'a hook file at that path is not ours, so it was left alone' };
-        }
+      let parsed;
+      try { parsed = JSON.parse(cur); } catch { parsed = undefined; }
+      const isOurMarkerFile = !!parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        && !!parsed.hooks && typeof parsed.hooks === 'object' && !Array.isArray(parsed.hooks)
+        && Object.values(parsed.hooks).some((arr) => Array.isArray(arr) && arr.some(entryIsOurs));
+      if (!isOurMarkerFile) {
+        return { prepared: false, because: 'a hook file at that path is not ours, so it was left alone' };
       }
     }
   } catch (err) {
