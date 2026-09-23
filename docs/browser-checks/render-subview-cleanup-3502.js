@@ -91,6 +91,30 @@ const SUBVIEWS = ['pj-one-view', 'pj-docs-view', 'pj-alltasks-view', 'pj-setting
       };
     }, viewId);
     const out = {};
+    // #3502 focus behaviour: click the REAL settings cog and read where focus lands. This runs
+    // BEFORE the force-show probes below (which hide #pj-one-view where the cog lives). In the
+    // consolidated view the back button is hidden, so the handler must focus the settings heading
+    // rather than the (unfocusable) back button; in the tab view the back button is still shown and
+    // is the target. Done first so the cog is in its natural state.
+    out.focus = await page.evaluate(() => {
+      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+      // The first-run overlay marks the background panels `inert` while it is up (an inert
+      // ancestor blocks ALL descendant focus). The real app clears that on dismissal; this
+      // hermetic boot bypasses the dismissal, so clear it here to reproduce the dismissed state.
+      // Without this, focus can land nowhere in the settings view and the assertion is meaningless.
+      document.querySelectorAll('[inert]').forEach((e) => e.removeAttribute('inert'));
+      const cog = document.getElementById('pj-settings-link');
+      if (!cog) return { noCog: true };
+      cog.click();
+      const ae = document.activeElement;
+      const back = document.getElementById('pj-settings-back');
+      return {
+        backHidden: back ? getComputedStyle(back).display === 'none' : 'no-back',
+        activeIsHeading: !!(ae && ae.matches && ae.matches('#pj-settings-view .dname')),
+        activeIsBack: !!(ae && ae.id === 'pj-settings-back'),
+        activeIsBody: ae === document.body,
+      };
+    });
     for (const v of ['pj-docs-view', 'pj-alltasks-view', 'pj-settings-view']) out[v] = await probe(v);
     out.errs = errs;
     await ctx.close();
@@ -120,6 +144,19 @@ const SUBVIEWS = ['pj-one-view', 'pj-docs-view', 'pj-alltasks-view', 'pj-setting
   // #3504: the Finder button is the gold primary button, not a plain text link.
   say('#3504 the Finder button carries the gold primary class (btn uprime)', /\buprime\b/.test(cons['pj-docs-view'].finderClass || ''), cons['pj-docs-view'].finderClass);
   say('#3504 the Finder button paints a non-transparent gold background', !!cons['pj-docs-view'].finderBg && cons['pj-docs-view'].finderBg !== 'rgba(0, 0, 0, 0)', cons['pj-docs-view'].finderBg);
+
+  // #3502 focus fix: opening Settings via the cog must land keyboard focus INSIDE the view, not
+  // strand it on the cog/body. In consolidated the back button is hidden, so focus goes to the
+  // settings heading; the tab-view control proves the back button is still the target there. This
+  // fails on the pre-fix markup, where the handler focused the (now display:none) back button and
+  // focus fell to <body>.
+  say('#3502 consolidated: opening Settings focuses the settings heading (back hidden, focus not stranded on body)',
+    cons.focus.backHidden === true && cons.focus.activeIsHeading === true && cons.focus.activeIsBody === false, JSON.stringify(cons.focus));
+  // Tab-view focus is NOT asserted here: the fix's tab-view branch (`if backShown: back.focus()`)
+  // is byte-identical to the pre-fix handler, and the tab-view back button's visibility is already
+  // controlled by the "back button still shows in the tab view" assertions above -- so the
+  // consolidated arm is the only behavioural change, and it is the one guarded (positive-controlled:
+  // it fails on the pre-fix markup, where the handler focused the now-hidden back button).
 
   say('no page errors (consolidated boot)', cons.errs.length === 0, cons.errs.join(' | '));
   say('no page errors (tab boot)', tabs.errs.length === 0, tabs.errs.join(' | '));
