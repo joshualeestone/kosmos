@@ -29,6 +29,8 @@ enum BiometricAuth {
         let context = LAContext()
         var error: NSError?
 
+        // .deviceOwnerAuthentication accepts a passcode as fallback, so this is
+        // false (-> .unavailable) only when the device has NO passcode set at all.
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
             let message = error?.localizedDescription ?? "Biometric authentication is not available"
             DispatchQueue.main.async { completion(.unavailable(message)) }
