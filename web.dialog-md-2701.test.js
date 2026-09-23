@@ -9,7 +9,7 @@
  *
  * These lift the REAL renderers from web/index.html and assert both surfaces:
  * pjProse (the project room thread, .msg-b) and pjRich (the talk/DM dialog,
- * .dm-b, and the project message list, .pj-msg-text).
+ * .msg-bd, and the project message list, .pj-msg-text).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
