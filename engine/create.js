@@ -1851,6 +1851,40 @@ function defaultAgentGrokHome() {
 }
 
 /**
+ * Render a filesystem path as the QUOTED KEY STRING for a `[projects.<key>]`
+ * heading in codex's config.toml, choosing a form that is valid TOML and parses
+ * back to the exact same path.
+ *
+ * #3439: on Windows canonicalOnDisk returns a backslash path like
+ * `C:\Users\joshu\work\workers\marcus`. Placed raw inside `[projects."..."]`,
+ * the `\U` and `\u` sequences are read by TOML as (invalid) unicode escapes, so
+ * codex fails to load the WHOLE config.toml and every turn dies at load, before
+ * auth or network. macOS paths use forward slashes and never trip this, which is
+ * why it is Windows-only.
+ *
+ * The fix, VERIFIED against real codex on Windows: emit a backslash path as a
+ * TOML LITERAL string (single quotes), where the content is VERBATIM and needs
+ * no escaping -- `[projects.'C:\Users\...\marcus']`. codex then loads the config
+ * and the agent replies. We do NOT convert backslashes to forward slashes:
+ * codex looks a project up by its own canonicalize() output, a backslash path on
+ * Windows, so the PARSED key must stay the exact backslash path; a literal
+ * string preserves it byte-for-byte.
+ *
+ * A POSIX/macOS path (no backslash) keeps the existing double-quoted BASIC
+ * string, so its output is byte-for-byte what it always was and needs no
+ * migration. A path that contains a single quote cannot go in a literal string
+ * (TOML literals have no escape for one), so a backslash path that also holds a
+ * single quote (rare on Windows) falls back to a double-quoted basic string with
+ * backslash and double-quote escaped, which is also valid TOML.
+ */
+function tomlProjectKeyString(pathStr) {
+  const s = String(pathStr);
+  if (s.includes('\\') && !s.includes("'")) return `'${s}'`;
+  if (s.includes('\\')) return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return `"${s.replace(/"/g, '\\"')}"`;
+}
+
+/**
  * Trust an agent's folder for the codex runner, the way the Yes button on
  * codex's own trust dialog would. MEASURED (#245): the bypass flag does
  * not skip the dialog; only this config entry does. Append-only, once,
@@ -1873,7 +1907,11 @@ function trustCodexFolder(dir, home, agentDefaultAccount) {
   // macOS user where the on-disk dir is '~/Work', the raw-cased key we used to
   // write never matched codex's capital-cased lookup and the trust menu fired.
   // See trust.js canonicalOnDisk (realpathSync alone does NOT case-fold on macOS).
-  const key = `[projects."${require('./trust').canonicalOnDisk(dir)}"]`;
+  // #3439: render the key with tomlProjectKeyString so a Windows backslash path
+  // becomes a valid TOML literal-string key (raw `\U`/`\u` made codex fail to
+  // load config.toml at all). A POSIX path keeps its double-quoted form, so
+  // macOS output is byte-identical.
+  const key = `[projects.${tomlProjectKeyString(require('./trust').canonicalOnDisk(dir))}]`;
   if (text.includes(key)) return;
   fs.mkdirSync(codexHome, { recursive: true });
   fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
@@ -1930,10 +1968,24 @@ function forgetCodexFolder(dir, home, agentDefaultAccount) {
   const canon = trust.canonicalOnDisk(dir);
   const raw = path.resolve(String(dir));
   const spellings = canon === raw ? [canon] : [canon, raw];
+  // #3439: for each spelling, look for EVERY rendering the key could have on
+  // disk: (1) the new single-quoted TOML literal trustCodexFolder writes now for
+  // a Windows path, (2) the double-quoted BASIC form -- which is the existing,
+  // unchanged Mac key for a POSIX path, and (3) the OLD RAW double-quoted form a
+  // buggy Windows build wrote before this fix, so a config.toml that build
+  // corrupted gets cleaned on removal (migration). On a POSIX path (no backslash,
+  // no quote) all three collapse to the one existing key, so Mac behaviour is
+  // unchanged.
+  const keys = [];
+  const add = (k) => { if (!keys.includes(k)) keys.push(k); };
+  for (const spelling of spellings) {
+    add(`[projects.${tomlProjectKeyString(spelling)}]`); // new canonical rendering
+    add(`[projects."${spelling}"]`); // old raw double-quoted (migration); also the existing POSIX key
+    add(`[projects."${spelling.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`); // double-quoted escaped, if ever written
+  }
   let removed = false;
   let handEdited = false;
-  for (const spelling of spellings) {
-    const key = `[projects."${spelling}"]`;
+  for (const key of keys) {
     if (!text.includes(key)) continue;
     /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
        RegExp: a folder path can contain characters a regex would read as syntax,
@@ -4656,6 +4708,10 @@ module.exports = {
   plannedModelArg,
   forgetCodexFolder,
   trustCodexFolder,
+  /* #3439: exported so the escaping/rendering can be unit-tested deterministically
+     on any OS, without going through canonicalOnDisk (which resolves against the
+     real filesystem and would not preserve a hard-coded Windows path on POSIX CI). */
+  tomlProjectKeyString,
   defaultAgentCodexHome,
   defaultAgentGeminiHome,
   defaultAgentGrokHome,
