@@ -38258,8 +38258,9 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      blocked/Waiting, stopped, unknown, needs_trust - and the set grows as states are added,
      which is why this keys on CARD_ST instead of a count that goes stale),
      so keying on it would paint every paused/unreadable/stopped member as urgent too and
-     defeat the card. CARD_ST maps only needs_you to st:'attn' - the same mapping the org-node
-     badge (#2576/#2577) already uses for "only needs-you gets a mark". Gated on m.present
+     defeat the card. CARD_ST maps only needs_you and needs_trust to st:'attn' (the two
+     states that genuinely need a person now) - close to the org-node badge (#2576/#2577)
+     mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
   const needsYou = m.present === true && cardStOf(m).st === 'attn';
