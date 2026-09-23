@@ -2014,7 +2014,7 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  *   ETIMEDOUT -> "Request timed out. Check your internet connection and proxy settings"
  *
  * 📌 TWO OTHER FORMATTER OUTPUTS ARE DELIBERATELY NOT matched, so the exclusion
- * accounting is complete against what Xwe can emit:
+ * accounting is complete against what that error formatter can emit:
  *   - StreamSuspended -> "Connection lost while your computer was asleep": rendered
  *     EARLIER (not by this "Connection error." switch), a sleep/wake artifact with
  *     its OWN recovery path (the session resumes when the Mac wakes), not the
