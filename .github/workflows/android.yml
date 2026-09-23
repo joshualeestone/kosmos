@@ -67,7 +67,8 @@ jobs:
     # ubuntu-latest is the Android-CI norm and ships the Android SDK. If a genuine
     # platform issue ever surfaces here, macos-latest is the documented fallback.
     runs-on: ubuntu-latest
-    # The debug build is ~seconds; bound a hung run well under the 360-min default.
+    # A cold runner downloads the Gradle distribution + AGP + deps first, so expect a
+    # few minutes (there is no gradle cache step); bound a hung run well under 360 min.
     timeout-minutes: 20
     # A boolean PRESENCE FLAG, not the secret value: `secrets.X != ''` evaluates to the
     # string 'true'/'false' at env-resolution time, so the keystore material itself never
@@ -140,11 +141,10 @@ jobs:
           KOSMOS_UPLOAD_KEY_PASSWORD: ${{ secrets.KOSMOS_UPLOAD_KEY_PASSWORD }}
           KOSMOS_UPLOAD_KEY_ALIAS: ${{ secrets.KOSMOS_UPLOAD_KEY_ALIAS }}
         run: |
-          # Decode the keystore to a runner-local file (never committed) via a
-          # here-string, NOT a pipe: a pipe would mask base64's exit code, whereas here
-          # base64's own non-zero exit on invalid input aborts the step under the
-          # runner's default `bash -e` before gradlew runs. Point build.gradle's
-          # KOSMOS_UPLOAD_KEYSTORE env var at the file.
+          # Decode the keystore to a runner-local file (never committed) with a
+          # here-string, so base64 is a standalone command whose non-zero exit on
+          # invalid input aborts the step under `set -e` (on in the run shell) before
+          # gradlew runs. Point build.gradle's KOSMOS_UPLOAD_KEYSTORE env var at it.
           base64 --decode <<< "$KOSMOS_UPLOAD_KEYSTORE_BASE64" > "$RUNNER_TEMP/kosmos-upload.jks"
           export KOSMOS_UPLOAD_KEYSTORE="$RUNNER_TEMP/kosmos-upload.jks"
           ./gradlew :app:assembleRelease --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
