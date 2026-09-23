@@ -33,7 +33,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+// #1848/#1856: route through the ONE data-root derivation (store.ROOT = dataRootFor),
+// NOT the raw AGENT_WORKFORCE_DATA switch. store.ROOT already reads that env var and
+// appends the `Kosmos` app leaf (#2439), so the raw switch skipped the leaf and wrote
+// this file to `$DATA/prompter-nudges.json` -- a stray sibling of a named world's
+// `Kosmos/` dir, outside where the rest of that world's state lives and surviving a
+// reset that only clears `$DATA/Kosmos/`. Mirrors engine/commitments.js.
+const BASE = store.ROOT;
 const FILE = path.join(BASE, 'prompter-nudges.json');
 
 /** Replace the pending nudge set with this tick's `toAsk`. Accepts the heartbeat

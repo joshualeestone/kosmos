@@ -18702,10 +18702,12 @@ async function paintHeartbeat() {
 let HB_NUDGE_EPOCH = 0;
 function prompterCheckinQuestion(n) {
   /* One honest question per the heartbeat header ("mid-something, finished, or
-     stopped?"). auth_failed is the one stall with a distinct cause worth naming. */
-  if (n && n.to === 'auth_failed') {
-    return 'lost its connection. Reconnect it, or is it done?';
-  }
+     stopped?"). auth_failed and connection_lost are the two stalls with a distinct
+     cause worth naming (they are in heartbeat.js's ASK_ON_EXIT_TO for the same
+     reason, #3410): both are "reconnect it" situations, not "it stopped". */
+  const to = n && n.to;
+  if (to === 'auth_failed') return 'needs to sign in again. Reconnect it, or is it done?';
+  if (to === 'connection_lost') return 'lost its connection. Reconnect it, or is it done?';
   return 'seems to have stopped. Still mid-something, finished, or stopped?';
 }
 async function paintPrompterNudges() {
@@ -18794,9 +18796,11 @@ document.getElementById('hb-interval') && document.getElementById('hb-interval')
 setInterval(() => {
   /* Gate on the SETTINGS panel being on screen (not the nudge box, which is hidden
      while empty -- gating on the box would stop the poll from ever discovering a new
-     nudge). offsetParent is null when #panel-settings is not the shown view. */
+     nudge). offsetParent is null when #panel-settings is not the shown view. Also
+     skip while the tab is backgrounded (document.hidden), matching the projects-panel
+     poll's precedent -- no point reading even a local file for a page nobody sees. */
   const panel = document.getElementById('panel-settings');
-  if (panel && panel.offsetParent !== null) paintPrompterNudges();
+  if (!document.hidden && panel && panel.offsetParent !== null) paintPrompterNudges();
 }, 15000);
 async function paintSettings() {
   paintYouName();
