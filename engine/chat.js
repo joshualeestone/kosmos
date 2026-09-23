@@ -983,6 +983,15 @@ function waitingNote(state, outcome, runner, backgroundWait) {
       return unsure
         ? 'its ' + provider + ' sign-in was not working'
         : 'its ' + provider + ' sign-in was not working, so it will not act on this until that is fixed';
+    // #3410: the same "most was known, yet it fell to the default" gap the
+    // AUTH_FAILED case above closes -- a wedged agent's connection loss is fully
+    // known to the board, so a person messaging it should be told, not given
+    // "we could not tell". Sibling of the taskLine/stateReason surfacing; here the
+    // note is past-tense (what it was doing WHEN the message was sent).
+    case status.STATE.CONNECTION_LOST:
+      return unsure
+        ? 'it had lost its connection to the internet'
+        : 'it had lost its connection to the internet, so it may not act on this until it reconnects';
     case status.STATE.IDLE:
       return 'it was sitting at its prompt';
     default:

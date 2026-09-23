@@ -45,6 +45,7 @@ const NETWORK_LINES = [
   "API Error: No internet route — check your connection or VPN (ENETUNREACH)",
   "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)",
   "API Error: Connection dropped (ECONNRESET)",
+  "API Error: Couldn't connect through your proxy (ERR_PROXY_TUNNEL) — the proxy refused the tunnel: check its credentials and that it allows this host",
   "API Error: Unable to connect to API. Check your internet connection",
   // The formatter's DEFENSIVE default arm ("Unable to connect to API (CODE)"),
   // reached only by a network code the formatter does not specifically case.

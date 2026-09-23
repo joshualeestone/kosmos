@@ -2008,9 +2008,18 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  *   ENETUNREACH / ENETDOWN / EHOSTUNREACH / EHOSTDOWN -> "No internet route — …"
  *   ECONNREFUSED / ConnectionRefused -> "… a firewall or proxy may be blocking it (…)"
  *   ECONNRESET / EPIPE / ECONNABORTED / ConnectionClosed / … -> "Connection dropped (…)"
+ *   ERR_PROXY_TUNNEL -> "Couldn't connect through your proxy (…) — the proxy refused the tunnel: …"
  *   code undefined -> "Unable to connect to API. Check your internet connection"
  *   default coded -> "Unable to connect to API (CODE)"
  *   ETIMEDOUT -> "Request timed out. Check your internet connection and proxy settings"
+ *
+ * 📌 StreamSuspended ("Connection lost while your computer was asleep") is
+ * DELIBERATELY NOT matched. It is rendered by the formatter EARLIER, not by this
+ * "Connection error." switch, and it is a sleep/wake artifact with its OWN recovery
+ * path (the session resumes when the Mac wakes), not the DNS/network-down class
+ * #3410 targets. Auto-restarting it (PR 2) would abort a session that resumes on
+ * its own. If a laptop-sleep wedge proves to need surfacing, it is a separate case
+ * with its own recovery semantics, not this one.
  *
  * 🔑 KEYED ON SUBSTRINGS FREE OF TYPOGRAPHIC UNICODE so the match is immune to how
  * a capture renders U+2014 (em dash) AND U+2019 (curly apostrophe): the first arm
@@ -2045,7 +2054,7 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * WORKING read is already an unreliable signal (#2413). A Codex equivalent is a
  * separate change with its own captured strings, not a silent omission here.
  */
-const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
+const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
