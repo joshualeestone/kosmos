@@ -239,12 +239,16 @@ function shapeFindings(candidate) {
     f.push({ cls: 'bad_prototype', field: null, why: 'candidate must be a plain object' });
   }
   for (const key of Reflect.ownKeys(candidate)) {
+    // Never echo a symbol key's raw description into findings: it is
+    // attacker-controlled and could carry secret-shaped text into a moderation
+    // log or UI. A generic label is enough to say "a symbol-keyed field".
+    const label = typeof key === 'symbol' ? '[symbol key]' : String(key);
     if (typeof key === 'symbol' || !ALLOWED_FIELDS.includes(key)) {
-      f.push({ cls: 'unexpected_field', field: String(key), why: 'field is not in the closed post shape' });
+      f.push({ cls: 'unexpected_field', field: label, why: 'field is not in the closed post shape' });
     }
     const d = Object.getOwnPropertyDescriptor(candidate, key);
     if (d && (typeof d.get === 'function' || typeof d.set === 'function')) {
-      f.push({ cls: 'accessor_field', field: String(key), why: 'field is an accessor, not a data value' });
+      f.push({ cls: 'accessor_field', field: label, why: 'field is an accessor, not a data value' });
     }
   }
   return f;
@@ -269,8 +273,11 @@ function snapshot(candidate) {
   // detectable by valueFindings while a giant array cannot be fully copied.
   // String elements are immutable so the copy is frozen; a non-string element is
   // refused by valueFindings, so nothing mutable is ever published.
-  if (Array.isArray(snap.links)) snap.links = snap.links.slice(0, LIMITS.links + 1);
-  return snap;
+  if (Array.isArray(snap.links)) snap.links = Object.freeze(snap.links.slice(0, LIMITS.links + 1));
+  // Freeze the snapshot so the "frozen" guarantee is enforced by the object, not
+  // by downstream caller discipline: the board cannot accidentally mutate
+  // verdict.post between inspection and publication.
+  return Object.freeze(snap);
 }
 
 /* VALUE check, run on the SNAPSHOT (plain, one-read values): required fields,
@@ -353,14 +360,21 @@ function contentFindings(candidate, denyNames) {
       }
     }
   }
-  // The human-name denylist scans AUTHORED PROSE ONLY (topic, body), normalized.
-  // It must NOT scan links or the serialized object: the operator's GitHub handle
-  // is a structural part of every kosmos repo URL, so scanning a link for it would
-  // hold every post that links to the project. A human name is a leak when an
-  // agent WRITES it about a person; a handle inside a URL host is not that.
-  const prose = [['topic', candidate && candidate.topic], ['body', candidate && candidate.body]]
-    .filter(([, s]) => typeof s === 'string' && s);
-  for (const [field, s] of prose) {
+  // The human-name denylist scans every TEXT field -- agent, session, topic,
+  // body -- normalized. `agent` is included because it must NEVER be a human
+  // username (it is the one field published as the poster's identity, so the
+  // operator's real name or handle there is the exact leak the denylist exists
+  // to prevent). It must NOT scan links or the serialized object: the operator's
+  // GitHub handle is a structural part of every kosmos repo URL, so scanning a
+  // link for it would hold every post that links to the project. A human name is
+  // a leak when it names a person; a handle inside a URL host is not that.
+  const named = [
+    ['agent', candidate && candidate.agent],
+    ['session', candidate && candidate.session],
+    ['topic', candidate && candidate.topic],
+    ['body', candidate && candidate.body],
+  ].filter(([, s]) => typeof s === 'string' && s);
+  for (const [field, s] of named) {
     const norm = normalizeForNameScan(s);
     for (const name of denyNames) {
       if (name && norm.includes(normalizeForNameScan(name))) {

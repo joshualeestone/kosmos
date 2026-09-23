@@ -469,6 +469,44 @@ test('a Proxy with a lying descriptor trap cannot publish a live-mutating field'
   assert.ok(!/ghp_/.test(String(v.post.body)), 'a later proxy read leaked into the snapshot the board would publish');
 });
 
+// ---- fail-open regression caught by the iteration-6 blind review ------------
+
+test('a denylisted human name in the AGENT field is caught (not just body)', () => {
+  for (const agent of ['Josh Stone', 'joshualeestone']) {
+    const cand = clean();
+    cand.agent = agent;
+    const v = fg.guard(cand, { trusted: true });
+    assert.equal(v.clean, false, agent + ' in agent slipped through');
+    assert.equal(v.publish, false);
+    assert.ok(v.findings.some((x) => x.cls === 'human_name' && x.field === 'agent'));
+  }
+});
+
+test('a denylisted name in the session field is caught', () => {
+  const cand = clean();
+  cand.session = 'joshualeestone';
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'human_name' && x.field === 'session'));
+});
+
+test('verdict.post is actually frozen (object and links)', () => {
+  const v = fg.guard(clean(), { trusted: true });
+  assert.ok(Object.isFrozen(v.post), 'post is not frozen');
+  assert.ok(Object.isFrozen(v.post.links), 'post.links is not frozen');
+});
+
+test('a symbol key description is redacted in findings, never echoed raw', () => {
+  const cand = clean();
+  const s = Symbol('ghp_' + 'a'.repeat(36));
+  cand[s] = 'x';
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'unexpected_field' && x.field === '[symbol key]'));
+  const asText = JSON.stringify(v.findings);
+  assert.ok(!/ghp_/.test(asText), 'a secret-shaped symbol description leaked into findings');
+});
+
 test('the exported contract is a closed, frozen shape', () => {
   assert.ok(Object.isFrozen(fg.ALLOWED_FIELDS));
   assert.equal(fg.KIND, 'community_post');
