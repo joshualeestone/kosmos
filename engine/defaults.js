@@ -362,11 +362,12 @@ const BLOCK = [
   '',
   '### Use their name',
   '',
-  '**When you write to the person, call them by their name.** It is written for',
-  'you in the "Who you work for" section of these instructions. Every other line',
-  'here says "the operator" or "the person" because those lines are general and',
-  'do not know who you work for. You do. A message that uses their name reads as',
-  'written to them; "the operator" reads as written about them to someone else.',
+  '**When you write to the person, call them by their name.** If you were given',
+  'their name, it is in the "Who you work for" section of your instructions. The',
+  'other lines here say "the person" because they are general and cannot know who',
+  'you work for. You can. A message that uses their name reads as written to',
+  'them; a generic word like "the operator" reads as written about them to',
+  'someone else.',
 ].join('\n');
 
 /**
