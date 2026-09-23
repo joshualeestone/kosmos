@@ -3971,6 +3971,25 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      shared docs-view rule above, which Josh did not flag), and matching the
      --space-8 right inset already applied so the view reads evenly boxed. */
   html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-top: var(--space-8); }
+  /* #3502 (Josh, 2026-09-23, consolidated project sub-views): the "Back to <project>"
+     controls are redundant in the consolidated view -- the project is already open and
+     its name is one click away, so remove them from Documents, Tasks and Project Settings.
+     Kept in the tab view (body:not(.consolidated)), where the back control is the way out. */
+  html[data-layout="consolidated"] body.consolidated #docs-back,
+  html[data-layout="consolidated"] body.consolidated #alltasks-back,
+  html[data-layout="consolidated"] body.consolidated #pj-settings-back { display: none; }
+  /* #3502: with the back button gone the heading must not jump against the top rule.
+     alltasks already carries the --space-8 top inset above; give docs and settings the
+     same so "Documents" and "Project settings" keep normal space above them (Josh flagged
+     Settings by name; docs shares the same removed-back top gap). */
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
+  html[data-layout="consolidated"] body.consolidated #pj-settings-view { padding-top: var(--space-8); }
+  /* #3503 (Josh, 2026-09-23): the sub-view content was flush against the left rule while
+     the right already carried the --space-8 inset above. Match it on the left so Documents
+     and Tasks (the "All Tasks" headline, the project name, the count) read evenly boxed.
+     Settings is centered (max-width + margin auto), so it is not included here. */
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
+  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-left: var(--space-8); }
   /* 🔑 AND THE SIZE SITS BESIDE ITS FILE, NOT AT THE FAR RIGHT. Josh: "I'd also
      like to have the file sizes of the files closer to the actual files
      themselves."
@@ -12380,7 +12399,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
       </div>
-      <button class="linkish" id="docs-finder" type="button" data-win-copy="docsOpenFolder">Open this folder in Finder</button>
+      <!-- #3504 (Josh, 2026-09-23): a plain text link read as passive; make it the gold
+           primary button so "Open this folder in Finder" reads as an easy, obvious action. -->
+      <button class="btn uprime" id="docs-finder" type="button" data-win-copy="docsOpenFolder">Open this folder in Finder</button>
     </div>
     <!-- Two sources, said apart (#131, Josh's 08-20 ruling): files from the
          CONVERSATION live in the attachment store, not the folder, so a
