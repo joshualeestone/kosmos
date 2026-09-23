@@ -5296,9 +5296,15 @@ const server = http.createServer((req, res) => {
     if (baseline === '') {
       before = { exists: false, mtimeMs: null };
     } else {
-      const n = Number(baseline);
-      if (!Number.isFinite(n)) { sendJson(res, 400, { error: 'baseline must be empty or a number' }); return; }
-      before = { exists: true, mtimeMs: n };
+      // 🛑 STRICT numeric shape, not Number.isFinite. `Number(' ')` is 0 and
+      // `Number('-1')` is -1 -- both finite -- so a whitespace or negative
+      // baseline would build {exists:true, mtimeMs:0} and handoffIsFresh would
+      // report fresh:true for ANY pre-existing handoff (mtime > 0), with no new
+      // write. The ask route only ever emits '' or a non-negative mtime, so a
+      // bare digit string (optionally fractional) is the whole legitimate shape;
+      // anything else is refused rather than coerced.
+      if (!/^\d+(\.\d+)?$/.test(baseline)) { sendJson(res, 400, { error: 'baseline must be empty or a non-negative number' }); return; }
+      before = { exists: true, mtimeMs: Number(baseline) };
     }
     const after = handoffFileSnap(session);
     sendJson(res, 200, {

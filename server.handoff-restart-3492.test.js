@@ -140,16 +140,24 @@ test('status: fresh flips false -> true only once the handoff is (re)written', a
 });
 
 test('status: a malformed baseline is REFUSED (400), never silently reported fresh', async () => {
-  // 🛑 The dangerous direction: a non-numeric baseline must NOT become
-  // {exists:true, mtimeMs:NaN} and read as fresh for any pre-existing handoff.
+  // 🛑 The dangerous direction: a bad baseline must NOT coerce into a snapshot
+  // that reads fresh for a pre-existing handoff. `Number('abc')` is NaN (the
+  // unreadable-time trap), and `Number(' ')`/`Number('-1')` are finite 0/-1 (the
+  // whitespace/negative traps) -- all three would otherwise report fresh:true
+  // for any agent whose handoff merely exists, with no new write.
   const name = 'hr-badbaseline';
   born(name);
   const p = handoffPathOf(name);
   fs.mkdirSync(nodePath.dirname(p), { recursive: true });
   fs.writeFileSync(p, '# an OLD handoff, unrelated to this restart\n', 'utf8'); // file exists from a prior write
-  const r = await hit('GET', encodeURIComponent(name) + '/handoff-restart/status?baseline=abc');
-  assert.equal(r.status, 400, 'a non-numeric baseline is a bad request: ' + JSON.stringify(r.body));
-  assert.notEqual(r.body && r.body.fresh, true, 'a malformed baseline must never report fresh:true');
+  for (const bad of ['abc', ' ', '-1', '1e3', '0x5', '  5  ', 'NaN', 'Infinity', '5.5.5']) {
+    const r = await hit('GET', encodeURIComponent(name) + '/handoff-restart/status?baseline=' + encodeURIComponent(bad));
+    assert.equal(r.status, 400, `baseline='${bad}' must be a 400: ` + JSON.stringify(r.body));
+    assert.notEqual(r.body && r.body.fresh, true, `baseline='${bad}' must never report fresh:true`);
+  }
+  // CONTROL: a legitimate numeric baseline (a real mtime) is accepted, not refused.
+  const ok = await hit('GET', encodeURIComponent(name) + '/handoff-restart/status?baseline=1727000000000.5');
+  assert.equal(ok.status, 200, 'a valid numeric baseline is accepted: ' + JSON.stringify(ok.body));
 });
 
 test('pickup: a running agent gets the pointer delivery', async () => {
