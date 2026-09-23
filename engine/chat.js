@@ -744,7 +744,7 @@ function addressable(sessionName, roster) {
     if (card.isAgentSession === true) {
       return { ok: false, because: 'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent' };
     }
-    const runnerName = card.runner === 'codex' ? 'Codex' : 'Claude';
+    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : 'Claude';
     return { ok: false, because: 'there is no ' + runnerName + ' running in its window right now, so anything we typed would be run as a command instead of read' };
   }
   return { ok: true, card };
@@ -940,7 +940,10 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   // not the runner. Decisively, this note and the board must teach ONE fact:
   // status.js's produce copy says "Its OpenAI sign-in is not working" (#2093), so
   // this line must say OpenAI too or the phone and the board drift.
-  const provider = runner === 'codex' ? 'OpenAI' : 'Claude';
+  // #3296: gemini names Gemini, not Claude -- an auth-failed gemini agent must point at
+  // the Gemini sign-in/key, not send the person to reconnect Claude (the #2107 cross-
+  // provider copy class). Product name 'Gemini', matching create.js's create/model copy.
+  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : 'Claude';
   /* 🛑 #1889. ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
      A pane whose screen says it is waiting on a BACKGROUND agent classifies
      `working`, but its own turn has ENDED and its REPL is at its prompt, so the
@@ -1210,7 +1213,12 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
      actually submit. */
   const gapMs = Math.max(
     pasteToEnterMs(Buffer.byteLength(wire, 'utf8')),
-    allowed.card.runner === 'codex' ? CODEX_ENTER_GAP_MS : 0,
+    /* #3296: gemini gets the same enter-gap floor as codex. It is a REPL like codex
+       (not the claude composer), so it can swallow an Enter that rides a large paste
+       burst (#571); the floor is cheap insurance (invisible at agent-comms cadence) for
+       the core task-delivery mechanism, taken as a precaution rather than measured for
+       gemini specifically. */
+    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini') ? CODEX_ENTER_GAP_MS : 0,
   );
   submitGap(gapMs);
   /**

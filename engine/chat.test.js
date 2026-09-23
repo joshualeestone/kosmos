@@ -259,6 +259,21 @@ test('#2100: a dead codex agent (shell pane) is refused with "no Codex running",
   });
 });
 
+test('#3296: a dead gemini agent (shell pane) is refused with "no Gemini running", NOT "no Claude running"', () => {
+  // The gemini analog of the #2100 codex case: a gemini agent whose runner never came
+  // up holds a shell pane, so it hits the not-addressable branch. Its owner must not be
+  // told "no Claude running" for an agent they created on Gemini -- it must name Gemini.
+  // (A gemini shell pane classifies 'stopped', not 'unknown' like codex -- gemini's
+  // classify arm is tag-based and lands with the launcher -- so the fixture asks
+  // 'stopped'; either way the not-addressable "no <runner> running" refusal fires.)
+  withFleet([fleet.agent('gembot', { state: 'stopped', runner: 'gemini', command: '-zsh' })], (board) => {
+    const verdict = chat.deliver('gembot', 'hello', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+    assert.match(verdict.because, /no Gemini running in its window/);
+    assert.doesNotMatch(verdict.because, /no Claude running/);
+  });
+});
+
 test('#2100 control: a stopped CLAUDE agent KEEPS the "no Claude running" line (provider-aware, not a blanket reword)', () => {
   // The discriminator: identical not-addressable branch, but runner claude vs
   // codex must produce different copy. If this returned the codex line the fix
