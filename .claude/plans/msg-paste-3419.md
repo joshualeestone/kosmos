@@ -31,9 +31,11 @@ Vendor the core of the fleet's proven `~/.claude/scripts/claude-msg` transport i
    `tmux paste-buffer -b <uniq> -d -t <target>`. `--` makes the chunk literal data
    of any bytes (a leading `-`, a `;`, `$(…)`, unicode) — never a shell arg, never a
    tmux flag, never a keystroke.
-3. Size-adaptive paste→Enter delay so the bracketed-paste close (ESC[201~) flushes
-   before the Enter, or the Enter is absorbed as a newline inside the paste. At least
-   the codex 500ms floor on a codex pane (#571).
+3. Size-adaptive paste→Enter delay so the pasted bytes flush through the tmux/PTY
+   pipeline before the Enter; otherwise the Enter races the paste and submits a
+   partial line. (paste-buffer is issued without `-p`, so there are no tmux
+   bracketed-paste markers — the dependency is the byte flush.) At least the codex
+   500ms floor on a codex pane (#571).
 4. One separate `send-keys Enter` submits the whole message as a single turn.
 
 Preserved unchanged: `verifyAtSend` (the fresh pre-send capture that stops a paste

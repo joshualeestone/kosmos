@@ -324,11 +324,13 @@ test('a send to a CODEX pane waits at least the codex gap between the paste and 
   });
 });
 
-test('a CLAUDE pane still pauses before Enter — the bracketed-paste close must flush or the Enter is eaten (#3419)', () => {
+test('a CLAUDE pane still pauses before Enter — the pasted bytes must flush or the Enter races them (#3419)', () => {
   // Before #3419 a claude send paid no pause at all (raw send-keys needs none).
-  // The paste transport does: an Enter before ESC[201~ flushes is absorbed into
-  // the paste. It is the size-adaptive delay, not the codex gap, and for a short
-  // message it is the base delay.
+  // The paste transport does: an Enter sent before the pasted bytes have flushed
+  // through the tmux/PTY pipeline races the paste and submits a partial line. It
+  // is the size-adaptive delay, not the codex gap, and for a short message it is
+  // the base delay. (paste-buffer is issued without -p, so there are no tmux
+  // bracketed-paste markers to wait on — only the byte flush.)
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     const tmux = arm([ok(), ok()]);
     const pauses = [];

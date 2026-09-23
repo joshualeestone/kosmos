@@ -53,8 +53,8 @@
  *     `--`/leading-`-` fact above carries over to set-buffer; `-l` is history.
  *   - A second, separate `send-keys -t <same> Enter` submits it — still true, and
  *     now after the paste plus a size-adaptive delay. The two are never one call:
- *     `-l` would type the word "Enter", and an Enter that rides the paste is
- *     absorbed as a newline.
+ *     `-l` would type the word "Enter", and an Enter sent before the pasted bytes
+ *     have flushed races the paste and submits a partial line.
  *   - `capture-pane -p -J -t '=<session>:<window>.<pane>'` reads that pane back.
  *   - The `=` exact-match prefix DOES defeat prefix matching on a pane target:
  *     with the session killed and a `kchatprobe2` still alive, the same command
@@ -1046,7 +1046,20 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     }
     tail = trailer;
   }
-  const wire = ((typeof envelope === 'string' && envelope.trim()) ? envelope.trim() + ' ' + text : text) + tail;
+  // ⚠️ FLATTEN THE ENVELOPE'S WHITESPACE, not just trim it (#3419). The paste
+  // transport's safety rests on `wire` carrying no newline: `paste-buffer` (issued
+  // without `-r`) turns an LF into a CR, which a pane that fell back to a shell
+  // would take as a submit AT PASTE TIME — before the pre-Enter `verifyAtSend`
+  // can refuse. `text` is already newline-free (`cleanMessage` collapses all
+  // whitespace) and `tail` refuses control chars above, but the caller-supplied
+  // `envelope` was only trimmed, so an interior newline in it would survive into
+  // `wire`. Every caller passes a system-generated single-line envelope today, so
+  // this is defense-in-depth, not a live bug — but the invariant the transport
+  // now depends on should be enforced here, not assumed of every caller.
+  const envelopeLine = (typeof envelope === 'string' && envelope.trim())
+    ? envelope.replace(/\s+/g, ' ').trim()
+    : '';
+  const wire = (envelopeLine ? envelopeLine + ' ' + text : text) + tail;
   const target = paneTarget(allowed.card);
   // Read BEFORE the send, from the card the send was authorised against, so the
   // note describes the pane we typed into rather than whatever it became while
@@ -1114,9 +1127,9 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   }
 
   // ⚠️ TWO STEPS, in this order, never one: put the text in, THEN a SEPARATE
-  // Enter submits it. Folding them would submit each chunk, and an Enter that
-  // rides the paste is absorbed as a newline (see the paste-transport note and
-  // the size-adaptive delay below).
+  // Enter submits it. Folding them would submit each chunk, and an Enter sent
+  // before the pasted bytes have flushed races the paste (see the paste-transport
+  // note and the size-adaptive delay below).
   // ⚠️ THE TEXT IS PASTED, not typed with `send-keys -l`. A raw keystroke stream
   // is silently shredded into a busy pane (kosmos#3419); `pasteWire` delivers it
   // atomically in UTF-8-safe chunks. The raw `wire` is pasted, not `wireText`:
