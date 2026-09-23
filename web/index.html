@@ -9528,8 +9528,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          dialog because that is where the footer sends people to learn the
          cost. rst-small above stays the per-agent part: what is in flight. -->
     <p class="rm-small" id="rst-cost">They come back with nothing in their memory, and anything they were part way through ends, including anything they agreed to and have not done yet. Their instructions and their files are untouched.</p>
+    <!-- #3492 (Josh, 2026-09-23): the THIRD option. A plain Restart forgets
+         everything the agent was doing; this one asks the agent to write a
+         handoff first, waits for it, then restarts and points the fresh session
+         at that handoff so it picks up cleanly. Placed between "leave it running"
+         and the plain "Restart" so the context-preserving option sits next to
+         the one it improves on. The LABEL is a clear working one, swappable per
+         Mona/Josh (the card leaves wording TBD); styling stays plain `btn` here
+         so the dialog-CSS lane (#3493/#3494) owns the look. -->
     <div class="rm-acts">
       <button class="btn" id="rst-keep" type="button">Leave it running</button>
+      <button class="btn" id="rst-handoff-go" type="button">Write a handoff, then restart</button>
       <button class="btn" id="rst-go" type="button">Restart</button>
     </div>
     <div class="fmsg" id="rst-msg" role="alert" aria-live="assertive"></div>
@@ -10014,6 +10023,52 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     </div>
     <div class="fmsg" id="rm-msg" role="alert" aria-live="assertive"></div>
   </div>
+</div>
+
+<!-- #3486: the add-member modal lives HERE at the top level, beside the other
+     .rm-back modals, NOT inside .pjcard-members. It used to be authored inside
+     that card, and #3305 sets `.pjcard-members { display:none }` in the
+     consolidated view -- display:none on an ancestor suppresses the whole
+     subtree, including a position:fixed descendant, so the modal never rendered
+     when opened from the consolidated rail + (the "Project Members +" did
+     nothing, Josh's live 0.6.89 bug). A full-screen overlay opened from the rail
+     is not part of the card and must not share its display state; every sibling
+     modal is already top-level, so this one joins them. Ids/nesting are
+     unchanged (#pj-one-add-row stays inside), so paintFreeAgentPicker, the go
+     handler and amClose keep working by id from anywhere. -->
+<div class="rm-back" id="am-modal" hidden>
+<div class="rm-box rm-box-form am-box" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
+  <!-- 0.6.45 (Josh): the way out is an X in the corner, not a Cancel button
+       down in the acts row that crowded the dropdown. Reuses the `am-keep`
+       id so amClose (Cancel + backdrop + Escape) stays one function. -->
+  <button class="am-x" id="am-keep" type="button" aria-label="Close">&times;</button>
+  <h2 class="rm-title" id="am-t">Add a member</h2>
+  <p class="rm-small" id="am-in">To <b id="am-project"></b>.</p>
+  <div id="pj-one-add-row" style="margin-top: var(--space-5)">
+    <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
+         from a button, so it arrives on screen with no heading above it and
+         nothing on the row says what the menu is FOR: a sighted person got
+         a dropdown of names and a button, and had to infer. The aria-label
+         served a screen reader and nobody else, which is the shape this
+         file has removed twice before -- an accessible name doing the job
+         of copy.
+         📌 The `for` and the `id` make it the same one control, so clicking
+         the words opens the menu; the aria-label goes, because a labelled
+         control with an aria-label announces only the aria-label and the
+         two would then have to be kept in step forever. -->
+    <label class="flabel" for="pj-one-add">Who should join this project?</label>
+    <div class="frow">
+      <select id="pj-one-add"></select>
+      <button class="btn" id="pj-one-add-go" type="button">Add to project</button>
+    </div>
+  </div>
+  <!-- 0.6.45: the error on a FAILED add lives INSIDE the modal box. It used
+       to sit after #am-modal, in normal page flow BEHIND the fixed .rm-back
+       backdrop, so a reason written here was covered by the overlay. Now that
+       a successful add closes the modal, the only time this shows is a failure
+       with the modal still open, so it has to be on top of the backdrop. -->
+  <p class="fmsg" id="pj-one-msg" aria-live="polite" style="margin-top: var(--space-4)"></p>
+</div>
 </div>
 
 <!-- ⚠️ FIRST RUN. An overlay rather than a tab, and the reasoning is worth
@@ -11825,51 +11880,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            stays uncluttered and the DOOR is what lives here: one quiet link
            to the settings rows where Remove has always been. -->
       <button class="linkish" id="pj-remove-member" type="button" style="margin-top:6px;">Remove a member&hellip;</button>
-      <!-- 🔑 THE PICKER LIVES IN A MODAL (kosmos#1303 H). Josh: "Let's make adding
-           a member to the project spawn a modal just like adding a task to the
-           project." It was an inline row that appeared where the button had been.
-           ⚠️ THE ROW IS WRAPPED, NOT REBUILT. `#pj-one-add`, `#pj-one-add-go` and
-           `#pj-one-add-row` keep their ids and their nesting, so
-           `paintFreeAgentPicker`, the go handler and the navigation reset all keep
-           working against the same elements. A fresh modal with new ids would have
-           been four more things to re-wire and four more to get wrong.
-           📌 It carries `role="dialog"` and `aria-modal`, so it joins the sweep in
-           #1316 and has to satisfy its rule: a way back that is not the action,
-           and Escape. Both are below. -->
-      <div class="rm-back" id="am-modal" hidden>
-      <div class="rm-box rm-box-form am-box" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
-      <!-- 0.6.45 (Josh): the way out is an X in the corner, not a Cancel button
-           down in the acts row that crowded the dropdown. Reuses the `am-keep`
-           id so amClose (Cancel + backdrop + Escape) stays one function. -->
-      <button class="am-x" id="am-keep" type="button" aria-label="Close">&times;</button>
-      <h2 class="rm-title" id="am-t">Add a member</h2>
-      <p class="rm-small" id="am-in">To <b id="am-project"></b>.</p>
-      <div id="pj-one-add-row" style="margin-top: var(--space-5)">
-        <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
-             from a button, so it arrives on screen with no heading above it and
-             nothing on the row says what the menu is FOR: a sighted person got
-             a dropdown of names and a button, and had to infer. The aria-label
-             served a screen reader and nobody else, which is the shape this
-             file has removed twice before -- an accessible name doing the job
-             of copy.
-             📌 The `for` and the `id` make it the same one control, so clicking
-             the words opens the menu; the aria-label goes, because a labelled
-             control with an aria-label announces only the aria-label and the
-             two would then have to be kept in step forever. -->
-        <label class="flabel" for="pj-one-add">Who should join this project?</label>
-        <div class="frow">
-          <select id="pj-one-add"></select>
-          <button class="btn" id="pj-one-add-go" type="button">Add to project</button>
-        </div>
-      </div>
-      <!-- 0.6.45: the error on a FAILED add lives INSIDE the modal box. It used
-           to sit after #am-modal, in normal page flow BEHIND the fixed .rm-back
-           backdrop, so a reason written here was covered by the overlay. Now that
-           a successful add closes the modal, the only time this shows is a failure
-           with the modal still open, so it has to be on top of the backdrop. -->
-      <p class="fmsg" id="pj-one-msg" aria-live="polite" style="margin-top: var(--space-4)"></p>
-      </div>
-      </div>
+      <!-- #3486: the add-member modal (#am-modal) was authored HERE, inside
+           .pjcard-members. Because #3305 hides that card with display:none in the
+           consolidated view, the fixed-position modal was suppressed with the card
+           and the consolidated "Project Members +" opened nothing. It now lives at
+           the top level beside the other .rm-back modals (search "id=\"am-modal\"").
+           It is opened by id from both the tab-view "Add member" button and the
+           consolidated rail +, so its DOM home does not matter to the wiring. -->
 
       <!-- ⚠️ PROJECT DOCUMENTS IS NET NEW: the pack's project page has three
            columns (members, conversation, tasks) and no documents section, so
@@ -30460,6 +30477,13 @@ function openRestartModal(btn, name, opts) {
   go.hidden = false;
   go.disabled = false;
   go.textContent = 'Restart ' + shown;
+  /* #3492: the third option shares this dialog's lifecycle, so it is un-hidden
+     and re-enabled on every open exactly as rst-go is (a prior handoff-restart
+     run may have disabled it). Its label is static (a phrase, not "Restart
+     <name>"), so it is not rebuilt from `shown` here. */
+  const hgo = document.getElementById('rst-handoff-go');
+  hgo.hidden = false;
+  hgo.disabled = false;
   RST_FOR = btn;
   RST_RETURN = btn;
   document.getElementById('rst-modal').hidden = false;
@@ -30712,15 +30736,23 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   const list = document.getElementById('rst-list');
   const small = document.getElementById('rst-small');
   const cost = document.getElementById('rst-cost');
+  /* #3492: the third button shares this singleton modal, so the plain-restart
+     interstitial must hide AND disable it too. Without this it stays visible and
+     enabled behind the K-loader during a plain Restart, and a click there would
+     launch the handoff flow concurrently with the in-flight restart (both share
+     RST_FOR/RST_BUSY and this one modal). Hidden in showConfirm, disabled on
+     entry, re-enabled in restoreConfirm -- symmetric with rst-go's own go. */
+  const hgo = document.getElementById('rst-handoff-go');
   const listWasHidden = list.hidden;   // the cost-based state to restore on a retry
   const showConfirm = (on) => {
-    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on;
+    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on; hgo.hidden = !on;
     list.hidden = on ? listWasHidden : true;
   };
   const clearLoader = () => { document.getElementById('rst-msg').innerHTML = ''; };
   // Enter the interstitial: hide the confirm content, mount + drive the branded loader.
   // RST_BUSY gates the Escape/backdrop exits (the restart is now committed).
   go.disabled = true;
+  hgo.disabled = true;
   RST_BUSY = true;
   showConfirm(false);
   document.getElementById('rst-msg').innerHTML = RESTART_BUSY_HTML;
@@ -30732,7 +30764,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
      always holds RESTART_HOLD_MS. Same test seam the model/provider interstitial uses. */
   const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
   // The confirm view, restored so the person can retry after a refusal or an error.
-  const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; };
+  const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; hgo.disabled = false; };
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
     const out = await res.json().catch(() => null);
@@ -30826,6 +30858,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
       showConfirm(true);
       go.textContent = wasGo;
       go.disabled = false;
+      hgo.disabled = false;   // #3492: symmetric with go, so it is not briefly visible-but-greyed before close
       closeRestartModal();
     }
     await tick();
@@ -30843,6 +30876,175 @@ document.getElementById('rst-go').addEventListener('click', async () => {
     restoreConfirm();
     document.getElementById('rst-msg').textContent = 'We could not reach Kosmos to restart them.';
   }
+});
+
+/* #3492: how long to wait for the agent to finish writing its handoff before we
+   fall back to asking the person. `let`, not `const`, so a browser-check can
+   shorten them to exercise the timeout arm fast (the same seam
+   RESTART_READY_WINDOW_MS uses). Production: up to two minutes, polled every
+   three seconds -- a handoff is a real piece of writing, not an instant. */
+let HANDOFF_WAIT_MS = 120000;
+let HANDOFF_POLL_MS = 3000;
+
+/* #3492: the "Write a handoff, then restart" flow. It is the plain rst-go flow
+   with TWO phases wrapped around it:
+     BEFORE the restart -- ask the live agent to write a handoff (a PLACED
+       delivery, or we stop and let the person choose), then poll until the
+       handoff file is confirmed (re)written or the wait elapses. A restart NEVER
+       proceeds on a maybe: an unconfirmed ask or an unwritten handoff restores
+       the confirm view so the person can Restart-anyway or leave it running.
+     AFTER the restart -- the SAME post-restart wake path (autoHelloAfterRestart),
+       but delivering the handoff pointer (deliverPickup) instead of 'hello', so
+       the fresh session continues rather than starting cold.
+   The K-loader interstitial plays only during the actual restart (phase 3); the
+   handoff-write wait shows a plain status line, because it can run for a while
+   and a spinning K there would misread as the restart hanging. */
+document.getElementById('rst-handoff-go').addEventListener('click', async () => {
+  const btn = RST_FOR;
+  const name = btn && btn.dataset.restartAgent;
+  if (!name) return;
+  const card = (LAST || []).find((a) => a && a.sessionName === name) || CURRENT;
+  const shown = (card && (card.name || card.displayName)) || name;
+  const go = document.getElementById('rst-go');
+  const hgo = document.getElementById('rst-handoff-go');
+  const keep = document.getElementById('rst-keep');
+  const list = document.getElementById('rst-list');
+  const small = document.getElementById('rst-small');
+  const cost = document.getElementById('rst-cost');
+  const msg = document.getElementById('rst-msg');
+  const listWasHidden = list.hidden;
+  const showConfirm = (on) => {
+    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on; hgo.hidden = !on;
+    list.hidden = on ? listWasHidden : true;
+  };
+  const setStatus = (t) => { msg.textContent = t; };
+  const restoreConfirm = () => {
+    RST_BUSY = false; msg.innerHTML = ''; showConfirm(true);
+    go.disabled = false; hgo.disabled = false;
+  };
+  /* Has this flow been dismissed out from under us? Either the modal was reused
+     for another agent (RST_FOR moved) or it was closed (Escape / backdrop / the
+     "Leave it running" button). Checked at every await boundary in phases 1-2 so
+     an abort during the wait actually stops the flow rather than racing a late
+     fresh handoff into a restart the person just cancelled. */
+  const dismissed = () => RST_FOR !== btn || document.getElementById('rst-modal').hidden;
+  /* 🛑 PHASES 1-2 (ask + wait for the handoff) ARE ABORTABLE, and deliberately so:
+     nothing irreversible has happened yet -- we have only asked the agent to write
+     a handoff; no restart fires until the handoff is confirmed fresh. So RST_BUSY
+     stays FALSE and "Leave it running" stays visible + live through the wait, so
+     the person is never trapped for up to HANDOFF_WAIT_MS with no way out (that
+     no-exit window was the one wart in the first cut). RST_BUSY is set, and keep
+     hidden, only when we COMMIT to the restart in phase 3. */
+  go.disabled = true; hgo.disabled = true;
+  small.hidden = true; cost.hidden = true; go.hidden = true; hgo.hidden = true; list.hidden = true;
+  keep.hidden = false;
+  setStatus('Asking ' + shown + ' to write a handoff…');
+
+  // Phase 1 -- ask the live agent to write its handoff. Only a PLACED delivery
+  // (the prompt actually landed) advances the flow.
+  let ask; let askStatus = 0;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/ask', { method: 'POST' });
+    askStatus = res.status;
+    ask = await res.json().catch(() => null);
+  } catch {
+    if (dismissed()) return;
+    restoreConfirm();
+    setStatus('We could not reach Kosmos to ask ' + shown + ' for a handoff. You can Restart without one, or leave it running.');
+    return;
+  }
+  if (dismissed()) return;   // reused for another agent, or the person aborted mid-request
+  if (!(ask && ask.delivery && ask.delivery.state === 'placed')) {
+    restoreConfirm();
+    const because = ask && ask.delivery && ask.delivery.because ? ' (' + ask.delivery.because + ')' : '';
+    // "Not running" is ONLY the no-session case: a 409 with NO delivery field.
+    // The route also returns 409 for a COULD_NOT delivery (which DOES carry a
+    // delivery field) -- that is a delivery failure, not a stopped agent -- and
+    // 404 (vanished name) / 500 (could-not-reach) are other errors. All of those
+    // get the generic line (with the delivery's own reason when present), so we
+    // never tell the person an agent "is not running" when that is not what
+    // happened.
+    const notRunning = askStatus === 409 && ask && !ask.delivery;
+    setStatus(notRunning
+      ? (shown + ' is not running, so there is no session to write a handoff. You can Restart without one, or leave it running.')
+      : ('We could not ask ' + shown + ' to write a handoff' + because + '. You can Restart without one, or leave it running.'));
+    return;
+  }
+
+  // Phase 2 -- wait for the handoff to be confirmed (re)written.
+  setStatus(shown + ' is writing its handoff…');
+  const baseline = (ask.baseline === undefined || ask.baseline === null) ? '' : String(ask.baseline);
+  const deadline = Date.now() + HANDOFF_WAIT_MS;
+  let wrote = false;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, HANDOFF_POLL_MS));
+    if (dismissed()) return;   // superseded / closed / aborted during the wait
+    let st = null;
+    try {
+      const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/status?baseline=' + encodeURIComponent(baseline), { cache: 'no-store' });
+      st = await res.json().catch(() => null);
+    } catch { /* the next poll can try again */ }
+    if (dismissed()) return;   // aborted while the status request was in flight, before we act on it
+    if (st && st.fresh === true) { wrote = true; break; }
+  }
+  if (dismissed()) return;
+  if (!wrote) {
+    restoreConfirm();
+    setStatus(shown + ' has not finished its handoff yet. Restart anyway (its progress may be lost), or leave it running?');
+    return;
+  }
+
+  // Phase 3 -- the restart itself. We COMMIT here: nothing before this was
+  // irreversible, but the restart is, so from now on RST_BUSY gates Escape/
+  // backdrop and "Leave it running" is hidden, exactly as the plain rst-go path.
+  // The dismissed() check just above and this assignment are adjacent with no
+  // await between them, so an abort cannot slip in after the check.
+  RST_BUSY = true;
+  keep.hidden = true;
+  setStatus('');
+  msg.innerHTML = RESTART_BUSY_HTML;
+  const kcv = msg.querySelector('canvas.chg-restart-k');
+  if (kcv) startKLoader(kcv);
+  const busyStart = Date.now();
+  const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
+  let out = null; let resOk = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
+    resOk = res.ok;
+    out = await res.json().catch(() => null);
+  } catch {
+    restoreConfirm();
+    setStatus('The handoff was written, but we could not reach Kosmos to restart ' + shown + '. Try Restart again.');
+    return;
+  }
+  if (!restartTook(resOk, out)) {
+    restoreConfirm();
+    setStatus(restartFailureLine(out));
+    return;
+  }
+  // Hold the loader for the remainder of the floor so the K plays in full.
+  const wait = Math.max(0, holdMs - (Date.now() - busyStart));
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+
+  // Phase 4 -- point the fresh session at its handoff once it is back up. Same
+  // capture-and-recheck receipt guard as rst-go.
+  const note = noteFor(btn);
+  const showNote = (t) => { if (CURRENT && CURRENT.sessionName === name && note && note.isConnected) note.textContent = t; };
+  showNote('Restarted. Pointing the fresh session at its handoff…');
+  const stillMine = (RST_FOR === btn);
+  if (stillMine) {
+    RST_BUSY = false;
+    msg.innerHTML = '';
+    showConfirm(true);
+    go.disabled = false;
+    hgo.disabled = false;
+    closeRestartModal();
+  }
+  await tick();
+  autoHelloAfterRestart(name, showNote,
+    'Restarted, and pointed the fresh session at its handoff to pick up where it left off.',
+    'Restarted. When it is back, tell it to read its handoff at ' + ask.handoffPath + '.',
+    () => deliverPickup(name));
 });
 
 /* #5 insurance (Josh 0.6.44): Trust & Restart. POST /api/agent/<name>/trust-and-restart
@@ -36980,16 +37182,27 @@ async function restartReadyWait(name, mine) {
    that the message reached the agent's session; NOT 'recorded' (only whether it
    was filed in the thread, which can differ). Claim "said hello" only on placed,
    so a person is never falsely told the agent was greeted (worse than manual). */
-async function sendWakeHello(name, token, report, saidText, manualText) {
+/* #3492: `deliver` is an OPTIONAL async function that performs the post-restart
+   send and returns the delivery verdict object ({state}) or null. It defaults to
+   the plain restart's wake 'hello'. The restart-with-handoff flow passes
+   deliverPickup instead, so the fresh session is pointed at its handoff rather
+   than merely greeted -- one function, one 'placed'-only success rule, two
+   messages. Existing callers omit it and get the 'hello' behaviour unchanged. */
+async function sendWakeHello(name, token, report, saidText, manualText, deliver) {
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: 'hello' }),
-    });
-    const out = await res.json().catch(() => null);
+    const delivery = deliver
+      ? await deliver()
+      : await (async () => {
+          const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text: 'hello' }),
+          });
+          const out = await res.json().catch(() => null);
+          return (res.ok && out && out.delivery) ? out.delivery : null;
+        })();
     if (token !== RESTART_HELLO_SEQ[name]) return;
-    const placed = res.ok && out && out.delivery && out.delivery.state === 'placed';
+    const placed = delivery && delivery.state === 'placed';
     report(placed ? saidText : manualText);
   } catch {
     if (token !== RESTART_HELLO_SEQ[name]) return;
@@ -36997,12 +37210,23 @@ async function sendWakeHello(name, token, report, saidText, manualText) {
   }
 }
 
-async function autoHelloAfterRestart(name, report, saidText, manualText) {
+/* #3492: deliver the pickup pointer to a freshly-restarted session. Returns the
+   delivery verdict so sendWakeHello claims success only on 'placed' -- the same
+   proof-not-assumption rule the wake hello uses (a pickup that did not land must
+   not read as "pointed at its handoff"). The message text is the server's
+   (engine/handoff-restart.pickupPrompt), not composed here. */
+async function deliverPickup(name) {
+  const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/pickup', { method: 'POST' });
+  const out = await res.json().catch(() => null);
+  return (res.ok && out && out.delivery) ? out.delivery : null;
+}
+
+async function autoHelloAfterRestart(name, report, saidText, manualText, deliver) {
   const mine = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
   const ready = await restartReadyWait(name, mine);
   if (mine !== RESTART_HELLO_SEQ[name]) return;    // a newer restart of this agent superseded us
   if (!ready) { report(manualText); return; }
-  await sendWakeHello(name, mine, report, saidText, manualText);
+  await sendWakeHello(name, mine, report, saidText, manualText, deliver);
 }
 
 /**

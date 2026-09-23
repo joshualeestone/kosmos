@@ -4881,7 +4881,13 @@ function readGeminiSession(agentName) {
   let job;
   try { job = create.readJob(agentName); } catch { job = null; }
   if (!dir || !job || job.runner !== 'gemini') return { found: false };
-  const home = job.configDir || create.defaultAgentGeminiHome();
+  /* #3296 accounts slice: geminiStorageHome, not `job.configDir ||
+     defaultAgentGeminiHome()` -- a PER-ACCOUNT gemini agent's configDir is the account
+     ROOT (== GEMINI_CLI_HOME); the CLI writes its session data into the `.gemini` subdir
+     below it, so the reader home is <configDir>/.gemini. The default (configDir null) is
+     unchanged (~/.gemini). This is the SAME helper the birth write uses, so the write
+     and the read cannot target different dirs. See create.geminiStorageHome. */
+  const home = create.geminiStorageHome(job.configDir);
   try { return require('./geminisession').read(dir, home); }
   catch { return { found: false }; }
 }
