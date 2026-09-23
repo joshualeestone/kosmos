@@ -263,7 +263,17 @@ function forgetAccount(dir, usedBy) {
   const clean = path.resolve(String(dir == null ? '' : dir));
   const base = path.basename(clean);
 
-  if (path.dirname(clean) !== home || !(clean === path.resolve(defaultDir()) || base.startsWith(DIR_PREFIX))) {
+  /* 🛑 Defence in depth on a directory-renaming endpoint: the DEFAULT home (~/.gemini) is the
+     machine's own CLI home, NOT a per-account artifact this subsystem manages (it is never
+     credentialed or listed here). So it is never ours to move, and refusing it closes the
+     rm-your-whole-CLI-home path a manually-placed key file could otherwise open on the remove
+     sibling. A deliberate DIVERGENCE from openaiaccounts, whose default IS disconnectable/deletable
+     (#2684) because it is a codex-only home Kosmos manages; gemini/grok's default is the unmanaged
+     machine-global key door, so this subsystem neither creates nor destroys it. */
+  if (clean === path.resolve(defaultDir())) {
+    return { ok: false, forgotten: false, because: 'the default Gemini account is your computer\'s own Gemini home; Kosmos does not manage it here, so it cannot be disconnected' };
+  }
+  if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
     return { ok: false, forgotten: false, because: 'that is not a Gemini account on this computer' };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
@@ -282,7 +292,7 @@ function forgetAccount(dir, usedBy) {
   if (!identityOf(clean)) {
     return { ok: false, forgotten: false, because: 'that is not a Gemini account on this computer' };
   }
-  const label = clean === path.resolve(defaultDir()) ? 'default' : base.slice(DIR_PREFIX.length);
+  const label = base.slice(DIR_PREFIX.length); // the default is refused above, so always a labelled account
   let target = path.join(home, FORGOTTEN_PREFIX + label);
   for (let n = 2; fs.existsSync(target) && n < 500; n += 1) {
     target = path.join(home, `${FORGOTTEN_PREFIX}${label}-${n}`);
@@ -292,7 +302,7 @@ function forgetAccount(dir, usedBy) {
   }
   try { fs.renameSync(clean, target); }
   catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
-  return { ok: true, forgotten: true, movedTo: target, wasDefault: clean === path.resolve(defaultDir()), because: null };
+  return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
 }
 
 function removeAccount(dir, usedBy) {
@@ -300,7 +310,13 @@ function removeAccount(dir, usedBy) {
   const clean = path.resolve(String(dir == null ? '' : dir));
   const base = path.basename(clean);
 
-  if (path.dirname(clean) !== home || !(clean === path.resolve(defaultDir()) || base.startsWith(DIR_PREFIX))) {
+  /* The remove sibling of forgetAccount's default guard, and the one the hazard is really about:
+     without it a remove:true on the default would rmSync the user's entire ~/.gemini CLI home.
+     See forgetAccount for the full reasoning and the openaiaccounts divergence. */
+  if (clean === path.resolve(defaultDir())) {
+    return { ok: false, removed: false, because: 'the default Gemini account is your computer\'s own Gemini home; Kosmos does not manage it here, so it cannot be deleted' };
+  }
+  if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
     return { ok: false, removed: false, because: 'that is not a Gemini account on this computer' };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
@@ -321,7 +337,7 @@ function removeAccount(dir, usedBy) {
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }
   catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
-  return { ok: true, removed: true, wasDefault: clean === path.resolve(defaultDir()), because: null };
+  return { ok: true, removed: true, wasDefault: false, because: null };
 }
 
 /* ---- live list ------------------------------------------------------------ */

@@ -137,3 +137,19 @@ Full whole-tree suite + full challenge-loop before PR.
   will call (openai's own connect flow uses it; the store route here uses dirForLabel for named
   accounts). It is unit-tested, so it is not an unarmed guard; removing it would diverge the
   gemini/grok modules from the sibling account-module contract this slice was told to mirror.
+
+## Iteration 5 (opus) findings
+- **FIXED (defence in depth): forget/removeAccount now REFUSE the default home.** Without it, a
+  manually-placed key file in ~/.gemini / ~/.grok would let a remove:true rmSync the user's entire
+  real CLI home. This subsystem never credentials or lists the default (it is the machine-global key
+  door), so it never creates one and now never destroys one. A deliberate DIVERGENCE from
+  openaiaccounts, whose default IS deletable by design (#2684, a codex-only home Kosmos manages).
+  Guarded by a unit test in both modules (a key placed in the default, both ops refused, home intact).
+- **Deferred NIT: a failed store leaves an empty keyless dir.** Harmless -- an empty dir with no key
+  is unlisted and treated as a free slot by list()/nextWorkDir; the code's "no orphaned key file"
+  claim is precise. A blind rmdir on rollback risks a dir a concurrent op populated.
+- **Deferred NIT: store guard->storeKey is not atomic (TOCTOU on the same new label).** Negligible on
+  a single-user local board and consistent with the openai/claude siblings.
+- **Deferred NIT: create.provider-accounts test's "known account" assertion is weak.** The STRONG
+  path (positive GEMINI_CLI_HOME/GROK_HOME plist assertion + birth-write landing in the right storage
+  dir) is covered by engine/create.test.js:3966+, so the weak assertion is a complement, not the only guard.

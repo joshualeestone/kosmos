@@ -131,3 +131,18 @@ test('nextWorkDir hands out the first free work slot and skips an occupied one',
   ma.storeKey(first.dir, 'AIza-occupied-1111');
   assert.equal(ma.nextWorkDir().label, 'work2');
 });
+
+test('forget/removeAccount REFUSE the default home even if a key file is placed in it (no rmSync of the CLI home)', () => {
+  clean();
+  const def = ma.defaultDir();
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(ma.keyFile(def), 'AIza-manually-placed-9999', { mode: 0o600 }); // identityOf would pass
+  const f = ma.forgetAccount(def, []);
+  assert.equal(f.ok, false, 'the default is not a managed account and must not be renamed aside');
+  assert.match(f.because, /default Gemini account/);
+  const r = ma.removeAccount(def, []);
+  assert.equal(r.ok, false, 'the default must never be rmSync-d -- it is the whole ~/.gemini CLI home');
+  assert.match(r.because, /default Gemini account/);
+  assert.ok(fs.existsSync(def), 'the default home is untouched by both');
+  fs.rmSync(def, { recursive: true, force: true });
+});

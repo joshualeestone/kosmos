@@ -165,6 +165,21 @@ test('nextWorkDir hands out the first free work slot and skips an occupied one',
   assert.equal(second.label, 'work2', 'a slot holding a key is occupied');
 });
 
+test('forget/removeAccount REFUSE the default home even if a key file is placed in it (no rmSync of the CLI home)', () => {
+  clean();
+  const def = ga.defaultDir();
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(ga.keyFile(def), 'xai-manually-placed-9999', { mode: 0o600 }); // identityOf would pass
+  const f = ga.forgetAccount(def, []);
+  assert.equal(f.ok, false, 'the default is not a managed account and must not be renamed aside');
+  assert.match(f.because, /default Grok account/);
+  const r = ga.removeAccount(def, []);
+  assert.equal(r.ok, false, 'the default must never be rmSync-d -- it is the whole ~/.grok CLI home');
+  assert.match(r.because, /default Grok account/);
+  assert.ok(fs.existsSync(def), 'the default home is untouched by both');
+  fs.rmSync(def, { recursive: true, force: true });
+});
+
 test('listLive: one bad row cannot sink the others -- it falls back to UNKNOWN', async () => {
   clean();
   const a = ga.dirForLabel('a'); ga.storeKey(a.dir, 'xai-a-aaaa');
