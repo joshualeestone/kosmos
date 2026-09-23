@@ -75,6 +75,18 @@ const SCENARIOS = {
       '/api/remote/signin-register': { ok: true, stage: 'registered', address: 'quiet-heron', name: 'quiet-heron', standing: 'active' },
     },
   },
+  'enrol-2fa-sms': {
+    label: 'account sets up its second factor by TEXT (email code -> text a code -> name)',
+    entry: 'plus-signin-bottom',   // also exercises the foot "Already a member? Sign in" link
+    smsEnrol: true,
+    steps: {
+      '/api/remote/signin-start': { ok: true, stage: 'code_sent' },
+      '/api/remote/signin-verify': { ok: true, stage: 'enrol_second_factor', sms_available: true, why_authenticator: 'An authenticator app on your phone gives a fresh code every time you sign in.' },
+      '/api/remote/signin-enrol': { ok: true, stage: 'enrolment_started', kind: 'sms', sent_to: '(•••) •••-4321' },
+      '/api/remote/signin-confirm-enrol': { ok: true, stage: 'session' },
+      '/api/remote/signin-register': { ok: true, stage: 'registered', address: 'calm-otter', name: 'calm-otter', standing: 'active' },
+    },
+  },
 };
 
 async function openPlusState1(page) {
@@ -137,9 +149,10 @@ const visible = (page, sel) => page.evaluate((s) => {
       chk(await visible(page, '#plus-state1'), `[${key}] state 1 is on screen before the click`);
       chk(!(await visible(page, '#plus-si-email')), `[${key}] the wizard email step is hidden before the click`);
 
-      await page.click('#plus-signin-top');
+      const entry = sc.entry || 'plus-signin-top';
+      await page.click('#' + entry);
       await page.waitForFunction(() => window.location, null, { timeout: 500 }).catch(() => {});
-      chk(page.url() === beforeUrl, `[${key}] the sign-in link did NOT navigate away`, page.url());
+      chk(page.url() === beforeUrl, `[${key}] the #${entry} sign-in link did NOT navigate away`, page.url());
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       chk(!(await visible(page, '#plus-state1')), `[${key}] state 1 gives way to the wizard on the sign-in click`);
 
@@ -164,10 +177,25 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(await visible(page, '#plus-si-enrol-sms'), `[${key}] verify -> set-up step offers text when sms_available`);
         const why = await page.textContent('#plus-si-enrol-why');
         chk(!!(why && why.trim()), `[${key}] the why-authenticator copy is rendered`, JSON.stringify(why));
-        await page.click('#plus-si-enrol-totp');
-        await page.waitForSelector('#plus-si-enrol-confirm', { state: 'visible', timeout: 5000 });
-        const secret = await page.inputValue('#plus-si-secret');
-        chk(secret === 'ABCD1234EFGH5678', `[${key}] the authenticator key is shown to type in`, JSON.stringify(secret));
+        if (sc.smsEnrol) {
+          // The text path: reveal the phone field, submit it, and confirm the code went to
+          // the masked number the coordinator reports (exercises plusSiStage's non-totp lead
+          // branch and the phone-go handler, which the totp path never touches).
+          await page.click('#plus-si-enrol-sms');
+          await page.waitForSelector('#plus-si-phone-field', { state: 'visible', timeout: 5000 });
+          await page.fill('#plus-si-phone', '+15555550123');
+          await page.click('#plus-si-phone-go');
+          await page.waitForSelector('#plus-si-enrol-confirm', { state: 'visible', timeout: 5000 });
+          const lead = await page.textContent('#plus-si-enrol-lead');
+          const sentTo = sc.steps['/api/remote/signin-enrol'].sent_to;
+          chk(!!(lead && lead.includes(sentTo)), `[${key}] the texted-code lead names the masked number`, JSON.stringify(lead));
+          chk(!(await visible(page, '#plus-si-secret-field')), `[${key}] the authenticator key field is hidden on the text path`);
+        } else {
+          await page.click('#plus-si-enrol-totp');
+          await page.waitForSelector('#plus-si-enrol-confirm', { state: 'visible', timeout: 5000 });
+          const secret = await page.inputValue('#plus-si-secret');
+          chk(secret === 'ABCD1234EFGH5678', `[${key}] the authenticator key is shown to type in`, JSON.stringify(secret));
+        }
         await page.fill('#plus-si-enrol-code', '111222');
         await page.click('#plus-si-enrol-confirm-go');
       }

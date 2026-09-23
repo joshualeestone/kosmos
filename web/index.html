@@ -33047,7 +33047,10 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
 document.getElementById('plus-si-register-go').addEventListener('click', async () => {
   const name = document.getElementById('plus-si-name').value.trim();
   const btn = document.getElementById('plus-si-register-go');
-  if (name && !/^[a-z0-9-]{3,32}$/.test(name)) {
+  /* signin-register requires a name server-side (server.js 400s on empty), so reject an
+     empty one here for instant feedback rather than a round trip. Then the format rule. */
+  if (!name) { plusSiMsg('pick a name for this computer'); return; }
+  if (!/^[a-z0-9-]{3,32}$/.test(name)) {
     plusSiMsg('the name is 3 to 32 lowercase letters, digits or hyphens');
     return;
   }
@@ -33056,7 +33059,15 @@ document.getElementById('plus-si-register-go').addEventListener('click', async (
   const r = await plusSiPost('/api/remote/signin-register', { name });
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
-  PLUS_SIGNIN_ACTIVE = false;
+  /* Do NOT clear PLUS_SIGNIN_ACTIVE here. The engine writes the state dir synchronously
+     before answering, so the paintPlus() below almost always reads enrolled, and its
+     enrolled branch both shows the connected flow AND clears the flag. Clearing it here
+     too meant that if that one read came back not-yet-enrolled (a partial write, a
+     transient), the unenrolled branch would run with the flag already false and drop the
+     person onto the marketing state the instant after they succeeded. Leaving it set makes
+     that unlucky window fall back to the wizard with this confirmation instead, and the
+     recurring 5s tick completes the handoff once enrolled reads true. */
+  plusSiMsg('Signed in. Connecting this computer to Kosmos+.');
   paintPlus();
 });
 
