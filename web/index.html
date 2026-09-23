@@ -2246,6 +2246,17 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    create steps) keeps its outline. The surface fill still distinguishes the panel from the page
    ground, so removing the border leaves a clean filled panel rather than an invisible one. */
 #d-talk-box { border: 0; }
+/* #3414 (Josh, 2026-09-22): the agent DM reuses the project consolidated-view conversation
+   look -- a black, edge-to-edge conversation area filling the panel top-to-bottom, no card
+   radius, with the header on the left ("Direct Message to <agent>" in the project-name font)
+   and the shrunk "Search" on the right. Padding keeps content off the literal edge (his own
+   caveat). Ground uses --k-bg so it reads near-black in dark (his "background should be
+   black") and stays theme-appropriate in light, matching "copy the project dialog". */
+#d-talk-box { background: var(--k-bg); border-radius: 0; }
+#d-talk-label { font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; text-transform: none;
+                color: var(--k-ink); margin: 0; line-height: 1.2; }
+.d-talk-caprow { align-items: center; margin: 0 0 10px; }
+.d-talk-caprow > #d-talk-label { flex: 1 1 auto; min-width: 0; }
 .dlab { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
         /* 600, the pack's weight (#179, ruled there): a box label at 700
            competes with the headings above it. */
@@ -8738,18 +8749,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        shipped sentence naming an agent would be a claim about whichever agent
        happens to be open. -->
   <section class="dbox" id="d-talk-box" tabindex="-1">
-    <h3 class="dlab" id="d-talk-label"></h3>
-    <!-- #2622 (Josh product-review): the caption and the search sit on ONE row so the
-         search is not a full-width row of its own ("put it on the same baseline as
-         'Just between you and X'"). The search still filters the thread below; every id
-         is unchanged so the filter JS is untouched. -->
+    <!-- #3414: the header row is "Direct Message to <agent>" in the project-name font on
+         the LEFT and the shrunk "Search" on the RIGHT, one row. The old "Just between you
+         and <agent>. Nothing here belongs to a project." hint is gone: nothing here
+         belongs to a project, so it says nothing. #d-talk-label + the search ids are
+         unchanged so the label-setter and the filter JS are untouched. -->
     <div class="d-talk-caprow">
-      <p class="dhint" id="d-talk-hint" style="margin:0;"></p>
+      <h3 class="dlab" id="d-talk-label"></h3>
       <div class="tsearch" id="d-talk-search-wrap">
         <span class="tsearch-i" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         </span>
-        <input type="search" id="d-talk-search" placeholder="Search this conversation" aria-label="Search this conversation">
+        <input type="search" id="d-talk-search" placeholder="Search" aria-label="Search">
       </div>
     </div>
     <div class="qask" id="d-qask" hidden>
@@ -8841,8 +8852,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            this box exists for. The room's own box carries a static label for
            the same reason. -->
       <textarea class="cinput" id="d-say" rows="1" maxlength="2000"
-             aria-label="Type a message for this agent" placeholder="Message this agent&hellip;"></textarea>
-            <button class="btn uprime cpost" id="d-send" type="button">Send</button>
+             aria-label="Type a message for this agent" placeholder="Write something or @name to message someone&hellip;"></textarea>
+            <button class="btn uprime cpost" id="d-send" type="button">Post</button>
     </div>
     <!-- The attached-but-unsent files (#358, Josh 1:59 PM: "it just instantly
          uploads it... I don't get to write a caption", then "multiple pictures
@@ -24949,9 +24960,26 @@ function dmRow(m, name) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
+  const whenStr = esc(pjWhen(m.at) || '');
   if (m && m.from) {
-    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
-      + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
+    /* #3414: the agent's row now IS the room's `.msg` bubble -- gray ground, avatar to
+       the left, the agent name bold INSIDE the bubble at the top, and the timestamp
+       INSIDE at the bottom-right, so the DM and the project conversation are one look.
+       The avatar mirrors pjRoomRow: the agent's photo when the tied card carries one
+       (looked up in LAST by `from`, the way the room looks it up in p.agents), else the
+       shared initials disc. LAST is `typeof`-guarded so the lifted dmRow tests (which run
+       without a LAST) fall back to the disc rather than throwing. */
+    const card = (typeof LAST !== 'undefined' && Array.isArray(LAST))
+      ? LAST.find((x) => x && x.sessionName === m.from) : null;
+    const av = (card && card.hasAvatar)
+      ? '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
+      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
+    return '<div class="msg" data-mid="' + midOf(m) + '">' + av
+      + '<div class="msg-b"><div class="msg-bd">'
+      + '<b class="msg-nm" data-open-agent="' + esc(m.from) + '">' + esc(dmWho(m.from, name)) + '</b>'
+      + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+      + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
+      + '</div></div></div>';
   }
   const v = pjVerdict(m, name);
   /* ⚠️ WHAT WAS TYPED, when it is not what the bubble shows. A numbered answer
@@ -24994,13 +25022,21 @@ function dmRow(m, name) {
      is a design question about how a long verdict should look, which is Mona
      Lisa's, and the alignment check cannot see it -- it reads `text-align`.
      Flagged rather than quietly left. */
-  /* ⚠️ THE TIME SITS ON THE ROW, exactly where the `theirs` row above already
-     puts it, and no longer inside the verdict. The verdict is silent on an
-     ordinary success now, and a timestamp that lived inside it would have gone
-     silent with it -- on every message that worked. */
-  return '<div class="dm mine" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
-    + '<span class="dm-w">You' + v.when + wire + ' '
-    + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
+  /* #3414: the person's own row is the room's `.msg.you` bubble -- blue ground, on the
+     right, the user avatar to its right. No name (the operator's standing #3130 rule).
+     The timestamp sits INSIDE the bubble bottom-right like the agent row and the room;
+     the delivery verdict, when it speaks, follows it on the same line. The verdict stays
+     silent on an ordinary success, so a message that worked shows only its time and
+     matches the room; it speaks only on a real failure. */
+  const youAv = YOU_PIC
+    ? '<div class="msg-av mine" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+    : '<div class="msg-av mine" aria-hidden="true"></div>';
+  return '<div class="msg you" data-mid="' + midOf(m) + '">' + youAv
+    + '<div class="msg-b"><div class="msg-bd">'
+    + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+    + '<span class="msg-t">' + whenStr + wire
+    + (v.said ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
+    + '</span></div></div></div>';
 }
 
 
@@ -25167,9 +25203,10 @@ async function paintTalk(sessionName, agentName) {
    * wrong.
    */
   const name = agentName || sessionName;
-  document.getElementById('d-talk-label').textContent = 'Talk to ' + name;
-  document.getElementById('d-talk-hint').textContent =
-    'Just between you and ' + name + '. Nothing here belongs to a project.';
+  document.getElementById('d-talk-label').textContent = 'Direct Message to ' + name;
+  /* #3414: the "Just between you and <name>. Nothing here belongs to a project." hint is
+     gone -- nothing here belongs to a project, so it says nothing. The element was removed
+     from the markup, so nothing sets it. */
   /* ⚠️ WRITTEN WITH THE LABEL, not on the fetch's success path: whether a line
      names the right agent does not depend on the fetch, and one set on the
      success path carries the PREVIOUS agent's name on a borrowed-name pane,
@@ -25193,7 +25230,7 @@ async function paintTalk(sessionName, agentName) {
      caveat — see the send verdict. */
   const say = document.getElementById('d-say');
   say.setAttribute('aria-label', 'A message for ' + name);
-  say.placeholder = 'Message ' + name + '…';
+  say.placeholder = 'Write something or @name to message someone…';
   let body;
   // 404 is the route's standing refusal (a pane holding this name untied), not
   // a read that failed this second. The sentence below branches on it.
