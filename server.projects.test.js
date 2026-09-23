@@ -2565,9 +2565,11 @@ test('a menu that redrew into a DIFFERENT question with the SAME labels is refus
    * and the POST passed every existing guard, and `1` approved a file the
    * person never chose.
    *
-   * The page has held the discriminating half since the answered-hold was
-   * written (`talkKey`'s `above`); it simply never sent it. `asked` is that
-   * text and `chat.questionAbove` is the engine's twin of the rule.
+   * #3419: the page's answer-menu (and its `talkKey`/answered-hold that once held
+   * this discriminating half, the `above`) is gone with the needs_you prompt, so the
+   * page no longer sends `chose`/`asked` at all. The server-side handling this guards
+   * degrades gracefully when they are absent (`body.chose`/`body.asked` default null);
+   * `chat.questionAbove` remains the engine's twin of the rule.
    */
   const bPrompt = 'Edit file src/b.js?\n❯ 1. Yes\n  2. No\n';
   await withAgent(fleet.agent('zeta', { state: 'needs_you' }),

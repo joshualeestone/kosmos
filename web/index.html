@@ -25128,7 +25128,6 @@ async function paintTalk(sessionName, agentName) {
   const qask = document.getElementById('d-qask');
   const qlab = document.getElementById('d-qask-lab');
   const qTrust = document.getElementById('d-qask-trust-restart');
-  const live = body.presence === 'on';
   /* #3419 (Josh, 0.6.89): the "waiting on an answer" needs_you banner is GONE.
      A live question now renders as an ordinary thread bubble (engine
      withQuestionRow, #3455), so the person answers it in the normal composer or

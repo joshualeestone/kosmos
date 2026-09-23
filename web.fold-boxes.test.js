@@ -11,7 +11,8 @@
  * #2575/#2146 asking-override. Josh walked that override back, so the fold is
  * now UNCONDITIONAL: Off hides the box whether or not an agent is asking. The
  * waiting agent is still signalled in the roster ("Needs you" + the #2699 red
- * triangle) and answered through the detail view (#d-qask), so no function is
+ * triangle) and answered through the detail view (the agent's own page -- #3419: a
+ * thread bubble answered in the composer, not the removed #d-qask question panel), so no function is
  * lost -- see docs/browser-checks/render-engmode-gate-2131.js.
  *
  *   node --test web.fold-boxes.test.js

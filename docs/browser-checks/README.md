@@ -828,8 +828,8 @@ assertion that reads source:
 
 ## render-talk.js
 
-The agent page's own thread: the question, the option buttons, the composer, and
-every state the drawing names, in light and dark.
+The agent page's own thread: the needs_you question (a thread bubble now, #3419),
+the composer, and every state the drawing names, in light and dark.
 
 ```sh
 NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-talk.js
