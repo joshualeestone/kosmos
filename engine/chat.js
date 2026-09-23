@@ -759,10 +759,12 @@ function waitingNote(state, outcome, runner, backgroundWait) {
         ? 'it was mid-task'
         : 'it was mid-task, so it will not read this until it finishes';
     case status.STATE.NEEDS_YOU:
-      // Deliberately weaker than "this answered its question". We observed a
-      // question on its screen; what its interface did with the keystroke is
-      // not something we watched.
-      return 'it was waiting on an answer when this was sent';
+      // #3419: no delivery note. The agent's question is now injected into the
+      // dialog as its own message bubble (withQuestionRow), so a "it was
+      // waiting on an answer when this was sent" note would show the same fact
+      // twice. Return null (every paneNote reader guards truthily, so null
+      // renders as no clause) rather than a redundant sentence.
+      return null;
     case status.STATE.RATE_LIMITED:
       return unsure
         ? 'it was paused on a usage limit'
