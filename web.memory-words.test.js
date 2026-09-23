@@ -116,10 +116,10 @@ test('the two strings stay disjoint, so an assertion about one cannot be satisfi
 
 test('every one of the four surfaces goes through the shared derivation', () => {
   /**
-   * ⚠️ COUNTED, not spot-checked. The ring's aria-label, the list row, the board
-   * Memory box and the detail Memory box all state this one fact, and the comments
-   * beside them record occasions where somebody updated the surfaces they could
-   * see and left the others behind.
+   * ⚠️ COUNTED, not spot-checked. The ring's aria-label, the list row, the Memory
+   * box and the detail header all state this one fact, and the comments beside them
+   * record occasions where somebody updated the surfaces they could see and left
+   * the others behind.
    * #3501: the fifth surface, the card memory badge (.membadge.unk), was removed,
    * so there are four callers now, not five.
    */
