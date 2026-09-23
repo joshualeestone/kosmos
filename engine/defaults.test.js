@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -119,6 +119,39 @@ test('missingFrom names what a file lacks, and a complete file lacks nothing', (
   assert.ok(!missing.some((s) => s.heading === '### Never wait silently'), 'a section the person carries was offered again');
   assert.ok(!missing.some((s) => s.heading === '## How you work, whatever the job'));
   assert.ok(missing.some((s) => s.heading === '### When you have been wrong'), 'an absent section was not offered');
+});
+
+/* #3444. Agents addressed the operator as "operator" instead of by name. The fix
+   is a NEW section (### Use their name), deliberately new rather than an edit
+   inside "How to write to them", because #539's missingFrom re-offers a section
+   to an EXISTING agent only when it lacks that HEADING -- an in-section edit
+   reaches only newly-created agents, and Josh's complaint is about the agents he
+   is already talking to. So the design's whole justification is delivery, and
+   the fingerprint test does not check it (it proves the text moved with the
+   version, not that the section reaches a legacy agent). Same shape as the
+   #1253 delivery test: content pin + legacy-delivery + a discriminating control. */
+test('#3444: the "use their name" section is present and delivered to a legacy agent that lacks it', () => {
+  const all = defaults.sections();
+  const owner = all.filter((s) => s.heading === '### Use their name');
+  assert.equal(owner.length, 1, 'the "Use their name" section is missing or duplicated');
+
+  /* CONTENT pin, not just the heading: the instruction itself must survive in the
+     composed block, so a future edit that drops the verb reds here. */
+  assert.match(defaults.block(), /call them by their name/,
+    'the "use their name" instruction is not present in the composed block');
+
+  /* DELIVERY: an agent holding every OTHER heading is still offered this one.
+     This is the mechanism the new-section design rests on. */
+  const legacy = all.filter((s) => s.heading !== '### Use their name')
+    .map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(defaults.missingFrom(legacy).some((s) => s.heading === '### Use their name'),
+    'a legacy agent is never offered "Use their name": an in-section edit would have healed none of the fleet');
+
+  /* CONTROL, or the assertion above is vacuous: an agent that already holds the
+     section must NOT be offered it, so a pass means missingFrom discriminated. */
+  const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === '### Use their name'),
+    'missingFrom offers "Use their name" to an agent that already has it, so it is not filtering by heading');
 });
 
 /**

@@ -3322,8 +3322,20 @@ function classify(pane, paneText) {
    * could not look" must never render as "nothing is happening". The
    * sentences are shared with the Claude path on purpose: a reason is about
    * the AGENT, never the runtime underneath it (codexsession.js's rule).
+   *
+   * 🛑 NOT A WIN32 PANE (#3446). This arm scrapes `paneText` as SCREEN TEXT for
+   * codex's on-screen markers. A Windows codex agent has NO screen: win32capture
+   * supplies its `busy`/`idle` STREAM-STATE token as `paneText` (exactly as it
+   * does for a Windows claude agent), and win32roster stamps every Windows row --
+   * codex included -- with command `claude.exe` (isWin32Pane). Before this guard,
+   * `pane.runner === 'codex'` sent a live, busy Windows codex agent HERE, where
+   * `busy` matched no screen marker and fell through to UNKNOWN ("gray / can't
+   * tell") until a manual self-report -- the whole of #3446. So a win32 pane is
+   * excluded here and handled by the win32 token arm below, whatever its runner.
+   * Mac-safe: a Mac codex pane's command is `codex`/`codex.exe`, never
+   * `claude.exe`, so isWin32Pane is false and this arm still owns it.
    */
-  if (pane.runner === 'codex' || isCodexCommand(pane.command)) {
+  if ((pane.runner === 'codex' || isCodexCommand(pane.command)) && !require('./win32roster').isWin32Pane(pane)) {
     if (paneText === null) {
       return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
     }
@@ -3349,9 +3361,17 @@ function classify(pane, paneText) {
    * A win32 agent (#570). It has no tmux pane to scrape; its scrape-equivalent is
    * `claude agents --json`'s per-session status, supplied by win32capture as the
    * `paneText` for a win32 pane (command === win32roster.WIN32_COMMAND, "claude.exe",
-   * a value tmux never emits on the Mac, so this arm is inert for every Mac/codex
-   * pane). Gets its own arm, like the codex arm above, because the runtime beneath
+   * a value tmux never emits on the Mac, so this arm is inert for every Mac pane).
+   * Gets its own arm, like the codex arm above, because the runtime beneath
    * it is different and its "screen" is a status token, not lines of text.
+   *
+   * 🔑 THIS ARM OWNS A WINDOWS CODEX AGENT TOO (#3446). win32roster stamps EVERY
+   * Windows row -- claude and codex alike -- with command "claude.exe", and
+   * win32capture supplies the same busy/idle stream-state token for both. The
+   * codex arm above is guarded with `!isWin32Pane`, so a Windows codex pane
+   * (runner "codex", command "claude.exe") reaches HERE and its token is read the
+   * same way a Windows claude agent's is, rather than being scraped for codex
+   * screen markers that a token never carries.
    *
    * The token comes from `claude agents --json` for an interactive session, and
    * from the agent's own event stream (engine/win32streamstate, #570 7c-5) for a
@@ -4885,6 +4905,7 @@ function readGrokContext(agentName, sess) {
  * status board follows.
  */
 const MODEL_NAMES = {
+  'claude-opus-5-5': 'Claude Opus 5.5', // #3459: added to the picker; name it here too so a running 5.5 agent is not shown its raw id
   'claude-opus-5': 'Claude Opus 5',
   'claude-sonnet-5': 'Claude Sonnet 5',
   'claude-fable-5': 'Claude Fable 5',

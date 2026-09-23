@@ -87,11 +87,15 @@ const chk = (ok, label, extra) => {
       r.disabledOpacity = getComputedStyle(say).opacity;
       say.disabled = false;
       /* The bubble renders the paragraph break: pjRich fast path keeps the literal
-         \n and .dm-b is white-space: pre-wrap, so a two-paragraph message is >1 line. */
-      const probe = document.createElement('div'); probe.className = 'dm mine';
-      probe.innerHTML = '<div class="dm-b">' + pjRich('Line one.\n\nLine three.') + '</div>';
-      document.body.appendChild(probe);
-      const dmb = probe.querySelector('.dm-b');
+         \n and .msg-bd is white-space: pre-wrap, so a two-paragraph message is >1 line.
+         (#3414: the DM bubble is now the room's `.msg`/`.msg-bd` markup.) */
+      const probe = document.createElement('div'); probe.className = 'msg you';
+      probe.innerHTML = '<div class="msg-b"><div class="msg-bd">' + pjRich('Line one.\n\nLine three.') + '</div></div>';
+      // #3414: probe INSIDE #d-dmthread, where real DM bubbles live -- the pre-wrap is
+      // scoped to `#d-dmthread .msg-bd` (the room's shared .msg-bd stays normal), so a probe
+      // appended to a bare document.body would read `normal` and mis-report a regression.
+      (document.getElementById('d-dmthread') || document.body).appendChild(probe);
+      const dmb = probe.querySelector('.msg-bd');
       const cs = getComputedStyle(dmb);
       r.dmbWhiteSpace = cs.whiteSpace;
       r.dmbKeepsNewline = dmb.innerHTML.indexOf('\n') !== -1;
@@ -107,7 +111,7 @@ const chk = (ok, label, extra) => {
     chk(out.grewHeight > out.oneLine + 5, 'the composer autosizes: a multi-line message grows the box', 'one=' + out.oneLine + ' grown=' + out.grewHeight);
     chk(out.afterResetHeight <= out.oneLine + 2, 'pjComposerReset returns the box to one line', 'one=' + out.oneLine + ' afterReset=' + out.afterResetHeight);
     chk(parseFloat(out.enabledOpacity) === 1 && Math.abs(parseFloat(out.disabledOpacity) - 0.5) < 0.05, 'a disabled composer stays dimmed (a closed box looks closed)', 'enabled=' + out.enabledOpacity + ' disabled=' + out.disabledOpacity);
-    chk(out.dmbWhiteSpace === 'pre-wrap', 'the message bubble .dm-b is white-space: pre-wrap', out.dmbWhiteSpace);
+    chk(out.dmbWhiteSpace === 'pre-wrap', 'the message bubble .msg-bd is white-space: pre-wrap', out.dmbWhiteSpace);
     chk(out.dmbKeepsNewline === true, 'pjRich keeps the literal newline for a plain multi-line message', String(out.dmbKeepsNewline));
     chk(out.dmbLines >= 3, 'a two-paragraph message renders as multiple lines in the bubble', 'lines=' + out.dmbLines);
     chk(errs.length === 0, 'no page errors', errs.join(' | '));

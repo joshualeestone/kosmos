@@ -62,8 +62,10 @@ function chk(ok, label, extra) {
   // A genuinely-OFFLINE agent for Part 7: a profile + worker folder + a plist (job)
   // but NO pane, which the server builds as state:'stopped' with session:null, i.e.
   // FOUND.NONE. Unlike 'nyx' (a login-shell pane = FOUND.OURS, which is why Parts
-  // 3-6 must MOCK /restart), 'ghost' lets Part 7 exercise the REAL /restart route
-  // and observe restartInner's honest FOUND.NONE refusal. (Recipe from
+  // 3-6 must MOCK /restart), 'ghost' lets Part 7 exercise the REAL /restart route.
+  // Post-#3418/#3429 restartInner BOOTSTRAPS the FOUND.NONE launchd job instead of
+  // refusing; in this dry-run sandbox the job never reports ready, so the honest
+  // "has not come back yet" line is shown (not the old refusal). (Recipe from
   // render-made-before.js: writeProfile + workerDir make a known offline row.)
   store.writeProfile('ghost', { displayName: 'Ghost' });
   fs.mkdirSync(create.workerDir('ghost'), { recursive: true });
@@ -275,12 +277,15 @@ function chk(ok, label, extra) {
     // ── Part 7: the REAL /restart route against a genuinely-offline agent
     // (FOUND.NONE). Parts 3-6 mock /restart because 'nyx' has a login-shell pane
     // (FOUND.OURS); this arm removes the mock and opens 'ghost' (profile + folder +
-    // plist, no pane -> session:null -> FOUND.NONE), so restartInner runs for real
-    // and REFUSES ("...is not running, so there is nothing to restart. It starts
-    // itself."). The button must surface that honest refusal, never a false
-    // "Started". This documents the current behaviour and the #3418 dependency: it
-    // will go red (agent actually starts) once #3418 makes FOUND.NONE bootstrap the
-    // launchd job, which is the correct signal to update this arm.
+    // plist, no pane -> session:null -> FOUND.NONE), so restartInner runs for real.
+    // #3418 (#3429) LANDED: FOUND.NONE now bootstraps the launchd job instead of
+    // refusing, so the real route no longer writes "could not start". In this
+    // sandbox live-execution is dry-run (launchctl does nothing), so the job never
+    // reports ready and the honest "has not come back yet" line is written, the
+    // same one Part 4's not-ready arm asserts. The button must surface that honest
+    // line, never a false "Started". (Before #3429 this arm expected the
+    // "...is not running, so there is nothing to restart" refusal; the prior
+    // comment here predicted this exact update the day #3418 shipped.)
     await page.unroute('**/api/agent/*/restart');   // let the real route run
     await page.evaluate(() => openDetail('ghost'));
     await page.waitForSelector('#panel-detail:not([hidden])');
@@ -293,20 +298,25 @@ function chk(ok, label, extra) {
     chk(!ghostShows.wrapHidden && ghostShows.btnHidden === false,
       'offline (FOUND.NONE) agent: the Start button shows', JSON.stringify(ghostShows));
     await page.click('#d-start-agent');
+    // Relies on Part 4 having shortened RESTART_READY_WINDOW_MS/POLL_MS to 800/60
+    // (line 193), so ghost's readiness wait times out inside this 8000ms window and
+    // the "has not come back" line is written. If a future edit restores the full
+    // window, this arm goes RED (the wait outlives 8s), which is honest, not a false
+    // green. Same inheritance Part 8 notes.
     await page.waitForFunction(() => {
       const m = document.getElementById('d-start-msg');
-      return m && /could not start/i.test(m.textContent);
+      return m && /has not come back/i.test(m.textContent);
     }, { timeout: 8000 }).catch(() => {});
     const ghostMsg = await page.evaluate(() => {
       const btn = document.getElementById('d-start-agent');
       const m = document.getElementById('d-start-msg');
       return { msg: m ? m.textContent.trim() : null, btnDisabled: btn ? btn.disabled : null };
     });
-    chk(!!ghostMsg.msg && /could not start/i.test(ghostMsg.msg),
-      'the REAL route’s FOUND.NONE refusal is surfaced honestly (not a false "Started")', ghostMsg.msg);
+    chk(!!ghostMsg.msg && /has not come back/i.test(ghostMsg.msg),
+      'the REAL FOUND.NONE route now bootstraps and surfaces the honest "has not come back" line (#3418/#3429, not a false "Started")', ghostMsg.msg);
     chk(!!ghostMsg.msg && !/Started /.test(ghostMsg.msg),
-      'and no false-success "Started X" line on the real refusal', ghostMsg.msg);
-    chk(ghostMsg.btnDisabled === false, 'the button re-enables after the real refusal', JSON.stringify(ghostMsg.btnDisabled));
+      'and no false-success "Started X" line on the real bootstrap attempt', ghostMsg.msg);
+    chk(ghostMsg.btnDisabled === false, 'the button re-enables after the real bootstrap attempt', JSON.stringify(ghostMsg.btnDisabled));
 
     // ── Part 8: the SUCCESS terminal state (the happy path). Mock /restart ->
     // restarted, and flip /api/status so nyx reports unready first (the gap) then

@@ -991,6 +991,21 @@ function armChat(answers, probe) {
   // The sends only, so an assertion about what was typed is not confused by the
   // read-only probe in front of it.
   calls.sends = () => calls.filter((args) => args[0] === 'send-keys');
+  /* #3419: the body is now PASTED (set-buffer -b <buf> -- <chunk> then paste-buffer),
+     with only the submit Enter left as a send-keys. `pastedMessages()` reassembles
+     the pasted chunks into one whole message per Enter so a text assertion reads the
+     delivered body. */
+  calls.pastedMessages = () => {
+    const out = [];
+    let cur = '';
+    let has = false;
+    for (const a of calls) {
+      if (a[0] === 'set-buffer') { cur += a[a.length - 1]; has = true; }
+      else if (a[0] === 'send-keys' && a[a.length - 1] === 'Enter' && has) { out.push(cur); cur = ''; has = false; }
+    }
+    if (has) out.push(cur);
+    return out;
+  };
   return calls;
 }
 const said = (out) => ({ ran: true, spawnFailed: false, status: 0, out: out || '', err: '' });
@@ -1439,10 +1454,10 @@ test('sending places the text into the agent’s own session, and says only that
        * it could not have failed whatever the set said. An unfalsifiable check
        * guarding a stale fact is worse than no check: it reads as coverage.
        */
+      // #3419: the text is PASTED, then a separate Enter submits it.
+      assert.equal(calls.pastedMessages()[0], 'have a look at the lease');
       const sends = calls.sends();
-      assert.equal(sends[0][0], 'send-keys');
-      assert.equal(sends[0][sends[0].length - 1], 'have a look at the lease');
-      assert.deepEqual(sends[1].slice(-1), ['Enter']);
+      assert.deepEqual(sends[0].slice(-1), ['Enter'], 'the only send-keys is the submit Enter');
       // And the pane was asked about itself first, read-only, before any keystroke.
       assert.equal(calls[0][0], 'display-message');
     });
@@ -1571,7 +1586,9 @@ test('sending is a WRITE, so another website cannot fire it', async () => {
       body: JSON.stringify({ text: 'do something regrettable' }),
     });
     assert.equal(res.status, 403, `a cross-site POST was answered ${res.status}, not refused`);
-    assert.equal(calls.sends().length, 2,
+    // #3419: exactly one message reached the keyboard — the control. The
+    // cross-site POST added none.
+    assert.equal(calls.pastedMessages().length, 1,
       'a cross-site request reached an agent’s keyboard (the control send is the only one expected)');
   });
 });
@@ -1666,7 +1683,9 @@ test('a send we could not confirm is NOT reported as a failure, or the person se
    * first one already answered.
    */
   await withThread(fleet.agent('zeta', { state: 'idle' }),
-    [said(), { ran: true, spawnFailed: false, status: 1, out: '', err: 'no current session' }],
+    // #3419: set-buffer OK, paste-buffer OK (text reached the composer), then the
+    // submit Enter fails — the "landed but not submitted" case.
+    [said(), said(), { ran: true, spawnFailed: false, status: 1, out: '', err: 'no current session' }],
     async ({ project }) => {
       const body = json(await post(`/api/project/${project.id}/thread/zeta`, { text: 'answer this' }));
       assert.equal(body.delivery.state, 'unconfirmed');
@@ -2297,8 +2316,8 @@ test('a numbered answer records the WORDS and keeps what was typed beside them',
     const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes, and don’t ask again' });
     assert.equal(res.status, 200);
     assert.equal(json(res).recorded, true);
-    // The DIGIT is what reached the pane: the prompt is waiting for it.
-    const typed = calls.sends().map((args) => args.join(' ')).join('\n');
+    // The DIGIT is what reached the pane: the prompt is waiting for it (#3419: pasted).
+    const typed = calls.pastedMessages().join('\n');
     assert.match(typed, /(^|\s)1(\s|$)/, 'the agent’s prompt is answered with the number it asked for');
 
     const body = json(await req('/api/agent/zeta/thread'));

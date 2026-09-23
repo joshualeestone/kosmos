@@ -87,8 +87,66 @@ Gradle 8.9's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
   own `~/.gradle/gradle.properties` or via `-Dorg.gradle.java.installations.paths=`.
   This is why the committed line is a per-box convenience, not a portable pin.
 
-Android CI is not wired today; when it is, the runner's JDK-21 provisioning is
-the piece to add.
+Android CI runs in `.github/workflows/android.yml`: on every push/PR touching
+`android/**` it provisions JDK 21 (via `actions/setup-java`, which sets the
+`JAVA_HOME` the daemon-JVM criteria auto-detect) and runs `:app:assembleDebug` as
+an always-on advisory gate. A conditional `:app:assembleRelease` step signs only
+when the upload-keystore secrets are present, and stays inert otherwise.
+
+## Release signing (upload keystore)
+
+`app/build.gradle` wires a **release** `signingConfig` to the Play **upload**
+keystore. No key material or password lives in git — the build reads them at build
+time from environment variables, and the keystore file itself lives under
+`~/.config/secrets/` (mode 600), filed via `/add-secret`, never committed (also
+covered by `android/.gitignore`'s `*.jks` / `*.keystore` / `*.p12` / `*.pfx` rules).
+
+The build reads four env vars: `KOSMOS_UPLOAD_KEYSTORE` (path to the keystore),
+`KOSMOS_UPLOAD_STORE_PASSWORD`, `KOSMOS_UPLOAD_KEY_PASSWORD`, and
+`KOSMOS_UPLOAD_KEY_ALIAS` (optional; defaults to `kosmos-upload`). **If
+`KOSMOS_UPLOAD_KEYSTORE` is unset the release build
+stays unsigned** rather than failing to configure, so a fresh clone or a CI runner
+without the keystore still builds; `assembleDebug` is never affected.
+
+**Set the keystore and both passwords together, or not at all.** If
+`KOSMOS_UPLOAD_KEYSTORE` is set but a password variable is missing (a partial env
+— e.g. you resolved the keystore path but forgot the `eval` of the signing
+credential), the release build **stays unsigned and prints a `WARN`** naming the
+missing variable, rather than signing with a null password and failing later with
+an opaque packaging error. So a release APK that came out unsigned when you meant
+to sign it means the env was incomplete — check the warning, resolve the
+`kosmos-android-upload-signing` credential, and rebuild.
+
+On this box the material is in the agent secrets map under two targets — resolve
+them straight into the environment (values never touch the command line):
+
+```
+# keystore path (file-path credential) + store/key passwords + alias (env credential)
+export KOSMOS_UPLOAD_KEYSTORE="$(secrets-map.sh path kosmos-android-upload-keystore)"
+eval "$(secrets-map.sh env kosmos-android-upload-signing)"
+./gradlew :app:assembleRelease          # produces a signed release APK
+```
+
+Verify the signature with `apksigner` from build-tools:
+
+```
+$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --print-certs \
+  app/build/outputs/apk/release/app-release.apk
+```
+
+**Provisioning elsewhere.** The keystore is intentionally not in the repo. On
+**another developer machine** provision it out-of-band and set the same four env
+vars this section uses (`KOSMOS_UPLOAD_KEYSTORE` as a file path, plus the two
+passwords and the alias). In **GitHub Actions CI** the shape differs, because a
+secret is text and cannot be a binary file path: `.github/workflows/android.yml`
+expects `KOSMOS_UPLOAD_KEYSTORE_BASE64` (the `.jks` base64-encoded),
+`KOSMOS_UPLOAD_STORE_PASSWORD`, `KOSMOS_UPLOAD_KEY_PASSWORD`, and
+`KOSMOS_UPLOAD_KEY_ALIAS` as repo secrets, and the workflow decodes the blob to a
+runner-local file and points `KOSMOS_UPLOAD_KEYSTORE` at it. Provisioning those
+secrets is a repo-admin decision and is not yet done. The upload key is `RSA-4096`,
+alias `kosmos-upload`, valid to 2054. With **Play App Signing** this upload key is
+resettable by Google if ever lost; it is the upload key, not the distributed
+app-signing key.
 
 ## Finishing the app (after the front-door origin is decided)
 

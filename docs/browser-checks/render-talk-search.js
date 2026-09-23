@@ -43,7 +43,7 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   });
   await page.evaluate(() => paintTalk('april', 'April'));
   await page.waitForTimeout(300);
-  const count = () => page.evaluate(() => document.querySelectorAll('#d-dmthread .dm').length);
+  const count = () => page.evaluate(() => document.querySelectorAll('#d-dmthread .msg').length);
   chk(await count() === 3, 'three rows before any search', String(await count()));
   chk(await page.evaluate(() => { const i = document.getElementById('d-talk-search'); const t = document.getElementById('d-dmthread'); return !!i && !!t && (i.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0; }), 'the search box sits above the thread');
 

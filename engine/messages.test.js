@@ -54,6 +54,30 @@ function fakeTmux(answers, opts) {
   };
   fn.calls = calls;
   fn.sends = () => calls.filter((args) => args[0] === 'send-keys');
+  /* #3419: the body is now PASTED (set-buffer -b <buf> -- <chunk> then paste-buffer)
+     instead of `send-keys -l -- <text>`; only the submit Enter is a send-keys now.
+     `pastedMessages()` reassembles the pasted chunks into one whole message per
+     submit Enter, so a `[0]`/`startsWith('[')`/regex assertion reads the delivered
+     text regardless of how many chunks it took. */
+  fn.pastedMessages = () => fn.pastedSends().map((s) => s.text);
+  /* Like pastedMessages, but also carries the TARGET pane each message was pasted
+     to (from the paste-buffer's `-t`, which the submit Enter is pinned to as well),
+     so a test can correlate a message's text with the pane it went to — the
+     assertion that used to read the send-keys arg's [5] (text) and [2] (target)
+     off one call. */
+  fn.pastedSends = () => {
+    const out = [];
+    let cur = '';
+    let target = null;
+    let has = false;
+    for (const a of calls) {
+      if (a[0] === 'set-buffer') { cur += a[a.length - 1]; has = true; }
+      else if (a[0] === 'paste-buffer') { target = a[a.length - 1]; }
+      else if (a[0] === 'send-keys' && a[a.length - 1] === 'Enter' && has) { out.push({ text: cur, target }); cur = ''; target = null; has = false; }
+    }
+    if (has) out.push({ text: cur, target });
+    return out;
+  };
   return fn;
 }
 
@@ -91,8 +115,8 @@ test('the sender is derived from the pane, and the delivered envelope names them
     assert.equal(sent.id, 'm1');
     const sends = tmux.sends();
     // ⚠️ The envelope IS the attribution: WHO before WHAT, on one line,
-    // typed to the exact-match-pinned target.
-    assert.equal(sends[0][5], '[message from your colleague leo · m1] have a look at the lease');
+    // pasted to the exact-match-pinned target (the submit Enter is pinned too).
+    assert.equal(tmux.pastedMessages()[0], '[message from your colleague leo · m1] have a look at the lease');
     assert.ok(sends[0][2].startsWith('=mara-discord:'), 'the message left for somewhere other than the addressed pane');
     // The log carries the five ruled fields (the screens draw from this).
     const logged = messages.list('leo');
@@ -191,7 +215,7 @@ test('in_reply_to must be one of our ids: a real one rides the envelope and the 
     tmux = arm([ok(), ok()]);
     const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'second', inReplyTo: 'm1' }, board.agents);
     assert.equal(reply.state, chat.DELIVERY.PLACED);
-    assert.match(tmux.sends()[0][5], /· answers m1\] second$/,
+    assert.match(tmux.pastedMessages()[0], /· answers m1\] second$/,
       'the recipient cannot see what this message responds to');
     assert.equal(messages.list('mara')[1].in_reply_to, 'm1');
 
@@ -254,7 +278,7 @@ test('a long body spills to a file and the pane gets the head and the path; the 
     const long = 'brief: ' + 'the lease detail '.repeat(80);
     const sent = messages.send({ fromPane: '%7', to: 'mara', text: long }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED);
-    const typed = tmux.sends()[0][5];
+    const typed = tmux.pastedMessages()[0];
     /* 🛑 NOT `typed.length < 400` (#1264). That bound embedded the length of this
        machine's temp path, because the pointer carries the spill file's absolute
        path and the sandboxed store root lives under `os.tmpdir()`. It had under
@@ -308,7 +332,7 @@ test('#1264: the pane line does not grow with the body, however long the body ge
         board.agents,
       );
       assert.equal(sent.state, chat.DELIVERY.PLACED, 'the send did not get as far as the pane');
-      return tmux.sends()[0][5];
+      return tmux.pastedMessages()[0];
     };
     /* 1.4 KB against 59 KB: a 43x difference in body, and both under MAX_BODY so
        neither is refused as a document. */
@@ -662,7 +686,7 @@ test('in_reply_to must name a real message in the sender\'s own conversation, no
     const own = messages.send({ fromPane: '%5', to: 'mara', text: 'following up', inReplyTo: 'm1' }, board.agents);
     assert.equal(own.state, chat.DELIVERY.PLACED,
       'a genuine reply to your own message got refused');
-    assert.match(tmux2.sends()[0][5], /· answers m1\] following up$/);
+    assert.match(tmux2.pastedMessages()[0], /· answers m1\] following up$/);
   });
 });
 
@@ -866,7 +890,7 @@ test('a post fans out to every member, mentioned as a request and the rest MARKE
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
     // deliver types two send-keys per recipient (the text, then the
     // submit); the envelopes are the ones carrying the bracket line.
-    const typed = tmux.sends().map((args) => args[5]).filter((t) => typeof t === 'string' && t.startsWith('['));
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.startsWith('['));
     assert.equal(typed.length, 2, 'a room of three fans out to the two others');
     // Selected on the MARKER, which is the property under test -- the
     // body text rides in both envelopes, so it selects nothing.
@@ -890,7 +914,7 @@ test('a post fans out to every member, mentioned as a request and the rest MARKE
  * forever. reply_expected:false makes an addressed arrival an acknowledgement: the envelope and
  * words are unchanged (still foreground), but the answer clause becomes "FYI, no reply requested"
  * and the intent is persisted. It is set only by the caller (--no-reply), never inferred from prose. */
-const addressedTo = (tmux, marker) => tmux.sends().map((a) => a[5])
+const addressedTo = (tmux, marker) => tmux.pastedMessages()
   .filter((t) => typeof t === 'string' && t.startsWith('['))
   .find((t) => t.startsWith(marker));
 
@@ -1039,7 +1063,7 @@ test('a post with no @ still produces an arrival in every member pane (the falsi
     const tmux = arm([]);
     const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'status: the draft is ready' }, board.agents, MEMBERS);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-    const typed = tmux.sends().map((args) => args[5]).filter((t) => typeof t === 'string' && t.startsWith('['));
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.startsWith('['));
     assert.equal(typed.length, 2);
     for (const t of typed) {
       assert.match(t, /^\[background from your colleague leo/, 'an unaddressed arrival lost its marking');
@@ -1337,7 +1361,7 @@ test('a room post is citable by in_reply_to from anyone who was in it, and from 
     const tmux = arm([]);
     const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'reading it now', inReplyTo: post.id }, board.agents);
     assert.equal(reply.state, chat.DELIVERY.PLACED, reply.because || '');
-    assert.match(tmux.sends()[0][5], new RegExp('· answers ' + post.id + '\\] '),
+    assert.match(tmux.pastedMessages()[0], new RegExp('· answers ' + post.id + '\\] '),
       'the citation did not ride the envelope');
     chat.resetForTests();
     armSender('outsider-discord');
@@ -1421,13 +1445,13 @@ test('mention boundaries: trailing punctuation still addresses, an email-shaped 
     // Counts alone could pass with the RECIPIENTS swapped (mara demoted
     // AND april promoted is also 1/1), so each envelope is pinned to the
     // pane it was typed at.
-    const typed = tmux.sends().filter((args) => typeof args[5] === 'string' && args[5].startsWith('['));
-    const addressed = typed.filter((args) => args[5].startsWith('[message from your colleague'));
-    const background = typed.filter((args) => args[5].startsWith('[background from your colleague'));
+    const typed = tmux.pastedSends().filter((s) => s.text.startsWith('['));
+    const addressed = typed.filter((s) => s.text.startsWith('[message from your colleague'));
+    const background = typed.filter((s) => s.text.startsWith('[background from your colleague'));
     assert.equal(addressed.length, 1, 'sentence-final punctuation demoted an addressed mention');
-    assert.ok(addressed[0][2].startsWith('=mara-discord:'), 'the addressed envelope went to the wrong member');
+    assert.ok(addressed[0].target.startsWith('=mara-discord:'), 'the addressed envelope went to the wrong member');
     assert.equal(background.length, 1, 'an email-shaped string promoted a remark to a request');
-    assert.ok(background[0][2].startsWith('=april-discord:'), 'the background envelope went to the wrong member');
+    assert.ok(background[0].target.startsWith('=april-discord:'), 'the background envelope went to the wrong member');
   });
 });
 
@@ -1438,14 +1462,14 @@ test('an operator post fans to every member with the operator markers, flagged o
     const tmux = arm([]);
     const sent = messages.sendPost({ operator: true, project: 'henderson-lease', text: '@leo status on the lease?' }, board.agents, MEMBERS);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-    const typed = tmux.sends().filter((a) => typeof a[5] === 'string' && a[5].startsWith('['));
+    const typed = tmux.pastedSends().filter((s) => s.text.startsWith('['));
     assert.equal(typed.length, 3, 'the operator post did not reach every member');
-    const addressed = typed.filter((a) => a[5].startsWith('[message from your operator ·'));
-    const roomwide = typed.filter((a) => a[5].startsWith('[from your operator in project henderson-lease ·'));
+    const addressed = typed.filter((s) => s.text.startsWith('[message from your operator ·'));
+    const roomwide = typed.filter((s) => s.text.startsWith('[from your operator in project henderson-lease ·'));
     assert.equal(addressed.length, 1);
-    assert.ok(addressed[0][2].startsWith('=leo-discord:'), 'the request went to someone other than the mentioned member');
+    assert.ok(addressed[0].target.startsWith('=leo-discord:'), 'the request went to someone other than the mentioned member');
     assert.equal(roomwide.length, 2, 'a member received an operator post without the room-wide marking');
-    assert.match(roomwide[0][5], /for the whole room · to answer, run: kosmos post henderson-lease\] /);
+    assert.match(roomwide[0].text, /for the whole room · to answer, run: kosmos post henderson-lease\] /);
     const row = messages.record().rows.find((m) => m.kind === 'post');
     assert.equal(row.operator, true, 'the row does not carry the operator flag the screens key on');
     assert.equal(row.from, 'you');
@@ -1757,7 +1781,7 @@ test('a member brought in later is told what the room said without them, and onl
     tmux = arm([]);
     const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@april are you there?' }, board.agents, ['leo', 'mara', 'april']);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-    const typed = tmux.sends().map((a) => a[5]).filter((t) => typeof t === 'string' && t.startsWith('['));
+    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.startsWith('['));
     const toApril = typed.find((t) => t.includes('message from your colleague'));
     const toMara = typed.find((t) => t.includes('background from your colleague'));
     assert.match(toApril, /This room has been talking without you: 2 earlier posts this hour did not reach you\. Read the room with: kosmos room saturday-plans\]$/,
@@ -1768,7 +1792,7 @@ test('a member brought in later is told what the room said without them, and onl
        catch-up, so the line cannot become furniture. */
     const tmux3 = arm([]);
     messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara same question' }, board.agents, ['leo', 'mara', 'april']);
-    const toMara3 = tmux3.sends().map((a) => a[5]).find((t) => typeof t === 'string' && t.startsWith('[message'));
+    const toMara3 = tmux3.pastedMessages().find((t) => typeof t === 'string' && t.startsWith('[message'));
     assert.doesNotMatch(toMara3, /talking without you/, 'a member who missed nothing was told she missed something');
   });
 });
@@ -1868,7 +1892,7 @@ test('#185: the nudge fires once per message, is recorded, and never repeats', (
       const first = messages.sweepUnanswered(board.agents);
       assert.equal(first.ok, true);
       assert.deepEqual(first.nudged.map((n) => n.to), ['mara'], 'the one addressed agent was not nudged exactly once');
-      const typedNudges = tmux.sends().map((a) => a[5]).filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
+      const typedNudges = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
       assert.equal(typedNudges.length, 1, 'the nudge line did not reach the pane exactly once');
       assert.match(typedNudges[0], /to answer, run: kosmos post henderson-lease/);
       /* The receipt is in the store; the second sweep is a no-op. */
@@ -1899,7 +1923,7 @@ test('#2442: sweepUnanswered does NOT nudge a removed agent, even for an ask pre
       const swept = messages.sweepUnanswered(board.agents);
       assert.equal(swept.ok, true);
       assert.ok(!swept.nudged.some((n) => n.to === 'mara'), 'a removed agent must not be nudged');
-      const maraNudges = tmux.sends().map((a) => a[5]).filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
+      const maraNudges = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
       assert.equal(maraNudges.length, 0, 'no nudge line was typed into the removed agent');
       assert.equal(messages.record().rows.filter((m) => m.kind === 'nudge' && m.to === 'mara').length, 0,
         'and no at-most-once nudge row was spent on the removed agent');
@@ -1928,11 +1952,15 @@ test('#185: the undelivered arm never becomes unanswered (a COULD_NOT is non-del
     fs.rmSync(messages.LOG, { force: true });
     messages.setUnansweredAfterForTests(0);
     try {
-      /* mara's pane refuses every send-keys; april's takes them. The
-         post logs with outcomes { mara: could_not, april: placed }. */
+      /* mara's pane refuses the paste (#3419: the body is delivered by
+         paste-buffer, not send-keys); april's takes it. A refused paste means
+         nothing reached mara's composer, so the post logs with outcomes
+         { mara: could_not, april: placed }. Matching paste-buffer AND send-keys
+         (both carry `-t =mara-discord:…`) refuses mara at whichever pane call
+         comes first — set-buffer has no target, so it is not the gate. */
       const inner = arm([]);
       chat.setRunner((args) => {
-        if (args[0] === 'send-keys' && args.some((a) => String(a).includes('mara-discord'))) {
+        if ((args[0] === 'paste-buffer' || args[0] === 'send-keys') && args.some((a) => String(a).includes('mara-discord'))) {
           return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no such pane' };
         }
         return inner(args);
@@ -1978,7 +2006,7 @@ test('#185: a thin roster (the paneRoster shape) never burns a pair\'s one nudge
       const second = messages.sweepUnanswered(board.agents);
       assert.deepEqual(second.nudged.map((n) => n.to), ['mara'],
         'the pair was silently spent by the thin sweep');
-      const typed = tmux.sends().map((a) => a[a.length - 1]).filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
+      const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
       assert.equal(typed.length, 1, 'the recovered nudge never reached the pane');
     } finally {
       messages.setUnansweredAfterForTests(null);

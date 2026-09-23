@@ -27,11 +27,12 @@ test('#2284 Claude models are in Josh\'s exact most-powerful-first order', () =>
   assert.deepEqual(claude, [
     'claude-fable-5-1',
     'claude-fable-5',
+    'claude-opus-5-5',
     'claude-opus-5',
     'claude-opus-4-8',
     'claude-sonnet-5',
     'claude-haiku-4-5-20251001',
-  ], 'Claude picker order: Fable 5.1, Fable 5, Opus 5, Opus 4.8, Sonnet, Haiku');
+  ], 'Claude picker order (#3459 added Opus 5.5): Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet, Haiku');
 });
 
 test('#2284 OpenAI sorts most-powerful-first: version descending, then tier (terra>soul>luna>pro>plain>mini>nano)', () => {

@@ -111,13 +111,13 @@
      theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
      bluish inset is that world's own language, out of scope). #3260: this is now
      ONE fixed color per theme -- the earlier per-message variation was removed. */
-  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
+  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble and the agent DM bubble so the two "agent message" surfaces cannot drift; #3414 then rebuilt the DM onto the room's markup, so both are now literally the same selector, .msg:not(.you) .msg-bd. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
-     the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
+     the two selectors that use it (.msg.you .msg-bd, .pj-msg) stay a single
      source and a future opacity change is one edit per theme, not four scattered
      rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
-  --usermsg-tint: #e8ebf5; /* #3267: SOLID (opaque), so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once -- that fix is ground-independent. This exact hex is the value Josh approved on the white render (2026-09-18). Derived as ~.10 royal blue baked over --k-bg: exact for the cream-ground consumers (.dm.mine .dm-b, .pj-msg) and within a few RGB of the room bubble's --k-surface ground (imperceptible in light). One opaque token cannot byte-match every ground it serves; the approved appearance is the anchor. */
+  --usermsg-tint: #e8ebf5; /* #3267: SOLID (opaque), so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once -- that fix is ground-independent. This exact hex is the value Josh approved on the white render (2026-09-18). Derived as ~.10 royal blue baked over --k-bg: exact for the cream-ground consumers (.msg.you .msg-bd, .pj-msg) and within a few RGB of the room bubble's --k-surface ground (imperceptible in light). One opaque token cannot byte-match every ground it serves; the approved appearance is the anchor. */
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings
@@ -1770,7 +1770,9 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    --gold-deep is a border/non-text color in this file (see .dbox .btn), ~3:1 as text. */
 .board-msgfilter-exit:hover { text-decoration-color: var(--k-ink); }
 .board-msgfilter-exit:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-body.filter-msgs .board-msgfilter-exit { display: inline-flex; }
+body.filter-msgs .board-msgfilter-exit,
+body.filter-attn .board-msgfilter-exit,
+body.filter-noproj .board-msgfilter-exit { display: inline-flex; }
 /* The filter: hide no-message agents in grid + list; DIM them in the org chart so the hierarchy
    (and its wires) stay intact -- keeping the tree is the UI-owner call for org, and it is reversible.
    Keyed on data-has-msgs, set at render from a finite a.dmUnread > 0. The marker is
@@ -1779,6 +1781,31 @@ body.filter-msgs .board-msgfilter-exit { display: inline-flex; }
 body.filter-msgs #grid .acard:not([data-has-msgs]),
 body.filter-msgs #alist .lrow:not([data-has-msgs]) { display: none; }
 body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
+/* #3423 (Josh 0.6.88): the Issue + No-project tiles are ALSO clickable filter
+   toggles, the same pattern as Messages above. Keyed on data-attn
+   (a.state==='needs_you', matching the Issue tile count c.needsYou) and data-noproj
+   (needs_you && no project, matching c.needsYouUnattributed). Only one board filter
+   is active at a time (the JS setBoardFilter enforces it); each hides non-matching
+   rows in grid+list and DIMS them in org so the tree stays intact. The gold
+   pressed/hover accent signals the active filter regardless of the tile's own red
+   alert colour, matching #st-dm-tile.
+   DELIBERATE DIVERGENCE (do not "fix"): a needs_trust card wears the visual .attn
+   class (cardStOf folds needs_trust into attn, so it reads red) but is NOT marked
+   data-attn, because the Issue count c.needsYou keys on state==='needs_you' only.
+   The filter must match its chip count, so needs_trust is excluded from it; adding
+   it here would show more cards than the "Issue" chip claims. render-chip-filters-3423.js
+   pins this with a needs_trust arm, so a future refactor that merges the two sets fails. */
+#st-attn-tile, #st-attn-noproj-tile { cursor: pointer; }
+#st-attn-tile:hover, #st-attn-noproj-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
+#st-attn-tile:focus-visible, #st-attn-noproj-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+#st-attn-tile[aria-pressed="true"], #st-attn-noproj-tile[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
+#st-attn-tile[aria-pressed="true"] .slab, #st-attn-noproj-tile[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
+body.filter-attn #grid .acard:not([data-attn]),
+body.filter-attn #alist .lrow:not([data-attn]) { display: none; }
+body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
+body.filter-noproj #grid .acard:not([data-noproj]),
+body.filter-noproj #alist .lrow:not([data-noproj]) { display: none; }
+body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .stat.alert { border-color: rgba(179,38,30,.45); }
 /* The pack's status glyph family, shared by the tiles, the pills, and the
    list rows. The hazard is a TRIANGLE because shape is the carrier and
@@ -2219,6 +2246,23 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
    create steps) keeps its outline. The surface fill still distinguishes the panel from the page
    ground, so removing the border leaves a clean filled panel rather than an invisible one. */
 #d-talk-box { border: 0; }
+/* #3414 (Josh, 2026-09-22): the agent DM reuses the project consolidated-view conversation
+   look -- an edge-to-edge conversation area filling the panel top-to-bottom, no card
+   radius, with the header on the left ("Direct Message to <agent>" in the project-name font)
+   and the shrunk "Search" on the right. Padding keeps content off the literal edge (his own
+   caveat). The ground colour (pure white on light, pure black on dark) is set by the
+   #3414-followup rule below. */
+/* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA ground is pure white on light and
+   pure black on dark (dark override below), scoped to #d-talk-box only, not the whole
+   detail panel, matching the mock. This replaces the theme off-white --k-bg (#faf9f7 /
+   #0c0d0f) that read as "no colour" against the surrounding surface. */
+/* background restated here (it matches .dbox above) as the light half of the box's base +
+   dark-#000 ground pair, so the pair reads together; border-radius:0 overrides .dbox's 16px. */
+#d-talk-box { background: var(--k-surface); border-radius: 0; }
+#d-talk-label { font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; text-transform: none;
+                color: var(--k-ink); margin: 0; line-height: 1.2; }
+/* .d-talk-caprow layout, center-alignment and the #d-talk-label flex live with the
+   #2622 rule below, one place, so the two declarations cannot drift (Convention #5). */
 .dlab { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
         /* 600, the pack's weight (#179, ruled there): a box label at 700
            competes with the headings above it. */
@@ -4623,7 +4667,7 @@ body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #
    thread joins it as one flat white area. Consolidated keeps its own thread
    fill (background:none).
    Note: Josh's rationale was that a white dialog helps the blue own-message
-   tint stand out. That --usermsg-tint lives on the agent-DM thread (.dm.mine)
+   tint stand out. That --usermsg-tint lives on the agent-DM thread (.msg.you)
    and the "Talk to one of them" panel (.pj-msg), NOT on #pj-room, whose posts
    render plain (.msg). So in the room this is a cleaner-surface change, not a
    blue-contrast one; flagged for him on the card. */
@@ -4814,7 +4858,11 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    left; the rule that clamped the title when closed becomes unconditional here,
    keeping the header compact as it has always looked. A long name elides rather
    than reflowing the header row. */
-.pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* #3438 (Josh, 2026-09-22): the title inherits a line-box shorter than its 1.25rem
+   glyphs, so `overflow: hidden` (kept for the one-line width ellipsis) clipped the
+   descenders (the "g" in "Sourcing"). Same fix as #3415 on the agent name: a
+   proportional line-height that clears descenders, unitless so it tracks the size. */
+.pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
@@ -4936,14 +4984,22 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg.you .msg-b { margin-left: calc(34px + 14px); }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
    (.msg.you) wears the royal-blue --usermsg-tint; an agent's wears the light-gray
-   --k-sunk -- the SAME two tokens the DM bubble already uses (.dm.mine / .dm.theirs),
+   --k-sunk -- the SAME two tokens the DM bubble already uses (.msg.you / .msg:not(.you)),
    both theme-defined (per-theme beside --k-sunk), so ONE rule each covers light and
    dark and the two surfaces cannot drift on the color. Only .msg-bd (the wrapped
    body: text + preview + attachments; the name/time header and the reaction row live
-   OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.dm-b). Padding
+   OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.msg-bd). Padding
    and radius match the DM bubble. A bodyless row draws no .msg-bd at all (pjMsg emits
    the wrapper only for non-empty body content), so there is no empty tinted box. */
 .msg-bd { padding: 8px 12px; border-radius: 12px; max-width: 78ch; }
+/* #3414: the DM now reuses .msg-bd, but the old DM bubble (.dm-b) carried
+   `white-space: pre-wrap; overflow-wrap: anywhere` (see the .dm-b rule) and .msg-bd does
+   not. The DM body comes through pjRich(pjWords), which KEEPS literal newlines, so without
+   pre-wrap a multi-line DM collapses to one line (regression caught by
+   render-dm-multiline-3208 / render-talk). Scope it to the DM thread only: the ROOM's
+   .msg-bd renders paragraphs via pjProse <p> blocks (no literal \n), so it needs none and
+   is left untouched. */
+#d-dmthread .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
@@ -5012,6 +5068,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* the thread-ground mask carving the wing's outer edge into the curve */
 .msg:not(.you) .msg-bd::after { left: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-right-radius: 12px 16px; z-index: -1; }
 .msg.you .msg-bd::after { right: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-left-radius: 12px 16px; z-index: -1; }
+/* #3414-followup (Josh 2026-09-23): the DM bubble-tail ground-mask follows the #d-talk-box
+   ground so no sliver of a different ground shows at each bubble's tail. Base var(--k-surface)
+   (#ffffff on light), and the dark override below sets the box and this mask to #000 together.
+   This #d-dmthread rule's ID specificity beats the room mask above and its dark #000 override. */
+#d-dmthread .msg-bd::after { background: var(--k-surface); }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
    mask must stay the pure thread ground or it would stop carving. */
@@ -5041,6 +5102,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    either to go straight to that agent. No underline, no link look (Josh's rule), just
    a pointer cursor on hover. The person's OWN avatar (.msg-av.mine) is not a target. */
 .msg-nm, .msg:not(.you) .msg-av { cursor: pointer; }
+/* #3414: in the agent DM (#d-dmthread) the name/avatar are NOT click targets (see dmRow),
+   so keep the plain cursor there; the pointer above is for the room's data-open-agent. */
+#d-dmthread .msg-nm, #d-dmthread .msg:not(.you) .msg-av { cursor: default; }
 /* #3130 (Josh 6.68): the #1703 `.msg-role` agent-title span is no longer rendered
    in the dialog (removed in pjRoomRow), so its CSS rule is removed with it. The
    member roster's own title styling (pj-member-role) is unaffected. */
@@ -5059,8 +5123,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    left, the search is constrained (not full-width) and sits on the caption's baseline;
    in .dsec (a flex column) the standalone search would otherwise stretch to full width.
    On a phone the row wraps so the search drops below rather than squishing. */
-.d-talk-caprow { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; }
-.d-talk-caprow #d-talk-hint { flex: 1 1 auto; min-width: 0; }
+.d-talk-caprow { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
+.d-talk-caprow > #d-talk-label { flex: 1 1 auto; min-width: 0; }
 .d-talk-caprow #d-talk-search-wrap { flex: 0 1 min(260px, 40%); align-self: center; }
 @media (max-width: 480px) {
   .d-talk-caprow { flex-wrap: wrap; }
@@ -5102,6 +5166,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox, :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
   :root:not([data-theme="light"]) body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root:not([data-theme="light"]) body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
+  /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
+     bubble-tail ground-mask together, mirroring the room's #000 thread ground above. */
+  :root:not([data-theme="light"]) body:not(.plus-active) #d-talk-box, :root:not([data-theme="light"]) body:not(.plus-active) #d-dmthread .msg-bd::after { background: #000000; }
 }
 @media (min-width: 960px) {
   @media (prefers-color-scheme: dark) {
@@ -5200,6 +5267,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    silently resolved either way. */
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
   max-height: 15rem; overflow-y: auto; padding-right: 4px; }
+/* 🛑 #3414 ORPHANED, PENDING A FOCUSED CLEANUP: dmRow now emits the room's `.msg`
+   markup, so the `.dm` / `.dm.mine` / `.dm.theirs` / `.dm-b` / `.dm-w` RULES below
+   match nothing rendered any more. They are inert (dead selectors have no effect),
+   and several `.dm-b` selectors are shared lists whose LIVE siblings
+   (`.msg-b`, `.pj-msg-text`, `.tkdetail`) must stay, so the removal is a separate
+   surgical pass rather than a block delete. Tracked for a fast-follow. */
 .dm { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 .dm.mine { align-items: flex-end; }
 /* ⚠️ THIS BRANCH IS THE PRODUCER THE NOTE BELOW SAID DID NOT EXIST, and the note
@@ -5420,10 +5493,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-member-role { display: block; color: var(--label-3); opacity: .9; }
 
 /* ⚠️ AN EMPTY RECEIPT TAKES NO ROOM. #3134-followup (Josh 6.72) removed the inline
-   `.delivery` receipt from the ROOM entirely, so this no longer governs any room path.
-   It still applies to the DM view, which renders `<span class="delivery ...">` from a
-   possibly-empty `v.said`: an empty inline element would still carry the rule's margin
-   and line box, a stray gap under a post, so an empty receipt collapses to nothing. */
+   `.delivery` receipt from the ROOM, and #3414 made the DM (dmRow) OMIT the `.delivery`
+   span when `v.said` is empty rather than render an empty one. So no path emits an empty
+   receipt any more; this rule is now a cheap defensive no-op against a future one, kept
+   rather than a live dependency. */
 .delivery:empty { display: none; }
 
 /* ⚠️ THE GAP LIVED ON THE PER-AGENT WRAPPER, which the grouped line removed —
@@ -5725,7 +5798,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   :root:not([data-theme="light"]) .msg-av { background: rgba(245,245,244,.10); }
   /* #2660: the user-message tint does NOT need a per-selector dark rule here --
      it rides the `--usermsg-tint` token, which is redefined 15% in every dark
-     token block (like --k-sunk), so `.dm.mine .dm-b` / `.pj-msg` flip on their
+     token block (like --k-sunk), so `.msg.you .msg-bd` / `.pj-msg` flip on their
      own. No forced-dark twin is generated for them either. */
 }
 /* ⚠️ `display: block` on all three, and it is not cosmetic. These are
@@ -7997,6 +8070,9 @@ html:not([data-fed-ui="signup"]) #pj-plus-signup { display: none !important; }
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox, :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
 :root[data-theme="dark"] body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root[data-theme="dark"] body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
+/* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
+     bubble-tail ground-mask together, mirroring the room's #000 thread ground above. */
+:root[data-theme="dark"] body:not(.plus-active) #d-talk-box, :root[data-theme="dark"] body:not(.plus-active) #d-dmthread .msg-bd::after { background: #000000; }
 
 @media (min-width: 960px) {
 :root[data-theme="dark"] body.consolidated:not(.plus-active) .pj3 > .pjmid { background: #000000; }
@@ -8707,18 +8783,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        shipped sentence naming an agent would be a claim about whichever agent
        happens to be open. -->
   <section class="dbox" id="d-talk-box" tabindex="-1">
-    <h3 class="dlab" id="d-talk-label"></h3>
-    <!-- #2622 (Josh product-review): the caption and the search sit on ONE row so the
-         search is not a full-width row of its own ("put it on the same baseline as
-         'Just between you and X'"). The search still filters the thread below; every id
-         is unchanged so the filter JS is untouched. -->
+    <!-- #3414: the header row is "Direct Message to <agent>" in the project-name font on
+         the LEFT and the shrunk "Search" on the RIGHT, one row. The old "Just between you
+         and <agent>. Nothing here belongs to a project." hint is gone: nothing here
+         belongs to a project, so it says nothing. #d-talk-label + the search ids are
+         unchanged so the label-setter and the filter JS are untouched. -->
     <div class="d-talk-caprow">
-      <p class="dhint" id="d-talk-hint" style="margin:0;"></p>
+      <h3 id="d-talk-label"></h3>
       <div class="tsearch" id="d-talk-search-wrap">
         <span class="tsearch-i" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         </span>
-        <input type="search" id="d-talk-search" placeholder="Search this conversation" aria-label="Search this conversation">
+        <input type="search" id="d-talk-search" placeholder="Search" aria-label="Search this conversation">
       </div>
     </div>
     <div class="qask" id="d-qask" hidden>
@@ -8810,8 +8886,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            this box exists for. The room's own box carries a static label for
            the same reason. -->
       <textarea class="cinput" id="d-say" rows="1" maxlength="2000"
-             aria-label="Type a message for this agent" placeholder="Message this agent&hellip;"></textarea>
-            <button class="btn uprime cpost" id="d-send" type="button">Send</button>
+             aria-label="Type a message for this agent" placeholder="Write something&hellip;"></textarea>
+            <button class="btn uprime cpost" id="d-send" type="button">Post</button>
     </div>
     <!-- The attached-but-unsent files (#358, Josh 1:59 PM: "it just instantly
          uploads it... I don't get to write a caption", then "multiple pictures
@@ -10794,7 +10870,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
                 <!-- #3386 (Josh, 2026-09-21): Grok shown up front as coming soon, grouped with
                      Gemini (the other connectable-but-not-yet cloud provider) before the on-your-
                      computer tier. xAI has no vendor SVG here, so it uses the same "X" initial-letter
@@ -14062,7 +14138,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          two places, the could-not-read sentence under this row and each
          stopped agent's own card and list row. So Working plus Idle no
          longer sums to Agents when something is stopped, on purpose. -->
-    <div class="stat alert" id="st-attn-tile" hidden>
+    <div class="stat alert" id="st-attn-tile" hidden role="button" tabindex="0" aria-pressed="false" title="Show only agents that need you">
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn" data-count="attn">0</b><span class="slab">Issue</span>
     </div>
@@ -14077,7 +14153,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          there is an omission to catch. The count is `counts.needsYouUnattributed`
          from /api/status (engine/status.js countAgents), the fleet subset the
          per-project engine/projects.js `needsYouUnattributed` mirrors. -->
-    <div class="stat alert" id="st-attn-noproj-tile" hidden title="Agents that need you but named no project">
+    <div class="stat alert" id="st-attn-noproj-tile" hidden role="button" tabindex="0" aria-pressed="false" title="Show only agents that need you and named no project">
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn-noproj" data-count="attn-noproj">0</b><span class="slab">No project</span>
     </div>
@@ -14111,8 +14187,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.6"/><circle cx="2.4" cy="3.2" r="1.5"/><circle cx="13.6" cy="3.6" r="1.5"/><circle cx="12.8" cy="13" r="1.5"/><path d="M6.1 6.4 3.6 4.3M9.9 6.5l2.5-2M9.6 9.7l2.3 2.2"/></svg>
     </button>
   </div>
-  <!-- messages-filter: the exit affordance, shown only while the Messages filter is on (CSS keys
-       on body.filter-msgs). Josh's words: a "View all agents" text link. Clicking it clears the filter. -->
+  <!-- the exit affordance, shown while ANY board filter is on (CSS keys on
+       body.filter-msgs, filter-attn or filter-noproj). Josh's words: a "View all agents"
+       text link. Clicking it clears whichever board filter is active. -->
   <button class="board-msgfilter-exit" type="button">View all agents</button>
 </div>
 <!-- The residual honesty line: the tiles carry total/working/idle/attn;
@@ -15702,7 +15779,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15717,7 +15794,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -15781,7 +15858,7 @@ function card(a) {
     : (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15919,7 +15996,7 @@ function lrow(a) {
       const tav = a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15932,7 +16009,7 @@ function lrow(a) {
     const off = a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -15991,7 +16068,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -17660,6 +17737,9 @@ async function tick() {
        and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
+    /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
+       (same auto-exit the Messages filter does at dmTotal <= 0). */
+    if (!c.needsYou && document.body && boardFilterActive() === 'attn') setBoardFilter(null);
     /* #1898: the no-project subset of "Issue". Same hide-at-zero grammar as
        its parent tile above, so it appears only when an agent needs you AND named
        no project -- the case that lights no project tile and is otherwise caught
@@ -17667,6 +17747,8 @@ async function tick() {
        /api/status counts alongside `needsYou`. */
     document.getElementById('st-attn-noproj').textContent = String(c.needsYouUnattributed || 0);
     document.getElementById('st-attn-noproj-tile').hidden = !c.needsYouUnattributed;
+    /* #3423: same auto-exit for the No-project filter. */
+    if (!c.needsYouUnattributed && document.body && boardFilterActive() === 'noproj') setBoardFilter(null);
     /* #2863: the unread-DM tally, summed client-side from the fleet (a.dmUnread)
        exactly as Working/Idle are counted from data.agents rather than trusting a
        second server derivation. A null dmUnread (unknown, mirroring p.unread null)
@@ -17932,6 +18014,10 @@ async function tick() {
     // messages-filter: the Messages tile is withdrawn (status unknowable), so exit the filter too.
     // Guard the body read: tick() is unit-tested with a body-less document; real DOM has a body.
     if (document.body && document.body.classList.contains('filter-msgs')) setMsgFilter(false);
+    /* #3423: same for the Issue / No-project filters -- the status is unknowable this
+       tick, so exit whichever board filter is on rather than filtering against a
+       withdrawn count. */
+    if (document.body) { const bf = boardFilterActive(); if (bf === 'attn' || bf === 'noproj') setBoardFilter(null); }
     /* #3216: /api/status failed, so both nav-tab counts are unknowable this tick -- withdraw
        them (hide) exactly as the tiles do, rather than leaving a stale count asserting something
        this failed read cannot stand behind. null is the "unknown" input (per setNavBadge's
@@ -23120,6 +23206,13 @@ function paintOrg() {
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
     nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"' + (Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : '')
+      /* #3423: the chip-filter markers, keyed on the SERVER state to match the
+         "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
+         exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
+         in needs_trust and splits off agent questions, so it would not match the
+         count). Kept inline/self-contained like data-has-msgs. */
+      + (a && a.state === 'needs_you' ? ' data-attn' : '')
+      + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
          own aria-label (the accessible name comes from the attribute alone, not
@@ -23452,22 +23545,48 @@ for (const box of document.querySelectorAll('.viewtoggle')) {
    rows in grid/list and dims them in the org chart (keeping the tree). Not persisted: the filter
    is a transient view state, cleared on reload, and auto-cleared when the Messages tile hides
    because the fleet has no unread messages left (see the dmTotal poll). */
+/* #3423: the three board filters (Messages, Issue, No project) are MUTUALLY
+   EXCLUSIVE toggles. setBoardFilter is the single source of truth: it clears every
+   filter class and resets all three tiles' aria-pressed, then applies the one
+   requested facet (or none). Only one filter can be on at a time by construction. */
+const BOARD_FILTERS = {
+  msgs:   { cls: 'filter-msgs',   tile: 'st-dm-tile' },
+  attn:   { cls: 'filter-attn',   tile: 'st-attn-tile' },
+  noproj: { cls: 'filter-noproj', tile: 'st-attn-noproj-tile' },
+};
+function boardFilterActive() {
+  for (const key of Object.keys(BOARD_FILTERS)) {
+    if (document.body.classList.contains(BOARD_FILTERS[key].cls)) return key;
+  }
+  return null;
+}
+function setBoardFilter(facet) {
+  for (const key of Object.keys(BOARD_FILTERS)) {
+    const on = key === facet;
+    document.body.classList.toggle(BOARD_FILTERS[key].cls, on);
+    const tile = document.getElementById(BOARD_FILTERS[key].tile);
+    if (tile) tile.setAttribute('aria-pressed', String(on));
+  }
+}
+/* Kept as a thin wrapper so the existing message auto-exit callers (dmTotal <= 0,
+   and the status-unreadable path) are unchanged: turning messages OFF clears the
+   board filter only when messages is the one currently on, never a sibling. */
 function setMsgFilter(on) {
-  document.body.classList.toggle('filter-msgs', on);
-  const tile = document.getElementById('st-dm-tile');
-  if (tile) tile.setAttribute('aria-pressed', String(on));
+  if (on) { setBoardFilter('msgs'); return; }
+  if (boardFilterActive() === 'msgs') setBoardFilter(null);
 }
 (() => {
-  const tile = document.getElementById('st-dm-tile');
-  const toggle = () => setMsgFilter(!document.body.classList.contains('filter-msgs'));
-  if (tile) {
+  for (const key of Object.keys(BOARD_FILTERS)) {
+    const tile = document.getElementById(BOARD_FILTERS[key].tile);
+    if (!tile) continue;
+    const toggle = () => setBoardFilter(boardFilterActive() === key ? null : key);
     tile.addEventListener('click', toggle);
     tile.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); toggle(); }
     });
   }
   const exit = document.querySelector('.board-msgfilter-exit');
-  if (exit) exit.addEventListener('click', () => setMsgFilter(false));
+  if (exit) exit.addEventListener('click', () => setBoardFilter(null));
 })();
 
 // Re-apply the saved choice on boot. An unreadable store, or a value that is
@@ -24875,9 +24994,30 @@ function dmRow(m, name) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
+  const whenStr = esc(pjWhen(m.at) || '');
   if (m && m.from) {
-    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
-      + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
+    /* #3414: the agent's row now IS the room's `.msg` bubble -- gray ground, avatar to
+       the left, the agent name bold INSIDE the bubble at the top, and the timestamp
+       INSIDE at the bottom-right, so the DM and the project conversation are one look.
+       The avatar mirrors pjRoomRow: the agent's photo when the tied card carries one
+       (looked up in LAST by `from`, the way the room looks it up in p.agents), else the
+       shared initials disc. LAST is `typeof`-guarded so the lifted dmRow tests (which run
+       without a LAST) fall back to the disc rather than throwing. */
+    const card = (typeof LAST !== 'undefined' && Array.isArray(LAST))
+      ? LAST.find((x) => x && x.sessionName === m.from) : null;
+    /* No data-open-agent here (unlike pjRoomRow): the [data-open-agent] click handler is
+       bound to #pj-room only, and this DM already lives inside m.from's own detail panel,
+       so opening the agent from here would re-open the current view. The name/avatar are
+       therefore not click targets, and the DM-scoped cursor rule below keeps them plain. */
+    const av = (card && card.hasAvatar)
+      ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
+      : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
+    return '<div class="msg" data-mid="' + midOf(m) + '">' + av
+      + '<div class="msg-b"><div class="msg-bd">'
+      + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
+      + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+      + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
+      + '</div></div></div>';
   }
   const v = pjVerdict(m, name);
   /* ⚠️ WHAT WAS TYPED, when it is not what the bubble shows. A numbered answer
@@ -24920,13 +25060,23 @@ function dmRow(m, name) {
      is a design question about how a long verdict should look, which is Mona
      Lisa's, and the alignment check cannot see it -- it reads `text-align`.
      Flagged rather than quietly left. */
-  /* ⚠️ THE TIME SITS ON THE ROW, exactly where the `theirs` row above already
-     puts it, and no longer inside the verdict. The verdict is silent on an
-     ordinary success now, and a timestamp that lived inside it would have gone
-     silent with it -- on every message that worked. */
-  return '<div class="dm mine" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
-    + '<span class="dm-w">You' + v.when + wire + ' '
-    + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
+  /* #3414: the person's own row is the room's `.msg.you` bubble -- blue ground, on the
+     right, the user avatar to its right. No name (the operator's standing #3130 rule).
+     The timestamp sits INSIDE the bubble bottom-right like the agent row and the room;
+     the delivery verdict, when it speaks, follows it on the same line. The verdict stays
+     silent on an ordinary success, so a message that worked shows only its time and
+     matches the room; it speaks only on a real failure. */
+  /* Matches pjRoomRow: the photo case is a plain .msg-av (the img fills it); only the
+     no-photo case wears .mine, whose --k-ink background/ink is what the disc needs. */
+  const youAv = YOU_PIC
+    ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+    : '<div class="msg-av mine" aria-hidden="true"></div>';
+  return '<div class="msg you" data-mid="' + midOf(m) + '">' + youAv
+    + '<div class="msg-b"><div class="msg-bd">'
+    + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+    + '<span class="msg-t">' + whenStr + wire
+    + (v.said ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
+    + '</span></div></div></div>';
 }
 
 
@@ -25093,9 +25243,10 @@ async function paintTalk(sessionName, agentName) {
    * wrong.
    */
   const name = agentName || sessionName;
-  document.getElementById('d-talk-label').textContent = 'Talk to ' + name;
-  document.getElementById('d-talk-hint').textContent =
-    'Just between you and ' + name + '. Nothing here belongs to a project.';
+  document.getElementById('d-talk-label').textContent = 'Direct Message to ' + name;
+  /* #3414: the "Just between you and <name>. Nothing here belongs to a project." hint is
+     gone -- nothing here belongs to a project, so it says nothing. The element was removed
+     from the markup, so nothing sets it. */
   /* ⚠️ WRITTEN WITH THE LABEL, not on the fetch's success path: whether a line
      names the right agent does not depend on the fetch, and one set on the
      success path carries the PREVIOUS agent's name on a borrowed-name pane,
@@ -25119,7 +25270,7 @@ async function paintTalk(sessionName, agentName) {
      caveat — see the send verdict. */
   const say = document.getElementById('d-say');
   say.setAttribute('aria-label', 'A message for ' + name);
-  say.placeholder = 'Message ' + name + '…';
+  say.placeholder = 'Write something…';
   let body;
   // 404 is the route's standing refusal (a pane holding this name untied), not
   // a read that failed this second. The sentence below branches on it.
@@ -25667,7 +25818,7 @@ async function paintTalk(sessionName, agentName) {
      the same thing twice in the same glance. */
   say.placeholder = say.disabled
     ? name + ' cannot be reached right now'
-    : 'Message ' + name + '\u2026';
+    : 'Write something\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
   /* #967: the Terminal tab's respond-in-context box shares this one presence
      read, so it gates identically to the composer above rather than computing
