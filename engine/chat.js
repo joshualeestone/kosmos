@@ -1847,16 +1847,34 @@ function lockedBecause() {
  * the question is already shown. Returns the input array unchanged when there is
  * no question, so a non-asking poll is untouched.
  *
- * `at` is passed in (not read from the clock here) so the function stays pure and
- * testable; the route stamps it with the current time.
+ * ⚠️ STABLE `id`, NO `at` — because a needs_you question is a STANDING STATE, not
+ * a dated event, and the board keeps no "since" timestamp for it (status.js
+ * classifies fresh each tick). A per-poll clock `at` would (1) churn `dmRow`'s
+ * repaint key `midOf = id || at` every ~5s, breaking the #1926 anchor for a
+ * reader on the question, and (2) re-advance the `DM_SPOKE_AT` "just spoke"
+ * heuristic each poll while the agent is actually WAITING. Both are avoided at the
+ * source: a fixed `id` (`needs-you-question:<agent>`; stored messages carry no
+ * `id`, so `midOf` uses it with no collision) keeps the repaint key stable and
+ * lets the bubble update its text in place when the question changes, and `at:
+ * null` makes the `DM_SPOKE_AT` loop skip the row (it guards `!m.at`) and
+ * `pjWhen(null)` render no timestamp — correct for a live standing question. So
+ * this needs no `ROOM_NOT_SPEECH` change on the UI side.
+ *
+ * DEDUP: only the TRAILING real row is compared (the common "the agent typed its
+ * own question" case). A same-text question sitting further back with a newer real
+ * row after it is NOT deduped — a rare transient double that clears when the
+ * needs_you state clears, and the feature co-lands with the banner removal, so it
+ * is not worth a full-thread scan that could over-suppress a legitimately repeated
+ * question.
  */
-function withQuestionRow(messages, agentName, question, at) {
+function withQuestionRow(messages, agentName, question) {
   const list = Array.isArray(messages) ? messages : [];
   if (!question || typeof question.text !== 'string' || !question.text) return list;
   const last = list.length ? list[list.length - 1] : null;
   if (last && typeof last.text === 'string' && last.text === question.text) return list;
   return list.concat([{
-    at: at || null,
+    id: 'needs-you-question:' + String(agentName),
+    at: null,
     text: question.text,
     from: String(agentName),
     delivery: null,

@@ -10797,7 +10797,7 @@ const server = http.createServer((req, res) => {
        removal and this injection compose in either order; a follow-up drops the
        then-unused banner-only fields. Not persisted: derived live each poll from
        the same `question` the banner uses, deduped against a trailing real row. */
-    const servedMessages = chat.withQuestionRow(messages, name, question, new Date().toISOString());
+    const servedMessages = chat.withQuestionRow(messages, name, question);
     sendJson(res, 200, {
       messages: withPreviews(servedMessages),
       olderCount,

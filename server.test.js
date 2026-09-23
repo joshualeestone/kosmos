@@ -9793,6 +9793,52 @@ test('the reply route writes as the pane’s agent, whatever the body claims', a
   }
 });
 
+test('#3419 a needs_you agent’s thread payload carries its question as a message row', async () => {
+  // The engine half of #3419: the agent's question shows AS A MESSAGE in the
+  // dialog, not only via the interruptive "waiting on an answer" banner. Read back
+  // through the route the page actually polls (server.test.js:9774's discipline).
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([
+    fleet.agent('zeta', { state: 'needs_you' }),
+    fleet.agent('ida', { state: 'idle' }),
+  ]);
+  // fleet's per-target screen map feeds the roster CLASSIFY (so zeta is
+  // needs_you). The route ALSO derives the question from chat.viewport's own
+  // capture-pane (chat's tmux runner, a separate seam from status.setPaneCapture),
+  // so stub that to serve the question screen; questionIn then has the question to
+  // find. Only zeta calls viewport (the route gates it on asking), so idle ida is
+  // untouched. Non-capture tmux calls return benign success (this GET makes none).
+  chatEngine.setRunner((args) => {
+    if (args[0] === 'capture-pane') {
+      return { ran: true, spawnFailed: false, status: 0, out: 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n', err: '' };
+    }
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chatEngine.setDryRun(false);
+  try {
+    const asking = JSON.parse((await req('/api/agent/zeta/thread')).body);
+    // Additive: the banner field is still emitted, so this injection and Mona's
+    // banner removal compose in either order.
+    assert.equal(asking.asking, true, 'a needs_you agent still reports asking (additive)');
+    const q = asking.messages.find((m) => m.kind === 'question');
+    assert.ok(q, 'the question is injected into the thread messages as a row');
+    assert.match(q.text, /Do you want to proceed\?/, 'and it is the question the board classified needs_you from');
+    assert.equal(q.from, 'zeta', 'agent-authored: a "theirs" bubble, never an operator row');
+    assert.equal(q.delivery, null, 'no delivery verdict (matches keepAgentReply)');
+    assert.equal(q.at, null, 'no per-poll timestamp on a standing question (dmRow/DM_SPOKE_AT stay stable)');
+    assert.equal(q.id, 'needs-you-question:zeta', 'stable repaint id');
+    // CONTROL: an idle agent's thread carries NO question row, so the row above is
+    // caused by the needs_you state and not injected unconditionally.
+    const idle = JSON.parse((await req('/api/agent/ida/thread')).body);
+    assert.equal(idle.asking, false);
+    assert.ok(!idle.messages.some((m) => m.kind === 'question'), 'no question row when not asking');
+  } finally {
+    chatEngine.setRunner(null);
+    fleet.restore();
+    void board;
+  }
+});
+
 test('the reply route refuses what it cannot attribute, and says why', async () => {
   /**
    * ⚠️ THE THREE ARMS THE SOURCE-GREP VERSION NEVER REACHED: a message the
