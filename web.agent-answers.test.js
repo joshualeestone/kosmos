@@ -165,24 +165,28 @@ test('a reply is escaped on its way to the screen', () => {
   fleet.restore();
 });
 
-test('the receipt speaks about what happens next, and is silent when there is nothing to say', () => {
+test('a placed message is silent whatever the agent was doing; the did-not-deliver states still speak', () => {
   /**
-   * 🔑 THE RULE, WHICH IS NOT A LIST OF STATES (Mona Lisa, 2026-08-22): the
-   * receipt speaks when it has something to say about WHAT HAPPENS NEXT, and is
-   * silent when it does not. `idle` is silent because "it was sitting at its
-   * prompt" has no consequence attached, not because idle is special-cased.
+   * 🔑 THE #3419 RULE. Josh, as a white-collar end user, NEVER wants the
+   * needs_you play-by-play about the agent's internal state (card #3419: "No
+   * prompt box, no 'Clear this message', no 'It was waiting on an answer when
+   * this was sent.' line, ever"). A PLACED message carries NO delivery-status
+   * copy at all now -- `placedWords` returns '' -- because the message landed
+   * and the row under it says so by existing.
    *
-   * 🛑 WHAT THIS REPLACED. Every message anybody sent carried "Placed into
-   * April's session at 4:20 PM (it was sitting at its prompt)." underneath it.
-   * Josh: "let's also kill the little thing that says where the message was
-   * placed." He had already ruled that for the project room in August, so this
-   * surface was the one that missed the ruling rather than a second decision.
+   * 🛑 THIS EXTENDS THE CARD'S EXPLICIT LINE. The card named the "waiting on an
+   * answer" line (the engine `waitingNote`, ICK's lane). #3419 extended the same
+   * end-user posture to the OTHER placed consequences -- the mid-task "it will
+   * not read this until it finishes" and the "could not tell what it was doing"
+   * play-by-play -- since all three are the internal-state noise Josh does not
+   * want. (An earlier version of this test argued the mid-task line was worth
+   * keeping as the answer to "why has nothing happened an hour later"; #3419
+   * overrode that. Flagged on the card as a reversible copy call: restoring the
+   * mid-task note alone is a one-line change to `placedWords`.)
    *
-   * ⚠️ AND THE TEST HAS TO PIN BOTH HALVES, because either alone passes in the
-   * state that was wrong: silent on an ordinary success, and still speaking when
-   * the agent was mid-task. Going fully silent would have deleted "it will not
-   * read this until it finishes", which is the answer to "why has nothing
-   * happened" asked an hour later.
+   * ⚠️ THE POSITIVE CONTROL is the two did-not-deliver arms below: they still
+   * speak, so the silence above is the placed rule and not a renderer that
+   * prints nothing.
    */
   const board = fleet.install([fleet.agent('dana')]);
   const card = board.agents.find((a2) => a2.name === 'dana');
@@ -197,33 +201,30 @@ test('the receipt speaks about what happens next, and is silent when there is no
   const say = (delivery) => pjVerdict({ text: 'hi', at, delivery }, card.name);
 
   const idle = say({ state: 'placed', paneState: 'idle', paneNote: 'it was sitting at its prompt' });
-  assert.equal(idle.said, '', 'an ordinary success still prints a receipt');
+  assert.equal(idle.said, '', 'a placed message carries no delivery-status copy');
   assert.equal(idle.mark, '');
   assert.ok(idle.when && idle.when.length > 1,
     'the time went silent with the sentence it used to live inside');
 
+  // MID-TASK is silent too now: the placed rule does not consult paneState.
   const busy = say({
     state: 'placed', paneState: 'working',
     paneNote: 'it was mid-task, so it will not read this until it finishes',
   });
-  assert.match(busy.said, /mid-task, so it will not read this until it finishes/,
-    'the one thing on this row that says what happens next was dropped');
-  assert.doesNotMatch(busy.said, /Placed into/,
-    'the clause Josh named came back in front of the note');
-  assert.match(busy.said, /^It was/, 'the note is not made into a sentence');
+  assert.equal(busy.said, '',
+    'a placed message spoke about the agent being mid-task, the play-by-play #3419 removed');
+  assert.equal(busy.mark, '');
 
-  /* ⚠️ AN ABSENT STATE IS NOT IDLE. An older row carries a note and no state,
-     and the safe direction is saying a consequence we might not need rather
-     than swallowing one. */
+  /* An older row carries a note and no state; it is silent as well -- a placed
+     message says nothing whatever the paneNote. */
   const older = say({ state: 'placed', paneNote: 'we could not tell what it was doing when this was sent' });
-  assert.match(older.said, /could not tell what it was doing/,
-    'a row with no pane state was treated as idle and silenced');
+  assert.equal(older.said, '',
+    'a placed message with a pane note but no state still printed a receipt');
 
-  /* A success with nothing to report at all stays silent rather than printing
-     an empty sentence's punctuation. */
+  /* A placed message with nothing at all stays silent. */
   assert.equal(say({ state: 'placed' }).said, '');
 
-  // The two failure arms are untouched, and neither carries the time any more.
+  // The two failure arms are the positive control, and neither carries the time.
   const unsure = say({ state: 'unconfirmed', paneState: 'working', paneNote: 'it was mid-task', because: 'we typed it and could not tell whether it arrived' });
   assert.equal(unsure.mark, ' unsure');
   assert.match(unsure.said, /Could not confirm .* got that/);
@@ -258,10 +259,12 @@ test('the person’s own row carries its time now that the receipt may say nothi
      INSIDE the bubble (.msg-t), so assert the time is present, without "You". */
   assert.match(mine, /class="msg-t">just now/, 'a message that worked lost its timestamp with its receipt');
   assert.doesNotMatch(mine, /Placed into/, 'the receipt Josh asked to have removed is still drawn');
-  /* ⚠️ THE CONTROL: the same row with something to say still says it, so the
-     assertion above cannot be satisfied by a renderer that prints nothing. */
-  const busy = dmRow({ text: 'hi', at, delivery: { state: 'placed', paneState: 'working', paneNote: 'it was mid-task, so it will not read this until it finishes' } }, card.name);
-  assert.match(busy, /mid-task/, 'CONTROL: the row cannot say anything at all');
+  /* ⚠️ THE CONTROL: a row with a genuine did-not-deliver verdict DOES still say
+     it, so the "no receipt on a placed message" assertion above cannot be
+     satisfied by a renderer that prints nothing. #3419: placed is silent even
+     mid-task now, so the control uses a `could_not` row, which still speaks. */
+  const failed = dmRow({ text: 'hi', at, delivery: { state: 'could_not', because: 'it is waiting on an answer from you' } }, card.name);
+  assert.match(failed, /Could not deliver/, 'CONTROL: the row cannot say anything at all');
   fleet.restore();
 });
 

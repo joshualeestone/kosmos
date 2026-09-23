@@ -138,14 +138,19 @@ test('kosmos#967: a clean PLACED clears the box and says nothing (#402 silent-wh
   assert.equal(calls[0].agentName, CURRENT.name, 'and passes its display name');
 });
 
-test('kosmos#967: a PLACED with a consequential note speaks it', async () => {
+test('kosmos#967: a PLACED message is silent even with a consequential note (#3419)', async () => {
   const { sendTerm, els } = runSendTerm({
     delivery: { state: 'placed', paneNote: 'queued behind what it is doing', paneState: 'working' },
   });
   await sendTerm();
   assert.equal(els['d-term-say'].value, '', 'the box still clears -- the words reached the agent');
-  assert.equal(els['d-term-say-msg'].textContent, 'Queued behind what it is doing.',
-    'when the note says something about what happens next, the receipt speaks it (capitalised, via placedWords)');
+  // #3419: a placed message carries NO delivery-status play-by-play now, even
+  // mid-task -- placedWords returns '' (extending the #402 "silent when it worked"
+  // ruling to every placed pane state; the Terminal tab matches sendTalk and the
+  // thread rows). The consequence clause Josh named as noise is gone; only the
+  // unconfirmed/could_not arms below still speak.
+  assert.equal(els['d-term-say-msg'].textContent, '',
+    'a placed message spoke a consequence clause, the play-by-play #3419 silenced');
 });
 
 test('kosmos#967: if the flight moves to another agent, nothing is written to the box it left', async () => {
