@@ -74,7 +74,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 | Find the data root / Application Support path | `engine/store.js` (`store.ROOT`) |
 | Work on multi-Kosmos switching | `engine/worlds.js`, `engine/worldenv.js`, `engine/worldbootguard.js`, `engine/boardrestart.js`; the switch route in `server.js` (`/api/worlds/active`) |
 | Work on a Kosmos's agents (named worlds) | `engine/launchidentity.js` (the world-keyed task / label / session key), `engine/worldstarts.js` (starting a Kosmos's paused and imported agents when it opens), `engine/worldimport.js` (copying agents from one Kosmos into another), `engine/outbox.js` (a kept-running agent's sends, kept in its own Kosmos until that Kosmos is open again); the routes `/api/worlds/import` and `/api/worlds/list` in `server.js` |
-| Add a provider session reader | `engine/claudeaccounts.js`, `engine/codexsession.js`, `engine/authprobe.js` |
+| Add a provider (account module or session reader) | Per-account creds + live check: `engine/claudeaccounts.js`, `engine/openaiaccounts.js`, `engine/geminiaccounts.js`, `engine/grokaccounts.js` (each an account = a directory with a key file / sign-in). Session transcript readers: `engine/codexsession.js`, `engine/geminisession.js`, `engine/groksession.js`. Live auth probe: `engine/authprobe.js`. The account env var per runner is `engine/accountenv.js`; the supervisor injects a per-account key in `bin/agent-supervisor.sh` |
 | Change the installer | `install/setup.sh`, `install/kosmos` |
 | Cut a release | `tools/release.sh`, `tools/build-*-bundle.sh` |
 

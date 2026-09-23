@@ -438,7 +438,11 @@ if [ -z "$adopt" ]; then
   # This loop forwards CLAUDE_CONFIG_DIR from THIS supervisor's own env (the per-account case).
   # The #3417 block below covers the gap it cannot: a DEFAULT-account agent whose own env is
   # clean but whose pane still inherits the tmux SERVER-GLOBAL CLAUDE_CONFIG_DIR (the leak).
-  for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
+  # #3296/#3391 accounts slice: GEMINI_CLI_HOME / GROK_HOME forwarded too, so a
+  # PER-ACCOUNT gemini/grok agent (its account home written into the plist as that
+  # var) reaches the pane with the home the CLI reads. Absent for a default-account
+  # agent, so this is a no-op there -- exactly like CODEX_HOME.
+  for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi
@@ -599,6 +603,20 @@ if [ -z "$adopt" ]; then
     # GEMINI_API_KEY reaches the pane via the generic secrets/env door (the loop
     # above), and the auth pre-seed makes the CLI use it without the first-run
     # picker. Default account reads ~/.gemini (no GEMINI_CLI_HOME set).
+    # #3296 accounts slice: a PER-ACCOUNT gemini agent's account home is in
+    # GEMINI_CLI_HOME (the plist wrote it; the forwarding loop above put it in the pane).
+    # Its key lives in the mode-600 file engine/geminiaccounts.js wrote at
+    # $GEMINI_CLI_HOME/.kosmos-gemini-apikey; read it and export GEMINI_API_KEY from it,
+    # so a per-account gemini agent uses ITS account's key rather than the machine-global
+    # one. Best-effort: a missing/empty/unreadable file falls back to the generic
+    # secrets/env door (the DEFAULT-account path, unchanged), never failing the launch.
+    # The key is NEVER echoed or logged -- it goes straight into the pane's -e env, and
+    # the generic door already delivers the default GEMINI_API_KEY the same way.
+    if [ -n "${GEMINI_CLI_HOME:-}" ] && [ -r "${GEMINI_CLI_HOME}/.kosmos-gemini-apikey" ]; then
+      _gkey="$(head -1 "${GEMINI_CLI_HOME}/.kosmos-gemini-apikey" 2>/dev/null || true)"
+      [ -n "$_gkey" ] && PANE_ENV+=(-e "GEMINI_API_KEY=$_gkey")
+      unset _gkey
+    fi
     GEMINI_MODEL="${MODEL:-gemini-2.5-flash}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" || exit 1
@@ -624,6 +642,17 @@ if [ -z "$adopt" ]; then
     # grok's claude-compat -- it runs only its own report hooks (measured: our
     # ~/.grok/hooks report hook still fires with this set). Default account reads
     # ~/.grok (no GROK_HOME set).
+    # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
+    # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600
+    # file engine/grokaccounts.js wrote at $GROK_HOME/.kosmos-grok-apikey; read it and
+    # export XAI_API_KEY from it, so a per-account grok agent uses ITS account's key.
+    # Best-effort + never-fail-the-launch + never-logged, exactly like the gemini arm;
+    # a missing file falls back to the generic secrets/env door (default-account path).
+    if [ -n "${GROK_HOME:-}" ] && [ -r "${GROK_HOME}/.kosmos-grok-apikey" ]; then
+      _xkey="$(head -1 "${GROK_HOME}/.kosmos-grok-apikey" 2>/dev/null || true)"
+      [ -n "$_xkey" ] && PANE_ENV+=(-e "XAI_API_KEY=$_xkey")
+      unset _xkey
+    fi
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
