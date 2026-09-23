@@ -13919,6 +13919,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* The service worker (#718, the push third). Served from the site root so its
+     scope is the whole origin (/), which the push subscription and the offline
+     app-shell both need -- a worker only controls pages at or below its own URL.
+     Like the shell and /icons it is the same public bundle for every install and
+     carries no account data, so it stays reachable without a board token: it is a
+     GET, not /api/*, and not a write, so it never trips the sensitive-route gate
+     above. `Service-Worker-Allowed: /` states the root scope explicitly, and
+     no-store lands a worker update the same way the one-file shell's updates do
+     (#271) rather than letting a browser sit on a stale worker. Served as its own
+     JS type so a browser registers it and does not fall through to the page (the
+     same silent-success trap the /api and /icons guards close). */
+  if (apiPath === '/sw.js' && (req.method === 'GET' || req.method === 'HEAD')) {
+    fs.readFile(path.join(__dirname, 'web', 'sw.js'), (err, buf) => {
+      if (err) { sendJson(res, 404, { error: 'no service worker' }); return; }
+      res.writeHead(200, {
+        'content-type': 'text/javascript; charset=utf-8',
+        'service-worker-allowed': '/',
+        'cache-control': 'no-store',
+      });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+    });
+    return;
+  }
+
   /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the six
      shipped sizes (192 and 512 joined for the manifest, #718), because everything else below falls through to the page:
      without this route, /icons/kosmos-32.png would answer HTML at 200 with

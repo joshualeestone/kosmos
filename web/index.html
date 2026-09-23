@@ -13525,6 +13525,25 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            while empty so it costs nothing when nothing is stalled. -->
       <div id="hb-nudges" class="hb-nudges" role="region" aria-label="Agent check-ins" hidden></div>
     </section>
+    <!-- #718: Push to this device. The in-app delivery channel #2632/#2623 noted was
+         missing: the Prompter above knows which agents stopped but "can't nudge you
+         yet". This is the nudge path. A person turns push on per device (phone or
+         desktop), which asks the browser for permission, subscribes through the
+         service worker, and stores the subscription on this Mac's board (Raiden's
+         /v1/push/* routes). After that a push sent from the Mac shows a system
+         notification even when the board tab is closed.
+         A BUTTON, not a toggle: a browser permission cannot be revoked from script,
+         so an honest control asks once and then reports the state rather than
+         pretending it can switch the grant back off. -->
+    <section class="dbox">
+      <h3 class="dlab">Push to this device</h3>
+      <div class="setrow" id="push-row" style="margin-top:14px;">
+        <div><b>Get notified on this device</b>
+          <p class="dhint" style="margin:2px 0 0;">Turn on notifications so Kosmos can tell you when something needs you, even when this page is closed. Set this on each phone or computer you want alerts on.</p></div>
+        <button class="btn uprime" id="push-enable" type="button">Turn on</button>
+      </div>
+      <p class="dhint" id="push-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own
          top-level tab, which is deleted. Block 3 of the consolidated Automation section,
@@ -50805,6 +50824,149 @@ setInterval(tick, 5000);
    the last "just now". A helper nothing calls is the defect this file is written
    against; this is the caller. */
 setInterval(ageCheckedStamp, 1000);
+</script>
+<!-- #718: PWA push client. Kept as its OWN script block, after the app's main
+     script, because it is self-contained platform wiring (service-worker
+     registration + the permission/subscribe/POST flow) with no dependency on the
+     app's state, and isolating it keeps a browser without service-worker or push
+     support from touching anything above. The endpoints and contract are locked
+     with Raiden (coordinator side, #718): GET /v1/push/vapid-key returns
+     {"key":"<base64url>"}; POST /v1/push/subscribe takes PushSubscription.toJSON()
+     as application/json; both are same-origin so the board cookie authenticates
+     them with credentials:'same-origin'. -->
+<script>
+(function () {
+  'use strict';
+  var SW_URL = '/sw.js';
+  var VAPID_KEY_URL = '/v1/push/vapid-key';
+  var SUBSCRIBE_URL = '/v1/push/subscribe';
+
+  var hasSW = 'serviceWorker' in navigator;
+  var hasPush = 'PushManager' in window && 'Notification' in window;
+
+  function setPushMsg(text) {
+    var el = document.getElementById('push-msg');
+    if (el) el.textContent = text || '';
+  }
+
+  /* A granted permission cannot be switched back off from script, so once push
+     is on the button becomes a disabled state marker rather than a lie about
+     being able to toggle it. Reflects the browser's current permission on load
+     and after the flow runs. */
+  function reflectPushState() {
+    var btn = document.getElementById('push-enable');
+    if (!hasSW || !hasPush) {
+      if (btn) { btn.disabled = true; btn.textContent = 'Not supported'; }
+      setPushMsg('This device or browser does not support push notifications.');
+      return;
+    }
+    if (!btn) return;
+    var perm = Notification.permission;
+    if (perm === 'granted') {
+      btn.disabled = true;
+      btn.textContent = 'On';
+    } else if (perm === 'denied') {
+      btn.disabled = true;
+      btn.textContent = 'Blocked';
+      setPushMsg('Notifications are blocked for this site. Turn them back on in your browser settings, then reload.');
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Turn on';
+    }
+  }
+
+  /* VAPID public keys travel as base64url; PushManager wants the raw bytes. */
+  function urlB64ToUint8Array(base64url) {
+    var padding = '='.repeat((4 - (base64url.length % 4)) % 4);
+    var base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(base64);
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  /* Register the worker on load so the offline shell cache warms and a later
+     push has a worker to wake. Guarded, best-effort, and silent on an
+     unsupported browser -- registration failing must never break the board. */
+  function registerServiceWorker() {
+    if (!hasSW) return Promise.resolve(null);
+    return navigator.serviceWorker.register(SW_URL).catch(function (err) {
+      // eslint-disable-next-line no-console
+      if (window.console && console.warn) console.warn('service worker registration failed', err);
+      return null;
+    });
+  }
+
+  /* The permission -> subscribe -> store flow. Called from a user gesture (the
+     Turn on button), which iOS requires and which is good practice everywhere.
+     Every step reports a plain-language status and throws no uncaught error. */
+  function enablePush() {
+    if (!hasSW || !hasPush) {
+      setPushMsg('This device or browser does not support push notifications.');
+      return Promise.resolve(false);
+    }
+    setPushMsg('Asking your browser for permission...');
+    return Notification.requestPermission().then(function (perm) {
+      if (perm !== 'granted') {
+        reflectPushState();
+        setPushMsg(perm === 'denied'
+          ? 'Notifications are blocked for this site. Turn them back on in your browser settings, then reload.'
+          : 'Notifications were not turned on.');
+        return false;
+      }
+      setPushMsg('Turning on notifications...');
+      return navigator.serviceWorker.ready.then(function (reg) {
+        return fetch(VAPID_KEY_URL, { credentials: 'same-origin' }).then(function (res) {
+          if (!res.ok) throw new Error('vapid-key ' + res.status);
+          return res.json();
+        }).then(function (body) {
+          if (!body || !body.key) throw new Error('vapid-key: no key in response');
+          return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlB64ToUint8Array(body.key),
+          });
+        }).then(function (sub) {
+          return fetch(SUBSCRIBE_URL, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            // toJSON() is exactly {endpoint, expirationTime, keys:{p256dh, auth}},
+            // the shape the coordinator stores.
+            body: JSON.stringify(sub),
+          });
+        }).then(function (res) {
+          if (!res.ok) throw new Error('subscribe ' + res.status);
+          reflectPushState();
+          setPushMsg('Notifications are on for this device.');
+          return true;
+        });
+      });
+    }).catch(function (err) {
+      // eslint-disable-next-line no-console
+      if (window.console && console.warn) console.warn('enable push failed', err);
+      reflectPushState();
+      setPushMsg('Could not turn on notifications. Please try again.');
+      return false;
+    });
+  }
+
+  // Exposed so a browser-check (and any later in-app caller) can drive the flow
+  // without simulating a click.
+  window.kosmosEnablePush = enablePush;
+  window.kosmosRegisterServiceWorker = registerServiceWorker;
+
+  function wire() {
+    var btn = document.getElementById('push-enable');
+    if (btn) btn.addEventListener('click', function () { enablePush(); });
+    reflectPushState();
+    registerServiceWorker();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wire);
+  } else {
+    wire();
+  }
+})();
 </script>
 </body>
 </html>
