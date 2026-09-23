@@ -5285,9 +5285,21 @@ const server = http.createServer((req, res) => {
     // Reconstruct the BEFORE snapshot from the baseline: empty means the file
     // did not exist when we asked; a number is its mtime then. The freshness
     // decision is the engine's, not this route's.
-    const before = (baseline === '')
-      ? { exists: false, mtimeMs: null }
-      : { exists: true, mtimeMs: Number(baseline) };
+    // 🛑 VALIDATE the client-supplied baseline before it reaches handoffIsFresh.
+    // A non-numeric baseline would become {exists:true, mtimeMs:NaN}, and the
+    // engine reads an unreadable prior mtime as "written since" -> fresh:true for
+    // any agent whose handoff merely EXISTS, with no new write. That defeats the
+    // "never restart on a maybe" invariant. The UI only ever sends '' or a valid
+    // number, so this is defense against any other caller, and it refuses rather
+    // than silently guessing.
+    let before;
+    if (baseline === '') {
+      before = { exists: false, mtimeMs: null };
+    } else {
+      const n = Number(baseline);
+      if (!Number.isFinite(n)) { sendJson(res, 400, { error: 'baseline must be empty or a number' }); return; }
+      before = { exists: true, mtimeMs: n };
+    }
     const after = handoffFileSnap(session);
     sendJson(res, 200, {
       fresh: handoffRestart.handoffIsFresh(before, after),

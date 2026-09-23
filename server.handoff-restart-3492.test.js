@@ -139,6 +139,19 @@ test('status: fresh flips false -> true only once the handoff is (re)written', a
   assert.equal(r.body.fresh, true, 'mtime advanced past baseline: fresh');
 });
 
+test('status: a malformed baseline is REFUSED (400), never silently reported fresh', async () => {
+  // 🛑 The dangerous direction: a non-numeric baseline must NOT become
+  // {exists:true, mtimeMs:NaN} and read as fresh for any pre-existing handoff.
+  const name = 'hr-badbaseline';
+  born(name);
+  const p = handoffPathOf(name);
+  fs.mkdirSync(nodePath.dirname(p), { recursive: true });
+  fs.writeFileSync(p, '# an OLD handoff, unrelated to this restart\n', 'utf8'); // file exists from a prior write
+  const r = await hit('GET', encodeURIComponent(name) + '/handoff-restart/status?baseline=abc');
+  assert.equal(r.status, 400, 'a non-numeric baseline is a bad request: ' + JSON.stringify(r.body));
+  assert.notEqual(r.body && r.body.fresh, true, 'a malformed baseline must never report fresh:true');
+});
+
 test('pickup: a running agent gets the pointer delivery', async () => {
   const name = 'hr-pickup';
   born(name);
