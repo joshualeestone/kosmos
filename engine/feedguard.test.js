@@ -365,6 +365,56 @@ test('an oversize at is a structural finding', () => {
   assert.ok(v.findings.some((x) => x.cls === 'oversize' && x.field === 'at'));
 });
 
+// ---- fail-open regressions caught by the iteration-3 blind review -----------
+
+test('full-width-digit PII is caught (pattern scan folds NFKC like the name scan)', () => {
+  const fwSSN = '１２３-４５-６７８９'; // 123-45-6789 full-width
+  const fwCard = '４１１１１１１１１１１１１１１１'; // 4111111111111111 full-width
+  for (const [cls, body] of [['ssn', 'ref ' + fwSSN + ' noted'], ['card', 'pan ' + fwCard + ' saved']]) {
+    const cand = clean();
+    cand.body = body;
+    const v = fg.guard(cand, { trusted: true });
+    assert.equal(v.clean, false, 'full-width ' + cls + ' slipped');
+    assert.ok(v.findings.some((x) => x.cls === cls));
+  }
+});
+
+test('a getter on an allowed field is refused (TOCTOU), even if it reads clean at inspection', () => {
+  const cand = clean();
+  let reads = 0;
+  Object.defineProperty(cand, 'body', {
+    configurable: true, enumerable: true,
+    get() { reads += 1; return reads === 1 ? 'clean prose' : 'ghp_' + 'a'.repeat(36); },
+  });
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'accessor_field' && x.field === 'body'));
+});
+
+test('a bare (no-separator) Luhn-valid card number is caught', () => {
+  const cand = clean();
+  cand.body = 'card 4111111111111111 on file'; // valid Luhn, no separators
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'card'));
+});
+
+test('a random long digit run that fails Luhn is NOT flagged as a card', () => {
+  const cand = clean();
+  cand.body = 'build id 1111111111111111 ran'; // 16 digits, fails Luhn (checksum 24)
+  // may still be clean or flagged by something else, but NOT as a card
+  const v = fg.guard(cand, { trusted: true });
+  assert.ok(!v.findings.some((x) => x.cls === 'card'), 'a non-Luhn number was misflagged as a card');
+});
+
+test('a soft-hyphen name evasion is caught (\\p{Cf} strip)', () => {
+  const cand = clean();
+  cand.body = 'Jos­h Stone reviewed it'; // soft hyphen
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'human_name'));
+});
+
 test('the exported contract is a closed, frozen shape', () => {
   assert.ok(Object.isFrozen(fg.ALLOWED_FIELDS));
   assert.equal(fg.KIND, 'community_post');

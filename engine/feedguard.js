@@ -60,6 +60,28 @@ const ALLOWED_FIELDS = Object.freeze([
 const REQUIRED_FIELDS = Object.freeze(['kind', 'agent', 'body', 'at']);
 const KIND = 'community_post';
 
+/* NFKC-fold a value: full-width and other compatibility forms collapse to their
+   plain ASCII equivalents. Applied before the pattern net so that a leak written
+   in full-width digits/letters (`４１１１...`, which ASCII-only `\d` would miss)
+   is caught, matching the fold the name scan already does. Never throws. */
+function nfkc(s) {
+  try { return String(s).normalize('NFKC'); } catch { return String(s); }
+}
+
+/* Luhn checksum over a digit string. Used to detect card numbers with low false
+   positives: a random long digit run rarely satisfies Luhn, so a bare 16-digit
+   PAN (no separators) is caught without flagging every id or timestamp. */
+function luhn(digits) {
+  let sum = 0, alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48;
+    if (d < 0 || d > 9) return false;
+    if (alt) { d *= 2; if (d > 9) d -= 9; }
+    sum += d; alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
 /* Size caps. A cap is a cheap structural defense: an enormous body is both a
    denial-of-space risk and a place to bury a payload. These are deliberately
    generous for real narrative posts and firm enough to refuse a blob. */
@@ -91,7 +113,14 @@ const PATTERNS = Object.freeze([
   { cls: 'secret_token', re: /(?:root|acct|addr)_x(?:sk|vk)[0-9a-z]{10,}/, why: 'Cardano signing/verification key' },
   // US SSN (3-2-4, distinct from the phone 3-3-4 shape) and grouped card numbers.
   { cls: 'ssn', re: /\b\d{3}-\d{2}-\d{4}\b/, why: 'US SSN' },
-  { cls: 'card', re: /\b\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{4}\b/, why: 'grouped 16-digit card number' },
+  // Card numbers, separated OR bare. A 13-19 digit run (optionally split by
+  // single spaces/dashes) that passes the Luhn checksum. Luhn keeps false
+  // positives near zero, so a bare 16-digit PAN is caught without flagging every
+  // long id. Implemented as a function to strip separators before the check.
+  { cls: 'card', fn: (s) => {
+      const runs = s.match(/\d(?:[ -]?\d){12,18}/g);
+      return !!runs && runs.some((r) => { const d = r.replace(/[^0-9]/g, ''); return d.length >= 13 && d.length <= 19 && luhn(d); });
+    }, why: 'card number (Luhn-valid)' },
   // A long, mixed, high-entropy run that is not a known prefix. Conservative on
   // purpose: >= 32 chars with at least three character classes. A 40-char git
   // sha (one class, hex) does NOT trip this; a random API token does. Because we
@@ -150,8 +179,12 @@ const DEFAULT_DENY_NAMES = Object.freeze(['Josh Stone', 'joshualeestone', 'joshu
    structural minimization rule and the moderation queue are the real defenses. */
 function normalizeForNameScan(s) {
   let out = String(s);
-  try { out = out.normalize('NFKC'); } catch { /* keep raw on a bad input */ }
-  return out.replace(/[​-‍﻿]/g, '').replace(/\s+/g, ' ').toLowerCase();
+  // Strip ALL Unicode format characters (\p{Cf}: zero-width space/joiner, word
+  // joiner, soft hyphen, BOM, ...) rather than an enumerated few, then NFKC-fold
+  // full-width forms, then collapse whitespace and lowercase.
+  try { out = out.replace(/\p{Cf}/gu, ''); } catch { out = out.replace(/[­᠎​-‏⁠-⁯﻿]/g, ''); }
+  try { out = out.normalize('NFKC'); } catch { /* keep as-is on a bad input */ }
+  return out.replace(/\s+/g, ' ').toLowerCase();
 }
 
 /* Turn a candidate into LABELED string fields to scan: [{ field, value }]. Every
@@ -193,6 +226,14 @@ function structuralFindings(candidate) {
   for (const key of Reflect.ownKeys(candidate)) {
     if (typeof key === 'symbol' || !ALLOWED_FIELDS.includes(key)) {
       f.push({ cls: 'unexpected_field', field: String(key), why: 'field is not in the closed post shape' });
+    }
+    // An ACCESSOR (getter/setter) on any field is refused. A real post field is a
+    // data value; a getter is a TOCTOU vector -- it can return clean prose while
+    // inspected and a leak when the board re-reads it to publish. Refusing it
+    // fail-closed means inspection and publication see the same bytes.
+    const d = Object.getOwnPropertyDescriptor(candidate, key);
+    if (d && (typeof d.get === 'function' || typeof d.set === 'function')) {
+      f.push({ cls: 'accessor_field', field: String(key), why: 'field is an accessor, not a data value' });
     }
   }
   for (const key of REQUIRED_FIELDS) {
@@ -259,10 +300,19 @@ function contentFindings(candidate, denyNames) {
   if (whole.length > SCAN_CAP) whole = whole.slice(0, SCAN_CAP);
   if (whole) haystacks.push({ field: 'serialized', value: whole });
   for (const { field, value } of haystacks) {
-    for (const p of PATTERNS) {
-      let hit = false;
-      try { hit = p.fn ? p.fn(value) : p.re.test(value); } catch { hit = true; } // a thrown matcher fails closed
-      if (hit) f.push({ cls: p.cls, field, why: p.why });
+    // Scan the raw value AND an NFKC-folded copy. The fold makes ASCII-only
+    // numeric/token classes see through full-width and compatibility obfuscation
+    // (a full-width-digit SSN would otherwise pass \d); the raw pass keeps any
+    // match the fold might alter. Scanning both is the fail-closed choice.
+    const variants = new Set([value]);
+    const folded = nfkc(value);
+    if (folded !== value) variants.add(folded.length > SCAN_CAP ? folded.slice(0, SCAN_CAP) : folded);
+    for (const v of variants) {
+      for (const p of PATTERNS) {
+        let hit = false;
+        try { hit = p.fn ? p.fn(v) : p.re.test(v); } catch { hit = true; } // a thrown matcher fails closed
+        if (hit) f.push({ cls: p.cls, field, why: p.why });
+      }
     }
   }
   // The human-name denylist scans AUTHORED PROSE ONLY (topic, body), normalized.
