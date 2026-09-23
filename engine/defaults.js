@@ -543,20 +543,25 @@ function block() {
  *     nothing told an agent to USE it when writing, and every other mention of
  *     the person here says "the operator" / "the person", so agents defaulted to
  *     the generic word and the name sat unused. A NEW section, `### Use their
- *     name`, tells the agent to call the person by the name in that section.
+ *     name`, tells the agent to use the name it was given for the person.
  *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
  *     `missingFrom` matches by heading, so the EXISTING fleet (the agents Josh is
  *     already talking to, which is who his complaint is about) is re-offered it,
  *     not only newly created ones. The card asked for an edit INSIDE `### How to
  *     write to them`; that would have reached new agents only and missed the
  *     exact population reporting the problem, so it is a new section instead.
- *     WEAKEST PREMISE, NAMED: it points at the `Who you work for` section, which
- *     is not always present. `you.js` tellAgent splices that block only when the
- *     operator record is `saved` (which `problem()` gates on a non-empty name)
- *     and removes it otherwise, so an agent with no record has no such section at
- *     all. The shipped prose is written conditionally ("If you were given their
- *     name, it is in ...") so the absent-section case degrades to the generic
- *     word rather than pointing at nothing.
+ *     COLLISION, NAMED: an earlier draft pointed the agent at the `## Who you
+ *     work for` section by name, but that literal string is what create.test.js
+ *     ("a saved About-you record rides the boot file") uses as a proxy for the
+ *     About-you block's presence, so a mention of it in the shared block put the
+ *     string in every boot file and broke that absence assertion (CI caught it).
+ *     The section now points at "your instructions" generally instead.
+ *     WEAKEST PREMISE, NAMED: the name is not always present. `you.js` tellAgent
+ *     splices the operator block only when the record is `saved` (which
+ *     `problem()` gates on a non-empty name) and removes it otherwise, so an
+ *     agent with no record has no name to use. The shipped prose is conditional
+ *     ("If you were given a name for them ...") so that case degrades to the
+ *     generic word rather than asserting a name that is not there.
  */
 const DOCTRINE_VERSION = 12;
 
