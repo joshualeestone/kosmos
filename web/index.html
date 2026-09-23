@@ -15144,12 +15144,12 @@ function memBand(pct) {
    must degrade to the honest unknown, never reach innerHTML raw. Same
    for-the-day-upstream-changes posture as the answer button's tie gate. */
 /* ⚠️ THE ONE PLACE THE TWO UNKNOWN ANSWERS BECOME WORDS, and it is shared for
-   the same reason memBand and pctOf are: this fact has FOUR renderers (the
-   ring's aria-label, the list row, the Memory box and the detail header) and
+   the same reason memBand and pctOf are: several surfaces need this one fact, and
    this file's own comments record them drifting apart twice, each time because
-   somebody updated the surfaces they could see. #3501 removed the fifth, the
-   card memory badge. A fifth surface added later gets the split for free by
-   calling this.
+   somebody updated the surfaces they could see. web.memory-words.test.js pins the
+   number of CALLERS (not the number of visible surfaces) so a new one must call
+   this rather than hardcode a literal. #3501 removed the card memory badge, one
+   caller.
 
    🔑 The distinction, and why only one of them is safe to claim:
      notYet   NOTHING HAS BEEN RECORDED YET. An admission, and we can see that
@@ -15798,8 +15798,8 @@ function lrowRing(a) {
 /* #1915: the same memory ring for the DETAIL avatar, scaled to sit just outside the
    88px avatar. Same reading (pctOf) and band (memBand) as the board rings and the
    MEMORY panel, so all surfaces agree. Unknown (pct null) draws no ring, matching
-   lrowRing; the MEMORY panel and this ring's aria-label carry the unknown case
-   (#3501 removed the detail's .membadge unk word). */
+   lrowRing; on the detail screen the MEMORY panel carries the unknown case (this
+   ring is aria-hidden, and #3501 removed the detail's .membadge unk word). */
 function detailRing(a) {
   const pct = pctOf(a.context);
   if (pct === null) return '';
@@ -25861,7 +25861,8 @@ function openDetail(sessionName, section, fromProject) {
   const dpct = pctOf(a.context);
   /* #3501: the unknown-memory WORD state of this header badge (.membadge.unk) was
      removed with the card's. The badge now shows ONLY the near-full number; the
-     unknown fact is stated on this screen by the Memory box and the ring. */
+     unknown fact is stated on this screen by the Memory box (the detail ring
+     draws nothing and is aria-hidden when unknown). */
   const dbadge = document.getElementById('d-membadge');
   dbadge.className = 'membadge';
   dbadge.textContent = memPrint(a.context, dpct);

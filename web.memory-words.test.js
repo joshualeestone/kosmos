@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * The words the four memory surfaces use when there is no percentage
- * (#3501 removed the fifth, the card memory badge).
+ * The words the memory surfaces use when there is no percentage, via the shared
+ * memUnknown derivation (#3501 removed the card memory badge, one of its callers).
  *
  * ⚠️ THIS FILE EXECUTES THE FUNCTION RATHER THAN GREPPING FOR ITS TEXT. A test
  * that reads index.html as a string can only prove a sentence is present
@@ -10,7 +10,7 @@
  * produces it is reachable, and this repo has shipped a fully transparent
  * modal past 316 such tests. So `memUnknown` is extracted and CALLED.
  *
- * The second half is structural on purpose: the fact has four renderers, and
+ * The second half is structural on purpose: the derivation has four callers, and
  * this file's neighbours record them drifting apart twice. Pinning that each
  * renderer CALLS the shared derivation is what stops a fifth from being added
  * with a literal.
@@ -117,12 +117,12 @@ test('the two strings stay disjoint, so an assertion about one cannot be satisfi
 
 test('every one of the four surfaces goes through the shared derivation', () => {
   /**
-   * ⚠️ COUNTED, not spot-checked. The ring's aria-label, the list row, the Memory
-   * box and the detail header all state this one fact, and the comments beside them
-   * record occasions where somebody updated the surfaces they could see and left
-   * the others behind.
-   * #3501: the fifth surface, the card memory badge (.membadge.unk), was removed,
-   * so there are four callers now, not five.
+   * ⚠️ COUNTED, not spot-checked. memUnknown is the shared derivation for the
+   * unknown-memory words; this pins the number of CALLERS so a new surface must
+   * CALL it rather than hardcode a literal, and the comments beside those callers
+   * record them drifting apart twice.
+   * #3501: the card memory badge (.membadge.unk) was removed, one caller, so there
+   * are four callers now, not five.
    */
   /* ⚠️ THE WHOLE FILE, comments included, and that is deliberate after two
      attempts at being cleverer. Filtering comment lines does not work here —
