@@ -111,13 +111,13 @@
      theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
      bluish inset is that world's own language, out of scope). #3260: this is now
      ONE fixed color per theme -- the earlier per-message variation was removed. */
-  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
+  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble and the agent DM bubble so the two "agent message" surfaces cannot drift; #3414 then rebuilt the DM onto the room's markup, so both are now literally the same selector, .msg:not(.you) .msg-bd. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
-     the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
+     the two selectors that use it (.msg.you .msg-bd, .pj-msg) stay a single
      source and a future opacity change is one edit per theme, not four scattered
      rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
-  --usermsg-tint: #e8ebf5; /* #3267: SOLID (opaque), so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once -- that fix is ground-independent. This exact hex is the value Josh approved on the white render (2026-09-18). Derived as ~.10 royal blue baked over --k-bg: exact for the cream-ground consumers (.dm.mine .dm-b, .pj-msg) and within a few RGB of the room bubble's --k-surface ground (imperceptible in light). One opaque token cannot byte-match every ground it serves; the approved appearance is the anchor. */
+  --usermsg-tint: #e8ebf5; /* #3267: SOLID (opaque), so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once -- that fix is ground-independent. This exact hex is the value Josh approved on the white render (2026-09-18). Derived as ~.10 royal blue baked over --k-bg: exact for the cream-ground consumers (.msg.you .msg-bd, .pj-msg) and within a few RGB of the room bubble's --k-surface ground (imperceptible in light). One opaque token cannot byte-match every ground it serves; the approved appearance is the anchor. */
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings
@@ -2246,6 +2246,17 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    create steps) keeps its outline. The surface fill still distinguishes the panel from the page
    ground, so removing the border leaves a clean filled panel rather than an invisible one. */
 #d-talk-box { border: 0; }
+/* #3414 (Josh, 2026-09-22): the agent DM reuses the project consolidated-view conversation
+   look -- a black, edge-to-edge conversation area filling the panel top-to-bottom, no card
+   radius, with the header on the left ("Direct Message to <agent>" in the project-name font)
+   and the shrunk "Search" on the right. Padding keeps content off the literal edge (his own
+   caveat). Ground uses --k-bg so it reads near-black in dark (his "background should be
+   black") and stays theme-appropriate in light, matching "copy the project dialog". */
+#d-talk-box { background: var(--k-bg); border-radius: 0; }
+#d-talk-label { font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; text-transform: none;
+                color: var(--k-ink); margin: 0; line-height: 1.2; }
+/* .d-talk-caprow layout, center-alignment and the #d-talk-label flex live with the
+   #2622 rule below, one place, so the two declarations cannot drift (Convention #5). */
 .dlab { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
         /* 600, the pack's weight (#179, ruled there): a box label at 700
            competes with the headings above it. */
@@ -4650,7 +4661,7 @@ body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #
    thread joins it as one flat white area. Consolidated keeps its own thread
    fill (background:none).
    Note: Josh's rationale was that a white dialog helps the blue own-message
-   tint stand out. That --usermsg-tint lives on the agent-DM thread (.dm.mine)
+   tint stand out. That --usermsg-tint lives on the agent-DM thread (.msg.you)
    and the "Talk to one of them" panel (.pj-msg), NOT on #pj-room, whose posts
    render plain (.msg). So in the room this is a cleaner-surface change, not a
    blue-contrast one; flagged for him on the card. */
@@ -4967,14 +4978,22 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg.you .msg-b { margin-left: calc(34px + 14px); }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
    (.msg.you) wears the royal-blue --usermsg-tint; an agent's wears the light-gray
-   --k-sunk -- the SAME two tokens the DM bubble already uses (.dm.mine / .dm.theirs),
+   --k-sunk -- the SAME two tokens the DM bubble already uses (.msg.you / .msg:not(.you)),
    both theme-defined (per-theme beside --k-sunk), so ONE rule each covers light and
    dark and the two surfaces cannot drift on the color. Only .msg-bd (the wrapped
    body: text + preview + attachments; the name/time header and the reaction row live
-   OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.dm-b). Padding
+   OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.msg-bd). Padding
    and radius match the DM bubble. A bodyless row draws no .msg-bd at all (pjMsg emits
    the wrapper only for non-empty body content), so there is no empty tinted box. */
 .msg-bd { padding: 8px 12px; border-radius: 12px; max-width: 78ch; }
+/* #3414: the DM now reuses .msg-bd, but the old DM bubble (.dm-b) carried
+   `white-space: pre-wrap; overflow-wrap: anywhere` (see the .dm-b rule) and .msg-bd does
+   not. The DM body comes through pjRich(pjWords), which KEEPS literal newlines, so without
+   pre-wrap a multi-line DM collapses to one line (regression caught by
+   render-dm-multiline-3208 / render-talk). Scope it to the DM thread only: the ROOM's
+   .msg-bd renders paragraphs via pjProse <p> blocks (no literal \n), so it needs none and
+   is left untouched. */
+#d-dmthread .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
@@ -5043,6 +5062,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* the thread-ground mask carving the wing's outer edge into the curve */
 .msg:not(.you) .msg-bd::after { left: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-right-radius: 12px 16px; z-index: -1; }
 .msg.you .msg-bd::after { right: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-left-radius: 12px 16px; z-index: -1; }
+/* #3414: the agent DM thread ground is --k-bg, not the room's --k-surface, so the tail
+   ground-mask must follow it or a sliver of the wrong ground shows at each bubble's tail.
+   One #d-dmthread rule (ID specificity) beats both the room mask above and its dark #000
+   overrides, and --k-bg flips per theme, so it is correct in light and dark alike. */
+#d-dmthread .msg-bd::after { background: var(--k-bg); }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
    mask must stay the pure thread ground or it would stop carving. */
@@ -5072,6 +5096,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    either to go straight to that agent. No underline, no link look (Josh's rule), just
    a pointer cursor on hover. The person's OWN avatar (.msg-av.mine) is not a target. */
 .msg-nm, .msg:not(.you) .msg-av { cursor: pointer; }
+/* #3414: in the agent DM (#d-dmthread) the name/avatar are NOT click targets (see dmRow),
+   so keep the plain cursor there; the pointer above is for the room's data-open-agent. */
+#d-dmthread .msg-nm, #d-dmthread .msg:not(.you) .msg-av { cursor: default; }
 /* #3130 (Josh 6.68): the #1703 `.msg-role` agent-title span is no longer rendered
    in the dialog (removed in pjRoomRow), so its CSS rule is removed with it. The
    member roster's own title styling (pj-member-role) is unaffected. */
@@ -5090,8 +5117,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    left, the search is constrained (not full-width) and sits on the caption's baseline;
    in .dsec (a flex column) the standalone search would otherwise stretch to full width.
    On a phone the row wraps so the search drops below rather than squishing. */
-.d-talk-caprow { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; }
-.d-talk-caprow #d-talk-hint { flex: 1 1 auto; min-width: 0; }
+.d-talk-caprow { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
+.d-talk-caprow > #d-talk-label { flex: 1 1 auto; min-width: 0; }
 .d-talk-caprow #d-talk-search-wrap { flex: 0 1 min(260px, 40%); align-self: center; }
 @media (max-width: 480px) {
   .d-talk-caprow { flex-wrap: wrap; }
@@ -5231,6 +5258,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    silently resolved either way. */
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
   max-height: 15rem; overflow-y: auto; padding-right: 4px; }
+/* 🛑 #3414 ORPHANED, PENDING A FOCUSED CLEANUP: dmRow now emits the room's `.msg`
+   markup, so the `.dm` / `.dm.mine` / `.dm.theirs` / `.dm-b` / `.dm-w` RULES below
+   match nothing rendered any more. They are inert (dead selectors have no effect),
+   and several `.dm-b` selectors are shared lists whose LIVE siblings
+   (`.msg-b`, `.pj-msg-text`, `.tkdetail`) must stay, so the removal is a separate
+   surgical pass rather than a block delete. Tracked for a fast-follow. */
 .dm { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 .dm.mine { align-items: flex-end; }
 /* ⚠️ THIS BRANCH IS THE PRODUCER THE NOTE BELOW SAID DID NOT EXIST, and the note
@@ -5451,10 +5484,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-member-role { display: block; color: var(--label-3); opacity: .9; }
 
 /* ⚠️ AN EMPTY RECEIPT TAKES NO ROOM. #3134-followup (Josh 6.72) removed the inline
-   `.delivery` receipt from the ROOM entirely, so this no longer governs any room path.
-   It still applies to the DM view, which renders `<span class="delivery ...">` from a
-   possibly-empty `v.said`: an empty inline element would still carry the rule's margin
-   and line box, a stray gap under a post, so an empty receipt collapses to nothing. */
+   `.delivery` receipt from the ROOM, and #3414 made the DM (dmRow) OMIT the `.delivery`
+   span when `v.said` is empty rather than render an empty one. So no path emits an empty
+   receipt any more; this rule is now a cheap defensive no-op against a future one, kept
+   rather than a live dependency. */
 .delivery:empty { display: none; }
 
 /* ⚠️ THE GAP LIVED ON THE PER-AGENT WRAPPER, which the grouped line removed —
@@ -5756,7 +5789,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   :root:not([data-theme="light"]) .msg-av { background: rgba(245,245,244,.10); }
   /* #2660: the user-message tint does NOT need a per-selector dark rule here --
      it rides the `--usermsg-tint` token, which is redefined 15% in every dark
-     token block (like --k-sunk), so `.dm.mine .dm-b` / `.pj-msg` flip on their
+     token block (like --k-sunk), so `.msg.you .msg-bd` / `.pj-msg` flip on their
      own. No forced-dark twin is generated for them either. */
 }
 /* ⚠️ `display: block` on all three, and it is not cosmetic. These are
@@ -8738,18 +8771,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        shipped sentence naming an agent would be a claim about whichever agent
        happens to be open. -->
   <section class="dbox" id="d-talk-box" tabindex="-1">
-    <h3 class="dlab" id="d-talk-label"></h3>
-    <!-- #2622 (Josh product-review): the caption and the search sit on ONE row so the
-         search is not a full-width row of its own ("put it on the same baseline as
-         'Just between you and X'"). The search still filters the thread below; every id
-         is unchanged so the filter JS is untouched. -->
+    <!-- #3414: the header row is "Direct Message to <agent>" in the project-name font on
+         the LEFT and the shrunk "Search" on the RIGHT, one row. The old "Just between you
+         and <agent>. Nothing here belongs to a project." hint is gone: nothing here
+         belongs to a project, so it says nothing. #d-talk-label + the search ids are
+         unchanged so the label-setter and the filter JS are untouched. -->
     <div class="d-talk-caprow">
-      <p class="dhint" id="d-talk-hint" style="margin:0;"></p>
+      <h3 id="d-talk-label"></h3>
       <div class="tsearch" id="d-talk-search-wrap">
         <span class="tsearch-i" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         </span>
-        <input type="search" id="d-talk-search" placeholder="Search this conversation" aria-label="Search this conversation">
+        <input type="search" id="d-talk-search" placeholder="Search" aria-label="Search this conversation">
       </div>
     </div>
     <div class="qask" id="d-qask" hidden>
@@ -8841,8 +8874,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            this box exists for. The room's own box carries a static label for
            the same reason. -->
       <textarea class="cinput" id="d-say" rows="1" maxlength="2000"
-             aria-label="Type a message for this agent" placeholder="Message this agent&hellip;"></textarea>
-            <button class="btn uprime cpost" id="d-send" type="button">Send</button>
+             aria-label="Type a message for this agent" placeholder="Write something&hellip;"></textarea>
+            <button class="btn uprime cpost" id="d-send" type="button">Post</button>
     </div>
     <!-- The attached-but-unsent files (#358, Josh 1:59 PM: "it just instantly
          uploads it... I don't get to write a caption", then "multiple pictures
@@ -24949,9 +24982,30 @@ function dmRow(m, name) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
+  const whenStr = esc(pjWhen(m.at) || '');
   if (m && m.from) {
-    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
-      + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
+    /* #3414: the agent's row now IS the room's `.msg` bubble -- gray ground, avatar to
+       the left, the agent name bold INSIDE the bubble at the top, and the timestamp
+       INSIDE at the bottom-right, so the DM and the project conversation are one look.
+       The avatar mirrors pjRoomRow: the agent's photo when the tied card carries one
+       (looked up in LAST by `from`, the way the room looks it up in p.agents), else the
+       shared initials disc. LAST is `typeof`-guarded so the lifted dmRow tests (which run
+       without a LAST) fall back to the disc rather than throwing. */
+    const card = (typeof LAST !== 'undefined' && Array.isArray(LAST))
+      ? LAST.find((x) => x && x.sessionName === m.from) : null;
+    /* No data-open-agent here (unlike pjRoomRow): the [data-open-agent] click handler is
+       bound to #pj-room only, and this DM already lives inside m.from's own detail panel,
+       so opening the agent from here would re-open the current view. The name/avatar are
+       therefore not click targets, and the DM-scoped cursor rule below keeps them plain. */
+    const av = (card && card.hasAvatar)
+      ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
+      : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
+    return '<div class="msg" data-mid="' + midOf(m) + '">' + av
+      + '<div class="msg-b"><div class="msg-bd">'
+      + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
+      + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+      + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
+      + '</div></div></div>';
   }
   const v = pjVerdict(m, name);
   /* ⚠️ WHAT WAS TYPED, when it is not what the bubble shows. A numbered answer
@@ -24994,13 +25048,23 @@ function dmRow(m, name) {
      is a design question about how a long verdict should look, which is Mona
      Lisa's, and the alignment check cannot see it -- it reads `text-align`.
      Flagged rather than quietly left. */
-  /* ⚠️ THE TIME SITS ON THE ROW, exactly where the `theirs` row above already
-     puts it, and no longer inside the verdict. The verdict is silent on an
-     ordinary success now, and a timestamp that lived inside it would have gone
-     silent with it -- on every message that worked. */
-  return '<div class="dm mine" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
-    + '<span class="dm-w">You' + v.when + wire + ' '
-    + '<span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span></span></div>';
+  /* #3414: the person's own row is the room's `.msg.you` bubble -- blue ground, on the
+     right, the user avatar to its right. No name (the operator's standing #3130 rule).
+     The timestamp sits INSIDE the bubble bottom-right like the agent row and the room;
+     the delivery verdict, when it speaks, follows it on the same line. The verdict stays
+     silent on an ordinary success, so a message that worked shows only its time and
+     matches the room; it speaks only on a real failure. */
+  /* Matches pjRoomRow: the photo case is a plain .msg-av (the img fills it); only the
+     no-photo case wears .mine, whose --k-ink background/ink is what the disc needs. */
+  const youAv = YOU_PIC
+    ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+    : '<div class="msg-av mine" aria-hidden="true"></div>';
+  return '<div class="msg you" data-mid="' + midOf(m) + '">' + youAv
+    + '<div class="msg-b"><div class="msg-bd">'
+    + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+    + '<span class="msg-t">' + whenStr + wire
+    + (v.said ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
+    + '</span></div></div></div>';
 }
 
 
@@ -25167,9 +25231,10 @@ async function paintTalk(sessionName, agentName) {
    * wrong.
    */
   const name = agentName || sessionName;
-  document.getElementById('d-talk-label').textContent = 'Talk to ' + name;
-  document.getElementById('d-talk-hint').textContent =
-    'Just between you and ' + name + '. Nothing here belongs to a project.';
+  document.getElementById('d-talk-label').textContent = 'Direct Message to ' + name;
+  /* #3414: the "Just between you and <name>. Nothing here belongs to a project." hint is
+     gone -- nothing here belongs to a project, so it says nothing. The element was removed
+     from the markup, so nothing sets it. */
   /* ⚠️ WRITTEN WITH THE LABEL, not on the fetch's success path: whether a line
      names the right agent does not depend on the fetch, and one set on the
      success path carries the PREVIOUS agent's name on a borrowed-name pane,
@@ -25193,7 +25258,7 @@ async function paintTalk(sessionName, agentName) {
      caveat — see the send verdict. */
   const say = document.getElementById('d-say');
   say.setAttribute('aria-label', 'A message for ' + name);
-  say.placeholder = 'Message ' + name + '…';
+  say.placeholder = 'Write something…';
   let body;
   // 404 is the route's standing refusal (a pane holding this name untied), not
   // a read that failed this second. The sentence below branches on it.
@@ -25741,7 +25806,7 @@ async function paintTalk(sessionName, agentName) {
      the same thing twice in the same glance. */
   say.placeholder = say.disabled
     ? name + ' cannot be reached right now'
-    : 'Message ' + name + '\u2026';
+    : 'Write something\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
   /* #967: the Terminal tab's respond-in-context box shares this one presence
      read, so it gates identically to the composer above rather than computing

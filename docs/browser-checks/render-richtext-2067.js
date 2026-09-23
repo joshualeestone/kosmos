@@ -211,7 +211,7 @@ function ok(name, cond, detail) {
     });
     await page.evaluate(() => paintTalk('april', 'April'));
     const dom = await page.evaluate(() => {
-      const b = document.querySelector('#d-dmthread .dm-b');
+      const b = document.querySelector('#d-dmthread .msg-bd');
       const mdh = b && b.querySelector('.mdh');
       const mdc = b && b.querySelector('.mdc');
       const csH = mdh ? getComputedStyle(mdh) : null;

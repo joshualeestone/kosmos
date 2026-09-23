@@ -731,12 +731,13 @@ function unreachableStates() {
       const m = await page.evaluate(() => {
         const el = (id) => document.getElementById(id);
         const vis = (n) => !!(n && !n.hidden && n.getClientRects().length);
-        const bubble = document.querySelector('#d-dmthread .dm-b');
+        const bubble = document.querySelector('#d-dmthread .msg-bd');
         const cs = bubble ? getComputedStyle(bubble) : null;
         // #2660: the PERSON'S OWN bubble specifically. `bubble` above is the
-        // first `.dm-b`, which may be the agent's `.dm.theirs` (now transparent);
-        // the royal-blue tint lives on `.dm.mine`, so the colour check reads this.
-        const mineBubble = document.querySelector('#d-dmthread .dm.mine .dm-b');
+        // first `.msg-bd`, which may be the agent's `.msg:not(.you)` (transparent
+        // body); the royal-blue tint lives on `.msg.you`, so the colour check
+        // reads this.
+        const mineBubble = document.querySelector('#d-dmthread .msg.you .msg-bd');
         const qask = el('d-qask');
         return {
           pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -767,7 +768,7 @@ function unreachableStates() {
           // Per ROW, because a verdict belongs to one message and the thread's
           // whole text cannot say which. Rendered text of drawn rows only
           // (#687): a "sent as" nobody can see must not satisfy the control.
-          rows: Array.from(document.querySelectorAll('#d-dmthread .dm'))
+          rows: Array.from(document.querySelectorAll('#d-dmthread .msg'))
             .filter((r) => r.getBoundingClientRect().height > 0)
             .map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
           sendDisabled: el('d-send').disabled,
@@ -842,8 +843,8 @@ function unreachableStates() {
             };
           })(),
           metaAlign: (() => {
-            const row = document.querySelector('#d-dmthread .dm.mine');
-            const w = row && row.querySelector('.dm-w');
+            const row = document.querySelector('#d-dmthread .msg.you');
+            const w = row && row.querySelector('.msg-t');
             return w ? getComputedStyle(w).textAlign : null;
           })(),
           label: el('d-talk-label').innerText,
@@ -1103,14 +1104,14 @@ function unreachableStates() {
         + 'reachability of a cut question is UNCHECKED (the fixtures, the box width, or the treatment changed)');
     }
     if (!measuredMeta) {
-      problems.push(`[${theme}] receipt: no state produced a .dm.mine receipt, so its alignment is UNCHECKED`);
+      problems.push(`[${theme}] receipt: no state produced a .msg.you receipt, so its alignment is UNCHECKED`);
     }
     if (!measuredBubbleWrap) {
       problems.push(`[${theme}] bubble: no state rendered a message bubble, so #1927's `
         + 'paragraph-preserving white-space: pre-wrap is UNCHECKED');
     }
     if (!measuredMineBubble) {
-      problems.push(`[${theme}] bubble: no state rendered the person's own (.dm.mine) bubble, `
+      problems.push(`[${theme}] bubble: no state rendered the person's own (.msg.you) bubble, `
         + "so #2660's royal-blue --usermsg-tint on the person's own message is UNCHECKED");
     }
 
@@ -1816,8 +1817,17 @@ function unreachableStates() {
          day that stops being true is a failure rather than a discovery. */
       const clockOnly = await page.evaluate(async () => {
         const at = new Date(Date.now() - 65 * 1000).toISOString();
+        /* ⚠️ COUNT RAISED 8 -> 30 (#3414). The agent-DM rebuild made
+           #d-talk-box (and its #d-dmthread) fill the panel edge-to-edge, so a
+           taller box no longer overflows on eight short lines and `scrolls`
+           went false, which fires the "did not overflow, so the scroll-hold is
+           UNCHECKED" control below. This is the same shape #413 hit with the
+           70-column question the day the page went full-width. The scroll-hold
+           behaviour is unchanged and still worth testing, so the fixture is
+           lengthened to overflow the taller box rather than the control
+           weakened. Thirty matches the sibling scroll block (2c). */
         window.__fx = {
-          messages: Array.from({ length: 8 }, (_, i) => ({
+          messages: Array.from({ length: 30 }, (_, i) => ({
             text: 'message number ' + (i + 1) + ' with enough words in it to take a line or two of the box',
             at, delivery: { state: 'placed', because: null, at, paneNote: null },
           })),

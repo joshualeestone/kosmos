@@ -76,8 +76,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       let h = '';
       for (let i = 0; i < 40; i += 1) {
         const tall = growAbove && i < 15 ? ' style="min-height:80px"' : ' style="min-height:24px"';
-        h += '<div class="dm theirs" data-mid="m' + i + '"' + tall + '>'
-          + '<div class="dm-b">message number ' + i + '</div></div>';
+        h += '<div class="msg" data-mid="m' + i + '"' + tall + '>'
+          + '<div class="msg-b"><div class="msg-bd">message number ' + i + '</div></div></div>';
       }
       return h;
     };

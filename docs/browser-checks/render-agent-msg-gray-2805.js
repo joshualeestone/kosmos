@@ -77,8 +77,8 @@ function delta(a, b) { return Math.max(...[0, 1, 2].map((i) => Math.abs(a[i] - b
 function spread(rgb) { return Math.max(rgb[0], rgb[1], rgb[2]) - Math.min(rgb[0], rgb[1], rgb[2]); }
 
 const now = () => new Date().toISOString();
-/* A fixture with an agent row (m.from set -> `.dm.theirs`) beside a person row
- * (a placed message, no `from` -> `.dm.mine`), so BOTH bubbles are on screen and
+/* A fixture with an agent row (m.from set -> `.msg:not(.you)`) beside a person row
+ * (a placed message, no `from` -> `.msg.you`), so BOTH bubbles are on screen and
  * the "not the same colour as mine" comparison is real, not vacuous. */
 const FX = {
   messages: [
@@ -144,15 +144,15 @@ const FX = {
       const m = await page.evaluate(() => {
         const bg = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).backgroundColor : null; };
         return {
-          theirsCount: document.querySelectorAll('#d-dmthread .dm.theirs .dm-b').length,
-          mineCount: document.querySelectorAll('#d-dmthread .dm.mine .dm-b').length,
-          theirsBg: bg('#d-dmthread .dm.theirs .dm-b'),
-          mineBg: bg('#d-dmthread .dm.mine .dm-b'),
+          theirsCount: document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd').length,
+          mineCount: document.querySelectorAll('#d-dmthread .msg.you .msg-bd').length,
+          theirsBg: bg('#d-dmthread .msg:not(.you) .msg-bd'),
+          mineBg: bg('#d-dmthread .msg.you .msg-bd'),
           // #3260: the REAL dmRow render no longer emits data-am (agent messages
           // are one fixed color), so this reads the production agent bubble's
           // data-am to confirm it is absent (asserted null below). null also when
           // there is no agent bubble.
-          theirsDataAm: (() => { const el = document.querySelector('#d-dmthread .dm.theirs .dm-b'); return el ? el.getAttribute('data-am') : null; })(),
+          theirsDataAm: (() => { const el = document.querySelector('#d-dmthread .msg:not(.you) .msg-bd'); return el ? el.getAttribute('data-am') : null; })(),
           // The panel the bubbles sit on, and the page behind it -- for the
           // "did it dissolve into the surface" comparison, composited in order.
           talkBoxBg: bg('#d-talk-box'),
@@ -163,8 +163,8 @@ const FX = {
 
       // Positive controls: the fixture actually rendered both kinds of bubble,
       // so every comparison below is real rather than vacuous.
-      chk(m.theirsCount >= 1, `${t} an agent bubble (.dm.theirs .dm-b) is on screen`, `count=${m.theirsCount}`);
-      chk(m.mineCount >= 1, `${t} a person bubble (.dm.mine .dm-b) is on screen`, `count=${m.mineCount}`);
+      chk(m.theirsCount >= 1, `${t} an agent bubble (.msg:not(.you) .msg-bd) is on screen`, `count=${m.theirsCount}`);
+      chk(m.mineCount >= 1, `${t} a person bubble (.msg.you .msg-bd) is on screen`, `count=${m.mineCount}`);
       // #3260 (Josh, 2026-09-18): agent messages are ONE fixed color -- the REAL
       // dmRow render no longer emits a per-message data-am, so the production agent
       // bubble carries no such attribute. A regression re-adding it fails here.
@@ -216,8 +216,8 @@ const FX = {
       const flat = await page.evaluate(() => {
         const host = document.getElementById('d-dmthread');
         const shadeOf = (am) => {
-          const row = document.createElement('div'); row.className = 'dm theirs';
-          const b = document.createElement('div'); b.className = 'dm-b';
+          const row = document.createElement('div'); row.className = 'msg';
+          const b = document.createElement('div'); b.className = 'msg-bd';
           if (am != null) b.setAttribute('data-am', String(am));
           b.textContent = 'x'; row.appendChild(b); host.appendChild(row);
           const c = getComputedStyle(b).backgroundColor; row.remove(); return c;
