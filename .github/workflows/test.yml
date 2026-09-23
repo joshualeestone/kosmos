@@ -1,7 +1,8 @@
 # The first CI this repo has ever had (#835).
 #
 # 🛑 WHAT THIS IS AND IS NOT. It runs the full suite (tools/run-tests.sh) on every
-# push and every PR and reports red or green. It is ADVISORY: nothing here blocks a
+# push to `main` and every PR (#3499 gated push to main; see the `on:` block) and
+# reports red or green. It is ADVISORY: nothing here blocks a
 # merge, because gh pr merge is server-side and no workflow can gate it without
 # branch protection with a required check. Branch protection is a separate decision
 # (#835): it is available on THIS repo (public) but was deliberately not made
