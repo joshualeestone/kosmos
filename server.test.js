@@ -3808,8 +3808,8 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     // badge does not come back.
     assert.doesNotMatch(api.card(spoofed), /membadge unk/,
       'the removed unknown-memory word badge (.membadge.unk) reappeared');
-    // ⚠️ And it must NOT appear when the memory IS known — otherwise the
-    // assertion above passes for a badge that is always on.
+    // #3501: with the word badge removed it must not appear on a known-memory
+    // card either -- a second removal guard beside the unknown-card one above.
     assert.doesNotMatch(api.card(withPct(leo, 40)), /membadge unk/,
       'a card with a readable memory claimed its memory was unknown');
     // ⚠️ The severity badge must be unreachable at an unknown percent. Red on
