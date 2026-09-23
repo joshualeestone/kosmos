@@ -90,7 +90,7 @@ Gradle 8.9's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
 Android CI runs in `.github/workflows/android.yml`: on every push/PR touching
 `android/**` it provisions JDK 21 (via `actions/setup-java`, which sets the
 `JAVA_HOME` the daemon-JVM criteria auto-detect) and runs `:app:assembleDebug` as
-an always-on advisory gate. A conditional `:app:assembleRelease` job signs only
+an always-on advisory gate. A conditional `:app:assembleRelease` step signs only
 when the upload-keystore secrets are present, and stays inert otherwise.
 
 ## Release signing (upload keystore)
