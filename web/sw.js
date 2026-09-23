@@ -82,8 +82,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* The named shell assets change rarely: cache-first, refreshing the copy in
-     the background. */
+  /* The named shell assets (manifest + the two icons) change rarely and are
+     dropped wholesale when a new worker version activates, so this is a plain
+     cache-first: serve the cached copy when present, otherwise fetch and cache
+     it. NOT stale-while-revalidate -- a hit is returned as-is with no background
+     revalidation; freshness comes from the version bump busting the cache, not
+     from re-fetching on every hit. */
   if (SHELL_ASSETS.includes(url.pathname)) {
     event.respondWith((async () => {
       const hit = await caches.match(req);
@@ -91,8 +95,8 @@ self.addEventListener('fetch', (event) => {
       const res = await fetch(req);
       if (res && res.ok && res.type === 'basic') {
         const copy = res.clone();
-        // waitUntil: same reason as the navigate branch -- keep the worker alive
-        // until the background refresh write completes.
+        // waitUntil so the worker is not killed before the cache write of this
+        // freshly-fetched miss completes (respondWith resolves when `res` returns).
         event.waitUntil(caches.open(SHELL_CACHE).then((c) => c.put(req, copy)).catch(() => {}));
       }
       return res;
