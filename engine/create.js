@@ -1469,7 +1469,10 @@ function setProvider(name, provider, opts) {
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
-  if (provider !== 'anthropic' && provider !== 'openai') {
+  /* #3296/#3391: the four-way guard createAgentInner already uses. google launches
+     the gemini runner, xai the grok runner; the switch path was the last post-birth
+     setter still refusing both (setAccount/setModel already handle them). */
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
   const platform = opts && opts.platform;
@@ -1478,21 +1481,30 @@ function setProvider(name, provider, opts) {
   if (!job) {
     return noJobRefusal(clean, spoken, verdict, `${spoken} was not started by Kosmos, so we cannot change what it runs on.`);
   }
-  const runner = provider === 'openai' ? 'codex' : 'claude';
+  /* The provider -> runner map is the SAME one createAgentInner uses (its line
+     `provider === 'openai' ? 'codex' : ... : 'claude'`), so the two routes to a
+     runner cannot disagree. */
+  const runner = provider === 'openai' ? 'codex' : provider === 'google' ? 'gemini' : provider === 'xai' ? 'grok' : 'claude';
   if (job.runner === runner) {
+    /* The vendor word a person reads, keyed on the provider they asked for. */
+    const already = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : provider === 'xai' ? 'Grok' : 'Anthropic';
     return {
       outcome: OUTCOME.REFUSED,
-      because: `${spoken} already runs on ${provider === 'openai' ? 'OpenAI' : 'Anthropic'}`,
+      because: `${spoken} already runs on ${already}`,
     };
   }
-  const { claudeBin, codexBin } = binPaths(opts);
-  const runnerBin = runner === 'codex' ? codexBin : claudeBin;
+  const { claudeBin, codexBin, geminiBin, grokBin } = binPaths(opts);
+  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : claudeBin;
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
+    /* The existing OpenAI/Claude wording is kept verbatim (create.runner-dir-1616
+       asserts `/could not find the OpenAI runner/`); gemini/grok get the same shape. */
+    const missing = runner === 'codex' ? 'the OpenAI runner'
+      : runner === 'gemini' ? 'the Gemini runner'
+        : runner === 'grok' ? 'the Grok runner'
+          : 'Claude';
     return {
       outcome: OUTCOME.REFUSED,
-      because: runner === 'codex'
-        ? 'we could not find the OpenAI runner on this computer, so nothing was changed'
-        : 'we could not find Claude on this computer, so nothing was changed',
+      because: `we could not find ${missing} on this computer, so nothing was changed`,
     };
   }
   /**
@@ -1712,6 +1724,40 @@ function setProvider(name, provider, opts) {
       return { outcome: OUTCOME.REFUSED, because: 'we could not let the OpenAI runner work in its folder, so nothing was changed' };
     }
   }
+  /* #3296/#3391: the Gemini/Grok analog of the codex account block above, and
+     deliberately SIMPLER than it. codex grew a picker, a "nobody is signed in"
+     refusal and a pickedByPerson sentence because switching onto an unsigned
+     default codex home leaves a DEAD agent (#1211/#1373). gemini/grok have no such
+     failure: their default is the machine-global GEMINI_API_KEY / XAI_API_KEY door,
+     which an agent CAN start on. So this mirrors the create path's google/xai arms
+     and setGeminiAccount/setGrokAccount instead:
+       - default (no accountDir): the env-key door, constructed directly. It is
+         legitimately ABSENT from list() because rowFor gates on a stored key, so we
+         do NOT search a row for it; configDir stays null.
+       - a NAMED account: resolved in list() (resolved before comparing, #1486),
+         REFUSED if unknown -- fail closed, the silent-wrong-account guard the whole
+         switch-account saga exists for; configDir = isDefault ? null : dir.
+     Gated on !DRY_RUN exactly as the codex block is: a dry-run switch resolves no
+     account and validates no named one, the same parallel the codex path draws. */
+  let switchAccount = null;
+  if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
+    const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
+    const providerName = runner === 'gemini' ? 'Gemini' : 'Grok';
+    const wantDir = opts && typeof opts.accountDir === 'string' && opts.accountDir !== ''
+      ? path.resolve(opts.accountDir) : null;
+    if (wantDir === null) {
+      switchAccount = {
+        provider: runner === 'gemini' ? 'google' : 'xai',
+        providerName, dir: mod.defaultDir(), isDefault: true,
+      };
+    } else {
+      const acct = mod.list().find((a) => a.dir === wantDir);
+      if (!acct) {
+        return { outcome: OUTCOME.REFUSED, because: `we do not know that ${providerName} account on this computer` };
+      }
+      switchAccount = acct;
+    }
+  }
   /* ⚠️ `job.tmux` is kept (the recorded path is the working one); the model
      and the account are NOT, in either direction: they are provider-shaped
      choices, and carrying one across would hand the new runner a value it
@@ -1747,9 +1793,16 @@ function setProvider(name, provider, opts) {
          no overrides, so that is exactly "this row is the default AND no override is in
          force". With one set, the home is recorded, which is what #1373 asserts.
          📌 Composed from `homeIsNamed()` rather than restating the rule: #1488 was
-         precisely a second copy of this derivation disagreeing with the first. */
-        openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden())
-          ? openaiAccount.dir : null,
+         precisely a second copy of this derivation disagreeing with the first.
+         🔑 #3296/#3391: this codex expression is one arm of a provider-aware value.
+         gemini/grok use `switchAccount && !isDefault ? dir : null` -- the SAME
+         `isDefault ? null : dir` transform createAgentInner's google/xai arms and
+         setGeminiAccount/setGrokAccount apply (no codexHomeOverridden analog: their
+         default is an env-key door, not a home a launchd job resolves differently
+         from the server). claude carries no account, so null. */
+        runner === 'codex'
+          ? (openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden()) ? openaiAccount.dir : null)
+          : (switchAccount && !switchAccount.isDefault ? switchAccount.dir : null),
     }, platform);
     if (unwritten) return unwritten;
   }
@@ -1797,6 +1850,10 @@ function setProvider(name, provider, opts) {
        Null for a switch back to Claude, and null under dry-run, where nothing
        was looked at and claiming an account would be an invention. */
     openaiAccount,
+    /* #3296/#3391: the Gemini/Grok account the switch landed on, so the route can
+       name it -- the generic analog of `openaiAccount`. Null for a switch to
+       claude/codex and null under dry-run, for the same reason openaiAccount is. */
+    account: switchAccount,
     dropped: {
       model: job.model || null,
       account: Boolean(job.configDir),

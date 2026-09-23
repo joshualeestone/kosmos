@@ -566,14 +566,20 @@ test('#1373: no arm of the dialog claims a pick unless a person picked', () => {
 });
 
 test('#1373: the route says a different sentence for a pick than for a default', () => {
+  /* #3296/#3391: the account-NOUN became a variable (`acctNoun`) so the same two
+     arms read "OpenAI sign-in" / "Gemini account" / "Grok account" per provider,
+     but the pick-versus-default DISTINCTION this guards is unchanged: `acct.chosen`
+     still selects "the ${acctNoun} you picked" over "your ${acctNoun}". This is the
+     "rendered text changed, the existing check pinned the old literal" shape the
+     partial-branch sibling above documents; the regex tracks the templated form. */
   assert.match(SERVER, /acct\.chosen/, 'the route no longer distinguishes a pick from a stated default');
-  assert.match(SERVER, /the OpenAI sign-in you picked/, 'the chosen-account wording is gone');
-  assert.match(SERVER, /your OpenAI sign-in/, 'the stated-default wording is gone');
+  assert.match(SERVER, /the \$\{acctNoun\} you picked/, 'the chosen-account wording is gone');
+  assert.match(SERVER, /your \$\{acctNoun\}/, 'the stated-default wording is gone');
   /* And they must be the two arms of ONE conditional, not two strings that
      happen to exist: an unconditional "you picked" is the defect this guards.
      Now checked inside the shared helper, since both tenses compose through it. */
   assert.match(SERVER,
-    /acct\.chosen[\s\S]{0,220}?the OpenAI sign-in you picked[\s\S]{0,220}?your OpenAI sign-in/,
+    /acct\.chosen[\s\S]{0,220}?the \$\{acctNoun\} you picked[\s\S]{0,220}?your \$\{acctNoun\}/,
     'the two sentences are no longer the arms of the chosen conditional');
 });
 

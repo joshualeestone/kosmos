@@ -5638,14 +5638,23 @@ const server = http.createServer((req, res) => {
         try { back = removal.restart(name, 'provider'); }
         catch (err) { back = { outcome: 'partial', because: String(err && err.message || err), steps: [] }; }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
-        const label = wrote.provider === 'openai' ? 'OpenAI' : 'Claude';
+        /* #3296/#3391: the vendor word, keyed on the provider the switch landed on.
+           google/xai were previously mislabelled "Claude" here. */
+        const label = wrote.provider === 'openai' ? 'OpenAI'
+          : wrote.provider === 'google' ? 'Gemini'
+            : wrote.provider === 'xai' ? 'Grok'
+              : 'Claude';
         /* The dropped choices are SAID, not implied: a person who picked a
            model or an account deserves to hear it did not cross, in the
-           sentence that reports the switch, not on a later surprise. */
-        const dropped = wrote.provider === 'openai'
-          ? [wrote.dropped.model ? 'its Claude model choice does not cross (OpenAI picks its own)' : '',
-            wrote.dropped.account ? 'and it leaves its Claude account behind' : '']
-          : ['it starts on your main Claude account and Claude’s own default model until you change them'];
+           sentence that reports the switch, not on a later surprise.
+           #3296/#3391: keyed on whether the TARGET is anthropic, not on == 'openai',
+           so a switch to gemini/grok gets the same "previous choices dropped" sentence
+           (a target provider picks its own model) rather than the claude default line.
+           "previous" rather than "Claude" because the old provider need not be claude. */
+        const dropped = wrote.provider === 'anthropic'
+          ? ['it starts on your main Claude account and Claude’s own default model until you change them']
+          : [wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
+            wrote.dropped.account ? 'and it leaves its previous account behind' : ''];
         const droppedWords = dropped.filter(Boolean).join(' ');
         /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
            read "API key ending WWUA" elsewhere on the screen, and could not
@@ -5659,7 +5668,17 @@ const server = http.createServer((req, res) => {
            null on a switch back to Claude and under dry-run, and naming an
            account nobody read would be the invention this route already
            refuses elsewhere. */
-        const acct = wrote.openaiAccount;
+        /* #3296/#3391: the account the switch landed on. codex reports it as
+           `openaiAccount`; gemini/grok report the generic `account`. Exactly one is
+           set (null for a switch to claude and under dry-run), so `||` picks it. */
+        const acct = wrote.openaiAccount || wrote.account;
+        /* The account-noun a person reads, keyed on the target provider. gemini/grok
+           rows carry a keyTail (rendered by `whichAcct` as "(API key ending XXXX)")
+           and no email, so "your Gemini account (API key ending XXXX)" reads right. */
+        const acctNoun = wrote.provider === 'openai' ? 'OpenAI sign-in'
+          : wrote.provider === 'google' ? 'Gemini account'
+            : wrote.provider === 'xai' ? 'Grok account'
+              : 'account';
         /* #1373: "you picked this" and "we picked this and are telling you"
            are different promises, so they get different sentences. Saying
            "the one you picked" when nobody picked would be the invention this
@@ -5683,8 +5702,8 @@ const server = http.createServer((req, res) => {
          */
         const runsOn = (tense) => (acct
           ? (acct.chosen
-            ? ` ${tense} the OpenAI sign-in you picked${whichAcct}.`
-            : ` ${tense} your OpenAI sign-in${whichAcct}.`)
+            ? ` ${tense} the ${acctNoun} you picked${whichAcct}.`
+            : ` ${tense} your ${acctNoun}${whichAcct}.`)
           : '');
         const landedOn = runsOn('It runs on');
         /* #2790: an OpenAI account Kosmos cannot live-check is the one that can
@@ -5711,7 +5730,7 @@ const server = http.createServer((req, res) => {
            subscription, not per-token billing), so silently moving it would trade a
            silent failure for a silent bill. It only makes the unverifiability
            visible. An API-key account IS live-checkable, so it gets no note. */
-        const signInNote = (acct && acct.authMode !== 'apikey')
+        const signInNote = (acct && wrote.provider === 'openai' && acct.authMode !== 'apikey')
           ? ' Kosmos cannot live-check an OpenAI sign-in, so its status stays'
             + ' unverified; if it does not respond, switch it to an OpenAI API-key'
             + ' account, which Kosmos can verify.'
