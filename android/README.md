@@ -134,12 +134,19 @@ $ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --print-certs \
   app/build/outputs/apk/release/app-release.apk
 ```
 
-**Provisioning elsewhere (CI / another machine).** The keystore is intentionally
-not in the repo, so any other machine must have it provisioned out-of-band and the
-four env vars set (the same shape as the JDK-21 note above). The upload key is
-`RSA-4096`, alias `kosmos-upload`, valid to 2054. With **Play App Signing**, this
-upload key is resettable by Google if ever lost — it is the upload key, not the
-distributed app-signing key.
+**Provisioning elsewhere.** The keystore is intentionally not in the repo. On
+**another developer machine** provision it out-of-band and set the same four env
+vars this section uses (`KOSMOS_UPLOAD_KEYSTORE` as a file path, plus the two
+passwords and the alias). In **GitHub Actions CI** the shape differs, because a
+secret is text and cannot be a binary file path: `.github/workflows/android.yml`
+expects `KOSMOS_UPLOAD_KEYSTORE_BASE64` (the `.jks` base64-encoded),
+`KOSMOS_UPLOAD_STORE_PASSWORD`, `KOSMOS_UPLOAD_KEY_PASSWORD`, and
+`KOSMOS_UPLOAD_KEY_ALIAS` as repo secrets, and the workflow decodes the blob to a
+runner-local file and points `KOSMOS_UPLOAD_KEYSTORE` at it. Provisioning those
+secrets is a repo-admin decision and is not yet done. The upload key is `RSA-4096`,
+alias `kosmos-upload`, valid to 2054. With **Play App Signing** this upload key is
+resettable by Google if ever lost; it is the upload key, not the distributed
+app-signing key.
 
 ## Finishing the app (after the front-door origin is decided)
 
