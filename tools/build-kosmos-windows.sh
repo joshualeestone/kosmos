@@ -102,6 +102,11 @@ done
 cp -R "$REPO/web" "$STAGE/app/web"
 cp "$REPO/bin/agent-supervisor.sh" "$STAGE/app/bin/"
 cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
+# #3296: the gemini report bridge ships on both platforms (create.js resolves it via
+# geminiBridgeSource() and installSupervisor copies it to supportDir), so the mac and
+# windows builders must stage the same app/bin -- the tools.build-windows-570 cross-
+# builder test fails the moment one platform ships a bin/ file the other does not.
+cp "$REPO/bin/gemini-report-bridge.js" "$STAGE/app/bin/"
 
 # #2007: the browser-open helper. It mirrors bash cmd_open's nonce flow so the
 # ENFORCING Windows board (it runs unsandboxed) authenticates the browser instead
