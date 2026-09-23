@@ -82,9 +82,16 @@ function read() {
   // sentence or an object it did not expect.
   const nudges = [];
   for (const n of parsed.nudges) {
-    const session = n && typeof n.session === 'string' ? n.session : '';
+    // Apply the SAME length caps write() applies (session 120, from/to 40), so a
+    // hand-edited or older file cannot hand the API uncapped fields -- the store's
+    // shape is single-sourced across both ends rather than trusting the file.
+    const session = n && typeof n.session === 'string' ? n.session.slice(0, 120) : '';
     if (!session) continue;
-    nudges.push({ session, from: n.from != null ? String(n.from) : null, to: n.to != null ? String(n.to) : null });
+    nudges.push({
+      session,
+      from: n.from != null ? String(n.from).slice(0, 40) : null,
+      to: n.to != null ? String(n.to).slice(0, 40) : null,
+    });
   }
   return { at: parsed.at || null, nudges };
 }
