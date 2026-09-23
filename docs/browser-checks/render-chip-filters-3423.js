@@ -18,6 +18,9 @@
  *   2b. the needs_trust DIVERGENCE: a needs_trust card wears the red visual attn
  *      class but carries NEITHER data-attn nor data-noproj, so the Issue filter
  *      excludes it (data-attn matches c.needsYou, which keys on needs_you only).
+ *   2c/2d. the SAME predicate lives inline in all three render families; lrow()
+ *      (#alist) and onode() (#orgview) are pinned too, so a drift in any one copy
+ *      fails here rather than shipping a silent list/org count-filter mismatch.
  *   3. setBoardFilter is mutually exclusive: exactly one body.filter-* class + one
  *      tile aria-pressed=true at a time; null clears all.
  *   4. the CSS actually hides non-matching grid cards while a filter is on, and the
@@ -121,6 +124,48 @@ function chk(ok, label, extra) {
       'a needs_trust card still wears the red visual attn/needstrust class', JSON.stringify(trust));
     chk(trust.hasDataAttn === false && trust.hasDataNoproj === false,
       'but a needs_trust card carries NEITHER data-attn nor data-noproj (excluded from the Issue filter to match c.needsYou)', JSON.stringify(trust));
+
+    // 2c. #alist family: lrow() carries the SAME inline predicate as card(). Pin it
+    // directly so a drift in the list-row copy (repo convention #5, two derivations
+    // of one fact) fails here rather than shipping a silent list-view count/filter
+    // mismatch. Real lrow() on real LAST records, same three cases as card().
+    const lrowMarks = await page.evaluate(() => {
+      const real = LAST.find((a) => a.sessionName === 'nyx');
+      const withProject = lrow({ ...real, stateProject: 'proj-1' });
+      const noProject = lrow({ ...real, stateProject: null });
+      const idle = lrow(LAST.find((a) => a.sessionName === 'bea'));
+      return {
+        wp_attn: /\bdata-attn\b/.test(withProject), wp_noproj: /\bdata-noproj\b/.test(withProject),
+        np_attn: /\bdata-attn\b/.test(noProject), np_noproj: /\bdata-noproj\b/.test(noProject),
+        idle_attn: /\bdata-attn\b/.test(idle), idle_noproj: /\bdata-noproj\b/.test(idle),
+      };
+    });
+    chk(lrowMarks.wp_attn === true && lrowMarks.wp_noproj === false
+        && lrowMarks.np_attn === true && lrowMarks.np_noproj === true
+        && lrowMarks.idle_attn === false && lrowMarks.idle_noproj === false,
+      'lrow() (#alist) marks match card(): data-attn on needs_you, data-noproj only when no project, neither when idle', JSON.stringify(lrowMarks));
+
+    // 2d. #orgview family: onode markup is built inline in paintOrg (not a callable
+    // fn), so render the org view and read the REAL DOM. Same drift guard for the
+    // third copy of the predicate. paintOrg early-returns on a hidden #orgview and
+    // writes the nodes into #orgmap, so un-hide first.
+    const onodeMarks = await page.evaluate(() => {
+      const wrap = document.getElementById('orgview');
+      wrap.hidden = false;
+      paintOrg();
+      const nyx = document.querySelector('#orgmap .onode[data-agent="nyx"]');
+      const bea = document.querySelector('#orgmap .onode[data-agent="bea"]');
+      return {
+        nyxFound: !!nyx, beaFound: !!bea,
+        nyxAttn: nyx ? nyx.hasAttribute('data-attn') : null,
+        nyxNoproj: nyx ? nyx.hasAttribute('data-noproj') : null,
+        beaAttn: bea ? bea.hasAttribute('data-attn') : null,
+        beaNoproj: bea ? bea.hasAttribute('data-noproj') : null,
+      };
+    });
+    chk(onodeMarks.nyxFound === true && onodeMarks.nyxAttn === true && onodeMarks.nyxNoproj === true
+        && onodeMarks.beaFound === true && onodeMarks.beaAttn === false && onodeMarks.beaNoproj === false,
+      'onode() (#orgview) marks match: the needs_you-no-project node gets both markers, the idle node gets neither', JSON.stringify(onodeMarks));
 
     // 3. setBoardFilter mutual exclusivity + aria-pressed.
     const excl = await page.evaluate(() => {
