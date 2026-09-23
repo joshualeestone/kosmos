@@ -70,8 +70,10 @@ test('an agent with NO pane but a valid agent token is named as the sender', asy
   const r = await postMsg({ to: 'mara', text: 'from a windows agent', from_pane: '' }, { 'x-kosmos-agent-token': tok });
   assert.equal(r.status, 200);
   assert.equal(r.json.delivery.state, 'placed', 'the token-carrying send was not delivered: ' + (r.json.delivery.because || ''));
-  const typed = sends.filter((a) => a[0] === 'send-keys');
-  assert.match(String(typed[0] && typed[0][5]), /colleague leo/, 'the envelope does not name the token\'s agent');
+  // #3419: the body is PASTED (set-buffer -- <chunk>), not typed with send-keys;
+  // the envelope rides in the pasted chunk(s).
+  const pasted = sends.filter((a) => a[0] === 'set-buffer').map((a) => a[a.length - 1]).join('');
+  assert.match(pasted, /colleague leo/, 'the envelope does not name the token\'s agent');
 });
 
 test('no token and no pane: the same refusal as before, untouched', async (t) => {

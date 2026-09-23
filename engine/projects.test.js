@@ -2277,9 +2277,11 @@ test('speakOfMembership types the line into a running agent with no envelope, an
     const p = { id: 'winter-launch', name: 'Winter launch', folder: '/tmp/w' };
     const d = projects.speakOfMembership('mara', p, 'joined', ROSTER);
     assert.equal(d.state, 'placed', d.because);
-    const typed = calls.filter((a) => a[0] === 'send-keys' && a.includes('-l'));
-    assert.equal(typed.length, 1, 'the line was not typed exactly once');
-    const line = typed[0][typed[0].length - 1];
+    // #3419: the line is PASTED (set-buffer -- <chunk>), not typed with send-keys.
+    // It is one short line, so one chunk; reassemble to be robust regardless.
+    const line = calls.filter((a) => a[0] === 'set-buffer').map((a) => a[a.length - 1]).join('');
+    assert.equal(calls.filter((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Enter').length, 1,
+      'the line was not submitted exactly once');
     assert.match(line, /put you on the project "Winter launch"/);
     // ⚠️ No envelope and no trailer: an operator marker on a line no operator
     // wrote would lie about who is speaking (Angel's seam note, 2026-08-23).
