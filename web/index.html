@@ -50860,15 +50860,18 @@ setInterval(ageCheckedStamp, 1000);
     if (btn) { btn.disabled = disabled; btn.textContent = label; }
   }
 
-  /* Paint the control from the browser permission AND the real subscription -- a
-     granted permission is NOT the same as being subscribed and stored. A
-     subscribe, or the POST to the board, can have failed, or the push service
-     can have dropped the subscription, so claiming "On" from permission alone
-     lies. When granted, ask the worker whether a subscription actually exists: if
-     it does, show "On" (a granted permission cannot be revoked from script, so
-     the button is a state marker, not a toggle); if not, leave the control usable
-     so the person can complete or retry -- never a disabled "On" over a device
-     that is not registered. Returns a promise so a caller can await the paint. */
+  /* Paint the control from the browser permission AND the browser's LOCAL
+     subscription. A granted permission is not the same as being subscribed, so
+     "On" shows only when the worker still holds a PushSubscription; otherwise the
+     control stays usable so the person can complete or retry (a failed subscribe
+     or a failed POST leaves permission granted but no usable subscription).
+     Scope, stated honestly: this reconciles against the LOCAL subscription only.
+     There is no board endpoint to ask "does the coordinator still have me?", so a
+     subscription the coordinator pruned server-side, or that a per-Mac grant
+     revoked, can still read "On" here until the browser itself drops the local
+     one; it is re-stored on the next successful enable. A granted permission
+     cannot be revoked from script, so the button is a state marker, not a toggle.
+     Returns a promise so a caller can await the paint. */
   function reflectPushState() {
     if (!hasSW || !hasPush) {
       paintButton(true, 'Not supported');
