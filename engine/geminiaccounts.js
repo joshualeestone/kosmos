@@ -61,6 +61,12 @@ const DIR_PREFIX = '.gemini-';
 const KEY_BASENAME = '.kosmos-gemini-apikey';
 function keyFile(dir) { return path.join(path.resolve(String(dir || '')), KEY_BASENAME); }
 
+/* #2095 sibling (see grokaccounts/openaiaccounts): the human-chosen display NAME,
+   in a small sidecar file inside the account dir, kept SEPARATE from the path label
+   (which is cleanLabel-slugged). Best-effort and fail-open everywhere: a missing or
+   unreadable file is a real "no name" (null), never an error, and a failed write
+   never fails the add. NAME_MAX clamps by code point so a raw API call cannot store
+   an unbounded name that bloats every /api/accounts response. */
 const NAME_MAX = 120;
 function nameFile(dir) { return path.join(path.resolve(String(dir || '')), '.kosmos-name'); }
 function readName(dir) {
