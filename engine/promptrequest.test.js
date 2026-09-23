@@ -60,6 +60,16 @@ test('native present: request(file-access) records the file-access request file 
   assert.ok(fs.existsSync(requestFile('file-access-prompt-request')), 'the file-access request file must be written');
 });
 
+test('#2912 native present: request(a11y-recheck) records the a11y-recheck request file and returns ok:true', () => {
+  // The on-demand re-measure "Check again" fires. Same record-a-request contract as
+  // request(a11y); the native watcher answers it with the CHECK hatch (not the PROMPT),
+  // which the CROSS-LANGUAGE CONTRACT test below pins to a real consumeRequest.
+  clearRequests(); nativePresent();
+  const r = promptrequest.request('a11y-recheck');
+  assert.deepEqual(r, { ok: true });
+  assert.ok(fs.existsSync(requestFile('a11y-recheck-request')), 'the a11y-recheck request file must be written');
+});
+
 test('THE FALLBACK CASE: no native app -> ok:false AND no request file (UI opens Settings)', () => {
   clearRequests(); nativeAbsent();
   const r = promptrequest.request('a11y');
@@ -92,7 +102,7 @@ test('ROUTE CONTRACT: server.js handles exactly the paths web/index.html POSTs',
   const root = path.join(__dirname, '..');
   const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
   const web = fs.readFileSync(path.join(root, 'web', 'index.html'), 'utf8');
-  for (const route of ['/api/a11y-prompt', '/api/file-access-prompt']) {
+  for (const route of ['/api/a11y-prompt', '/api/file-access-prompt', '/api/a11y-recheck']) {
     assert.ok(
       server.includes(`pathname === '${route}'`),
       `server.js no longer handles ${route}; the caller would 404 -> silent Settings fallback`,

@@ -46426,6 +46426,23 @@ function frGateStart(screenEl) {
 // gated screen is active and cannot outrace a screen change. Returns the poll promise.
 function frRecheckGates() {
   if (!FR_GATE_SCREEN) return Promise.resolve();
+  // #2912: on a fresh install with NO Full Disk Access, /api/a11y-status cannot read the
+  // live TCC row (appGrant needs FDA) and falls back to the native file read(), which the
+  // app rewrites only on a 60s timer -- so "Check again" re-polls the SAME stale verdict and
+  // a just-granted permission is not seen until an app restart (Josh, re-reported live
+  // 2026-09-21). Ask the native app to run an on-demand axcheck (AXIsProcessTrusted, no
+  // prompt, no FDA) that rewrites a11y-status.json AT ONCE, so the poll below and the running
+  // 750ms timer reflect the fresh verdict within a moment. Fire ONLY when the app-
+  // accessibility gate is actually on this screen (never on Windows, where it is hidden), and
+  // never awaited -- the POST only RECORDS the request; the gate poll is what shows the result
+  // (the same "the gate poll takes it from here" contract as frFirePermission). Harmless when
+  // no native app is present (a browser): the route records nothing and the poll is unchanged.
+  const a11yRow = FR_GATE_SCREEN.querySelector('[data-gate="tmux"]');
+  if (a11yRow && !platformHides(a11yRow)) {
+    try {
+      fetch('/api/a11y-recheck', { method: 'POST', headers: { 'content-type': 'application/json' } }).catch(() => {});
+    } catch { /* fire-and-forget: a missing endpoint / network error never blocks the re-poll */ }
+  }
   return frPollGates(FR_GATE_SCREEN, FR_GATE_GEN);
 }
 let FR = null;            // what /api/first-run said

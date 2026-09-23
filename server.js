@@ -8692,6 +8692,21 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, r);
     return;
   }
+  /* #2912: force a fresh native a11y re-measure on demand. "Check again" on the Access
+     ("Kosmos Never Sleeps") screen POSTs this; the native watcher runs AXIsProcessTrusted
+     (no prompt, no FDA) and rewrites a11y-status.json AT ONCE, so the gate poll reflects a
+     just-granted permission immediately instead of waiting on the native 60s timer -- the
+     lag Josh saw on a fresh install with no Full Disk Access, where the live appGrant read
+     is unavailable and /api/a11y-status falls back to that 60s file. Same fire-and-forget
+     {ok, because} contract as /api/a11y-prompt (always 200; the caller reads body.ok, and
+     the poll takes it from here); records nothing when no native app is present. */
+  if (pathname === '/api/a11y-recheck' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('a11y-recheck'); }
+    catch (err) { r = { ok: false, because: 'we could not record the accessibility re-check request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
+    return;
+  }
   /* #2911/#3113: fire the TMUX accessibility/automation prompt on demand. Same fire-and-forget
      contract as /api/a11y-prompt, but records a `tmux-a11y` request the native watcher answers
      by running an osascript automation op UNDER the bundled tmux, so macOS prompts for tmux
