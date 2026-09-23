@@ -298,6 +298,11 @@ function chk(ok, label, extra) {
     chk(!ghostShows.wrapHidden && ghostShows.btnHidden === false,
       'offline (FOUND.NONE) agent: the Start button shows', JSON.stringify(ghostShows));
     await page.click('#d-start-agent');
+    // Relies on Part 4 having shortened RESTART_READY_WINDOW_MS/POLL_MS to 800/60
+    // (line 193), so ghost's readiness wait times out inside this 8000ms window and
+    // the "has not come back" line is written. If a future edit restores the full
+    // window, this arm goes RED (the wait outlives 8s), which is honest, not a false
+    // green. Same inheritance Part 8 notes.
     await page.waitForFunction(() => {
       const m = document.getElementById('d-start-msg');
       return m && /has not come back/i.test(m.textContent);
