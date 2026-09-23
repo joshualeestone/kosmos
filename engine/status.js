@@ -256,6 +256,19 @@ const STATE = {
      nothing caught this before -- classify() checked AUTH_FAILED_MARKERS
      first, mirroring RATE_LIMIT_MARKERS's own precedent. */
   AUTH_FAILED: 'auth_failed',
+  /* #3410: a TRANSIENT network error, distinct from AUTH_FAILED. The account
+     is fine and the token is valid -- Claude Code simply could not reach the
+     API (DNS/network blip: ENOTFOUND / "Can't reach the API server", a route
+     down, a refused connection, a timeout). Claude Code's own retry loop draws
+     working chrome while it retries, so an actively-retrying agent stays
+     WORKING (the live-working checks precede this); this state is reached only
+     once the retries are exhausted and the pane sits with the error, where it
+     used to read UNKNOWN ("Can't tell"). It is RECOVERABLE by a restart when
+     connectivity returns (the self-heal half, #3410 PR 2), which is why it is
+     its own state and not folded into AUTH_FAILED (an auth failure a restart
+     cannot fix) or UNKNOWN (which must never be auto-restarted). The SSL/cert
+     class is deliberately excluded: it needs a CA-trust fix, not a restart. */
+  CONNECTION_LOST: 'connection_lost',
   IDLE: 'idle',
   STOPPED: 'stopped',
   /* #2019: not present, not absent, but IN TRANSITION ON PURPOSE, BY US. A
@@ -1983,6 +1996,42 @@ function activeWhileWaitingFrom(state, freshest, askedAtMs) {
 const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Your session has expired/i;
 const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
 
+/**
+ * #3410. Claude Code's own on-screen text for a TRANSIENT network error --
+ * the recoverable class, distinct from the auth failure above and from the
+ * SSL/cert class below. BYTE-EXACT, pulled from the installed Claude Code
+ * 2.1.280 bundle's error formatter (the `"Connection error."` switch on the
+ * network error code): each phrase is a `case` return in that formatter.
+ *
+ *   ENOTFOUND / EAI_AGAIN / FailedToOpenSocket -> "Can't reach the API server
+ *       — check your internet or DNS (ENOTFOUND)"
+ *   ENETUNREACH / ENETDOWN / EHOSTUNREACH / EHOSTDOWN -> "No internet route — …"
+ *   ECONNREFUSED / ConnectionRefused -> "… a firewall or proxy may be blocking it (…)"
+ *   ECONNRESET / EPIPE / ECONNABORTED / ConnectionClosed / … -> "Connection dropped (…)"
+ *   code undefined -> "Unable to connect to API. Check your internet connection"
+ *   default coded -> "Unable to connect to API (CODE)"
+ *   ETIMEDOUT -> "Request timed out. Check your internet connection and proxy settings"
+ *
+ * 🔑 KEYED ON EM-DASH-FREE SUBSTRINGS so the match is immune to how a capture
+ * renders U+2014, and matched as a SUBSTRING per row (like AUTH_FRIENDLY_MESSAGE)
+ * so the "API Error:" prefix / `●` bullet the TUI wraps around it does not matter.
+ *
+ * 🛑 THE SSL/CERT CLASS IS DELIBERATELY EXCLUDED. Its lines are
+ * `Unable to connect to API: SSL certificate …` (a COLON after "API"), which is
+ * a CA-trust problem a restart cannot fix (NODE_EXTRA_CA_CERTS / a proxy CA is the
+ * remedy, not reconnecting). The two "Unable to connect to API" arms here match
+ * only the PERIOD form ("… API. Check your internet connection") and the PAREN
+ * form ("… API (CODE)"), never the colon form -- so an SSL error never reads
+ * connection_lost and never triggers the self-heal restart (#3410 PR 2).
+ *
+ * ⚠️ ONE RESIDUAL, the same one AUTH_FRIENDLY_MESSAGE pins and accepts: a card or
+ * message quoting one of these lines verbatim reads connection_lost. It is rare,
+ * and when the agent is also self-reporting it surfaces as a CONFLICT (reconcileReport
+ * rule 3), visible and recoverable, not a silent false state. A missed wedged agent
+ * is worse than a rare false pause -- this file's oldest trade.
+ */
+const CONNECTION_LOST_MESSAGE = /Can't reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/;
+
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
    marker sets. Whitespace INSIDE the timer group is \s+ too, so a
@@ -2950,6 +2999,29 @@ function authFailed(tail) {
 }
 
 /**
+ * #3410. Claude Code's on-screen line for a TRANSIENT, restart-recoverable
+ * network error, or null. The friendly-auth analog: leading indentation and
+ * Claude's tree/bullet glyphs come off per row (they are drawing, not content),
+ * and CONNECTION_LOST_MESSAGE is tested as a SUBSTRING of each row so the
+ * "API Error:" prefix the TUI wraps around the formatted message does not
+ * defeat the match. Returns the matched line, glyph-stripped, trimmed and capped,
+ * so it rides along as evidence exactly like `authFailed`'s line. See
+ * CONNECTION_LOST_MESSAGE for why the SSL/cert class is excluded.
+ */
+function connectionLost(tail) {
+  const rows = String(tail == null ? '' : tail)
+    .split('\n')
+    .map((line) => line.replace(/^[\s>│├└─*❯›●]+/, ''));
+  for (const row of rows) {
+    if (CONNECTION_LOST_MESSAGE.test(row)) {
+      const line = row.trim();
+      return line.length > 240 ? line.slice(0, 240) + '…' : line;
+    }
+  }
+  return null;
+}
+
+/**
  * Claude Code's trust dialog on screen (#1629, point 3): the question row, or
  * null. See TRUST_PROMPT_QUESTION for the observed shape and why a marker row
  * was not enough. Leading indentation and tree glyphs come off per row, as in
@@ -3733,6 +3805,34 @@ function classify(pane, paneText) {
                if (line.length > 240) return line.slice(0, 240) + '…';
                return closed ? line : line + '…';
              })() };
+  }
+  /**
+   * #3410. A TRANSIENT network error, sitting on the pane with no live activity.
+   *
+   * 🔑 PLACEMENT IS THE SAFETY. This sits BELOW every working check
+   * (`hasLiveInterruptLine`, `backgroundAgentWait`, `WORKING_LINE`) on purpose:
+   * Claude Code retries a network error internally and draws working chrome
+   * (a live spinner / "retrying in Ns") while it does, so an agent that is
+   * ACTIVELY RETRYING classifies WORKING above and is never touched by the
+   * self-heal restart (#3410 PR 2). Only once the retries are exhausted and the
+   * error line is sitting on a pane with no live spinner do we reach here -- the
+   * exact "wedged, will not recover on its own" state Josh hit, which used to
+   * fall through to the idle footer rule or to UNKNOWN ("Can't tell"). It sits
+   * ABOVE the idle/footer fallbacks so that wedged pane reads connection_lost,
+   * not "sitting at its prompt".
+   *
+   * The line rides along as evidence (the rate-limit / auth rule): we cannot
+   * know the network is down, only that Claude Code SAID it could not reach the
+   * API, so we show what the screen actually says.
+   */
+  const connLine = connectionLost(tail);
+  if (connLine !== null) {
+    return {
+      state: STATE.CONNECTION_LOST,
+      confidence: CONFIDENCE.SCRAPED,
+      because: 'it lost its connection to the API',
+      evidence: connLine,
+    };
   }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
     return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it finished and is waiting for you' };

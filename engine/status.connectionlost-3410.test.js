@@ -1,0 +1,125 @@
+'use strict';
+
+/**
+ * #3410 — CONNECTION_LOST classification.
+ *
+ * A transient network error (DNS/network blip) takes an agent's connection to
+ * the API. Claude Code prints its own on-screen error and the turn ends; the
+ * agent then sits wedged. Before this, that pane classified `unknown`
+ * ("Can't tell") and the only recovery was a terminal (`claude doctor`).
+ *
+ * The error strings asserted here are BYTE-EXACT from the installed Claude Code
+ * 2.1.280 bundle's error formatter (the `"Connection error."` switch on the
+ * network error code) — not composed here.
+ *
+ * The controls are the point: each is aimed at a state the change CAN reach, so
+ * a green run means the precedence actually holds, not that the assertion is
+ * vacuous.
+ */
+
+const { test } = require('node:test');
+const assert = require('node:assert');
+const { classify, STATE, CONFIDENCE } = require('./status');
+
+// Same helper shape the main status.test.js uses: a pane as the engine sees it,
+// with `session` present so classify() treats it as an agent's own pane.
+const pane = (over = {}) => ({
+  name: 'test',
+  session: 'test-discord',
+  target: 'test-discord:0.0',
+  command: '2.1.222',
+  title: '',
+  ...over,
+});
+
+// A prompt footer under the error, i.e. the turn has ended and Claude is back
+// at its input box — the exact "wedged, sitting there" shape. Without the new
+// rule this footer would classify IDLE ("sitting at its prompt").
+const withFooter = (line) => `${line}\n\n⏵⏵ accept edits · ? for shortcuts\n`;
+
+// The byte-exact network-error lines Claude Code renders, each keyed to the
+// error-code case that produces it.
+const NETWORK_LINES = [
+  "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)",
+  "API Error: Can't reach the API server — check your internet or DNS (EAI_AGAIN)",
+  "API Error: No internet route — check your connection or VPN (ENETUNREACH)",
+  "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)",
+  "API Error: Connection dropped (ECONNRESET)",
+  "API Error: Unable to connect to API. Check your internet connection",
+  "API Error: Unable to connect to API (EAI_AGAIN)",
+  "API Error: Request timed out. Check your internet connection and proxy settings",
+];
+
+for (const line of NETWORK_LINES) {
+  test(`a transient network error is connection_lost, not "Can't tell": ${line.slice(0, 42)}…`, () => {
+    const r = classify(pane(), withFooter(line));
+    assert.equal(r.state, STATE.CONNECTION_LOST,
+      `expected connection_lost for: ${line}`);
+    assert.equal(r.confidence, CONFIDENCE.SCRAPED);
+    assert.ok(r.because && r.because.length > 0, 'connection_lost must explain itself');
+    // The line rides along as evidence (the rate-limit / auth rule). No leading
+    // glyph on this fixture, so the whole line is carried verbatim.
+    assert.equal(r.evidence, line,
+      `the matched line is not carried as evidence: ${r.evidence}`);
+  });
+}
+
+// CONTROL 1 — the leading `●` bullet Claude prefixes on an error line does not
+// defeat the substring match (the detector strips leading glyphs).
+test('a network error prefixed with the ● bullet still classifies connection_lost', () => {
+  const r = classify(pane(), withFooter("● API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"));
+  assert.equal(r.state, STATE.CONNECTION_LOST);
+});
+
+// CONTROL 2 — PRECEDENCE, the safety hinge. An agent Claude is ACTIVELY RETRYING
+// draws a live spinner; that must read WORKING, never connection_lost, so the
+// self-heal restart never touches an agent that may recover on its own. The
+// spinner sits ON SCREEN with the error line still in the tail.
+test('an actively-retrying agent (live spinner) reads working, NOT connection_lost', () => {
+  const tail = "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)\n· Reconnecting… (4s · esc to interrupt)\n";
+  const r = classify(pane(), tail);
+  assert.equal(r.state, STATE.WORKING,
+    'a live spinner must win over the connection-error line, or the self-heal could restart a recovering agent');
+});
+
+// CONTROL 2b — proves CONTROL 2 is not vacuous: the SAME error line WITHOUT the
+// live spinner DOES reach connection_lost. If this failed, CONTROL 2 would be
+// asserting against a state the input never produces.
+test('the same error line WITHOUT a live spinner reaches connection_lost (CONTROL 2 is not vacuous)', () => {
+  const tail = withFooter("API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)");
+  const r = classify(pane(), tail);
+  assert.equal(r.state, STATE.CONNECTION_LOST);
+});
+
+// CONTROL 3 — the SSL/cert class is EXCLUDED. Its line uses the COLON form
+// ("Unable to connect to API: SSL …") and is NOT restart-recoverable (a CA-trust
+// fix, not a reconnect), so it must not read connection_lost.
+test('an SSL certificate error is NOT connection_lost (colon form, excluded)', () => {
+  const sslLines = [
+    'API Error: Unable to connect to API: SSL certificate verification failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE).',
+    'API Error: Unable to connect to API: SSL certificate has expired',
+    'API Error: Unable to connect to API: SSL error (ERR_TLS_HANDSHAKE_TIMEOUT)',
+  ];
+  for (const line of sslLines) {
+    const r = classify(pane(), withFooter(line));
+    assert.notEqual(r.state, STATE.CONNECTION_LOST,
+      `an SSL/cert error must not read connection_lost: ${line}`);
+  }
+});
+
+// CONTROL 4 — a plain idle pane (footer only, no error) stays IDLE, so the new
+// rule did not swallow the ordinary at-the-prompt case.
+test('an ordinary idle pane (no error) stays idle, not connection_lost', () => {
+  const r = classify(pane(), '\n\n⏵⏵ accept edits · ? for shortcuts\n');
+  assert.equal(r.state, STATE.IDLE);
+  assert.notEqual(r.state, STATE.CONNECTION_LOST);
+});
+
+// CONTROL 5 — a genuine AUTH failure still reads auth_failed, not connection_lost
+// (auth is checked first and is a different, non-restart-recoverable problem).
+test('an auth failure still reads auth_failed, not connection_lost', () => {
+  const authTail = withFooter('● Please run /login · API Error: 401 OAuth access token has expired. Re-authenticate to continue.');
+  const r = classify(pane(), authTail);
+  assert.equal(r.state, STATE.AUTH_FAILED,
+    'a real auth failure must not be reclassified as a transient connection loss');
+});

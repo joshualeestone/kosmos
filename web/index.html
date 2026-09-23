@@ -14685,6 +14685,14 @@ const STATE_COPY = {
      the wrong reassurance (it implies "will resume on its own"), so this
      gets its own label. */
   auth_failed:  { label: "Sign-in isn't working", attn: true  },
+  /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
+     connection to the API, distinct from auth_failed (the account is fine).
+     An attention state, but a RECOVERABLE one: Kosmos auto-restarts it when
+     connectivity returns (the self-heal, #3410), so this is the "lost its
+     connection, recovering" state, not a dead end. Named its own label rather
+     than folded into "Can't tell": the whole point of #3410 is to replace that
+     opaque UNKNOWN with a state that says what happened. */
+  connection_lost: { label: 'Connection lost', attn: true },
   /* Reported-only (#188's third verb): the agent said it is waiting on
      something that is not you. No pane shape produces it. */
   blocked:      { label: 'Waiting',       attn: true  },
@@ -14737,6 +14745,13 @@ const CARD_ST = {
      an answer from Claude. Whether this deserves its own louder pack
      treatment is a design call for whoever owns that, not decided here. */
   auth_failed:  { st: 'paused',  pres: 'on' },
+  /* #3410: wears the same quiet "paused" pack shape as auth_failed -- work is
+     stopped by something the agent cannot get past on its own, but the process
+     is still up (pres: 'on'), it just cannot reach the API. Recovery is
+     automatic (self-heal restart on connectivity return), so it is not alarmed
+     red; a louder treatment, if wanted, is a design call for whoever owns the
+     pack, not decided here. */
+  connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
      reserved for "somebody is waiting on YOU". */
   blocked:      { st: 'paused',  pres: 'on' },
