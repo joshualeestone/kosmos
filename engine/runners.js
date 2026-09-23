@@ -481,6 +481,26 @@ function resolveBin(provider, opts) {
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/gemini';
     return { bin: legacy, present: isRunnable(legacy), managed: false, overridden: false };
   }
+  /* #3391: the Grok runner. Same LEGACY-rung shape as gemini, and for the same
+     reason it is not a managed tarball install yet: the grok CLI is the
+     @xai-official/grok npm package whose `grok` bin is a NATIVE binary
+     (/opt/homebrew/bin/grok -> node_modules/@xai-official/grok/bin/grok-native,
+     with the exec bit, so it clears isRunnable's X_OK exactly like codex's
+     symlink). A managed MANIFEST.grok install is a later hardening; until then the
+     runner is the vendor's npm-global `grok`, resolved the same way codex resolves
+     its legacy /opt/homebrew/bin/codex rung on this box.
+
+     Rungs: the env override (the harness/self-host contract every bin path
+     honours), then the legacy npm-global path. `managed` is always false (no
+     Kosmos-managed location yet), matching the vendor-external shape of the claude
+     and gemini branches. `envName` travels with the answer so a refusal names the
+     RIGHT variable. */
+  if (provider === 'grok') {
+    const envGrok = process.env.AGENT_WORKFORCE_GROK_BIN;
+    if (envGrok) return { bin: envGrok, present: isRunnable(envGrok), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GROK_BIN' };
+    const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/grok';
+    return { bin: legacy, present: isRunnable(legacy), managed: false, overridden: false };
+  }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
   // env names a path, that path is the answer, present or not -- so every

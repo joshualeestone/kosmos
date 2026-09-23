@@ -136,6 +136,43 @@ test('#3296: resolveBin(gemini) is env override then legacy (no managed rung, li
   }
 });
 
+test('#3391: resolveBin(grok) is env override then legacy (no managed rung, like gemini and the vendor-external claude branch)', () => {
+  // Sandbox the legacy rung via the seam, as the codex/gemini tests do: without it
+  // resolveBin(grok) falls back to this machine's real /opt/homebrew/bin/grok and the
+  // assertion would depend on machine state. The create tests all pass grokBin
+  // explicitly, so this is the only place the new resolver branch itself is exercised.
+  const GROK_LEGACY = nodePath.join(SANDBOX, 'legacy', 'grok');
+  const envBin = nodePath.join(SANDBOX, 'env', 'grok');
+  try {
+    // Absent everywhere: the legacy path is named (present false), managed always false.
+    let r = runners.resolveBin('grok', { legacyBin: GROK_LEGACY });
+    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden },
+      { bin: GROK_LEGACY, present: false, managed: false, overridden: false });
+
+    // Legacy present.
+    put(GROK_LEGACY);
+    r = runners.resolveBin('grok', { legacyBin: GROK_LEGACY });
+    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: GROK_LEGACY, present: true, managed: false });
+
+    // Env override is AUTHORITATIVE and names its own variable.
+    put(envBin);
+    process.env.AGENT_WORKFORCE_GROK_BIN = envBin;
+    r = runners.resolveBin('grok', { legacyBin: GROK_LEGACY });
+    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden, envName: r.envName },
+      { bin: envBin, present: true, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GROK_BIN' });
+
+    // An override at a MISSING path answers that path as absent, never falling back.
+    const missing = nodePath.join(SANDBOX, 'env', 'no-such-grok');
+    process.env.AGENT_WORKFORCE_GROK_BIN = missing;
+    r = runners.resolveBin('grok', { legacyBin: GROK_LEGACY });
+    assert.deepEqual({ bin: r.bin, present: r.present, overridden: r.overridden }, { bin: missing, present: false, overridden: true });
+  } finally {
+    delete process.env.AGENT_WORKFORCE_GROK_BIN;
+    fs.rmSync(GROK_LEGACY, { force: true });
+    fs.rmSync(envBin, { force: true });
+  }
+});
+
 test('#979: a prototype-chain name from a URL is refused like any unknown provider', () => {
   const job = runners.install('constructor');
   assert.equal(job.phase, 'failed');
@@ -145,9 +182,12 @@ test('#979: a prototype-chain name from a URL is refused like any unknown provid
 });
 
 test('#979: an unknown provider resolves to nothing and installs to a refusal', () => {
-  const r = runners.resolveBin('grok');
+  // #3391: grok is now a known provider (resolveBin has a rung), so the unknown
+  // example is a still-unsupported vendor -- mistral, a connections.js "coming soon"
+  // provider with no resolveBin rule. The property under test is unchanged.
+  const r = runners.resolveBin('mistral');
   assert.deepEqual(r, { bin: null, present: false, managed: false, overridden: false });
-  const job = runners.install('grok');
+  const job = runners.install('mistral');
   assert.equal(job.phase, 'failed');
   assert.match(job.because, /do not know/);
 });
@@ -329,11 +369,13 @@ test('#979: a manifest entry the resolver cannot answer is refused loudly, never
   // Injected through the opts.manifest seam: the shipped MANIFEST is
   // frozen (its url and integrity are trust anchors for bytes that get
   // executed), so a fixture entry rides beside it, never inside it.
-  // #3296: gemini is now a resolvable provider (resolveBin has a rung for it), so
-  // the unresolvable example is grok until its launcher lands. The property under
-  // test is unchanged: a manifest entry no resolveBin rule can answer is refused.
-  const job = runners.install('grok', {
-    manifest: { name: 'Grok runner', version: '0.0.1', url: 'https://example.invalid/x.tgz', integrity: 'sha512-x', binInPackage: 'x', binName: 'grok', downloadBytes: null },
+  // #3296/#3391: gemini AND grok are now resolvable providers (resolveBin has a rung
+  // for each), so the unresolvable example is a still-unsupported vendor -- mistral,
+  // one of the connections.js "coming soon" providers with no resolveBin rule. The
+  // property under test is unchanged: a manifest entry no resolveBin rule can answer
+  // is refused.
+  const job = runners.install('mistral', {
+    manifest: { name: 'Mistral runner', version: '0.0.1', url: 'https://example.invalid/x.tgz', integrity: 'sha512-x', binInPackage: 'x', binName: 'mistral', downloadBytes: null },
     download: () => { throw new Error('no bytes may move for an unresolvable provider'); },
   });
   assert.equal(job.phase, 'failed');

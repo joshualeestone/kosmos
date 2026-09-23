@@ -602,6 +602,32 @@ if [ -z "$adopt" ]; then
     GEMINI_MODEL="${MODEL:-gemini-2.5-flash}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" || exit 1
+  elif [ "$RUNNER" = grok ]; then
+    # #3391: the Grok runner. Like gemini, self-reporting is NOT a launch flag (as
+    # codex's notify is) -- Grok Build has its own hook system, and engine/create.js
+    # wrote the report hooks into the agent's own grok hook file at birth
+    # ($GROK_HOME/hooks/kosmos-report-bridge.json -> bin/grok-report-bridge.js). Those
+    # persist across restarts, so this (re)launch needs only to start the pane.
+    #   --permission-mode bypassPermissions
+    #   --always-approve     : auto-approve all tools (the codex --dangerously-bypass /
+    #                          claude --dangerously-skip / gemini yolo analog), so an
+    #                          autonomous agent never parks on a tool prompt.
+    #   --trust              : grant folder-trust at launch so grok does not park on
+    #                          the first-run "trust this directory?" gate (measured; the
+    #                          analog of gemini's --skip-trust; a restart re-runs THIS
+    #                          script, not create.js).
+    #   -m <model>           : PIN the model; a model-less create pins grok-4.6.
+    # XAI_API_KEY reaches the pane via the generic secrets/env door (the loop above);
+    # interactive grok uses it with no login screen ("Logged in with API key",
+    # measured), so no auth pre-seed file is needed. GROK_CLAUDE_HOOKS_ENABLED=0 keeps
+    # the grok agent from ALSO running the fleet's ~/.claude Claude-Code hooks via
+    # grok's claude-compat -- it runs only its own report hooks (measured: our
+    # ~/.grok/hooks report hook still fires with this set). Default account reads
+    # ~/.grok (no GROK_HOME set).
+    GROK_MODEL="${MODEL:-grok-4.6}"
+    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
+      "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs

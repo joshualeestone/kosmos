@@ -105,6 +105,12 @@ chmod +x "$STAGE/app/bin/codex-report-bridge.js"
 # the exact #731 failure. bundle.contents.test.js enforces this by name.
 cp "$REPO/bin/gemini-report-bridge.js" "$STAGE/app/bin/"
 chmod +x "$STAGE/app/bin/gemini-report-bridge.js"
+# #3391: the grok report bridge, the exact sibling of the codex/gemini bridges and
+# for the same #731 reason. create.js resolves it via grokBridgeSource() and bakes
+# grokBridgePath() into each grok agent's hook file, so a served bundle omitting it
+# would leave every grok agent's self-report pointing at a missing file.
+cp "$REPO/bin/grok-report-bridge.js" "$STAGE/app/bin/"
+chmod +x "$STAGE/app/bin/grok-report-bridge.js"
 # The app icon artwork, when it exists: the installer looks for
 # app/assets/Kosmos.icns is the ONE asset that ships, named explicitly
 # per this file's own explicit-list rule: a wildcard copy of assets/

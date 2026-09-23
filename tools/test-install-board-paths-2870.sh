@@ -49,14 +49,16 @@ printf 'process.exit(0)\n'                   > "$FAKE_REPO/server.js"
 printf '// noop\n'                            > "$FAKE_REPO/engine/noop.js"
 printf '<html>__KOSMOS_VERSION__</html>\n'    > "$FAKE_REPO/web/index.html"
 printf '#!/bin/sh\n'                          > "$FAKE_REPO/bin/agent-supervisor.sh"
-# board-watchdog.sh and gemini-report-bridge.js are ALSO copied by stage_app with
-# `|| return 1` (deploy/install-board.sh), so the fixture needs them or stage_app
-# aborts before the swap and the guard-absent capability check goes vacuous. The
-# board-watchdog omission pre-dated #3296 (its cp is on origin/main); the gemini
-# bridge cp is #3296's. Both are added here so the "fully stageable" claim is true.
+# board-watchdog.sh, gemini-report-bridge.js and grok-report-bridge.js are ALSO
+# copied by stage_app with `|| return 1` (deploy/install-board.sh), so the fixture
+# needs them or stage_app aborts before the swap and the guard-absent capability
+# check goes vacuous. The board-watchdog omission pre-dated #3296 (its cp is on
+# origin/main); the gemini bridge cp is #3296's and the grok bridge cp is #3391's.
+# All are added here so the "fully stageable" claim is true.
 printf '#!/bin/sh\n'                          > "$FAKE_REPO/bin/board-watchdog.sh"
 printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/codex-report-bridge.js"
 printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/gemini-report-bridge.js"
+printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/grok-report-bridge.js"
 
 # A separate real git working tree, for the inside-a-git-tree case.
 GITTREE="$TMP/gittree"
