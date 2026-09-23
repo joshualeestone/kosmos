@@ -1867,13 +1867,18 @@ function lockedBecause() {
  * is not worth a full-thread scan that could over-suppress a legitimately repeated
  * question.
  */
+// The synthetic question row's stable id prefix. One standing-question row per
+// agent (see withQuestionRow); a fixed prefix so the id does not vary across
+// polls. Stored messages carry no `id`, so this cannot collide with a real row.
+const NEEDS_YOU_QUESTION_ID_PREFIX = 'needs-you-question:';
+
 function withQuestionRow(messages, agentName, question) {
   const list = Array.isArray(messages) ? messages : [];
   if (!question || typeof question.text !== 'string' || !question.text) return list;
   const last = list.length ? list[list.length - 1] : null;
   if (last && typeof last.text === 'string' && last.text === question.text) return list;
   return list.concat([{
-    id: 'needs-you-question:' + String(agentName),
+    id: NEEDS_YOU_QUESTION_ID_PREFIX + String(agentName),
     at: null,
     text: question.text,
     from: String(agentName),

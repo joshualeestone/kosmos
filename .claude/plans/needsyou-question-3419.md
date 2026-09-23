@@ -15,11 +15,17 @@ message in the dialog (card #3419; PigeonPete's #3417-categoryB pointer: "render
 that same question as a thread message + drop the separate banner-prompt widget").
 
 ## This change (engine, step 1 — additive)
-`engine/chat.js` `withQuestionRow(messages, agentName, question, at)` — pure,
+`engine/chat.js` `withQuestionRow(messages, agentName, question)` — pure,
 exported, unit-tested. Given the messages the route already read and the question
 it already derived (live `questionIn`, or the #2456 reported fallback), it returns
 the messages with a synthetic question row appended:
-`{ at, text, from: <agent>, delivery: null, kind: 'question', reported }`.
+`{ id: 'needs-you-question:<agent>', at: null, text, from: <agent>, delivery: null, kind: 'question', reported }`.
+- STABLE `id` + null `at` (a standing question is a state, not a dated event): the
+  fixed id keeps `dmRow`'s `midOf = id || at` repaint key from churning each poll,
+  and null `at` makes the `DM_SPOKE_AT` "just spoke" loop skip the row (it guards
+  `!m.at`) and `pjWhen(null)` render no timestamp. Stored messages carry no `id`,
+  so no collision. The route passes `card.sessionName` (canonical, not the raw
+  case-tolerant URL name) as `<agent>`.
 - `from: <agent>` + `delivery: null` matches `keepAgentReply`'s agent-authored
   shape, so an UNMODIFIED `dmRow` renders it as a normal "theirs" bubble — the
   `kind: 'question'` marker is OPTIONAL styling metadata, not required to render.

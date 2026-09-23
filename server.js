@@ -10797,7 +10797,17 @@ const server = http.createServer((req, res) => {
        removal and this injection compose in either order; a follow-up drops the
        then-unused banner-only fields. Not persisted: derived live each poll from
        the same `question` the banner uses, deduped against a trailing real row. */
-    const servedMessages = chat.withQuestionRow(messages, name, question);
+    /* ⚠️ CANONICAL name, not the raw URL segment. `name` is case-tolerant
+       (decodeSegment of the path; the route case-folds so a mis-cased name still
+       drives display), so injecting the row under `name` would emit e.g.
+       from:'Zeta' / id:'needs-you-question:Zeta' while the live session is `zeta`
+       -- and dmWho compares `from === sessionName`, so a case slip renders the raw
+       string instead of the agent's display name. Every agent-authored write here
+       uses card.sessionName for exactly this (keepAgentReply's caller, `who`
+       above). card is non-null whenever `question` is (both gate on `asking`); the
+       `|| name` only ever applies on the no-op path where withQuestionRow ignores
+       the name anyway. */
+    const servedMessages = chat.withQuestionRow(messages, (card && card.sessionName) || name, question);
     sendJson(res, 200, {
       messages: withPreviews(servedMessages),
       olderCount,
