@@ -2,74 +2,72 @@
 pre_challenge: true
 method: challenge-loop
 branch: needsyou-question-3419
-diff_hash: ef0a4db51c9fe569cf65b1a9f33c3ea1ca933142ef330c4933d81ba99acf94ea
+diff_hash: 3fff64edafe0b24e7a16c62ad24f279907672a47e5764e77c1b1a39b0ca1bee3
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-23T05:58:53Z
-iterations: 3
+timestamp: 2026-09-23T11:26:32Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3 (baseline 6.0 passed clean; 3 fresh blind reviewers).
-**Converged:** Yes -- iteration 3 surfaced zero NEW BLOCKER/WARNING/CONVENTION (2 NITs, addressed).
-**Total findings:** 0 BLOCKER, 3 WARNING, 0 CONVENTION, several NITs.
-**Fixed:** all 3 WARNINGs + the actionable NITs. **Deferred:** the NITs below (with reasons). **Asked:** 0.
+**Iterations:** 4 (re-run on top of PR #3455 after adding, then reverting, the needs_you delivery-note strip)
+**Converged:** Yes (iteration 4 found zero new findings)
+**Total findings:** 5 actionable (2 BLOCKERs, 0 WARNINGs, 3 CONVENTIONs) + NITs
+**Fixed:** 5 | **Deferred:** 3 NITs (by design) | **Asked:** 0
 
-Reviewer models rotated opus / sonnet / opus (kosmos#2032). The change is small and
-additive (one pure helper + one route wiring line + tests); it converged in 3.
+Two-model rotation (kosmos#2032): opus / sonnet / opus / sonnet. The two BLOCKERs
+were both caught by a sonnet pass (iteration 2) after two opus-inclusive passes and
+the original 3-round loop had all missed them - direct evidence for varying the
+reviewer model.
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
 **Reviewer model:** opus
-**New findings:** 0 BLOCKER, 2 WARNING, 0 CONVENTION, 1 NIT
-**Self-generated:** 0 (findings on the original branch build, which predates the loop's fix commits)
-- [WARNING] server.js -- per-poll `new Date()` `at` churned dmRow's repaint key (midOf=id||at) and re-advanced the DM_SPOKE_AT "just spoke" heuristic every ~5s for a STANDING question --> FIXED (428be78df): stable `id:'needs-you-question:'+agent` + `at:null` (DM_SPOKE_AT loop guards `!m.at` so it skips the row; pjWhen(null) renders nothing; stored msgs carry no id so no midOf collision). Engine-only, no ROOM_NOT_SPEECH dependency.
-- [WARNING] no integration test for the wiring --> FIXED: added a server.test.js test (needs_you agent's payload carries the question row, with an idle control).
-- [NIT] dedup checks only the trailing row --> DEFERRED (documented in the helper docblock: rare transient double, clears with the state, co-lands with the banner removal; a full-thread scan could over-suppress a legitimately repeated question).
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 2 CONVENTIONs
+**Self-generated:** 0 of the above (ITER_COMMITS empty at iteration 1)
+- [CONVENTION] engine/chat.js — withQuestionRow docstring carried by-name behavioural assertions about web/index.html internals (dmRow/midOf/DM_SPOKE_AT/pjWhen), a repo convention #5 stale-risk since Mona's step-2 reworks that path --> FIXED (93020157d): trimmed to the engine contract + a plan pointer; render mechanics moved to the plan.
+- [CONVENTION] .claude/plans/needsyou-question-3419.md — plan framed the delivery-note strip as deferred while the code had already stripped it --> FIXED (93020157d): plan updated (later superseded by the iteration-2 revert).
 
 #### Iteration 2
 **Reviewer model:** sonnet
-**New findings:** 0 BLOCKER, 1 WARNING, 0 CONVENTION, 4 NITs
-**Self-generated:** 0 (the flagged line was the original wiring, not a loop-authored fix)
-- [WARNING] server.js -- the wiring passed the raw case-tolerant URL `name` as the row identity, not the resolved `card.sessionName`; a mis-cased request would inject from:'Zeta'/id:'...:Zeta' and dmWho's `from===sessionName` compare would render the raw string --> FIXED (ce4ed5c8b): pass `(card && card.sessionName) || name` (card non-null whenever question is; the `||name` only fires on the no-op path).
-- [NIT] plan documented the old 4-arg signature --> FIXED (plan updated).
-- [NIT] id prefix a bare literal --> FIXED (NEEDS_YOU_QUESTION_ID_PREFIX constant, convention #2).
-- [NIT] redundant setDryRun(false) after setRunner --> DEFERRED (consistent with the file's arm() pattern; harmless).
-- [NIT] dedup ignores last.from --> DEFERRED (documented tradeoff, re-flagged as still-visible).
+**New findings:** 2 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs
+**Self-generated:** 0 of the above (both cited lines predate this loop's fix commits: BRANCH)
+**Duplicates of prior findings:** 0
+- [BLOCKER] server.js:10810 — a HARD thread-read failure (UNREADABLE/UNPARSEABLE -> messages=null) was masked: withQuestionRow coerced null to [] and appended a row, hiding the failure on the client (its "cannot read" notice gates on !allRows.length) and flipping Array.isArray(messages) true, which DM_SPOKE seeding reads as "the read answered" --> FIXED (0650d7717): gate injection on Array.isArray(messages); null passes through unchanged; BAD_THREAD's [] still injects. Regression test added.
+- [BLOCKER] engine/chat.js:765 — the needs_you waitingNote strip (returning null) had cross-surface blast radius: waitingNote is shared by every chat.deliver caller, and the Compact/Clear route's memoryCommand reader substitutes "between tasks" on a null note (false for a waiting agent) --> FIXED (0650d7717): REVERTED the strip; deferred to step 3 scoped to the message route, after auditing all deliver callers.
+- [NIT] docstring/test claimed the row "matches keepAgentReply's delivery: null" but keepAgentReply omits the field --> tightened (0650d7717).
 
 #### Iteration 3
 **Reviewer model:** opus
-**New findings:** 0 BLOCKER, 0 WARNING, 0 CONVENTION, 2 NITs
-**Self-generated:** 0
-- [NIT] no test for a MIS-CASED URL (a silent revert to `name` would stay green) --> FIXED (c7bfd9a13): added a mis-cased assertion (GET /api/agent/Zeta/thread -> row from/id are canonical 'zeta'), pinning the card.sessionName decision.
-- [NIT] em dashes in the plan + added code comments --> plan swept to `--` (c7bfd9a13); code-comment em dashes DEFERRED (they match chat.js/server.js's pervasive em-dash comment convention -- 78+ pre-existing in chat.js -- and are not Josh-facing/shipped; reviewer confirmed not a violation; converting only my lines would make them inconsistent with the file).
-**Converged** -- zero NEW actionable findings; 3 STRENGTHs confirming the null-at/stable-id design against every named UI consumer (midOf, DM_SPOKE_AT, pjWhen, threadKey), the provably-safe card.sessionName guard, and the additive/reversible/no-write-on-read wiring with a real idle control.
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION
+**Self-generated:** 1 of the above (SELF) — the cited line was written by this loop's own iteration-2 fix commit 0650d7717
+- [CONVENTION] engine/chat.js:1846 — the iteration-2 NIT fix RE-INTRODUCED a by-name web-render claim ("the renderer's 'theirs' branch keys on from and never reads delivery"), the exact kosmos#120 "a corrected comment regenerates the finding" pattern --> FIXED (e499dc628) by DELETING the render claim (not rewriting it), leaving only the engine-local invariants + a plan pointer. That is what breaks the regeneration cycle.
+- [NIT] dedup compares only the trailing row by exact text (documented accepted transient); [NIT] the failed-read test monkeypatches readThread rather than using a seam (works, restored in finally, self-verifying - the assertion fails loudly if the patch stops taking); [NIT] two em dashes in #3455's original comments (house style, 78+ pre-existing in chat.js, non-Josh-facing) --> all left by design.
+
+#### Iteration 4
+**Reviewer model:** sonnet
+**New findings:** 0 — CONVERGED. Reviewer independently re-verified every cross-module claim against the real web consumers and ran the full canonical suite clean (8100 tests, 7952 pass, 0 fail, 148 skipped, exit 0).
 
 ### Final Ledger
 
-| # | Iter | Category | File | Origin | Description | Status | Resolution |
-|---|------|----------|------|--------|-------------|--------|------------|
-| 1 | 1 | WARNING | server.js/engine/chat.js | BRANCH | per-poll at churned repaint key + DM_SPOKE_AT | FIXED | 428be78df |
-| 2 | 1 | WARNING | server.test.js | BRANCH | no integration test | FIXED | 428be78df |
-| 3 | 1 | NIT | engine/chat.js | BRANCH | dedup trailing-only | DEFERRED | documented |
-| 4 | 2 | WARNING | server.js | BRANCH | raw URL name not canonical sessionName | FIXED | ce4ed5c8b |
-| 5 | 2 | NIT | plan | BRANCH | stale 4-arg signature | FIXED | ce4ed5c8b |
-| 6 | 2 | NIT | engine/chat.js | BRANCH | id-prefix bare literal | FIXED | ce4ed5c8b |
-| 7 | 3 | NIT | server.test.js | BRANCH | no mis-cased test | FIXED | c7bfd9a13 |
-| 8 | 3 | NIT | plan/comments | BRANCH | em dashes | FIXED (plan) / DEFERRED (comments) | c7bfd9a13 |
+| # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
+|---|------|----------|-----------|--------|-------------|--------|------------|
+| 1 | 1 | CONVENTION | engine/chat.js docstring | BRANCH | by-name web-render assertions (conv #5 stale-risk) | FIXED | 93020157d |
+| 2 | 1 | CONVENTION | plan.md | BRANCH | plan/code drift on the note strip | FIXED | 93020157d |
+| 3 | 2 | BLOCKER | server.js:10810 | BRANCH | hard read failure masked by null->[] coercion | FIXED | 0650d7717 |
+| 4 | 2 | BLOCKER | engine/chat.js:765 | BRANCH | shared waitingNote strip -> false Compact/Clear note | FIXED (reverted) | 0650d7717 |
+| 5 | 3 | CONVENTION | engine/chat.js:1846 | SELF | iter-2 comment fix re-added a by-name web claim (kosmos#120) | FIXED (deleted) | e499dc628 |
 
-### Deferred (with reasoning)
-- Dedup is trailing-only (not a full-thread scan): a full scan risks over-suppressing a legitimately repeated question; the transient double is rare and co-lands with the banner removal.
-- Redundant setDryRun(false) after setRunner: consistent with the file's arm() pattern; harmless (tmux() checks runner before DRY_RUN).
-- Em dashes in code comments: match chat.js/server.js's pervasive convention, not Josh-facing/shipped; converting only my lines would break consistency with the file.
+### NITs (non-blocking)
+- [NIT] engine/chat.js dedup: trailing-row text-equality only (documented accepted transient, co-lands away).
+- [NIT] server.test.js failed-read test monkeypatches readThread (self-verifying; a broken patch fails the assertion, not silently passes).
+- [NIT] two em dashes in #3455's original code comments (matches pervasive house style; non-Josh-facing).
 
 ### Strengths (across iterations)
-- The null-`at`/stable-`id` design holds against every named UI consumer: midOf (id||at), DM_SPOKE_AT (guards !m.at), pjWhen(null)->'', threadKey -- no repaint churn, no "just spoke" re-stamp, no timestamp on a standing question.
-- The card.sessionName guard is provably safe: question non-null implies card truthy (both gate on asking).
-- Additive/reversible/no-write-on-read; the integration test carries a real idle control + a mis-cased canonicalization guard.
-
-### MERGE NOTE (not a challenge-loop concern, but load-bearing)
-Merging this ALONE briefly shows the question twice (banner + bubble) until Mona removes the #d-qask banner (her #3419 UI half, after her #3414). This PR is READY (green + converged); its merge CO-LANDS with Mona's UI, not in isolation. Addresses #3419 (non-closing; #3419 is Angel's card, part b).
+- The failed-read guard (Array.isArray) is the right fix with a dangerous-answer-capable regression test.
+- The mis-cased-URL test pins the canonical card.sessionName choice against dmWho.
+- The waitingNote change is a comment-only retraction record of a reverted in-flight decision.
+- Full canonical suite green at HEAD (8100/7952 pass/0 fail/exit 0).
