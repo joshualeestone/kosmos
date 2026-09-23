@@ -114,12 +114,14 @@ test('the two strings stay disjoint, so an assertion about one cannot be satisfi
   }
 });
 
-test('every one of the five surfaces goes through the shared derivation', () => {
+test('every one of the four surfaces goes through the shared derivation', () => {
   /**
-   * ⚠️ COUNTED, not spot-checked. The card badge, the ring's aria-label, the
-   * list row, the Memory box and the detail header all state this one fact,
-   * and the comments beside them record two occasions where somebody updated
-   * the surfaces they could see and left the others behind.
+   * ⚠️ COUNTED, not spot-checked. The ring's aria-label, the list row, the board
+   * Memory box and the detail Memory box all state this one fact, and the comments
+   * beside them record occasions where somebody updated the surfaces they could
+   * see and left the others behind.
+   * #3501: the fifth surface, the card memory badge (.membadge.unk), was removed,
+   * so there are four callers now, not five.
    */
   /* ⚠️ THE WHOLE FILE, comments included, and that is deliberate after two
      attempts at being cleverer. Filtering comment lines does not work here —
@@ -129,8 +131,8 @@ test('every one of the five surfaces goes through the shared derivation', () => 
      failure: a comment that mentions it breaks this test loudly, rather than a
      surface quietly slipping past a filter. */
   const calls = PAGE.split('memUnknown(').length - 1;
-  // one definition + five call sites
-  assert.equal(calls, 6, `expected five callers of memUnknown and found ${calls - 1}`);
+  // one definition + four call sites (#3501 removed the card-badge surface)
+  assert.equal(calls, 5, `expected four callers of memUnknown and found ${calls - 1}`);
 
   /* ⚠️ THE OLD VERSION OF THIS BLOCK CHECKED THAT THREE STRINGS EXIST IN THE
      PAGE and never related any of them to `memUnknown`. It would have passed

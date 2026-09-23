@@ -418,7 +418,6 @@ one invented by somebody who did not write them.
 | `render-member-modal.js` | Adding a project member opens a real dialog, and there are three ways out (#1303 H item 3). |
 | `render-agent-lines.js` | A rail agent's two visible lines (name, title) measured as TEXT for tight leading, plus the #3131/#3187 status colour: the state word is kept hidden in a `.vh` clip and the row carries the right grey/green/red wash per state (#1303 A item 3, #3131, #3187). |
 | `render-made-endings.js` | The two endings of Create an agent that are not success |
-| `render-memory-words.js` | Measure the two unknown-memory captions on all three surfaces that draw them, |
 | `render-create-form.js` | Step two of Create an agent: no rules, half widths, Josh's order, the stepped model group |
 | `render-create-made.js` | The last step: the mark, the paced rows, and the greeting you are handed at the end |
 | `render-createnav-2190.js` | Create advances to the progress ('made') screen on click instead of showing 'Making it' inline; a refusal/error routes back to the create screen with the message beside the field (#2190). Hermetic file://, stubs /api/roles + /api/agents. |

@@ -302,16 +302,8 @@ async function measure(engine, scheme) {
         arrows: (c.backgroundImage.match(/linear-gradient/g) || []).length,
         indicator: el.tagName.toLowerCase() === 'select' ? drawnIndicator(el) : false };
     });
-    // The unknown-memory caption must not paint over the presence dot.
-    let badgeHit = null;
-    const badge = document.querySelector('.membadge.unk');
-    const pres = badge && badge.closest('.agauge') && badge.closest('.agauge').querySelector('.pres');
-    if (badge && pres) {
-      const a = badge.getBoundingClientRect(), p = pres.getBoundingClientRect();
-      const ox = Math.min(a.right, p.right) - Math.max(a.left, p.left);
-      const oy = Math.min(a.bottom, p.bottom) - Math.max(a.top, p.top);
-      badgeHit = { overlaps: ox > 1 && oy > 1, x: Math.round(ox), y: Math.round(oy) };
-    }
+    // #3501: the unknown-memory caption badge (.membadge.unk) was removed, so the
+    // caption-vs-presence-dot overlap check no longer has a subject.
     // The list row's unknown cell must carry a word, never a blank.
     let listCell = null;
     if (typeof lrow === 'function') {
@@ -344,7 +336,7 @@ async function measure(engine, scheme) {
           fill: c.backgroundColor, border: c.borderTopColor, borderW: c.borderTopWidth,
           box: g.bg, boxName: g.name };
       });
-    return { fields, buttons, badgeHit, listCell, seenContainers: [...seenContainers], containers: CONTAINERS, bare: [...BARE] };
+    return { fields, buttons, listCell, seenContainers: [...seenContainers], containers: CONTAINERS, bare: [...BARE] };
   }, FIELDS);
   } finally {
     // ⚠️ Without this a throw inside the evaluate leaks the browser and the
@@ -515,7 +507,7 @@ async function measure(engine, scheme) {
       console.log(`  known containers painting nothing: ${allBare.length}${allBare.length ? ' — ' + allBare.join(', ') : ''}`);
       /* ⚠️ THE DENOMINATOR. Without it a renamed or deleted container prints
          "0 painting nothing" and passes, which is the silent-skip shape this
-         file rejects one screen below for badgeHit and listCell. */
+         file rejects one screen below for listCell. */
       console.log(`  containers declaring --field-fill: ${(r.containers || []).length}`
         + `  (reached by a field in this fixture: ${(r.seenContainers || []).length})`);
       /* ⚠️ NOT REACHING one is not a failure — `.fr-box` is hidden here and
@@ -534,17 +526,13 @@ async function measure(engine, scheme) {
       if (!(r.bare || []).length) fail(`${engine}/${scheme} no selector declares a transparent background, so the layout-wrapper exemption ran over nothing`);
       for (const m of lost) fail(`${engine}/${scheme} ${m} paints nothing and never declared that it would, so every field inside it is being measured against some other ancestor`);
 
-      /* ⚠️ BOTH REPORT UNCONDITIONALLY, AND A MISSING FIXTURE IS A FAILURE. These
-         two used to be wrapped in `if (r.badgeHit)` / `if (r.listCell !== null)`,
-         so a renamed class, a `card` that stopped being global, or a missing
-         `#grid` would have made them print nothing and the run still say OK --
-         contradicting this file's own header rule that a checker saying only OK
-         cannot be caught doing nothing. The absence of a probe is not the
-         absence of a defect. */
-      console.log(`  unknown caption vs presence dot: ${r.badgeHit === null ? 'FIXTURE MISSING' : (r.badgeHit.overlaps ? r.badgeHit.x + 'x' + r.badgeHit.y : 'clear')}`);
-      if (r.badgeHit === null) fail(`${engine}/${scheme} could not build the unknown-memory card, so nothing checked the caption against the presence dot`);
-      else if (r.badgeHit.overlaps) fail(`${engine}/${scheme} the unknown-memory caption paints over the presence dot`);
-
+      /* ⚠️ REPORTS UNCONDITIONALLY, AND A MISSING FIXTURE IS A FAILURE. This used
+         to be wrapped in `if (r.listCell !== null)`, so a renamed class or a
+         missing `#grid` would have made it print nothing and the run still say OK
+         -- contradicting this file's own header rule that a checker saying only OK
+         cannot be caught doing nothing. The absence of a probe is not the absence
+         of a defect. (#3501 removed the sibling caption-vs-dot probe along with
+         the .membadge.unk badge it measured.) */
       console.log(`  list row unknown cell: ${r.listCell === null ? 'FIXTURE MISSING' : JSON.stringify(r.listCell)}`);
       // ⚠️ A BLANK CELL READS AS 0%, and for memory 0% means "loads of room" --
       // the inverse of the truth, which is the worst direction to fail in.

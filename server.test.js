@@ -3802,14 +3802,12 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     assert.match(spoiled, /aria-label="[^"]*Memory was never recorded/,
       'CONTROL: the spoofed percent did not degrade to the unknown ring, so the raw assertion proves nothing');
 
-    // ⚠️ ANCHORED ON THE ELEMENT, NOT THE WORDS. The line above matches the
-    // ring's `aria-label="… Memory unknown: we could not read how full it is."`
-    // and was satisfied by it long before a visible caption existed — so it
-    // stayed green with the whole badge deleted. The words are in the markup
-    // twice for two different audiences; only one of them is the sighted one.
-    assert.match(api.card(spoofed), /class="membadge unk"/,
-      'the visible unknown-memory caption is gone, leaving a dashed ring whose '
-      + 'meaning is stated only in an aria-label');
+    // #3501: the visible unknown-memory caption badge (.membadge.unk) was removed.
+    // The unknown fact now reaches sighted + screen-reader users through the ring
+    // aria-label (asserted just above) and the Memory box. Guard the removed word
+    // badge does not come back.
+    assert.doesNotMatch(api.card(spoofed), /membadge unk/,
+      'the removed unknown-memory word badge (.membadge.unk) reappeared');
     // ⚠️ And it must NOT appear when the memory IS known — otherwise the
     // assertion above passes for a badge that is always on.
     assert.doesNotMatch(api.card(withPct(leo, 40)), /membadge unk/,
