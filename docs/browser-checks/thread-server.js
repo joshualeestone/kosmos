@@ -256,19 +256,30 @@ chat.setRunner((args) => {
       ? { ran: true, spawnFailed: false, status: 1, out: '', err: `can't find pane: ${target}` }
       : { ran: true, spawnFailed: false, status: 0, out: screen, err: '' };
   }
+  /**
+   * ⚠️ ONE AGENT'S SENDS FAIL, ON PURPOSE. A fixture where every send succeeds
+   * can only ever photograph the happy path, and the failure sentence is the
+   * half of this screen that has to be right — it is what somebody reads when
+   * their message did not get there. `nils`'s pane answers the way tmux answers
+   * for a session that has gone since the roster was read, which is the
+   * commonest real cause.
+   *
+   * ⚠️ #3419: THE BODY IS PASTED NOW, NOT TYPED WITH `send-keys -l`. So the call
+   * that carries content to nils's pane is `paste-buffer -t =nils-discord:…`, not
+   * a send-keys. Failing it here (on the FIRST chunk, so nothing lands) is what
+   * makes `deliver()` return COULD_NOT / "can't find pane" — the same verdict the
+   * old send-keys arm produced. Keying this off send-keys instead would only ever
+   * match the trailing Enter, turning the intended COULD_NOT into an UNCONFIRMED
+   * (the paste "landed" then the Enter failed) and breaking render-thread.js's
+   * "Could not deliver" / "can't find pane" assertion. `set-buffer` carries no
+   * target, so the paste-buffer is the right call to fail.
+   */
+  if (args[0] === 'paste-buffer' && String(args[args.length - 1] || '').includes('nils')) {
+    process.stdout.write('PASTE-BUFFER ' + JSON.stringify(args) + '\n');
+    return { ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane: =nils-discord:0.0" };
+  }
   if (args[0] === 'send-keys') {
     process.stdout.write('SEND-KEYS ' + JSON.stringify(args) + '\n');
-    /**
-     * ⚠️ ONE AGENT'S SENDS FAIL, ON PURPOSE. A fixture where every send
-     * succeeds can only ever photograph the happy path, and the failure sentence
-     * is the half of this screen that has to be right — it is what somebody
-     * reads when their message did not get there. `nils`'s pane answers the way
-     * tmux answers for a session that has gone since the roster was read, which
-     * is the commonest real cause.
-     */
-    if (String(args[2] || '').includes('nils')) {
-      return { ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane: =nils-discord:0.0" };
-    }
     /**
      * ⚠️ AND ONE AGENT PRODUCES THE AMBIGUOUS OUTCOME, which is the state that
      * is hardest to get right on screen and therefore the one most worth

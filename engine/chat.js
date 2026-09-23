@@ -46,8 +46,15 @@
  *     literally, INCLUDING a leading `-` (probed with `-echo dashy-probe-text`,
  *     which landed verbatim in the composer). `-l` sends literal characters
  *     rather than key names, and `--` ends option parsing.
- *   - A second, separate `send-keys -t <same> Enter` submits it. The two are
- *     never one call: `-l` would type the word "Enter".
+ *     📌 SUPERSEDED FOR THE BODY (#3419): the body is no longer streamed with
+ *     `send-keys -l` — a BUSY pane silently drops all but a tail of a keystroke
+ *     stream. It is PASTED now: `pasteWire` does `set-buffer -b <buf> -- <chunk>`
+ *     then `paste-buffer -d -t <target>`, in UTF-8-safe chunks, atomically. The
+ *     `--`/leading-`-` fact above carries over to set-buffer; `-l` is history.
+ *   - A second, separate `send-keys -t <same> Enter` submits it — still true, and
+ *     now after the paste plus a size-adaptive delay. The two are never one call:
+ *     `-l` would type the word "Enter", and an Enter that rides the paste is
+ *     absorbed as a newline.
  *   - `capture-pane -p -J -t '=<session>:<window>.<pane>'` reads that pane back.
  *   - The `=` exact-match prefix DOES defeat prefix matching on a pane target:
  *     with the session killed and a `kchatprobe2` still alive, the same command
@@ -102,12 +109,17 @@ const DELIVERY = {
 /**
  * One message, one line.
  *
- * ⚠️ NOT a style preference. A newline inside `send-keys -l` reaches the
- * composer as a submit, so a two-line message is delivered as two messages and
- * the second half arrives as its own instruction — with the agent already
- * acting on the first half. Runs of whitespace are collapsed rather than
- * refused, so the person's paragraph arrives as a paragraph-shaped sentence
- * rather than an error they have to work around.
+ * ⚠️ NOT a style preference — and 📌 the mechanism CHANGED with #3419, though the
+ * behaviour did not. When the body went in via `send-keys -l`, a newline reached
+ * the composer as a submit, so a two-line message was delivered as two messages
+ * with the second half arriving as its own instruction while the agent was
+ * already acting on the first. The body is PASTED now (`pasteWire`, bracketed
+ * paste), so a newline would NO LONGER auto-submit — but `cleanMessage` still
+ * flattens to one line, on purpose: keeping "one message is one turn" unchanged,
+ * with the single Enter as the only submit. Letting a paste carry real newlines
+ * is a deliberate scope decision for another change, not something this transport
+ * quietly enabled. Runs of whitespace are collapsed rather than refused, so the
+ * person's paragraph arrives as a paragraph-shaped sentence rather than an error.
  */
 const MAX_TEXT = 2000;
 
@@ -513,11 +525,16 @@ function pasteToEnterMs(byteLen) {
  * it — the same reason claude-msg exposes its `--split-chunks` seam.
  */
 function chunkUtf8(str, maxBytes) {
+  // Defensive floor: a non-positive budget would make `end` collapse to `i`, the
+  // pathological-case fallback recompute the same `i`, and the loop spin forever
+  // pushing empty chunks. Unreachable via the one caller (PASTE_CHUNK_BYTES=256),
+  // but this is an exported pure helper, so clamp rather than trust the caller.
+  const max = maxBytes >= 1 ? maxBytes : 1;
   const buf = Buffer.from(String(str == null ? '' : str), 'utf8');
   const chunks = [];
   let i = 0;
   while (i < buf.length) {
-    let end = Math.min(i + maxBytes, buf.length);
+    let end = Math.min(i + max, buf.length);
     // Back off only when there IS a next byte to inspect: a cut at the very end
     // of the buffer is always on a boundary. buf[end] is the first byte of what
     // would be the next chunk; a continuation byte there means we are mid-char.
@@ -525,7 +542,7 @@ function chunkUtf8(str, maxBytes) {
     // Pathological: a single character wider than the whole budget (unreachable
     // at the 256B default — the widest UTF-8 codepoint is 4 bytes). Make
     // progress rather than loop forever.
-    if (end === i) end = Math.min(i + maxBytes, buf.length);
+    if (end === i) end = Math.min(i + max, buf.length);
     chunks.push(buf.slice(i, end).toString('utf8'));
     i = end;
   }
@@ -1155,6 +1172,33 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     allowed.card.runner === 'codex' ? CODEX_ENTER_GAP_MS : 0,
   );
   submitGap(gapMs);
+  /**
+   * ⚠️ RE-VERIFY THE PANE IS STILL AN AGENT'S WINDOW IMMEDIATELY BEFORE THE
+   * SUBMIT ENTER. The old send-keys path put the whole message in one call, so
+   * verifyAtSend above sat one round-trip from the keystroke. The paste path is
+   * wider: N chunks × (set-buffer + paste-buffer) plus the size-adaptive gap now
+   * paid on EVERY send (up to 2s), and during that window the pane can stop being
+   * an agent's — Claude exits and the pane falls back to a SHELL. The body is
+   * already pasted into that pane by now; an unconditional Enter would submit it,
+   * and in a shell that EXECUTES it as a command. This is the exact hazard
+   * verifyAtSend exists to prevent, and the widened window is where it now lives,
+   * so the check is re-run here, closing the gap back to one round-trip before
+   * the Enter.
+   *
+   * ⚠️ THE VERDICT IS UNCONFIRMED, NOT COULD_NOT. The paste HAS landed, so the
+   * text may be sitting in the composer (or a shell prompt) unsent — reporting
+   * could_not would invite a re-send that pastes the whole body again. We refuse
+   * to press Enter (never executing a command in a fallen shell) and report the
+   * honest third state.
+   */
+  const stillAnAgent = verifyAtSend(allowed.card);
+  if (!stillAnAgent.ok) {
+    return {
+      state: DELIVERY.UNCONFIRMED,
+      because: 'its window changed before we could submit, so what we typed may be sitting there unsent',
+      at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
+    };
+  }
   const entered = tmux(['send-keys', '-t', target, 'Enter']);
   if (!entered.ran || entered.status !== 0) {
     /**
