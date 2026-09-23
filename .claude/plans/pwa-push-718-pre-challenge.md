@@ -2,114 +2,125 @@
 pre_challenge: true
 method: challenge-loop
 branch: pwa-push-718
-diff_hash: ede6389bf35d5a7bda4a3dee8366fdfbe80989404a5a8a6f8cd6cdc5bce57210
+diff_hash: dedefb8382d0e18cdd5621c1a05c14a352c6b43ba4f0480fbda9c9c3ff749dcc
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-23T22:59:03Z
-iterations: 7
+timestamp: 2026-09-23T23:27:33Z
+iterations: 10
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 7 (iteration 1 = the 6.0 fix-and-validate baseline pass; iterations 2-7 = fresh blind reviewers, model alternated Sonnet/Opus per kosmos#2032)
-**Converged:** Yes (iteration 7 found zero new BLOCKER/WARNING/CONVENTION findings)
-**Total findings:** 18 actionable (3 BLOCKER, 9 WARNING, 6 CONVENTION) + 5 NITs
-**Fixed:** 17 | **Deferred:** 1 | **Asked:** 0
+**Iterations:** 10 total. The branch converged over 7 iterations, was then rebased onto a
+newer origin/main (a parallel lane merged during the loop; one conflict resolved in
+browser-checks-reason-grep.test.js), and was re-reviewed over 3 more iterations (post-rebase
+proof regeneration), converging again. Reviewer models alternated Sonnet/Opus (kosmos#2032).
+**Converged:** Yes (post-rebase iteration 10 found zero new BLOCKER/WARNING/CONVENTION).
+**Total findings:** 19 actionable (3 BLOCKER, 10 WARNING, 6 CONVENTION) + NITs.
+**Fixed:** 18 | **Deferred:** 1 | **Asked:** 0
 
 ### Per-Iteration Breakdown
 
-#### Iteration 1 (6.0 baseline fix-and-validate)
-**Reviewer model:** n/a (orchestrator validation pass, no blind reviewer)
-**New findings:** 2 BLOCKERs, 0 WARNINGs, 1 CONVENTION
-**Self-generated:** 0 (nothing had committed yet at the point these were raised)
-- [BLOCKER] full node suite: 51 failures from the client -- a SECOND bare `<script>` broke the shared page-source extractor (cascade of ~48 web.* tests), the "Push to this device" block sat in s-sec-automation breaking the #2054/#3138 order assertion, render-push-718.js was absent from the browser-checks README, and the reason-grep emit count was stale --> FIXED (96a919ab)
-- [BLOCKER] web.post-receipt / web.quoteb: greedy `/<script>([\s\S]*)<\/script>/` folded the second script's `</script>` into the app-script capture, breaking new Function --> FIXED (f00dd643)
-- [CONVENTION] .claude/plans/ -- no plan file for the branch --> FIXED (aa0fa69e)
+#### Iterations 1-7 (pre-rebase)
+- **Iter 1** (6.0 baseline, no reviewer): fixed 51 suite failures from the client (a second bare
+  `<script>` broke the shared page-source extractor; the "Push to this device" block sat in
+  s-sec-automation breaking the #2054/#3138 order assertion; render-push-718.js missing from the
+  browser-checks README; stale reason-grep emit count) and the greedy `<script>` extractor in
+  web.post-receipt/web.quoteb; wrote the plan file. Self-generated: 0.
+- **Iter 2** (sonnet): 3 WARNINGs + 1 CONVENTION -- dropped the unvalidated boardUrlFor url
+  passthrough; "On" now reflects a stored subscription (retryable on failure); added
+  server.sw-718.test.js; README consistency. Self-generated: 1 (README backtick).
+- **Iter 3** (opus): 2 WARNINGs + 1 CONVENTION (+ a 6g BLOCKER: banned-brand ref book.io in the new
+  test) -- notificationclick target-origin fix; added web.sw-718.test.js (boardUrlFor +
+  notificationFor, incl. hostile-input rejection); plan em-dashes removed. Self-generated: 1 (plan).
+- **Iter 4** (sonnet): 1 BLOCKER + 2 WARNINGs + 2 NITs -- added web.push-client-718.test.js (the
+  client flow); wrapped cache writes in event.waitUntil; scoped the reflectPushState comment.
+- **Iter 5** (opus): 1 WARNING (deferred) + 2 NITs -- non-object-body guard added; deploy-sequencing
+  WARNING deferred.
+- **Iter 6** (sonnet): 1 WARNING + 1 CONVENTION -- added the button-click-binding test; corrected
+  the plan's overstatement of render-push-718 coverage. Self-generated: 2.
+- **Iter 7** (opus): 0 actionable, 1 NIT -- CONVERGED (pre-rebase).
 
-#### Iteration 2
-**Reviewer model:** sonnet
-**New findings:** 3 WARNINGs, 1 CONVENTION
-**Self-generated:** 1 (the README backtick, added by iteration 1's commit)
-- [WARNING] web/sw.js boardUrlFor -- unvalidated `data.url` passthrough to openWindow/navigate --> FIXED (edd89c5a)
-- [WARNING] web/index.html -- "On" painted from permission alone; a failed POST showed "On" + "could not turn on" and no retry --> FIXED (edd89c5a)
-- [WARNING] server.js -- the /sw.js route had no node-suite test --> FIXED (edd89c5a, server.sw-718.test.js)
-- [CONVENTION] docs/browser-checks/README.md -- filename backticks inconsistent with neighbors --> FIXED (edd89c5a)
+#### Rebase (parallel lane merged; branch was 4 behind)
+Rebased onto origin/main. One conflict, in browser-checks-reason-grep.test.js: the EXPECTED_SITES
+emit-count constant. Resolved to 127 = current main's 126 (after #3501 removed render-memory-words
+and #3492 added render-handoff-restart, net zero) plus render-push-718.js's one SHAPE-1 site.
+Confirmed empirically by the green suite (the emit-quotable test asserts the live count).
 
-#### Iteration 3
-**Reviewer model:** opus
-**New findings:** 2 WARNINGs, 1 CONVENTION (+ 1 BLOCKER surfaced by 6g validation)
-**Self-generated:** 1 (the plan em-dashes, from iteration 1's commit)
-- [WARNING] web/sw.js notificationclick -- WindowClient.navigate() rejects cross-origin; matching the SW origin silently never reached a different-origin Mac --> FIXED (3e6f746f)
-- [WARNING] web/sw.js -- no node coverage for boardUrlFor + notificationFor --> FIXED (3e6f746f, web.sw-718.test.js incl. hostile-input rejection)
-- [CONVENTION] plan file -- real em-dashes (U+2014) --> FIXED (3e6f746f)
-- [BLOCKER] 6g validation: a banned-brand reference (book.io) in the new web.sw-718.test.js --> FIXED (3e6f746f, neutral example identity)
-
-#### Iteration 4
-**Reviewer model:** sonnet
-**New findings:** 1 BLOCKER, 2 WARNINGs, 2 NITs
-**Self-generated:** 0
-- [BLOCKER] web/index.html -- the client flow (enablePush/reflectPushState/paintButton, retry, orphan-unsubscribe) had no automated coverage --> FIXED (194d6ebf, web.push-client-718.test.js)
-- [WARNING] web/sw.js -- fetch-handler cache writes were dangling promises, not in event.waitUntil --> FIXED (194d6ebf)
-- [WARNING] web/index.html -- reflectPushState comment overclaimed --> FIXED (194d6ebf, scoped to local subscription)
-
-#### Iteration 5
-**Reviewer model:** opus
-**New findings:** 1 WARNING, 2 NITs
-**Self-generated:** 0
-- [WARNING] web/index.html -- the control ships before Raiden's /v1/push/* backend routes --> DEFERRED (deploy-sequencing dependency documented in the plan; failure is graceful; PM ruled to ship the client PR now with the deploy sequence tracked separately)
-- [NIT fixed] notificationFor threw on a valid non-object body (JSON null/number/string) --> FIXED (dafbed99, one-line guard + tests)
-
-#### Iteration 6
-**Reviewer model:** sonnet
-**New findings:** 1 WARNING, 1 CONVENTION
-**Self-generated:** 2 (both in files this loop authored: the client-flow test and the plan)
-- [WARNING] web.push-client-718.test.js -- no test fired the button click binding wire() sets up --> FIXED (189aa770)
-- [CONVENTION] plan file -- overstated that render-push-718.js needs Raiden's proxies "to exercise fully" (it never calls /v1/push/*) --> FIXED (189aa770, corrected to what the check actually covers)
-
-#### Iteration 7
-**Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
-**Self-generated:** 0
-**Converged** -- no new actionable findings; the sole finding is a low-severity NIT (icon/badge passthrough).
+#### Iterations 8-10 (post-rebase regeneration)
+- **Iter 8** (6.0 baseline, no reviewer): validation passed on the merged tree (8300 tests, 0 fail).
+- **Iter 9** (sonnet): 1 WARNING -- the shell-asset handler comment claimed "cache-first, refreshing
+  the copy in the background" (stale-while-revalidate), but the code returns a cache hit as-is with
+  no revalidation. Fixed the COMMENT (the code behavior is correct: freshness comes from the
+  worker-version cache bust, not per-hit re-fetch). Self-generated: 0 (comment predates this regen
+  loop's commits). Plus 1 NIT.
+- **Iter 10** (opus): 0 actionable, 2 NITs -- CONVERGED (post-rebase).
 
 ### Final Ledger
 
 | # | Iter | Category | File | Origin | Description | Status | Resolution |
 |---|------|----------|------|--------|-------------|--------|------------|
-| 1 | 1 | CONVENTION | .claude/plans/ | BRANCH | No plan file for the branch | FIXED | aa0fa69e |
-| 2 | 1 | BLOCKER | (suite) | BRANCH | 51 suite failures (2nd bare script cascade, section order, README, emit count) | FIXED | 96a919ab |
-| 3 | 1 | BLOCKER | web.post-receipt / web.quoteb | BRANCH | Greedy script extractor SyntaxError | FIXED | f00dd643 |
-| 4 | 2 | WARNING | web/sw.js | BRANCH | Unvalidated url passthrough | FIXED | edd89c5a |
-| 5 | 2 | WARNING | web/index.html | BRANCH | "On" from permission alone; no retry | FIXED | edd89c5a |
-| 6 | 2 | WARNING | server.js | BRANCH | /sw.js route untested | FIXED | edd89c5a |
-| 7 | 2 | CONVENTION | README.md | SELF | Backtick inconsistency | FIXED | edd89c5a |
-| 8 | 3 | WARNING | web/sw.js | BRANCH | notificationclick cross-origin navigate no-op | FIXED | 3e6f746f |
-| 9 | 3 | WARNING | web/sw.js | BRANCH | boardUrlFor/notificationFor untested | FIXED | 3e6f746f |
-| 10 | 3 | CONVENTION | plan file | SELF | Em-dashes | FIXED | 3e6f746f |
-| 11 | 3 | BLOCKER | web.sw-718.test.js | SELF | Banned-brand ref (book.io) caught by 6g | FIXED | 3e6f746f |
-| 12 | 4 | BLOCKER | web/index.html | BRANCH | Client flow untested | FIXED | 194d6ebf |
-| 13 | 4 | WARNING | web/sw.js | BRANCH | Cache writes not in event.waitUntil | FIXED | 194d6ebf |
-| 14 | 4 | WARNING | web/index.html | SELF | reflectPushState comment overclaim | FIXED | 194d6ebf |
+| 1 | 1 | CONVENTION | .claude/plans/ | BRANCH | No plan file | FIXED | pre-rebase |
+| 2 | 1 | BLOCKER | (suite) | BRANCH | 51 suite failures (2nd bare script cascade, section order, README, emit count) | FIXED | pre-rebase |
+| 3 | 1 | BLOCKER | web.post-receipt / web.quoteb | BRANCH | Greedy script extractor SyntaxError | FIXED | pre-rebase |
+| 4 | 2 | WARNING | web/sw.js | BRANCH | Unvalidated url passthrough | FIXED | pre-rebase |
+| 5 | 2 | WARNING | web/index.html | BRANCH | "On" from permission alone; no retry | FIXED | pre-rebase |
+| 6 | 2 | WARNING | server.js | BRANCH | /sw.js route untested | FIXED | pre-rebase |
+| 7 | 2 | CONVENTION | README.md | SELF | Backtick inconsistency | FIXED | pre-rebase |
+| 8 | 3 | WARNING | web/sw.js | BRANCH | notificationclick cross-origin navigate no-op | FIXED | pre-rebase |
+| 9 | 3 | WARNING | web/sw.js | BRANCH | boardUrlFor/notificationFor untested | FIXED | pre-rebase |
+| 10 | 3 | CONVENTION | plan file | SELF | Em-dashes | FIXED | pre-rebase |
+| 11 | 3 | BLOCKER | web.sw-718.test.js | SELF | Banned-brand ref (book.io), caught by 6g | FIXED | pre-rebase |
+| 12 | 4 | BLOCKER | web/index.html | BRANCH | Client flow untested | FIXED | pre-rebase |
+| 13 | 4 | WARNING | web/sw.js | BRANCH | Cache writes not in event.waitUntil | FIXED | pre-rebase |
+| 14 | 4 | WARNING | web/index.html | SELF | reflectPushState comment overclaim | FIXED | pre-rebase |
 | 15 | 5 | WARNING | web/index.html | BRANCH | Control ships before backend routes | DEFERRED | Deploy-sequencing; documented; PM ruling |
-| 16 | 6 | WARNING | web.push-client-718.test.js | SELF | Click binding untested | FIXED | 189aa770 |
-| 17 | 6 | CONVENTION | plan file | SELF | Overstated render-push-718 coverage | FIXED | 189aa770 |
+| 16 | 6 | WARNING | web.push-client-718.test.js | SELF | Click binding untested | FIXED | pre-rebase |
+| 17 | 6 | CONVENTION | plan file | SELF | Overstated render-push-718 coverage | FIXED | pre-rebase |
+| 18 | 9 | WARNING | web/sw.js | BRANCH | Shell-asset comment claimed SWR; code is plain cache-first | FIXED | e91764d6 |
 
 ### Outstanding questions (ASKED)
 None.
 
 ### Deferred (with reasoning)
-- [WARNING] web/index.html (#15) -- the "Push to this device" control ships in this PR, but the `/v1/push/vapid-key` and `/v1/push/subscribe` routes it calls live in Raiden's separate `webpush-718` branch. Deferred because: (a) it is a deploy-sequencing dependency, already documented in the plan's "Known external dependencies"; (b) the failure is graceful (a failed fetch leaves the button retryable with a plain message, no crash); (c) the PM (Liu Kang) explicitly ruled to ship the client PR now with the deploy sequence tracked separately. This is a ruling that already existed, not a question.
+- [WARNING] web/index.html (#15) -- the "Push to this device" control ships in this PR, but the
+  `/v1/push/vapid-key` and `/v1/push/subscribe` routes it calls live in Raiden's separate
+  `webpush-718` branch. Deferred: (a) it is a deploy-sequencing dependency, documented in the plan's
+  "Known external dependencies"; (b) the failure is graceful (a failed fetch leaves the button
+  retryable with a plain message, no crash); (c) the PM (Liu Kang) ruled to ship the client PR now
+  with the deploy sequence tracked separately. A ruling that already existed, not a question.
 
 ### NITs (non-blocking, across all iterations)
-- web/sw.js notificationFor -- non-object push body crash (iter 5): FIXED anyway (cheap guard).
-- web/sw.js -- badge reuses the full-color app icon rather than a monochrome silhouette (iter 4): no monochrome badge asset exists in /icons; cosmetic.
-- web/sw.js notificationclick -- the tab-reuse/origin-matching branch has no node coverage (iter 5, iter 3): acknowledged platform residual (node cannot run a service worker); the risky piece (boardUrlFor URL construction) IS unit-tested.
-- web/sw.js:160-161 -- icon/badge payload fields pass to showNotification unvalidated, unlike the strict boardUrlFor address check (iter 7): low impact (an image sink, not navigation or script; the coordinator never sends these fields). Recorded, not fixed, to avoid shipping post-convergence code no blind pass reviewed.
+- web/sw.js notificationFor non-object body crash (iter 5): FIXED anyway (cheap guard + tests).
+- web/sw.js badge reuses the full-color app icon rather than a monochrome silhouette (iter 4): no
+  monochrome badge asset exists; cosmetic.
+- web/sw.js notificationclick tab-reuse has no node coverage (iters 3, 5): acknowledged platform
+  residual (node cannot run a service worker); the risky URL construction IS unit-tested.
+- web/sw.js icon/badge payload passthrough to showNotification, unvalidated, asymmetric with the
+  strict boardUrlFor address check (iters 7 and 10, twice-raised): consistently rated NIT, not
+  WARNING -- an image sink, not a navigation/script vector, and the coordinator (the only sender)
+  never sends these fields. Recorded, not fixed, to avoid a post-convergence code change no blind
+  pass reviewed; a follow-up or PR reviewer may choose to hardcode the local defaults.
+- web/index.html reflectPushState comment (iter 10): slightly overstates that a coordinator-pruned
+  subscription is "re-stored on the next successful enable" when the "On" button is disabled and
+  offers no trigger; the surrounding "scope, stated honestly" note already flags the pruning
+  limitation.
 
 ### Strengths (across all iterations)
-- boardUrlFor is a strict anchored hostname allowlist for the click-through target, paired with dedicated hostile-input rejection tests (javascript:, path, userinfo, whitespace, single-label, full URL, leading/trailing dot).
-- render-push-718.js delivers a REAL push through the worker's own handler via the CDP deliverPushMessage verb and asserts the DERIVED notification from a payload carrying no title/body, avoiding the vacuous-pass and wrong-fixture-shape traps.
-- The greedy-to-non-greedy extractor fix aligns web.post-receipt/web.quoteb with the 21 other page-test files and is explained in the commit and comments.
-- Honest "On" state modeling: painted only after the board stores the subscription (or a local subscription exists), never from permission alone; a failed POST unsubscribes the orphan and stays retryable; every branch covered by web.push-client-718.test.js.
-- notificationFor degrades every payload shape (none, non-JSON, non-object) to a generic notification rather than dropping the push.
+- boardUrlFor is a strict anchored hostname allowlist for the click-through target, paired with
+  dedicated hostile-input rejection tests (javascript:, path, userinfo, whitespace, single-label,
+  full URL, leading/trailing dot).
+- render-push-718.js delivers a REAL push through the worker's own handler via the CDP
+  deliverPushMessage verb and asserts the DERIVED notification from a payload with no title/body,
+  avoiding the vacuous-pass and wrong-fixture-shape traps.
+- Test coverage is layered across the three boundaries that need independent verification: the HTTP
+  route (server.sw-718), the pure functions eval'd from the real sw.js source (web.sw-718), and the
+  permission->subscribe->POST state machine incl. failure/unsubscribe/retry (web.push-client-718).
+- Honest "On" state: painted only after the board stores the subscription (or a local subscription
+  exists), never from permission alone; a failed POST unsubscribes the orphan and stays retryable.
+- Doc-comment accuracy is high (the repo's flagged bug class): the cache-strategy comment now
+  explicitly states "NOT stale-while-revalidate", and every cross-checked comment matches behavior.
+- The greedy-to-non-greedy extractor fix aligns web.post-receipt/web.quoteb with the other page-test
+  files and is explained in the commit and comments; the post-rebase EXPECTED_SITES=127 resolution
+  was independently re-verified against render-push-718.js's actual emit sites.
