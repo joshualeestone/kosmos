@@ -13834,9 +13834,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            links and web.plus-tab.test.js's no-controls-in-state-1 rule still holds
            (that guard scans this slice as TEXT, so a comment must not name the
            control tags literally, or it trips the very rule it describes).
-           The href is set from JS (paintPlus), never in markup, per the same
-           no-hostname guard as plus-site-link below. -->
-      <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-pill" href="#" target="_blank" rel="noreferrer noopener">Sign in</a></p>
+           #3478: the href is now an in-page anchor and the click OPENS THE SIGN-IN
+           WIZARD (state 2) rather than the web -- its handler (plusSiEnter) is
+           attached once at load and calls preventDefault, so no address is ever set
+           here or in JS and the no-hostname guard still needs no pin. -->
+      <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-pill" href="#">Sign in</a></p>
       <!-- #1615 blue reskin: the wordmark, drawn as ~300 circles that animate in
            over 1.5s (or a single static frame under prefers-reduced-motion), by
            the plusMark engine in the app script. Decorative -> aria-hidden; the
@@ -13887,7 +13889,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            bottom CTA. Both are <a> links (state 1 stays control-free); both hrefs
            are set from JS per the no-hostname guard, so no address lives here. -->
       <p class="plus-cta"><a id="plus-site-link" class="plus-btn" href="#" target="_blank" rel="noreferrer noopener"
-      >Join Kosmos+</a><a id="plus-signin-bottom" class="plus-signin-link" href="#" target="_blank" rel="noreferrer noopener">Already a member? Sign in</a></p>
+      >Join Kosmos+</a><a id="plus-signin-bottom" class="plus-signin-link" href="#">Already a member? Sign in</a></p>
     </div>
 
     <!-- #1615 state 2, design section 5: "paid, not set up here". The design settled an
@@ -13901,29 +13903,127 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          requested state rather than an omission. -->
     <div id="plus-state2" hidden>
       <h3>Sign in to give this computer its address</h3>
+      <!-- #3478: state 2 is now WIRED. #1115 (Josh, 2026-08-27) settled the split
+           and the state-1 copy states it: sign-UP (email, code, card) happens on
+           the website; sign-IN to that paid account happens HERE, because the app
+           is a board bound to localhost and the site is a different origin, so
+           there is no session to pick up and this computer needs a credential of
+           its own before the coordinator gives it an address. The backend for the
+           whole sign-in was built server-side under #3149 (server.js signin-*
+           proxies + engine/remote.js's stage machine, which holds the session
+           token and the phone challenge engine-side and never returns them here,
+           #874). This wizard is only the client the marketing links now open
+           instead of bouncing to the web. -->
       <p>You have Kosmos+. Signing in here is what connects this computer.</p>
-      <div class="setrow">
-        <!-- ⚠️ `plus-signin-*`, NOT `plus-email`/`plus-code`. Those ids are ALREADY TAKEN by the
-     enrol step inside the connected flow below, and a duplicate id makes getElementById
-     return whichever comes first, so both controls would have driven the wrong one.
-     Caught by the page's own id-uniqueness guard, not by review.
-     📌 The two are genuinely different moments and the names now say so: this is signing
-     in to the Kosmos+ ACCOUNT before this computer is configured at all; the enrol pair
-     below is pairing a device once it already is. -->
-        <!-- ⚠️ `tk-inp` INSIDE `.field`, NOT `.cinput`. `.cinput` is the COMPOSER input class:
-     it sets `border: 0; background: none;` and takes its border from a `.composerbox`
-     ancestor. Every other `.cinput` in this file has one; this has none, and `.setrow`
-     supplies no field styling, so it would have rendered borderless and transparent.
-     This pane's own convention forty lines below is `tk-inp` in a `.field`, and the
-     design draws a bordered field. On a card whose premise is seeing the design
-     rendered, that is the difference that matters. -->
+
+      <!-- The wizard drives the engine's stages; plusSiShow() reveals exactly one
+           step at a time. `plus-si-*` ids so nothing collides with the enrol pair
+           (`plus-email`/`plus-code`/`plus-name`) inside the connected flow below --
+           a duplicate id makes getElementById return whichever comes first, caught
+           by the page's own id-uniqueness guard rather than by review. -->
+      <div id="plus-si-email">
+        <!-- ⚠️ `tk-inp` INSIDE `.field`, NOT `.cinput`. `.cinput` is the COMPOSER
+     input class (border: 0; background: none; borrows its border from a
+     `.composerbox` ancestor this has none of), so it would render borderless and
+     transparent here. `tk-inp` in a `.field` is this pane's own convention below. -->
         <div class="field">
-          <input type="email" id="plus-signin-email" class="tk-inp" autocomplete="email"
+          <label class="flabel" for="plus-signin-email">The email on your Kosmos+ account</label>
+          <input type="email" id="plus-signin-email" class="tk-inp" maxlength="120" autocomplete="email"
             placeholder="you@example.com" aria-label="The email on your Kosmos+ account">
         </div>
-        <button class="btn" type="button" id="plus-signin-code">Send me a code</button>
+        <div class="frow">
+          <button class="btn uprime" type="button" id="plus-signin-code">Email me a code</button>
+        </div>
       </div>
+
+      <!-- The code from the email (signin-verify). -->
+      <div id="plus-si-code" hidden>
+        <div class="field">
+          <label class="flabel" for="plus-si-code-in">The code from the email</label>
+          <input class="tk-inp" id="plus-si-code-in" type="text" inputmode="numeric" maxlength="12">
+        </div>
+        <div class="frow">
+          <button class="btn uprime" type="button" id="plus-si-code-go">Verify</button>
+          <button class="btn" type="button" id="plus-si-code-resend">Email me a code again</button>
+        </div>
+      </div>
+
+      <!-- The phone code (signin-second): reached when the account already has a
+           second factor. Josh, 2026-08-29: the second step ALWAYS happens; it is
+           true two-factor, not a from-a-phone convenience. -->
+      <div id="plus-si-second" hidden>
+        <p class="fhint">Signing in always asks for a second code after the email code. Open your authenticator app, or check your phone for a text.</p>
+        <div class="field">
+          <label class="flabel" for="plus-si-second-in">The code from your phone</label>
+          <input class="tk-inp" id="plus-si-second-in" type="text" inputmode="numeric" maxlength="12">
+        </div>
+        <div class="frow">
+          <button class="btn uprime" type="button" id="plus-si-second-go">Verify</button>
+        </div>
+      </div>
+
+      <!-- Set up a second factor (signin-enrol): reached only when the account has
+           none and the coordinator requires one, so the sign-in sets one up in-app
+           instead of dead-ending. `sms_available` and `why_authenticator` come from
+           signin-verify and are rendered at runtime. -->
+      <div id="plus-si-enrol" hidden>
+        <p class="setname">Set up your second step</p>
+        <p class="fhint" id="plus-si-enrol-why"></p>
+        <div class="frow" id="plus-si-enrol-pick">
+          <button class="btn uprime" type="button" id="plus-si-enrol-totp">Use an authenticator app</button>
+          <button class="btn" type="button" id="plus-si-enrol-sms" hidden>Text me the codes</button>
+        </div>
+        <div class="field" id="plus-si-phone-field" hidden>
+          <label class="flabel" for="plus-si-phone">Your phone number</label>
+          <input class="tk-inp" id="plus-si-phone" type="tel" maxlength="20" autocomplete="tel">
+          <div class="frow" style="margin-top:8px;">
+            <button class="btn uprime" type="button" id="plus-si-phone-go">Text me a code</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Confirm the second factor (signin-confirm-enrol): for an authenticator
+           app, the typed key to add; for text, the masked number the code went to.
+           A QR is a design nicety and is deliberately not drawn here (no QR library
+           is loaded); the typed key works in every authenticator app. -->
+      <div id="plus-si-enrol-confirm" hidden>
+        <p class="fhint" id="plus-si-enrol-lead"></p>
+        <div class="field" id="plus-si-secret-field" hidden>
+          <label class="flabel" for="plus-si-secret">Add this key to your authenticator app</label>
+          <input class="tk-inp" id="plus-si-secret" type="text" readonly>
+        </div>
+        <div class="field">
+          <label class="flabel" for="plus-si-enrol-code">The code your second step shows</label>
+          <input class="tk-inp" id="plus-si-enrol-code" type="text" inputmode="numeric" maxlength="12">
+        </div>
+        <div class="frow">
+          <button class="btn uprime" type="button" id="plus-si-enrol-confirm-go">Confirm</button>
+        </div>
+      </div>
+
+      <!-- Name this computer (signin-register): reached once signed in (stage
+           session). This is what earns the address. Same name rule as the enrol
+           pair below: 3 to 32 lowercase letters, digits and hyphens. -->
+      <div id="plus-si-register" hidden>
+        <div class="field">
+          <label class="flabel" for="plus-si-name">A name for this computer's address</label>
+          <p class="fhint">3 to 32 characters: lowercase letters, digits and hyphens.</p>
+          <input class="tk-inp" id="plus-si-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
+        </div>
+        <div class="frow">
+          <button class="btn uprime" type="button" id="plus-si-register-go">Finish signing in</button>
+        </div>
+      </div>
+
+      <!-- Done. The connected flow (state below) takes over on the next paint once
+           the machine reads enrolled; this panel is the moment of success. -->
+      <div id="plus-si-done" hidden>
+        <p class="setname">You're signed in.</p>
+        <p class="fhint" id="plus-si-address"></p>
+      </div>
+
       <p class="fhint" id="plus-signin-msg" role="status" aria-live="polite"></p>
+      <p class="plus-topbar" style="margin-top:12px;"><a id="plus-si-cancel" class="plus-signin-link" href="#">Not now</a></p>
     </div>
 
     <div id="plus-flow" hidden>
@@ -32470,6 +32570,9 @@ pollAsk();
    the two fetches happen to resolve: a poll in flight when the person
    clicks Turn On must not win the race back and revert their own click. */
 let PLUS_EPOCH = 0;
+/* #3478: true while the in-app sign-in wizard (state 2) is open, so paintPlus's 5s
+   repaint shows the wizard in place of the marketing state instead of clobbering it. */
+let PLUS_SIGNIN_ACTIVE = false;
 /**
  * The one place this page holds the site's address (#1129).
  *
@@ -32526,16 +32629,15 @@ async function paintPlus() {
      USER-visible break. The dependency belongs in a card, not a dead door. The `/+`
      rewrite is Angel's in chaoskosmos-site; reverted until it serves. */
   if (site) site.href = KOSMOS_SITE + '/plus';
-  /* #2625: the two sign-in links (#2625's "sign-in box above the logo" + the foot
-     "Already a member? Sign in") point at the SAME served /plus page as Join, for the
-     same reason spelled out above: /plus is what serves today and routes onward to the
-     site's own Join / Sign in. When login.kosmosplus.com is live and branded (#2626),
-     the two sign-in links should move to the site's direct sign-in route; pinned to the
-     served page until then so neither opens onto a 404. */
-  const signinTop = document.getElementById('plus-signin-top');
-  const signinBottom = document.getElementById('plus-signin-bottom');
-  if (signinTop) signinTop.href = KOSMOS_SITE + '/plus';
-  if (signinBottom) signinBottom.href = KOSMOS_SITE + '/plus';
+  /* #3478: the two sign-in links no longer bounce to the web. #2625/#2626 pinned
+     them to the served /plus page "until login.kosmosplus.com is live and branded",
+     purely so neither opened onto a 404. Josh's ask is the IN-APP sign-in, and #1115
+     already settled that signing IN (as opposed to signing UP, which happens on the
+     site) belongs in this pane, so the links now OPEN THE WIZARD (state 2) instead of
+     a browser. Their click handlers are attached ONCE at load (plusSiEnter, below),
+     not here -- paintPlus runs on every 5s tick and re-adding a listener each time
+     would leak. Nothing sets an href now, so no hostname lives in markup or JS and the
+     no-hostname guard is satisfied without a pin. */
   const epoch = (PLUS_EPOCH += 1);
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
@@ -32553,11 +32655,23 @@ async function paintPlus() {
     state1.hidden = false;
     state2.hidden = true;
     flow.hidden = true;
+    /* #3478: the sign-in wizard (state 2) is entered from the state-1 links and
+       must survive this repaint (the status tick reruns paintPlus every 5s, #743).
+       While it is active, show it in place of the marketing state. typeof-guarded
+       so web.plus-tab.test.js's `new Function` harness -- which defines only
+       PLUS_EPOCH, not this global -- does not ReferenceError on it. */
+    if (typeof PLUS_SIGNIN_ACTIVE !== 'undefined' && PLUS_SIGNIN_ACTIVE) {
+      state1.hidden = true;
+      state2.hidden = false;
+    }
     return;
   }
   state1.hidden = true;
   state2.hidden = true;
   flow.hidden = false;
+  /* #3478: once the machine reads enrolled the connected flow owns the pane, so the
+     sign-in wizard is over -- clear its flag (typeof-guarded for the test harness). */
+  if (typeof PLUS_SIGNIN_ACTIVE !== 'undefined') PLUS_SIGNIN_ACTIVE = false;
   const sw = document.getElementById('plus-switch');
   sw.textContent = r.on ? 'Turn off' : 'Turn on';
   const st = document.getElementById('plus-status');
@@ -32725,6 +32839,215 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
     }
   } catch { msg.textContent = PLUS_SECOND_WORDS.failed('this computer could not reach its own engine'); }
   plusSecondDisarm();
+});
+
+/* #3478: the in-app sign-in wizard (state 2). It drives engine/remote.js's stage
+   machine through server.js's signin-* proxies. The engine holds the 30-day session
+   token and the phone challenge across the steps and never returns them here (#874),
+   so this client only shows the step the returned `stage` names and posts the next
+   input. Stages: signin-start -> code_sent; signin-verify -> session | second |
+   enrol_second_factor; signin-second -> session; signin-enrol -> enrolment_started;
+   signin-confirm-enrol -> session; signin-register -> registered (with the address). */
+const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-done'];
+function plusSiShow(step) {
+  for (const id of PLUS_SI_STEPS) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = (id !== step);
+  }
+}
+function plusSiMsg(text) {
+  const m = document.getElementById('plus-signin-msg');
+  if (m) m.textContent = text || '';
+}
+async function plusSiPost(path, body) {
+  try {
+    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) return { ok: false, because: plusWords((data && data.error) || 'that did not work') };
+    return { ok: true, data: data || {} };
+  } catch { return { ok: false, because: 'this computer could not reach the sign-in service' }; }
+}
+/* Route the stage the engine returned to the step to show. `session` means signed in
+   with the second factor satisfied, so the last thing left is to name the computer. */
+function plusSiStage(stage, data) {
+  data = data || {};
+  if (stage === 'code_sent') { plusSiShow('plus-si-code'); document.getElementById('plus-si-code-in').focus(); return; }
+  if (stage === 'second') { plusSiShow('plus-si-second'); document.getElementById('plus-si-second-in').focus(); return; }
+  if (stage === 'enrol_second_factor') {
+    document.getElementById('plus-si-enrol-why').textContent = data.why_authenticator
+      || 'Set up a second step so only you can sign in, even if someone else has your email code.';
+    document.getElementById('plus-si-enrol-sms').hidden = (data.sms_available !== true);
+    document.getElementById('plus-si-phone-field').hidden = true;
+    plusSiShow('plus-si-enrol');
+    return;
+  }
+  if (stage === 'enrolment_started') {
+    const isTotp = data.kind === 'totp';
+    document.getElementById('plus-si-secret-field').hidden = !(isTotp && data.secret);
+    if (isTotp && data.secret) document.getElementById('plus-si-secret').value = data.secret;
+    document.getElementById('plus-si-enrol-lead').textContent = isTotp
+      ? 'Add the key below to your authenticator app, then type the code it shows.'
+      : ('We texted a code to ' + (data.sent_to || 'your phone') + '. Type it below.');
+    plusSiShow('plus-si-enrol-confirm');
+    document.getElementById('plus-si-enrol-code').focus();
+    return;
+  }
+  if (stage === 'session') { plusSiShow('plus-si-register'); document.getElementById('plus-si-name').focus(); return; }
+  /* `registered` is handled by the register button itself (it has the address). */
+}
+/* Enter the wizard from either state-1 sign-in link. The links stay <a> (state 1 is
+   marketing plus a link, guarded), but the click reveals state 2 in place of the
+   marketing copy rather than navigating; PLUS_SIGNIN_ACTIVE keeps it there across the
+   5s repaint. */
+function plusSiEnter(e) {
+  if (e) e.preventDefault();
+  PLUS_SIGNIN_ACTIVE = true;
+  plusSiMsg('');
+  plusSiShow('plus-si-email');
+  const s1 = document.getElementById('plus-state1'); if (s1) s1.hidden = true;
+  const s2 = document.getElementById('plus-state2'); if (s2) s2.hidden = false;
+  const email = document.getElementById('plus-signin-email'); if (email) email.focus();
+}
+document.getElementById('plus-signin-top').addEventListener('click', plusSiEnter);
+document.getElementById('plus-signin-bottom').addEventListener('click', plusSiEnter);
+document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
+  e.preventDefault();
+  PLUS_SIGNIN_ACTIVE = false;
+  plusSiMsg('');
+  paintPlus();
+});
+/* Codes arrive by paste with whitespace riding along; normalize to six digits, as
+   the enrol code field above does. */
+for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code']) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', (e) => {
+    const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
+    if (e.target.value !== clean) e.target.value = clean;
+  });
+}
+/* Step 1: the email -> signin-start. A too-many-asks refusal carries "in N seconds";
+   count it down where the person is looking, as the enrol send does. */
+async function plusSiSendEmailCode() {
+  const email = document.getElementById('plus-signin-email').value.trim();
+  const btn = document.getElementById('plus-signin-code');
+  if (!email) { plusSiMsg(PLUS_CODE_WORDS.noEmail); return; }
+  plusSiMsg(PLUS_CODE_WORDS.asking(email));
+  btn.disabled = true;
+  const r = await plusSiPost('/api/remote/signin-start', { email });
+  if (!r.ok) {
+    const m = /in (\d+) seconds?/.exec(r.because);
+    if (m) { plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
+    btn.disabled = false;
+    plusSiMsg(PLUS_CODE_WORDS.refused(r.because));
+    return;
+  }
+  btn.disabled = false;
+  plusSiMsg(PLUS_CODE_WORDS.sent(email));
+  plusSiStage(r.data.stage, r.data);
+}
+document.getElementById('plus-signin-code').addEventListener('click', plusSiSendEmailCode);
+document.getElementById('plus-si-code-resend').addEventListener('click', () => {
+  /* Resend reuses step 1's send but the resend button is what the person pressed. */
+  const btn = document.getElementById('plus-si-code-resend');
+  const email = document.getElementById('plus-signin-email').value.trim();
+  if (!email) { plusSiMsg(PLUS_CODE_WORDS.noEmail); return; }
+  plusSiMsg(PLUS_CODE_WORDS.asking(email));
+  btn.disabled = true;
+  plusSiPost('/api/remote/signin-start', { email }).then((r) => {
+    if (!r.ok) {
+      const m = /in (\d+) seconds?/.exec(r.because);
+      if (m) { plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
+      btn.disabled = false; plusSiMsg(PLUS_CODE_WORDS.refused(r.because)); return;
+    }
+    btn.disabled = false; plusSiMsg(PLUS_CODE_WORDS.sent(email));
+  });
+});
+/* Step 2: the email code -> signin-verify. */
+document.getElementById('plus-si-code-go').addEventListener('click', async () => {
+  const email = document.getElementById('plus-signin-email').value.trim();
+  const code = document.getElementById('plus-si-code-in').value.replace(/\D/g, '');
+  const btn = document.getElementById('plus-si-code-go');
+  if (!code) { plusSiMsg('Type the code from the email.'); return; }
+  plusSiMsg('');
+  btn.disabled = true;
+  const r = await plusSiPost('/api/remote/signin-verify', { email, code });
+  btn.disabled = false;
+  if (!r.ok) { plusSiMsg(r.because); return; }
+  plusSiStage(r.data.stage, r.data);
+});
+/* The phone code -> signin-second (an account that already has a second factor). */
+document.getElementById('plus-si-second-go').addEventListener('click', async () => {
+  const code = document.getElementById('plus-si-second-in').value.replace(/\D/g, '');
+  const btn = document.getElementById('plus-si-second-go');
+  if (!code) { plusSiMsg('Type the code from your phone.'); return; }
+  plusSiMsg('');
+  btn.disabled = true;
+  const r = await plusSiPost('/api/remote/signin-second', { code });
+  btn.disabled = false;
+  if (!r.ok) { plusSiMsg(r.because); return; }
+  plusSiStage(r.data.stage, r.data);
+});
+/* Set up a second factor when the account has none: authenticator app (totp) or, if
+   the coordinator allows it, a text (sms + a phone number) -> signin-enrol. */
+document.getElementById('plus-si-enrol-totp').addEventListener('click', async () => {
+  const btn = document.getElementById('plus-si-enrol-totp');
+  plusSiMsg('');
+  btn.disabled = true;
+  const r = await plusSiPost('/api/remote/signin-enrol', { kind: 'totp' });
+  btn.disabled = false;
+  if (!r.ok) { plusSiMsg(r.because); return; }
+  plusSiStage(r.data.stage, r.data);
+});
+document.getElementById('plus-si-enrol-sms').addEventListener('click', () => {
+  document.getElementById('plus-si-phone-field').hidden = false;
+  document.getElementById('plus-si-phone').focus();
+});
+document.getElementById('plus-si-phone-go').addEventListener('click', async () => {
+  const phone = document.getElementById('plus-si-phone').value.trim();
+  const btn = document.getElementById('plus-si-phone-go');
+  if (!phone) { plusSiMsg('Type your phone number first.'); return; }
+  plusSiMsg('');
+  btn.disabled = true;
+  const r = await plusSiPost('/api/remote/signin-enrol', { kind: 'sms', phone });
+  btn.disabled = false;
+  if (!r.ok) { plusSiMsg(r.because); return; }
+  plusSiStage(r.data.stage, r.data);
+});
+/* Confirm the second factor -> signin-confirm-enrol, which yields a session. */
+document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', async () => {
+  const code = document.getElementById('plus-si-enrol-code').value.replace(/\D/g, '');
+  const btn = document.getElementById('plus-si-enrol-confirm-go');
+  if (!code) { plusSiMsg('Type the code your second step shows.'); return; }
+  plusSiMsg('');
+  btn.disabled = true;
+  const r = await plusSiPost('/api/remote/signin-confirm-enrol', { code });
+  btn.disabled = false;
+  if (!r.ok) { plusSiMsg(r.because); return; }
+  plusSiStage(r.data.stage, r.data);
+});
+/* The last step: name this computer -> signin-register, which returns the address.
+   The name rule is the engine's own (also enforced there); saying it here saves a
+   round trip. Keep PLUS_SIGNIN_ACTIVE true until enrolled is confirmed so a repaint
+   before that shows the success panel, not the marketing state; the enrolled branch
+   of paintPlus clears the flag once the connected flow owns the pane. */
+document.getElementById('plus-si-register-go').addEventListener('click', async () => {
+  const name = document.getElementById('plus-si-name').value.trim();
+  const btn = document.getElementById('plus-si-register-go');
+  if (name && !/^[a-z0-9-]{3,32}$/.test(name)) {
+    plusSiMsg('the name is 3 to 32 lowercase letters, digits or hyphens');
+    return;
+  }
+  plusSiMsg('');
+  btn.disabled = true;
+  const r = await plusSiPost('/api/remote/signin-register', { name });
+  btn.disabled = false;
+  if (!r.ok) { plusSiMsg(r.because); return; }
+  const addr = r.data.address;
+  document.getElementById('plus-si-address').textContent = addr
+    ? ('Your address: ' + addr)
+    : 'Your address is on its way.';
+  plusSiShow('plus-si-done');
+  paintPlus();
 });
 
 function paintModelWhy(selId, whyId) {
