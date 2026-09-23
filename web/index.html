@@ -14018,12 +14018,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         </div>
       </div>
 
-      <!-- Done. The connected flow (state below) takes over on the next paint once
-           the machine reads enrolled; this panel is the moment of success. -->
-      <div id="plus-si-done" hidden>
-        <p class="setname">You're signed in.</p>
-        <p class="fhint" id="plus-si-address"></p>
-      </div>
+      <!-- No "done" panel: on register the machine already reads enrolled (the engine
+           writes the state dir synchronously), so paintPlus hands straight off to the
+           connected flow below, which is where success and the address are shown. See
+           the plus-si-register-go handler. -->
 
       <p class="fhint" id="plus-signin-msg" role="status" aria-live="polite"></p>
       <p class="plus-topbar" style="margin-top:12px;"><a id="plus-si-cancel" class="plus-signin-link" href="#">Not now</a></p>
@@ -32851,7 +32849,7 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
    input. Stages: signin-start -> code_sent; signin-verify -> session | second |
    enrol_second_factor; signin-second -> session; signin-enrol -> enrolment_started;
    signin-confirm-enrol -> session; signin-register -> registered (with the address). */
-const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-done'];
+const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register'];
 function plusSiShow(step) {
   for (const id of PLUS_SI_STEPS) {
     const el = document.getElementById(id);
@@ -32863,12 +32861,21 @@ function plusSiMsg(text) {
   if (m) m.textContent = text || '';
 }
 async function plusSiPost(path, body) {
+  /* A timeout, like the enrol send's own (plus-send-code): a hung request must be
+     able to say it is waiting and can fail, not leave a disabled button forever.
+     PLUS_ASK_TIMEOUT_MS is the same 15s the enrol flow uses. */
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), PLUS_ASK_TIMEOUT_MS);
   try {
-    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}), signal: ctl.signal });
     const data = await res.json().catch(() => null);
     if (!res.ok) return { ok: false, because: plusWords((data && data.error) || 'that did not work') };
     return { ok: true, data: data || {} };
-  } catch { return { ok: false, because: 'this computer could not reach the sign-in service' }; }
+  } catch (err) {
+    return { ok: false, because: (err && err.name === 'AbortError')
+      ? 'the sign-in service has not answered in 15 seconds; check this computer is online and try again'
+      : 'this computer could not reach the sign-in service' };
+  } finally { clearTimeout(timer); }
 }
 /* Route the stage the engine returned to the step to show. `session` means signed in
    with the second factor satisfied, so the last thing left is to name the computer. */
@@ -32896,7 +32903,13 @@ function plusSiStage(stage, data) {
     return;
   }
   if (stage === 'session') { plusSiShow('plus-si-register'); document.getElementById('plus-si-name').focus(); return; }
-  /* `registered` is handled by the register button itself (it has the address). */
+  if (stage === 'registered') return;  // handled by the register button itself
+  /* Any other value means the coordinator returned a stage this client does not know.
+     The engine fails closed on unexpected shapes today (engine/remote.js absorbSession /
+     signinEnrol return ok:false), so this is a forward-guard, not a live path -- but say
+     so and reset rather than leaving the person on an unchanged screen with no word. */
+  plusSiMsg('That did not work as expected. Start the sign-in again.');
+  plusSiShow('plus-si-email');
 }
 /* Enter the wizard from either state-1 sign-in link. The links stay <a> (state 1 is
    marketing plus a link, guarded), but the click reveals state 2 in place of the
@@ -32928,11 +32941,15 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     if (e.target.value !== clean) e.target.value = clean;
   });
 }
-/* Step 1: the email -> signin-start. A too-many-asks refusal carries "in N seconds";
-   count it down where the person is looking, as the enrol send does. */
-async function plusSiSendEmailCode() {
+/* Ask signin-start for an email code. ONE place, shared by the initial "Email me a
+   code" button and the "again" button on the code step -- two copies of this sequence
+   is exactly CLAUDE.md convention #5 ("two derivations of one fact is this codebase's
+   most-shipped defect"). The pressed button is passed in so the right one disables,
+   re-enables, and carries the too-many-asks countdown ("in N seconds"). On success both
+   route the returned stage (always code_sent), which shows the code step -- harmless
+   when already on it, and it keeps the two entry points from drifting. */
+async function plusSiRequestCode(btn) {
   const email = document.getElementById('plus-signin-email').value.trim();
-  const btn = document.getElementById('plus-signin-code');
   if (!email) { plusSiMsg(PLUS_CODE_WORDS.noEmail); return; }
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   btn.disabled = true;
@@ -32948,23 +32965,8 @@ async function plusSiSendEmailCode() {
   plusSiMsg(PLUS_CODE_WORDS.sent(email));
   plusSiStage(r.data.stage, r.data);
 }
-document.getElementById('plus-signin-code').addEventListener('click', plusSiSendEmailCode);
-document.getElementById('plus-si-code-resend').addEventListener('click', () => {
-  /* Resend reuses step 1's send but the resend button is what the person pressed. */
-  const btn = document.getElementById('plus-si-code-resend');
-  const email = document.getElementById('plus-signin-email').value.trim();
-  if (!email) { plusSiMsg(PLUS_CODE_WORDS.noEmail); return; }
-  plusSiMsg(PLUS_CODE_WORDS.asking(email));
-  btn.disabled = true;
-  plusSiPost('/api/remote/signin-start', { email }).then((r) => {
-    if (!r.ok) {
-      const m = /in (\d+) seconds?/.exec(r.because);
-      if (m) { plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
-      btn.disabled = false; plusSiMsg(PLUS_CODE_WORDS.refused(r.because)); return;
-    }
-    btn.disabled = false; plusSiMsg(PLUS_CODE_WORDS.sent(email));
-  });
-});
+document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
+document.getElementById('plus-si-code-resend').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-si-code-resend')));
 /* Step 2: the email code -> signin-verify. */
 document.getElementById('plus-si-code-go').addEventListener('click', async () => {
   const email = document.getElementById('plus-signin-email').value.trim();
@@ -33030,9 +33032,18 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
 });
 /* The last step: name this computer -> signin-register, which returns the address.
    The name rule is the engine's own (also enforced there); saying it here saves a
-   round trip. Keep PLUS_SIGNIN_ACTIVE true until enrolled is confirmed so a repaint
-   before that shows the success panel, not the marketing state; the enrolled branch
-   of paintPlus clears the flag once the connected flow owns the pane. */
+   round trip.
+
+   On success, HAND OFF TO THE CONNECTED FLOW rather than drawing a separate "done"
+   panel. The engine writes this computer's state dir synchronously before answering
+   register (engine/remote.js signinRegister), so the machine already reads enrolled:
+   the very next paintPlus() -- this one, and the recurring 5s tick -- takes the
+   enrolled branch, hides state 2 and shows the connected flow, which is where the
+   address lives (its status line reads "Connected. Your address: ..." once the tunnel
+   is up, and #1014's "on its way" wording before then). A separate done panel would
+   be drawn and then immediately replaced by that same paint, so it could flash for
+   well under a round trip or not be seen at all. This mirrors the enrol flow's own
+   plus-confirm, which likewise ends by handing off to paintPlus(). */
 document.getElementById('plus-si-register-go').addEventListener('click', async () => {
   const name = document.getElementById('plus-si-name').value.trim();
   const btn = document.getElementById('plus-si-register-go');
@@ -33045,11 +33056,7 @@ document.getElementById('plus-si-register-go').addEventListener('click', async (
   const r = await plusSiPost('/api/remote/signin-register', { name });
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
-  const addr = r.data.address;
-  document.getElementById('plus-si-address').textContent = addr
-    ? ('Your address: ' + addr)
-    : 'Your address is on its way.';
-  plusSiShow('plus-si-done');
+  PLUS_SIGNIN_ACTIVE = false;
   paintPlus();
 });
 

@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-register
+// Browser-check-surface: plus-state1 plus-state2 plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -172,15 +172,34 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.click('#plus-si-enrol-confirm-go');
       }
 
-      // Step: session -> name -> done.
+      // Step: session -> name -> hand off to the connected flow.
       await page.waitForSelector('#plus-si-register', { state: 'visible', timeout: 5000 });
       chk(true, `[${key}] the flow reaches the name step (a session)`);
+      // The engine writes this computer's state dir SYNCHRONOUSLY before answering register,
+      // so the machine reads enrolled immediately after. Flip /api/remote to enrolled BEFORE
+      // the register click, so the post-register paintPlus() exercises the REAL end state:
+      // the connected flow with the address. Leaving the mock permanently unenrolled (the
+      // earlier shape) let a "done panel" assertion pass precisely because it never drove the
+      // repaint the wizard actually performs -- false coverage of the one step most likely to
+      // regress. status.state:'up' so the flow's status line renders the address now.
+      const wantAddr = sc.steps['/api/remote/signin-register'].address;
+      await page.unroute('**/api/remote');
+      await page.route('**/api/remote', (route, req) => {
+        const m = req.method();
+        if (m === 'GET' || m === 'HEAD') {
+          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+            configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com',
+            status: { state: 'up', address: wantAddr } }) });
+        } else { route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
+      });
       await page.fill('#plus-si-name', sc.steps['/api/remote/signin-register'].name);
       await page.click('#plus-si-register-go');
-      await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 5000 });
-      const addr = await page.textContent('#plus-si-address');
-      const wantAddr = sc.steps['/api/remote/signin-register'].address;
-      chk(!!(addr && addr.includes(wantAddr)), `[${key}] done: the new address is shown`, JSON.stringify(addr));
+      // The wizard hands off to the connected flow: state 2 gone, flow shown, address in
+      // its status line -- the same success screen the enrol flow ends on.
+      await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      const flowStatus = await page.textContent('#plus-status');
+      chk(!!(flowStatus && flowStatus.includes(wantAddr)), `[${key}] done: the connected flow shows the new address`, JSON.stringify(flowStatus));
+      chk(!(await visible(page, '#plus-state2')), `[${key}] the wizard hands off to the connected flow after register`);
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });
 
       chk(errs.length === 0, `[${key}] no page errors`, errs.join(' | '));
