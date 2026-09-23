@@ -2013,13 +2013,19 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  *   default coded -> "Unable to connect to API (CODE)"
  *   ETIMEDOUT -> "Request timed out. Check your internet connection and proxy settings"
  *
- * 📌 StreamSuspended ("Connection lost while your computer was asleep") is
- * DELIBERATELY NOT matched. It is rendered by the formatter EARLIER, not by this
- * "Connection error." switch, and it is a sleep/wake artifact with its OWN recovery
- * path (the session resumes when the Mac wakes), not the DNS/network-down class
- * #3410 targets. Auto-restarting it (PR 2) would abort a session that resumes on
- * its own. If a laptop-sleep wedge proves to need surfacing, it is a separate case
- * with its own recovery semantics, not this one.
+ * 📌 TWO OTHER FORMATTER OUTPUTS ARE DELIBERATELY NOT matched, so the exclusion
+ * accounting is complete against what Xwe can emit:
+ *   - StreamSuspended -> "Connection lost while your computer was asleep": rendered
+ *     EARLIER (not by this "Connection error." switch), a sleep/wake artifact with
+ *     its OWN recovery path (the session resumes when the Mac wakes), not the
+ *     DNS/network-down class #3410 targets. Auto-restarting it (PR 2) would abort a
+ *     session that resumes on its own.
+ *   - StreamNoResponse -> "No response from API": the connection was MADE but no
+ *     first byte arrived in the window. The network is not down and the connection
+ *     is not lost -- it is a server-side hang, a different symptom from this state,
+ *     so labelling it "Connection lost" would be wrong. Left UNKNOWN.
+ * Both stay UNKNOWN today (status quo); each is a separate case with its own
+ * recovery semantics if it ever proves to need surfacing, not this one.
  *
  * 🔑 KEYED ON SUBSTRINGS FREE OF TYPOGRAPHIC UNICODE so the match is immune to how
  * a capture renders U+2014 (em dash) AND U+2019 (curly apostrophe): the first arm
