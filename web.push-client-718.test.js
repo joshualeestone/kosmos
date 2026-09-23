@@ -154,3 +154,19 @@ test('load with a granted permission but NO subscription stays actionable (does 
   assert.equal(env.btn.textContent, 'Turn on');
   assert.equal(env.btn.disabled, false);
 });
+
+test('clicking the Turn on button drives the enable flow (the wire() click binding)', async () => {
+  // wire() binds the click handler on load; nothing else does. Fire DOMContentLoaded
+  // so the binding happens, then invoke the captured click callback -- if the
+  // addEventListener line were deleted or bound to the wrong element, _click stays
+  // null and this fails.
+  const env = load({ requestResult: 'granted' });
+  env.domHandlers.DOMContentLoaded();
+  await flush();
+  assert.equal(typeof env.btn._click, 'function', 'the Turn on button has no click handler bound');
+  env.btn._click();                 // simulate the user clicking Turn on
+  await flush();
+  await flush();
+  assert.ok(env.calls.fetch.includes('/v1/push/subscribe'), 'clicking Turn on did not run the enable flow');
+  assert.equal(env.btn.textContent, 'On');
+});
