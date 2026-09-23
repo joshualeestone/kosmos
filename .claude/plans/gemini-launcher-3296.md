@@ -90,6 +90,12 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
   in ~/.gemini, and the agent now inherits that (we no longer force api-key), so it
   is functional with no key at all. On THIS box, verification places the key file by
   hand (per Verify by content).
+- **agentfile.js geminiIdentity import hint.** The #2410 Gemini-CLI-file import path
+  hardcodes `provider: null` with a "re-add when Gemini becomes runnable" note. This
+  PR fired that trigger (google is now runnable), but the hint needs the WEB create
+  form to have a google option to render into (deferred with the connect-UI slice), so
+  it stays null and the comment is updated to say so. Set it to 'google' in the same
+  slice that adds the form's google option, so the hint and its target land together.
 - MANIFEST.gemini managed node-script install (legacy rung ships now).
 - Connect-UI un-gate + MODELS/CREATE_MODELS picker + geminiaccounts subsystem
   (touches web/, per-account homes).

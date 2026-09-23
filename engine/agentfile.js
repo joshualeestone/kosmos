@@ -388,14 +388,16 @@ function importAgent(text, deps) {
         // the same needsName discipline the #1939 recognized-instructions path uses.
         name: gname,
         displayName: g.displayName,
-        /* provider: null, NOT 'gemini'. Gemini is not a runnable provider yet
-           (createAgent refuses anything but anthropic/openai), so a 'gemini' hint would
-           dead-end the create happy-path on a clean refusal. Null is the same choice the
-           #1939 recognized-instructions path makes for a raw non-Kosmos file: the
-           front-matter gives us the NAME, the body is generic instructions that run under
-           any runner, and the create form lets the person pick a runnable provider -- so
-           the import completes end-to-end instead of stopping at "pick a provider". Re-add
-           the origin hint if/when Gemini becomes runnable. */
+        /* provider: null, still, and now DELIBERATELY deferred rather than blocked.
+           #3296 made 'google' a runnable provider (createAgentInner accepts it), so the
+           original "a 'gemini' hint would dead-end on a clean refusal" reason no longer
+           holds -- the create itself would now succeed. What is still missing is the WEB
+           create-form's google option to render the hint into (deferred with the
+           connect-UI slice, see .claude/plans/gemini-launcher-3296.md); until that lands,
+           a 'google' hint has nowhere to display, so null keeps the import completing
+           end-to-end (the person picks a runnable provider) exactly as the #1939 raw-file
+           path does. Set this to 'google' in the same slice that adds the form's google
+           option, so the hint and its target land together. */
         provider: null,
         // The instructions body (front-matter stripped) is what the agent reads; the
         // name lived in the front-matter and is now displayName.

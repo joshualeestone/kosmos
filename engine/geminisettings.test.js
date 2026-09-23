@@ -178,6 +178,18 @@ test('idle carries the last words; needs_you always carries a non-empty reason',
   assert.equal(bridge.reportFor({ hook_event_name: 'Notification', message: 'confirm exec' }).text, 'confirm exec');
 });
 
+test('the wired hook events and the bridge\'s mapped events are the SAME set (CLAUDE.md #5)', () => {
+  // Two independent lists of the same five event names: geminisettings.HOOK_EVENTS
+  // (which events get a hook wired into settings.json) and the bridge's
+  // STATE_FOR_EVENT keys (which events map to a report state). If they drift, an
+  // event gets a hook that maps to nothing, or a mapping no hook ever fires --
+  // fail-safe (a silent missing report) but exactly the "two derivations of one
+  // fact" defect the convention names. Pin them equal by SHAPE, not count.
+  const wired = [...geminisettings.HOOK_EVENTS].sort();
+  const mapped = Object.keys(bridge.STATE_FOR_EVENT).sort();
+  assert.deepEqual(wired, mapped, 'HOOK_EVENTS and STATE_FOR_EVENT keys have drifted apart');
+});
+
 test('buildBody sets auto:true for EVERY state (the #1456 guard) and reads the pane from env', () => {
   // auto:true is the field that silently regressed on the codex bridge (#1456): without
   // it, a turn ending erases a deliberate blocked. Assert it for all five mapped states.
