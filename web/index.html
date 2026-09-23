@@ -25736,7 +25736,7 @@ async function paintTalk(sessionName, agentName) {
  * and cleared April's draft. `paintTalk` already guards its own paint this way;
  * this path was the hole.
  */
-async function sendTalk(text, chose, attachment) {
+async function sendTalk(text, attachment) {
   /* The pending files ride with the words, and clear only once the send is
      answered, so a failed send keeps them attached for a retry. */
   const pendingIds = attachment ? [attachment] : attachList(ATTACH_AGENT).map((r) => r.id);
@@ -25770,17 +25770,6 @@ async function sendTalk(text, chose, attachment) {
   // lands.
   const sentName = CURRENT.sessionName;
   const name = CURRENT.name || sentName;
-  /**
-   * ⚠️ READ NOW, NOT AT VERDICT TIME, and the difference is reachable. The poll
-   * only skips `paintTalk` when `TALK_SENDING` is ALREADY true, so a paint that
-   * entered its fetch a beat before this press lands inside the flight and
-   * rewrites `TALK_QUESTION` from a fresh capture. Reading it afterwards keyed
-   * the hold to a question nobody answered, so the buttons came straight back
-   * over an already-answered prompt — the exact harm the hold exists for.
-   * (The comment on `TALK_QUESTION` said this was done from the beginning. It
-   * was not; the comment described the intent and the code read it late.)
-   */
-  const askedAbout = TALK_QUESTION[sentName] || null;
   const flightMoved = () => !CURRENT || CURRENT.sessionName !== sentName;
   const msg = document.getElementById('d-say-msg');
   const say = document.getElementById('d-say');
@@ -25797,8 +25786,6 @@ async function sendTalk(text, chose, attachment) {
    * restores at both exits. This does both halves too.
    */
   const sendHadFocus = document.activeElement === send;
-  const optHadFocus = document.activeElement && document.activeElement.classList
-    && document.activeElement.classList.contains('qopt');
   TALK_SENDING = true;
   TALK_FLIGHT = sentName;
   /**
@@ -25814,50 +25801,12 @@ async function sendTalk(text, chose, attachment) {
     // The box is the right landing place: it is where they were typing, it
     // stays enabled through the flight, and it is where the answer they may
     // want to type instead goes.
-    if (sendHadFocus || optHadFocus) say.focus();
-    /**
-     * ⚠️ THE BUTTONS GO DEAD FOR THE ROUND TRIP, and the paint is told so.
-     *
-     * A second press on a numbered prompt answers it twice, so they are
-     * disabled here. But writing `disabled` straight onto the elements put the
-     * DOM and the paint's cache into disagreement: the repaint afterwards
-     * builds the same markup string, matches `__lastOpts`, skips the rebuild,
-     * and the disable is never taken back.
-     *
-     * Measured, and it lands on the one state that must not have it: after a
-     * send that FAILED, both buttons stayed grey and inert FOREVER, under this
-     * panel's own sentence "The buttons still work." It did not self-heal on
-     * any later poll, because the cache key is the option markup and the
-     * options had not changed. State 4 exists to say the answer can still be
-     * given; it was the only state where it could not.
-     *
-     * Invalidating the cache is what keeps the paint the owner: whatever this
-     * writes by hand, the next paint is now guaranteed to write over.
-     */
-    const qoptsEl = document.getElementById('d-qopts');
-    qoptsEl.querySelectorAll('.qopt').forEach((b) => { b.disabled = true; });
-    qoptsEl.__lastOpts = null;
+    if (sendHadFocus) say.focus();
     msg.textContent = 'Sending…';
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      /* ⚠️ WHICH QUESTION THIS ANSWERS, sent so the server can refuse a pane
-         that has moved on. `askedAbout` is the key this page already keeps for
-         the answered-hold, and its `above` half is the only thing that tells
-         two menus with identical labels apart -- which is the shape Claude's
-         edit-permission prompt has for every file. Holding it and not sending
-         it left the server's own screen-check unable to make the distinction
-         its comment claims. */
-      /* ⚠️ `slice(1).join`, not `[1]`, and no `|| ''`. The key is
-         options + NUL + above, and an above that itself contains a NUL would be
-         truncated by `[1]` -- the page would then send a prefix, the server
-         would compute the whole string, and a legitimate send would be refused.
-         `|| ''` had its own version of the same: an above of exactly "0" is
-         falsy, and the server skips its check on a falsy value, so one
-         particular screen turned the guard off. */
-      body: JSON.stringify(chose
-        ? { text, chose, asked: askedAbout == null ? '' : askedAbout.split('\u0000').slice(1).join('\u0000') }
-        : (pendingIds.length ? { text, attachments: pendingIds } : { text })),
+      body: JSON.stringify(pendingIds.length ? { text, attachments: pendingIds } : { text }),
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
@@ -25922,41 +25871,6 @@ async function sendTalk(text, chose, attachment) {
     // not be written down must not read as unsent, and one that was neither
     // sent nor kept must not read as merely undelivered.
     if (!inThread && body.recordedBecause) line += ' ' + pjSentence(body.recordedBecause);
-    /* The button suppression is bookkeeping about THIS send, so it is recorded
-       whether or not the flight moved: it is keyed on the agent, and coming
-       back to that agent must not re-offer an answer already given. */
-    /**
-     * ⚠️ ANY SEND MADE WHILE A MENU WAS UP IS AN ANSWER TO IT, not only a
-     * button press. The panel's own line invites the other path — "Or write
-     * your own answer below" — and gating this on `chose` meant a typed answer
-     * left the buttons live over a question it had just answered. That is the
-     * second-press harm arriving on the route the pack recommends.
-     * ⚠️ A MENU, not a question: `talkKey` returns null when `options` is null,
-     * so the no-parseable-menu screen records no hold. That is correct rather
-     * than a gap -- there are no buttons there to leave live, and the sentence
-     * this comment cites only exists beside buttons -- but the rule is narrower
-     * than "any question" and said so wrongly for two commits.
-     *
-     * The delivery states split two ways, not three: placed and unconfirmed
-     * both mean the words may be in that session, so neither may be offered
-     * again. Only an outright failure leaves the question live.
-     */
-    if (askedAbout) {
-      if (d.state === 'placed' || d.state === 'unconfirmed') {
-        TALK_ANSWERED[sentName] = { question: askedAbout, at: Date.now() };
-      } else {
-        // ⚠️ Nothing was answered, so nothing may look answered: the question
-        // stays, the buttons come back live, and the panel says so.
-        TALK_FAILED[sentName] = { question: askedAbout };
-        delete TALK_ANSWERED[sentName];
-      }
-    }
-    // ⚠️ CLEARED BY ANY SEND THAT GOT THROUGH, not only by a button one. The
-    // first version cleared it on a successful `chose` alone, so a failure
-    // followed by a typed answer left "The buttons still work." standing on a
-    // page that polls every five seconds and is left open for days. (The paint
-    // clears it too, when the question itself changes.)
-    if (d.state === 'placed' || d.state === 'unconfirmed') delete TALK_FAILED[sentName];
     if (!flightMoved()) msg.textContent = line;
   } catch (err) {
     if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
@@ -44828,23 +44742,6 @@ document.getElementById('d-say').addEventListener('keydown', (e) => {
   const text = say.value.trim();
   if (text) sendTalk(text);
   else if (attachList(ATTACH_AGENT).length) sendTalk(attachList(ATTACH_AGENT).map((r) => r.name).join(', '));
-});
-/**
- * An option button.
- *
- * ⚠️ DELEGATED, because the buttons are rebuilt by every poll -- a listener
- * bound to the element would be attached to a button that no longer exists five
- * seconds later, which is the class of bug where the first click works and none
- * of the rest do.
- *
- * The DIGIT goes on the wire (it is what the agent's prompt is waiting for) and
- * the option's own WORDS go in the bubble. Both, or the record misdescribes one
- * or the other.
- */
-document.getElementById('d-qopts').addEventListener('click', (e) => {
-  const btn = e.target.closest('.qopt');
-  if (!btn || btn.disabled) return;
-  sendTalk(btn.dataset.n, btn.dataset.label);
 });
 document.getElementById('pj-send').addEventListener('click', pjSend);
 // The park itself (round 34): every keystroke files the draft under the
