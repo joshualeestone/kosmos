@@ -9832,6 +9832,16 @@ test('#3419 a needs_you agent’s thread payload carries its question as a messa
     const idle = JSON.parse((await req('/api/agent/ida/thread')).body);
     assert.equal(idle.asking, false);
     assert.ok(!idle.messages.some((m) => m.kind === 'question'), 'no question row when not asking');
+    // MIS-CASED URL: the route case-folds, so /Zeta resolves to zeta's card. The
+    // injected row must carry the CANONICAL session name, not the raw URL spelling
+    // (else dmWho's `from === sessionName` compare fails and it renders the raw
+    // string). This pins the reason the route passes card.sessionName, not `name`;
+    // a silent revert to `name` would make from/id 'Zeta' here and fail.
+    const miscased = JSON.parse((await req('/api/agent/Zeta/thread')).body);
+    const mq = miscased.messages.find((m) => m.kind === 'question');
+    assert.ok(mq, 'a mis-cased request still resolves and injects the question');
+    assert.equal(mq.from, 'zeta', 'the row carries the canonical session name, not the URL case');
+    assert.equal(mq.id, 'needs-you-question:zeta', 'and the id is canonical too');
   } finally {
     chatEngine.setRunner(null);
     fleet.restore();
