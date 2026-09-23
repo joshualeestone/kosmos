@@ -125,11 +125,9 @@ const FX = {
       chk(m.searchPlaceholder === 'Search', `${t} the search placeholder is just "Search"`, JSON.stringify(m.searchPlaceholder));
       chk(m.hintPresent === false, `${t} the "Just between you and <agent>" hint element is gone`);
       chk(m.boxRadius === '0px', `${t} the conversation box has no card radius (edge-to-edge)`, m.boxRadius);
-      // The ground follows --k-bg (near-black in dark, theme-appropriate in light). Require
-      // the box background to EQUAL the resolved --k-bg and not be the transparent default,
-      // so a box that stops using --k-bg reds here (the old both-non-empty form could not fail).
       // #3414-followup (Josh 2026-09-23): the dialogue-area ground is pure white on light and
-      // pure black on dark, scoped to #d-talk-box (not the theme off-white --k-bg).
+      // pure black on dark, scoped to #d-talk-box (not the theme off-white --k-bg). Compared to
+      // a literal rgb() per theme, so a box that stops being pure white/black reds here.
       const wantBg = theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)';
       chk(m.boxBg === wantBg, `${t} the dialogue box ground is ${wantBg} (pure ${theme === 'dark' ? 'black' : 'white'})`, `bg=${m.boxBg}`);
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));

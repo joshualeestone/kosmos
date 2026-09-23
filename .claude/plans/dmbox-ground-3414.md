@@ -1,4 +1,4 @@
-# dmbox-ground-3414 — dialogue-area ground pure white/black (Josh #3414-followup)
+# dmbox-ground-3414, dialogue-area ground pure white/black (Josh #3414-followup)
 
 ## Ask (Josh, #chaoskosmos-design 2026-09-23)
 "the dialogue background colors are missing.. should be ffffff on the light and 000000 on the
