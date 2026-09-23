@@ -13904,11 +13904,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div id="plus-state2" hidden>
       <h3>Sign in to give this computer its address</h3>
       <!-- #3478: state 2 is now WIRED. #1115 (Josh, 2026-08-27) settled the split
-           and the state-1 copy states it: sign-UP (email, code, card) happens on
-           the website; sign-IN to that paid account happens HERE, because the app
-           is a board bound to localhost and the site is a different origin, so
-           there is no session to pick up and this computer needs a credential of
-           its own before the coordinator gives it an address. The backend for the
+           and the state-1 copy states it: sign-UP (email, code, card) is done on
+           the website; signing IN to that paid account is done in this pane,
+           because the app is a board bound to localhost and the site is a different
+           origin, so there is no session to pick up and this computer needs a
+           credential of its own before the coordinator gives it an address. The
+           web.plus-signup guard (#1115) bounds itself to the state-1 sign-up region
+           for exactly this reason -- a sign-IN pane may say it happens in-app; a
+           sign-UP one may not. The backend for the
            whole sign-in was built server-side under #3149 (server.js signin-*
            proxies + engine/remote.js's stage machine, which holds the session
            token and the phone challenge engine-side and never returns them here,
