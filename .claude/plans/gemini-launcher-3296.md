@@ -67,16 +67,25 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
    The @kosmos_runner=gemini tag is already generic.
 
 ## Deferred (documented on the card, out of this coherent unit)
-- **worldstarts.js / installJob cross-Kosmos gemini import.** Attempted a
-  worldstarts firstStartOfImport gemini arm, then REVERTED it: installJob
-  (create.js) only recognises runner 'codex' (line ~2776, `opts.runner === 'codex'
-  ? 'codex' : null`) and resolves claudeBin for anything else, so passing
-  runner:'gemini' through worldstarts would be half-wired (worldstarts records
-  gemini, installJob launches claude). Making it fully correct needs installJob
-  itself to grow a gemini arm (geminiBin resolution + the birth settings write),
-  which is its own coherent slice. Left byte-identical rather than half-wired; no
-  gemini agent can be imported yet (none exist, and import is same-machine
-  cross-world), so the path is dead for gemini today.
+- **Cross-Kosmos gemini import (worldimport.js + installJob + worldstarts.js).** Full
+  support is a coherent deferred slice: worldimport.launchSpecOf maps codex-vs-claude
+  only, installJob (create.js ~2822) recognises only runner 'codex' and resolves
+  claudeBin otherwise, and worldstarts.firstStartOfImport (~515) likewise -- so passing
+  runner:'gemini' through any one of them without the others would be half-wired
+  (records gemini, launches claude). It needs all three fixed together (launchSpecOf
+  mapping + briefFilename + installJob geminiBin/birth-settings + worldstarts arm).
+  ⚠️ CORRECTED PREMISE: an earlier draft deferred this as "no gemini agent can be
+  imported yet (none exist)". That was WRONG -- gemini agents are creatable via the
+  server route today and ARE offered in the import picker, so the path is REACHABLE. The
+  interim is therefore NOT left to fail confusingly: worldimport.copyOne now REFUSES a
+  non-codex/claude agent CLEANLY ("cannot import between worlds yet, create it fresh"),
+  the same honest boundary setAccount/setProvider draw, instead of the old
+  downgrade-to-claude that failed partway on the missing CLAUDE.md brief and rolled back.
+- **setProvider switching an EXISTING gemini agent AWAY to anthropic/openai.** Not
+  blocked (works via the generic path: briefFilename(job.runner) handles the GEMINI.md
+  rename and the agent fully converts). Low-risk and left as-is; it leaves the now-inert
+  ~/.gemini report hooks behind (a claude agent never reads them) and has no test pinning
+  it. Switch-TO-google stays refused (setProvider's provider validation).
 - **GEMINI_API_KEY key delivery (the api-key path's precondition).** The birth
   pre-seed makes a launched agent boot straight to the prompt only when a key is in
   the pane env, delivered by the generic `secrets/env/GEMINI_API_KEY` door -- but
