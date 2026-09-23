@@ -24913,43 +24913,6 @@ const TALK_DRAFTS = {};
    so switching agents never loses a half-typed reply and never carries it onto
    the next agent's window. Mirrors TALK_DRAFTS. */
 const TERM_DRAFTS = {};
-/**
- * The question this person has just answered, per agent, and when.
- *
- * ⚠️ THIS IS WHY THE BUTTONS GO AFTER A SEND (drawing, states 2 and 3): a
- * second press answers a numbered prompt twice, and the poll that runs a beat
- * later can still be looking at a pane that has not redrawn yet — so the
- * server's `asking` alone would put the buttons straight back.
- *
- * ⚠️ AND IT EXPIRES, which matters more than the suppression. Keyed on the
- * question TEXT and bounded in time: if the same question is still on screen
- * 30 seconds later, the answer demonstrably did not take, and a panel that
- * stayed hidden on the strength of our own optimism would strand the person in
- * front of an agent that is still waiting. The stranded state is the thing this
- * whole feature exists to remove, so the suppression fails OPEN.
- */
-const TALK_ANSWERED = {};
-const TALK_ANSWER_HOLD_MS = 30000;
-/**
- * The last send to this agent could not be delivered.
- *
- * Drives the drawing's state-4 line. ⚠️ Not read off the last row in the
- * thread, which was the first version: a failure from days ago then put "The
- * buttons still work." under a fresh, unrelated question. This is about THIS
- * send, which is what the drawing means.
- */
-const TALK_FAILED = {};
-/**
- * The KEY of the question last painted for each agent (see `talkKey`: the
- * options plus the text above them, not the capture slice and not the options
- * alone).
- *
- * ⚠️ Read at press time rather than at verdict time: by the time the send
- * answers, the poll may have repainted with a different capture, and the hold
- * has to be keyed on the question the person was actually looking at when they
- * pressed. Otherwise the suppression is about a question nobody answered.
- */
-const TALK_QUESTION = {};
 
 /**
  * One message the person sent, in the pack's bubble.
@@ -25545,15 +25508,14 @@ async function paintTalk(sessionName, agentName) {
   // waiting on you, and the answer takes its place in the thread below as an
   // ordinary message. The whole block goes, not just its buttons.
   qask.hidden = nowHidden;
-  /* 🛑 FOCUS ARRIVES HERE, in the same turn the question appears. The rescue
-     above handles focus LEAVING; nothing handled it arriving, so pressing
-     "answer" on a card left a keyboard user on <body> with the question they
-     asked for somewhere below them. It was handled once, for the project room,
-     and re-pointing that button at the agent's own page on 2026-08-21 carried
-     the navigation and not the focus. */
+  /* 🛑 FOCUS ARRIVES HERE, in the same turn the page opens. Pressing "answer"
+     on a card must not leave a keyboard user on <body>. The question is a thread
+     bubble now (#3419), and it is answered in the composer -- so focus lands on
+     the composer, which is where the person acts, rather than on the old (now
+     removed) question box. #3419: re-pointed from qtext to the composer. */
   if (ANSWER_WANTS_FOCUS && CURRENT && ANSWER_WANTS_FOCUS === CURRENT.sessionName) {
     ANSWER_WANTS_FOCUS = null;
-    if (!qask.hidden && !qtext.hidden) qtext.focus();
+    if (!say.disabled) say.focus();
   }
   /**
    * ⚠️ THE BUTTONS DIE WITH THE COMPOSER (Mona Lisa, state 6). A live option
