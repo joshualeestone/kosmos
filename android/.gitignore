@@ -3,9 +3,11 @@
 build/
 local.properties
 
-# Keystores must never be committed
+# Keystores must never be committed (PKCS12 uses .p12/.pfx; JKS uses .jks/.keystore)
 *.jks
 *.keystore
+*.p12
+*.pfx
 
 # IDE
 .idea/

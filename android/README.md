@@ -96,11 +96,12 @@ the piece to add.
 keystore. No key material or password lives in git — the build reads them at build
 time from environment variables, and the keystore file itself lives under
 `~/.config/secrets/` (mode 600), filed via `/add-secret`, never committed (also
-covered by `android/.gitignore`'s `*.jks` / `*.keystore` rules).
+covered by `android/.gitignore`'s `*.jks` / `*.keystore` / `*.p12` / `*.pfx` rules).
 
-The build reads four env vars: `KOSMOS_UPLOAD_KEYSTORE` (path to the `.jks`),
+The build reads four env vars: `KOSMOS_UPLOAD_KEYSTORE` (path to the keystore),
 `KOSMOS_UPLOAD_STORE_PASSWORD`, `KOSMOS_UPLOAD_KEY_PASSWORD`, and
-`KOSMOS_UPLOAD_KEY_ALIAS`. **If `KOSMOS_UPLOAD_KEYSTORE` is unset the release build
+`KOSMOS_UPLOAD_KEY_ALIAS` (optional; defaults to `kosmos-upload`). **If
+`KOSMOS_UPLOAD_KEYSTORE` is unset the release build
 stays unsigned** rather than failing to configure, so a fresh clone or a CI runner
 without the keystore still builds; `assembleDebug` is never affected.
 

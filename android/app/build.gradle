@@ -61,10 +61,13 @@ android {
                 if (uploadStorePassword && uploadKeyPassword) {
                     signingConfig signingConfigs.release
                 } else {
+                    def missingVars = []
+                    if (!uploadStorePassword) missingVars << "KOSMOS_UPLOAD_STORE_PASSWORD"
+                    if (!uploadKeyPassword) missingVars << "KOSMOS_UPLOAD_KEY_PASSWORD"
                     project.logger.warn("KOSMOS_UPLOAD_KEYSTORE is set but " +
-                        "KOSMOS_UPLOAD_STORE_PASSWORD/KOSMOS_UPLOAD_KEY_PASSWORD is missing; " +
-                        "the release build will be UNSIGNED. Resolve the " +
-                        "kosmos-android-upload-signing credential (see android/README.md).")
+                        missingVars.join(" and ") + " is missing; the release build " +
+                        "will be UNSIGNED. Resolve the kosmos-android-upload-signing " +
+                        "credential (see android/README.md).")
                 }
             }
         }
