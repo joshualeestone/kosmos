@@ -65,10 +65,24 @@ for (const line of NETWORK_LINES) {
 }
 
 // CONTROL 1 — the leading `●` bullet Claude prefixes on an error line does not
-// defeat the substring match (the detector strips leading glyphs).
+// defeat the match, because CONNECTION_LOST_MESSAGE is a SUBSTRING test on the row
+// (glyph-agnostic), NOT because the bullet is stripped: matchedLine's strip class
+// does not include `●`, so the evidence line even retains it.
 test('a network error prefixed with the ● bullet still classifies connection_lost', () => {
   const r = classify(pane(), withFooter("● API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)"));
   assert.equal(r.state, STATE.CONNECTION_LOST);
+});
+
+// CONTROL 1b — a CURLY apostrophe (U+2019) in "Can't" must still match. The regex
+// keys on "reach the API server" (apostrophe-free) precisely so a bundle that renders
+// a typographic apostrophe cannot silently drop the primary ENOTFOUND case. This
+// fixture uses U+2019 deliberately, so it fails if the pattern ever reintroduces an
+// ASCII-apostrophe dependency (the same-mental-model blind spot a straight-apostrophe
+// fixture could not catch).
+test('a network error with a CURLY apostrophe still classifies connection_lost', () => {
+  const r = classify(pane(), withFooter('● API Error: Can’t reach the API server — check your internet or DNS (ENOTFOUND)'));
+  assert.equal(r.state, STATE.CONNECTION_LOST,
+    'a typographic apostrophe must not drop the ENOTFOUND case; key on an apostrophe-free substring');
 });
 
 // CONTROL 2 — PRECEDENCE, the safety hinge. An agent Claude is ACTIVELY RETRYING

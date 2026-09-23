@@ -2012,9 +2012,14 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  *   default coded -> "Unable to connect to API (CODE)"
  *   ETIMEDOUT -> "Request timed out. Check your internet connection and proxy settings"
  *
- * 🔑 KEYED ON EM-DASH-FREE SUBSTRINGS so the match is immune to how a capture
- * renders U+2014, and matched as a SUBSTRING per row (like AUTH_FRIENDLY_MESSAGE)
- * so the "API Error:" prefix / `●` bullet the TUI wraps around it does not matter.
+ * 🔑 KEYED ON SUBSTRINGS FREE OF TYPOGRAPHIC UNICODE so the match is immune to how
+ * a capture renders U+2014 (em dash) AND U+2019 (curly apostrophe): the first arm
+ * keys on "reach the API server", NOT "Can't reach …", because a straight ASCII
+ * apostrophe in the pattern would silently miss a curly one the bundle might render
+ * -- the identical fragility the em-dash avoidance guards against, and one a test
+ * using the same author-typed apostrophe could not catch. Matched as a SUBSTRING per
+ * row (like AUTH_FRIENDLY_MESSAGE) so the "API Error:" prefix / `●` bullet the TUI
+ * wraps around it does not matter.
  *
  * 🛑 THE SSL/CERT CLASS IS DELIBERATELY EXCLUDED. Its lines are
  * `Unable to connect to API: SSL certificate …` (a COLON after "API"), which is
@@ -2032,7 +2037,7 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * about" rather than being masked back to working/idle. A missed wedged agent is
  * worse than a rare false pause -- this file's oldest trade.
  */
-const CONNECTION_LOST_MESSAGE = /Can't reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
+const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling

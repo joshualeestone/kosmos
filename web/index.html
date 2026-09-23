@@ -24110,9 +24110,14 @@ let START_FLIGHT = null;
    returns, rather than leaving it stuck disabled until reopen). Deliberately does
    NOT clear #d-start-msg -- openDetail owns clearing a stale message, and the poll
    must not wipe a just-written status line. Shown only when confidently not
-   running (cardStOf(a).pres === 'off', 'stopped' alone today; a future
-   connection_lost, Angel #3418, falls under the same gate and would get a
-   "Reconnect" label here). */
+   running (cardStOf(a).pres === 'off', 'stopped' alone). connection_lost, now
+   that it exists (#3410), deliberately does NOT fall under this gate: it ships
+   pres:'on' because the Claude PROCESS is still up (it just cannot reach the
+   API), and pres:'off' is reserved for 'stopped' (it gates plannedModelName).
+   Recovery for connection_lost is the #3410 self-heal (auto-restart on
+   connectivity return, a follow-on PR), not this Start button; a manual
+   "Reconnect" affordance, if ever wanted, would need its own gate rather than
+   pres:'off'. */
 function refreshStartAffordance(a) {
   const wrap = document.getElementById('d-start-wrap');
   if (!wrap) return;
