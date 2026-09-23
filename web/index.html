@@ -25416,9 +25416,9 @@ async function paintTalk(sessionName, agentName) {
 /**
  * Send one message to this agent, and say what became of it.
  *
- * `chose` is the option's own words on a button send. The DIGIT goes on the
- * wire because that is what the agent's prompt is waiting for; the words go in
- * the bubble because that is what the person answered.
+ * #3419: takes just `(text, attachment)` now -- the old `chose` option-menu
+ * parameter is gone with the answer menu. A needs_you question is a thread
+ * bubble the person answers in the composer like any other message.
  *
  * ⚠️ EVERY WRITE BELOW IS GATED ON THE FLIGHT NOT HAVING MOVED. A send can
  * honestly take many seconds, and the person can open another agent inside that
@@ -25578,7 +25578,12 @@ async function sendTalk(text, attachment) {
       // (an answered question takes the whole block), so the box is the
       // fallback rather than an assumption.
       if (sendHadFocus && !send.disabled) send.focus();
-      else if ((sendHadFocus || optHadFocus) && document.activeElement === document.body) say.focus();
+      // #3419: was `(sendHadFocus || optHadFocus)` -- the menu removal deleted the
+      // `optHadFocus` local (and its mid-flight use) but left this one, throwing a
+      // ReferenceError in the finally on the Enter-to-send path (sendHadFocus false).
+      // With the option buttons gone, the only prior focus this rescues is the Send
+      // button's, so the condition is just `sendHadFocus`.
+      else if (sendHadFocus && document.activeElement === document.body) say.focus();
     }
     /* ⚠️ NOTHING IS RE-ENABLED WHEN THE FLIGHT MOVED. That button belongs to
        whichever agent is open now, and its own paint has already decided

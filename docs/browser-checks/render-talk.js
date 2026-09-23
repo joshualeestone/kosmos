@@ -1118,6 +1118,26 @@ function unreachableStates() {
         problems.push(`[${theme}] press: focus was stranded on the document after Send`);
       }
 
+      /* 3b. Send with ENTER IN THE COMPOSER, so `sendHadFocus` is FALSE and the
+         finally's focus-rescue else-if is the branch that runs. #3419: that branch
+         once referenced the removed `optHadFocus` local, throwing a ReferenceError on
+         every Enter-send (uncaught, async) that no button-click arm exercises -- the
+         pageerror handler at the top of this run catches any such throw. Focus stays
+         on the composer on this path (it is never disabled by a placed send), so it
+         must not strand on <body> either. */
+      await page.evaluate(() => {
+        window.__posted = [];
+        const s = document.getElementById('d-say');
+        s.value = 'sent with enter';
+        s.focus();
+      });
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => window.__posted.length > 0 && !TALK_SENDING, null, { timeout: 4000 });
+      const landedEnter = await page.evaluate(() => document.activeElement.id || document.activeElement.tagName);
+      if (landedEnter === 'BODY') {
+        problems.push(`[${theme}] press: focus was stranded on the document after an Enter-send`);
+      }
+
       /* 4. A message with whitespace around it, which is what a paste is.
          ⚠️ THE BOX MUST BE EMPTY AFTERWARDS. `clearSent` clears only when the
          box still holds exactly the text this send took, and the composer was
