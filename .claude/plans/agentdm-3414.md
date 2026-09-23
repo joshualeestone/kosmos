@@ -72,16 +72,16 @@ a restart" line is already gone from current main.
                       (`.delivery`) is inside `.msg-bd` after `.msg-t`, on the user side only.
    - agent bubble now also has `.msg-av` (avatar) + `.msg-nm` (name bold inside).
    **Lifted `*.test.js`** (add helper deps to the dmRow slice AND flip assertions):
-   🛑 DEPENDENCY CHAIN (measured): the lifted dmRow tests exercise the theirs row with LAST
-   undefined -> no card -> the DISC avatar branch, which calls `discTint`/`discInk`/`initials`.
-   `discTint`/`discInk` call `discIndex` + read `DISC_TINTS`/`DISC_INKS`, so slicing discTint alone
-   still ReferenceErrors. Two clean options: (a) slice the whole chain
-   `discIndex DISC_TINTS DISC_INKS discTint discInk initials` (+ `YOU_PIC` [a `let YOU_PIC=false`, so
-   the mine avatar takes the empty `.msg-av.mine` branch and youPicUrl/pjAvatarVer are NOT called]);
-   or (b) seed a `LAST=[{sessionName, hasAvatar:true, ...}]` in the test so theirs takes the PHOTO
-   branch (then slice `pjAvatarVer` + its deps instead). MIRROR `web.avatarver-room-2770.test.js`
-   (the room's pjRoomRow uses the same discTint/initials/pjAvatarVer avatar) for the canonical
-   provisioning pattern rather than re-deriving. Also flip assertions:
+   🛑 VERIFIED PATTERN (web.agent-answers.test.js, commit 12da42614, 9/9 green) — use this for every
+   lifted dmRow test: option (a) slicing the disc chain DOES NOT WORK because `DISC_TINTS`/`DISC_INKS`
+   are simple `const X = [...]` and `YOU_PIC` is `let YOU_PIC=false` — page.lift/page.slice cannot
+   slice simple const/let ("DISC_TINTS is not in the page"). Instead: in the `new Function` prefix
+   (next to the injected `let CURRENT=...`) inject
+   `let LAST=[{sessionName:<card.sessionName>,hasAvatar:true,avatarVer:3}]; let YOU_PIC=false;` and add
+   ONLY `pjAvatarVer` to the slice list. That routes theirs through the PHOTO avatar branch
+   (pjAvatarVer reads LAST, sliceable) and mine through the empty `.msg-av.mine` (YOU_PIC=false). The
+   escape test must pin the MESSAGE's raw form `/<img src=x/` (doesNotMatch), NOT `/<img/`, because
+   the avatar legitimately adds `<img src="/api/agent/.../avatar?v=3">`. Also flip assertions:
    - web.agent-answers.test.js (two dmRow lifts: ~line 152 `slice` list, ~line 250 `lift` list)
    - server.test.js  (grep dmRow / `dm-w` / `dm theirs`)
    - web.dm-badge-2863.test.js, web.dialog-md-2701.test.js, web.links-everywhere.test.js
