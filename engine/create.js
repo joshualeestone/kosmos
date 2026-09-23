@@ -3118,32 +3118,39 @@ function installJob(name, opts) {
   if (!fs.existsSync(workerDir(clean))) {
     return { ok: false, because: 'there is no folder for it on this computer' };
   }
-  /* #3296: installJob (the backfill / adopt / repair / cross-world-import path, as
-     opposed to createAgentInner which writes its own plist) supports codex and claude
-     only -- the runner decision below reads opts.runner and defaults everything else to
-     claude, so a gemini agent would be (re)installed as a CLAUDE job with claudeBin.
-     Refuse cleanly at the ROOT here, so EVERY caller inherits it (register.repair,
-     worldstarts.firstStartOfImport, and worldimport -- which already refuses earlier)
-     rather than each silently mis-launching a gemini agent as claude. Full gemini
-     support in this path (geminiBin + the birth settings write) is the deferred backfill
-     slice; see the plan file. The agent's TRUE runner is read via recordedRunner (plist
-     then profile.provider), not opts, because callers pass no runner for gemini. Create
-     is unaffected: it never calls installJob. */
-  {
-    const wantRunner = (opts && opts.runner) || recordedRunner(clean);
-    if (wantRunner === 'gemini' || wantRunner === 'grok') {
-      const label = wantRunner === 'gemini' ? 'Gemini' : 'Grok';
-      return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a launch job for this way yet -- it can be created fresh, but not backfilled, repaired, or imported` };
-    }
+  /* #3296/#3391: installJob (the backfill / adopt / repair / cross-world-import path, as
+     opposed to createAgentInner which writes its own plist) now supports gemini/grok on
+     the MAC (launchd) path. The agent's TRUE runner is read via `recordedRunner` (plist
+     then profile.provider), not `opts`, because callers pass no runner for gemini/grok;
+     the plist is then written with THAT runner and its own binary, so a gemini agent is
+     no longer silently (re)installed as a CLAUDE job with claudeBin (the mis-launch the
+     old root refusal existed to prevent). `wantRunner` is computed ONCE here and drives
+     both the win32 refusal below and the plist write.
+     🛑 WIN32 STILL REFUSES gemini/grok. `engine/win32launch.js` (win32StartViaJob) has no
+     gemini/grok substrate, and it LAUNCHES rather than just registering, so proceeding
+     there would spawn an agent the substrate cannot actually run. The Windows backfill is
+     carded, not built here. The refusal sits before the win32 launch arm, so win32 never
+     reaches win32StartViaJob with gemini/grok. Create is unaffected: it never calls
+     installJob. */
+  const wantRunner = (opts && opts.runner) || recordedRunner(clean);
+  if ((wantRunner === 'gemini' || wantRunner === 'grok')
+      && ((opts && opts.platform) || process.platform) === 'win32') {
+    const label = wantRunner === 'gemini' ? 'Gemini' : 'Grok';
+    return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a launch job for on Windows yet -- it can be created fresh, but not backfilled, repaired, or imported here` };
   }
-  const { claudeBin, tmuxBin } = binPaths(opts);
+  const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin } = binPaths(opts);
   /* 🛑 THE RUNNER IS DECIDED BEFORE THE BINARY IS CHECKED (#1159). This checked
      `claudeBin` unconditionally, so ADOPTING A CODEX AGENT WAS REFUSED ON A
      MACHINE WITH NO CLAUDE -- which is exactly the 'OpenAI, pre-existing agents'
      case: somebody who runs Codex and has never installed Claude. The message
-     even said so, about a program that agent does not use. */
-  const runner = (opts && opts.runner === 'codex') ? 'codex' : null;
-  const runnerBin = runner === 'codex' ? binPaths(opts).codexBin : claudeBin;
+     even said so, about a program that agent does not use. #3296/#3391: the same
+     reasoning now covers gemini/grok -- decide the runner from wantRunner, then
+     check that runner's own binary. */
+  const runner = (wantRunner === 'codex' || wantRunner === 'gemini' || wantRunner === 'grok') ? wantRunner : null;
+  const runnerBin = runner === 'codex' ? codexBin
+    : runner === 'gemini' ? geminiBin
+      : runner === 'grok' ? grokBin
+        : claudeBin;
   if (unusablePath(runnerBin) || unusablePath(tmuxBin)) {
     return { ok: false, /* ⚠️ NEITHER BINARY IS NAMED, and `tmux` least of all (Mona Lisa). A person
        who installed Kosmos has no reason to have heard the word, and it cost a
@@ -3159,9 +3166,11 @@ function installJob(name, opts) {
      removes the claude stub -- every other test in that file ships one, so the
      perturbation reverting the first gate stayed green. */
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
-    return { ok: false, because: runner === 'codex'
-      ? 'we could not find Codex on this computer, so a job made now would never start'
-      : 'we could not find Claude on this computer, so a job made now would never start' };
+    const missing = runner === 'codex' ? 'Codex'
+      : runner === 'gemini' ? 'the Gemini runner'
+        : runner === 'grok' ? 'the Grok runner'
+          : 'Claude';
+    return { ok: false, because: `we could not find ${missing} on this computer, so a job made now would never start` };
   }
   const modelArgWin = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
   const configDirWin = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;

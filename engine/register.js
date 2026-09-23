@@ -395,7 +395,17 @@ function repair(opts) {
        changed no test. The corrupt-profile control below is what holds this: if
        that contract ever changes, it goes red rather than a dead catch hiding it. */
     const provider = (store.readProfile(name) || {}).provider || null;
-    const r = create.installJob(name, { model, platform, ...(provider === 'openai' ? { runner: 'codex' } : {}) });
+    /* #3296/#3391: name the runner for every non-claude provider, mirroring the
+       codex arm. installJob would resolve the same value via recordedRunner (the
+       plist is missing during a repair, so it falls to profile.provider), but
+       passing it explicitly from the same read is robust against an unreadable
+       profile and keeps repair symmetric across providers. Absent/claude -> pass
+       nothing, so installJob's claude default is unchanged. */
+    const runnerOpt = provider === 'openai' ? { runner: 'codex' }
+      : provider === 'google' ? { runner: 'gemini' }
+        : provider === 'xai' ? { runner: 'grok' }
+          : {};
+    const r = create.installJob(name, { model, platform, ...runnerOpt });
     return { name, shownAs: shownName(name), ...r };
   });
   return {
