@@ -4841,7 +4841,11 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    left; the rule that clamped the title when closed becomes unconditional here,
    keeping the header compact as it has always looked. A long name elides rather
    than reflowing the header row. */
-.pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* #3438 (Josh, 2026-09-22): the title inherits a line-box shorter than its 1.25rem
+   glyphs, so `overflow: hidden` (kept for the one-line width ellipsis) clipped the
+   descenders (the "g" in "Sourcing"). Same fix as #3415 on the agent name: a
+   proportional line-height that clears descenders, unitless so it tracks the size. */
+.pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
