@@ -4386,7 +4386,8 @@ test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we l
 test("#1026: modelsFor scopes to the provider, and today OpenAI's list is empty", () => {
   const create = require('./create');
   // #1356: six anthropic models after Opus 4.8 and Fable 5.1 were added.
-  assert.equal(create.modelsFor('anthropic').length, 6);
+  // #3459: seven, after Opus 5.5 was added.
+  assert.equal(create.modelsFor('anthropic').length, 7);
   assert.deepEqual(create.modelsFor('openai'), [],
     'an OpenAI model appeared without anyone adding one, or the filter is wrong');
   // Every entry carries one, or the filter silently drops it from both lists.
@@ -4423,6 +4424,7 @@ test('#1356: the picker offers Claude Opus 4.8 and Claude Fable 5.1, and the boa
 test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact order (item 10)', () => {
   const create = require('./create');
   // Josh, 0.6.35 feedback item 10: Fable 5.1, Fable 5, Opus 5, Opus 4.8, Sonnet, Haiku.
+  // #3459 (Josh, 2026-09-23): Opus 5.5 added ahead of Opus 5 (newest Opus leads the Opus tier).
   // The MODELS array order IS the picker's display order, so assert it verbatim.
   // The dangerous answer this catches: a reorder that regresses (e.g. Fable 5
   // above 5.1 again, or Sonnet floating up) shows a different sequence here.
@@ -4432,6 +4434,7 @@ test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact o
   assert.deepEqual(claudeOrder, [
     'claude-fable-5-1',   // Fable 5.1 (most capable, leads)
     'claude-fable-5',     // Fable 5
+    'claude-opus-5-5',    // Opus 5.5 (#3459: newest Opus, leads the Opus tier)
     'claude-opus-5',      // Opus 5
     'claude-opus-4-8',    // Opus 4.8
     'claude-sonnet-5',    // Sonnet (still the default, mid-list by power)

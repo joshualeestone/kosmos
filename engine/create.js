@@ -100,10 +100,12 @@ const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos lau
  * prerequisite: the shape that makes adding them safe.
  */
 /* #2140 (Josh, 0.6.35 feedback item 10): the Claude picker is ordered
-   MOST-POWERFUL-FIRST, in Josh's exact order: Fable 5.1, Fable 5, Opus 5,
+   MOST-POWERFUL-FIRST, in Josh's exact order. #3459 (2026-09-23) added Opus 5.5
+   ahead of Opus 5, so the order is now: Fable 5.1, Fable 5, Opus 5.5, Opus 5,
    Opus 4.8, Sonnet, Haiku. The array order IS the display order (the picker
    renders MODELS in sequence), so this list is the single source of that order;
-   engine/create.test.js asserts it exactly. The DEFAULT is unchanged (Sonnet 5,
+   create.test.js and model-sort-order-2284.test.js assert it exactly. The DEFAULT
+   is unchanged (Sonnet 5,
    `default: true` below) -- Josh asked to reorder the menu, not to change which
    model is pre-selected; that is a separate call. */
 const MODELS = [
@@ -113,6 +115,13 @@ const MODELS = [
     why: 'The newest and most capable Fable. Strong on code, and it reports progress as it works through a long task.' },
   { key: 'fable', provider: 'anthropic', label: 'Claude Fable 5', arg: 'claude-fable-5',
     why: 'The previous Fable. Very capable, and the most expensive to run. For work where being right matters more than being quick.' },
+  // #3459 (Josh, 2026-09-23): add Opus 5.5, the newest Opus. Id claude-opus-5-5
+  // confirmed against Anthropic's current model list (no date suffix). Placed
+  // ahead of Opus 5 per the most-powerful-first order; the existing Opus entries
+  // stay unchanged. Named in status.js MODEL_NAMES too, so a running 5.5 agent is
+  // not shown its raw id (the same pairing the Fable 5.1 entry documents).
+  { key: 'opus55', provider: 'anthropic', label: 'Claude Opus 5.5', arg: 'claude-opus-5-5',
+    why: 'The newest Opus. For long, involved work.' },
   { key: 'opus', provider: 'anthropic', label: 'Claude Opus 5', arg: 'claude-opus-5',
     why: 'Slower, and it holds more of a long job in its head.' },
   // #1356: Josh asked to add Opus 4.8 (2026-08-28). The product already knew it
