@@ -221,8 +221,16 @@ async function validateLive(key) {
        confirm the key is bad, so we never block a good one. The cost is a genuinely bad key
        whose code we do not recognize is accepted and shown unconfirmed -- the same fail-open
        trade the siblings make, and the correct direction (a false NONE is the worse error). */
-    const err = r.body && (r.body.error || r.body);
-    const code = err && typeof err === 'object' ? (err.code || err.type || '') : '';
+    /* Read the structured code from BOTH shapes xAI could return: the nested
+       OpenAI-style `{error:{code}}` AND a flat `{code, error:"<message>"}` where
+       error is a message STRING. `r.body.error` is the error OBJECT only when it is
+       one; a flat body carries the code at the top level. Reading only the nested
+       shape would leave the NONE path dead for a flat body (safe -- it degrades to
+       UNKNOWN, never reds a good key -- but it would never positively reject either). */
+    const errObj = (r.body && typeof r.body.error === 'object' && r.body.error)
+      ? r.body.error
+      : (r.body && typeof r.body === 'object' ? r.body : null);
+    const code = errObj ? (errObj.code || errObj.type || '') : '';
     if (/^\s*(invalid_api_key|authentication_error|invalid_authentication)\s*$/i.test(String(code))) {
       return { state: STATE.NONE, because: 'xAI did not accept this key' };
     }

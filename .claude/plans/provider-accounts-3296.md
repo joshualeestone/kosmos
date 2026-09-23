@@ -116,3 +116,19 @@ plist carries the right per-account home; the supplied key file is read; default
 supervisor per-account key injection (the shipped-from-disk script reads the account key file for a
 per-account agent and falls back to the door otherwise). Server route tests mirror the openai ones.
 Full whole-tree suite + full challenge-loop before PR.
+
+## Challenge-loop deferrals (documented, not fixed)
+- **checkLive(cached:true) does a live call (iter 3).** Deferred: this MATCHES the openai apikey
+  sibling, not a divergence. openaiaccounts.checkLive's apikey branch (openaiaccounts.js:1287) also
+  performs a live askModels on the cached:true paint path; the `cached` hint only short-circuits the
+  CHATGPT liveness cache (codexsigninlive), which an api-key provider has no analog of. So every
+  apikey provider's /api/accounts row already pays a paint-time live call -- a pre-existing
+  cross-provider property, not something this slice introduced or worsened. A shared paint-time
+  liveness cache for ALL apikey providers would be its own change (touching openai), out of this
+  slice; adding a gemini/grok-only cache would be the inconsistency. Bounded here because only
+  CREDENTIALED NAMED accounts are listed (the default is not), so the call count is the number of
+  named accounts, same as openai.
+- **8000ms fetch-abort is an inline literal (iter 3 NIT).** Deferred: it mirrors openaiaccounts /
+  claudeaccounts, which also inline 8000. A named constant in gemini/grok only would DIVERGE from the
+  established sibling pattern; if it is worth a constant it should be one shared across all four
+  account modules, which is a separate cleanup.

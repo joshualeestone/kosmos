@@ -56,6 +56,12 @@ test('validateLive asymmetry: 200 CONNECTED, attributed 401 NONE, non-attributed
   ga.setFetcher(async () => ({ status: 401, body: { error: { code: 'service_unavailable', message: 'the authentication service is temporarily unavailable' } } }));
   assert.equal((await ga.validateLive('xai-msgonly')).state, ga.STATE.UNKNOWN, 'a message mentioning authentication with a non-key code is UNKNOWN, never NONE');
 
+  // The FLAT error shape (code at the top level, error being a message string) must also
+  // register as a positive NONE -- xAI's exact models-API error body is unmeasured, so the
+  // code reader handles both the nested and the flat shape.
+  ga.setFetcher(async () => ({ status: 401, body: { code: 'invalid_api_key', error: 'Incorrect API key provided.' } }));
+  assert.equal((await ga.validateLive('xai-flat')).state, ga.STATE.NONE, 'a flat-shaped invalid_api_key is still a positive NONE');
+
   ga.setFetcher(async () => ({ status: 0, unreachable: true, because: 'we could not reach xAI to check whether this key still works' }));
   assert.equal((await ga.validateLive('xai-x')).state, ga.STATE.UNKNOWN, 'unreachable is UNKNOWN, never NONE');
 });
