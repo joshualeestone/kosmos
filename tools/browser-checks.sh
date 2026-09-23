@@ -1097,6 +1097,11 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-rename-say"   node docs/browser-checks/render-rename-say.js "$B8"
   run_one "render-role-limit"   node docs/browser-checks/render-role-limit.js "$B8"
   run_one "render-role-order"   node docs/browser-checks/render-role-order.js "$B8"
+  # #718: the PWA service worker registers, controls the page, and a real push
+  # delivered through its own handler (via CDP) shows a notification. Chromium-only
+  # by design (Web Push + the deliverPushMessage CDP verb are Chromium's); the
+  # check's header says why. Runs on the first-run-complete $B8 board.
+  run_one "render-push-718"     node docs/browser-checks/render-push-718.js "$B8"
   run_one "render-reload-toast"  env KOSMOS_URL="$B8" node docs/browser-checks/render-reload-toast.js "$sb7/shots-reload"
   run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
   # win32-update-check: the Windows manual offer, the staging tag and the could-not-check states on
