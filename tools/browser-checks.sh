@@ -1061,6 +1061,10 @@ if boot_board "$sb7" "$P8"; then
   B8_PID="${SERVER_PIDS[${#SERVER_PIDS[@]}-1]}"   # the board just booted, for render-offline-note to take away by pid (#708)
   run_one "contrast"            env KOSMOS_URL="$B8" node docs/browser-checks/contrast.js
   run_one "named-controls"      env KOSMOS_URL="$B8" node docs/browser-checks/named-controls.js
+  # #718: PWA installability (the home-screen-icon third). Read-only -- HTTP GETs
+  # the manifest + icons and reads the head wiring, POSTs nothing -- so it runs on
+  # this shared board like contrast/named-controls above.
+  run_one "render-pwa-installable-718" env KOSMOS_URL="$B8" node docs/browser-checks/render-pwa-installable-718.js
   run_one "render-create-form"  node docs/browser-checks/render-create-form.js "$B8"
   # #2164: the add-a-provider OpenAI key step is formatted like the Claude
   # callout, not flat grey. Read-only (forces the modal visible to read computed
