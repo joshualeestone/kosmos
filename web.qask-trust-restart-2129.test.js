@@ -28,9 +28,18 @@ test('#2129: the chat-box Trust and restart button exists, hidden by default', (
 });
 
 test('#2129: the button is gated on body.answerNote (trust dialog ONLY, not the reported false state)', () => {
-  // The show line: it turns the button ON, and it is guarded by body.answerNote.
-  const show = PAGE.split('\n').filter((l) => /qTrust && body\.answerNote\) qTrust\.hidden = false/.test(l));
-  assert.equal(show.length, 1, 'exactly one place unhides the button, and it requires body.answerNote');
+  // The show gate: the button turns ON only inside the `if (body.answerNote)`
+  // block. #3419 restructured the old inline `qTrust && body.answerNote) ...`
+  // guard into that block (the trust-dialog question is a thread bubble now, so
+  // the box carries the recovery ACTION only). Verify the single unhide sits
+  // INSIDE that block, so a non-trust paint (answerNote null) never runs it.
+  const guardAt = PAGE.indexOf('if (body.answerNote) {');
+  assert.ok(guardAt > -1, 'the folder-trust box is no longer gated on body.answerNote');
+  const elseAt = PAGE.indexOf('} else {', guardAt);
+  const block = elseAt > -1 ? PAGE.slice(guardAt, elseAt) : '';
+  assert.ok(/qTrust\.hidden = false/.test(block),
+    'the button is unhidden ONLY inside the body.answerNote block (the trust dialog, '
+    + 'not the #1629 / #2456 reported false state where answerNote is null)');
   // The default-hide runs every paint before the branches, so a non-trust paint leaves it hidden.
   const hide = PAGE.split('\n').filter((l) => /if \(qTrust\) qTrust\.hidden = true;/.test(l));
   assert.ok(hide.length >= 1, 'the button is defaulted hidden each paint');

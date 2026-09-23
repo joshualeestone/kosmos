@@ -13,17 +13,29 @@ const path = require('node:path');
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
-test('#1629: both waiting-on-an-answer labels carry the route\'s answerNote', () => {
+test('#1629: the waiting-on-an-answer label carries the route\'s answerNote', () => {
+  // #3419 removed the AGENT-PAGE "waiting on an answer" needs_you label (its
+  // question is an ordinary thread bubble now, and the box carries the
+  // folder-trust recovery label instead). Only the PROJECT ROOM still shows this
+  // wording, so the answerNote-ternary pattern appears ONCE, not twice.
   const hits = PAGE.match(/is waiting on an answer'\s*\n\s*\+ \(body\.answerNote \? ', but not one typed here: ' \+ body\.answerNote : '\.'\)/g) || [];
-  assert.equal(hits.length, 2, 'the agent page and the project room, and no third copy');
-  // Control: the label sites still exist as sites (the regex can find its subject).
-  assert.ok((PAGE.match(/is waiting on an answer/g) || []).length >= 4);
+  assert.equal(hits.length, 1, 'the project room, and no second copy (the agent page dropped this label in #3419)');
+  // The #1629 guarantee on the AGENT page is now delivered through the
+  // folder-trust recovery label, which still puts answerNote on screen as text.
+  assert.match(PAGE, /qlab\.textContent = name \+ ' is stuck on a folder-trust prompt\. ' \+ body\.answerNote;/,
+    'the agent page stopped surfacing answerNote to the person (via the folder-trust label)');
+  // Control: the label site still exists (the regex can find its subject).
+  assert.ok((PAGE.match(/is waiting on an answer/g) || []).length >= 2);
 });
 
 test('#1629: the note reaches the page as text, never markup', () => {
-  // Both labels are assigned through textContent on the line the note joins.
+  // The project-room label joins the note through textContent on the line it sits on.
   const sites = PAGE.split('\n').filter((l) => /body\.answerNote \?/.test(l));
-  assert.equal(sites.length, 2);
+  assert.equal(sites.length, 1, 'the project room (the agent page dropped its waiting label in #3419)');
   const assigns = PAGE.split('\n').filter((l) => /(qlab|qLabel)\.textContent = name \+ ' is waiting on an answer'$/.test(l));
-  assert.equal(assigns.length, 2, 'each note line follows a textContent assignment');
+  assert.equal(assigns.length, 1, 'the note line follows a textContent assignment');
+  // The agent page's answerNote also reaches the page as text, via the folder-trust
+  // recovery label -- textContent, never innerHTML.
+  assert.match(PAGE, /qlab\.textContent = name \+ ' is stuck on a folder-trust prompt\. ' \+ body\.answerNote;/,
+    'the agent-page answerNote must reach the page through textContent, never markup');
 });

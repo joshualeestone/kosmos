@@ -188,50 +188,54 @@ async function measure(page) {
       'A2c narrow width: the wrapped snav row stays content-height (not ballooned to rival the talk box)',
       'snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
 
-    // --- Live-question (#d-qask) in a SHORT window: the answer options + composer must stay
-    // reachable. This guards a failure mode the FILL ITSELF introduces, NOT a pre-change
-    // control (pre-change #d-talk-box had no constrained height, so it never overflowed and
-    // the page scrolled): the fixed panel height can clip the non-thread children once the
-    // thread has shrunk to 0, so the box's overflow-y:auto fallback must let them be scrolled
-    // to. A9a first asserts the overflow was genuinely created (so A9b is not vacuous), then
-    // A9b asserts the box scrolls and the composer is reachable; toggling overflow-y off would
-    // red A9b, which is the within-fix control. ---
+    // --- A long THREAD in a SHORT window: the composer must stay reachable. This
+    // guards a failure mode the FILL ITSELF introduces, NOT a pre-change control
+    // (pre-change #d-talk-box had no constrained height, so it never overflowed and
+    // the page scrolled): the fixed panel height can clip the non-thread children
+    // once the thread grows, so the box's overflow-y:auto fallback must let them be
+    // scrolled to. A9a first asserts the overflow was genuinely created (so A9b is
+    // not vacuous), then A9b asserts the box scrolls and the composer is reachable;
+    // toggling overflow-y off would red A9b, which is the within-fix control.
+    // #3419: overflow used to be forced with the removed #d-qask-text/#d-qopts menu
+    // box. A needs_you question is a thread bubble now, so the natural overflow
+    // source is a long thread -- filled straight into #d-dmthread, measured inside
+    // the poll interval so a repaint does not wipe it before the read. ---
     await page.setViewportSize({ width: 1400, height: 440 });
     await page.evaluate(() => {
-      const q = document.getElementById('d-qask');
-      if (q) {
-        q.hidden = false;
-        const lab = document.getElementById('d-qask-lab');
-        if (lab) lab.textContent = 'The agent is asking you something';
-        const txt = document.getElementById('d-qask-text');
-        // #3385: the talk box now fills the full height (the header moved to the left column), so
-        // it is much taller -- inject enough to still overflow it, or A9a's control goes vacuous.
-        if (txt) { txt.hidden = false; txt.textContent = Array.from({ length: 60 }, (_, i) => 'command line ' + i).join('\n'); }
-        const opts = document.getElementById('d-qopts');
-        if (opts) { opts.hidden = false; opts.innerHTML = Array.from({ length: 24 }, (_, i) => '<button class="btn">Option ' + i + '</button>').join(''); }
+      const thread = document.getElementById('d-dmthread');
+      if (thread) {
+        thread.innerHTML = Array.from({ length: 40 }, (_, i) =>
+          '<div class="msg"><div class="msg-bd">a long enough message row number ' + i
+          + ' to take a line or two of the thread box in a short window</div></div>').join('');
       }
     });
     await page.waitForTimeout(150);
     const qask = await page.evaluate(() => {
       window.scrollTo(0, 0);
       const box = document.getElementById('d-talk-box');
+      const thread = document.getElementById('d-dmthread');
       const composer = document.querySelector('#d-talk-box .dmbar.composerbox');
-      const overflows = box.scrollHeight > box.clientHeight + 4;
-      box.scrollTop = box.scrollHeight;               // scroll the box to its foot
+      // #3419: the THREAD is the scroller now (it has overflow-y:auto and grows to
+      // fill the flex chain), so a long thread overflows #d-dmthread, not the fixed
+      // #d-talk-box. The invariant is that the thread absorbs it INTERNALLY while the
+      // composer stays pinned within the box -- not that the box itself overflows.
+      const threadOverflows = thread.scrollHeight > thread.clientHeight + 4;
+      thread.scrollTop = thread.scrollHeight;         // scroll the thread to its foot
       const br = box.getBoundingClientRect();
       const cr = composer.getBoundingClientRect();
-      return { overflows, overflowY: getComputedStyle(box).overflowY, composerWithinBox: cr.bottom <= br.bottom + 4 };
+      return { threadOverflows, threadOverflowY: getComputedStyle(thread).overflowY, composerWithinBox: cr.bottom <= br.bottom + 4 };
     });
-    console.log('MEASURE qask-short(1400x440): ' + JSON.stringify(qask));
-    chk(qask.overflows === true,
-      'A9a the injected live question genuinely overflows the fixed-height box (so A9b is not vacuous)',
-      'overflows=' + qask.overflows + ' (box scrollHeight > clientHeight)');
-    chk(qask.overflowY === 'auto' && qask.composerWithinBox,
-      'A9b the box scrolls so the composer stays reachable when a live question overflows',
-      'overflowY=' + qask.overflowY + ' composerWithinBox=' + qask.composerWithinBox);
+    console.log('MEASURE thread-short(1400x440): ' + JSON.stringify(qask));
+    chk(qask.threadOverflows === true,
+      'A9a the long thread genuinely overflows the thread box (so A9b is not vacuous)',
+      'threadOverflows=' + qask.threadOverflows + ' (thread scrollHeight > clientHeight)');
+    chk(qask.threadOverflowY === 'auto' && qask.composerWithinBox,
+      'A9b the thread scrolls internally so the composer stays reachable when it overflows',
+      'threadOverflowY=' + qask.threadOverflowY + ' composerWithinBox=' + qask.composerWithinBox);
 
-    // Clear the injected question so the scoping guard below sees a normal talk section.
-    await page.evaluate(() => { const q = document.getElementById('d-qask'); if (q) q.hidden = true; });
+    // Repaint the thread so the scoping guard below sees a normal talk section
+    // (the injected rows are inert markup the next real poll would replace anyway).
+    await page.evaluate(() => { const t = document.getElementById('d-dmthread'); if (t) t.innerHTML = ''; });
 
     // --- Scoping guard: a non-Talk section (Model) is NOT forced tall ---
     await page.setViewportSize({ width: 1400, height: 1100 });

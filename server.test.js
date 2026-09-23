@@ -8254,154 +8254,19 @@ test("the removal announcement is her sentence, on both verdict arms", () => {
 });
 
 /* ---------------------------------------------------------------------------
- * answer-panel: the agent page's own thread, its composer, and the buttons
- * above it. Text pins only -- these catch a DELETION, not a rendering. The
- * render itself is checked by `docs/browser-checks/render-talk.js`, which draws
- * every state this branch defines in both themes and measures in the page
- * (the count is deliberately not quoted here: it said "eight" while the file
- * drew eleven and then thirteen, which is one moving fact written in two
- * places, and this directory's own README explains why not to) (scrollWidth/clientWidth for overflow, computed
+ * answer-panel: the agent page's own thread and its composer. (#3419 removed the
+ * option-menu buttons that sat above it; a needs_you question is a thread bubble
+ * now, so the button/talkKey pins that lived here are gone with the machinery.)
+ * Text pins only -- these catch a DELETION, not a rendering. The render itself is
+ * checked by `docs/browser-checks/render-talk.js`, which draws every state this
+ * branch defines in both themes and measures in the page
+ * (the count is deliberately not quoted here: it moved as states were added,
+ * which is one moving fact written in two places, and this directory's own
+ * README explains why not to) (scrollWidth/clientWidth for overflow, computed
  * background for the transparent-panel class, elementFromPoint for what is
  * actually on top). Checks were green through three broken layouts on 18e;
  * text cannot see that class of defect and these do not claim to.
  * ------------------------------------------------------------------------ */
-
-test('the option button carries BOTH the digit and the words, and sends both', () => {
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  // The button holds the two facts apart...
-  assert.match(raw, /data-n="' \+ esc\(String\(o\.n\)\)/,
-    'the option button lost the digit the agent’s prompt is waiting for');
-  assert.match(raw, /data-label="' \+ esc\(o\.label\)/,
-    'the option button lost the option’s own words');
-  // ...and the send passes both, in that order: text=digit, chose=words.
-  assert.match(raw, /sendTalk\(btn\.dataset\.n, btn\.dataset\.label\)/,
-    'the option send stopped carrying one of the two, so the record misdescribes '
-    + 'either the mechanism or the answer');
-});
-
-test('the option listener is DELEGATED, because the buttons are rebuilt by every poll', () => {
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const at = raw.indexOf("getElementById('d-qopts').addEventListener('click'");
-  assert.ok(at > -1, 'the option buttons lost their listener, or it moved onto the buttons '
-    + 'themselves -- where it is attached to elements the next poll destroys');
-  assert.ok(raw.slice(at, at + 300).includes("closest('.qopt')"),
-    'the delegated listener stopped matching the button it is delegating for');
-});
-
-test('talkKey reads the option run exactly where optionsIn does, decoys included', () => {
-  /**
-   * ⚠️ TWO DERIVATIONS OF ONE FACT, and the engine is not reachable from the
-   * page, so the page carries a COPY of `optionsIn`'s line handling. A copy
-   * that is nearly the same is the dangerous kind: four separate drifts have
-   * been found in it, and every one could only disagree DOWNWARD -- matching a
-   * line the engine refuses, moving `first` up, and shortening the `above`
-   * that gives the answered-hold its identity. A shorter `above` is how two
-   * different questions collide on one key and a live question is suppressed.
-   *
-   * So this asks BOTH sides about the same text: the engine must see exactly
-   * the real menu, and the page must leave every decoy in `above`.
-   */
-  const talkKey = pageFunction('talkKey');
-  const chatEngine = require('./engine/chat');
-  const MENU = '❯ 1. Yes\n  2. No';
-  const above = (text) => {
-    const key = talkKey({
-      asking: true,
-      options: [{ n: 1, label: 'Yes' }, { n: 2, label: 'No' }],
-      question: { text },
-    });
-    assert.ok(key, 'talkKey refused a body it should key');
-    return key.split('\u0000')[1];
-  };
-
-  /* ⚠️ AND WHEN THE RUN STARTS AT LINE 0. A short capture leaves nothing above
-     the menu, and an empty `above` keys the hold on the OPTIONS ALONE --
-     which is the collision this key exists to prevent, because the
-     edit-permission menu draws the same labels for every file. Two different
-     questions, same buttons, no preamble: the keys must still differ. */
-  const menuFirstA = talkKey({
-    asking: true,
-    options: [{ n: 1, label: 'Yes' }, { n: 2, label: 'No' }],
-    question: { text: MENU + '\nEdit src/a.js?' },
-  });
-  const menuFirstB = talkKey({
-    asking: true,
-    options: [{ n: 1, label: 'Yes' }, { n: 2, label: 'No' }],
-    question: { text: MENU + '\nEdit src/b.js?' },
-  });
-  assert.ok(menuFirstA && menuFirstB, 'talkKey refused a body it should key');
-  assert.notEqual(menuFirstA, menuFirstB,
-    'two different questions with identical buttons collapsed to one key, so the second is suppressed');
-
-  // CONTROL: with no decoy at all, `above` is the preamble and the menu is not
-  // in it. Without this the decoy cases below pass on a function that returns
-  // the whole capture every time.
-  const plain = above('Which one?\n' + MENU);
-  assert.equal(plain, 'Which one?');
-
-  /* ⚠️ AND THE `above` HALF AGREES WITH THE ENGINE'S TWIN, which is now a
-     THIRD place this one fact is computed: `talkKey` on the page, and
-     `chat.questionAbove` on the server, which the 409 screen-check compares
-     against what the client sends. Two spellings of "which question is this"
-     that can disagree is how a button answers a prompt nobody saw, so they are
-     asked the same thing here rather than trusted to match. */
-  const engineAbove = chatEngine.questionAbove;
-  for (const text of [
-    'Which one?\n' + MENU,
-    'Edit file src/a.js?\n❯ 1. Yes\n  2. No',
-    '│ boxed and framed\n│ ❯ 1. Yes\n│   2. No',
-    /* ⭐ CODEX'S GLYPH IS › (U+203A), NOT CLAUDE'S ❯ (U+276F), and this row is
-       the whole reason #998 could not merge on the engine alone. Widening the
-       engine to read both while the page still read one would draw buttons on
-       a Codex menu whose every press the 409 screen-check refuses, blaming the
-       agent's screen for a disagreement between two copies of our own rule.
-       This row FAILED before the page was widened, which is the only reason it
-       is worth having. */
-    'Run this command?\n› 1. Yes, continue\n  2. No, quit',
-    '│ boxed and framed\n│ › 1. Yes, continue\n│   2. No, quit',
-    MENU,
-  ]) {
-    const key = talkKey({
-      asking: true,
-      options: chatEngine.optionsIn(text),
-      question: { text },
-    });
-    assert.ok(key, 'talkKey refused a body the engine parses: ' + JSON.stringify(text));
-    /* `slice(1).join`, not `[1]`: an identity containing the separator would be
-       truncated by the index form, which is the correction `sendTalk` already
-       carries and this test did not. */
-    const pageAbove = key.split('\u0000').slice(1).join('\u0000');
-    const engine = engineAbove(text);
-    if (engine === null) {
-      /* ⚠️ THE DELIBERATE DIVERGENCE, asserted rather than skipped. When the
-         rule yields nothing the engine refuses to guess (a wrong match types a
-         digit into a live terminal) and the page falls back to the whole slice
-         (a wrong match suppresses a question for thirty seconds). */
-      assert.ok(pageAbove, 'the page must still key something when the engine declines to');
-    } else {
-      assert.equal(pageAbove, engine,
-        'the page and the engine disagree about which question this is: ' + JSON.stringify(text));
-    }
-  }
-
-  for (const decoy of [
-    '10. leftover from the last prompt',   // two digits: never an option
-    '││ 1. doubled frame',                 // a RUN of frame characters
-    '│ 1. │',                              // a label that is only frame
-    '| 1. see the lease',                  // an ASCII pipe is not frame
-  ]) {
-    const text = 'Which one?\n' + decoy + '\n' + MENU;
-    // The ENGINE's half: the decoy produces no option, so the menu it parses
-    // is the two real ones.
-    const parsed = chatEngine.optionsIn(text);
-    assert.deepEqual(parsed, [{ n: 1, label: 'Yes' }, { n: 2, label: 'No' }],
-      'the engine read the decoy as part of the menu: ' + JSON.stringify(decoy));
-    // The PAGE's half: the decoy is above the run, so it stays in the identity.
-    assert.ok(above(text).includes(decoy),
-      'the page started the run at the decoy, shortening the hold\u2019s identity: '
-      + JSON.stringify(decoy) + ' -> ' + JSON.stringify(above(text)));
-  }
-});
 
 test('--k-sunk is DEFINED, in both themes, not merely defended with a fallback', () => {
   // ⚠️ THE DEFECT THIS PINS was found in Mona Lisa's drawings on 2026-08-19:
@@ -8596,23 +8461,6 @@ test('a composer that cannot send looks like it cannot send', () => {
     + 'be handed a message');
   const rule = raw.slice(at, raw.indexOf('}', at));
   assert.ok(/opacity:\s*\.5/.test(rule), 'the dimming is no longer dimming anything');
-});
-
-test('the buttons die with the composer: an option is never offered over a closed box', () => {
-  // Mona Lisa's state 6. A live option above a box that cannot send promises a
-  // route that is shut, which is the same lie as a composer that swallows text.
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  // ⚠️ The GATE's terms, not the whole expression: pinning the line verbatim
-  // made this test fail the next time a term was ADDED to it, which is the
-  // check-contains-a-copy shape — it can only pass against one spelling and
-  // says nothing about the property.
-  const at = raw.indexOf('const opts = ');
-  assert.ok(at > -1, 'the options gate vanished');
-  const gate = raw.slice(at, raw.indexOf(';', at));
-  assert.ok(/\blive\b/.test(gate), 'the options stopped being gated on the agent being reachable');
-  assert.ok(/body\.asking/.test(gate), 'the options stopped being gated on the board saying it is asking');
-  assert.match(raw, /const live = body\.presence === 'on';/,
-    'the reachability the options are gated on stopped being the route’s own answer');
 });
 
 test('the agent page composer holds the room’s IME rule, because Enter sends', () => {
