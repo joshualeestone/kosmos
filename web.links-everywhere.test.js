@@ -166,8 +166,14 @@ test('every message row draws the attachment card, and the + and drop targets ar
      pending id with the words as `attachments`, clearing them on success. */
   assert.match(SCRIPT, /attachAdd\(where, \{ id: body\.attachment\.id, name: body\.attachment\.name \}\)/, 'the upload does not attach the file to the composer');
   assert.doesNotMatch(SCRIPT, /await where\.send\(/, 'the upload still sends on pick');
-  assert.match(SCRIPT, /pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}/, 'the room sender does not carry the pending ids');
-  assert.match(SCRIPT, /: \(pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}\)\)/, 'the talk sender does not carry the pending ids');
+  /* #3419: the talk (/thread) sender dropped the old `chose ? ... : (pendingIds ...)`
+     answer-menu wrapper, so its send body now reads exactly like the room sender's.
+     Assert the pendingIds body appears TWICE -- once per composer (the project room
+     and the agent page) -- which verifies BOTH carry the pending ids without pinning
+     the removed wrapper. */
+  assert.equal(
+    (SCRIPT.match(/body: JSON\.stringify\(pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}\)/g) || []).length,
+    2, 'both composers (project room and agent page) must carry the pending ids in their send body');
   assert.equal((SCRIPT.match(/else if \(attachList\(ATTACH_AGENT\)\.length\) sendTalk\(/g) || []).length, 2, 'Send (click and Enter) with files and no words does nothing on one of the two paths');
   /* Keyed by agent and by project, like the drafts: a switch repaints the
      right chips, and a send clears only the target it went to. */
