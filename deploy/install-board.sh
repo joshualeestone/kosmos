@@ -228,7 +228,7 @@ say "app files that would be installed:"
 say "  server.js, package.json"
 say "  engine/*.js excluding *.test.js"
 say "  web/ (whole)"
-say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js, bin/board-watchdog.sh"
+say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js, bin/gemini-report-bridge.js, bin/board-watchdog.sh"
 say "  assets/Kosmos.icns when present"
 echo
 
@@ -251,6 +251,12 @@ stage_app() {
   chmod +x "$_d/bin/board-watchdog.sh"
   cp "$REPO/bin/codex-report-bridge.js" "$_d/bin/" || return 1
   chmod +x "$_d/bin/codex-report-bridge.js"
+  # #3296: the gemini report bridge, same as the codex bridge. create.js resolves it
+  # and installSupervisor copies it to supportDir, so a deployed board missing it would
+  # leave every gemini agent's self-report pointing at a missing file. test-board-
+  # deploy-manifest.sh requires the deploy and the release bundle to stage the same files.
+  cp "$REPO/bin/gemini-report-bridge.js" "$_d/bin/" || return 1
+  chmod +x "$_d/bin/gemini-report-bridge.js"
   if [ -f "$REPO/assets/Kosmos.icns" ]; then
     mkdir -p "$_d/assets" && cp "$REPO/assets/Kosmos.icns" "$_d/assets/" || return 1
   fi

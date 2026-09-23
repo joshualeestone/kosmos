@@ -119,6 +119,25 @@ test('a codex agent brings its AGENTS.md, and its record names the codex runner'
   assert.equal(entry.runner, 'codex');
 });
 
+test('#3296: a gemini agent is REFUSED cleanly, not mis-copied as claude (import is codex/claude only for now)', () => {
+  const { base, env, opts, def } = setup();
+  const dst = worlds.createWorld(base, 'Dest');
+  // A gemini agent: provider google, brief GEMINI.md. Without the guard, launchSpecOf
+  // downgrades it to claude and copyOne seeks CLAUDE.md, failing partway with a
+  // misleading "could not read its instructions" and rolling back. The guard turns that
+  // into a clean, honest refusal.
+  seedAgent(base, env, def, 'gemma', { profile: { provider: 'google' }, briefName: 'GEMINI.md', brief: '# gemini\n' });
+  const r = worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'gemma' }], opts);
+  assert.deepEqual(r.copied, [], 'a gemini agent must not be copied');
+  assert.equal(r.refused.length, 1, 'exactly one refusal');
+  assert.match(r.refused[0].because, /cannot import between worlds yet/,
+    'the refusal must be the clean gemini-not-yet message, not the misleading brief-read failure');
+  // Nothing landed in the target: no profile, no folder.
+  assert.ok(!fs.existsSync(nodePath.join(worlds.worldProfilesDir(base, dst), 'gemma.json')), 'no profile was written to the target');
+  assert.ok(!fs.existsSync(nodePath.join(worlds.worldWorkersDir(base, dst, env), 'gemma')), 'no folder was created in the target');
+  assert.equal(recordOf(base, dst), null, 'nothing was recorded to start it');
+});
+
 test('the start is recorded in the TARGET Kosmos\'s store, not the one this process serves', () => {
   const { base, env, opts, def } = setup();
   const dst = worlds.createWorld(base, 'Dest');

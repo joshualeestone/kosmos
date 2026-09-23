@@ -580,6 +580,28 @@ if [ -z "$adopt" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" || exit 1
     fi
+  elif [ "$RUNNER" = gemini ]; then
+    # #3296: the Gemini runner. Self-reporting is NOT a launch flag (as codex's
+    # notify is) -- gemini has its own hook system, and engine/create.js wrote the
+    # five report hooks + the auth pre-seed into the agent's gemini settings.json
+    # at birth (bin/gemini-report-bridge.js, the analog of reporthook.js). Those
+    # persist across restarts, so this (re)launch needs only to start the pane.
+    #   --approval-mode yolo : auto-approve all tools (the codex --dangerously-
+    #                          bypass / claude --dangerously-skip analog), so an
+    #                          autonomous agent never parks on a tool prompt.
+    #   --skip-trust         : clear gemini's folder-trust gate at launch (the
+    #                          analog of the claude ensure-launch-trust write; a
+    #                          restart re-runs THIS script, not create.js).
+    #   -m <model>           : PIN the model. The "Auto" router hangs in a tmux
+    #                          pane (measured >1m47s on a trivial prompt), so a
+    #                          model-less gemini agent is pinned to gemini-2.5-flash
+    #                          here; a create that recorded a model uses that.
+    # GEMINI_API_KEY reaches the pane via the generic secrets/env door (the loop
+    # above), and the auth pre-seed makes the CLI use it without the first-run
+    # picker. Default account reads ~/.gemini (no GEMINI_CLI_HOME set).
+    GEMINI_MODEL="${MODEL:-gemini-2.5-flash}"
+    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" || exit 1
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs

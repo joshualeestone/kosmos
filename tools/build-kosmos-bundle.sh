@@ -98,6 +98,13 @@ chmod +x "$STAGE/app/bin/board-watchdog.sh"
 # bin/ file this list does not carry.
 cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
 chmod +x "$STAGE/app/bin/codex-report-bridge.js"
+# #3296: the gemini report bridge, same explicit-list rule as the codex bridge above.
+# create.js resolves it via geminiBridgeSource() (path.join __dirname/../bin) and bakes
+# geminiBridgePath() into each gemini agent's settings.json, so a served bundle that
+# omitted it would leave every gemini agent's self-report pointing at a missing file --
+# the exact #731 failure. bundle.contents.test.js enforces this by name.
+cp "$REPO/bin/gemini-report-bridge.js" "$STAGE/app/bin/"
+chmod +x "$STAGE/app/bin/gemini-report-bridge.js"
 # The app icon artwork, when it exists: the installer looks for
 # app/assets/Kosmos.icns is the ONE asset that ships, named explicitly
 # per this file's own explicit-list rule: a wildcard copy of assets/

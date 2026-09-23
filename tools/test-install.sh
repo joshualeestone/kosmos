@@ -170,7 +170,7 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # EXPECTED_ADDS must be in sort order too. `.world-confirmed.json` sorts FIRST
 # (the leading '.' 0x2E collates before 'bin' 0x62), so it leads the list; ping.json ('p')
 # sorts after bin/ ('b') and before source-channel ('s').
-EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/ping.json ./Kosmos/source-channel)"
+EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/ping.json ./Kosmos/source-channel)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board

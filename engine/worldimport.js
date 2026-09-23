@@ -222,6 +222,26 @@ function copyOne(base, src, dst, name, opts) {
   }
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return { ok: false, because: `we could not read it in ${src.name}` };
 
+  /* #3296: cross-world import supports codex and claude only. A gemini agent is now
+     creatable (server passes provider through) and IS offered in the import picker, but
+     the copy path below special-cases codex-vs-claude: launchSpecOf would DOWNGRADE a
+     gemini agent to runner 'claude', then briefFilename('claude') seeks CLAUDE.md while
+     its brief is GEMINI.md, so the import fails partway with a misleading "could not
+     read its instructions" and rolls back. Refuse CLEANLY here instead -- the same
+     honest boundary setAccount/setProvider draw for a not-yet-supported gemini
+     operation. Reading the TRUE source runner (not launchSpecOf's downgraded one, and
+     without widening launchSpecOf, which would mis-launch via installJob/worldstarts).
+     Full gemini import (launchSpecOf + brief + installJob + worldstarts) is the deferred
+     import slice; see .claude/plans/gemini-launcher-3296.md. */
+  const srcJob = create.readJob(name, src.id, platform);
+  const trueRunner = srcJob && srcJob.runner
+    ? srcJob.runner
+    : (profile.provider === 'openai' ? 'codex' : profile.provider === 'google' ? 'gemini' : profile.provider === 'xai' ? 'grok' : 'claude');
+  if (trueRunner !== 'codex' && trueRunner !== 'claude') {
+    const label = trueRunner === 'gemini' ? 'Gemini' : trueRunner === 'grok' ? 'Grok' : trueRunner;
+    return { ok: false, because: `${name} runs on ${label}, which Kosmos cannot import between worlds yet -- create it fresh in ${dst.name} instead` };
+  }
+
   const spec = launchSpecOf(name, src.id, profile, platform);
   const briefName = create.briefFilename(spec.runner);
   const sourceFolder = create.usableRecordedDir(profile.dir) || path.join(worlds.worldWorkersDir(base, src, env), name);
