@@ -146,3 +146,19 @@ test('forget/removeAccount REFUSE the default home even if a key file is placed 
   assert.ok(fs.existsSync(def), 'the default home is untouched by both');
   fs.rmSync(def, { recursive: true, force: true });
 });
+
+test('a symlink account dir is never managed: storeKey throws (no write THROUGH into a real home), forget/remove refuse it', () => {
+  clean();
+  const real = nodePath.join(SANDBOX, 'real-gemini-home');
+  fs.mkdirSync(real, { recursive: true });
+  const link = nodePath.join(SANDBOX, '.gemini-evil');
+  try { fs.symlinkSync(real, link); } catch { /* symlinks unsupported here */ }
+  if (!(() => { try { return fs.lstatSync(link).isSymbolicLink(); } catch { return false; } })()) { console.log('# symlinks unsupported -- skipping'); return; }
+  assert.throws(() => ma.storeKey(link, 'AIza-should-not-write-1234'), /symlink/, 'storeKey refuses to write through a symlink');
+  assert.equal(fs.existsSync(nodePath.join(real, '.kosmos-gemini-apikey')), false, 'no key was written into the symlink target');
+  fs.writeFileSync(nodePath.join(real, '.kosmos-gemini-apikey'), 'AIza-planted-9999', { mode: 0o600 });
+  assert.equal(ma.forgetAccount(link, []).ok, false, 'forget refuses a symlink account');
+  assert.equal(ma.removeAccount(link, []).ok, false, 'remove refuses a symlink account');
+  assert.ok(fs.existsSync(real), 'the symlink target survives');
+  fs.rmSync(link, { force: true }); fs.rmSync(real, { recursive: true, force: true });
+});

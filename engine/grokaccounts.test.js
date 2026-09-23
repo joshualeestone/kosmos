@@ -180,6 +180,23 @@ test('forget/removeAccount REFUSE the default home even if a key file is placed 
   fs.rmSync(def, { recursive: true, force: true });
 });
 
+test('a symlink account dir is never managed: storeKey throws (no write THROUGH into a real home), forget/remove refuse it', () => {
+  clean();
+  const real = nodePath.join(SANDBOX, 'real-grok-home');
+  fs.mkdirSync(real, { recursive: true });
+  const link = nodePath.join(SANDBOX, '.grok-evil');
+  try { fs.symlinkSync(real, link); } catch { /* symlinks unsupported here */ }
+  if (!(() => { try { return fs.lstatSync(link).isSymbolicLink(); } catch { return false; } })()) { console.log('# symlinks unsupported -- skipping'); return; }
+  assert.throws(() => ga.storeKey(link, 'xai-should-not-write-1234'), /symlink/, 'storeKey refuses to write through a symlink');
+  assert.equal(fs.existsSync(nodePath.join(real, '.kosmos-grok-apikey')), false, 'no key was written into the symlink target');
+  // plant a key directly in the target so identityOf would pass, then confirm forget/remove refuse the symlink
+  fs.writeFileSync(nodePath.join(real, '.kosmos-grok-apikey'), 'xai-planted-9999', { mode: 0o600 });
+  assert.equal(ga.forgetAccount(link, []).ok, false, 'forget refuses a symlink account');
+  assert.equal(ga.removeAccount(link, []).ok, false, 'remove refuses a symlink account');
+  assert.ok(fs.existsSync(real), 'the symlink target survives');
+  fs.rmSync(link, { force: true }); fs.rmSync(real, { recursive: true, force: true });
+});
+
 test('listLive: one bad row cannot sink the others -- it falls back to UNKNOWN', async () => {
   clean();
   const a = ga.dirForLabel('a'); ga.storeKey(a.dir, 'xai-a-aaaa');

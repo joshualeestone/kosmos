@@ -153,3 +153,14 @@ Full whole-tree suite + full challenge-loop before PR.
 - **Deferred NIT: create.provider-accounts test's "known account" assertion is weak.** The STRONG
   path (positive GEMINI_CLI_HOME/GROK_HOME plist assertion + birth-write landing in the right storage
   dir) is covered by engine/create.test.js:3966+, so the weak assertion is a complement, not the only guard.
+
+## Iteration 6 (sonnet) findings
+- **FIXED (defence in depth): a symlink account dir is now refused.** A crafted ~/.gemini-x ->
+  ~/.gemini symlink passed the name-shape guards and storeKey/writeName (which follow symlinks) would
+  write the key file THROUGH it into the real CLI home. Now storeKey throws on a symlink dir (the DRY
+  chokepoint, defends direct callers), the store route refuses one before storeKey (so the
+  failed-store cleanup never runs through the link), and forget/removeAccount refuse a symlink too.
+  Same-local-user, no data loss (rmSync/renameSync operate on the link not the target), low severity,
+  but it closes the "an account is an isolated directory" invariant. Tested in both modules + the route.
+- **FIXED: an em dash in a test console.log** (my own standing no-em-dash rule). Swept all authored
+  files; it was the only one.

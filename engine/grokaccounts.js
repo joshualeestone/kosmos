@@ -308,6 +308,13 @@ function nextWorkDir(exclude) {
  */
 function storeKey(dir, key) {
   const d = path.resolve(String(dir || ''));
+  /* 🛑 An account is an ISOLATED directory, never a symlink. Refuse to write THROUGH one: a
+     planted ~/.grok-x -> ~/.grok would otherwise land the key file inside the real CLI home
+     (mkdir/writeFile follow symlinks; lstat does not). ENOENT = fresh account, which creates a
+     real dir below. See geminiaccounts.storeKey for the full reasoning. */
+  let st = null;
+  try { st = fs.lstatSync(d); } catch { st = null; }
+  if (st && st.isSymbolicLink()) throw new Error('an account directory must not be a symlink');
   fs.mkdirSync(d, { recursive: true });
   const file = keyFile(d);
   const tmp = file + '.tmp';
@@ -363,6 +370,13 @@ function forgetAccount(dir, usedBy) {
   if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
     return { ok: false, forgotten: false, because: 'that is not a Grok account on this computer' };
   }
+  // An account is a real directory, not a symlink (see storeKey). A crafted symlink named like an
+  // account is not one -- refuse it so forget never renames a path that points somewhere else.
+  let st = null;
+  try { st = fs.lstatSync(clean); } catch { st = null; }
+  if (st && st.isSymbolicLink()) {
+    return { ok: false, forgotten: false, because: 'that is not a Grok account on this computer' };
+  }
 
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
   if (agents.length) {
@@ -416,6 +430,13 @@ function removeAccount(dir, usedBy) {
     return { ok: false, removed: false, because: 'the default Grok account is your computer\'s own Grok home; Kosmos does not manage it here, so it cannot be deleted' };
   }
   if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
+    return { ok: false, removed: false, because: 'that is not a Grok account on this computer' };
+  }
+  // Refuse a crafted symlink (see storeKey / forgetAccount): rmSync removes the LINK not its
+  // target, so it is already data-loss-safe, but a symlink is not a managed account.
+  let st = null;
+  try { st = fs.lstatSync(clean); } catch { st = null; }
+  if (st && st.isSymbolicLink()) {
     return { ok: false, removed: false, because: 'that is not a Grok account on this computer' };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);

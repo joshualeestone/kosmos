@@ -90,6 +90,20 @@ test('gemini store: a shape-bad key and a taken label are refused', async () => 
   assert.match((await taken.json()).error, /already a Gemini account by that name/);
 });
 
+test('store: a label whose account dir is a pre-planted symlink is refused (no write THROUGH into a real home)', async () => {
+  const real = nodePath.join(SANDBOX, 'real-home-for-symlink');
+  fs.mkdirSync(real, { recursive: true });
+  const link = nodePath.join(SANDBOX, '.gemini-linky');
+  try { fs.symlinkSync(real, link); } catch { /* symlinks unsupported */ }
+  if (!(() => { try { return fs.lstatSync(link).isSymbolicLink(); } catch { return false; } })()) { console.log('# symlinks unsupported -- skipping'); return; }
+  geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const r = await post('/api/accounts/gemini/apikey', { label: 'linky', key: 'AIzaSy-symlink-key-11112222' });
+  assert.equal(r.status, 400, 'a symlink account dir is refused before any write');
+  assert.match((await r.json()).error, /not available/);
+  assert.equal(fs.existsSync(nodePath.join(real, '.kosmos-gemini-apikey')), false, 'no key was written through the symlink into the real home');
+  fs.rmSync(link, { force: true }); fs.rmSync(real, { recursive: true, force: true });
+});
+
 test('store: a missing runner answers needsRunner (never stores a key for a runner that is not installed)', async () => {
   runners.resolveBin = () => ({ present: false, bin: null });
   try {

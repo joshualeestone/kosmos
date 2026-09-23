@@ -163,7 +163,7 @@ test('real tmux resolves a repeated -e to the LAST value (the precedence the per
     try { realTmux = require('node:child_process').execSync('command -v tmux', { encoding: 'utf8' }).trim() || null; }
     catch { realTmux = null; }
   }
-  if (!realTmux) { console.log('# no real tmux found — skipping the real-tmux precedence check'); return; }
+  if (!realTmux) { console.log('# no real tmux found -- skipping the real-tmux precedence check'); return; }
   const label = `aw-prec-${process.pid}-${Math.random().toString(36).slice(2)}`;
   const run = (args) => spawnSync(realTmux, ['-L', label, ...args], { encoding: 'utf8', timeout: 10000 });
   try {

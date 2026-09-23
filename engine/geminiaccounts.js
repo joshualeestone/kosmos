@@ -240,6 +240,14 @@ function nextWorkDir(exclude) {
 
 function storeKey(dir, key) {
   const d = path.resolve(String(dir || ''));
+  /* 🛑 An account is an ISOLATED directory, never a symlink. Refuse to write THROUGH one: a
+     planted ~/.gemini-x -> ~/.gemini would otherwise land the key file inside the real CLI home,
+     because mkdir/writeFile follow symlinks (lstat does not). ENOENT = no such path yet = the
+     normal fresh-account case, which creates a real dir below. Throws so a direct caller cannot
+     contaminate the home; the store route refuses a symlink earlier so its cleanup never runs. */
+  let st = null;
+  try { st = fs.lstatSync(d); } catch { st = null; }
+  if (st && st.isSymbolicLink()) throw new Error('an account directory must not be a symlink');
   fs.mkdirSync(d, { recursive: true });
   const file = keyFile(d);
   const tmp = file + '.tmp';
@@ -274,6 +282,13 @@ function forgetAccount(dir, usedBy) {
     return { ok: false, forgotten: false, because: 'the default Gemini account is your computer\'s own Gemini home; Kosmos does not manage it here, so it cannot be disconnected' };
   }
   if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
+    return { ok: false, forgotten: false, because: 'that is not a Gemini account on this computer' };
+  }
+  // An account is a real directory, not a symlink (see storeKey). A crafted symlink named like an
+  // account is not one -- refuse it so forget never renames a path that points somewhere else.
+  let st = null;
+  try { st = fs.lstatSync(clean); } catch { st = null; }
+  if (st && st.isSymbolicLink()) {
     return { ok: false, forgotten: false, because: 'that is not a Gemini account on this computer' };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
@@ -317,6 +332,13 @@ function removeAccount(dir, usedBy) {
     return { ok: false, removed: false, because: 'the default Gemini account is your computer\'s own Gemini home; Kosmos does not manage it here, so it cannot be deleted' };
   }
   if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
+    return { ok: false, removed: false, because: 'that is not a Gemini account on this computer' };
+  }
+  // Refuse a crafted symlink (see storeKey / forgetAccount): rmSync would remove the LINK not its
+  // target, so it is already data-loss-safe, but a symlink is not a managed account.
+  let st = null;
+  try { st = fs.lstatSync(clean); } catch { st = null; }
+  if (st && st.isSymbolicLink()) {
     return { ok: false, removed: false, because: 'that is not a Gemini account on this computer' };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);

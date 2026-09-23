@@ -1660,6 +1660,13 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
         sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
         return;
       }
+      // 🛑 A planted symlink account dir (~/.gemini-x -> ~/.gemini) would let storeKey/writeName
+      // write THROUGH it into the real CLI home. Refuse it BEFORE storeKey, so the failed-store
+      // cleanup (forgetKey) never runs through the symlink either. lstat does not follow the link;
+      // an absent path is the normal fresh-account case. storeKey itself also throws on a symlink
+      // (defence in depth for direct callers).
+      try { if (fs.lstatSync(named.dir).isSymbolicLink()) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; } }
+      catch { /* absent = fresh account, fine */ }
       // #1315 discipline: validate LIVE at add time. Refuse ONLY a positively-rejected
       // key (STATE.NONE); accept CONNECTED and UNKNOWN (unreachable / a non-attributed
       // refusal), never blocking a good key on an answer that does not confirm it bad.
