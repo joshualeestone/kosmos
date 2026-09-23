@@ -43,12 +43,18 @@ test('validateLive asymmetry: 200 CONNECTED, attributed 401 NONE, non-attributed
   assert.equal((await ga.validateLive('xai-good')).state, ga.STATE.CONNECTED);
 
   ga.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key', message: 'Incorrect API key provided' } } }));
-  assert.equal((await ga.validateLive('xai-bad')).state, ga.STATE.NONE, 'a positively-attributed bad key is NONE');
+  assert.equal((await ga.validateLive('xai-bad')).state, ga.STATE.NONE, 'a positively-attributed bad key (structured code) is NONE');
 
   // A 401/403 that does NOT attribute the failure to the key (a scope/permission
   // answer) must NOT be guessed as a dead key -- the openaiaccounts asymmetry.
   ga.setFetcher(async () => ({ status: 403, body: { error: { code: 'permission_denied', message: 'not allowed to list models' } } }));
   assert.equal((await ga.validateLive('xai-scoped')).state, ga.STATE.UNKNOWN, 'a non-attributed refusal is UNKNOWN, never a guessed NONE');
+
+  // 🛑 The free-text MESSAGE must NOT red a key -- only the structured CODE does. A 401
+  // whose message merely mentions "authentication" for an unrelated reason, with a code
+  // that is not a key rejection, is UNKNOWN (the #1315/#2140 fuzzy-message class).
+  ga.setFetcher(async () => ({ status: 401, body: { error: { code: 'service_unavailable', message: 'the authentication service is temporarily unavailable' } } }));
+  assert.equal((await ga.validateLive('xai-msgonly')).state, ga.STATE.UNKNOWN, 'a message mentioning authentication with a non-key code is UNKNOWN, never NONE');
 
   ga.setFetcher(async () => ({ status: 0, unreachable: true, because: 'we could not reach xAI to check whether this key still works' }));
   assert.equal((await ga.validateLive('xai-x')).state, ga.STATE.UNKNOWN, 'unreachable is UNKNOWN, never NONE');

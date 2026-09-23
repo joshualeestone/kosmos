@@ -69,7 +69,7 @@ test('grok store: a positively-rejected key is refused at ENTRY, and no account 
   assert.equal(r.status, 400);
   const b = await r.json();
   assert.match(b.error, /did not accept this key/);
-  assert.equal(fs.existsSync(geminiAccounts.keyFile(nodePath.join(SANDBOX, '.grok-bad-key'))), false, 'a rejected key makes no key file');
+  assert.equal(fs.existsSync(grokAccounts.keyFile(nodePath.join(SANDBOX, '.grok-bad-key'))), false, 'a rejected grok key leaves no .kosmos-grok-apikey file');
 });
 
 test('grok store: an unreachable/ambiguous check is ACCEPTED (never block a good key on a non-confirming answer)', async () => {

@@ -33,8 +33,15 @@ test('validateLive asymmetry: 200 CONNECTED, API_KEY_INVALID NONE, generic 403 U
   ma.setFetcher(async () => ({ status: 200, body: { models: [] } }));
   assert.equal((await ma.validateLive('AIza-good')).state, ma.STATE.CONNECTED);
 
-  ma.setFetcher(async () => ({ status: 400, body: { error: { status: 'INVALID_ARGUMENT', message: 'API key not valid. Please pass a valid API key.' } } }));
-  assert.equal((await ma.validateLive('AIza-bad')).state, ma.STATE.NONE, 'API_KEY_INVALID is a positive NONE');
+  // Google's real invalid-key response: the structured reason enum in error.details.
+  ma.setFetcher(async () => ({ status: 400, body: { error: { status: 'INVALID_ARGUMENT', message: 'API key not valid. Please pass a valid API key.', details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'API_KEY_INVALID', domain: 'googleapis.com' }] } } }));
+  assert.equal((await ma.validateLive('AIza-bad')).state, ma.STATE.NONE, 'the structured API_KEY_INVALID reason is a positive NONE');
+
+  // 🛑 The free-text message ALONE must NOT red a key -- only the structured reason does.
+  // A 400 whose prose says "API key not valid" but carries no API_KEY_INVALID reason is
+  // UNKNOWN, or a fuzzy message match would red a good key on incidental wording.
+  ma.setFetcher(async () => ({ status: 400, body: { error: { status: 'INVALID_ARGUMENT', message: 'API key not valid for this request' } } }));
+  assert.equal((await ma.validateLive('AIza-msgonly')).state, ma.STATE.UNKNOWN, 'a free-text-only message is UNKNOWN, never a guessed NONE');
 
   // A generic PERMISSION_DENIED without an API_KEY_INVALID reason is a scope answer,
   // never a guessed dead key.

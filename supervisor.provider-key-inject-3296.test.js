@@ -64,6 +64,9 @@ test('gemini: a per-account key file is injected as GEMINI_API_KEY into the pane
   const out = runSupervisor({ runner: 'gemini', model: 'gemini-2.5-flash', envHome: home, envVar: 'GEMINI_CLI_HOME' });
   assert.ok(out.rec.includes('new-session'), 'the gemini arm reached tmux new-session');
   assert.match(out.rec, /-e GEMINI_API_KEY=AIza-account-secret-1234/, 'the account key is injected as GEMINI_API_KEY');
+  // The key must NEVER be logged/echoed -- it reaches the pane only via the -e env (recorded
+  // in `rec`), never the supervisor's own stdout/stderr (which launchd captures to the log).
+  assert.ok(!out.stdout.includes('AIza-account-secret-1234') && !out.stderr.includes('AIza-account-secret-1234'), 'the key never appears in the supervisor stdout/stderr');
 });
 
 test('gemini: NO key file -> no per-account GEMINI_API_KEY injection (falls back to the global door)', () => {
@@ -81,6 +84,7 @@ test('grok: a per-account key file is injected as XAI_API_KEY into the pane', ()
   const out = runSupervisor({ runner: 'grok', model: 'grok-4.6', envHome: home, envVar: 'GROK_HOME' });
   assert.ok(out.rec.includes('new-session'), 'the grok arm reached tmux new-session');
   assert.match(out.rec, /-e XAI_API_KEY=xai-account-secret-5678/, 'the account key is injected as XAI_API_KEY');
+  assert.ok(!out.stdout.includes('xai-account-secret-5678') && !out.stderr.includes('xai-account-secret-5678'), 'the key never appears in the supervisor stdout/stderr');
 });
 
 test('grok: NO key file -> no per-account XAI_API_KEY injection', () => {

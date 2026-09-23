@@ -211,14 +211,19 @@ async function validateLive(key) {
   if (r.unreachable) return { state: STATE.UNKNOWN, because: r.because };
   if (r.status === 200) return { state: STATE.CONNECTED, because: 'xAI confirmed this key works' };
   if (r.status === 401 || r.status === 403) {
-    /* xAI returns an error object; when it names the credential itself (an
-       authentication error / an invalid api key), that is a positive NONE. Any
-       other 401/403 (a scope/permission answer) is UNKNOWN: the key may work for
-       inference while being unable to list models, so we never red it as bad. */
+    /* Positive NONE ONLY on a STRUCTURED code/type field, NEVER the free-text message.
+       A fuzzy substring match on the message reds a good key whenever an unrelated 401/403
+       merely mentions "authentication" -- exactly the false-NONE class openaiaccounts
+       narrowed away (#1315/#2140), and the reason claudeaccounts (type === 'authentication_error')
+       and openaiaccounts (code === 'invalid_api_key') both key on an EXACT structured field.
+       xAI's API is OpenAI-shaped, so the invalid-key signal is the code `invalid_api_key` (or
+       an explicit authentication_error type). An unrecognized code errs to UNKNOWN: we do not
+       confirm the key is bad, so we never block a good one. The cost is a genuinely bad key
+       whose code we do not recognize is accepted and shown unconfirmed -- the same fail-open
+       trade the siblings make, and the correct direction (a false NONE is the worse error). */
     const err = r.body && (r.body.error || r.body);
-    const code = err && (err.code || err.type || (typeof err === 'string' ? err : null));
-    const msg = err && typeof err.message === 'string' ? err.message : (typeof err === 'string' ? err : '');
-    if (/invalid.?api.?key|authentication|unauthenticated|incorrect api key/i.test(String(code) + ' ' + String(msg))) {
+    const code = err && typeof err === 'object' ? (err.code || err.type || '') : '';
+    if (/^\s*(invalid_api_key|authentication_error|invalid_authentication)\s*$/i.test(String(code))) {
       return { state: STATE.NONE, because: 'xAI did not accept this key' };
     }
     return { state: STATE.UNKNOWN, because: 'xAI refused to check this key in a way that does not confirm the key itself is bad' };

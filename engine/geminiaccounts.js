@@ -175,16 +175,21 @@ async function validateLive(key) {
   if (r.unreachable) return { state: STATE.UNKNOWN, because: r.because };
   if (r.status === 200) return { state: STATE.CONNECTED, because: 'Google confirmed this key works' };
   if (r.status === 400 || r.status === 403) {
-    /* Google's error carries error.status (e.g. INVALID_ARGUMENT / PERMISSION_DENIED)
-       and, for a bad key, a message / details reason of API_KEY_INVALID. Only a
-       reason that attributes the failure to the KEY is a positive NONE; a generic
-       PERMISSION_DENIED without API_KEY_INVALID is a scope answer -> UNKNOWN (never
-       red a key that may work for inference but cannot list models). */
+    /* Positive NONE ONLY on Google's STRUCTURED key-rejection signal: the reason enum
+       `API_KEY_INVALID`, which Google returns as an error.details[].reason (and, on some
+       endpoints, as error.status). NOT the free-text message: matching the prose "API key
+       not valid" would red a good key on any 400/403 whose message happened to contain those
+       words -- the same fuzzy-message false-NONE class the sibling providers key off a
+       structured field to avoid. The enum token cannot appear by accident. A generic
+       PERMISSION_DENIED / INVALID_ARGUMENT without that reason is a scope answer -> UNKNOWN,
+       the fail-open direction (never red a key that may work for inference but cannot list
+       models). */
     const err = r.body && r.body.error;
     const status = err && typeof err.status === 'string' ? err.status : '';
-    const msg = err && typeof err.message === 'string' ? err.message : '';
-    const details = err && Array.isArray(err.details) ? JSON.stringify(err.details) : '';
-    if (/API_KEY_INVALID|API key not valid|invalid.?api.?key/i.test(status + ' ' + msg + ' ' + details)) {
+    const reasons = err && Array.isArray(err.details)
+      ? err.details.map((d) => (d && typeof d.reason === 'string' ? d.reason : '')).join(' ')
+      : '';
+    if (/\bAPI_KEY_INVALID\b/.test(status + ' ' + reasons)) {
       return { state: STATE.NONE, because: 'Google did not accept this key' };
     }
     return { state: STATE.UNKNOWN, because: 'Google refused to check this key in a way that does not confirm the key itself is bad' };
