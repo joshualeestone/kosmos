@@ -89,7 +89,10 @@ final class PushNotificationManager: NSObject {
         userInfo: [AnyHashable: Any],
         completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        NSLog("[Push] remote notification received: \(userInfo)")
+        // Log presence only, never the raw payload (it may carry tokens/PII once
+        // the coordinator's push-send path is wired). TODO(#718): handle the
+        // payload (badge sync, board refresh) when that path lands.
+        NSLog("[Push] remote notification received (\(userInfo.count) key(s))")
         completionHandler(.noData)
     }
 

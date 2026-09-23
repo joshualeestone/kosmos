@@ -1,13 +1,14 @@
 # Kosmos for iOS (native shell)
 
-This is the iOS store shell for Kosmos: a minimal native app that renders the
-Kosmos board in a full-screen `WKWebView`. It is the same "a window pointed at
-the board" shape as the macOS app (`native-app/main.swift`) and the Android TWA
+This is the iOS store shell for Kosmos: a native app that renders the Kosmos
+board in a full-screen `WKWebView`. It is the same "a window pointed at the
+board" shape as the macOS app (`native-app/main.swift`) and the Android TWA
 (PR #2865). Unlike Android, iOS has no Trusted-Web-Activity path, and Apple
 rejects a repackaged website (Review Guideline 4.2), so App Store presence
-requires a genuine native app that later grows real native surface (APNs,
-biometric unlock, notification actions). This is the first, buildable step of
-that. Full context on the card (#2869) and the mobile plan on #718.
+requires a genuine native app with real native surface (APNs registration,
+notification actions, biometric unlock). The shell (#2869) plus that native
+surface as buildable stubs (#718) are both here now. Full context on the cards
+(#2869, #718).
 
 ## What this is
 
@@ -16,6 +17,15 @@ that. Full context on the card (#2869) and the mobile plan on #718.
 - `Kosmos/ContentView.swift` holds the single front-door origin value
   (`KosmosConfig.boardURL`), the one place to repoint, mirroring the Android
   skeleton's `strings.xml`.
+- `Kosmos/AppDelegate.swift` + `Kosmos/PushNotificationManager.swift`: the APNs
+  client-registration path and the notification categories/actions, bridged to
+  the SwiftUI app via `@UIApplicationDelegateAdaptor`. Buildable stubs — the
+  APNs auth key (.p8), the `aps-environment` entitlement, and the coordinator's
+  token-upload endpoint are external unblocks (#718), marked in code.
+- `Kosmos/BiometricAuth.swift`: Face ID / Touch ID unlock, gated behind
+  `KosmosConfig.requireBiometricUnlock` (default off, so the shell behaves as
+  before). `NSFaceIDUsageDescription` is set as a build setting so the generated
+  Info.plist carries it.
 - No hand-written Info.plist: `GENERATE_INFOPLIST_FILE = YES`.
 
 ## Build (the verifiable deliverable)
@@ -65,6 +75,9 @@ submitted, until the front door exists.
 
 ## Not in scope
 
-The front-door origin, the board's service worker, the web-push / APNs send
-path, the native surface that clears Review 4.2, a signing certificate, App
-Store submission, and simulator execution.
+The front-door origin (#2854), the board's service worker, the coordinator's
+web-push / APNs *send* path and the APNs auth key, the `aps-environment`
+entitlement + provisioning profile, a signing certificate, App Store
+submission, and simulator execution. (The native *client* surface that clears
+Review 4.2 — APNs registration, notification actions, biometric unlock — is now
+present as buildable stubs, #718.)

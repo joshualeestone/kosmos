@@ -6,6 +6,7 @@ import WebKit
 struct ContentView: View {
     // Starts unlocked when the gate is off, so default behavior is unchanged.
     @State private var isUnlocked = !KosmosConfig.requireBiometricUnlock
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -15,6 +16,15 @@ struct ContentView: View {
             } else {
                 LockView(onUnlock: unlock)
                     .onAppear(perform: unlock)
+            }
+        }
+        .onChange(of: scenePhase) { newPhase in
+            // Re-lock when the app leaves the foreground, so resuming from the
+            // app switcher (or a lost/borrowed phone) must authenticate again,
+            // and the board is not left rendered in the multitasking snapshot.
+            // No-op when the gate is off. (iOS 16 single-parameter onChange.)
+            if newPhase != .active && KosmosConfig.requireBiometricUnlock {
+                isUnlocked = false
             }
         }
     }
@@ -68,9 +78,9 @@ enum KosmosConfig {
     static let requireBiometricUnlock = false
 }
 
-// A minimal WKWebView wrapper. The native surface that earns App Store approval
-// (native navigation, APNs, biometric unlock) is later work; this shell just loads
-// the board.
+// A minimal WKWebView wrapper that renders the board. Native in-app navigation
+// chrome is still future work; APNs registration and biometric unlock now live
+// in AppDelegate / PushNotificationManager / BiometricAuth.
 struct WebView: UIViewRepresentable {
     let url: URL
 

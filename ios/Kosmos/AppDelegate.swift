@@ -1,5 +1,4 @@
 import UIKit
-import UserNotifications
 
 // The app delegate exists to receive the UIKit-level callbacks a pure SwiftUI
 // `App` cannot: Apple Push Notification service (APNs) registration results are
