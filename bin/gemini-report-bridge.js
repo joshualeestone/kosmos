@@ -61,6 +61,11 @@ const STATE_FOR_EVENT = Object.freeze({
   BeforeAgent: 'working',
   Notification: 'needs_you',
   AfterAgent: 'idle',
+  /* SessionEnd -> stopped. The board's #900/#1949/#2456 auto-guard shields a
+     deliberate blocked/needs_you from an auto idle/working, but NOT from an auto
+     stopped -- so this can overwrite a blocked the agent filed. That is intended:
+     the session has actually ended, so `stopped` is the true state and a `blocked`
+     on a gone agent is stale. */
   SessionEnd: 'stopped',
 });
 
@@ -106,6 +111,26 @@ function reportFor(event) {
   return { state, text };
 }
 
+/* The /api/report body, exported so the ONE field the whole correctness argument
+   rests on -- `auto: true` -- is unit-testable. It silently regressed on the codex
+   bridge (#1456: an auto report without this flag lets a turn ending erase a
+   deliberate blocked), and dropping it here would pass green with no coverage, so it
+   is asserted directly. `env` is injectable for the test; production passes
+   process.env. */
+function buildBody(state, text, env) {
+  const e = env || process.env;
+  return {
+    state,
+    // The engine caps this; the words stay on this Mac (selfreport.js's note).
+    text,
+    on: '',
+    owner: '',
+    until: '',
+    auto: true,
+    from_pane: e.TMUX_PANE || '',
+  };
+}
+
 async function main() {
   const raw = await readStdin();
   let event;
@@ -116,16 +141,7 @@ async function main() {
   const { state, text } = mapped;
 
   const port = Number(process.env.KOSMOS_PORT) || 16180;
-  const body = JSON.stringify({
-    state,
-    // The engine caps this; the words stay on this Mac (selfreport.js's note).
-    text,
-    on: '',
-    owner: '',
-    until: '',
-    auto: true,
-    from_pane: process.env.TMUX_PANE || '',
-  });
+  const body = JSON.stringify(buildBody(state, text, process.env));
 
   /* Present the launch token when we have one (the supervisor mints it per launch
      and puts it in the pane env). Same hex shape-test as the codex bridge: a
@@ -170,4 +186,4 @@ if (require.main === module) {
   main().catch(() => { /* same rule as the top: never break the agent */ });
 }
 
-module.exports = { STATE_FOR_EVENT, reportFor };
+module.exports = { STATE_FOR_EVENT, reportFor, buildBody };

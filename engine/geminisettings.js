@@ -139,12 +139,21 @@ function ensurePrepared(settingsPath, bridgePath) {
 
   let changed = false;
 
-  /* The auth pre-seed. Merge into security.auth.selectedType without disturbing
-     any other security/auth field a person set. Only written when it is not
-     already that value, so a second run is a no-op. */
+  /* The auth pre-seed. Set security.auth.selectedType only when it is ABSENT, and
+     NEVER overwrite a value a person already chose.
+     🛑 NEVER-CLOBBER, and this field is the one that most needs it. This slice is
+     default-account, so the agent's home IS the operator's own ~/.gemini. Forcing
+     selectedType would silently flip the operator's personal auth mode (e.g. an
+     oauth-personal login -> api-key) on their next `gemini` run -- a preference
+     mutation, unlike claude's reporthook which only ADDS hooks. So: if the operator
+     already set a type (any value, including their own oauth login) we leave it and
+     the agent inherits that choice (a fine default-account semantic -- the default
+     account is the operator's); we write gemini-api-key only into a home that has no
+     type set. A per-account home (the deferred geminiaccounts slice) removes the
+     sharing entirely; until then this is the correct never-clobber behaviour. */
   if (!data.security || typeof data.security !== 'object' || Array.isArray(data.security)) data.security = {};
   if (!data.security.auth || typeof data.security.auth !== 'object' || Array.isArray(data.security.auth)) data.security.auth = {};
-  if (data.security.auth.selectedType !== AUTH_TYPE) {
+  if (!data.security.auth.selectedType) {
     data.security.auth.selectedType = AUTH_TYPE;
     changed = true;
   }

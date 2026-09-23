@@ -77,6 +77,19 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
   which is its own coherent slice. Left byte-identical rather than half-wired; no
   gemini agent can be imported yet (none exist, and import is same-machine
   cross-world), so the path is dead for gemini today.
+- **GEMINI_API_KEY key delivery (the api-key path's precondition).** The birth
+  pre-seed makes a launched agent boot straight to the prompt only when a key is in
+  the pane env, delivered by the generic `secrets/env/GEMINI_API_KEY` door -- but
+  nothing SHIPPED populates that file (no GEMINI_API_KEY token door in
+  engine/tokendoors.js, and the connect-UI is deferred). So a fresh `~/.gemini` +
+  no key = a silent auth failure. Tracked with the connect-UI/accounts slice: either
+  a GEMINI_API_KEY token door (operator pastes a key -> the existing secrets/env
+  injection carries it, no full accounts subsystem needed) or the geminiaccounts
+  connect flow. NOTE the never-clobber selectedType fix opens a second path: an
+  operator who has done their own `gemini` oauth login already has a working session
+  in ~/.gemini, and the agent now inherits that (we no longer force api-key), so it
+  is functional with no key at all. On THIS box, verification places the key file by
+  hand (per Verify by content).
 - MANIFEST.gemini managed node-script install (legacy rung ships now).
 - Connect-UI un-gate + MODELS/CREATE_MODELS picker + geminiaccounts subsystem
   (touches web/, per-account homes).

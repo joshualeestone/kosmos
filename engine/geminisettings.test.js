@@ -66,6 +66,30 @@ test('a person\'s own settings and non-ours hooks are preserved (merge, never cl
   assert.ok(cmds.some((c) => c.includes('gemini-report-bridge')), 'ours was not added beside it');
 });
 
+test('an operator-set selectedType is NEVER overwritten (never-clobber on the shared default home)', () => {
+  // The default-account gemini home is the operator's own ~/.gemini, so forcing
+  // selectedType would silently flip their personal auth mode. An existing value
+  // (e.g. their oauth login) must survive; we only fill an ABSENT one.
+  const { file } = tmpSettings();
+  fs.writeFileSync(file, JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } }, null, 2));
+  const r = geminisettings.ensurePrepared(file, BRIDGE);
+  const s = readJSON(file);
+  assert.equal(s.security.auth.selectedType, 'oauth-personal', 'the operator\'s auth mode was clobbered');
+  // The hooks are still added (that half is additive and always applies).
+  assert.ok(s.hooks.AfterAgent.some((d) => d.hooks.some((h) => h.command.includes('gemini-report-bridge'))),
+    'the report hooks were not added');
+  assert.equal(r.changed, true, 'adding the hooks should still count as a change');
+});
+
+test('an ABSENT selectedType is filled with gemini-api-key', () => {
+  const { file } = tmpSettings();
+  fs.writeFileSync(file, JSON.stringify({ security: { auth: { enforcedType: 'x' } } }, null, 2));
+  geminisettings.ensurePrepared(file, BRIDGE);
+  const s = readJSON(file);
+  assert.equal(s.security.auth.selectedType, 'gemini-api-key', 'an absent selectedType was not filled');
+  assert.equal(s.security.auth.enforcedType, 'x', 'a sibling auth field was lost');
+});
+
 test('an entry of ours aimed at an OLD bridge path is repointed, not doubled', () => {
   const { file } = tmpSettings();
   const old = '/old/path/gemini-report-bridge.js';
@@ -152,4 +176,18 @@ test('idle carries the last words; needs_you always carries a non-empty reason',
   // needs_you with no message still gets a reason (the route refuses an empty one).
   assert.ok(bridge.reportFor({ hook_event_name: 'Notification' }).text.length > 0);
   assert.equal(bridge.reportFor({ hook_event_name: 'Notification', message: 'confirm exec' }).text, 'confirm exec');
+});
+
+test('buildBody sets auto:true for EVERY state (the #1456 guard) and reads the pane from env', () => {
+  // auto:true is the field that silently regressed on the codex bridge (#1456): without
+  // it, a turn ending erases a deliberate blocked. Assert it for all five mapped states.
+  for (const state of Object.values(bridge.STATE_FOR_EVENT)) {
+    const body = bridge.buildBody(state, 'x', { TMUX_PANE: '%7' });
+    assert.equal(body.auto, true, `auto must be true for state ${state}`);
+    assert.equal(body.state, state);
+    assert.equal(body.from_pane, '%7', 'from_pane must come from env.TMUX_PANE');
+    assert.equal(body.text, 'x');
+  }
+  // A missing TMUX_PANE degrades to empty, never undefined (the route reads it).
+  assert.equal(bridge.buildBody('idle', '', {}).from_pane, '');
 });
