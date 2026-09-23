@@ -148,20 +148,20 @@ test('a reply is escaped on its way to the screen', () => {
 
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
-    'let CURRENT = ' + JSON.stringify(pick(card)) + ';\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'dmRow', 'pjRich', 'pjRichSpans'].map(slice).join('\n')
+    'let CURRENT = ' + JSON.stringify(pick(card)) + '; let LAST = ' + JSON.stringify([{ sessionName: card.sessionName, hasAvatar: true, avatarVer: 3 }]) + '; let YOU_PIC = false;\n'
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'dmRow', 'pjRich', 'pjRichSpans'].map(slice).join('\n')
     + '; return dmRow;',
   )();
 
   const html = dmRow({ from: card.sessionName, text: '<img src=x onerror=alert(1)>', at: new Date().toISOString() }, card.name);
-  assert.doesNotMatch(html, /<img/, 'an agent’s reply reaches the page unescaped');
+  assert.doesNotMatch(html, /<img src=x/, 'the agent’s reply reaches the page unescaped (the avatar’s own quoted <img src="/api..." is fine; this pins the message’s raw <img src=x)');
   assert.match(html, /&lt;img/, 'the text was dropped rather than escaped');
-  assert.match(html, /dm theirs/, 'the reply is rendered as the person’s own words');
+  assert.match(html, /class="msg"/, 'the agent reply is rendered as a room-style agent bubble (#3414)');
   assert.doesNotMatch(html, /Sent|Placed|Could not/, 'a reply was given a delivery verdict it cannot have');
 
   // ⚠️ THE CONTROL: the person's own row still renders, and still as theirs.
   const mine = dmRow({ text: 'hi', at: new Date().toISOString(), delivery: { state: 'placed' } }, card.name);
-  assert.match(mine, /dm mine/, 'the person’s rows stopped rendering as theirs');
+  assert.match(mine, /class="msg you"/, 'the person’s rows stopped rendering as the user bubble');
   fleet.restore();
 });
 
@@ -246,14 +246,17 @@ test('the person’s own row carries its time now that the receipt may say nothi
   const lift = (n) => page.lift(SCRIPT, n);
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
-    'let CURRENT = ' + JSON.stringify(pick(card)) + ';\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'dmRow', 'pjRich', 'pjRichSpans'].map(lift).join('\n')
+    'let CURRENT = ' + JSON.stringify(pick(card)) + '; let LAST = ' + JSON.stringify([{ sessionName: card.sessionName, hasAvatar: true, avatarVer: 3 }]) + '; let YOU_PIC = false;\n'
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'dmRow', 'pjRich', 'pjRichSpans'].map(lift).join('\n')
     + '; return dmRow;',
   )();
   const at = new Date().toISOString();
   const mine = dmRow({ text: 'hi', at, delivery: { state: 'placed', paneState: 'idle', paneNote: 'it was sitting at its prompt' } }, card.name);
-  assert.match(mine, /dm mine/);
-  assert.match(mine, /You just now/, 'a message that worked lost its timestamp with its receipt');
+  assert.match(mine, /class="msg you"/);
+  /* #3414: the operator's own row drops the "You" label (matches the room's #3130 rule and
+     Josh's UPDATED screenshot -- a user bubble shows only its time). The timestamp now lives
+     INSIDE the bubble (.msg-t), so assert the time is present, without "You". */
+  assert.match(mine, /class="msg-t">just now/, 'a message that worked lost its timestamp with its receipt');
   assert.doesNotMatch(mine, /Placed into/, 'the receipt Josh asked to have removed is still drawn');
   /* ⚠️ THE CONTROL: the same row with something to say still says it, so the
      assertion above cannot be satisfied by a renderer that prints nothing. */
