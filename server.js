@@ -10791,8 +10791,15 @@ const server = http.createServer((req, res) => {
      * would be two derivations of one fact again.
      */
     const owes = messageLog.owesReply(name);
+    /* #3419: surface the agent's live question as a MESSAGE in the thread, not only
+       as the interruptive "waiting on an answer" banner. ADDITIVE for now — the
+       banner fields (asking/question/…) below are unchanged, so Mona's banner
+       removal and this injection compose in either order; a follow-up drops the
+       then-unused banner-only fields. Not persisted: derived live each poll from
+       the same `question` the banner uses, deduped against a trailing real row. */
+    const servedMessages = chat.withQuestionRow(messages, name, question, new Date().toISOString());
     sendJson(res, 200, {
-      messages: withPreviews(messages),
+      messages: withPreviews(servedMessages),
       olderCount,
       historyBecause,
       historyUnfilable,

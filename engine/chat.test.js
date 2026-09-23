@@ -498,6 +498,43 @@ test('the question the thread shows comes off the SAME screen the board called n
   });
 });
 
+/* ── #3419: the question rendered as a thread message, not only a banner ────── */
+
+test('#3419 withQuestionRow appends the live question as an agent-authored message row', () => {
+  const msgs = [{ at: 't1', text: 'hello', from: null, delivery: { state: chat.DELIVERY.PLACED } }];
+  const out = chat.withQuestionRow(msgs, 'casey', { text: 'Do you want to proceed?' }, 't2');
+  assert.equal(out.length, 2, 'the question is appended as a new row');
+  const row = out[1];
+  assert.equal(row.text, 'Do you want to proceed?');
+  assert.equal(row.from, 'casey', 'agent-authored, so dmRow renders it as a "theirs" bubble');
+  assert.equal(row.delivery, null, 'no delivery verdict on an agent-authored row (matches keepAgentReply)');
+  assert.equal(row.kind, 'question', 'marked so the UI can style it and key its dismiss on the needs_you STATE');
+  assert.equal(row.reported, false);
+  assert.equal(row.at, 't2', 'at is passed in (pure), not read from the clock');
+  // The input array is not mutated.
+  assert.equal(msgs.length, 1, 'the caller-owned array is not mutated');
+});
+
+test('#3419 withQuestionRow carries the reported flag and does NOT double a question already shown', () => {
+  // A reported (off-screen) question is tagged so the page can say "the agent told
+  // us this" rather than "it is on screen".
+  const rep = chat.withQuestionRow([], 'casey', { text: 'ship it?', reported: true }, 't');
+  assert.equal(rep[0].reported, true);
+  // DEDUP: if the trailing real message is already this exact text (the agent typed
+  // its own question), no synthetic row is added.
+  const already = [{ at: 't1', text: 'ship it?', from: 'casey', delivery: null }];
+  const out = chat.withQuestionRow(already, 'casey', { text: 'ship it?' }, 't2');
+  assert.equal(out.length, 1, 'the question is already the trailing message; not doubled');
+});
+
+test('#3419 withQuestionRow is a no-op when there is no question (a non-asking poll is untouched)', () => {
+  const msgs = [{ at: 't1', text: 'hello', from: null, delivery: null }];
+  assert.equal(chat.withQuestionRow(msgs, 'casey', null, 't2'), msgs, 'same array, untouched');
+  assert.equal(chat.withQuestionRow(msgs, 'casey', { text: '' }, 't2'), msgs, 'empty question text is no question');
+  // A non-array messages input degrades to [] rather than throwing.
+  assert.deepEqual(chat.withQuestionRow(null, 'casey', null, 't'), []);
+});
+
 /* ── what is ours to keep ────────────────────────────────────────────────── */
 
 test('an absent thread is an empty conversation; there is nothing to report about it', () => {

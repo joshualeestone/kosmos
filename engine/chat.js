@@ -1824,6 +1824,47 @@ function lockedBecause() {
   return 'this conversation is locked by another window, or by one that stopped part-way through a send';
 }
 
+/**
+ * #3419: the agent's live `needs_you` question rendered AS A THREAD MESSAGE, not
+ * only as the interruptive "waiting on an answer" banner.
+ *
+ * Pure and view-level: it takes the messages the route already read plus the
+ * question the route already derived (live `questionIn`, or the reported
+ * fallback), and returns the messages with a synthetic question row appended.
+ * NOTHING is persisted — the question is derived live each poll, exactly like the
+ * `asking`/`question` banner fields it replaces, so this row appears while the
+ * question stands and clears with the state (the state-keyed lifecycle
+ * PigeonPete's #3417-categoryB pointer asks for, not a stored history entry).
+ *
+ * The row mirrors an agent-authored row (`from: <agent>`, `delivery: null`, the
+ * shape `keepAgentReply` writes), so an unmodified `dmRow` renders it as a normal
+ * "theirs" bubble; `kind: 'question'` lets the UI style it and key its dismiss on
+ * the needs_you STATE. `reported` is carried through so the page can still say
+ * "the agent told us this" rather than "it is on screen".
+ *
+ * DEDUP: if the thread's trailing real message is already exactly this text (the
+ * agent typed its own question, or any same-text row), no synthetic row is added —
+ * the question is already shown. Returns the input array unchanged when there is
+ * no question, so a non-asking poll is untouched.
+ *
+ * `at` is passed in (not read from the clock here) so the function stays pure and
+ * testable; the route stamps it with the current time.
+ */
+function withQuestionRow(messages, agentName, question, at) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!question || typeof question.text !== 'string' || !question.text) return list;
+  const last = list.length ? list[list.length - 1] : null;
+  if (last && typeof last.text === 'string' && last.text === question.text) return list;
+  return list.concat([{
+    at: at || null,
+    text: question.text,
+    from: String(agentName),
+    delivery: null,
+    kind: 'question',
+    reported: Boolean(question.reported),
+  }]);
+}
+
 function appendMessage(projectId, agent, entry, bornAt) {
   // ⚠️ EVERYTHING from the read to the rename happens inside the lock. Holding
   // it for the write alone would not help: the loss is in the gap between the
@@ -2283,6 +2324,7 @@ module.exports = {
   DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  withQuestionRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmUnreadAll, dmUnread, DM_SEEN,
