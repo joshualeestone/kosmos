@@ -79,6 +79,18 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         const csp = getComputedStyle(panelSettings);
         res.padTop = parseFloat(csp.paddingTop);
         res.padRight = parseFloat(csp.paddingRight);
+        // #3505: the settings nav pills were flush against the projects-list vertical rule
+        // (nav.left == list.right, zero gap) and stretched to fill the full nav column. Measure
+        // the gap off the rule and the pill width against the nav's horizontal span to the content.
+        const snavEl = document.getElementById('s-nav');
+        const firstPill = document.querySelector('#s-nav button');
+        const firstSec = document.querySelector('#panel-settings .dsec:not([hidden])');
+        if (snavEl && firstPill && firstSec) {
+          const nr = rect(snavEl); const fp = rect(firstPill); const sc = rect(firstSec);
+          res.navGapPastList = nr.left - lv.right;   // #3505a: gap off the left vertical rule (was 0)
+          res.pillWidth = fp.w;                      // #3505b: pill box width (was the full column)
+          res.navToContentSpan = sc.left - nr.left;  // nav-left to content-left; pill should be well inside it
+        }
         // Navigate to a project -> settings hides, project shows.
         pjView('one');
         res.settingsHiddenAfterNav = panelSettings.hidden === true;
@@ -108,6 +120,14 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // the top/right edge. Both must be > 0. This is compatible with the fill assertion above:
     // padding is inside the border-box, so settingsWidth (the border-box width) is unchanged.
     ok(t + ' #3054 the settings panel has a real top + right inset (Your Profile not slammed to the edge)', out.err === null && out.padTop >= 12 && out.padRight >= 12, JSON.stringify(out));
+    // #3505 (Josh, 2026-09-23): the settings nav pills touched the projects-list vertical rule at a
+    // zero gap. Assert a real gap now. Positive-controlled: pre-fix nav.left == list.right so the
+    // gap was 0, which fails >= 12.
+    ok(t + ' #3505 the settings nav sits off the left vertical rule (was flush at 0 gap)', out.err === null && out.navGapPastList >= 12, JSON.stringify(out));
+    // #3505: the pills are sized to their longest label, not stretched to the full nav column.
+    // Positive-controlled: pre-fix the pill filled the column (pillWidth ~= navToContentSpan minus
+    // the column gap), which fails this "comfortably inside its span" bound.
+    ok(t + ' #3505 the settings pills are sized to their label, not the full column', out.err === null && out.pillWidth > 0 && out.pillWidth < out.navToContentSpan - 24, JSON.stringify(out));
     ok(t + ' #2842 navigating to a project hides settings and shows the project', out.err === null && out.settingsHiddenAfterNav === true && out.projectShownAfterNav === true, JSON.stringify(out));
     ok(t + ' #2842 leaving the consolidated view restores settings to the top level', out.err === null && out.restoredToTopLevel === true, JSON.stringify(out));
     ok(t + ' #2842 CONTROL: in the tab view #rail-me-go does not enter the consolidated view', out.err === null && out.tabViewNotConsolidated === true, JSON.stringify(out));
