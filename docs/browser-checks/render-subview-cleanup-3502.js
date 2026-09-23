@@ -42,7 +42,6 @@ const server = http.createServer((req, res) => {
 let failures = 0, ran = 0;
 const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); else { failures++; console.log('FAIL  ' + n + '  --  ' + (note || 'assertion failed')); } };
 
-const SUBVIEWS = ['pj-one-view', 'pj-docs-view', 'pj-alltasks-view', 'pj-settings-view', 'pj-add-view'];
 
 (async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -153,7 +152,7 @@ const SUBVIEWS = ['pj-one-view', 'pj-docs-view', 'pj-alltasks-view', 'pj-setting
   say('#3502 consolidated: opening Settings focuses the settings heading (back hidden, focus not stranded on body)',
     cons.focus.backHidden === true && cons.focus.activeIsHeading === true && cons.focus.activeIsBody === false, JSON.stringify(cons.focus));
   // Tab-view focus is NOT asserted here: the fix's tab-view branch (`if backShown: back.focus()`)
-  // is byte-identical to the pre-fix handler, and the tab-view back button's visibility is already
+  // preserves the pre-fix handler's focus behaviour (focus the back button when visible), and the tab-view back button's visibility is already
   // controlled by the "back button still shows in the tab view" assertions above -- so the
   // consolidated arm is the only behavioural change, and it is the one guarded (positive-controlled:
   // it fails on the pre-fix markup, where the handler focused the now-hidden back button).

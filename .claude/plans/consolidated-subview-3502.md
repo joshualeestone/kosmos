@@ -2,7 +2,9 @@
 
 Josh, 2026-09-23 (design channel, 3 screenshots of the consolidated project view). Three
 display-only fixes to the Documents / Tasks / Project Settings sub-views. All CSS + one class
-swap, consolidated-scoped, no behaviour change.
+swap, consolidated-scoped. One behaviour change, forced by #3502: hiding the back button in
+the consolidated view would strand keyboard focus, so the Settings-link handler now focuses the
+settings heading there instead (details under #3502 below).
 
 ## #3502 - remove the redundant "Back to <project>" buttons
 The three sub-views each render a `.back` button (`#docs-back`, `#alltasks-back`,
