@@ -104,6 +104,13 @@ test('working -> auth_failed ASKS (a rejected token is dead until reconnect, no 
   assert.equal(t.toAsk[0].to, 'auth_failed');
 });
 
+test('#3410 working -> connection_lost ASKS (a wedged network error, no other path, does not self-recover)', () => {
+  const s = tick([row('a', 'working', 'scraped')], new Map()).next;
+  const t = tick([row('a', 'connection_lost', 'scraped')], s);
+  assert.equal(t.toAsk.length, 1, 'a working agent that wedged on a network error must be surfaced, not silently closed');
+  assert.equal(t.toAsk[0].to, 'connection_lost');
+});
+
 test('working -> rate_limited does NOT ask (transient, the account recovers on its own)', () => {
   const s = tick([row('a', 'working', 'scraped')], new Map()).next;
   const t = tick([row('a', 'rate_limited', 'scraped')], s);

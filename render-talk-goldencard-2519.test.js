@@ -1194,6 +1194,7 @@ test('#2519: the top-level `because` follows `state`, so the recording cannot co
     rate_limited: () => 'its screen mentions a usage limit',
     auth_failed: (c) => (c.runner === 'codex' ? 'its OpenAI sign-in is not working' : 'its Claude sign-in is not working'),
     blocked: () => 'it is waiting on something that is not you',
+    connection_lost: () => 'it lost its connection to the API',
     unknown: (c) => (c.stateReported === true
       ? 'it said it was working and has not said anything since; we could not check'
       : 'we could not tell what it is doing'),
