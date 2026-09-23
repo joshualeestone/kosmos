@@ -232,7 +232,7 @@ function scrubNonStrings(v) {
    silently widening what this tool will record. `runner` has no export to check: it is a
    ternary at the pane card literal that can yield only these two. */
 const ENUMS = {
-  state: ['working', 'needs_you', 'rate_limited', 'auth_failed', 'idle', 'stopped', 'restarting', 'blocked', 'unknown'],
+  state: ['working', 'needs_you', 'rate_limited', 'auth_failed', 'connection_lost', 'idle', 'stopped', 'restarting', 'blocked', 'unknown'],
   stateConfidence: ['structured', 'scraped', 'none'],
   runner: ['codex', 'claude'],
   /* #2808: `stateReportedBy` (selfreport.js's `by`) is ENUM-bounded like the three above --
@@ -375,6 +375,8 @@ function neutralise(live) {
   if (typeof card.because === 'string' && card.state === 'auth_failed' && card.runner !== 'codex') card.because = 'its Claude sign-in is not working';
   if (typeof card.because === 'string' && card.state === 'auth_failed' && card.runner === 'codex') card.because = 'its OpenAI sign-in is not working';
   if (typeof card.because === 'string' && card.state === 'blocked') card.because = 'it is waiting on something that is not you';
+  /* #3410: connection_lost carries classify()'s own fixed sentence (status.js). */
+  if (typeof card.because === 'string' && card.state === 'connection_lost') card.because = 'it lost its connection to the API';
   if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
   /* PIN the volatile MEASUREMENTS so they do not move between captures.
      🛑 NOT "so a re-run is byte-identical unless the SHAPE moved". That sentence stood

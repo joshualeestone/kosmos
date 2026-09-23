@@ -256,6 +256,19 @@ const STATE = {
      nothing caught this before -- classify() checked AUTH_FAILED_MARKERS
      first, mirroring RATE_LIMIT_MARKERS's own precedent. */
   AUTH_FAILED: 'auth_failed',
+  /* #3410: a TRANSIENT network error, distinct from AUTH_FAILED. The account
+     is fine and the token is valid -- Claude Code simply could not reach the
+     API (DNS/network blip: ENOTFOUND / "Can't reach the API server", a route
+     down, a refused connection, a timeout). Claude Code's own retry loop draws
+     working chrome while it retries, so an actively-retrying agent stays
+     WORKING (the live-working checks precede this); this state is reached only
+     once the retries are exhausted and the pane sits with the error, where it
+     used to read UNKNOWN ("Can't tell"). It is RECOVERABLE by a restart when
+     connectivity returns (the self-heal half, #3410 PR 2), which is why it is
+     its own state and not folded into AUTH_FAILED (an auth failure a restart
+     cannot fix) or UNKNOWN (which must never be auto-restarted). The SSL/cert
+     class is deliberately excluded: it needs a CA-trust fix, not a restart. */
+  CONNECTION_LOST: 'connection_lost',
   IDLE: 'idle',
   STOPPED: 'stopped',
   /* #2019: not present, not absent, but IN TRANSITION ON PURPOSE, BY US. A
@@ -1982,6 +1995,72 @@ function activeWhileWaitingFrom(state, freshest, askedAtMs) {
  */
 const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Your session has expired/i;
 const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
+
+/**
+ * #3410. Claude Code's own on-screen text for a TRANSIENT network error --
+ * the recoverable class, distinct from the auth failure above and from the
+ * SSL/cert class below. BYTE-EXACT, pulled from the installed Claude Code
+ * 2.1.280 bundle's error formatter (the `"Connection error."` switch on the
+ * network error code): each phrase is a `case` return in that formatter.
+ *
+ *   ENOTFOUND / EAI_AGAIN / FailedToOpenSocket -> "Can't reach the API server
+ *       — check your internet or DNS (ENOTFOUND)"
+ *   ENETUNREACH / ENETDOWN / EHOSTUNREACH / EHOSTDOWN -> "No internet route — …"
+ *   ECONNREFUSED / ConnectionRefused -> "… a firewall or proxy may be blocking it (…)"
+ *   ECONNRESET / EPIPE / ECONNABORTED / ConnectionClosed / … -> "Connection dropped (…)"
+ *   ERR_PROXY_TUNNEL -> "Couldn't connect through your proxy (…) — the proxy refused the tunnel: …"
+ *   code undefined -> "Unable to connect to API. Check your internet connection"
+ *   default coded -> "Unable to connect to API (CODE)"
+ *   ETIMEDOUT -> "Request timed out. Check your internet connection and proxy settings"
+ *
+ * 📌 TWO OTHER FORMATTER OUTPUTS ARE DELIBERATELY NOT matched, so the exclusion
+ * accounting is complete against what that error formatter can emit:
+ *   - StreamSuspended -> "Connection lost while your computer was asleep": rendered
+ *     EARLIER (not by this "Connection error." switch), a sleep/wake artifact with
+ *     its OWN recovery path (the session resumes when the Mac wakes), not the
+ *     DNS/network-down class #3410 targets. Auto-restarting it (PR 2) would abort a
+ *     session that resumes on its own.
+ *   - StreamNoResponse -> "No response from API": the connection was MADE but no
+ *     first byte arrived in the window. The network is not down and the connection
+ *     is not lost -- it is a server-side hang, a different symptom from this state,
+ *     so labelling it "Connection lost" would be wrong. Left UNKNOWN.
+ * Both stay UNKNOWN today (status quo); each is a separate case with its own
+ * recovery semantics if it ever proves to need surfacing, not this one.
+ *
+ * 🔑 KEYED ON SUBSTRINGS FREE OF TYPOGRAPHIC UNICODE so the match is immune to how
+ * a capture renders U+2014 (em dash) AND U+2019 (curly apostrophe): the first arm
+ * keys on "reach the API server", NOT "Can't reach …", because a straight ASCII
+ * apostrophe in the pattern would silently miss a curly one the bundle might render
+ * -- the identical fragility the em-dash avoidance guards against, and one a test
+ * using the same author-typed apostrophe could not catch. Matched as a SUBSTRING per
+ * row (like AUTH_FRIENDLY_MESSAGE) so the "API Error:" prefix / `●` bullet the TUI
+ * wraps around it does not matter.
+ *
+ * 🛑 THE SSL/CERT CLASS IS DELIBERATELY EXCLUDED. Its lines are
+ * `Unable to connect to API: SSL certificate …` (a COLON after "API"), which is
+ * a CA-trust problem a restart cannot fix (NODE_EXTRA_CA_CERTS / a proxy CA is the
+ * remedy, not reconnecting). The two "Unable to connect to API" arms here match
+ * only the PERIOD form ("… API. Check your internet connection") and the PAREN
+ * form ("… API (CODE)"), never the colon form -- so an SSL error never reads
+ * connection_lost and never triggers the self-heal restart (#3410 PR 2).
+ *
+ * ⚠️ ONE RESIDUAL, the same one AUTH_FRIENDLY_MESSAGE pins and accepts: a card or
+ * message quoting one of these lines verbatim reads connection_lost. It is rare,
+ * and it is not silent: reconcileReport's connection-lost half (rule 3b, #3410)
+ * makes the scraped connection_lost stand over the agent's report WITH a conflict
+ * note, so a self-reporting agent shows the state plus "its reports cannot know
+ * about" rather than being masked back to working/idle. A missed wedged agent is
+ * worse than a rare false pause -- this file's oldest trade.
+ *
+ * 📌 SCOPE: CLAUDE CODE ONLY, DELIBERATELY. These are Claude Code's formatter
+ * strings and the classify() rule that uses them lives in the Claude branch, so a
+ * CODEX pane wedged on the same transient network error still reads UNKNOWN
+ * ("Can't tell"). That gap is intentional for this PR: #3410 targets Claude Code
+ * (Josh's report), Codex's on-screen vocabulary was not captured, and a Codex
+ * WORKING read is already an unreliable signal (#2413). A Codex equivalent is a
+ * separate change with its own captured strings, not a silent omission here.
+ */
+const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
@@ -3733,6 +3812,61 @@ function classify(pane, paneText) {
                if (line.length > 240) return line.slice(0, 240) + '…';
                return closed ? line : line + '…';
              })() };
+  }
+  /**
+   * #3410. A TRANSIENT network error, sitting on the pane with no live activity.
+   *
+   * 🔑 PLACEMENT IS THE SAFETY. This sits BELOW every working check
+   * (`hasLiveInterruptLine`, `backgroundAgentWait`, `WORKING_LINE`) on purpose:
+   * Claude Code retries a network error internally and draws working chrome
+   * (a live spinner / "retrying in Ns") while it does, so an agent that is
+   * ACTIVELY RETRYING classifies WORKING above and is never touched by the
+   * self-heal restart (#3410 PR 2). Only once the retries are exhausted and the
+   * error line is sitting on a pane with no live spinner do we reach here -- the
+   * exact "wedged, will not recover on its own" state Josh hit, which used to
+   * fall through to the idle footer rule or to UNKNOWN ("Can't tell"). It sits
+   * ABOVE the idle/footer fallbacks so that wedged pane reads connection_lost,
+   * not "sitting at its prompt".
+   *
+   * The line rides along as evidence (the rate-limit / auth rule): we cannot
+   * know the network is down, only that Claude Code SAID it could not reach the
+   * API, so we show what the screen actually says.
+   *
+   * ⚠️ THE PRECEDENCE PREMISE IS ASSERTED ABOUT A UI WE DO NOT CONTROL, and it is
+   * only cosmetic for THIS surfacing-only PR: worst case a pane briefly reads
+   * "Connection lost" during a no-spinner retry frame, which is not harmful and
+   * is arguably accurate. It becomes LOAD-BEARING for the #3410 self-heal (PR 2),
+   * which restarts on this state -- restarting an agent that is still mid-retry
+   * would abort a turn that might have recovered on its own. So PR 2 must confirm,
+   * against a REAL captured retry sequence, that an in-flight retry draws live
+   * working chrome (and hence never reaches here) before it acts on this state --
+   * do not carry this premise forward into a restart on my word alone.
+   *
+   * ⚠️ A SECOND STALE-READ, ALSO COSMETIC FOR PR 1 AND LOAD-BEARING FOR PR 2: this
+   * rule sits ABOVE the idle/finished fallbacks, so an agent that ALREADY RECOVERED
+   * and went idle still reads connection_lost while its old error line remains in the
+   * ~25-row capture window (it scrolls out as the recovered agent produces new
+   * output, so PR 1 self-corrects within a few lines -- and a recently-recovered
+   * agent briefly labelled "Connection lost" is stale, not a false calm). Unlike
+   * auth_failed, this state has NO external freshness signal (auth_failed has the
+   * #1930 liveAuth-healthy guard; there is no "is the network back" probe in
+   * classify). ⇒ PR 2 must NOT restart on connection_lost alone: connectivity
+   * returning is necessary but not sufficient, because a recovered pane can show
+   * connectivity-up AND a stale error line at once. PR 2 needs a "still actually
+   * wedged" bound (no new activity since the error / the error is the live tail),
+   * not just a connectivity probe, or it will restart an agent that already healed.
+   */
+  /* The shared matchedLine helper (as rate_limited uses it): first row matching
+     CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
+     one derivation of "find the evidence line", not a private copy. */
+  const connLine = matchedLine(tail, [CONNECTION_LOST_MESSAGE]);
+  if (connLine !== null) {
+    return {
+      state: STATE.CONNECTION_LOST,
+      confidence: CONFIDENCE.SCRAPED,
+      because: 'it lost its connection to the API',
+      evidence: connLine,
+    };
   }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
     return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it finished and is waiting for you' };
@@ -5842,6 +5976,23 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        loop "at rest" forever. Report freshness cannot rescue it either (#966): a fresh report
        is necessarily from BEFORE a current failure and vouches for nothing now. */
     return { ...scraped, reported: false, conflict: 'its screen shows its Claude sign-in is being rejected, which its reports cannot know about' + saidWords(reported, nowMs) };
+  }
+  /* Rule 3b, connection-lost half (#3410). Same reasoning as the dead-token
+     half above, and DELIBERATELY NOT the rate-limit half below: a transient
+     network error read off the screen stands over ANY report. This state is only
+     reached once the WORKING checks (live spinner / retry chrome) have already
+     failed in classify(), so the agent has NO live activity -- its last report is
+     necessarily from BEFORE the connection died (the tool call that triggered the
+     error, or the Stop hook's end-of-turn `report idle`), and an idle report never
+     decays (rule 6), which would render a wedged agent "at rest and nothing is
+     needed" forever -- the exact false calm #3410 exists to remove for the very
+     population it targets (a Kosmos-managed agent runs the report hook, so it
+     almost always HAS a recent report). Report freshness cannot rescue it (#966):
+     a fresh `working` report predates the failure and vouches for nothing now.
+     Unlike a rate limit, a wedged agent is not still working and reporting to
+     localhost, so the "a fresh report wins" exception does not carry here. */
+  if (scraped.state === STATE.CONNECTION_LOST) {
+    return { ...scraped, reported: false, conflict: 'its screen shows it lost its connection to the API, which its reports cannot know about' + saidWords(reported, nowMs) };
   }
   /* Rule 3b, rate-limit half (#966). The rule above states its own
      justification -- "no hook fires once the request itself is refused" -- and

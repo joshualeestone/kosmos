@@ -11,7 +11,7 @@
  *
  * DETECTION IS NOT REBUILT HERE. Every agent on the board already carries a
  * `state` classified by engine/status.js `classify()` (WORKING / IDLE / STOPPED
- * / NEEDS_YOU / RATE_LIMITED / AUTH_FAILED / UNKNOWN), the detector the whole
+ * / NEEDS_YOU / RATE_LIMITED / AUTH_FAILED / CONNECTION_LOST / UNKNOWN), the detector the whole
  * product trusts. This sweep COMPOSES that: given the roster's already-classified
  * states and what it saw last tick, it decides who is in an open STALL and worth
  * a CHECK-IN. A second detector here would be the "two derivations of the fleet"
@@ -91,7 +91,16 @@
 // surface un-surfaced. NEEDS_YOU (its own notify path) and RATE_LIMITED (transient,
 // the account works again on its own) are deliberately NOT here -- see the else
 // branch in tick().
-const ASK_ON_EXIT_TO = new Set(['stopped', 'idle', 'unknown', 'auth_failed']);
+// #3410: CONNECTION_LOST is in the set, alongside auth_failed and for the same
+// reason. A working agent that hit a transient network error and wedged is a
+// stall with no OTHER notify path, and -- unlike rate_limited -- it does NOT
+// recover on its own (the card's whole premise: it "stays wedged, doesn't
+// auto-retry"). The #3410 self-heal restarts it on connectivity return, but a
+// restart-in-progress reads `restarting` (not in this set, so not asked mid-recovery),
+// and a connection_lost that PERSISTS past the heartbeat cadence is one the self-heal
+// could not clear (network still down / retry cap reached) -- exactly the "agent
+// stopped working" this feature exists to surface, not to swallow.
+const ASK_ON_EXIT_TO = new Set(['stopped', 'idle', 'unknown', 'auth_failed', 'connection_lost']);
 
 // Consecutive stall ticks a NEVER-worked agent must show before a persistent
 // stall opens an episode for it (see "TWO WAYS AN EPISODE OPENS", case 2). Two

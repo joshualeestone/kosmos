@@ -14685,6 +14685,14 @@ const STATE_COPY = {
      the wrong reassurance (it implies "will resume on its own"), so this
      gets its own label. */
   auth_failed:  { label: "Sign-in isn't working", attn: true  },
+  /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
+     connection to the API, distinct from auth_failed (the account is fine).
+     An attention state, but a RECOVERABLE one: it is the kind of thing a restart
+     fixes once connectivity returns (the #3410 self-heal that will auto-restart
+     it is a follow-on PR, not built here -- this PR surfaces the state). Named its
+     own label rather than folded into "Can't tell": the whole point of #3410 is to
+     replace that opaque UNKNOWN with a state that says what happened. */
+  connection_lost: { label: 'Connection lost', attn: true },
   /* Reported-only (#188's third verb): the agent said it is waiting on
      something that is not you. No pane shape produces it. */
   blocked:      { label: 'Waiting',       attn: true  },
@@ -14737,6 +14745,13 @@ const CARD_ST = {
      an answer from Claude. Whether this deserves its own louder pack
      treatment is a design call for whoever owns that, not decided here. */
   auth_failed:  { st: 'paused',  pres: 'on' },
+  /* #3410: wears the same quiet "paused" pack shape as auth_failed -- work is
+     stopped by something the agent cannot get past on its own, but the process
+     is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
+     red because it is recoverable (a restart on connectivity return will heal it;
+     that self-heal is a #3410 follow-on PR, not built here); a louder treatment,
+     if wanted, is a design call for whoever owns the pack, not decided here. */
+  connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
      reserved for "somebody is waiting on YOU". */
   blocked:      { st: 'paused',  pres: 'on' },
@@ -14927,8 +14942,9 @@ function taskLine(a, opts) {
  * derive their task line from `taskLine`, which calls this. The frozen pane
  * title used to be the fallback here; #209 removed it entirely (a title Kosmos
  * never writes and Claude Code freezes at first message is a fossil, not a
- * status), so today only `rate_limited` and `auth_failed` (#874) speak and
- * every other state shows nothing rather than a stale summary.
+ * status), so today only `rate_limited`, `auth_failed` (#874) and
+ * `connection_lost` (#3410) speak and every other state shows nothing rather
+ * than a stale summary.
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -14982,6 +14998,19 @@ function stateReason(a, opts) {
     return a.stateConfidence === 'scraped'
       ? "Looks like its Claude sign-in isn't working"
       : "Its Claude sign-in isn't working";
+  }
+  /* #3410: a human sentence, not the raw terminal line. The evidence
+     ("API Error: Can't reach the API server ... (ENOTFOUND)") is the exact
+     terminal text Josh's #215 ruling says a white-collar person does not think
+     about; the card says what it MEANS. Same "Looks like" hedge as scraped
+     rate_limited/auth_failed above: SCRAPED asks only that the screen said so,
+     not that the network is proven down. The confident arm is unreachable from
+     today's engine (connection_lost is only ever SCRAPED) and kept for symmetry,
+     so a structured source strengthens the sentence by arriving. */
+  if (a && a.state === 'connection_lost') {
+    return a.stateConfidence === 'scraped'
+      ? 'Looks like it lost its internet connection'
+      : 'It lost its internet connection';
   }
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
@@ -24082,9 +24111,14 @@ let START_FLIGHT = null;
    returns, rather than leaving it stuck disabled until reopen). Deliberately does
    NOT clear #d-start-msg -- openDetail owns clearing a stale message, and the poll
    must not wipe a just-written status line. Shown only when confidently not
-   running (cardStOf(a).pres === 'off', 'stopped' alone today; a future
-   connection_lost, Angel #3418, falls under the same gate and would get a
-   "Reconnect" label here). */
+   running (cardStOf(a).pres === 'off', 'stopped' alone). connection_lost, now
+   that it exists (#3410), deliberately does NOT fall under this gate: it ships
+   pres:'on' because the Claude PROCESS is still up (it just cannot reach the
+   API), and pres:'off' is reserved for 'stopped' (it gates plannedModelName).
+   Recovery for connection_lost is the #3410 self-heal (auto-restart on
+   connectivity return, a follow-on PR), not this Start button; a manual
+   "Reconnect" affordance, if ever wanted, would need its own gate rather than
+   pres:'off'. */
 function refreshStartAffordance(a) {
   const wrap = document.getElementById('d-start-wrap');
   if (!wrap) return;
@@ -38219,11 +38253,14 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      and blends in. Josh asked for the little red triangle over the agent's icon and the
      status text in red, so it calls for attention, and it must stand out from THE REST -
      so this lights up ONLY needs_you, not the other cautions.
-     🛑 cardStOf(m).st === 'attn', NOT stateCopyOf(m).attn: STATE_COPY.attn is true for SIX
-     states (needs_you, rate_limited/Paused, auth_failed, blocked/Waiting, stopped, unknown),
+     🛑 cardStOf(m).st === 'attn', NOT stateCopyOf(m).attn: STATE_COPY.attn is true for MANY
+     states (needs_you, rate_limited/Paused, auth_failed, connection_lost/Connection lost,
+     blocked/Waiting, stopped, unknown, needs_trust - and the set grows as states are added,
+     which is why this keys on CARD_ST instead of a count that goes stale),
      so keying on it would paint every paused/unreadable/stopped member as urgent too and
-     defeat the card. CARD_ST maps only needs_you to st:'attn' - the same mapping the org-node
-     badge (#2576/#2577) already uses for "only needs-you gets a mark". Gated on m.present
+     defeat the card. CARD_ST maps only needs_you and needs_trust to st:'attn' (the two
+     states that genuinely need a person now) - close to the org-node badge (#2576/#2577)
+     mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
   const needsYou = m.present === true && cardStOf(m).st === 'attn';

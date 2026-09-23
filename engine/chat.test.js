@@ -1158,6 +1158,20 @@ test('a state we could not read gets a sentence too, and never renders as an idl
   assert.equal(chat.waitingNote(null), said);
 });
 
+test('#3410 connection_lost gets its own waiting note, not the "could not tell" default', () => {
+  const said = chat.waitingNote('connection_lost');
+  assert.match(said, /lost its connection to the internet/,
+    'a wedged agent whose connection loss the board KNOWS must not read "we could not tell"');
+  assert.doesNotMatch(said, /could not tell what it was doing/);
+  // The unsure vs certain phrasing branches like rate_limited/auth_failed do
+  // (`unsure` = outcome === DELIVERY.UNCONFIRMED).
+  const unsureNote = chat.waitingNote('connection_lost', chat.DELIVERY.UNCONFIRMED);
+  const certainNote = chat.waitingNote('connection_lost');
+  assert.notEqual(unsureNote, certainNote,
+    'the unsure and certain phrasings must differ, matching the rate_limited/auth_failed cases');
+  assert.match(certainNote, /until it reconnects/);
+});
+
 test('#1889: the background-wait note survives the WHOLE PATH, card to sentence', () => {
   /*
    * 🛑 THE SIBLING ROW BELOW CALLS `waitingNote(..., true)`, WHICH TESTS THE
