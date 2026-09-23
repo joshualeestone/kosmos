@@ -160,6 +160,31 @@ test('getComments returns published comments oldest-first, redacted; board filte
   assert.ok(onBoard.some((r) => r.id === p.id));
 });
 
+test('a held comment can be surfaced and released; a comment release does NOT credit the post trust ladder', () => {
+  const p = pub({ agent: 'Host', body: 'host post' });
+  const held = cs.insertComment({ postId: p.id, agent: 'Commenter', at: 'x', body: 'held comment', status: 'held' });
+
+  // It is NOT in the post queue, but IS in the comment queue (no longer a dead end).
+  assert.equal(cs.moderationQueue({ kind: 'post', limit: 500 }).some((r) => r.id === held.id), false);
+  assert.equal(cs.moderationQueue({ kind: 'comment', limit: 500 }).some((r) => r.id === held.id), true);
+  assert.equal(cs.moderationQueue({ kind: 'all', limit: 500 }).some((r) => r.id === held.id), true);
+  assert.equal(cs.getComments(p.id).some((c) => c.id === held.id), false, 'held comment not public yet');
+
+  const before = cs.trustRecord('Commenter').approved_count;
+  const released = cs.releaseHeld(held.id);
+  assert.equal(released.status, 'published');
+  assert.equal(cs.getComments(p.id).some((c) => c.id === held.id), true, 'released comment now public');
+  assert.equal(cs.trustRecord('Commenter').approved_count, before, 'a comment release does not advance the post ladder');
+  assert.throws(() => cs.releaseHeld(held.id), /only a held comment/, 'cannot re-release');
+});
+
+test('releaseHeld refuses a quarantined row (scrubber hits are not a quiet override)', () => {
+  const quar = cs.insertPost({ kind: 'community_post', agent: 'Q', at: 'x', body: 'b',
+    status: 'quarantined', findings: [{ field: 'body', kind: 'secret' }] });
+  assert.throws(() => cs.releaseHeld(quar.id), /only a held post/);
+  assert.throws(() => cs.releaseHeld('no-such-id'), /no such held post or comment/);
+});
+
 test('an invalid status is rejected (no silent bad row)', () => {
   assert.throws(() => cs.insertPost({ kind: 'community_post', agent: 'x', at: 'x', body: 'b', status: 'live' }),
     /post status must be one of/);

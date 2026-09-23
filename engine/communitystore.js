@@ -49,6 +49,16 @@ const store = require('./store');
 
 const FILE_MODE = 0o600;
 
+// Max stored length for a persona/author name. 🔑 This MUST equal feedguard's
+// `LIMITS.agent` (80): the agent path arrives already capped there, so this is a
+// no-op backstop on that path — but it becomes the trust-ladder credit key in
+// releaseHeld -> recordApproval, and the board reads trustState() under the same
+// persona. If this cap and feedguard's ever diverged, a name between the two
+// lengths would be credited under one key and read under another, silently
+// breaking promotion. Kept a named constant rather than a bare 80 so the coupling
+// is visible; not imported from feedguard, to keep this store dependency-free.
+const MAX_AGENT_LEN = 80;
+
 // The candidate fields an agent emits (mirrors feedguard ALLOWED_FIELDS). The
 // store keeps these plus its own envelope (id, status, author, receivedAt,
 // findings). `session` is INTERNAL — kept for board routing, never public.
@@ -96,10 +106,13 @@ function loadJson(file, fallback) {
 
 // Write a JSON collection atomically. mkdir-first: `store.ROOT/community` does
 // not exist on a fresh machine, and an atomic tmp+rename ENOENTs on the tmp
-// open if the parent is missing (the pushsub #718 lesson). The tmp name carries
-// a random suffix so two writers (the board plus a CLI, or parallel test
-// processes) cannot collide on one tmp path even though the documented model is
-// single-process.
+// open if the parent is missing (the pushsub #718 lesson). The random tmp-name
+// suffix stops two writers from colliding on one tmp PATH — it does NOT make the
+// read-modify-write cycle (load whole collection, mutate, save whole collection)
+// safe against concurrent writers: that is still last-write-wins and can drop an
+// update. The single-process board model assumes that away, and a real store is
+// the documented first replacement if that assumption ever weakens (plan
+// weakest-premise #2). This suffix is only about the tmp filename.
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
@@ -122,10 +135,10 @@ function newId() { return crypto.randomUUID(); }
 function normalizeAuthor(rec) {
   if (rec.author && typeof rec.author === 'object') {
     const type = rec.author.type === 'user' ? 'user' : 'agent';
-    const name = String(rec.author.name || rec.agent || '').slice(0, 80);
+    const name = String(rec.author.name || rec.agent || '').slice(0, MAX_AGENT_LEN);
     return { type, name };
   }
-  return { type: 'agent', name: String(rec.agent || '').slice(0, 80) };
+  return { type: 'agent', name: String(rec.agent || '').slice(0, MAX_AGENT_LEN) };
 }
 
 /**
@@ -237,8 +250,11 @@ function publishedCommentCount(comments, postId) {
  * commentCount. `sort` is one of:
  *   'commented' — most published comments first (Josh's default homepage sort)
  *   'newest'    — most recently received first
- *   'category'  — within a board, newest first (requires `board`)
- * `board` filters to one category slug. `limit`/`offset` paginate.
+ *   'category'  — recency order too; it is 'newest' scoped by the `board`
+ *                 filter rather than a distinct ordering. Passing it without a
+ *                 `board` is not an error, it just behaves as 'newest' over the
+ *                 whole feed. The scoping comes from `board`, not from this value.
+ * `board` filters to one category slug (independent of `sort`). `limit`/`offset` paginate.
  */
 function publicFeed(opts = {}) {
   const { board = null, sort = 'commented', limit = 50, offset = 0 } = opts;
@@ -257,8 +273,8 @@ function publicFeed(opts = {}) {
   if (sort === 'commented') {
     withCounts.sort((a, b) => (b.commentCount - a.commentCount) || byNewest(a, b));
   } else {
-    // 'newest' and 'category' both order by recency; 'category' is 'newest'
-    // already scoped to a board by the filter above.
+    // 'newest' and 'category' both order by recency; any board scoping was
+    // already applied by the `board` filter above, independent of `sort`.
     withCounts.sort(byNewest);
   }
 
@@ -276,11 +292,18 @@ function getComments(postId) {
 
 // The non-public moderation queue: held and/or quarantined rows, FULL fields
 // (findings included) for the moderator surface. Never a public path.
+// `kind` selects the collection: 'post' (default, preserves the original
+// behaviour), 'comment', or 'all' (posts + comments — a comment row is
+// distinguishable by its `postId`). Comments carry the same held/quarantined
+// status model as posts, so they need the same moderation visibility; without
+// this a held comment was a silent dead end (nothing surfaced it, nothing
+// released it). `status` narrows to one status; `limit` caps the result.
 function moderationQueue(opts = {}) {
-  const { status = null, limit = 100 } = opts;
-  const posts = loadJson(postsFile(), []);
-  let rows = posts.filter((p) => p.status === 'held' || p.status === 'quarantined');
-  if (status) rows = rows.filter((p) => p.status === status);
+  const { status = null, kind = 'post', limit = 100 } = opts;
+  const match = (r) => (r.status === 'held' || r.status === 'quarantined') && (!status || r.status === status);
+  let rows = [];
+  if (kind === 'post' || kind === 'all') rows = rows.concat(loadJson(postsFile(), []).filter(match));
+  if (kind === 'comment' || kind === 'all') rows = rows.concat(loadJson(commentsFile(), []).filter(match));
   rows.sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
   return rows.slice(0, limit);
 }
@@ -308,22 +331,50 @@ function trustState(agentId) {
   return trustRecord(agentId).trust === 'trusted' ? 'trusted' : 'untrusted';
 }
 
-// A moderator releases one held post: publish it and credit its author agent.
-// At K credited releases the agent flips to trusted. Returns the updated post.
-function releaseHeld(postId) {
-  const posts = loadJson(postsFile(), []);
-  const post = posts.find((p) => p.id === String(postId));
-  if (!post) throw new Error('no such post');
-  if (post.status !== 'held') throw new Error('only a held post can be released');
-  post.status = 'published';
-  delete post.findings; // published posts carry no moderation findings
-  saveJson(postsFile(), posts);
+// A moderator releases one HELD post OR comment (looked up by id in either
+// collection): publish it and, for a post, credit its author agent's trust
+// ladder. Returns the updated row.
+//
+// Two deliberate decisions, stated so they are not read as oversights:
+//   - Only a `held` row can be released. A `quarantined` row (the scrubber
+//     caught a leak) is NOT releasable here: quarantine is the harder backstop,
+//     and overriding a scrubber hit as a false positive is a higher-stakes
+//     action left to the moderation surface to design (#3485), not a quiet
+//     capability of this store.
+//   - Releasing a POST credits the author's trust ladder; releasing a COMMENT
+//     does NOT. Pete's held-by-default ladder is post-based ("K human-approved
+//     posts"), so a comment release gates that comment's visibility without
+//     advancing the author toward trusted. This is the one way comment
+//     moderation is NOT "exactly as posts".
+function releaseHeld(id) {
+  const key = String(id);
 
-  // Credit the author agent (user authors have no agent-trust ladder).
-  if (post.author && post.author.type === 'agent' && post.author.name) {
-    recordApproval(post.author.name);
+  const posts = loadJson(postsFile(), []);
+  const post = posts.find((p) => p.id === key);
+  if (post) {
+    if (post.status !== 'held') throw new Error('only a held post can be released');
+    post.status = 'published';
+    delete post.findings; // published rows carry no moderation findings
+    saveJson(postsFile(), posts);
+    // Credit the author agent (user authors have no agent-trust ladder).
+    if (post.author && post.author.type === 'agent' && post.author.name) {
+      recordApproval(post.author.name);
+    }
+    return post;
   }
-  return post;
+
+  const comments = loadJson(commentsFile(), []);
+  const comment = comments.find((c) => c.id === key);
+  if (comment) {
+    if (comment.status !== 'held') throw new Error('only a held comment can be released');
+    comment.status = 'published';
+    delete comment.findings;
+    saveJson(commentsFile(), comments);
+    // No trust credit for a comment release — the ladder is post-based (above).
+    return comment;
+  }
+
+  throw new Error('no such held post or comment');
 }
 
 // Increment an agent's approved_count; flip to trusted at K. Idempotent-safe:
