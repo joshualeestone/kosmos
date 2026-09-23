@@ -77,6 +77,10 @@ const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
    fixtures happen to distinguish them and switching's did not.
    ⇒ Two fixtures with the same value cannot test a choice between them. */
 const CODEX_BIN = '/bin/cat';
+/* #3296: a THIRD distinct real runnable binary, for the same reason CODEX_BIN is
+   distinct from claudeBin -- so an assertion can tell a gemini-labelled job
+   pointing at the GEMINI binary from one pointing at claude's or codex's. */
+const GEMINI_BIN = '/usr/bin/true';
 
 /**
  * The supervisor as SHIPPED, read from disk.
@@ -3018,7 +3022,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // launchd environment alone never reaches the agent.
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
-  assert.equal(launches.length, 4, 'the supervisor launch lines moved; update this test with them');
+  assert.equal(launches.length, 5, 'the supervisor launch lines moved; update this test with them');
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently (#577, #540, #529).
   assert.match(script, /for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do/);
@@ -3893,6 +3897,67 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   // route reports "${label} it is."; a null would render "null it is.").
   assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
     'the auto (empty) OpenAI model must have a real label, got ' + JSON.stringify(setAuto.model && setAuto.model.label));
+});
+
+test('#3296: a Gemini agent is created on the gemini runner, recorded, with the right launch vector, brief, and self-report settings', () => {
+  recorder();
+  create.setDryRun(false);
+  const name = 'gemini-kid';
+  const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name, role: 'pm', provider: 'google' });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  // The vector: 0 bash, 1 supervisor, 2 name, 3 workdir, 4 runner-bin, 5 tmux,
+  // 6 log, 7 model (empty -> the supervisor pins gemini-2.5-flash), 8 runner.
+  const args = plistArgs(name);
+  assert.equal(args[4], GEMINI_BIN, 'the runner binary is not the gemini path');
+  assert.equal(args[7], '', 'the model slot must be written empty so the supervisor can pin the default');
+  assert.equal(args[8], 'gemini', 'the recorded runner is not gemini');
+  // Recorded, never inferred: the profile and the birth record both say google.
+  assert.equal(store.readProfile(name).provider, 'google');
+  assert.equal(create.createdLog().slice(-1)[0].provider, 'google');
+  // The brief is written to GEMINI.md (the file gemini-cli boots from), never CLAUDE.md.
+  const dir = create.workerDir(name);
+  assert.ok(fs.existsSync(nodePath.join(dir, 'GEMINI.md')), 'a gemini agent got no GEMINI.md to boot from');
+  assert.ok(!fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'a gemini agent must not get its brief in CLAUDE.md');
+  assert.equal(create.briefFilename('gemini'), 'GEMINI.md');
+  assert.ok(create.instructionFile(name).endsWith('GEMINI.md'), 'instructionFile did not resolve GEMINI.md from the recorded gemini runner');
+  // The birth writes reached the DEFAULT gemini home's settings.json: the auth
+  // pre-seed (so the agent boots past the first-run picker) and the five report
+  // hooks (so the board reads state from self-reports, not a scraped pane).
+  const settingsPath = nodePath.join(create.defaultAgentGeminiHome(), 'settings.json');
+  assert.ok(fs.existsSync(settingsPath), 'the gemini agent got no settings.json (auth pre-seed + report hooks)');
+  const s = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  assert.equal(s.security.auth.selectedType, 'gemini-api-key', 'the auth pre-seed was not written');
+  for (const ev of ['SessionStart', 'BeforeAgent', 'Notification', 'AfterAgent', 'SessionEnd']) {
+    const defs = s.hooks[ev];
+    assert.ok(Array.isArray(defs) && defs.some((d) => d.hooks.some((h) => h.command.includes('gemini-report-bridge'))),
+      `the ${ev} report hook was not wired`);
+  }
+  // A Claude model catalogue key cannot be written into a gemini launch
+  // (cross-vendor guard, sync, no network call).
+  const badModel = create.setModel(name, 'opus');
+  assert.equal(badModel.outcome, create.OUTCOME.REFUSED);
+  assert.match(badModel.because, /is a Claude model/);
+  // A real free-form gemini model id IS accepted and lands in the -m slot.
+  const setG = create.setModel(name, 'gemini-2.5-pro');
+  assert.equal(setG.outcome, create.OUTCOME.CREATED, setG.because);
+  assert.equal(plistArgs(name)[7], 'gemini-2.5-pro', 'the chosen Gemini model was not written to the -m slot');
+  // Empty is "let the supervisor pin the default" -- an empty slot.
+  const setAuto = create.setModel(name, '');
+  assert.equal(setAuto.outcome, create.OUTCOME.CREATED, setAuto.because);
+  assert.equal(plistArgs(name)[7], '', 'an empty Gemini model choice must clear the -m slot');
+  assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
+    'the auto (empty) Gemini model must carry a real label');
+});
+
+test('#3296: a Gemini create is refused when the runner is missing, and an unknown provider still refuses', () => {
+  recorder();
+  create.setDryRun(false);
+  const r = create.createAgent({ ...BINS, name: 'g-norunner', role: 'pm', provider: 'google', geminiBin: '/nonexistent-gemini' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /could not find the Gemini runner/);
+  const bad = create.createAgent({ ...BINS, name: 'g-prov', role: 'pm', provider: 'moonshot' });
+  assert.equal(bad.outcome, create.OUTCOME.REFUSED);
+  assert.match(bad.because, /pick a provider/);
 });
 
 test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {

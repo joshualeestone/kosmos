@@ -291,8 +291,11 @@ test('#979: a manifest entry the resolver cannot answer is refused loudly, never
   // Injected through the opts.manifest seam: the shipped MANIFEST is
   // frozen (its url and integrity are trust anchors for bytes that get
   // executed), so a fixture entry rides beside it, never inside it.
-  const job = runners.install('gemini', {
-    manifest: { name: 'Gemini runner', version: '0.0.1', url: 'https://example.invalid/x.tgz', integrity: 'sha512-x', binInPackage: 'x', binName: 'gemini', downloadBytes: null },
+  // #3296: gemini is now a resolvable provider (resolveBin has a rung for it), so
+  // the unresolvable example is grok until its launcher lands. The property under
+  // test is unchanged: a manifest entry no resolveBin rule can answer is refused.
+  const job = runners.install('grok', {
+    manifest: { name: 'Grok runner', version: '0.0.1', url: 'https://example.invalid/x.tgz', integrity: 'sha512-x', binInPackage: 'x', binName: 'grok', downloadBytes: null },
     download: () => { throw new Error('no bytes may move for an unresolvable provider'); },
   });
   assert.equal(job.phase, 'failed');

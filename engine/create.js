@@ -712,7 +712,15 @@ function jobMissing(name, platform) {
    the agent actually reads. Before this, every brief write assumed CLAUDE.md, so
    a codex agent got neither the "where your files go" doctrine nor its project
    folder path -- kosmos#2245. Pure. */
-function briefFilename(runner) { return runner === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'; }
+function briefFilename(runner) {
+  if (runner === 'codex') return 'AGENTS.md';
+  // #3296: gemini-cli reads GEMINI.md as its context/brief file, the codex-AGENTS.md
+  // / claude-CLAUDE.md analog. instructions.fileFor and the birth write both go
+  // through this ONE mapping, so a gemini agent's brief lands in the file it boots
+  // from.
+  if (runner === 'gemini') return 'GEMINI.md';
+  return 'CLAUDE.md';
+}
 /* The absolute brief path for an agent. `runner` is passed at birth (the plist
    is not written yet, so the runner is not readable back). Post-birth callers
    omit it and the RECORDED runner is read from the plist (readJob, never a live
@@ -744,7 +752,11 @@ function recordedRunner(name) {
   if (fromJob) return fromJob;
   let provider;
   try { provider = store.readProfile(name).provider; } catch { provider = null; }
-  return provider === 'openai' ? 'codex' : 'claude';
+  // #3296: the same provider->runner map createAgent uses, read as the fallback
+  // only (a live plist stays authoritative via the readJob above).
+  if (provider === 'openai') return 'codex';
+  if (provider === 'google') return 'gemini';
+  return 'claude';
 }
 function instructionFile(name, runner) {
   const r = runner || recordedRunner(name);
@@ -1707,32 +1719,33 @@ function setModel(name, modelKey, opts) {
     return noJobRefusal(clean, spoken, verdict, `${spoken} was not started by Kosmos, so we cannot change what it runs on.`);
   }
   /* The agent's PROVIDER, from the runner its job actually launches. One
-     derivation, the same direction `createAgent` goes in reverse. */
-  const agentProvider = job.runner === 'codex' ? 'openai' : 'anthropic';
+     derivation, the same direction `createAgent` goes in reverse (#3296 adds the
+     gemini arm). */
+  const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : 'anthropic';
   let m;
-  if (agentProvider === 'openai') {
-    /* #2140: OpenAI models are PER-ACCOUNT and dynamic (accountModels' live
-       /v1/models fetch), so key===arg===the model id and they are not in the
-       static MODELS list. An EMPTY key is "Let OpenAI choose" -- auto, codex's
-       own default -- and writes an empty model slot (codex picks its own). A
-       non-empty id is sanity-bounded here; the "this agent's account can run
-       it" check is async and lives at the server change-model route (validated
-       against accountModels), the same seam the create route uses. */
+  if (agentProvider === 'openai' || agentProvider === 'google') {
+    /* #2140/#3296: OpenAI and Gemini models are FREE-FORM ids, not entries in the
+       static MODELS list, so key===arg===the model id. An EMPTY key is the
+       provider's own default -- codex/gemini pick their own (the gemini supervisor
+       arm pins gemini-2.5-flash when the model slot is empty) -- and writes an
+       empty model slot. A non-empty id is sanity-bounded here; where a live "this
+       account can run it" check exists (OpenAI) it is async at the server route. */
+    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : 'Gemini';
     const id = String(modelKey == null ? '' : modelKey).trim();
     if (id !== '') {
       if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
-        return { outcome: OUTCOME.REFUSED, because: 'that is not a valid OpenAI model name' };
+        return { outcome: OUTCOME.REFUSED, because: `that is not a valid ${vendorLabel} model name` };
       }
       /* Cross-vendor guard (same as the create path): a Claude model key is
-         never an OpenAI model, refused here without a network call. */
+         never an OpenAI or Gemini model, refused here without a network call. */
       const claudeMdl = modelsFor('anthropic').find((x) => x.key === id || x.arg === id);
       if (claudeMdl) {
-        return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one OpenAI runs, so ${spoken} cannot use it` };
+        return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one ${vendorLabel} runs, so ${spoken} cannot use it` };
       }
     }
     /* label is user-facing: the change-model route reports "${label} it is." An
        empty (auto) choice must read as a real phrase, not "null it is." */
-    m = { key: id, arg: id, provider: 'openai', label: id || 'OpenAI\'s default' };
+    m = { key: id, arg: id, provider: agentProvider, label: id || `${vendorLabel}'s default` };
   } else {
     m = modelFor(agentProvider, modelKey);
     if (!m) {
@@ -2484,6 +2497,11 @@ function binPaths(opts) {
     // never again disagree about where the runner lives.
     codexBin: (opts && opts.codexBin)
       || runners.resolveBin('openai').bin,
+    // #3296: the Gemini runner. Same ONE-priority-list contract as the others
+    // (env override authoritative, else the resolver's legacy rung). resolveBin
+    // is keyed by the RUNNER name here ('gemini'), as it is for 'claude'.
+    geminiBin: (opts && opts.geminiBin)
+      || runners.resolveBin('gemini').bin,
   };
 }
 
@@ -3293,23 +3311,34 @@ function createAgentInner(opts) {
      person can actually create by picking their own name from a list. */
   const wantReportsTo = (opts && typeof opts.reportsTo === 'string' && opts.reportsTo.trim())
     ? opts.reportsTo.trim().slice(0, 80) : null;
-  const { claudeBin, tmuxBin, codexBin } = binPaths(opts);
+  const { claudeBin, tmuxBin, codexBin, geminiBin } = binPaths(opts);
 
   /**
-   * Which provider this agent runs on (#245). 'anthropic' is the default
+   * Which provider this agent runs on (#245, #3296). 'anthropic' is the default
    * and the word every existing caller means by omission; 'openai' launches
-   * the codex runner. RECORDED, never inferred: the choice lands in the
-   * plist (the runner argument), the profile, and the birth record, so no
-   * screen ever has to guess a runner from what happens to be in a pane.
+   * the codex runner; 'google' launches the gemini runner. RECORDED, never
+   * inferred: the choice lands in the plist (the runner argument), the profile,
+   * and the birth record, so no screen ever has to guess a runner from what
+   * happens to be in a pane.
    */
   const provider = (opts && opts.provider !== undefined && opts.provider !== null && String(opts.provider) !== '')
     ? String(opts.provider) : 'anthropic';
-  const runner = provider === 'openai' ? 'codex' : 'claude';
-  const runnerBin = runner === 'codex' ? codexBin : claudeBin;
+  const runner = provider === 'openai' ? 'codex' : provider === 'google' ? 'gemini' : 'claude';
+  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : claudeBin;
 
   const steps = [];
-  if (provider !== 'anthropic' && provider !== 'openai') {
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
+  }
+  if (provider === 'google') {
+    // #3296: refuse a Gemini create the machine could never start, the same
+    // preflight the openai arm does — a launchd job pointing at an absent runner
+    // just respawns forever. The runner-runnable check for the required list
+    // below covers this too, but doing it here keeps the refusal beside the
+    // provider decision, symmetric with openai.
+    if (!DRY_RUN && !runnerRunnable(geminiBin)) {
+      return { outcome: OUTCOME.REFUSED, because: 'we could not find the Gemini runner on this computer, so an agent made now would never start', steps };
+    }
   }
   if (provider === 'openai') {
     /* #2140 LIFTED THE MODEL BOUNDARY. This clause used to refuse `opts.model`
@@ -3423,29 +3452,31 @@ function createAgentInner(opts) {
   }
   let modelArg = null;
   if (wantModelKey !== undefined) {
-    if (provider === 'openai') {
-      /* #2140: OpenAI models are PER-ACCOUNT and dynamic (accountModels' live
-         /v1/models fetch), so they are NOT in the static MODELS list `modelFor`
-         reads, and for them key===arg===the model id. An EMPTY value is the
-         "Let OpenAI choose" default -- auto, codex's own model, the prior
-         behaviour -- so it leaves modelArg null. A non-empty id is written as
-         the `-m` arg; it is only sanity-bounded here (the authoritative "this
-         account can run it" check is async and ran at the server create route,
-         against accountModels). The bound stops a bad caller writing an
-         arbitrary string into the launchd job's argv. */
+    if (provider === 'openai' || provider === 'google') {
+      /* #2140/#3296: OpenAI and Gemini models are FREE-FORM ids, not entries in
+         the static MODELS list `modelFor` reads (OpenAI's are per-account and
+         dynamic; Gemini's are the vendor's own catalogue and this default-account
+         slice carries no MODELS/picker for them). For both, key===arg===the model
+         id. An EMPTY value is the provider's own default -- for gemini the
+         supervisor pins `gemini-2.5-flash` when no `-m` is recorded, matching the
+         "Let OpenAI choose" default on the codex side -- so it leaves modelArg
+         null. A non-empty id is written as the `-m` arg, only sanity-bounded here
+         (a bad caller must not write an arbitrary string into the launchd job's
+         argv). */
+      const vendorLabel = provider === 'openai' ? 'OpenAI' : 'Gemini';
       const id = String(wantModelKey).trim();
       if (id !== '') {
         if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
-          return { outcome: OUTCOME.REFUSED, because: 'that is not a valid OpenAI model name', steps };
+          return { outcome: OUTCOME.REFUSED, because: `that is not a valid ${vendorLabel} model name`, steps };
         }
         /* Cross-vendor guard, cheap and sync: a Claude model KEY is never an
-           OpenAI model, so reject it here rather than write it into a codex
-           launch (the per-account "is this one of YOUR models" check is the
-           async one at the server route). Catches the "opus into codex" mistake
-           without a network call. */
+           OpenAI or Gemini model, so reject it here rather than write it into a
+           non-claude launch (the per-account "is this one of YOUR models" check,
+           where one exists, is the async one at the server route). Catches the
+           "opus into codex/gemini" mistake without a network call. */
         const claudeMdl = modelsFor('anthropic').find((x) => x.key === id || x.arg === id);
         if (claudeMdl) {
-          return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one OpenAI runs; pick one from OpenAI's list`, steps };
+          return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one ${vendorLabel} runs; pick one from ${vendorLabel}'s list`, steps };
         }
         modelArg = id;
       }
@@ -3512,6 +3543,14 @@ function createAgentInner(opts) {
        ⚠️ Fixing only the switch would have made the routes AGREE without an override
        and DISAGREE with one, which is this card's own defect pointing the other way. */
     configDir = acct.isDefault && !codexHomeOverridden() ? null : acct.dir;
+  } else if (provider === 'google') {
+    /* #3296: this slice ships DEFAULT-account Gemini only. There is no
+       geminiaccounts subsystem yet (the connect-UI / per-account GEMINI_CLI_HOME
+       work is deferred with the web/ un-gate), so configDir stays null and any
+       wantAccountDir is deliberately ignored rather than routed into the CLAUDE
+       accounts arm below (which would look a codex/claude account up for a gemini
+       agent). A default-account gemini agent reads ~/.gemini and gets its key from
+       the generic secrets/env door. */
   } else if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     const accountsMod = require('./accounts');
     /* Resolved for the same reason as the OpenAI arm above (#1486):
@@ -3751,7 +3790,7 @@ function createAgentInner(opts) {
    * is a dead click in words. Which condition suppressed it rides the
    * engine-side `alternative`, never the person's sentence.
    */
-  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : 'Claude Code';
+  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : runner === 'gemini' ? 'the Gemini runner' : 'Claude Code';
   /**
    * 🛑 tmux IS NOT A REQUIRED PROGRAM ON win32, AND REQUIRING IT HERE REFUSED
    * EVERY WINDOWS CREATE (#570). Measured, not reasoned: the first real
@@ -4355,8 +4394,15 @@ function createAgentInner(opts) {
        Claude-only: on OpenAI, configDir is a CODEX_HOME and this is the CLAUDE
        write, so createIfAbsent stays false there (the codex arm's own
        trustCodexFolder already creates ~/.codex/config.toml on a fresh account). */
-    try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
-    catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    /* #3296: skipped for gemini. This is the CLAUDE folder-trust write; a gemini
+       agent clears its own trust gate with `--skip-trust` at launch (agent-
+       supervisor.sh) and its birth writes go to the gemini settings.json branch
+       below, so running a claude trust write for a gemini worker folder would
+       write into the wrong tool's config. */
+    if (provider !== 'google') {
+      try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
+      catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    }
     /* 🛑 #1919, THE SAME CREATE MOMENT. The supervisor launches with
        --dangerously-skip-permissions, and Claude Code shows a one-time Bypass-Permissions
        consent (default `No, exit`) the FIRST time that flag runs in a config dir -- which
@@ -4376,7 +4422,7 @@ function createAgentInner(opts) {
        at rollback time). Leaving an inert account preference set is the safe direction -- the
        operator chose bypass mode for this account when they started the creation -- so this
        is fire-and-forget with no undo, unlike the trust write. */
-    if (provider !== 'openai') {
+    if (provider === 'anthropic') {
       try { require('./trust').preacceptBypass(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
       /* #3383, THE SAME CREATE MOMENT, one gate further. Claude Code's own first-run
@@ -4389,6 +4435,29 @@ function createAgentInner(opts) {
          same per-ACCOUNT reasoning as the bypass write above. */
       try { require('./trust').preacceptOnboarding(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    }
+    /* #3296: the GEMINI create-moment birth writes, the analog of the claude
+       trust+preaccept block above. ONE merge into the agent's gemini
+       settings.json (default account: ~/.gemini via defaultAgentGeminiHome):
+         - the auth pre-seed, so a launched agent boots straight to the prompt
+           instead of the interactive first-run auth picker (which would render
+           GEMINI_API_KEY in plaintext into a scraped pane), and
+         - the five lifecycle report hooks pointing at bin/gemini-report-bridge.js,
+           so the board reads the agent's state from its own self-reports instead
+           of scraping a pane (the #3296 whole point).
+       BEFORE bootstrap, for the same timing reason as the claude preaccepts (the
+       picker/hooks are read at startup). Best-effort and non-gating: a gemini
+       agent that self-reports one turn late, or meets the auth picker once, is
+       not a failed creation. The bridge path is resolved __dirname-relative the
+       way reporthook.hookScriptPath resolves the claude hook (engine/ beside
+       bin/, in both the installed and source layouts). */
+    if (provider === 'google') {
+      try {
+        const geminisettings = require('./geminisettings');
+        const geminiHome = configDir || defaultAgentGeminiHome();
+        const bridge = path.resolve(__dirname, '..', 'bin', 'gemini-report-bridge.js');
+        geminisettings.ensurePrepared(path.join(geminiHome, 'settings.json'), bridge);
+      } catch { /* a gemini agent that self-reports late is not a failed creation */ }
     }
   }
 
