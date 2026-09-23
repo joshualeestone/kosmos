@@ -109,12 +109,15 @@ const KIND_HEADLINE = {
   replied: 'replied',
 };
 
-/* Where notificationclick should land. Prefer an explicit url; else build https
-   from the coordinator's `address` (validated as a hostname so a malformed
-   value can never become an arbitrary navigation); else the board on this
-   origin. */
+/* Where notificationclick should land. Built ONLY from the coordinator's
+   `address` (a bare hostname), and only after a strict hostname check, so a
+   malformed or hostile value can never become an arbitrary navigation -- a
+   `javascript:` URI or a foreign origin -- when notificationclick hands it to
+   clients.openWindow()/navigate(). No `url` field is honored: the coordinator
+   never sends one, and passing an arbitrary string straight through would be
+   exactly that gap. A future producer that wants a full URL must add its own
+   validated branch, not a passthrough. Falls back to the board on this origin. */
 function boardUrlFor(data) {
-  if (typeof data.url === 'string' && data.url) return data.url;
   if (typeof data.address === 'string' && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(data.address)) {
     return 'https://' + data.address + '/';
   }

@@ -50855,30 +50855,40 @@ setInterval(ageCheckedStamp, 1000);
     if (el) el.textContent = text || '';
   }
 
-  /* A granted permission cannot be switched back off from script, so once push
-     is on the button becomes a disabled state marker rather than a lie about
-     being able to toggle it. Reflects the browser's current permission on load
-     and after the flow runs. */
-  function reflectPushState() {
+  function paintButton(disabled, label) {
     var btn = document.getElementById('push-enable');
+    if (btn) { btn.disabled = disabled; btn.textContent = label; }
+  }
+
+  /* Paint the control from the browser permission AND the real subscription -- a
+     granted permission is NOT the same as being subscribed and stored. A
+     subscribe, or the POST to the board, can have failed, or the push service
+     can have dropped the subscription, so claiming "On" from permission alone
+     lies. When granted, ask the worker whether a subscription actually exists: if
+     it does, show "On" (a granted permission cannot be revoked from script, so
+     the button is a state marker, not a toggle); if not, leave the control usable
+     so the person can complete or retry -- never a disabled "On" over a device
+     that is not registered. Returns a promise so a caller can await the paint. */
+  function reflectPushState() {
     if (!hasSW || !hasPush) {
-      if (btn) { btn.disabled = true; btn.textContent = 'Not supported'; }
+      paintButton(true, 'Not supported');
       setPushMsg('This device or browser does not support push notifications.');
-      return;
+      return Promise.resolve();
     }
-    if (!btn) return;
     var perm = Notification.permission;
-    if (perm === 'granted') {
-      btn.disabled = true;
-      btn.textContent = 'On';
-    } else if (perm === 'denied') {
-      btn.disabled = true;
-      btn.textContent = 'Blocked';
+    if (perm === 'denied') {
+      paintButton(true, 'Blocked');
       setPushMsg('Notifications are blocked for this site. Turn them back on in your browser settings, then reload.');
-    } else {
-      btn.disabled = false;
-      btn.textContent = 'Turn on';
+      return Promise.resolve();
     }
+    if (perm !== 'granted') {
+      paintButton(false, 'Turn on');            // 'default' -- never asked
+      return Promise.resolve();
+    }
+    return navigator.serviceWorker.ready
+      .then(function (reg) { return reg.pushManager.getSubscription(); })
+      .then(function (sub) { paintButton(!!sub, sub ? 'On' : 'Turn on'); })
+      .catch(function () { paintButton(false, 'Turn on'); });
   }
 
   /* VAPID public keys travel as base64url; PushManager wants the raw bytes. */
@@ -50905,7 +50915,10 @@ setInterval(ageCheckedStamp, 1000);
 
   /* The permission -> subscribe -> store flow. Called from a user gesture (the
      Turn on button), which iOS requires and which is good practice everywhere.
-     Every step reports a plain-language status and throws no uncaught error. */
+     Every step reports a plain-language status and throws no uncaught error.
+     "On" is painted ONLY after the board has stored the subscription, never from
+     the permission grant alone -- a granted permission whose POST failed must
+     stay retryable, not read as On over a device the coordinator never heard of. */
   function enablePush() {
     if (!hasSW || !hasPush) {
       setPushMsg('This device or browser does not support push notifications.');
@@ -50914,10 +50927,13 @@ setInterval(ageCheckedStamp, 1000);
     setPushMsg('Asking your browser for permission...');
     return Notification.requestPermission().then(function (perm) {
       if (perm !== 'granted') {
-        reflectPushState();
-        setPushMsg(perm === 'denied'
-          ? 'Notifications are blocked for this site. Turn them back on in your browser settings, then reload.'
-          : 'Notifications were not turned on.');
+        if (perm === 'denied') {
+          paintButton(true, 'Blocked');
+          setPushMsg('Notifications are blocked for this site. Turn them back on in your browser settings, then reload.');
+        } else {
+          paintButton(false, 'Turn on');
+          setPushMsg('Notifications were not turned on.');
+        }
         return false;
       }
       setPushMsg('Turning on notifications...');
@@ -50939,18 +50955,29 @@ setInterval(ageCheckedStamp, 1000);
             // toJSON() is exactly {endpoint, expirationTime, keys:{p256dh, auth}},
             // the shape the coordinator stores.
             body: JSON.stringify(sub),
+          }).then(function (res) {
+            if (!res.ok) {
+              // The subscription exists in the browser but the board never stored
+              // it. Drop the local one so a later load does not read a lingering
+              // subscription as "On" over a device the coordinator does not know.
+              // Best-effort: if the unsubscribe fails, still surface the error
+              // rather than a false success.
+              return sub.unsubscribe().catch(function () {}).then(function () {
+                throw new Error('subscribe ' + res.status);
+              });
+            }
+            paintButton(true, 'On');
+            setPushMsg('Notifications are on for this device.');
+            return true;
           });
-        }).then(function (res) {
-          if (!res.ok) throw new Error('subscribe ' + res.status);
-          reflectPushState();
-          setPushMsg('Notifications are on for this device.');
-          return true;
         });
       });
     }).catch(function (err) {
       // eslint-disable-next-line no-console
       if (window.console && console.warn) console.warn('enable push failed', err);
-      reflectPushState();
+      // A granted permission whose flow failed must stay actionable so the person
+      // can try again; do NOT paint a disabled "On" here.
+      paintButton(false, 'Turn on');
       setPushMsg('Could not turn on notifications. Please try again.');
       return false;
     });
