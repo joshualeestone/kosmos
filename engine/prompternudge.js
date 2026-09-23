@@ -65,15 +65,21 @@ function write(toAsk) {
     });
   }
   const payload = { v: 1, at: new Date().toISOString(), nudges };
+  // PID-scoped temp so two writers cannot clobber each other's tmp mid-write
+  // (mirrors engine/commitments.js); the atomic rename then publishes it. Declared
+  // out here so the catch can clean it up on failure.
+  const tmp = FILE + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    // PID-scoped temp so two writers cannot clobber each other's tmp mid-write
-    // (mirrors engine/commitments.js); the atomic rename then publishes it.
-    const tmp = FILE + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(payload) + '\n', { mode: 0o600 });
     fs.renameSync(tmp, FILE);
     return { ok: true };
   } catch {
+    // Clean up a partial/orphaned temp so a persistent failure (permissions, disk
+    // pressure) does not accumulate stray *.tmp files across ticks -- write() runs
+    // every heartbeat tick. This is the cleanup half of engine/commitments.js's
+    // pattern, not only its atomic-rename half.
+    try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
     return { ok: false };
   }
 }

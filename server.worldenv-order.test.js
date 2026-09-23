@@ -2,7 +2,7 @@
 /*
  * #1704 slice 2b-i, the load-bearing INVARIANT of the single-site fix:
  * engine/worldenv's bootstrap must be the FIRST `require('./engine/...')` in
- * server.js. It applies the active world's data-root env, and ~26 engine modules
+ * server.js. It applies the active world's data-root env, and ~27 engine modules
  * freeze store.ROOT at require time -- so any engine module required ABOVE the
  * bootstrap would freeze at the DEFAULT root before the override lands, silently
  * re-introducing the cross-world data bleed this slice fixes.
