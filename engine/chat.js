@@ -176,14 +176,19 @@ function setDryRun(on) {
 }
 
 /**
- * The gap between typing a message and pressing Enter, for CODEX panes only.
- * MEASURED (#571, codex 0.149.1): an Enter that arrives immediately after a
- * `send-keys -l` burst is taken as part of a paste and becomes a newline in
- * the composer, at any message length; an Enter 0.5s later submits. Claude
- * Code accepts the immediate Enter, and this server is synchronous, so the
- * pause is paid by everyone on the board while it runs: it is charged only to
- * the runner that needs it. `pauser` is the test seam, the way `runner` is
- * for tmux; null means the real wait.
+ * The MINIMUM gap between putting a message in and pressing Enter on a CODEX
+ * pane. MEASURED (#571, codex 0.149.1): an Enter that arrives immediately after
+ * the burst is taken as part of the paste and becomes a newline in the composer,
+ * at any message length; an Enter 0.5s later submits.
+ *
+ * 📌 SINCE #3419 THIS IS A FLOOR, NOT A CODEX-ONLY PAUSE. The body is pasted now
+ * and EVERY pane waits the size-adaptive `pasteToEnterMs` before its Enter (the
+ * pasted bytes must flush first — see the paste-transport note); on a codex pane
+ * that wait is `Math.max`'d with this floor so it is never below the measured
+ * 0.5s. Pre-#3419 only codex paid a pause and this was it; the wording "for codex
+ * only" no longer holds. The pause blocks the whole synchronous board while it
+ * runs (see `submitGap` for the fan-out cost). `pauser` is the test seam, the way
+ * `runner` is for tmux; null means the real wait.
  */
 const CODEX_ENTER_GAP_MS = 500;
 let pauser = null;
@@ -584,6 +589,16 @@ function chunkUtf8(str, maxBytes) {
  */
 function pasteWire(target, wire) {
   const chunks = chunkUtf8(wire, PASTE_CHUNK_BYTES);
+  // ⚠️ DEFENSIVE: an empty wire pastes nothing, and if this returned "success"
+  // deliver would press a BARE Enter — a submit into whatever is on screen, which
+  // on a permission prompt takes the highlighted default. `messageProblem` +
+  // `cleanMessage` upstream already guarantee a non-empty `text` (so `wire` is
+  // non-empty), making this unreachable today; but pasteWire must never report a
+  // send that put nothing in the pane as landed. Report it as a refusal so
+  // deliver maps it to COULD_NOT and does not Enter.
+  if (chunks.length === 0) {
+    return { ran: true, spawnFailed: false, status: 1, out: '', err: 'refusing to submit an empty message', pastedAny: false };
+  }
   // A unique buffer prefix per send. The default tmux buffer is shared across
   // processes; a private name means a future async caller cannot read another
   // send's bytes even if the (currently unneeded) lock is absent.
