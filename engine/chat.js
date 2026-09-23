@@ -759,12 +759,15 @@ function waitingNote(state, outcome, runner, backgroundWait) {
         ? 'it was mid-task'
         : 'it was mid-task, so it will not read this until it finishes';
     case status.STATE.NEEDS_YOU:
-      // #3419: no delivery note. The agent's question is now injected into the
-      // dialog as its own message bubble (withQuestionRow), so a "it was
-      // waiting on an answer when this was sent" note would show the same fact
-      // twice. Return null (every paneNote reader guards truthily, so null
-      // renders as no clause) rather than a redundant sentence.
-      return null;
+      // Deliberately weaker than "this answered its question". We observed a
+      // question on its screen; what its interface did with the keystroke is
+      // not something we watched. (#3419 note: this looks redundant once the
+      // question renders as a thread bubble, but `waitingNote` is shared by
+      // EVERY chat.deliver caller -- the Compact/Clear route reaches it too, and
+      // its `memoryCommand` reader substitutes "between tasks" on a null note,
+      // which is false for a waiting agent. Stripping it is a step-3 job scoped
+      // to the message route only, after auditing all deliver callers.)
+      return 'it was waiting on an answer when this was sent';
     case status.STATE.RATE_LIMITED:
       return unsure
         ? 'it was paused on a usage limit'
@@ -1838,11 +1841,13 @@ function lockedBecause() {
  * question stands and clears with the state (the state-keyed lifecycle
  * PigeonPete's #3417-categoryB pointer asks for, not a stored history entry).
  *
- * The row mirrors an agent-authored row (`from: <agent>`, `delivery: null`, the
- * shape `keepAgentReply` writes) so the existing thread renderer shows it as an
- * ordinary incoming bubble; `kind: 'question'` lets the UI style it and key its
- * dismiss on the needs_you STATE. `reported` is carried through so the page can
- * still say "the agent told us this" rather than "it is on screen".
+ * The row mirrors an agent-authored row (`from: <agent>`, no delivery verdict) so
+ * the existing thread renderer shows it as an ordinary incoming bubble. It sets
+ * `delivery: null` explicitly where `keepAgentReply` simply omits the field; both
+ * are falsy, and the renderer's "theirs" branch keys on `from` and never reads
+ * `delivery`, so they render identically. `kind: 'question'` lets the UI style it
+ * and key its dismiss on the needs_you STATE. `reported` is carried through so the
+ * page can still say "the agent told us this" rather than "it is on screen".
  *
  * CONTRACT the engine relies on. The web-render specifics (which renderer, which
  * repaint key, which "just spoke" loop) live in the plan, per repo convention #5:

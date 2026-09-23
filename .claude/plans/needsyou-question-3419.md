@@ -39,12 +39,11 @@ The route (`server.js` ~10794) wires it in additively: it still emits
 compose in either order without breaking each other.
 
 ## Sequencing (why this is additive-first, and the merge co-lands)
-- Step 1 (this PR): inject the question as a message (additive/non-breaking), AND
-  strip the now-redundant `needs_you` delivery note (see "Delivery-note strip"
-  below). Both co-land with step 2.
+- Step 1 (this PR): inject the question as a message. Additive/non-breaking.
 - Step 2 (Mona, web/index.html): render the message + remove the `#d-qask` banner.
-- Step 3 (me, follow-up): drop the then-unused banner-only payload fields
-  (`asking`/`question`/`questionBecause`).
+- Step 3 (me, follow-up, after step 2): drop the then-unused banner-only payload
+  fields (`asking`/`question`/`questionBecause`), AND strip the redundant
+  `needs_you` delivery note scoped to the message route (see "Delivery-note strip").
 
 ### Web-side render mechanics (kept here, not in the engine docstring)
 Per repo convention #5, the engine (`withQuestionRow`) must not carry by-name
@@ -61,15 +60,18 @@ and a null `at`), not on the function names.
 and its merge co-lands with (or just before) Mona's UI half -- coordinated with
 Mona, not merged in isolation.
 
-## Delivery-note strip (Mona confirmed 2026-09-23; done in this PR)
-Mona confirmed which `delivery.paneNote` lines are noise: strip the `needs_you`
-"it was waiting on an answer when this was sent" note, KEEP "it was mid-task, so
-it will not read this until it finishes". So this PR now strips the `needs_you`
-case engine-side (`waitingNote` returns `null` for `status.STATE.NEEDS_YOU`), so
-Mona's readers have nothing dangling. It is stripped because the question now
-renders as its own dialog bubble, making that note a duplicate of the visible
-question; the "mid-task" note stands (a WORKING agent shows no bubble, so it is
-the only signal a person gets that the send landed and will be read later).
+## Delivery-note strip (moved to STEP 3 -- NOT in this PR)
+Mona confirmed the target: strip the `needs_you` "it was waiting on an answer when
+this was sent" note, KEEP "it was mid-task...". I first stripped it here
+(`waitingNote` returning `null` for NEEDS_YOU) but REVERTED it: a challenge-loop
+reviewer caught that `waitingNote` is shared by EVERY `chat.deliver` caller, not
+just the chat-message route. The Compact/Clear route reaches it too, and its client
+reader `memoryCommand` substitutes "It does this the moment it is between tasks." on
+a null note -- FALSE for an agent that is actually stuck waiting on an answer. So a
+blanket strip in the shared function is a cross-surface regression. The strip
+belongs in STEP 3, scoped to the message-send route ONLY (null the paneNote for a
+`needs_you` delivery at that route, after auditing every `chat.deliver` caller),
+never in shared `waitingNote`.
 
 ## Still deferred to Mona/Josh (flagged, not assumed)
 - The overview "which agents are stuck" signal the banner doubled as (Josh

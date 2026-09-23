@@ -9824,7 +9824,7 @@ test('#3419 a needs_you agent’s thread payload carries its question as a messa
     assert.ok(q, 'the question is injected into the thread messages as a row');
     assert.match(q.text, /Do you want to proceed\?/, 'and it is the question the board classified needs_you from');
     assert.equal(q.from, 'zeta', 'agent-authored: a "theirs" bubble, never an operator row');
-    assert.equal(q.delivery, null, 'no delivery verdict (matches keepAgentReply)');
+    assert.equal(q.delivery, null, 'no delivery verdict (keepAgentReply omits it; both are falsy, dmRow ignores it)');
     assert.equal(q.at, null, 'no per-poll timestamp on a standing question (dmRow/DM_SPOKE_AT stay stable)');
     assert.equal(q.id, 'needs-you-question:zeta', 'stable repaint id');
     // CONTROL: an idle agent's thread carries NO question row, so the row above is
@@ -9843,6 +9843,44 @@ test('#3419 a needs_you agent’s thread payload carries its question as a messa
     assert.equal(mq.from, 'zeta', 'the row carries the canonical session name, not the URL case');
     assert.equal(mq.id, 'needs-you-question:zeta', 'and the id is canonical too');
   } finally {
+    chatEngine.setRunner(null);
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#3419 a FAILED thread read still signals the failure -- no question row masks it', async () => {
+  // `question`/`asking` are derived from card/pane state, NOT from the thread read.
+  // So a needs_you agent whose thread read FAILS (non-BAD_THREAD: UNREADABLE /
+  // UNPARSEABLE) must NOT get a synthetic question row injected -- doing so would
+  // turn `messages: null` into `[row]`, and the client's "we cannot read what you
+  // have sent" notice gates on `!allRows.length`, so the read failure would be
+  // silently hidden behind a thread that looks like it holds only the question.
+  // The route injects only on a clean read (`historyBecause` unset), so the null
+  // failure-signal survives exactly as it did before #3419.
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('zeta', { state: 'needs_you' })]);
+  chatEngine.setRunner((args) => {
+    if (args[0] === 'capture-pane') {
+      return { ran: true, spawnFailed: false, status: 0, out: 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n', err: '' };
+    }
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chatEngine.setDryRun(false);
+  // Force a non-BAD_THREAD read failure. readThread is the same module property the
+  // route looks up at call time (server.js: `chat.readThread(...)`), so this patch
+  // is seen by the route; restored in finally like setRunner above.
+  const realReadThread = chatEngine.readThread;
+  chatEngine.readThread = () => { const e = new Error('the thread file could not be read'); e.code = 'UNREADABLE'; throw e; };
+  try {
+    const body = JSON.parse((await req('/api/agent/zeta/thread')).body);
+    assert.equal(body.messages, null, 'a failed read serves messages:null, never a synthetic-row array that hides it');
+    assert.ok(body.historyBecause, 'and the payload still says why the read failed');
+    // asking is still true (derived independently) -- which is exactly why the guard
+    // is load-bearing: without it, asking+question would have injected a row over null.
+    assert.equal(body.asking, true, 'the guard, not a missing question, is what suppresses the row');
+  } finally {
+    chatEngine.readThread = realReadThread;
     chatEngine.setRunner(null);
     fleet.restore();
     void board;

@@ -10807,7 +10807,21 @@ const server = http.createServer((req, res) => {
        above). card is non-null whenever `question` is (both gate on `asking`); the
        `|| name` only ever applies on the no-op path where withQuestionRow ignores
        the name anyway. */
-    const servedMessages = chat.withQuestionRow(messages, (card && card.sessionName) || name, question);
+    /* Inject the question row ONLY when the read produced a real message LIST. A
+       HARD read failure (UNREADABLE/UNPARSEABLE) leaves `messages` null; before
+       this guard `withQuestionRow` coerced that null to `[]` and appended a row,
+       which MASKED the failure on the client (its "we cannot read what you have
+       sent" notice gates on `!allRows.length`, so one synthetic row hides it) and
+       flipped `Array.isArray(messages)` false->true, which the client's DM_SPOKE
+       seeding treats as "the read answered". Gate on `Array.isArray` so a null read
+       passes straight through unchanged (withPreviews(null) -> null), exactly as
+       before #3419. BAD_THREAD is deliberately NOT excluded here: it yields a valid
+       empty `[]` (the name simply cannot be filed, but the agent works), and a live
+       question on such an agent SHOULD still show -- that is the intended behaviour
+       the integration test below pins. */
+    const servedMessages = Array.isArray(messages)
+      ? chat.withQuestionRow(messages, (card && card.sessionName) || name, question)
+      : messages;
     sendJson(res, 200, {
       messages: withPreviews(servedMessages),
       olderCount,

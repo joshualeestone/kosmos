@@ -907,17 +907,16 @@ test('an idle agent says so, so the two cases are told apart rather than both go
   });
 });
 
-test('#3419: a needs_you delivery carries NO paneNote, since the question now renders as a dialog bubble', () => {
-  // Before #3419 this said "it was waiting on an answer when this was sent".
-  // The needs_you agent's question is now injected into the dialog as its own
-  // message bubble (withQuestionRow), so repeating "waiting on an answer" as a
-  // delivery note would show the same fact twice. The note is stripped to null;
-  // every UI reader guards paneNote truthily, so null renders as no clause.
+test('answering a question says what was OBSERVED, not what the keystroke did to it', () => {
+  // "It was waiting on an answer when this was sent" is a claim about a screen
+  // we read. "This answered its question" would be a claim about what a TUI did
+  // with a keystroke, which nobody watched.
   withFleet([fleet.agent('mara', { state: 'needs_you' })], (board) => {
     arm([ok(), ok()]);
     const verdict = chat.deliver('mara', '1', board.agents);
     assert.equal(verdict.paneState, 'needs_you');
-    assert.equal(verdict.paneNote, null, 'the needs_you delivery note is stripped (#3419)');
+    assert.match(verdict.paneNote, /waiting on an answer when this was sent/);
+    assert.ok(!/answered/.test(verdict.paneNote), 'it claims the keystroke answered the question');
   });
 });
 
