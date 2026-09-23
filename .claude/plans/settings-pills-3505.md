@@ -51,3 +51,7 @@ before #3500 lands.
 - Extended `render-consolidated-settings-2842.js` with two assertions (gap off the rule; pill sized
   to label), positive-controlled: with the CSS reverted both go red across both themes (26 passed, 4
   FAILED); with the fix, 30 passed.
+- `render-settings-nav.js` measures `#s-nav` width directly (1400/920/420px), so I re-ran it (not
+  just reasoned): all passed. The nav track geometry is fixed by `grid-template-columns`, so the
+  narrower `max-content` nav still sits at the track start and its relative-position/overflow
+  assertions hold.
