@@ -75,7 +75,6 @@ const {
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
-const pushsub = require('./engine/pushsub'); // #718: web push subscription storage
 
 /* #2128: does this MACHINE currently depend on a Claude subscription? The
    "cannot reach a Claude subscription" banner (renderConnection) must fire only
@@ -14444,71 +14443,27 @@ const server = http.createServer((req, res) => {
     sendJson(res, 404, { error: 'no such icon' });
     return;
   }
-  // #718: Web Push subscription routes (same-origin, cookie-gated).
-  // Store and retrieve browser PushSubscriptions for notifications.
-  // Routes are cookie-authenticated by the board-token gate above.
+  // #718: Web Push proxy routes to coordinator.
+  // Thin proxies: board forwards coordinator session token and VAPID key.
+  // Coordinator owns subscriptions, encryption, and delivery.
   if (pathname === '/v1/push/subscribe' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not parse that JSON' }); return; }
-        // Browser's PushSubscription.toJSON() shape: {endpoint, keys:{p256dh, auth}, expirationTime}.
-        // expirationTime is optional; accept and ignore it.
-        if (!body.endpoint || !body.keys || !body.keys.p256dh || !body.keys.auth) {
-          sendJson(res, 400, { error: 'subscription missing endpoint or keys' });
-          return;
-        }
-        // Account derived from board session (cookie-gated above).
-        // For demo: use a fixed account ID. In production, derive from board user context.
-        const accountId = 'local-account';
-        const deviceId = 'local-device';
-        try {
-          const result = pushsub.storeSubscription(
-            accountId,
-            deviceId,
-            body.endpoint,
-            body.keys.p256dh,
-            body.keys.auth
-          );
-          sendJson(res, 200, result);
-        } catch (e) {
-          sendJson(res, 400, { error: e.message });
-        }
+        // TODO: proxy to coordinator:
+        // - Forward Authorization: Bearer <coordinator session token> from board
+        // - POST to coordinator's /v1/push/subscribe
+        // - Coordinator derives (account_id, device_id) from token, gated on per-Mac acked grant
+        // - Return coordinator response (subscription stored, or 400/403 on validation/deny)
+        sendJson(res, 501, { error: 'TODO: wire coordinator proxy' });
       })
-      .catch(() => sendJson(res, 400, { error: 'we could not save that subscription' }));
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
-  if (pathname === '/v1/push/unsubscribe' && req.method === 'DELETE') {
-    readBody(req)
-      .then((buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not parse that JSON' }); return; }
-        if (!body.endpoint) {
-          sendJson(res, 400, { error: 'unsubscribe missing endpoint' });
-          return;
-        }
-        const accountId = 'local-account';
-        try {
-          const result = pushsub.removeSubscription(accountId, body.endpoint);
-          sendJson(res, 200, result);
-        } catch (e) {
-          sendJson(res, 400, { error: e.message });
-        }
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not remove that subscription' }));
-    return;
-  }
-
-  // No auth gate on GET /v1/push/vapid-key (public key is meant to be public).
-  // Fetch from coordinator on startup and cache; for demo, return a static key.
-  // TODO: fetch from coordinator's /v1/push/vapid-key and cache in memory.
   if (pathname === '/v1/push/vapid-key' && (req.method === 'GET' || req.method === 'HEAD')) {
-    sendJson(res, 200, {
-      key: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4'
-    });
+    // TODO: fetch from coordinator's /v1/push/vapid-key, cache, return {key}.
+    // Public, unauthenticated, client uses for PushManager.subscribe(applicationServerKey).
+    sendJson(res, 501, { error: 'TODO: wire coordinator proxy' });
     return;
   }
 
