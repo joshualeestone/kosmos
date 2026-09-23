@@ -12,8 +12,13 @@ visual centre at ~33.5 (above the circle centre 36). Changed to `y="36"
 dominant-baseline="central"` so the letter's em-box centres on the circle centre.
 
 ## Verification
-- Headless (pw-runtime): the initial's rendered bbox centre is now exactly 36.00
-  (offset 0); the old baseline measured ~33.5 (too high).
+- Headless (pw-runtime), measured in BOTH engines Kosmos meets, not just one:
+    chromium: bbox centre 36.00, offset 0 (cap height 15.00)
+    webkit:   bbox centre 36.00, offset 0 (cap height 15.31)
+  The old `y="41"` baseline put the centre at ~33.5 (too high). So the cross-engine
+  claim below is measured, not assumed: `dominant-baseline: central` is derived from
+  font ascent/descent, which WebKit and Chromium have historically computed slightly
+  differently, so the two were measured separately and both centre exactly on 36.
 - Node regression guard: `web.not-running.test.js` "#3483: the no-image avatar initial
   is vertically centered on its circle" (lifts the real `face()`), reds on a revert to
   `y="41"`.
