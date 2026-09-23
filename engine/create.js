@@ -4450,7 +4450,14 @@ function createAgentInner(opts) {
        agent that self-reports one turn late, or meets the auth picker once, is
        not a failed creation. The bridge path is resolved __dirname-relative the
        way reporthook.hookScriptPath resolves the claude hook (engine/ beside
-       bin/, in both the installed and source layouts). */
+       bin/, in both the installed and source layouts).
+       ⚠️ BAKED ONCE, unlike the siblings. codex recomputes its bridge path at every
+       launch ($(dirname "$0")/codex-report-bridge.js) and claude re-runs reporthook
+       on every update, whereas this writes the resolved path into ~/.gemini once and
+       never revisits it. Stable at the fixed ~/.local/share/kosmos install location,
+       but a RELOCATED app or a wiped ~/.gemini leaves it stale, degrading silently to
+       zero reports. The launch-time re-apply shim that would close this is a hot-path
+       change deferred per #3136 -- see the plan file's Deferred section. */
     if (provider === 'google') {
       try {
         const geminisettings = require('./geminisettings');

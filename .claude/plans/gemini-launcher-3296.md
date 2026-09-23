@@ -38,7 +38,7 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
   auto-injects any `secrets/env/<VARNAME>`), so NO supervisor/tokendoors edit for it.
 
 ## Changes (all additive, beside the existing codex/claude arms)
-1. **engine/runners.js** — `resolveBin('gemini')` branch: env
+1. **engine/runners.js** -- `resolveBin('gemini')` branch: env
    `AGENT_WORKFORCE_GEMINI_BIN` -> legacy `/opt/homebrew/bin/gemini`. (Managed
    MANIFEST install is a later hardening; the legacy rung mirrors how codex
    resolves on this box today.)
@@ -51,18 +51,18 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
      block gemini free-form arm (default null -> supervisor pins); account block
      google = default-account only (configDir stays null); AT BIRTH write the auth
      pre-seed + report hooks into the gemini home settings.json (best-effort,
-     non-gating, BEFORE bootstrap — the analog of preacceptBypass/reporthook).
+     non-gating, BEFORE bootstrap -- the analog of preacceptBypass/reporthook).
    - setModel: gemini free-form model arm (mirrors openai) so a model change on a
      gemini agent is not mis-read as a claude model.
-3. **engine/geminisettings.js** (NEW) — one merge-only writer that ensures both
+3. **engine/geminisettings.js** (NEW) -- one merge-only writer that ensures both
    the auth pre-seed and the five report hooks in `<geminiHome>/settings.json`.
    Same never-clobber discipline as reporthook.js (mode preserved, unparseable
    left alone, ephemeral-into-durable refused, idempotent).
-4. **bin/gemini-report-bridge.js** (NEW) — reads stdin JSON, maps hook_event_name
+4. **bin/gemini-report-bridge.js** (NEW) -- reads stdin JSON, maps hook_event_name
    to a state, POSTs /api/report with the SAME headers/body shape as
    codex-report-bridge.js (agent-token/board-token/world headers, from_pane,
    auto:true). Never breaks the agent (all failures swallowed, exit 0).
-5. **bin/agent-supervisor.sh** — gemini exec arm:
+5. **bin/agent-supervisor.sh** -- gemini exec arm:
    `"$CLAUDE" --approval-mode yolo --skip-trust -m "${MODEL:-gemini-2.5-flash}"`.
    The @kosmos_runner=gemini tag is already generic.
 
@@ -82,8 +82,19 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
   (touches web/, per-account homes).
 - setProvider switch-to-google (existing agent runner switch).
 - observed.js GOOGLE provider + account/liveness badge overlay.
-- Supervisor restart re-apply of gemini settings (persists across normal
-  restarts; only a wiped ~/.gemini would lose hooks).
+- **Launch-time re-apply of the gemini settings (born-again pattern).** create.js
+  bakes the report-bridge path into `~/.gemini/settings.json` ONCE at birth,
+  resolved as the installed `app/bin/gemini-report-bridge.js`. The siblings instead
+  RECOMPUTE at every launch: codex's supervisor uses `$(dirname "$0")/codex-report-
+  bridge.js`, and claude's reporthook is re-run by setup.sh on every update. So a
+  gemini agent survives normal restarts (the baked path is stable at the fixed
+  `~/.local/share/kosmos` install location) but has two gaps the siblings do not: a
+  RELOCATED/reinstalled app leaves the baked path stale, and a wiped `~/.gemini`
+  loses the hooks until the agent is remade. Both degrade SILENTLY to zero reports
+  (the bridge's cardinal rule swallows every failure). The robust fix is a
+  launch-time re-apply shim in agent-supervisor.sh (a `gemini-ensure-settings.js`
+  analog of `ensure-launch-trust.js`), deferred as a hot-path change of its own per
+  #3136; lower-probability given the fixed install convention.
 
 ## Verify by content
 Whole-tree JS suite green; a new create.gemini + geminisettings + bridge unit

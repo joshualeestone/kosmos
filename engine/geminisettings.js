@@ -85,8 +85,7 @@ function definitionFor(bridgePath) {
  * not prepare costs the agent a self-report / a first-run picker, not its
  * existence, which is the pre-#3296 world, not a corruption.
  */
-function ensurePrepared(settingsPath, bridgePath, opts) {
-  const o = opts || {};
+function ensurePrepared(settingsPath, bridgePath) {
   if (!bridgePath) return { prepared: false, because: 'the gemini report bridge is not on this machine' };
   if (unsafeForCommand(bridgePath)) {
     return { prepared: false, because: 'the bridge path contains characters we will not embed in a command' };

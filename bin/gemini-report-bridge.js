@@ -39,6 +39,16 @@
  */
 
 const TIMEOUT_MS = 5000;
+/* The stdin read and the POST run SEQUENTIALLY (await readStdin, then await fetch),
+   so their timeouts ADD: codex's bridge takes its event on argv and bounds at
+   TIMEOUT_MS alone, but this one can compound. The stdin fallback is therefore a
+   SHORTER, separate bound -- a normal hook closes stdin the instant it finishes
+   writing, so `end` resolves us immediately and this timer never fires; it exists
+   only for the pathological "attached but never closed" case, where 2s is ample and
+   caps the total worst-case stall at ~7s (2s stdin + 5s POST) rather than ~10s. The
+   hook runs inside gemini's turn, so a tight bound matters (the file's cardinal rule:
+   never stall the agent). */
+const STDIN_TIMEOUT_MS = 2000;
 
 /* The gemini hook_event_name -> (report state) map. `auto: true` on ALL of them
    because the MACHINE is writing this, not the agent: the route's #900/#1949/#2456
@@ -64,10 +74,12 @@ function readStdin() {
       process.stdin.on('data', (chunk) => { data += chunk; });
       process.stdin.on('end', finish);
       process.stdin.on('error', finish);
-      /* A hook that is invoked with no stdin attached must not hang the child
-         (and thus stall gemini waiting on its hook). Resolve on a short timer if
-         no `end` arrives; the empty body is then parsed as nothing and ignored. */
-      setTimeout(finish, TIMEOUT_MS).unref?.();
+      /* A hook that is invoked with no stdin attached (or one never closed) must not
+         hang the child and stall gemini's turn. Resolve on the SHORT stdin bound if
+         no `end` arrives; the partial (usually empty) body is then parsed and, if it
+         is not valid JSON, ignored. See STDIN_TIMEOUT_MS on why this is separate from
+         and shorter than the POST timeout. */
+      setTimeout(finish, STDIN_TIMEOUT_MS).unref?.();
     } catch { finish(); }
   });
 }
