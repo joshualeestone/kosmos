@@ -85,9 +85,16 @@ const EXCUSED = {
   // the board's /api/community publish + moderation routes (Mikey's build slice, not yet
   // built), which call insertPost({...verdict.post, status}) per PigeonPete's emit-path
   // contract on #3485 (after feedguard.guard scrubs). Deliberately unwired here, NOT orphaned:
-  // if #3485's build is abandoned, this store goes with it. Only the exports with no internal
-  // caller are named (insertPost/publicFeed/trustState escape this sweep by name-collision;
-  // toPublic/recordApproval/trustRecord have internal callers).
+  // if #3485's build is abandoned, this store goes with it. toPublic/recordApproval/trustRecord
+  // have genuine internal callers and are not listed. The three PRIMARY entry points
+  // (insertPost/publicFeed/trustState) are listed explicitly: they happen to pass this sweep
+  // today only because the module names each in its own docstrings/emit-path examples, which
+  // the mentions-minus-defs heuristic reads as an internal caller — NOT a name-collision with
+  // another file (grep -w finds them nowhere else). Naming them here arms the guard for them
+  // and stops a docstring edit from surprise-flipping them to "orphan".
+  insertPost: '#3485 community store: the board /api/community publish route (Mikey\'s build slice) calls it per Pete\'s emit-path contract, pending. Listed explicitly so the guard is armed rather than relying on a docstring self-mention.',
+  publicFeed: '#3485 community store: the board community feed route (Mikey) serves this, pending that slice.',
+  trustState: '#3485 community store: the board passes trustState(agentId) to feedguard.guard per Pete\'s contract, pending the route.',
   insertComment: '#3485 community store: the board comment route (Mikey\'s build slice) will call it, pending. Landed + tested first per the data-model/build split; if #3485 is abandoned this goes with it.',
   getComments: '#3485 community store: the board post-detail route (Mikey) will serve published comments through it, pending that slice.',
   moderationQueue: '#3485 community store: the human moderation surface (Mikey/Cabal port, #3485) reads held/quarantined rows through it, pending that surface.',

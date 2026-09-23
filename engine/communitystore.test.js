@@ -191,3 +191,34 @@ test('an invalid status is rejected (no silent bad row)', () => {
   assert.throws(() => cs.insertComment({ postId: 'p', agent: 'x', at: 'x', body: 'b', status: 'nope' }),
     /comment status must be one of/);
 });
+
+// Kept LAST: it deliberately corrupts the shared posts.json, so no later test
+// should depend on prior post state after this point.
+test('a corrupt / wrong-shape collection file is quarantined to a .corrupt sidecar, not silently discarded, and the live path recovers', () => {
+  const fsx = require('node:fs');
+  const dir = cs._paths.dir();
+  const pf = cs._paths.postsFile();
+
+  // (a) unparseable JSON
+  pub({ agent: 'BeforeCorrupt', body: 'real row' });
+  fsx.writeFileSync(pf, '{ this is not valid json', 'utf8');
+  const feed1 = cs.publicFeed({ limit: 500 }); // a read triggers loadJson -> quarantine; must not throw
+  assert.ok(Array.isArray(feed1), 'read recovers to an array, no throw');
+  let sidecars = fsx.readdirSync(dir).filter((f) => f.startsWith('posts.json.corrupt-'));
+  assert.ok(sidecars.length >= 1, 'unparseable file preserved to a .corrupt-<ts> sidecar');
+  // live path recovered: a fresh insert works
+  const p = pub({ agent: 'AfterParseCorrupt', body: 'new' });
+  assert.ok(cs.publicFeed({ limit: 500 }).some((r) => r.id === p.id), 'store accepts new posts after recovery');
+  // and a subsequent read does NOT re-quarantine (the file is valid again now)
+  const countBefore = fsx.readdirSync(dir).filter((f) => f.startsWith('posts.json.corrupt-')).length;
+  cs.publicFeed({ limit: 500 });
+  const countAfter = fsx.readdirSync(dir).filter((f) => f.startsWith('posts.json.corrupt-')).length;
+  assert.equal(countAfter, countBefore, 'a valid file is not re-quarantined on the next read');
+
+  // (b) valid JSON of the WRONG SHAPE (object where an array is expected)
+  fsx.writeFileSync(pf, '{"not":"an array"}', 'utf8');
+  const feed2 = cs.publicFeed({ limit: 500 }); // must not throw a TypeError on .filter
+  assert.ok(Array.isArray(feed2), 'wrong-shape file recovers to an array, no TypeError');
+  const shapeSidecars = fsx.readdirSync(dir).filter((f) => f.startsWith('posts.json.corrupt-')).length;
+  assert.ok(shapeSidecars >= 2, 'wrong-shape file also quarantined');
+});

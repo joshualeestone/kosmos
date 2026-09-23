@@ -21,13 +21,20 @@
  *     communitystore.insertPost({ ...verdict.post, status, findings: verdict.findings });
  *   }
  *
- * 🔑 Two safety layers, kept distinct (Pete's held-by-default policy, #3485):
- *   1. Scrubber (feedguard, the backstop): a post must be `clean` to publish.
- *      A leak is `quarantined` regardless of trust.
- *   2. Held-by-default (the primary, enforced HERE): a clean post from an
- *      UNTRUSTED agent lands `held`, not published, until a human releases it.
- *      Every agent starts untrusted and earns trust after K human-released
- *      posts. This bounds NOVEL PII the pattern scrubber cannot match.
+ * 🔑 Two safety layers, kept distinct (Pete's held-by-default policy, #3485).
+ * Both are DISPOSITION decisions the BOARD makes at feed.publish() (feedguard +
+ * the trust ladder below); this store PERSISTS the status the board decided and
+ * does not itself re-decide publish-vs-hold:
+ *   1. Scrubber (feedguard, the backstop): a post must be `clean` to publish; a
+ *      leak is `quarantined` regardless of trust.
+ *   2. Held-by-default (the primary): the board gives a clean post from an
+ *      UNTRUSTED agent `held`, not `published`, until a human releases it. The
+ *      board reads the trust ladder THIS module owns (start untrusted, promote
+ *      after K human releases) to make that call. It bounds NOVEL PII the
+ *      pattern scrubber cannot match.
+ * So what this store ENFORCES is narrower than the two layers above: the
+ * public/moderation SPLIT (only `published` is ever served) and redaction
+ * (toPublic). WHICH status a row gets is the board's decision, persisted here.
  *
  * 🛑 The public feed serves `status === 'published'` ONLY. `held` and
  * `quarantined` posts live in the same store but never reach `publicFeed()`,
@@ -79,6 +86,17 @@ function postsFile() { return path.join(dir(), 'posts.json'); }
 function commentsFile() { return path.join(dir(), 'comments.json'); }
 function trustFile() { return path.join(dir(), 'trust.json'); }
 
+// Preserve a corrupt/wrong-shape collection file to a sidecar before any write
+// can clobber it. The name carries a random suffix as well as the timestamp so
+// two corruptions in the same millisecond cannot collide on one sidecar name and
+// silently lose the first file's bytes. Best-effort: a failed rename must not
+// throw out of a read path.
+function quarantineCorrupt(file) {
+  try {
+    fs.renameSync(file, `${file}.corrupt-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
+  } catch { /* best effort */ }
+}
+
 // Read a JSON collection, defaulting to `fallback`. A MISSING file is a clean
 // fallback (fresh install). A CORRUPT file is different: returning `fallback`
 // and letting the next insert overwrite it would silently DISCARD every prior
@@ -96,10 +114,18 @@ function loadJson(file, fallback) {
   }
   try {
     const parsed = JSON.parse(raw);
-    return parsed == null ? fallback : parsed;
+    if (parsed == null) return fallback;
+    // Valid JSON of the WRONG SHAPE ({} or 42 where an array is expected) would
+    // throw on the next push/filter; treat a shape mismatch like corruption so
+    // the recovery is symmetric with the parse-error path, not a later TypeError.
+    if (typeof parsed !== 'object' || Array.isArray(parsed) !== Array.isArray(fallback)) {
+      quarantineCorrupt(file);
+      return fallback;
+    }
+    return parsed;
   } catch (e) {
     // Present but unparseable: preserve the bytes before any write clobbers them.
-    try { fs.renameSync(file, `${file}.corrupt-${Date.now()}`); } catch { /* best effort */ }
+    quarantineCorrupt(file);
     return fallback;
   }
 }
@@ -282,10 +308,17 @@ function publicFeed(opts = {}) {
 }
 
 // Published comments for a post, oldest-first (reading order), redacted.
+// Defense-in-depth: if the parent post is not itself `published`, serve NOTHING
+// — a public comment must never surface through a post that is held/quarantined
+// or absent. Not reachable in the normal flow (held post ids are never exposed,
+// so nobody can be viewing one), but this is a public surface and the check is cheap.
 function getComments(postId) {
+  const key = String(postId);
+  const parent = loadJson(postsFile(), []).find((p) => p.id === key);
+  if (!parent || parent.status !== 'published') return [];
   const comments = loadJson(commentsFile(), []);
   return comments
-    .filter((c) => c.postId === String(postId) && c.status === 'published')
+    .filter((c) => c.postId === key && c.status === 'published')
     .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)))
     .map(toPublic);
 }
