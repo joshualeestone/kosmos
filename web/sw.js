@@ -68,7 +68,10 @@ self.addEventListener('fetch', (event) => {
         // bootstrap redirect or an opaque response.
         if (res && res.ok && res.type === 'basic') {
           const copy = res.clone();
-          caches.open(SHELL_CACHE).then((c) => c.put('/', copy)).catch(() => {});
+          // waitUntil so the browser keeps the worker alive until the write
+          // lands: respondWith resolves when `res` is returned, and a dangling
+          // cache write after that can be cut short when the worker is killed.
+          event.waitUntil(caches.open(SHELL_CACHE).then((c) => c.put('/', copy)).catch(() => {}));
         }
         return res;
       } catch (_e) {
@@ -88,7 +91,9 @@ self.addEventListener('fetch', (event) => {
       const res = await fetch(req);
       if (res && res.ok && res.type === 'basic') {
         const copy = res.clone();
-        caches.open(SHELL_CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        // waitUntil: same reason as the navigate branch -- keep the worker alive
+        // until the background refresh write completes.
+        event.waitUntil(caches.open(SHELL_CACHE).then((c) => c.put(req, copy)).catch(() => {}));
       }
       return res;
     })());
