@@ -376,7 +376,7 @@ test('#3391: a send to a GROK pane waits at least the codex gap between the past
     const verdict = chat.deliver('grokll', 'answer with: direct works', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.PLACED);
     const seq = tmux.calls.filter((c) => c[0] === 'paste-buffer' || c[0] === 'send-keys' || c[0] === '<pause>');
-    // paste, pause, Enter — in that order, the same as codex.
+    // paste, pause, Enter, in that order, the same as codex.
     assert.equal(seq.length, 3);
     assert.equal(seq[0][0], 'paste-buffer');
     assert.equal(seq[1][0], '<pause>');
