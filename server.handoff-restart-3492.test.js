@@ -189,6 +189,15 @@ test('not running / unknown: all three routes 404 (pane-gated, like the thread r
   }
 });
 
+test('an undecodable name is 400 on ALL three routes (consistent within the feature)', async () => {
+  // %ZZ is an invalid percent-escape, so decodeSegment returns null. All three
+  // feature routes must agree on 400 (malformed request), not split 400/404.
+  for (const [method, suffix] of [['POST', 'ask'], ['GET', 'status'], ['POST', 'pickup']]) {
+    const r = await hit(method, '%ZZ/handoff-restart/' + suffix);
+    assert.equal(r.status, 400, suffix + ' on an undecodable name should be 400: ' + JSON.stringify(r.body));
+  }
+});
+
 test('the prompts delivered are the engine\'s, not a re-typed copy', () => {
   // A cross-check that the module the routes call produces the intended text --
   // guards against a future edit that swaps in an inline string here or there.

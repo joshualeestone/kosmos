@@ -30995,9 +30995,10 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
 
   // Phase 1 -- ask the live agent to write its handoff. Only a PLACED delivery
   // (the prompt actually landed) advances the flow.
-  let ask;
+  let ask; let askStatus = 0;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/ask', { method: 'POST' });
+    askStatus = res.status;
     ask = await res.json().catch(() => null);
   } catch {
     if (dismissed()) return;
@@ -31009,7 +31010,14 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
   if (!(ask && ask.delivery && ask.delivery.state === 'placed')) {
     restoreConfirm();
     const because = ask && ask.delivery && ask.delivery.because ? ' (' + ask.delivery.because + ')' : '';
-    const notRunning = ask && ask.error && !ask.delivery;
+    // "Not running" is ONLY the no-session case: a 409 with NO delivery field.
+    // The route also returns 409 for a COULD_NOT delivery (which DOES carry a
+    // delivery field) -- that is a delivery failure, not a stopped agent -- and
+    // 404 (vanished name) / 500 (could-not-reach) are other errors. All of those
+    // get the generic line (with the delivery's own reason when present), so we
+    // never tell the person an agent "is not running" when that is not what
+    // happened.
+    const notRunning = askStatus === 409 && ask && !ask.delivery;
     setStatus(notRunning
       ? (shown + ' is not running, so there is no session to write a handoff. You can Restart without one, or leave it running.')
       : ('We could not ask ' + shown + ' to write a handoff' + because + '. You can Restart without one, or leave it running.'));

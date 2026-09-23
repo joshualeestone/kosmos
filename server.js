@@ -5276,7 +5276,12 @@ const server = http.createServer((req, res) => {
   const hrStatus = pathname.match(/^\/api\/agent\/([^/]+)\/handoff-restart\/status$/);
   if (hrStatus && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(hrStatus[1]);
-    if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
+    // 400, not 404: an undecodable name segment is a malformed request, and this
+    // matches the feature's two sibling routes (ask/pickup) plus the dominant
+    // file convention (/restart, /compact, /clear all 400 this). (The thread GET
+    // route's 404 is a deliberate "read = no such agent" special case, not the
+    // pattern to follow for a freshness probe.)
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
     const session = sessionOf(name);
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
