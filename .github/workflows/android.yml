@@ -98,10 +98,18 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      # Provision the Android SDK + accept licenses. AGP (compileSdk 35, build-tools
-      # 35.0.0) auto-downloads the platform/build-tools it needs against this.
+      # Provision the Android SDK + accept licenses, then install exactly the packages
+      # this build needs. `packages` is set explicitly to OVERRIDE the action's default
+      # (`tools platform-tools`): the legacy SDK `tools` package is deprecated and
+      # removed from the SDK repo, so requesting it fails on a fresh runner with
+      # "Failed to find package 'tools'" (the first CI run caught exactly this -- it had
+      # built locally only because the fleet box still had the old package). The set
+      # below matches the toolchain the module targets (compileSdk/targetSdk 35,
+      # build-tools 35.0.0); AGP auto-downloads anything else it needs against these.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
       # Legibility: surface the toolchain versions so drift arrives here as a readable
       # line rather than later as an opaque red (mirrors test.yml's "which node").
