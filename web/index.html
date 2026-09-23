@@ -25658,7 +25658,16 @@ async function paintTalk(sessionName, agentName) {
    * the buttons again there invites the second press that answers a numbered
    * prompt twice.
    */
-  const opts = (body.asking && !stillTheSame && live && Array.isArray(body.options)) ? body.options : null;
+  /* #3419 (Josh, 0.6.89): NO answer-menu buttons. A needs_you question is an
+     ordinary thread bubble now (engine withQuestionRow, #3455) that the person
+     answers in the normal composer or ignores -- "no prompt box". The engine's
+     injected question row carries only text (no options), so the boxed option
+     buttons have no place; opts is forced null, qopts/qout never render, and the
+     answer-hold / keying machinery above (TALK_ANSWERED, stillTheSame, ...) is
+     now inert. (That inert machinery + the sendTalk `chose` option-answer path
+     are dead and scheduled for removal in a focused follow-up, kept out of this
+     cut-gate change to leave the shared composer send path untouched.) */
+  const opts = null;
   /* ⚠️ DEAD WHILE A SEND IS IN THE AIR. A paint that lands mid-flight rebuilds
      these, and the first version rebuilt them ENABLED — undoing the send's own
      disable. The double send was still refused by the TALK_SENDING guard, so
