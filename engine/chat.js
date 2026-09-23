@@ -419,6 +419,11 @@ function messageProblem(raw) {
  */
 const WIRE_SEMICOLON = String.fromCharCode(92) + ';';
 
+// 📌 RETAINED THOUGH NO LONGER ON THE SEND PATH (#3419). This escaped a trailing
+// `;` so `send-keys -l` would not eat it; deliver() now PASTES the raw wire, which
+// delivers a `;` literally, so nothing calls this in production. Kept (exported,
+// unit-tested) rather than removed: it is a correct pure helper, and its test
+// documents the measured tmux command-list behaviour a future send path could hit.
 function wireText(text) {
   const said = String(text == null ? '' : text);
   return said.endsWith(';') ? said.slice(0, -1) + WIRE_SEMICOLON : said;
@@ -554,6 +559,13 @@ function pasteWire(target, wire) {
   // processes; a private name means a future async caller cannot read another
   // send's bytes even if the (currently unneeded) lock is absent.
   const tag = `kosmos-msg-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  // ⚠️ `pastedAny` DISTINGUISHES TWO FAILURES THE CALLER MUST TELL APART. A
+  // failure on the FIRST chunk left nothing in the composer, so a re-send is
+  // safe (COULD_NOT). A failure on a LATER chunk left the earlier chunks sitting
+  // un-submitted in the composer, so a blind re-send would paste the whole body
+  // AGAIN behind that fragment and the Enter would submit the two together —
+  // that case is UNCONFIRMED, not COULD_NOT. See deliver's use of it.
+  let pastedAny = false;
   for (let idx = 0; idx < chunks.length; idx += 1) {
     const buf = `${tag}-${idx}`;
     // `--` is load-bearing: without it a chunk that begins with `-` is parsed as
@@ -562,7 +574,7 @@ function pasteWire(target, wire) {
     const set = tmux(['set-buffer', '-b', buf, '--', chunks[idx]]);
     if (!set.ran || set.status !== 0) {
       tmux(['delete-buffer', '-b', buf]); // best-effort; the buffer may not exist
-      return set;
+      return { ...set, pastedAny };
     }
     // `-d` deletes the buffer after a successful paste, so no buffer leaks per
     // chunk. On a paste FAILURE the buffer set above still exists (‑d did not
@@ -570,10 +582,11 @@ function pasteWire(target, wire) {
     const pasted = tmux(['paste-buffer', '-b', buf, '-d', '-t', target]);
     if (!pasted.ran || pasted.status !== 0) {
       tmux(['delete-buffer', '-b', buf]);
-      return pasted;
+      return { ...pasted, pastedAny };
     }
+    pastedAny = true;
   }
-  return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  return { ran: true, spawnFailed: false, status: 0, out: '', err: '', pastedAny };
 }
 
 /* ── who may be sent to ──────────────────────────────────────────────────── */
@@ -1080,6 +1093,22 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   // atomically in UTF-8-safe chunks. The raw `wire` is pasted, not `wireText`:
   // a paste delivers a trailing `;` literally, so no escaping is needed.
   const typed = pasteWire(target, wire);
+  // ⚠️ A MULTI-CHUNK PASTE THAT FAILED PART-WAY is UNCONFIRMED, not COULD_NOT,
+  // and this branch must come first because the failure below it would otherwise
+  // call it "safe to re-send". `pasteWire` sets `pastedAny` when at least one
+  // chunk already landed in the composer before the failure; a re-send then
+  // pastes the whole body again behind that fragment and the Enter submits both.
+  // The honest verdict is the third state: some of it may be sitting there
+  // half-typed. (A first-chunk failure leaves pastedAny false and falls through
+  // to the could_not/unconfirmed branches below, which are correct — nothing
+  // landed.) The engine states the fact; the page says where to look.
+  if ((!typed.ran || typed.status !== 0) && typed.pastedAny) {
+    return {
+      state: DELIVERY.UNCONFIRMED,
+      because: 'part of it reached its window before the send failed, so it may be sitting there half-typed',
+      at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
+    };
+  }
   if (typed.ran && typed.status !== 0) {
     // tmux ran and refused: it did not type anything. Re-sending is safe.
     return {

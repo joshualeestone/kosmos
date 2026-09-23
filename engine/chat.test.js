@@ -436,6 +436,40 @@ test('#3419 a message larger than one chunk is pasted whole, in order — the an
   });
 });
 
+test('#3419 a paste that fails AFTER an earlier chunk landed is UNCONFIRMED, not could_not', () => {
+  // The multi-chunk partial-residue case: chunk 0 pasted into the composer, then
+  // chunk 1's paste-buffer failed. A fragment is now sitting un-submitted, so
+  // could_not ("safe to re-send") would be a lie — a re-send pastes the whole body
+  // again behind the fragment. The honest verdict is the third state.
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const body = 'y'.repeat(300); // > 256B -> two chunks
+    // Sequence: set-buffer(0) ok, paste-buffer(0) ok, set-buffer(1) ok,
+    // paste-buffer(1) REFUSED. The 5th call (delete-buffer cleanup) falls to the
+    // default ok.
+    const tmux = arm([ok(), ok(), ok(), refused('lost the pane mid-paste')]);
+    const verdict = chat.deliver('casey', body, board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED,
+      'a fragment left in the composer must not read as safe-to-resend could_not');
+    assert.match(verdict.because, /half-typed/);
+    // Two chunks were attempted, and NO Enter was pressed after the failure.
+    assert.equal(tmux.setBuffers().length, 2);
+    assert.ok(!tmux.sends().some((s) => s[s.length - 1] === 'Enter'),
+      'no submit Enter after a failed multi-chunk paste');
+  });
+});
+
+test('#3419 a paste that fails on the FIRST chunk is could_not (nothing landed, safe to re-send)', () => {
+  // The control that makes the test above mean something: a first-chunk failure
+  // leaves nothing in the composer, so could_not (re-send is safe) is correct.
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const tmux = arm([refused('no pane at all')]); // set-buffer(0) refused
+    const verdict = chat.deliver('casey', 'z'.repeat(300), board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT,
+      'nothing was pasted, so this must be the safe-to-resend verdict');
+    assert.ok(!tmux.sends().some((s) => s[s.length - 1] === 'Enter'));
+  });
+});
+
 test('#3419 the paste→Enter delay grows with body size and is capped', () => {
   assert.equal(chat.pasteToEnterMs(0), 250, 'the base floor');
   assert.ok(chat.pasteToEnterMs(4096) > chat.pasteToEnterMs(0), 'larger body waits longer');
