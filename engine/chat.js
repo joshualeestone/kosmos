@@ -46,8 +46,15 @@
  *     literally, INCLUDING a leading `-` (probed with `-echo dashy-probe-text`,
  *     which landed verbatim in the composer). `-l` sends literal characters
  *     rather than key names, and `--` ends option parsing.
- *   - A second, separate `send-keys -t <same> Enter` submits it. The two are
- *     never one call: `-l` would type the word "Enter".
+ *     📌 SUPERSEDED FOR THE BODY (#3419): the body is no longer streamed with
+ *     `send-keys -l` — a BUSY pane silently drops all but a tail of a keystroke
+ *     stream. It is PASTED now: `pasteWire` does `set-buffer -b <buf> -- <chunk>`
+ *     then `paste-buffer -d -t <target>`, in UTF-8-safe chunks, atomically. The
+ *     `--`/leading-`-` fact above carries over to set-buffer; `-l` is history.
+ *   - A second, separate `send-keys -t <same> Enter` submits it — still true, and
+ *     now after the paste plus a size-adaptive delay. The two are never one call:
+ *     `-l` would type the word "Enter", and an Enter sent before the pasted bytes
+ *     have flushed races the paste and submits a partial line.
  *   - `capture-pane -p -J -t '=<session>:<window>.<pane>'` reads that pane back.
  *   - The `=` exact-match prefix DOES defeat prefix matching on a pane target:
  *     with the session killed and a `kchatprobe2` still alive, the same command
@@ -102,12 +109,20 @@ const DELIVERY = {
 /**
  * One message, one line.
  *
- * ⚠️ NOT a style preference. A newline inside `send-keys -l` reaches the
- * composer as a submit, so a two-line message is delivered as two messages and
- * the second half arrives as its own instruction — with the agent already
- * acting on the first half. Runs of whitespace are collapsed rather than
+ * ⚠️ NOT a style preference. When the body went in via `send-keys -l`, a newline
+ * reached the composer as a submit, so a two-line message was delivered as two
+ * messages with the second half arriving as its own instruction while the agent
+ * was already acting on the first. `cleanMessage` flattens every run of
+ * whitespace to a single space so this cannot happen, and #3419 does NOT change
+ * that: the body is pasted now, but the paste is issued without `-p` (no
+ * bracketed-paste markers — see the paste-transport note), so whether a raw
+ * pasted newline would submit is NOT something this code has verified, and
+ * nothing here relies on it either way. The flattening stays, "one message is
+ * one turn" stays, and letting a paste carry real newlines is a separate change
+ * that would have to establish that behaviour first — it is not something this
+ * transport quietly enabled. Runs of whitespace are collapsed rather than
  * refused, so the person's paragraph arrives as a paragraph-shaped sentence
- * rather than an error they have to work around.
+ * rather than an error.
  */
 const MAX_TEXT = 2000;
 
@@ -161,14 +176,19 @@ function setDryRun(on) {
 }
 
 /**
- * The gap between typing a message and pressing Enter, for CODEX panes only.
- * MEASURED (#571, codex 0.149.1): an Enter that arrives immediately after a
- * `send-keys -l` burst is taken as part of a paste and becomes a newline in
- * the composer, at any message length; an Enter 0.5s later submits. Claude
- * Code accepts the immediate Enter, and this server is synchronous, so the
- * pause is paid by everyone on the board while it runs: it is charged only to
- * the runner that needs it. `pauser` is the test seam, the way `runner` is
- * for tmux; null means the real wait.
+ * The MINIMUM gap between putting a message in and pressing Enter on a CODEX
+ * pane. MEASURED (#571, codex 0.149.1): an Enter that arrives immediately after
+ * the burst is taken as part of the paste and becomes a newline in the composer,
+ * at any message length; an Enter 0.5s later submits.
+ *
+ * 📌 SINCE #3419 THIS IS A FLOOR, NOT A CODEX-ONLY PAUSE. The body is pasted now
+ * and EVERY pane waits the size-adaptive `pasteToEnterMs` before its Enter (the
+ * pasted bytes must flush first — see the paste-transport note); on a codex pane
+ * that wait is `Math.max`'d with this floor so it is never below the measured
+ * 0.5s. Pre-#3419 only codex paid a pause and this was it; the wording "for codex
+ * only" no longer holds. The pause blocks the whole synchronous board while it
+ * runs (see `submitGap` for the fan-out cost). `pauser` is the test seam, the way
+ * `runner` is for tmux; null means the real wait.
  */
 const CODEX_ENTER_GAP_MS = 500;
 let pauser = null;
@@ -419,9 +439,198 @@ function messageProblem(raw) {
  */
 const WIRE_SEMICOLON = String.fromCharCode(92) + ';';
 
+// 📌 RETAINED THOUGH NO LONGER ON THE SEND PATH (#3419). This escaped a trailing
+// `;` so `send-keys -l` would not eat it; deliver() now PASTES the raw wire, which
+// delivers a `;` literally, so nothing calls this in production. Kept (exported,
+// unit-tested) rather than removed: it is a correct pure helper, and its test
+// documents the measured tmux command-list behaviour a future send path could hit.
 function wireText(text) {
   const said = String(text == null ? '' : text);
   return said.endsWith(';') ? said.slice(0, -1) + WIRE_SEMICOLON : said;
+}
+
+/* ── the paste transport (#3419) ─────────────────────────────────────────────
+ *
+ * 🛑 WHY THIS REPLACED `send-keys -l -- <text>`. A raw `send-keys -l` streams the
+ * message into the pane as KEYSTROKES, and a pane that is BUSY (an agent
+ * mid-turn) drops all but a tail fragment of that stream — silently, with no
+ * error on either side. The person typed a full message; the agent received
+ * "…og area." and nobody was told. That is silent corruption of the product's
+ * core action, and it is the launch blocker this fixes (kosmos#3419). The
+ * surviving-fragment / lost-INTERIOR-space signature is a keystroke race, not a
+ * clean byte cut — which is exactly what a paste avoids.
+ *
+ * THE FIX is the transport `~/.claude/scripts/claude-msg` proved on the fleet:
+ * load the body into a tmux buffer and `paste-buffer` it into the composer, so
+ * the input arrives atomically rather than as a per-keystroke stream a busy pane
+ * can shred. claude-msg lives in ~/.claude/scripts (fleet infra, NOT shipped
+ * with Kosmos), so we cannot call it; this is a faithful port of its core into
+ * the product, orchestrating `tmux` (already this module's only external
+ * dependency) through the same `tmux()` seam every other send uses — so there is
+ * no vendored executable to package, unpack or chmod, and the whole path stays
+ * inside the one test seam this file is built on.
+ *
+ * TWO MEASURED FACTS from claude-msg this port keeps, because dropping either
+ * reintroduces truncation:
+ *
+ *   1. CHUNK THE PASTE. A single paste-buffer above ~800B drops its LEADING
+ *      bytes at the PTY/input layer, before any Enter (measured on the fleet TUI
+ *      2026-09-01: every clean send ≤782B, head-truncation by ~931B — and a
+ *      single-LINE 1198B paste lost ~600B off its head, so it is paste VOLUME,
+ *      not line count). The body is pasted in sub-threshold chunks with NO Enter
+ *      between them; the composer accumulates them and the single Enter below
+ *      submits the whole thing as one turn. 256B stays well under the ceiling.
+ *
+ *   2. WAIT BEFORE THE ENTER. paste-buffer streams the buffer's bytes into the
+ *      pane; an Enter that arrives before that stream has flushed through the
+ *      tmux/PTY pipeline races the still-arriving paste and submits a partial
+ *      line — the rest lands after, in the composer, unsent. The delay scales
+ *      with body size because the flush cost grows with the paste. (Accuracy
+ *      note: `paste-buffer` is issued WITHOUT `-p`, matching the proven
+ *      claude-msg, so tmux itself adds NO bracketed-paste ESC[200~/ESC[201~
+ *      markers — those need `-p`. The receiving Claude TUI has bracketed-paste
+ *      mode on, but the dependency this delay covers is the byte-stream flush,
+ *      not a tmux-inserted close marker.) This is why the codex-only 500ms gap
+ *      that used to be the ONLY pause is now folded into a size-adaptive delay
+ *      paid before EVERY submit (see `deliver`).
+ *
+ * NOT ported, deliberately, each with why it is safe to omit HERE:
+ *   - claude-msg's per-target mkdir LOCK guards concurrent sender PROCESSES
+ *     clobbering the shared tmux buffer. This server is synchronous (execFileSync
+ *     and the Atomics.wait pause both BLOCK), so one deliver() runs to completion
+ *     before the next begins — there is no interleaving to guard. Unique buffer
+ *     names below are kept anyway as cheap hygiene against a future async caller.
+ *   - claude-msg's self-address envelope guard is fleet-messaging-specific (it
+ *     reads a `from:` line); there is no envelope on this path.
+ *   - the shell / copy-mode / menu SAFETY that stops a paste being executed as a
+ *     command in a pane that fell back to a shell is NOT dropped — it is
+ *     `verifyAtSend`, made against a FRESH capture immediately before this runs
+ *     (see its call site), which is the guard this product already relied on for
+ *     the raw send. This transport trusts that gate and does not re-derive it.
+ */
+
+// Max BYTES per paste-buffer chunk. See point 1 above; matches claude-msg's
+// default and stays under its measured 782B clean ceiling.
+const PASTE_CHUNK_BYTES = 256;
+
+// Size-adaptive paste→Enter delay (point 2 above), ported from claude-msg:
+//   delay = min(BASE + PER_KB * kB, MAX)
+// A one-line message clears well under BASE; a multi-KB body needs proportionally
+// longer for its bytes to flush before the Enter, so the Enter submits the whole
+// message rather than racing the still-arriving paste.
+const PASTE_ENTER_BASE_MS = 250;
+const PASTE_ENTER_PER_KB_MS = 100;
+const PASTE_ENTER_MAX_MS = 2000;
+
+function pasteToEnterMs(byteLen) {
+  const d = PASTE_ENTER_BASE_MS + PASTE_ENTER_PER_KB_MS * (byteLen / 1024);
+  return Math.min(Math.round(d), PASTE_ENTER_MAX_MS);
+}
+
+/**
+ * Split a string into UTF-8-safe chunks of at most `maxBytes` bytes each, never
+ * cutting a multibyte character. Ported from claude-msg's perl splitter. We cut
+ * at the byte budget but back off while the NEXT chunk would start on a UTF-8
+ * continuation byte (10xxxxxx, i.e. 0x80–0xBF). This is defensive: the chunks
+ * are pasted back-to-back with nothing between them, so a split codepoint would
+ * in fact reassemble — but keeping cuts on character boundaries matches
+ * claude-msg, keeps each chunk independently valid UTF-8 (so a stray decode in
+ * any consumer cannot corrupt it), and stays correct if bracketed-paste `-p`
+ * (which WOULD insert markers between chunks) is ever enabled.
+ *
+ * ⚠️ EXPORTED so the suite exercises THIS boundary logic rather than a copy of
+ * it — the same reason claude-msg exposes its `--split-chunks` seam.
+ */
+function chunkUtf8(str, maxBytes) {
+  // Defensive floor: a non-positive budget would make `end` collapse to `i`, the
+  // pathological-case fallback recompute the same `i`, and the loop spin forever
+  // pushing empty chunks. Unreachable via the one caller (PASTE_CHUNK_BYTES=256),
+  // but this is an exported pure helper, so clamp rather than trust the caller.
+  const max = maxBytes >= 1 ? maxBytes : 1;
+  const buf = Buffer.from(String(str == null ? '' : str), 'utf8');
+  const chunks = [];
+  let i = 0;
+  while (i < buf.length) {
+    let end = Math.min(i + max, buf.length);
+    // Back off only when there IS a next byte to inspect: a cut at the very end
+    // of the buffer is always on a boundary. buf[end] is the first byte of what
+    // would be the next chunk; a continuation byte there means we are mid-char.
+    while (end < buf.length && end > i && (buf[end] & 0xc0) === 0x80) end--;
+    // Pathological: a single character wider than the whole budget (unreachable
+    // at the 256B default — the widest UTF-8 codepoint is 4 bytes). Make
+    // progress rather than loop forever.
+    if (end === i) end = Math.min(i + max, buf.length);
+    chunks.push(buf.slice(i, end).toString('utf8'));
+    i = end;
+  }
+  return chunks;
+}
+
+/**
+ * Paste `wire` into `target`'s composer in UTF-8-safe chunks, with NO Enter
+ * between them. Returns the same `{ran, spawnFailed, status, out, err}` shape
+ * `tmux()` returns, so `deliver` maps it to a verdict exactly as it mapped the
+ * single send-keys call this replaced: a tmux refusal or spawn-failure →
+ * COULD_NOT (nothing submitted, safe to re-send); all chunks pasted → success
+ * (the Enter that submits is `deliver`'s, after the size-adaptive delay).
+ *
+ * ⚠️ NO ENTER IS SENT HERE. A partial failure (chunk N fails after 0..N-1
+ * pasted) leaves an un-submitted fragment in the composer — inert until someone
+ * submits it, reported through `deliver` as COULD_NOT so the caller knows the
+ * send did not complete. This matches claude-msg's exit-4 contract, and a target
+ * whose paste just failed is in any case likely unreachable.
+ *
+ * ⚠️ THE CHUNK IS PASSED AS ARGV AFTER `--`, never through a shell (execFileSync
+ * takes no shell) and never as send-keys keystrokes. So message content of any
+ * bytes — a leading `-`, a `;`, `$(…)`, unicode — is data, never a command and
+ * never a tmux flag. This is why `wireText`'s trailing-`;` escaping is not needed
+ * on this path (a paste delivers the literal character), and why the raw `wire`
+ * is pasted rather than `wireText(wire)`.
+ */
+function pasteWire(target, wire) {
+  const chunks = chunkUtf8(wire, PASTE_CHUNK_BYTES);
+  // ⚠️ DEFENSIVE: an empty wire pastes nothing, and if this returned "success"
+  // deliver would press a BARE Enter — a submit into whatever is on screen, which
+  // on a permission prompt takes the highlighted default. `messageProblem` +
+  // `cleanMessage` upstream already guarantee a non-empty `text` (so `wire` is
+  // non-empty), making this unreachable today; but pasteWire must never report a
+  // send that put nothing in the pane as landed. Report it as a refusal so
+  // deliver maps it to COULD_NOT and does not Enter.
+  if (chunks.length === 0) {
+    return { ran: true, spawnFailed: false, status: 1, out: '', err: 'refusing to submit an empty message', pastedAny: false };
+  }
+  // A unique buffer prefix per send. The default tmux buffer is shared across
+  // processes; a private name means a future async caller cannot read another
+  // send's bytes even if the (currently unneeded) lock is absent.
+  const tag = `kosmos-msg-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  // ⚠️ `pastedAny` DISTINGUISHES TWO FAILURES THE CALLER MUST TELL APART. A
+  // failure on the FIRST chunk left nothing in the composer, so a re-send is
+  // safe (COULD_NOT). A failure on a LATER chunk left the earlier chunks sitting
+  // un-submitted in the composer, so a blind re-send would paste the whole body
+  // AGAIN behind that fragment and the Enter would submit the two together —
+  // that case is UNCONFIRMED, not COULD_NOT. See deliver's use of it.
+  let pastedAny = false;
+  for (let idx = 0; idx < chunks.length; idx += 1) {
+    const buf = `${tag}-${idx}`;
+    // `--` is load-bearing: without it a chunk that begins with `-` is parsed as
+    // set-buffer flags (measured on tmux 3.6a: `set-buffer -b b '-n x'` errors
+    // "unknown buffer"). After `--`, the chunk is literal data of any bytes.
+    const set = tmux(['set-buffer', '-b', buf, '--', chunks[idx]]);
+    if (!set.ran || set.status !== 0) {
+      tmux(['delete-buffer', '-b', buf]); // best-effort; the buffer may not exist
+      return { ...set, pastedAny };
+    }
+    // `-d` deletes the buffer after a successful paste, so no buffer leaks per
+    // chunk. On a paste FAILURE the buffer set above still exists (‑d did not
+    // run), so clean it up explicitly.
+    const pasted = tmux(['paste-buffer', '-b', buf, '-d', '-t', target]);
+    if (!pasted.ran || pasted.status !== 0) {
+      tmux(['delete-buffer', '-b', buf]);
+      return { ...pasted, pastedAny };
+    }
+    pastedAny = true;
+  }
+  return { ran: true, spawnFailed: false, status: 0, out: '', err: '', pastedAny };
 }
 
 /* ── who may be sent to ──────────────────────────────────────────────────── */
@@ -852,7 +1061,20 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     }
     tail = trailer;
   }
-  const wire = ((typeof envelope === 'string' && envelope.trim()) ? envelope.trim() + ' ' + text : text) + tail;
+  // ⚠️ FLATTEN THE ENVELOPE'S WHITESPACE, not just trim it (#3419). The paste
+  // transport's safety rests on `wire` carrying no newline: `paste-buffer` (issued
+  // without `-r`) turns an LF into a CR, which a pane that fell back to a shell
+  // would take as a submit AT PASTE TIME — before the pre-Enter `verifyAtSend`
+  // can refuse. `text` is already newline-free (`cleanMessage` collapses all
+  // whitespace) and `tail` refuses control chars above, but the caller-supplied
+  // `envelope` was only trimmed, so an interior newline in it would survive into
+  // `wire`. Every caller passes a system-generated single-line envelope today, so
+  // this is defense-in-depth, not a live bug — but the invariant the transport
+  // now depends on should be enforced here, not assumed of every caller.
+  const envelopeLine = (typeof envelope === 'string' && envelope.trim())
+    ? envelope.replace(/\s+/g, ' ').trim()
+    : '';
+  const wire = (envelopeLine ? envelopeLine + ' ' + text : text) + tail;
   const target = paneTarget(allowed.card);
   // Read BEFORE the send, from the card the send was authorised against, so the
   // note describes the pane we typed into rather than whatever it became while
@@ -919,12 +1141,31 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     return { state: DELIVERY.COULD_NOT, because: still.because, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
   }
 
-  // ⚠️ TWO CALLS, in this order, never one. `-l` types characters literally, so
-  // folding Enter into the same call would type the five letters E-n-t-e-r.
-  // connect.js sends a sign-in code exactly this way for exactly this reason.
-  // ⚠️ `wireText`, not `text`: a trailing `;` is tmux's command-list separator
-  // and never reaches the pane unescaped. See `wireText` for what was measured.
-  const typed = tmux(['send-keys', '-t', target, '-l', '--', wireText(wire)]);
+  // ⚠️ TWO STEPS, in this order, never one: put the text in, THEN a SEPARATE
+  // Enter submits it. Folding them would submit each chunk, and an Enter sent
+  // before the pasted bytes have flushed races the paste (see the paste-transport
+  // note and the size-adaptive delay below).
+  // ⚠️ THE TEXT IS PASTED, not typed with `send-keys -l`. A raw keystroke stream
+  // is silently shredded into a busy pane (kosmos#3419); `pasteWire` delivers it
+  // atomically in UTF-8-safe chunks. The raw `wire` is pasted, not `wireText`:
+  // a paste delivers a trailing `;` literally, so no escaping is needed.
+  const typed = pasteWire(target, wire);
+  // ⚠️ A MULTI-CHUNK PASTE THAT FAILED PART-WAY is UNCONFIRMED, not COULD_NOT,
+  // and this branch must come first because the failure below it would otherwise
+  // call it "safe to re-send". `pasteWire` sets `pastedAny` when at least one
+  // chunk already landed in the composer before the failure; a re-send then
+  // pastes the whole body again behind that fragment and the Enter submits both.
+  // The honest verdict is the third state: some of it may be sitting there
+  // half-typed. (A first-chunk failure leaves pastedAny false and falls through
+  // to the could_not/unconfirmed branches below, which are correct — nothing
+  // landed.) The engine states the fact; the page says where to look.
+  if ((!typed.ran || typed.status !== 0) && typed.pastedAny) {
+    return {
+      state: DELIVERY.UNCONFIRMED,
+      because: 'part of it reached its window before the send failed, so it may be sitting there half-typed',
+      at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
+    };
+  }
   if (typed.ran && typed.status !== 0) {
     // tmux ran and refused: it did not type anything. Re-sending is safe.
     return {
@@ -958,9 +1199,47 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
     };
   }
-  /* Codex swallows an Enter that rides the paste burst (#571): let the
-     composer settle first. Claude panes skip this and pay nothing. */
-  if (allowed.card.runner === 'codex') (pauser || pauseMs)(CODEX_ENTER_GAP_MS);
+  /* Pause before the submit Enter so the pasted bytes have flushed through the
+     tmux/PTY pipeline; otherwise the Enter races the still-arriving paste and
+     submits a partial line, the rest landing unsent (paste-transport note,
+     point 2). Size-adaptive,
+     and never below the codex floor on a codex pane — codex also swallows an
+     Enter that rides the paste burst (#571), and its measured 500ms gap is the
+     minimum. Every pane now pays at least the base delay; at agent-comms cadence
+     on a synchronous server it is invisible, and it is what makes the paste
+     actually submit. */
+  const gapMs = Math.max(
+    pasteToEnterMs(Buffer.byteLength(wire, 'utf8')),
+    allowed.card.runner === 'codex' ? CODEX_ENTER_GAP_MS : 0,
+  );
+  submitGap(gapMs);
+  /**
+   * ⚠️ RE-VERIFY THE PANE IS STILL AN AGENT'S WINDOW IMMEDIATELY BEFORE THE
+   * SUBMIT ENTER. The old send-keys path put the whole message in one call, so
+   * verifyAtSend above sat one round-trip from the keystroke. The paste path is
+   * wider: N chunks × (set-buffer + paste-buffer) plus the size-adaptive gap now
+   * paid on EVERY send (up to 2s), and during that window the pane can stop being
+   * an agent's — Claude exits and the pane falls back to a SHELL. The body is
+   * already pasted into that pane by now; an unconditional Enter would submit it,
+   * and in a shell that EXECUTES it as a command. This is the exact hazard
+   * verifyAtSend exists to prevent, and the widened window is where it now lives,
+   * so the check is re-run here, closing the gap back to one round-trip before
+   * the Enter.
+   *
+   * ⚠️ THE VERDICT IS UNCONFIRMED, NOT COULD_NOT. The paste HAS landed, so the
+   * text may be sitting in the composer (or a shell prompt) unsent — reporting
+   * could_not would invite a re-send that pastes the whole body again. We refuse
+   * to press Enter (never executing a command in a fallen shell) and report the
+   * honest third state.
+   */
+  const stillAnAgent = verifyAtSend(allowed.card);
+  if (!stillAnAgent.ok) {
+    return {
+      state: DELIVERY.UNCONFIRMED,
+      because: 'its window changed before we could submit, so what we typed may be sitting there unsent',
+      at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
+    };
+  }
   const entered = tmux(['send-keys', '-t', target, 'Enter']);
   if (!entered.ran || entered.status !== 0) {
     /**
@@ -1795,6 +2074,35 @@ function pauseMs(ms) {
   Atomics.wait(PARK, 0, 0, ms);
 }
 
+/* The paste→Enter gap (#3419), resolved once so its test seam and its
+ * production behaviour cannot drift.
+ *   - An injected `pauser` (the test seam, like `runner` for tmux) always wins,
+ *     so a test that wants to ASSERT the gap records it without sleeping.
+ *   - With NO pauser but an injected `runner`, tmux is stubbed — there is no
+ *     real pane whose paste we are waiting to flush — so the real sleep is
+ *     pointless and is SKIPPED. This keeps the synchronous board (and the
+ *     ~8k-test suite) from paying a real 250ms+ per send against a fake tmux;
+ *     the gap exists for a live TUI, which by definition has runner=null.
+ *   - Production (runner=null, pauser=null) takes the real `pauseMs` wait.
+ *
+ * 🛑 COST, STATED SO IT IS NOT SHIPPED SILENTLY (#3419). This wait BLOCKS THE
+ * WHOLE BOARD, which is single-threaded and synchronous (see the DELIVERY
+ * docstring). Before #3419 only a codex pane paid a pause (500ms); every other
+ * send paid ~0. Now EVERY send pays this gap (250ms floor, up to 2000ms for a
+ * multi-KB body). A fan-out — a room `sendPost` to N members, the silent-sweep
+ * catch-up, the periodic autohandoff/unanswered sweeps — sends sequentially, so
+ * it freezes the board for at least N×250ms. That is the deliberate cost of
+ * submitting a paste reliably (an Enter sent before the bytes flush races the
+ * paste); the delay is claude-msg's fleet-proven constant and is NOT lowered
+ * here on a guess. A per-recipient concurrent send would remove the multiplier
+ * but is an architectural change well outside this transport fix — a real
+ * follow-up, not a silent regression. Noted on the plan file too. */
+function submitGap(ms) {
+  if (pauser) { pauser(ms); return; }
+  if (runner) return; // stubbed tmux (tests): no real pane to wait on
+  pauseMs(ms);
+}
+
 function withThreadLock(file, fn) {
   // Delegates to the shared primitive (kosmos#1823). `busy` and `cannotAccess`
   // are this module's own messages; the rename-steal, age-staleness, owner-token
@@ -2282,6 +2590,7 @@ function dmUnread(agent) {
 module.exports = {
   DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
+  chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,

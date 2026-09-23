@@ -256,19 +256,40 @@ chat.setRunner((args) => {
       ? { ran: true, spawnFailed: false, status: 1, out: '', err: `can't find pane: ${target}` }
       : { ran: true, spawnFailed: false, status: 0, out: screen, err: '' };
   }
-  if (args[0] === 'send-keys') {
-    process.stdout.write('SEND-KEYS ' + JSON.stringify(args) + '\n');
-    /**
-     * ⚠️ ONE AGENT'S SENDS FAIL, ON PURPOSE. A fixture where every send
-     * succeeds can only ever photograph the happy path, and the failure sentence
-     * is the half of this screen that has to be right — it is what somebody
-     * reads when their message did not get there. `nils`'s pane answers the way
-     * tmux answers for a session that has gone since the roster was read, which
-     * is the commonest real cause.
-     */
-    if (String(args[2] || '').includes('nils')) {
+  /**
+   * ⚠️ ONE AGENT'S SENDS FAIL, ON PURPOSE. A fixture where every send succeeds
+   * can only ever photograph the happy path, and the failure sentence is the
+   * half of this screen that has to be right — it is what somebody reads when
+   * their message did not get there. `nils`'s pane answers the way tmux answers
+   * for a session that has gone since the roster was read, which is the
+   * commonest real cause.
+   *
+   * ⚠️ #3419: THE BODY IS PASTED NOW, NOT TYPED WITH `send-keys -l`. So the call
+   * that carries content to nils's pane is `paste-buffer -t =nils-discord:…`, not
+   * a send-keys. Failing it here (on the FIRST chunk, so nothing lands) is what
+   * makes `deliver()` return COULD_NOT / "can't find pane" — the same verdict the
+   * old send-keys arm produced. Keying this off send-keys instead would only ever
+   * match the trailing Enter, turning the intended COULD_NOT into an UNCONFIRMED
+   * (the paste "landed" then the Enter failed) and breaking render-thread.js's
+   * "Could not deliver" / "can't find pane" assertion. `set-buffer` carries no
+   * target, so the paste-buffer is the right call to fail.
+   */
+  // #3419: log the paste transport so render-thread.js can assert the body the
+  // way it used to assert the `send-keys -l` call. set-buffer carries the chunk
+  // (after `--`); paste-buffer carries the target (after `-t`).
+  if (args[0] === 'set-buffer') {
+    process.stdout.write('SET-BUFFER ' + JSON.stringify(args) + '\n');
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  }
+  if (args[0] === 'paste-buffer') {
+    process.stdout.write('PASTE-BUFFER ' + JSON.stringify(args) + '\n');
+    if (String(args[args.length - 1] || '').includes('nils')) {
       return { ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane: =nils-discord:0.0" };
     }
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  }
+  if (args[0] === 'send-keys') {
+    process.stdout.write('SEND-KEYS ' + JSON.stringify(args) + '\n');
     /**
      * ⚠️ AND ONE AGENT PRODUCES THE AMBIGUOUS OUTCOME, which is the state that
      * is hardest to get right on screen and therefore the one most worth
@@ -277,10 +298,14 @@ chat.setRunner((args) => {
      * A fixture with only success and only failure would photograph two thirds
      * of this feature.
      */
-    // Discriminated by SHAPE, not position (round 28): the Enter call has
-    // no -l flag, while the literal-text call does -- so a message whose
-    // text is exactly "Enter" no longer matches this arm on the text send
-    // and photographs a could_not where the fixture means an unconfirmed.
+    // #3419: since the body is PASTED (set-buffer/paste-buffer), the ONLY
+    // send-keys this fixture ever sees is the submit Enter, so `casey` failing
+    // here is unambiguously an Enter-failure -> UNCONFIRMED (text pasted, submit
+    // failed). The `!args.includes('-l') && last === 'Enter'` guard is retained
+    // belt-and-suspenders (round 28: it kept a message whose text was literally
+    // "Enter" from photographing a could_not on the text send back when the text
+    // went via `send-keys -l`); it is always true on this path now, harmless, and
+    // documents the old shape.
     if (String(args[2] || '').includes('casey') && !args.includes('-l') && args[args.length - 1] === 'Enter') {
       return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no current session' };
     }

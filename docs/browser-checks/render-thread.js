@@ -268,6 +268,18 @@ function sentKeys() {
     .map((l) => JSON.parse(l.slice('SEND-KEYS '.length)));
 }
 
+// #3419: the body is PASTED now, not typed with `send-keys -l`. The fixture logs
+// each set-buffer (the chunk, after `--`) and paste-buffer (the target, after
+// `-t`); these read them back the way sentKeys reads the Enter.
+function loggedCalls(prefix) {
+  return fs.readFileSync(LOG, 'utf8')
+    .split('\n')
+    .filter((l) => l.startsWith(prefix + ' '))
+    .map((l) => JSON.parse(l.slice((prefix + ' ').length)));
+}
+function setBuffers() { return loggedCalls('SET-BUFFER'); }
+function pasteBuffers() { return loggedCalls('PASTE-BUFFER'); }
+
 /** Is this element actually on screen, with real size, and painted? */
 async function reallyVisible(page, selector) {
   return page.evaluate((sel) => {
@@ -694,19 +706,30 @@ async function main() {
       'the terminal box scrolls its own content sideways, rather than stretching the page');
 
     /* ── 4. sending ─────────────────────────────────────────────────────── */
-    const before = sentKeys().length;
+    // #3419: the body is PASTED (set-buffer chunks -> paste-buffer), then a
+    // SEPARATE send-keys Enter submits it. So the shape is: one-or-more chunks
+    // that reassemble to the typed text, a paste-buffer pinned to the pane, and
+    // exactly one Enter. (Old shape was `send-keys -l -- <text>` then Enter.)
+    const beforeChunks = setBuffers().length;
+    const beforePastes = pasteBuffers().length;
+    const beforeEnter = sentKeys().length;
     await page.fill('#pj-say', '1');
     await page.click('#pj-send');
     await page.waitForFunction(() => document.querySelectorAll('.pj-msg').length > 0, null, { timeout: 10000 });
     await page.screenshot({ path: path.join(OUT, 'thread-2-sent-placed.png'), fullPage: true });
 
-    const keys = sentKeys().slice(before);
-    check(keys.length === 2, `a send is two tmux calls, the text then Enter (saw ${keys.length})`);
-    check(keys[0] && keys[0][keys[0].length - 1] === '1',
-      'the text that reached the seam is the text that was typed into the box');
-    check(keys[0] && keys[0][2] === '=mara-discord:0.0',
-      `and it was aimed at the exact pinned pane (${keys[0] && keys[0][2]})`);
-    check(keys[1] && keys[1][keys[1].length - 1] === 'Enter', 'and Enter was a separate call');
+    const chunks = setBuffers().slice(beforeChunks);
+    const pastes = pasteBuffers().slice(beforePastes);
+    const enters = sentKeys().slice(beforeEnter);
+    const body = chunks.map((a) => a[a.length - 1]).join('');
+    check(body === '1',
+      `the text that reached the seam is the text that was typed into the box (saw "${body}")`);
+    check(pastes.length >= 1 && pastes[0][pastes[0].length - 1] === '=mara-discord:0.0',
+      `and it was pasted at the exact pinned pane (${pastes[0] && pastes[0][pastes[0].length - 1]})`);
+    check(enters.length === 1 && enters[0][enters[0].length - 1] === 'Enter',
+      `and Enter was a single separate call (saw ${enters.length})`);
+    check(enters[0] && enters[0][2] === '=mara-discord:0.0',
+      `and the submit was pinned to the same pane (${enters[0] && enters[0][2]})`);
 
     if (!(await page.locator('.pj-msg .pj-msg-said').first().boundingBox())) check(false, 'the says-line has no size on screen');
     const said = await page.locator('.pj-msg .pj-msg-said').first().innerText();

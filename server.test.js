@@ -263,6 +263,34 @@ async function req(path, options) {
 
 const postJson = (path, obj) => req(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
 
+/* #3419: engine/chat now PASTES a message into the pane — set-buffer -b <buf> --
+   <chunk> (UTF-8-safe, <=256B each), then paste-buffer, then a SEPARATE send-keys
+   Enter — instead of `send-keys -l -- <text>`. Route tests below record every tmux
+   call and then ask "what text reached the pane"; that text is the set-buffer
+   chunk(s). These helpers keep those assertions reading the pasted body without
+   each one reconstructing the paste path, and are robust to chunking:
+     - pastedChunks(calls): one entry per set-buffer chunk (its last argv). Only the
+       FIRST chunk of a message carries the envelope prefix, so counting chunks that
+       start with '[' counts ADDRESSED messages regardless of how many chunks each
+       took.
+     - pastedMessages(calls): one WHOLE message per entry, reassembled across chunk
+       boundaries. Chunks are grouped by the submit Enter that follows them, so each
+       entry is exactly one message's text — a `^…$`-anchored regex still matches and
+       a phrase a chunk split still matches. Robust to how many chunks a message took.
+   A message is submitted once per Enter. */
+const pastedChunks = (calls) => calls.filter((a) => a[0] === 'set-buffer').map((a) => a[a.length - 1]);
+function pastedMessages(calls) {
+  const msgs = [];
+  let cur = '';
+  let has = false;
+  for (const a of calls) {
+    if (a[0] === 'set-buffer') { cur += a[a.length - 1]; has = true; }
+    else if (a[0] === 'send-keys' && a[a.length - 1] === 'Enter' && has) { msgs.push(cur); cur = ''; has = false; }
+  }
+  if (has) msgs.push(cur); // chunks pasted but never submitted (a failed/partial send)
+  return msgs;
+}
+
 // #2908: /api/post validates reply_expected as an OPTIONAL strict boolean, as a request-shape
 // check before any roster/project work. A non-boolean is refused with 400 rather than coerced --
 // a truthy "false" string must never read as reply-required. A boolean or an omitted field passes
@@ -6436,8 +6464,8 @@ test('the msg route derives the sender from the pane, ignores any typed claim, a
     assert.equal(r.status, 200);
     const verdict = JSON.parse(r.body).delivery;
     assert.equal(verdict.state, 'placed', 'the route did not deliver: ' + (verdict.because || ''));
-    const typed = sends.filter((a) => a[0] === 'send-keys');
-    assert.match(typed[0][5], /^\[message from your colleague leo · m\d+\] route test$/,
+    const typed = pastedChunks(sends);
+    assert.match(typed[0], /^\[message from your colleague leo · m\d+\] route test$/,
       'the envelope does not carry the derived sender');
 
     const rec = await req('/api/messages?agent=mara');
@@ -6501,7 +6529,7 @@ test('the post route resolves the project, derives the member list, and fans out
     assert.equal(verdict.state, 'placed', 'the route did not deliver: ' + (verdict.because || ''));
     assert.deepEqual(verdict.outcomes, { mara: 'placed', april: 'placed' },
       'the member list was not derived off the project record');
-    const typed = sends.filter((a) => a[0] === 'send-keys' && typeof a[5] === 'string' && a[5].startsWith('['));
+    const typed = pastedChunks(sends).filter((t) => t.startsWith('['));
     assert.equal(typed.length, 2);
     /* 🛑 THE ENVELOPE SAYS THE NAME, THE RECORD KEEPS THE ID. The project is
        created as "Route room" and stored as `routeroom`; an agent handed the
@@ -6510,7 +6538,7 @@ test('the post route resolves the project, derives the member list, and fans out
        2026-08-21). Both halves asserted here, because either alone is the bug:
        the slug in the sentence is what confused the agent, and the name in the
        record would break the log, the pair counter and `kosmos post`. */
-    const addressed = typed.map((a) => a[5]).find((t) => t.startsWith('[message'));
+    const addressed = typed.find((t) => t.startsWith('[message'));
     assert.match(addressed, /project Route room ·/,
       'the addressed envelope names the project by its slug, which the agent cannot match');
     /* ⚠️ NARROWED, DELIBERATELY, when the answering command joined the envelope
@@ -6590,8 +6618,8 @@ test('the room routes: the operator flag is minted only here, and the thread fil
     assert.ok(row, 'the operator post never reached the record');
     assert.equal(row.operator, true, 'the operator route did not mint the flag');
     assert.equal(row.from, 'you');
-    const typed = sends.filter((a) => a[0] === 'send-keys' && typeof a[5] === 'string' && a[5].startsWith('['));
-    const opEnv = typed.map((a) => a[5]).find((t) => t.includes('project Ops room')) || '';
+    const typed = pastedChunks(sends).filter((t) => t.startsWith('['));
+    const opEnv = typed.find((t) => t.includes('project Ops room')) || '';
     assert.match(opEnv, /from your operator/,
       'an operator arrival did not carry the operator marker');
     // The same split as the addressed case above: name in the sentence, id in
@@ -9894,7 +9922,7 @@ test('a message to an agent’s own page arrives saying how to answer, and the e
     });
     assert.equal(r.status, 200, r.body);
 
-    const wire = typed.map((a) => a[5]).find((t) => typeof t === 'string' && t.includes('lease')) || '';
+    const wire = pastedMessages(typed).find((t) => typeof t === 'string' && t.includes('lease')) || '';
     assert.match(wire, /^\[message from your operator · to answer, run: kosmos reply\] can you look at the lease\?$/,
       'the person’s message reached the pane with no way to tell where it came from or how to answer it');
 
@@ -9948,7 +9976,7 @@ test('the operator envelope does not spend the person’s character budget', asy
       'a message the person is allowed to send was refused because of Kosmos’s own words: '
       + JSON.parse(r.body).delivery.because);
 
-    const wire = typed.map((a) => a[5]).find((t) => typeof t === 'string' && t.includes(brim)) || '';
+    const wire = pastedMessages(typed).find((t) => typeof t === 'string' && t.includes(brim)) || '';
     assert.ok(wire.length > chatEngine.MAX_TEXT,
       'the wire should carry envelope AND the full message; the person’s half is what is capped');
   } finally {
@@ -10702,7 +10730,7 @@ test('attachments: a file is uploaded to an agent, rides the message, reaches th
   assert.ok('preview' in row.attachment, 'preview is absent rather than null or a value');
 
   // The pane was told where the file is, in the bracketed line.
-  const wire = typed.map((a) => a[5]).find((x) => typeof x === 'string' && x.includes('here is the lease')) || '';
+  const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('here is the lease')) || '';
   assert.match(wire, /here is the lease \[attached file: \/.+\/lease notes\.txt\]$/, wire);
   const rec = attachmentsEngine.read(attachment.id);
   assert.ok(wire.includes(rec.file), 'the path in the wire is not the stored file');
@@ -10781,7 +10809,7 @@ test('attachments: a file is uploaded to an agent, rides the message, reaches th
   });
   assert.equal(long.status, 200, long.body);
   assert.equal(JSON.parse(long.body).delivery.state, 'placed', JSON.stringify(JSON.parse(long.body).delivery));
-  const spacedWire = typed.map((a) => a[5]).find((x) => typeof x === 'string' && x.includes('Q3  report.txt')) || '';
+  const spacedWire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('Q3  report.txt')) || '';
   assert.ok(spacedWire, 'the two-space file name was collapsed on the way to the pane');
 });
 
@@ -10817,7 +10845,7 @@ test('attachments: a room post carries a project attachment to every member and 
     body: JSON.stringify({ text: 'read the brief', attachment: attachment.id }),
   });
   assert.equal(post.status, 200, post.body);
-  const wire = typed.map((a) => a[5]).find((x) => typeof x === 'string' && x.includes('read the brief')) || '';
+  const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('read the brief')) || '';
   assert.match(wire, /read the brief \[attached file: \/.+\/brief\.txt\]$/, wire);
   const rows = JSON.parse((await req('/api/project/' + pr.id + '/room')).body).rows;
   const row = rows.find((r) => r.kind === 'post' && r.text === 'read the brief');
@@ -10865,10 +10893,10 @@ test('compact and clear type the bare slash command into the pane, refuse a pane
       const out = JSON.parse(r.body);
       assert.equal(out.command, cmd);
       assert.equal(out.delivery.state, 'placed', cmd + ' did not deliver: ' + (out.delivery.because || ''));
-      const typed = sends.filter((a) => a[0] === 'send-keys');
+      const typed = pastedMessages(sends);
       assert.ok(typed.length >= 1, cmd + ' typed nothing');
-      assert.equal(typed[0][5], '/' + cmd, cmd + ' was wrapped or altered on the wire: ' + JSON.stringify(typed[0][5]));
-      assert.ok(!typed.some((a) => /message from your operator/.test(String(a[5]))), cmd + ' carried an operator line');
+      assert.equal(typed[0], '/' + cmd, cmd + ' was wrapped or altered on the wire: ' + JSON.stringify(typed[0]));
+      assert.ok(!typed.some((t) => /message from your operator/.test(t)), cmd + ' carried an operator line');
     }
     const after = JSON.parse((await req('/api/messages?agent=mara')).body).messages.length;
     assert.equal(after, before, 'a command was recorded in the thread as if it were a message');
@@ -10885,7 +10913,7 @@ test('compact and clear type the bare slash command into the pane, refuse a pane
     const back = await req('/api/agent/mara/compact', { method: 'POST', headers: { 'content-type': 'application/json' } });
     assert.equal(back.status, 409, 'a scrolled-back pane was not refused: ' + back.body);
     assert.equal(JSON.parse(back.body).delivery.state, 'could_not');
-    assert.equal(sends2.filter((a) => a[0] === 'send-keys').length, 0, 'something was typed into a pane the probe said not to type into');
+    assert.equal(sends2.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys').length, 0, 'something was typed into a pane the probe said not to type into');
     // Unknown agent: 404, never a send.
     const nope = await req('/api/agent/nobody-here/clear', { method: 'POST', headers: { 'content-type': 'application/json' } });
     assert.equal(nope.status, 404);
@@ -10948,7 +10976,7 @@ test('attachments: a message carries several files, in order, with every path in
   assert.ok(row && Array.isArray(row.attachments) && row.attachments.length === 2, 'the row does not carry both: ' + JSON.stringify(row));
   assert.equal(row.attachments[0].id, a.id); assert.equal(row.attachments[1].id, b.id);
   assert.equal(row.attachment.id, a.id, 'the first file is not also `attachment`, which the card drawn against one file reads');
-  const wire = typed.map((x) => x[5]).find((x) => typeof x === 'string' && x.includes('both of these')) || '';
+  const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('both of these')) || '';
   assert.match(wire, /both of these \[attached file: \/.+\/one\.txt\] \[attached file: \/.+\/two\.txt\]$/, wire);
   // A bad id anywhere in the list refuses the whole send; nothing is recorded.
   const bad = await req('/api/agent/' + name + '/thread', {
@@ -10979,7 +11007,7 @@ test('attachments: a message carries several files, in order, with every path in
   const roomRow = roomRows.find((r) => r.kind === 'post' && r.text === 'plan.txt, budget.txt');
   assert.ok(roomRow && roomRow.attachments && roomRow.attachments.length === 2, 'the room row does not carry both: ' + JSON.stringify(roomRow));
   assert.equal(roomRow.attachment.id, pa.id);
-  const roomWire = typed.map((x) => x[5]).find((x) => typeof x === 'string' && x.includes('plan.txt, budget.txt')) || '';
+  const roomWire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('plan.txt, budget.txt')) || '';
   assert.match(roomWire, /\[attached file: \/.+\/plan\.txt\] \[attached file: \/.+\/budget\.txt\]$/, roomWire);
 });
 
@@ -11010,24 +11038,24 @@ test('putting a running agent on a project types one line into its pane, once, a
     assert.equal(out.told.state, 'told', out.told.because);
     assert.ok(out.said, 'membership moved and nothing was spoken');
     assert.equal(out.said.state, 'placed', out.said.because);
-    let typed = sends.filter((a) => a[0] === 'send-keys' && a.includes('-l'));
+    let typed = pastedMessages(sends);
     assert.equal(typed.length, 1, 'the join line was not typed exactly once');
-    assert.match(String(typed[0][typed[0].length - 1]), /put you on the project "Pane Line"/);
+    assert.match(typed[0], /put you on the project "Pane Line"/);
     // Re-adding the same member moves nothing and types nothing.
     sends.length = 0;
     r = await req('/api/project/' + made.id + '/agent/mara', { method: 'POST' });
     out = JSON.parse(r.body);
     assert.equal(out.said, null, 'a repeat add spoke to the agent about a fact that did not move');
-    assert.equal(sends.filter((a) => a[0] === 'send-keys').length, 0);
+    assert.equal(pastedMessages(sends).length, 0);
     // Leave: its own line, naming the project, not teaching the room command.
     sends.length = 0;
     r = await req('/api/project/' + made.id + '/agent/mara', { method: 'DELETE' });
     out = JSON.parse(r.body);
     assert.equal(out.said && out.said.state, 'placed', r.body);
-    typed = sends.filter((a) => a[0] === 'send-keys' && a.includes('-l'));
+    typed = pastedMessages(sends);
     assert.equal(typed.length, 1);
-    assert.match(String(typed[0][typed[0].length - 1]), /took you off the project "Pane Line"/);
-    assert.doesNotMatch(String(typed[0][typed[0].length - 1]), /post pane-line/);
+    assert.match(typed[0], /took you off the project "Pane Line"/);
+    assert.doesNotMatch(typed[0], /post pane-line/);
   } finally {
     chatEngine.setRunner(null);
   }
@@ -13745,7 +13773,7 @@ test('#761: giving a task to an agent types the assignment into its pane, and th
     const out = JSON.parse(r.body);
     assert.equal(out.heard && out.heard.who, 'mara');
     assert.equal(out.heard.state, 'placed', 'the assignment was not typed: ' + ((out.heard && out.heard.because) || r.body));
-    const typed = sends.map((a) => a.join(' ')).join('\n');
+    const typed = pastedMessages(sends).join('\n');
     assert.match(typed, /you were given task 1 in "Christmas plan": Book the venue/, 'the line names the task, the project and the sentence');
     assert.match(typed, /say "task 1 of Christmas plan" in what you report/, 'and teaches the long spelling (#779: a bare "task 1" collides across projects)');
     assert.match(typed, new RegExp('kosmos post ' + p.id), 'and names the room');
@@ -13804,7 +13832,7 @@ test('#761 round 1: a part is heard with its own sentence, a no-op reassignment 
     assert.equal(r1.status, 200, r1.body);
     const out1 = JSON.parse(r1.body);
     assert.equal(out1.heard && out1.heard.state, 'placed', 'the part assignment was not typed: ' + JSON.stringify(out1));
-    let typed = sends.map((a) => a.join(' ')).join('\n');
+    let typed = pastedMessages(sends).join('\n');
     assert.match(typed, /you were given task 1 in "Renovation": Order the cabinets/, 'the PART\'s own sentence');
     assert.doesNotMatch(typed, /Renovate the kitchen/, 'the parent task\'s sentence must not leak into a part\'s pane line');
     // Part ids are NOT 1-based on a task's first added part: a task with no

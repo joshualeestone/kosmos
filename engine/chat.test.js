@@ -85,16 +85,39 @@ function okProbe() {
  */
 function fakeTmux(answers, opts) {
   const calls = [];
-  const probe = opts && Object.prototype.hasOwnProperty.call(opts, 'probe') ? opts.probe : okProbe();
+  const hasProbe = opts && Object.prototype.hasOwnProperty.call(opts, 'probe');
+  const probe = hasProbe ? opts.probe : okProbe();
+  // #3419: deliver() now probes the pane TWICE (verifyAtSend before the paste AND
+  // again immediately before the submit Enter, to close the shell-fallback window
+  // the multi-round-trip paste widens). A single static `probe` can only make BOTH
+  // verifies agree, so it cannot exercise the case the second guard exists for:
+  // healthy before the paste, fallen after it. `probeSeq` answers successive
+  // display-message calls in order (falling back to `probe`/okProbe once drained),
+  // so a test can drive the two verifies independently.
+  const probeSeq = opts && Array.isArray(opts.probeSeq) ? opts.probeSeq.slice() : null;
   const fn = (args) => {
     calls.push(args);
-    if (args[0] === 'display-message') return probe;
+    if (args[0] === 'display-message') {
+      if (probeSeq && probeSeq.length) return probeSeq.shift();
+      return probe;
+    }
     return answers.length ? answers.shift() : { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
   };
   fn.calls = calls;
   // The sends only, so a test asserting "nothing was typed" is not confused by
   // the read-only probe that precedes them.
   fn.sends = () => calls.filter((args) => args[0] === 'send-keys');
+  // #3419: the body now arrives via set-buffer/paste-buffer chunks rather than a
+  // send-keys keystroke stream. These helpers let a test see the paste path the
+  // way `sends()` sees the Enter.
+  fn.setBuffers = () => calls.filter((args) => args[0] === 'set-buffer');
+  fn.pastes = () => calls.filter((args) => args[0] === 'paste-buffer');
+  // The full message as it was pasted: each set-buffer carries one chunk as its
+  // last argv (after `--`); concatenated in call order they are the wire.
+  fn.pastedText = () => fn.setBuffers().map((args) => args[args.length - 1]).join('');
+  // A "was anything put into the pane?" check that spans BOTH the paste path and
+  // the Enter — the #3419 successor to asserting `sends().length` alone.
+  fn.typedInto = () => calls.filter((args) => args[0] === 'set-buffer' || args[0] === 'paste-buffer' || args[0] === 'send-keys');
   return fn;
 }
 
@@ -251,16 +274,31 @@ test('#2100 control: a stopped CLAUDE agent KEEPS the "no Claude running" line (
 
 /* ── the send itself ─────────────────────────────────────────────────────── */
 
-test('a good send is two calls in order: the literal text, then Enter, both pinned to the exact pane', () => {
+test('a good send PASTES the text then presses Enter, both pinned to the exact pane (#3419)', () => {
   withFleet([fleet.agent('casey', { state: 'needs_you' })], (board) => {
     const tmux = arm([ok(), ok()]);
     const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.PLACED);
     assert.equal(verdict.because, null);
     const target = '=' + board.card('casey').target;
+    // The body goes in by paste, NOT send-keys -l (which a busy pane shreds).
+    // It is one short line, so exactly one chunk: one set-buffer + one
+    // paste-buffer, then a SEPARATE Enter.
+    const setBuffers = tmux.setBuffers();
+    const pastes = tmux.pastes();
+    assert.equal(setBuffers.length, 1);
+    assert.equal(pastes.length, 1);
+    assert.equal(tmux.pastedText(), 'have a look at the lease');
+    // set-buffer ends option parsing with `--`, and paste-buffer + Enter are
+    // pinned to the same exact-match target the set-buffer's paste lands in.
+    assert.equal(setBuffers[0][3], '--');
+    assert.deepEqual(pastes[0].slice(0, 2), ['paste-buffer', '-b']);
+    assert.equal(pastes[0][pastes[0].length - 1], target);
+    assert.deepEqual(pastes[0].slice(-3), ['-d', '-t', target]);
     const sends = tmux.sends();
-    assert.deepEqual(sends[0], ['send-keys', '-t', target, '-l', '--', 'have a look at the lease']);
-    assert.deepEqual(sends[1], ['send-keys', '-t', target, 'Enter']);
+    assert.deepEqual(sends[0], ['send-keys', '-t', target, 'Enter']);
+    // The set-buffer buffer name and the paste-buffer name match (same chunk).
+    assert.equal(setBuffers[0][2], pastes[0][2]);
     // And the pane was asked about itself FIRST, read-only, before any keystroke.
     assert.equal(tmux.calls[0][0], 'display-message');
   });
@@ -275,35 +313,48 @@ const CODEX_IDLE = `╭───────────────────
 › Ask Codex to do anything
   gpt-5.6-sol default · /private/tmp/somewhere`;
 
-test('a send to a CODEX pane waits between the text and Enter, because codex takes an immediate Enter as part of the paste (#571)', () => {
+test('a send to a CODEX pane waits at least the codex gap between the paste and Enter (#571), because codex takes an immediate Enter as part of the paste', () => {
   // A codex pane the way the supervisor records one: runner set, the
   // process is node, and the screen is codex's own prompt (status.test.js).
   withFleet([fleet.agent('pixel', { state: 'idle', runner: 'codex', command: 'node', screen: CODEX_IDLE })], (board) => {
     const tmux = arm([ok(), ok()]);
     // The pause lands in the same call log as the keystrokes, so ORDER is
-    // asserted, not just presence: text, then the wait, then Enter.
+    // asserted, not just presence: paste, then the wait, then Enter.
     chat.setPauser((ms) => { tmux.calls.push(['<pause>', ms]); });
     const verdict = chat.deliver('pixel', 'answer with: direct works', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.PLACED);
-    const keys = tmux.calls.filter((c) => c[0] === 'send-keys' || c[0] === '<pause>');
-    assert.equal(keys.length, 3);
-    assert.deepEqual(keys[0].slice(0, 2), ['send-keys', '-t']);
-    assert.deepEqual(keys[0].slice(-1), ['answer with: direct works']);
-    assert.deepEqual(keys[1], ['<pause>', chat.CODEX_ENTER_GAP_MS]);
-    assert.deepEqual(keys[2].slice(-1), ['Enter']);
+    const seq = tmux.calls.filter((c) => c[0] === 'paste-buffer' || c[0] === 'send-keys' || c[0] === '<pause>');
+    // paste, pause, Enter — in that order.
+    assert.equal(seq.length, 3);
+    assert.equal(seq[0][0], 'paste-buffer');
+    assert.equal(seq[1][0], '<pause>');
+    assert.deepEqual(seq[2].slice(-1), ['Enter']);
+    // #3419: the codex gap is a FLOOR on the size-adaptive delay, so a codex
+    // send never waits less than the measured 500ms even for a tiny message.
+    assert.ok(seq[1][1] >= chat.CODEX_ENTER_GAP_MS, 'codex gap is the minimum');
     assert.ok(chat.CODEX_ENTER_GAP_MS >= 500, 'measured boundary on codex 0.149.1: 0.5s submits, 0 does not');
   });
 });
 
-test('a send to a CLAUDE pane never pays the codex gap: the server is synchronous and the whole board waits with it', () => {
+test('a CLAUDE pane still pauses before Enter — the pasted bytes must flush or the Enter races them (#3419)', () => {
+  // Before #3419 a claude send paid no pause at all (raw send-keys needs none).
+  // The paste transport does: an Enter sent before the pasted bytes have flushed
+  // through the tmux/PTY pipeline races the paste and submits a partial line. It
+  // is the size-adaptive delay, not the codex gap, and for a short message it is
+  // the base delay. (paste-buffer is issued without -p, so there are no tmux
+  // bracketed-paste markers to wait on — only the byte flush.)
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     const tmux = arm([ok(), ok()]);
-    let paused = 0;
-    chat.setPauser(() => { paused += 1; });
+    const pauses = [];
+    chat.setPauser((ms) => { pauses.push(ms); });
     const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.PLACED);
-    assert.equal(paused, 0);
-    assert.equal(tmux.sends().length, 2);
+    assert.equal(pauses.length, 1, 'exactly one pause, before the submit Enter');
+    assert.ok(pauses[0] >= chat.pasteToEnterMs(0), 'at least the base paste→Enter delay');
+    assert.ok(pauses[0] < chat.CODEX_ENTER_GAP_MS, 'a claude pane does NOT pay the codex floor for a short message');
+    // The Enter is the only send-keys; the body went in by paste.
+    assert.equal(tmux.sends().length, 1);
+    assert.deepEqual(tmux.sends()[0].slice(-1), ['Enter']);
   });
 });
 
@@ -320,24 +371,172 @@ test('the target carries the `=` exact-match pin, which is what stops a send lan
   });
 });
 
-test('the text is delivered CLEANED, so what was checked is what is typed', () => {
+test('the text is delivered CLEANED, so what was checked is what is pasted', () => {
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     const tmux = arm([ok(), ok()]);
     chat.deliver('casey', '  two\nlines  ', board.agents);
-    assert.equal(tmux.sends()[0][5], 'two lines');
+    assert.equal(tmux.pastedText(), 'two lines');
   });
 });
 
-test('`--` ends option parsing, so a message starting with a dash is typed rather than read as flags', () => {
-  // Measured with `-echo dashy-probe-text`, which landed verbatim in a real
-  // pane's composer.
+test('`--` ends set-buffer option parsing, so a message starting with a dash is pasted rather than read as flags (#3419)', () => {
+  // Measured on tmux 3.6a: `set-buffer -b b '-n x'` errors "unknown buffer"
+  // without the `--`; with it the chunk is literal data.
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     const tmux = arm([ok(), ok()]);
     const verdict = chat.deliver('casey', '-n is what broke it', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.PLACED);
-    assert.equal(tmux.sends()[0][4], '--');
-    assert.equal(tmux.sends()[0][5], '-n is what broke it');
+    const setBuffers = tmux.setBuffers();
+    assert.equal(setBuffers[0][3], '--');
+    assert.equal(setBuffers[0][4], '-n is what broke it');
+    assert.equal(tmux.pastedText(), '-n is what broke it');
   });
+});
+
+/* ── the paste transport itself (#3419) ──────────────────────────────────── */
+
+test('#3419 chunkUtf8 splits at the byte budget and NEVER inside a multibyte character', () => {
+  // The whole point: a chunk boundary that fell inside a UTF-8 sequence would
+  // have bracketed-paste markers inserted mid-codepoint and corrupt the char.
+  // A 4-byte emoji straddling the budget must move WHOLE into the next chunk.
+  const bytesOf = (s) => Buffer.byteLength(s, 'utf8');
+
+  // Pure ASCII: exact byte-budget chunks, last one short, reassembles verbatim.
+  const ascii = 'x'.repeat(600);
+  const aChunks = chat.chunkUtf8(ascii, 256);
+  assert.deepEqual(aChunks.map(bytesOf), [256, 256, 88]);
+  assert.equal(aChunks.join(''), ascii);
+
+  // '🌮' is 4 bytes. Pad so the budget lands mid-emoji, then assert no chunk is
+  // ever cut inside one: every chunk is itself valid UTF-8 and the join is exact.
+  const taco = '🌮';
+  const mixed = 'a'.repeat(254) + taco + 'b'.repeat(254) + taco;
+  const mChunks = chat.chunkUtf8(mixed, 256);
+  assert.equal(mChunks.join(''), mixed, 'every byte survives, in order');
+  for (const c of mChunks) {
+    // A round-trip through Buffer cannot introduce U+FFFD unless a real codepoint
+    // was severed; equality proves each chunk decoded cleanly.
+    assert.equal(Buffer.from(c, 'utf8').toString('utf8'), c, 'no chunk cut a codepoint');
+    assert.ok(bytesOf(c) <= 256, 'no chunk exceeds the budget');
+  }
+
+  // Degenerate inputs.
+  assert.deepEqual(chat.chunkUtf8('', 256), [], 'empty → no chunks');
+  assert.deepEqual(chat.chunkUtf8('hi', 256), ['hi'], 'short → one chunk');
+});
+
+test('#3419 a message larger than one chunk is pasted whole, in order — the anti-truncation guarantee', () => {
+  // A raw send-keys of this into a busy pane loses all but a tail fragment. The
+  // paste path puts EVERY byte in, across multiple sub-800B chunks, with NO
+  // Enter between them, then one Enter submits it as a single turn.
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const tmux = arm([]); // all tmux calls succeed by default
+    const body = 'the quick brown fox '.repeat(40); // 800 chars > 256B chunk
+    assert.ok(body.length <= chat.MAX_TEXT, 'fixture stays within the product cap');
+    const verdict = chat.deliver('casey', body, board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.PLACED);
+    // More than one chunk, and they reassemble to exactly the cleaned wire.
+    assert.ok(tmux.setBuffers().length > 1, 'a >256B body is chunked, not one paste');
+    assert.equal(tmux.pastes().length, tmux.setBuffers().length, 'one paste per chunk');
+    assert.equal(tmux.pastedText(), chat.cleanMessage(body), 'every byte pasted, in order');
+    // No Enter until AFTER the last paste — the chunks accumulate into one turn.
+    const order = tmux.calls.map((c) => c[0]).filter((c) => c === 'set-buffer' || c === 'paste-buffer' || c === 'send-keys');
+    assert.equal(order[order.length - 1], 'send-keys', 'the single Enter is last');
+    assert.equal(order.filter((c) => c === 'send-keys').length, 1, 'exactly one Enter for the whole message');
+    // Each chunk is at or under the byte budget the PTY tolerates.
+    for (const sb of tmux.setBuffers()) {
+      assert.ok(Buffer.byteLength(sb[sb.length - 1], 'utf8') <= chat.PASTE_CHUNK_BYTES);
+    }
+  });
+});
+
+test('#3419 a paste that fails AFTER an earlier chunk landed is UNCONFIRMED, not could_not', () => {
+  // The multi-chunk partial-residue case: chunk 0 pasted into the composer, then
+  // chunk 1's paste-buffer failed. A fragment is now sitting un-submitted, so
+  // could_not ("safe to re-send") would be a lie — a re-send pastes the whole body
+  // again behind the fragment. The honest verdict is the third state.
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const body = 'y'.repeat(300); // > 256B -> two chunks
+    // Sequence: set-buffer(0) ok, paste-buffer(0) ok, set-buffer(1) ok,
+    // paste-buffer(1) REFUSED. The 5th call (delete-buffer cleanup) falls to the
+    // default ok.
+    const tmux = arm([ok(), ok(), ok(), refused('lost the pane mid-paste')]);
+    const verdict = chat.deliver('casey', body, board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED,
+      'a fragment left in the composer must not read as safe-to-resend could_not');
+    assert.match(verdict.because, /half-typed/);
+    // Two chunks were attempted, and NO Enter was pressed after the failure.
+    assert.equal(tmux.setBuffers().length, 2);
+    assert.ok(!tmux.sends().some((s) => s[s.length - 1] === 'Enter'),
+      'no submit Enter after a failed multi-chunk paste');
+  });
+});
+
+test('#3419 a paste that fails on the FIRST chunk is could_not (nothing landed, safe to re-send)', () => {
+  // The control that makes the test above mean something: a first-chunk failure
+  // leaves nothing in the composer, so could_not (re-send is safe) is correct.
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const tmux = arm([refused('no pane at all')]); // set-buffer(0) refused
+    const verdict = chat.deliver('casey', 'z'.repeat(300), board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT,
+      'nothing was pasted, so this must be the safe-to-resend verdict');
+    assert.ok(!tmux.sends().some((s) => s[s.length - 1] === 'Enter'));
+  });
+});
+
+test('#3419 the pane is re-verified right before the Enter: a pane that fell to a shell after the paste gets NO Enter and is UNCONFIRMED', () => {
+  // The single most security-relevant addition: the paste transport opens a wider
+  // window between verifyAtSend and the keystroke than the old single send-keys,
+  // so the pane is re-checked immediately before the submit Enter. If it fell back
+  // to a shell in that window, the body is already pasted into that shell's input
+  // line — pressing Enter would EXECUTE it as a command. This proves the second
+  // verify refuses the Enter and reports the honest third state.
+  const healthy = { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+  const shell = { ran: true, spawnFailed: false, status: 0, out: '-zsh\t\t0\n', err: '' };
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    // First verify (before the paste) healthy; second verify (before the Enter)
+    // shows a shell.
+    const tmux = arm([ok(), ok()], { probeSeq: [healthy, shell] });
+    const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED,
+      'a pane that fell to a shell after the paste must not read as placed');
+    assert.match(verdict.because, /changed before we could submit/);
+    assert.ok(tmux.pastes().length >= 1, 'the body WAS pasted before the pane fell');
+    assert.ok(!tmux.sends().some((s) => s[s.length - 1] === 'Enter'),
+      'NO Enter fired into the fallen shell — the whole point of the second verify');
+  });
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    // CONTROL: both verifies healthy -> the Enter DOES fire and it is placed, so
+    // the refusal above is the second verify and not something else.
+    const tmux = arm([ok(), ok()], { probeSeq: [healthy, healthy] });
+    const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.PLACED, 'a pane healthy at both checks delivers');
+    assert.ok(tmux.sends().some((s) => s[s.length - 1] === 'Enter'), 'the Enter fires when both verifies pass');
+  });
+});
+
+test('#3419 a caller-supplied envelope is whitespace-flattened before the pane, so no newline reaches it', () => {
+  // The newline-free-wire invariant the paste transport's safety rests on:
+  // paste-buffer (no -r) turns an LF into a CR, which in a fallen shell submits at
+  // paste time — before the pre-Enter re-verify. `text` is flattened by
+  // cleanMessage and the trailer refuses control chars, but the envelope arrives
+  // caller-supplied; deliver flattens its whitespace too. Prove a multi-line
+  // envelope cannot carry a newline into the paste.
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const tmux = arm([ok(), ok()]);
+    const verdict = chat.deliver('casey', 'the body', board.agents, 'line one\nline two');
+    assert.equal(verdict.state, chat.DELIVERY.PLACED);
+    const wire = tmux.pastedText();
+    assert.ok(!/[\r\n]/.test(wire), 'a newline reached the pane: ' + JSON.stringify(wire));
+    assert.equal(wire, 'line one line two the body',
+      'the envelope is flattened to single spaces, then the body follows');
+  });
+});
+
+test('#3419 the paste→Enter delay grows with body size and is capped', () => {
+  assert.equal(chat.pasteToEnterMs(0), 250, 'the base floor');
+  assert.ok(chat.pasteToEnterMs(4096) > chat.pasteToEnterMs(0), 'larger body waits longer');
+  assert.equal(chat.pasteToEnterMs(10 * 1024 * 1024), 2000, 'capped so a huge body cannot sleep for minutes');
 });
 
 test('tmux refusing the text is a could_not that carries what tmux said', () => {
@@ -347,7 +546,10 @@ test('tmux refusing the text is a could_not that carries what tmux said', () => 
     assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
     assert.match(verdict.because, /could not type it into its window/);
     assert.match(verdict.because, /can't find pane/);
-    assert.equal(tmux.sends().length, 1, 'Enter is not pressed after the text failed to land');
+    // The paste failed, so no Enter is pressed — a bare submit into a live
+    // composer is exactly what must NOT happen when the text did not land.
+    assert.ok(!tmux.sends().some((s) => s[s.length - 1] === 'Enter'),
+      'Enter is not pressed after the paste failed to land');
   });
 });
 
@@ -362,7 +564,9 @@ test('text that landed but could not be SUBMITTED is UNCONFIRMED, not a failure'
    * one already answered.
    */
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
-    arm([ok(), refused('no current session')]);
+    // set-buffer OK, paste-buffer OK (the text reached the composer), then the
+    // submit Enter fails — that is the "landed but not submitted" case.
+    arm([ok(), ok(), refused('no current session')]);
     const verdict = chat.deliver('casey', 'hello', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED);
     assert.match(verdict.because, /may be sitting in its composer unsent/);
@@ -729,14 +933,20 @@ test('the manager match is loose on purpose: a role is a sentence somebody typed
  * asserts the line itself, over every outcome the seam can produce.
  */
 test('could_not NEVER means "we typed it and cannot tell": that is what unconfirmed is for', () => {
+  // #3419: the body now goes in as set-buffer → paste-buffer → Enter (three
+  // tmux calls), so each row scripts answers in THAT order. A set-buffer or
+  // paste-buffer that refused or never ran pasted nothing (COULD_NOT, safe to
+  // re-send); one that timed out MAY have landed (UNCONFIRMED); the Enter arm is
+  // unchanged (a failed submit is UNCONFIRMED, the text may be in the composer).
   const outcomes = [
-    ['tmux refused the text', [refused("can't find pane")], chat.DELIVERY.COULD_NOT, 0],
+    ['set-buffer refused — text never pasted', [refused("can't find pane")], chat.DELIVERY.COULD_NOT, 0],
     ['tmux could not be run at all', [neverRan()], chat.DELIVERY.COULD_NOT, 0],
-    ['tmux took the text and did not answer', [timedOut()], chat.DELIVERY.UNCONFIRMED, 1],
-    ['the text landed and Enter was refused', [ok(), refused('no current session')], chat.DELIVERY.UNCONFIRMED, 1],
-    ['the text landed and Enter did not answer', [ok(), timedOut()], chat.DELIVERY.UNCONFIRMED, 1],
-    ['the text landed and Enter could not be run', [ok(), neverRan()], chat.DELIVERY.UNCONFIRMED, 1],
-    ['both went through', [ok(), ok()], chat.DELIVERY.PLACED, 1],
+    ['paste-buffer refused — text never pasted', [ok(), refused('no current session')], chat.DELIVERY.COULD_NOT, 0],
+    ['the paste did not answer — it may have landed', [ok(), timedOut()], chat.DELIVERY.UNCONFIRMED, 1],
+    ['the text landed and Enter was refused', [ok(), ok(), refused('no current session')], chat.DELIVERY.UNCONFIRMED, 1],
+    ['the text landed and Enter did not answer', [ok(), ok(), timedOut()], chat.DELIVERY.UNCONFIRMED, 1],
+    ['the text landed and Enter could not be run', [ok(), ok(), neverRan()], chat.DELIVERY.UNCONFIRMED, 1],
+    ['all three went through', [ok(), ok(), ok()], chat.DELIVERY.PLACED, 1],
   ];
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     for (const [what, answers, expected, mayHaveLanded] of outcomes) {
@@ -793,7 +1003,8 @@ test('an unconfirmed send states the FACT and hedges it, and leaves the instruct
    * asserted from both ends: here, and in `docs/browser-checks/render-thread.js`.
    */
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
-    arm([ok(), refused("can't find pane: =casey-discord:0.0")]);
+    // set-buffer OK, paste-buffer OK, then the submit Enter is refused.
+    arm([ok(), ok(), refused("can't find pane: =casey-discord:0.0")]);
     const verdict = chat.deliver('casey', 'hello', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED);
     assert.match(verdict.because, /may be sitting in its composer unsent/);
@@ -1199,7 +1410,8 @@ test('a session that stops being ours in the window is caught by the claim, not 
       probe: { ran: true, spawnFailed: false, status: 0, out: '2.1.212\tcasey\t0\n', err: '' },
     });
     assert.equal(chat.deliver('casey', 'hello', board.agents).state, chat.DELIVERY.PLACED);
-    assert.equal(good.sends().length, 2);
+    assert.equal(good.pastes().length, 1, 'the text was pasted');
+    assert.deepEqual(good.sends()[0].slice(-1), ['Enter'], 'and submitted');
 
     chat.resetForTests();
     const tmux = arm([ok(), ok()], {
@@ -1351,57 +1563,47 @@ test('an existing conversation is not re-stamped by a read that happened to know
   assert.equal(back.projectBornAt, '2026-01-01T00:00:00.000Z');
 });
 
-test('a message ending in a semicolon arrives WITH it, because tmux eats a trailing one', () => {
+test('a message ending in a semicolon arrives WITH it — a paste delivers the literal character (#3419)', () => {
   /**
-   * ⚠️ MEASURED against a real tmux 3.6a, in a scratch session created and
-   * killed for the probe — not read off the parser. What the pane really showed
-   * for a single argv element:
-   *
-   *   `const total = 0;`         → `const total = 0`   (the semicolon eaten)
-   *   `;`                        → ``                  (NOTHING arrives)
-   *   `wait;;`                   → `wait;`             (exactly one eaten)
-   *   `const a = 1; const b = 2` → unchanged           (a middle one is safe)
-   *   `const total = 0; `        → unchanged           (a trailing space saves it)
-   *
-   * tmux splits argv into a command LIST first, and a `;` at the very end of the
-   * last element is that split's separator rather than a character.
-   *
-   * ⚠️ ASSERTED ON THE ARGV HANDED TO tmux, like the leading-dash test above,
-   * because that is the half this module controls. The round-trip itself was
-   * measured live; a test cannot re-measure it without typing into a real pane.
+   * ⚠️ THE HAZARD THIS USED TO GUARD IS GONE WITH THE PASTE TRANSPORT. When the
+   * body went in with `send-keys -l`, tmux split argv into a command LIST first
+   * and ate a trailing `;` as the separator, so the send path escaped it to `\;`
+   * (see `wireText`). A paste-buffer carries its content verbatim — no command
+   * list, no separator — so the literal `;` is delivered and no escaping is
+   * needed. Asserted on the ARGV handed to set-buffer (the half this module
+   * controls); the paste round-trip's fidelity is claude-msg's measured basis.
    */
-  const BACKSLASH = String.fromCharCode(92);
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
     const tmux = arm([ok(), ok()]);
     const verdict = chat.deliver('casey', 'const total = 0;', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.PLACED);
-    assert.equal(tmux.sends()[0][5], 'const total = 0' + BACKSLASH + ';',
-      'a trailing semicolon went to tmux unescaped, so the agent receives the message without it');
+    assert.equal(tmux.pastedText(), 'const total = 0;',
+      'the trailing semicolon is pasted literally, so the agent receives the whole message');
   });
 });
 
-test('a message of exactly ";" is not a bare Enter into a live composer', () => {
+test('a message of exactly ";" pastes the character, so the Enter is not a bare submit (#3419)', () => {
   /**
-   * ⚠️ THE DANGEROUS HALF, and it is why this is a blocker rather than a
-   * cosmetic loss. Unescaped, `;` types NOTHING — and the separate Enter still
-   * fires, so a bare submit lands in the pane. On the permission prompt this
-   * whole feature exists for, a bare submit takes the HIGHLIGHTED DEFAULT: the
-   * person sends a semicolon and answers a question they never read. And the
-   * verdict said `placed`.
+   * ⚠️ THE DANGEROUS HALF the old send-keys path had: `;` typed NOTHING (tmux ate
+   * it) and the separate Enter still fired, so a bare submit landed on the
+   * permission prompt this feature exists for and took the highlighted default.
+   * With the paste transport the `;` is delivered as an actual character before
+   * the Enter, so the Enter submits the person's `;` rather than answering a
+   * question they never read.
    */
-  const BACKSLASH = String.fromCharCode(92);
   withFleet([fleet.agent('casey', { state: 'needs_you' })], (board) => {
     const tmux = arm([ok(), ok()]);
     chat.deliver('casey', ';', board.agents);
-    const sends = tmux.sends();
-    assert.equal(sends[0][5], BACKSLASH + ';', 'nothing would be typed, and the Enter below would answer for them');
-    assert.deepEqual(sends[1].slice(-1), ['Enter'], 'the control: the Enter really does still fire');
+    assert.equal(tmux.pastedText(), ';', 'the semicolon is actually pasted, not eaten');
+    assert.equal(tmux.setBuffers().length, 1, 'one chunk carrying the ;');
+    assert.deepEqual(tmux.sends()[0].slice(-1), ['Enter'], 'the control: the Enter still fires, now submitting the ;');
   });
 });
 
-test('the escape is applied at the SEND only: the record and the screen keep the person’s own text', () => {
-  // An escape that leaked into `cleanMessage` would put a backslash in their
-  // history, in the thread on screen, and in what the length check measures.
+test('the record and the screen keep the person’s own text, semicolon and all', () => {
+  // The paste path delivers the literal `;` (no escaping anywhere now), and the
+  // stored/shown copy must equally be the person's own text — a stray backslash
+  // in their history, thread or length check would be the same defect.
   assert.equal(chat.cleanMessage('const total = 0;'), 'const total = 0;');
   assert.equal(chat.messageProblem(';'), null, 'a semicolon is a message somebody may legitimately send');
   withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
@@ -1838,7 +2040,8 @@ test('an unconfirmed send does not also assert WHERE the message is sitting', ()
   assert.equal(chat.waitingNote('rate_limited', chat.DELIVERY.UNCONFIRMED), 'it was paused on a usage limit');
   // What it was DOING is still true and still useful, so that half stays.
   withFleet([fleet.agent('casey', { state: 'working' })], (board) => {
-    arm([ok(), refused('no current session')]);
+    // set-buffer OK, paste-buffer OK, then the submit Enter is refused (#3419).
+    arm([ok(), ok(), refused('no current session')]);
     const verdict = chat.deliver('casey', 'hello', board.agents);
     assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED);
     assert.equal(verdict.paneNote, 'it was mid-task');
