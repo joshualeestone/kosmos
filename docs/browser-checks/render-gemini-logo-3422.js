@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: data-pmark pmark-gemini-g
+// Browser-check-surface: data-pmark="gemini"
 /**
  * kosmos#3422: the Gemini provider mark paints in the enhanceProviderSelect combobox.
  *
