@@ -50922,11 +50922,20 @@ setInterval(ageCheckedStamp, 1000);
      "On" is painted ONLY after the board has stored the subscription, never from
      the permission grant alone -- a granted permission whose POST failed must
      stay retryable, not read as On over a device the coordinator never heard of. */
+  // Re-entry flag: only one permission -> subscribe -> POST chain runs at a time.
+  var enabling = false;
   function enablePush() {
     if (!hasSW || !hasPush) {
       setPushMsg('This device or browser does not support push notifications.');
       return Promise.resolve(false);
     }
+    // Guard a double-click (or a second programmatic call): while a chain is in
+    // flight the button is disabled and a second call returns without starting a
+    // second overlapping subscribe/POST. The flag clears on every terminal path
+    // (the trailing .then below), so a completed or failed attempt can retry.
+    if (enabling) return Promise.resolve(false);
+    enabling = true;
+    paintButton(true, 'Turning on...');
     setPushMsg('Asking your browser for permission...');
     return Notification.requestPermission().then(function (perm) {
       if (perm !== 'granted') {
@@ -50983,6 +50992,11 @@ setInterval(ageCheckedStamp, 1000);
       paintButton(false, 'Turn on');
       setPushMsg('Could not turn on notifications. Please try again.');
       return false;
+    }).then(function (result) {
+      // Clear the re-entry flag on every terminal path (granted+stored, denied,
+      // dismissed, or failed) so the control can be used again.
+      enabling = false;
+      return result;
     });
   }
 
