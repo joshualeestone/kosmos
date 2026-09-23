@@ -1342,7 +1342,12 @@ function setGeminiAccount(clean, spoken, dir, job, platform) {
   } else {
     acct = gemini.list().find((a) => a.dir === wanted);
     if (!acct) return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
-    configDir = acct.dir;
+    /* isDefault -> null, the SAME transform createAgentInner's google arm and setCodexAccount
+       apply: a default-account agent carries NO configDir (absent means the default). Without
+       this, an explicit credentialed-default dir arg would write GEMINI_CLI_HOME=~/.gemini and
+       geminiStorageHome would then nest storage at ~/.gemini/.gemini. The empty-string "back to
+       default" path above already yields null; this makes the explicit-dir path agree. */
+    configDir = acct.isDefault ? null : acct.dir;
   }
   const unwritten = rewriteAgentJob(clean, spoken, {
     runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'gemini',
@@ -1368,7 +1373,8 @@ function setGrokAccount(clean, spoken, dir, job, platform) {
   } else {
     acct = grok.list().find((a) => a.dir === wanted);
     if (!acct) return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
-    configDir = acct.dir;
+    // isDefault -> null, the same transform the sibling paths apply (see setGeminiAccount).
+    configDir = acct.isDefault ? null : acct.dir;
   }
   const unwritten = rewriteAgentJob(clean, spoken, {
     runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'grok',

@@ -164,3 +164,16 @@ Full whole-tree suite + full challenge-loop before PR.
   but it closes the "an account is an isolated directory" invariant. Tested in both modules + the route.
 - **FIXED: an em dash in a test console.log** (my own standing no-em-dash rule). Swept all authored
   files; it was the only one.
+
+## Iteration 7 (opus) findings
+- **FIXED (internal consistency): setGeminiAccount/setGrokAccount now apply isDefault->null.** Every
+  other account-writing path (createAgentInner google/xai arms, setCodexAccount) maps a resolved
+  DEFAULT account to configDir null; these two set it to acct.dir unconditionally, so moving an agent
+  to an explicit credentialed-default dir wrote GEMINI_CLI_HOME=~/.gemini (wrong: geminiStorageHome
+  would then nest at ~/.gemini/.gemini). Low severity (needs a credentialed default), but a real
+  inconsistency. Fixed + a regression test (setAccount to the explicit default dir writes no env line).
+- **Deferred NIT: the per-account key is visible in the tmux new-session argv (ps, same-user).** It
+  mirrors EVERY pre-existing pane env var exactly (CLOUDFLARE_API_TOKEN, GH_TOKEN, the default
+  GEMINI_API_KEY all reach the pane via `-e`), matches the plan's stated mode-600-file + tmux -e
+  contract, and is an accepted single-user-Mac posture; changing it for gemini/grok only would diverge
+  from how every other secret reaches a pane. The reviewer flagged it for awareness, not as a defect.

@@ -4041,6 +4041,28 @@ test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLA
   assert.equal(back.account.isDefault, true);
 });
 
+test('#3296 accounts slice: setAccount to an EXPLICIT credentialed-default dir writes NO account-env line (configDir null, like createAgentInner)', () => {
+  // The internal-consistency guard: setGeminiAccount must apply isDefault->null just as
+  // createAgentInner's google arm and setCodexAccount do. Reachable only when the default home is
+  // credentialed (unusual), so construct exactly that and assert the plist carries no
+  // GEMINI_CLI_HOME (a default agent has none; ~/.gemini would nest storage at ~/.gemini/.gemini).
+  recorder();
+  create.setDryRun(false);
+  const gemini = require('./geminiaccounts');
+  const defDir = gemini.defaultDir();
+  fs.mkdirSync(defDir, { recursive: true });
+  fs.writeFileSync(gemini.keyFile(defDir), 'AIza-default-key-1234', { mode: 0o600 }); // default now lists
+  const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-defmove', role: 'pm', provider: 'google' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const sw = create.setAccount('g-defmove', defDir); // explicit default dir, not the empty string
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.equal(sw.account.isDefault, true);
+  const plistText = fs.readFileSync(create.plistPath('g-defmove'), 'utf8');
+  assert.ok(!plistText.includes('GEMINI_CLI_HOME'), 'a default-account agent must carry NO GEMINI_CLI_HOME (configDir null), not ~/.gemini');
+  // Clean up the credentialed default so it does not leak into sibling #3296 default-home tests.
+  try { fs.rmSync(gemini.keyFile(defDir), { force: true }); } catch { /* best effort */ }
+});
+
 test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trust, and a pinned model', () => {
   // The launch flags are load-bearing and easy to drop silently: the plan pins the
   // model because the "Auto" router hangs in a tmux pane (measured >1m47s), and yolo
