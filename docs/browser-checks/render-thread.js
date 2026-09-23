@@ -606,25 +606,28 @@ async function main() {
        that both now land on the same screen, so the assertion is that the
        QUESTION is there rather than merely that a panel opened. */
     await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 10000 });
+    /* #3419: the needs_you question renders AS A THREAD BUBBLE now (chat.withQuestionRow's
+       kind:'question' row, the #3455 engine seam), not the removed #d-qask-text menu box.
+       Wait for the bubble carrying the question the button was pressed for, in #d-dmthread.
+       🛑 CO-LAND GATE: this arm needs the ENGINE seam (#3455) present to inject the question
+       row. On the UI branch ALONE the fixture server's engine has no withQuestionRow, so the
+       question does not render and this times out. It goes green once #3455 is merged and this
+       branch merges main in (engine-first co-land) -- browser-checks.yml is advisory, so a red
+       here before co-land does not block the merge. */
     await page.waitForFunction(() => {
-      const q = document.getElementById('d-qask');
-      const t = document.getElementById('d-qask-text');
-      return q && !q.hidden && t.getBoundingClientRect().height > 0 && (t.innerText || '').length > 0;
+      const t = document.getElementById('d-dmthread');
+      return t && /Do you want to proceed\?/.test(t.innerText || '');
     }, null, { timeout: 10000 });
-    check(await page.evaluate(() => (document.getElementById('d-qask-text').innerText || '')).then((t) => /Do you want to proceed\?/.test(t)),
-      'the agent’s own page shows the question the button was pressed for');
-    /* ⚠️ AND FOCUS FOLLOWS, ON THE SCREEN THE BUTTON NOW OPENS. This assertion
-       used to live against the project room and it was RIGHT: the card carrying
-       the button is torn down on the tab switch, so activation leaves
-       activeElement on <body> and a keyboard user has to re-traverse the whole
-       document to reach the question they pressed for. Re-pointing the button at
-       the agent's page on 2026-08-21 carried the navigation and left the focus
-       move behind -- and this check, waiting on the old destination, threw before
-       it could say so. The regression and the thing that would have caught it
-       were the same change. */
+    check(await page.evaluate(() => /Do you want to proceed\?/.test((document.getElementById('d-dmthread').innerText || ''))),
+      'the agent’s own page shows the question the button was pressed for, as a thread bubble');
+    /* ⚠️ AND FOCUS FOLLOWS TO THE COMPOSER, ON THE SCREEN THE BUTTON NOW OPENS. The card
+       carrying the button is torn down on the tab switch, so activation would leave
+       activeElement on <body> and a keyboard user would have to re-traverse the whole
+       document. #3419: the answer lives in the composer now (the menu is gone), so
+       ANSWER_WANTS_FOCUS focuses #d-say rather than the removed question box. */
     const answerFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
-    check(answerFocus === 'd-qask-text',
-      'keyboard focus moves to the question, not back to the top of the document',
+    check(answerFocus === 'd-say',
+      'keyboard focus moves to the composer to answer, not back to the top of the document',
       `activeElement is ${answerFocus || '(body)'}`);
 
     /* The room's panel, reached as a person reaches it, for the assertions below
