@@ -151,10 +151,24 @@ const visible = (page, sel) => page.evaluate((s) => {
 
       const entry = sc.entry || 'plus-signin-top';
       await page.click('#' + entry);
-      await page.waitForFunction(() => window.location, null, { timeout: 500 }).catch(() => {});
+      await page.waitForTimeout(300);  // give a real navigation a beat to begin, then assert none did
       chk(page.url() === beforeUrl, `[${key}] the #${entry} sign-in link did NOT navigate away`, page.url());
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       chk(!(await visible(page, '#plus-state1')), `[${key}] state 1 gives way to the wizard on the sign-in click`);
+
+      // #12/#13 (once, on the first scenario): "Not now" hides the wizard synchronously and
+      // returns to the marketing state, and re-entering starts from a cleared field rather
+      // than a stale one. Scenario-independent behavior, so exercise it just here.
+      if (key === 'existing-2fa') {
+        await page.fill('#plus-signin-email', 'stale@example.com');
+        await page.click('#plus-si-cancel');
+        chk(await visible(page, '#plus-state1'), `[${key}] "Not now" returns to the marketing state`);
+        chk(!(await visible(page, '#plus-si-email')), `[${key}] "Not now" hides the wizard`);
+        await page.click('#' + entry);
+        await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+        const stale = await page.inputValue('#plus-signin-email');
+        chk(stale === '', `[${key}] re-entering the wizard clears the stale field`, JSON.stringify(stale));
+      }
 
       // Step: email -> code.
       await page.fill('#plus-signin-email', 'you@example.com');

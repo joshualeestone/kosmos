@@ -32574,6 +32574,12 @@ let PLUS_EPOCH = 0;
 /* #3478: true while the in-app sign-in wizard (state 2) is open, so paintPlus's 5s
    repaint shows the wizard in place of the marketing state instead of clobbering it. */
 let PLUS_SIGNIN_ACTIVE = false;
+/* The computer-name format, shared by the enrol flow's plus-confirm and the sign-in
+   wizard's register step so the two cannot drift (CLAUDE.md #5). It mirrors the engine's
+   own NAME_RULE; the engine validates too, so this is a fast local echo, not the source
+   of truth. The two callers differ only in whether an EMPTY name is allowed (enrol lets
+   the engine name it; signin-register requires one) -- that is deliberate and separate. */
+const PLUS_NAME_RULE = /^[a-z0-9-]{3,32}$/;
 /**
  * The one place this page holds the site's address (#1129).
  *
@@ -32793,7 +32799,7 @@ document.getElementById('plus-confirm').addEventListener('click', async () => {
   const name = document.getElementById('plus-name').value.trim();
   /* The engine validates before spawning too; saying it here saves the
      round trip, in the engine's own sentence so the two cannot drift. */
-  if (name && !/^[a-z0-9-]{3,32}$/.test(name)) {
+  if (name && !PLUS_NAME_RULE.test(name)) {
     plusSay('the name is 3 to 32 lowercase letters, digits or hyphens', 'setup');
     return;
   }
@@ -32873,7 +32879,7 @@ async function plusSiPost(path, body) {
     return { ok: true, data: data || {} };
   } catch (err) {
     return { ok: false, because: (err && err.name === 'AbortError')
-      ? 'the sign-in service has not answered in 15 seconds; check this computer is online and try again'
+      ? ('the sign-in service has not answered in ' + Math.round(PLUS_ASK_TIMEOUT_MS / 1000) + ' seconds; check this computer is online and try again')
       : 'this computer could not reach the sign-in service' };
   } finally { clearTimeout(timer); }
 }
@@ -32919,6 +32925,15 @@ function plusSiEnter(e) {
   if (e) e.preventDefault();
   PLUS_SIGNIN_ACTIVE = true;
   plusSiMsg('');
+  /* Start every sign-in from a clean slate: clear the inputs and reset the sub-field
+     that plusSiStage reveals conditionally, so a cancel-then-restart cannot leave a stale
+     code or a previously-typed name sitting in a later step for a returning person to
+     submit without noticing. */
+  for (const id of ['plus-signin-email', 'plus-si-code-in', 'plus-si-second-in', 'plus-si-phone', 'plus-si-enrol-code', 'plus-si-name', 'plus-si-secret']) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+  const phoneField = document.getElementById('plus-si-phone-field'); if (phoneField) phoneField.hidden = true;
   plusSiShow('plus-si-email');
   const s1 = document.getElementById('plus-state1'); if (s1) s1.hidden = true;
   const s2 = document.getElementById('plus-state2'); if (s2) s2.hidden = false;
@@ -32930,6 +32945,12 @@ document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
   e.preventDefault();
   PLUS_SIGNIN_ACTIVE = false;
   plusSiMsg('');
+  /* Hide the wizard and show the marketing state SYNCHRONOUSLY -- the mirror of
+     plusSiEnter -- so "Not now" is instant even if the /api/remote read paintPlus makes
+     is slow or hung (that fetch carries no timeout). paintPlus then confirms the real
+     state on top of this. */
+  const s2 = document.getElementById('plus-state2'); if (s2) s2.hidden = true;
+  const s1 = document.getElementById('plus-state1'); if (s1) s1.hidden = false;
   paintPlus();
 });
 /* Codes arrive by paste with whitespace riding along; normalize to six digits, as
@@ -33050,7 +33071,7 @@ document.getElementById('plus-si-register-go').addEventListener('click', async (
   /* signin-register requires a name server-side (server.js 400s on empty), so reject an
      empty one here for instant feedback rather than a round trip. Then the format rule. */
   if (!name) { plusSiMsg('pick a name for this computer'); return; }
-  if (!/^[a-z0-9-]{3,32}$/.test(name)) {
+  if (!PLUS_NAME_RULE.test(name)) {
     plusSiMsg('the name is 3 to 32 lowercase letters, digits or hyphens');
     return;
   }
