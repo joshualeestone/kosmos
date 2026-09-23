@@ -473,13 +473,18 @@ function wireText(text) {
  *      between them; the composer accumulates them and the single Enter below
  *      submits the whole thing as one turn. 256B stays well under the ceiling.
  *
- *   2. WAIT BEFORE THE ENTER. paste-buffer wraps its content in bracketed-paste
- *      markers (ESC[200~ … ESC[201~); an Enter that arrives before the closing
- *      marker has flushed is absorbed as a newline INSIDE the paste and never
- *      submits — the body lands in the composer and sits there. The delay scales
- *      with body size because the flush cost grows with the paste. This is why
- *      the codex-only 500ms gap that used to be the ONLY pause is now folded into
- *      a size-adaptive delay paid before EVERY submit (see `deliver`).
+ *   2. WAIT BEFORE THE ENTER. paste-buffer streams the buffer's bytes into the
+ *      pane; an Enter that arrives before that stream has flushed through the
+ *      tmux/PTY pipeline races the still-arriving paste and submits a partial
+ *      line — the rest lands after, in the composer, unsent. The delay scales
+ *      with body size because the flush cost grows with the paste. (Accuracy
+ *      note: `paste-buffer` is issued WITHOUT `-p`, matching the proven
+ *      claude-msg, so tmux itself adds NO bracketed-paste ESC[200~/ESC[201~
+ *      markers — those need `-p`. The receiving Claude TUI has bracketed-paste
+ *      mode on, but the dependency this delay covers is the byte-stream flush,
+ *      not a tmux-inserted close marker.) This is why the codex-only 500ms gap
+ *      that used to be the ONLY pause is now folded into a size-adaptive delay
+ *      paid before EVERY submit (see `deliver`).
  *
  * NOT ported, deliberately, each with why it is safe to omit HERE:
  *   - claude-msg's per-target mkdir LOCK guards concurrent sender PROCESSES
@@ -503,7 +508,8 @@ const PASTE_CHUNK_BYTES = 256;
 // Size-adaptive paste→Enter delay (point 2 above), ported from claude-msg:
 //   delay = min(BASE + PER_KB * kB, MAX)
 // A one-line message clears well under BASE; a multi-KB body needs proportionally
-// longer before the Enter can land as a submit rather than a newline-in-paste.
+// longer for its bytes to flush before the Enter, so the Enter submits the whole
+// message rather than racing the still-arriving paste.
 const PASTE_ENTER_BASE_MS = 250;
 const PASTE_ENTER_PER_KB_MS = 100;
 const PASTE_ENTER_MAX_MS = 2000;
@@ -515,11 +521,14 @@ function pasteToEnterMs(byteLen) {
 
 /**
  * Split a string into UTF-8-safe chunks of at most `maxBytes` bytes each, never
- * cutting a multibyte character. Ported from claude-msg's perl splitter: each
- * paste-buffer wraps its chunk in bracketed-paste markers, so a codepoint split
- * across two chunks would have those markers inserted mid-sequence and corrupt
- * it. We cut at the byte budget but back off while the NEXT chunk would start on
- * a UTF-8 continuation byte (10xxxxxx, i.e. 0x80–0xBF).
+ * cutting a multibyte character. Ported from claude-msg's perl splitter. We cut
+ * at the byte budget but back off while the NEXT chunk would start on a UTF-8
+ * continuation byte (10xxxxxx, i.e. 0x80–0xBF). This is defensive: the chunks
+ * are pasted back-to-back with nothing between them, so a split codepoint would
+ * in fact reassemble — but keeping cuts on character boundaries matches
+ * claude-msg, keeps each chunk independently valid UTF-8 (so a stray decode in
+ * any consumer cannot corrupt it), and stays correct if bracketed-paste `-p`
+ * (which WOULD insert markers between chunks) is ever enabled.
  *
  * ⚠️ EXPORTED so the suite exercises THIS boundary logic rather than a copy of
  * it — the same reason claude-msg exposes its `--split-chunks` seam.
@@ -1159,9 +1168,10 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
     };
   }
-  /* Pause before the submit Enter so the bracketed-paste close (ESC[201~) has
-     flushed; otherwise the Enter is absorbed as a newline inside the paste and
-     the body sits unsubmitted (paste-transport note, point 2). Size-adaptive,
+  /* Pause before the submit Enter so the pasted bytes have flushed through the
+     tmux/PTY pipeline; otherwise the Enter races the still-arriving paste and
+     submits a partial line, the rest landing unsent (paste-transport note,
+     point 2). Size-adaptive,
      and never below the codex floor on a codex pane — codex also swallows an
      Enter that rides the paste burst (#571), and its measured 500ms gap is the
      minimum. Every pane now pays at least the base delay; at agent-comms cadence

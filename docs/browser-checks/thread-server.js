@@ -274,9 +274,19 @@ chat.setRunner((args) => {
    * "Could not deliver" / "can't find pane" assertion. `set-buffer` carries no
    * target, so the paste-buffer is the right call to fail.
    */
-  if (args[0] === 'paste-buffer' && String(args[args.length - 1] || '').includes('nils')) {
+  // #3419: log the paste transport so render-thread.js can assert the body the
+  // way it used to assert the `send-keys -l` call. set-buffer carries the chunk
+  // (after `--`); paste-buffer carries the target (after `-t`).
+  if (args[0] === 'set-buffer') {
+    process.stdout.write('SET-BUFFER ' + JSON.stringify(args) + '\n');
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  }
+  if (args[0] === 'paste-buffer') {
     process.stdout.write('PASTE-BUFFER ' + JSON.stringify(args) + '\n');
-    return { ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane: =nils-discord:0.0" };
+    if (String(args[args.length - 1] || '').includes('nils')) {
+      return { ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane: =nils-discord:0.0" };
+    }
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
   }
   if (args[0] === 'send-keys') {
     process.stdout.write('SEND-KEYS ' + JSON.stringify(args) + '\n');
