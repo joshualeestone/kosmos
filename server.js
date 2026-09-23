@@ -5639,11 +5639,13 @@ const server = http.createServer((req, res) => {
         catch (err) { back = { outcome: 'partial', because: String(err && err.message || err), steps: [] }; }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         /* #3296/#3391: the vendor word, keyed on the provider the switch landed on.
-           google/xai were previously mislabelled "Claude" here. */
-        const label = wrote.provider === 'openai' ? 'OpenAI'
-          : wrote.provider === 'google' ? 'Gemini'
-            : wrote.provider === 'xai' ? 'Grok'
-              : 'Claude';
+           google/xai were previously mislabelled "Claude" here.
+           #3296/#3391: the non-anthropic vendor word comes from create.providerLabel
+           (the ONE map the engine's "already runs on X" refusal also uses), so the two
+           cannot drift. anthropic is the deliberate exception: this route says the
+           PRODUCT word "Claude", while providerLabel returns the COMPANY word
+           "Anthropic", so it is special-cased here rather than shared. */
+        const label = wrote.provider === 'anthropic' ? 'Claude' : create.providerLabel(wrote.provider);
         /* The dropped choices are SAID, not implied: a person who picked a
            model or an account deserves to hear it did not cross, in the
            sentence that reports the switch, not on a later surprise.

@@ -142,13 +142,25 @@ test('#3391 route: a claude -> xai switch is labelled Grok and names the Grok ac
   assert.match(r.body.because, /It runs on your Grok account\./, 'the account sentence was not generalized to Grok: ' + r.body.because);
 });
 
-test('#3296 route: a NAMED Gemini account is named back with its key tail', async () => {
+test('#3296 route: a PICKED named Gemini account is named back with its key tail and the you-picked wording', async () => {
   const name = born('srv-gx-named-gemini');
   const r = await switchTo(name, { provider: 'google', account: GEMINI_ALPHA, picked: true });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.outcome, 'changed', JSON.stringify(r.body));
+  // picked:true is forwarded as pickedByPerson, so switchAccount.chosen is true and the
+  // route says "the Gemini account you picked", matching the codex #1373 affirmation.
+  assert.match(r.body.because, /It runs on the Gemini account you picked \(API key ending WXYZ\)\./,
+    'a picked named Gemini account did not get the you-picked wording + key tail: ' + r.body.because);
+});
+
+test('#3296 route: an UNPICKED named Gemini account travels but does NOT claim the person chose it', async () => {
+  const name = born('srv-gx-named-gemini-unpicked');
+  // account sent (as a repainted page does on every switch) but picked omitted -> chosen false.
+  const r = await switchTo(name, { provider: 'google', account: GEMINI_ALPHA });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.match(r.body.because, /It runs on your Gemini account \(API key ending WXYZ\)\./,
-    'the named Gemini account was not surfaced with its key tail: ' + r.body.because);
+    'an unpicked named account wrongly claimed a choice, or lost its key tail: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /you picked/, 'the route claimed a pick nobody made: ' + r.body.because);
 });
 
 test('#3296 route: the dropped-choice sentence is generalized (previous model does not cross)', async () => {

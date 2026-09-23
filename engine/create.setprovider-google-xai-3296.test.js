@@ -179,6 +179,15 @@ test('#3296: a switch onto a runner that is not installed is refused, naming the
   assert.equal(create.readJob(name).runner, 'claude', 'the runner was switched despite the missing-runner refusal');
 });
 
+test('#3391: a switch onto a Grok runner that is not installed is refused, naming the runner', () => {
+  const name = born('sp-gx-no-grok-runner', 'claude');
+  const missing = nodePath.join(BIN, 'grok-not-here');
+  const sw = create.setProvider(name, 'xai', { ...BINS, grokBin: missing });
+  assert.equal(sw.outcome, create.OUTCOME.REFUSED, 'an absent runner should be refused');
+  assert.match(String(sw.because), /could not find the Grok runner/, sw.because);
+  assert.equal(create.readJob(name).runner, 'claude', 'the runner was switched despite the missing-runner refusal');
+});
+
 test('#3296/#3391: providerRunner is the ONE map every path resolves through, total over the provider set', () => {
   // The map setProvider, createAgentInner and recordedRunner all call, extracted so a
   // fifth provider reaches every path at once (Repo-Specific Convention #5). Pinned here
