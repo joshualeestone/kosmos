@@ -625,6 +625,7 @@ const feedback = require('./engine/feedback');
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const heartbeat = require('./engine/heartbeat');
+const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 const heartbeatSetting = require('./engine/heartbeat-setting');
@@ -5944,6 +5945,18 @@ const server = http.createServer((req, res) => {
       const r = heartbeatSetting.read();
       sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
     } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  /* #3508: the Prompter's in-app nudges. The runner writes engine/heartbeat.js's
+     `toAsk` (the agents in an open stall worth a check-in) to a local store each
+     tick; the web UI polls this to render the question. Read-only and local -- the
+     same machine reads its own 0600 file, nothing leaves the Mac. Empty when the
+     Prompter is off (the runner writes an empty set) or nothing is stalled. */
+  if (pathname === '/api/prompter-nudges' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = prompternudge.read();
+      sendJson(res, 200, { at: r.at, nudges: r.nudges, ok: true });
+    } catch { sendJson(res, 500, { error: 'the nudges could not be read' }); }
     return;
   }
   if (pathname === '/api/heartbeat-setting' && req.method === 'PUT') {
@@ -14035,13 +14048,15 @@ function start(port = PORT) {
           const roster = setting.on ? safeRoster() : null;
           const outcome = heartbeat.step(heartbeatPrev, roster, setting.on);
           heartbeatPrev = outcome.next;
-          /* #2623: the heartbeat's check_in nudge was delivered through the phone
-             seam (engine/notify.js), which was deleted as phone-home telemetry
-             (Josh, 2026-09-09, "invasion of privacy"). The runner still tracks
-             stalls in heartbeatPrev, but there is no off-Mac delivery: the seam
-             barely fired anyway (see engine/wouldping.js) and the app has no
-             notification relay yet. A future in-app delivery channel is a
-             separate build. */
+          /* #3508: deliver the check-in nudges IN-APP. #2623 deleted the phone
+             seam (engine/notify.js) as telemetry (Josh, 2026-09-09, "invasion of
+             privacy"); this writes the current pending set to a LOCAL 0600 store
+             the web UI reads through /api/prompter-nudges. Nothing leaves the Mac,
+             so it is not the telemetry Josh removed and needs no opt-out. The
+             store REPLACES the set each tick, so a resolved stall clears itself.
+             Best-effort like the rest of the tick: a missed write is a missed
+             nudge and the board's status surfaces still show the truth. */
+          try { prompternudge.write(outcome.toAsk); } catch { /* best-effort */ }
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);
