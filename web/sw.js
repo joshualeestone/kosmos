@@ -170,12 +170,21 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = (event.notification.data && event.notification.data.url) || '/';
   event.waitUntil((async () => {
+    let targetOrigin = null;
+    try { targetOrigin = new URL(target, self.location.origin).origin; } catch (_e) {}
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    // Focus an existing board tab if one is open; otherwise open a new one.
+    // Reuse an open tab ONLY when it is at the target's own origin. WindowClient
+    // .navigate() rejects cross-origin, so a tab at a different origin (a
+    // federated view, or the board on localhost while the target is the Mac's
+    // tunnel host) cannot be sent there by navigating it -- matching against the
+    // SW's own origin instead would focus that tab and silently never reach the
+    // Mac. Anything else falls through to openWindow, which DOES open
+    // cross-origin, so the click-through lands on the Mac whether or not a tab is
+    // already open.
     for (const c of all) {
-      let same = false;
-      try { same = new URL(c.url).origin === self.location.origin; } catch (_e) {}
-      if (same && 'focus' in c) {
+      let cOrigin = null;
+      try { cOrigin = new URL(c.url).origin; } catch (_e) {}
+      if (cOrigin && cOrigin === targetOrigin && 'focus' in c) {
         if ('navigate' in c) { try { await c.navigate(target); } catch (_e) {} }
         return c.focus();
       }
