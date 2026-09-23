@@ -117,11 +117,14 @@ const HEADED = process.env.HEADED !== '0';
         + `(Add-to-Home-Screen wants an app-shaped launch)`);
     }
     if (!manifest.start_url) problems.push('manifest has no start_url');
-    const declaredSizes = (manifest.icons || []).flatMap((i) => (i.sizes || '').split(/\s+/));
-    if (!(manifest.icons || []).length) problems.push('manifest declares no icons');
-    for (const need of ['192x192', '512x512']) {
-      if (!declaredSizes.includes(need)) {
-        problems.push(`manifest icons do not include a ${need} icon (install eligibility)`);
+    if (!(manifest.icons || []).length) {
+      problems.push('manifest declares no icons');
+    } else {
+      const declaredSizes = manifest.icons.flatMap((i) => (i.sizes || '').split(/\s+/));
+      for (const need of ['192x192', '512x512']) {
+        if (!declaredSizes.includes(need)) {
+          problems.push(`manifest icons do not include a ${need} icon (install eligibility)`);
+        }
       }
     }
   }

@@ -83,6 +83,20 @@ elements once a row was appended after the list.
 Run `node docs/browser-checks/regress-a-night.js --seed` for the four lines that
 build the board it expects.
 
+## PWA installability (#718)
+
+`render-pwa-installable-718.js` pins the "home-screen icon shows" third of #718
+("Kosmos on a phone"): the board serves a valid web manifest (name,
+display:standalone, start_url) with 192 and 512 icons that actually resolve, and
+the Apple home-screen / theme-color head metas are wired, so Add-to-Home-Screen
+offers the Kosmos icon. A negative control (an absent `/icons/` path must not
+resolve 200) keeps the icon-resolve assertions honest. Its header also carries
+the full demoable-flow spec (install -> notification permission -> push ->
+notification lands); the push, service-worker, and front-door (#2854) steps are
+marked GATED on work owned by others, so it grows into runnable checks as those
+land rather than shipping an unarmed guard for a flow that has no implementation
+yet.
+
 ## Why they exist
 
 Everything in this directory is here because of defects that `node --test`
