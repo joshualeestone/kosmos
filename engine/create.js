@@ -2194,10 +2194,10 @@ function installSupervisor() {
     try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${geminiBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(path.join(path.dirname(supervisorPath()), `engine-path.${process.pid}.new`), { force: true }); } catch { /* best effort */ }
-    // ⚠️ NAME THE FILE. Two files ride this step; when one is absent the
-    // sentence must say WHICH, or a person goes looking for a file that is
-    // present (#731: the bridge was missing from the served bundle and the
-    // refusal blamed the supervisor, which had shipped).
+    // ⚠️ NAME THE FILE. Several files ride this step (the supervisor and both
+    // report bridges); when one is absent the sentence must say WHICH, or a person
+    // goes looking for a file that is present (#731: the bridge was missing from the
+    // served bundle and the refusal blamed the supervisor, which had shipped).
     const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
     return {
       ok: false,

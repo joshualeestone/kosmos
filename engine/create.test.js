@@ -3967,14 +3967,24 @@ test('#3296: a Gemini create with an account arg is created default-account (the
   // is created and its plist carries no per-account config dir (empty account slot).
   recorder();
   create.setDryRun(false);
-  const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-acct', role: 'pm', provider: 'google', account: '/some/gemini/dir' });
+  const suppliedDir = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.gemini-some-account');
+  const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-acct', role: 'pm', provider: 'google', account: suppliedDir });
   assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
-  // Vector slot 8 is the runner (gemini); a per-account agent would carry a config
-  // dir in its plist. Confirm it launched as a plain default-account gemini agent.
-  const args = plistArgs('g-acct');
-  assert.equal(args[8], 'gemini');
-  // The recorded runner + provider are gemini/google regardless of the dropped account.
+  assert.equal(plistArgs('g-acct')[8], 'gemini');
   assert.equal(store.readProfile('g-acct').provider, 'google');
+  // ⚠️ DISCRIMINATING: the supplied account must be DROPPED, so its dir must appear
+  // NOWHERE in the plist. A per-account config dir surfaces in the plist's
+  // EnvironmentVariables (CLAUDE_CONFIG_DIR / account-env), which plistArgs (reads
+  // ProgramArguments only) cannot see -- so slot 8 == 'gemini' passes either way and
+  // is not the test. Read the whole plist text and assert the dir is absent: a
+  // regression that routed opts.account into a gemini config dir would make it appear.
+  const plistText = fs.readFileSync(create.plistPath('g-acct'), 'utf8');
+  assert.ok(!plistText.includes(suppliedDir), 'the supplied account dir leaked into the plist; it must be dropped for a default-account gemini agent');
+  // And the birth settings write landed in the DEFAULT gemini home, not the supplied dir.
+  assert.ok(fs.existsSync(nodePath.join(create.defaultAgentGeminiHome(), 'settings.json')),
+    'the gemini settings were not written to the default home');
+  assert.ok(!fs.existsSync(nodePath.join(suppliedDir, 'settings.json')),
+    'the gemini settings were written under the supplied account dir; it must be ignored');
 });
 
 test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trust, and a pinned model', () => {
