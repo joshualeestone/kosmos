@@ -23,16 +23,34 @@ managed install (legacy rung ships today). setModel is already generic for googl
 
 ## Measured facts this rests on (grok 1.0.41 / gemini-cli, 2026-09-23)
 - An account is a DIR, mirroring codex (~/.codex-<label>, CODEX_HOME) and claude (~/.claude-<label>).
-  gemini: ~/.gemini + ~/.gemini-<label>. grok: ~/.grok + ~/.grok-<label>.
+  gemini: ~/.gemini + ~/.gemini-<label>. grok: ~/.grok + ~/.grok-<label>. `row.dir` (== the agent's
+  configDir) is the account dir itself, and it IS the env value (GEMINI_CLI_HOME / GROK_HOME) verbatim.
 - THE HOME-ENV ASYMMETRY (verified in geminisession.js / groksession.js):
-  * grok: GROK_HOME is read VERBATIM as the storage root (sessions/ sits directly under it). So a
+  * grok: GROK_HOME is read VERBATIM as the storage root (sessions/ sit directly under it). So a
     per-account grok agent's pane sets GROK_HOME = <account-dir>, and the session reader resolves the
     same dir. Symmetric, one dir.
-  * gemini: the real GEMINI_CLI_HOME is the ROOT under which the CLI creates a .gemini subdir. So a
-    per-account gemini agent's pane sets GEMINI_CLI_HOME = PARENT(<account-.gemini-dir>); the CLI
-    writes to <parent>/.gemini and the reader (geminisession.HOME, which appends .gemini to
-    GEMINI_CLI_HOME) resolves the same <parent>/.gemini. The account's storage dir is <parent>/.gemini;
-    the env value is its parent.
+  * gemini: the real GEMINI_CLI_HOME is the ROOT under which the CLI creates a `.gemini` subdir. So a
+    per-account gemini agent's pane sets GEMINI_CLI_HOME = <account-dir> and the CLI writes its data
+    (settings.json, projects.json, sessions) into <account-dir>/.gemini.
+
+## ⭐ DESIGN CHANGED IN FLIGHT (2026-09-23): where the .gemini append lives -- I picked the OTHER of two
+   self-consistent designs than this plan first sketched, and it is the load-bearing call of the slice.
+- The plan first proposed: account-dir = the `.gemini` STORAGE dir, and GEMINI_CLI_HOME = PARENT(dir)
+  (a transform at the plist). REJECTED after I traced the round-trip: readPlistJob reads the plist's
+  env value back as job.configDir, so storing PARENT there makes the reader (which treats configDir as
+  the storage dir) read one level too high -- it would need an INVERSE append in readPlistJob AND the
+  account module's key/list/forget logic would all straddle two paths. Three-way asymmetric.
+- SHIPPED (Design R): `configDir` == `row.dir` == the ACCOUNT DIR (~/.gemini-<label>), == GEMINI_CLI_HOME
+  VERBATIM -- symmetric with grok everywhere (the account module, the plist, readPlistJob). The CLI's
+  one quirk (it writes into a `.gemini` subdir below GEMINI_CLI_HOME) is confined to ONE helper,
+  `create.geminiStorageHome(configDir)` = `configDir ? <configDir>/.gemini : ~/.gemini`, which feeds
+  the TWO storage consumers that already carried `|| defaultAgentGeminiHome()`: the birth settings
+  write (create.js) and readGeminiSession (status.js). Nothing else changes. The key file lives in the
+  account dir (== GEMINI_CLI_HOME), so the supervisor reads `$GEMINI_CLI_HOME/.kosmos-gemini-apikey`
+  symmetrically with grok's `$GROK_HOME/.kosmos-grok-apikey`.
+- Why this is the better call: the asymmetry lives in ONE place that already owned the .gemini knowledge,
+  instead of being smeared across the module + plistFor + readPlistJob. geminiaccounts.js is then a near
+  clone of grokaccounts.js (less divergence, the plan's own "mirror exactly" spirit).
 - THE NEW PLUMBING (the genuinely-new piece vs codex): gemini/grok CLIs read the API key from an ENV
   VAR (GEMINI_API_KEY / XAI_API_KEY), NOT from a file inside the home (codex's key lives in auth.json
   which CODEX_HOME already points at). So per-account key delivery is new: the account module stores a
@@ -58,9 +76,9 @@ managed install (legacy rung ships today). setModel is already generic for googl
    configDir (default account), it keeps the existing generic secrets/env door. Best-effort + never
    break the launch (a missing key file falls back to the default door, does not fail the pane).
 4. **accountenv.accountEnvVar gains gemini/grok arms**: gemini -> 'GEMINI_CLI_HOME', grok ->
-   'GROK_HOME'. The VALUE written for gemini is PARENT(account-dir) (the .gemini asymmetry); for grok
-   it is the account-dir itself. The parent transform lives at the create.js configDir->plist boundary,
-   documented, so accountenv stays a neutral name-only leaf.
+   'GROK_HOME'. The VALUE written is the account-dir VERBATIM for BOTH (Design R above): no parent
+   transform at the plist. accountenv stays a neutral name-only leaf. readPlistJob's cfg regex was
+   extended to read GEMINI_CLI_HOME/GROK_HOME back, so the account round-trips.
 5. **create.js**: replace the setAccount gemini/grok REFUSALs with setGeminiAccount/setGrokAccount
    (mirror setCodexAccount), and the createAgentInner google/xai configDir-null arms with account
    resolution (configDir = acct.isDefault ? null : acct.dir). Birth settings/hook writes already honor
@@ -73,9 +91,22 @@ managed install (legacy rung ships today). setModel is already generic for googl
 The per-account key ENV injection is new plumbing with no codex precedent to mirror exactly (codex's
 key is a file CODEX_HOME points at, not an env var). The design (supervisor reads the account key file
 and exports the CLI's env var) is sound and mirrors how the default door already injects the env var,
-but it is the one part not lifted verbatim from a sibling. It will get the most test scrutiny: a
-per-account agent gets ITS account's key, the default account keeps the machine door, a missing key
-file degrades to the door not a failed launch, and the key never lands in logs/argv.
+but it is the one part not lifted verbatim from a sibling. It got the most test scrutiny -- and it is
+EXECUTED, not just asserted: supervisor.provider-key-inject-3296.test.js runs the SHIPPED script with a
+recorder fake tmux and proves a per-account agent gets ITS account's key, a missing key file degrades
+to the door (no injection, never a failed launch), a default-account agent injects nothing, and the key
+reaches the pane's -e env (never logged/echoed).
+
+## What would change my mind (Design R)
+- If a THIRD gemini configDir consumer exists that treats it as the storage dir and I missed it, it
+  would read the account root instead of <root>/.gemini and find no sessions. I grepped: the only two
+  storage consumers are the birth write (create.js) and readGeminiSession (status.js), both now routed
+  through geminiStorageHome. discover.js reads ~/.gemini via geminisession.HOME (its own env branch),
+  not job.configDir, so it is unaffected. A new consumer must call geminiStorageHome, not join .gemini
+  by hand.
+- If the real gemini CLI is ever changed to read GEMINI_CLI_HOME verbatim (no .gemini append), the
+  append moves out of geminiStorageHome and gemini becomes byte-identical to grok. That is a one-helper
+  change, which is the whole point of confining it there.
 
 ## Test plan
 Unit: geminiaccounts/grokaccounts list/identityOf/checkLive/storeKey/forgetKey/removeAccount/nextWorkDir

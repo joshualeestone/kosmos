@@ -28,6 +28,11 @@ process.env.AGENT_WORKFORCE_PROJECTS = mkTemp('aw-cpa-projects-');
 process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-cpa-launch-');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(SANDBOX, '.gemini');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
+// This suite calls createAgent(), so sandbox Claude Code's own config file too, or a
+// create would write into the operator's real ~/.claude.json (fixture-discipline rule).
+// (We also run DRY_RUN, so nothing is written -- this satisfies the static guard AND
+// is correct belt-and-suspenders.)
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, '.claude.json');
 
 const create = require('./engine/create');
 const accountenv = require('./engine/accountenv');

@@ -3028,8 +3028,10 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
   assert.equal(launches.length, 6, 'the supervisor launch lines moved; update this test with them');
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
-  // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently (#577, #540, #529).
-  assert.match(script, /for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do/);
+  // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently
+  // (#577, #540, #529). #3296/#3391 added GEMINI_CLI_HOME + GROK_HOME so a per-account gemini/grok
+  // home reaches the pane the same way CODEX_HOME does.
+  assert.match(script, /for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do/);
   // #3417: the loop above forwards CLAUDE_CONFIG_DIR only from THIS supervisor's OWN env. That
   // misses a default-account agent whose own env is clean but whose pane still inherits the tmux
   // SERVER-GLOBAL CLAUDE_CONFIG_DIR -- the #2129 "write file A, read file B" class one layer
@@ -3964,31 +3966,36 @@ test('#3296: a Gemini create is refused when the runner is missing, and an unkno
   assert.match(bad.because, /pick a provider/);
 });
 
-test('#3296: a Gemini create with an account arg is created default-account (the account is ignored, pinned)', () => {
-  // This slice is default-account only (no geminiaccounts subsystem yet), so a
-  // supplied account is deliberately ignored rather than routed into the CLAUDE
-  // accounts arm. Pin that behavior so it is intentional, not incidental: the agent
-  // is created and its plist carries no per-account config dir (empty account slot).
+test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', () => {
+  // The accounts slice (engine/geminiaccounts.js) REPLACED the old default-account-only
+  // behavior: a supplied account is now VALIDATED, not ignored. A known account routes
+  // to its per-account home; an unknown one is refused rather than silently created default.
   recorder();
   create.setDryRun(false);
-  const suppliedDir = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.gemini-some-account');
-  const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-acct', role: 'pm', provider: 'google', account: suppliedDir });
+  // A KNOWN account = a ~/.gemini-<label> dir carrying a stored key file.
+  const acctDir = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.gemini-some-account');
+  fs.mkdirSync(acctDir, { recursive: true });
+  fs.writeFileSync(nodePath.join(acctDir, '.kosmos-gemini-apikey'), 'AIza-known-key-1234', { mode: 0o600 });
+  const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-acct', role: 'pm', provider: 'google', account: acctDir });
   assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
   assert.equal(plistArgs('g-acct')[8], 'gemini');
   assert.equal(store.readProfile('g-acct').provider, 'google');
-  // ⚠️ DISCRIMINATING: the supplied account must be DROPPED, so its dir must appear
-  // NOWHERE in the plist. A per-account config dir surfaces in the plist's
-  // EnvironmentVariables (CLAUDE_CONFIG_DIR / account-env), which plistArgs (reads
-  // ProgramArguments only) cannot see -- so slot 8 == 'gemini' passes either way and
-  // is not the test. Read the whole plist text and assert the dir is absent: a
-  // regression that routed opts.account into a gemini config dir would make it appear.
+  // ⚠️ DISCRIMINATING: the per-account home rides the plist as GEMINI_CLI_HOME = the
+  // account dir VERBATIM (the `.gemini` storage append is the reader/birth-writer's
+  // job, never the plist's). plistArgs reads ProgramArguments only, so read the whole
+  // plist text.
   const plistText = fs.readFileSync(create.plistPath('g-acct'), 'utf8');
-  assert.ok(!plistText.includes(suppliedDir), 'the supplied account dir leaked into the plist; it must be dropped for a default-account gemini agent');
-  // And the birth settings write landed in the DEFAULT gemini home, not the supplied dir.
-  assert.ok(fs.existsSync(nodePath.join(create.defaultAgentGeminiHome(), 'settings.json')),
-    'the gemini settings were not written to the default home');
-  assert.ok(!fs.existsSync(nodePath.join(suppliedDir, 'settings.json')),
-    'the gemini settings were written under the supplied account dir; it must be ignored');
+  assert.ok(plistText.includes(`<key>GEMINI_CLI_HOME</key><string>${acctDir}</string>`),
+    'the per-account gemini home must ride the plist as GEMINI_CLI_HOME = the account dir');
+  // The birth settings write landed in the account's `.gemini` STORAGE subdir
+  // (geminiStorageHome), NOT the default home and NOT the account root directly.
+  assert.ok(fs.existsSync(nodePath.join(acctDir, '.gemini', 'settings.json')),
+    'the gemini settings were not written to the per-account .gemini storage dir');
+
+  // And an UNKNOWN account arg is REFUSED (validated now, not silently defaulted).
+  const bad = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-acct-bad', role: 'pm', provider: 'google', account: nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.gemini-nope') });
+  assert.equal(bad.outcome, create.OUTCOME.REFUSED);
+  assert.match(bad.because, /do not know that Gemini account/);
 });
 
 test('#3296: installJob refuses a gemini agent at the root, so backfill/repair/import never mis-launch it as claude', () => {
@@ -4018,12 +4025,20 @@ test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLA
   assert.equal(t.runner, 'gemini', 'trustAgentFolder fell through to the claude path for a gemini agent');
   assert.equal(t.wrote, false, 'a gemini agent needs no claude trust write (it uses --skip-trust)');
 
-  // setAccount must REFUSE (gemini is default-account only) rather than look the agent
-  // up in claude accounts. The gemini-specific reason proves the guard fired, not a
-  // generic REFUSE_ACCOUNT that a claude-path lookup of an unknown dir would give.
+  // #3296 accounts slice: setAccount now ROUTES a gemini agent to setGeminiAccount
+  // (gemini's own ~/.gemini* world), NOT the CLAUDE accounts path. A claude-shaped dir
+  // is therefore an UNKNOWN gemini account -> REFUSE_ACCOUNT, proving the gemini branch
+  // ran (a claude-path lookup would also refuse, but the point is it never reaches it:
+  // moving BACK to the default with '' would be accepted, which the claude path could
+  // not answer for a gemini agent). The old default-account-only refusal is gone.
   const sw = create.setAccount('g-guard', nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.claude-work'));
   assert.equal(sw.outcome, create.OUTCOME.REFUSED);
-  assert.match(sw.because, /single default account/, 'setAccount did not take the gemini default-account-only guard');
+  assert.equal(sw.because, 'we do not know that account on this computer', 'setAccount did not route a gemini agent to setGeminiAccount');
+  // And moving BACK to the default account IS accepted for a gemini agent (a real
+  // choice the CLAUDE path could never serve) -- proof the gemini arm owns this now.
+  const back = create.setAccount('g-guard', '');
+  assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
+  assert.equal(back.account.isDefault, true);
 });
 
 test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trust, and a pinned model', () => {
@@ -4096,26 +4111,31 @@ test('#3391: a Grok create is refused when the runner is missing', () => {
   assert.match(r.because, /could not find the Grok runner/);
 });
 
-test('#3391: a Grok create with an account arg is created default-account (the account is ignored, pinned)', () => {
-  // This slice is default-account only, so a supplied account is deliberately ignored
-  // rather than routed into the CLAUDE accounts arm. Pin that so it is intentional.
+test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-account home; an UNKNOWN account is refused', () => {
+  // The accounts slice (engine/grokaccounts.js) REPLACED the default-account-only
+  // behavior: a supplied account is VALIDATED. grok's home (GROK_HOME) is read verbatim,
+  // so the account dir rides the plist and the hook write with no transform.
   recorder();
   create.setDryRun(false);
-  const suppliedDir = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.grok-some-account');
-  const out = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-acct', role: 'pm', provider: 'xai', account: suppliedDir });
+  const acctDir = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.grok-some-account');
+  fs.mkdirSync(acctDir, { recursive: true });
+  fs.writeFileSync(nodePath.join(acctDir, '.kosmos-grok-apikey'), 'xai-known-key-5678', { mode: 0o600 });
+  const out = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-acct', role: 'pm', provider: 'xai', account: acctDir });
   assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
   assert.equal(plistArgs('gk-acct')[8], 'grok');
   assert.equal(store.readProfile('gk-acct').provider, 'xai');
-  // DISCRIMINATING: the supplied account dir must appear NOWHERE in the plist (a
-  // regression routing opts.account into a grok config dir would surface it in the
-  // plist's EnvironmentVariables, which plistArgs cannot see).
+  // The per-account home rides the plist as GROK_HOME = the account dir verbatim.
   const plistText = fs.readFileSync(create.plistPath('gk-acct'), 'utf8');
-  assert.ok(!plistText.includes(suppliedDir), 'the supplied account dir leaked into the plist; it must be dropped for a default-account grok agent');
-  // And the birth hook write landed in the DEFAULT grok home, not the supplied dir.
-  assert.ok(fs.existsSync(nodePath.join(create.defaultAgentGrokHome(), 'hooks', 'kosmos-report-bridge.json')),
-    'the grok report hooks were not written to the default home');
-  assert.ok(!fs.existsSync(nodePath.join(suppliedDir, 'hooks', 'kosmos-report-bridge.json')),
-    'the grok hooks were written under the supplied account dir; it must be ignored');
+  assert.ok(plistText.includes(`<key>GROK_HOME</key><string>${acctDir}</string>`),
+    'the per-account grok home must ride the plist as GROK_HOME = the account dir');
+  // The birth hook write landed in the ACCOUNT home (GROK_HOME is verbatim, no subdir).
+  assert.ok(fs.existsSync(nodePath.join(acctDir, 'hooks', 'kosmos-report-bridge.json')),
+    'the grok report hooks were not written to the per-account home');
+
+  // An UNKNOWN account arg is REFUSED (validated now, not silently defaulted).
+  const bad = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-acct-bad', role: 'pm', provider: 'xai', account: nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.grok-nope') });
+  assert.equal(bad.outcome, create.OUTCOME.REFUSED);
+  assert.match(bad.because, /do not know that Grok account/);
 });
 
 test('#3391: installJob refuses a grok agent at the root, so backfill/repair/import never mis-launch it as claude', () => {
@@ -4138,9 +4158,15 @@ test('#3391: trustAgentFolder and setAccount guard a grok agent out of the CLAUD
   const t = create.trustAgentFolder('gk-guard');
   assert.equal(t.runner, 'grok', 'trustAgentFolder fell through to the claude path for a grok agent');
   assert.equal(t.wrote, false, 'a grok agent needs no claude trust write (it uses --trust)');
+  // #3391 accounts slice: setAccount now routes a grok agent to setGrokAccount (grok's
+  // own ~/.grok* world), NOT the CLAUDE path. An unknown dir -> REFUSE_ACCOUNT; moving
+  // back to the default is accepted (a choice the claude path could never serve here).
   const sw = create.setAccount('gk-guard', nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.claude-work'));
   assert.equal(sw.outcome, create.OUTCOME.REFUSED);
-  assert.match(sw.because, /single default account/, 'setAccount did not take the grok default-account-only guard');
+  assert.equal(sw.because, 'we do not know that account on this computer', 'setAccount did not route a grok agent to setGrokAccount');
+  const back = create.setAccount('gk-guard', '');
+  assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
+  assert.equal(back.account.isDefault, true);
 });
 
 test('#3391: the shipped supervisor launches a grok agent with bypass, always-approve, trust, a pinned model, and no fleet Claude hooks', () => {
@@ -4831,7 +4857,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
   for (const [sentence, constant, uses] of [
     ['that is not a name we can act on', 'REFUSE_NAME', 3],
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
-    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 3],
+    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 5],
   ]) {
     const literals = src.split(`'${sentence}'`).length - 1;
     assert.equal(
