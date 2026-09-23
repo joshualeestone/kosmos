@@ -267,6 +267,20 @@ test('#2840: usageModelPrice resolves exact ids and strips a date suffix', () =>
   assert.equal(U.usageModelPrice('totally-unknown'), null, 'unknown model -> null');
 });
 
+test('#3460: claude-opus-5-5 is priced (in the cost figure), not unpriced', () => {
+  // opus-5-5 published: in 4 / out 20 / cr 0.20 (cr is 0.05x input, a real break from
+  // the 0.1x other tiers use); cw 5.00 is the standard 1.25x input write, as every row.
+  const p = U.usageModelPrice('claude-opus-5-5');
+  assert.ok(p, 'claude-opus-5-5 resolves to a published price row');
+  assert.deepEqual(p, { in: 4, out: 20, cw: 5.00, cr: 0.20 }, 'published rates');
+  // 1M of each class -> (4 + 20 + 5.00 + 0.20) = $29.20; and it is NOT flagged unpriced.
+  const r = U.usageApiCost({ d: { 'claude-opus-5-5': { input_tokens: 1e6, output_tokens: 1e6, cache_creation_input_tokens: 1e6, cache_read_input_tokens: 1e6 } } });
+  assert.ok(Math.abs(r.cost - 29.20) < 1e-9, 'opus-5-5 1M-each -> $29.20');
+  assert.deepEqual(r.unpriced, [], 'opus-5-5 is not in unpriced');
+  // a dated variant resolves via the same date-strip path.
+  assert.ok(U.usageModelPrice('claude-opus-5-5-20260401'), 'dated opus-5-5 id resolves via strip');
+});
+
 /* #2840: the scrollable usage-history list. FIXTURE per-row 4-class totals:
    2026-09-01: 2,140,559 + 760,331 + 9,401,220 + 1,023,445,990 = 1,035,748,100
    2026-08-31: 2,010,445 + 701,558 + 8,702,558 +   940,558,112 =   951,972,673 */
