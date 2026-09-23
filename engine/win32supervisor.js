@@ -244,6 +244,21 @@ function main(argv, deps) {
     process.exit(2);
   }
   let last = null;
+  /* 🔑 THE PERSISTED SIDE OF THE STDERR WRITES (#3441). The task does not redirect
+     this process's stderr anywhere, so every line said below would otherwise be
+     dropped the instant it is written -- which is why a codex agent could fail
+     silently for days (#3439) with no error to see on the box. `say` writes to
+     BOTH: stderr (kept, for where a task log IS captured) and a bounded, redacted
+     per-agent file the box can read back. Lazy require, like win32streamstate
+     below, so the boot shim reads argv before this store-using module loads.
+     Never fatal: the file write swallows its own errors, and the stderr write is
+     wrapped so a broken pipe cannot blank a tick either. Every agent through this
+     sink benefits -- the codex arm below emits its turn-failed lines here too. */
+  const log = require('./win32supervisorlog').logger(spec.name);
+  const say = (line) => {
+    try { process.stderr.write(line + '\n'); } catch { /* best effort, as the raw writes were */ }
+    log.line(line);
+  };
   /* 🔑 THE RUNNER PICKS THE SUPERVISION SHAPE (#3380). A codex agent cannot be held
      as a persistent `stream-json` child -- codex does not speak that protocol -- so
      it gets its own per-turn loop. The claude path is UNCHANGED and remains the
@@ -262,10 +277,10 @@ function main(argv, deps) {
        file the board's capture reads. A state it could not record is said on the
        task log, where a missing card state can be traced back to it. */
     stream: require('./win32streamstate').publisher(spec.name, {
-      onProblem: (why) => process.stderr.write(new Date().toISOString() + ' ' + spec.name + ' state-unrecorded -- ' + why + '\n'),
+      onProblem: (why) => say(new Date().toISOString() + ' ' + spec.name + ' state-unrecorded -- ' + why),
     }),
     onEvent: (e) => {
-      /* One line per transition, on stderr so a task log captures it.
+      /* One line per transition, on stderr and the persisted log so it survives.
          ⚠️ A REPEATED `waiting` IS NOT A TRANSITION. Everything else here happens
          once per start or per death; waiting repeats every poll for as long as
          somebody else's session holds the name, which would be a line every five
@@ -275,8 +290,8 @@ function main(argv, deps) {
          that is chatty about it. */
       if (e.action === 'waiting' && last === 'waiting') return;
       last = e.action;
-      process.stderr.write(new Date().toISOString() + ' ' + spec.name + ' ' + e.action
-        + (e.because ? ' -- ' + e.because : '') + '\n');
+      say(new Date().toISOString() + ' ' + spec.name + ' ' + e.action
+        + (e.because ? ' -- ' + e.because : ''));
     },
   });
   /**
@@ -295,11 +310,11 @@ function main(argv, deps) {
     onSay: (text, replyWith) => { handle.send(text, replyWith); },
     /* A listen that failed after serve() returned -- anything but the retried
        "the previous supervisor still has it" -- is said on the task log. */
-    onProblem: (why) => process.stderr.write(new Date().toISOString() + ' ' + spec.name + ' channel-refused -- ' + why + '\n'),
+    onProblem: (why) => say(new Date().toISOString() + ' ' + spec.name + ' channel-refused -- ' + why),
   });
   if (!channel.ok) {
-    process.stderr.write(new Date().toISOString() + ' ' + spec.name
-      + ' channel-refused -- ' + channel.because + '\n');
+    say(new Date().toISOString() + ' ' + spec.name
+      + ' channel-refused -- ' + channel.because);
   }
 
   /* ⚠️ STOPPING HAS TO CLOSE THE CHANNEL TOO, and hanging that off `stop` rather
@@ -319,8 +334,8 @@ function main(argv, deps) {
   const exitLater = d.exitLater || ((ms) => { const t = setTimeout(() => process.exit(0), ms); if (t.unref) t.unref(); });
   const hostWatch = watchHost({
     onGone: () => {
-      process.stderr.write(new Date().toISOString() + ' ' + spec.name
-        + ' host-gone -- its task was ended, so its agent is being stopped\n');
+      say(new Date().toISOString() + ' ' + spec.name
+        + ' host-gone -- its task was ended, so its agent is being stopped');
       handle.stop();
       exitLater(HOST_GONE_GRACE_MS);
     },
