@@ -18,7 +18,9 @@ opt-out. The web UI on the same machine reads its own file and renders the quest
    the current pending nudge set, REPLACED each tick from the heartbeat's `toAsk`
    (`[{ session, from, to }]`). Never throws; a read/write failure degrades to "no
    nudges". Carries only who/from/to, never a sentence (matches the removed payload's
-   own rule and the heartbeat header). 7 unit tests.
+   own rule and the heartbeat header). Unit-tested (store round-trip, 0600 mode,
+   REPLACE-not-merge, the store lives under store.ROOT's Kosmos leaf, read/write cap
+   symmetry, and the shouldWrite roster-null gate).
 2. **Server** - `server.js` (DONE, committed): the runner hook writes each tick's
    `toAsk` to the store (best-effort), and `GET /api/prompter-nudges` returns
    `{ at, nudges, ok }` (read-only, local).

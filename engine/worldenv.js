@@ -17,7 +17,7 @@
  *
  * server.js requires all of those at its top level, BEFORE start() runs. slice 2a
  * applied the active world's env INSIDE start() (believing the #1443 invariant --
- * "roots are per-call" -- held fleet-wide; it does not, for these ~26). So on a
+ * "roots are per-call" -- held fleet-wide; it does not, for these ~27). So on a
  * board that boots into a NAMED world, the frozen modules keep serving the DEFAULT
  * world's you.json / policy.json / commitments/ / limits.json / ... while the rest
  * of the board serves the named world: a systemic cross-world data BLEED.
