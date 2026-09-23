@@ -71,6 +71,19 @@ test('write coerces bad input, never throws, and carries no free-text field', ()
   assert.equal(JSON.stringify(got).includes('SECRET'), false, 'a stray field leaked into the store');
 });
 
+test('read caps over-long fields the same way write does (single-sourced shape)', () => {
+  fresh();
+  // A hand-edited or older file with uncapped fields must not reach the API uncapped.
+  fs.writeFileSync(nudge.FILE, JSON.stringify({
+    v: 1, at: '2026-01-01T00:00:00Z',
+    nudges: [{ session: 'x'.repeat(500), from: 'y'.repeat(500), to: 'z'.repeat(500) }],
+  }));
+  const got = nudge.read().nudges[0];
+  assert.equal(got.session.length, 120);
+  assert.equal(got.from.length, 40);
+  assert.equal(got.to.length, 40);
+});
+
 test('read on a corrupt or wrong-shape file returns empty and does not throw', () => {
   fresh();
   fs.writeFileSync(nudge.FILE, 'not json');

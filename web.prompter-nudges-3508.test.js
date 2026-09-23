@@ -90,7 +90,7 @@ test('a pending nudge renders the agent and its composed question, panel shown',
   const box = fakeBox();
   const paint = makePaint(fakeDoc(box), okFetch({ ok: true, at: 'now', nudges: [{ session: 'april', from: 'working', to: 'stopped' }] }));
   await paint();
-  assert.equal(box.hidden, false, 'panel stays hidden with a pending nudge');
+  assert.equal(box.hidden, false, 'panel must be shown when there is a pending nudge');
   assert.match(box.innerHTML, /april/, 'the agent name is not rendered');
   assert.match(box.innerHTML, /mid-something, finished, or stopped/i, 'the composed question is not rendered');
 });
