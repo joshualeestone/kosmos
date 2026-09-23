@@ -713,7 +713,10 @@ function jobMissing(name, platform) {
    a codex agent got neither the "where your files go" doctrine nor its project
    folder path -- kosmos#2245. Pure. */
 function briefFilename(runner) {
-  if (runner === 'codex') return 'AGENTS.md';
+  // #3391: Grok Build reads AGENTS.md as its native project-instructions file
+  // (measured: grok's user-guide "Project Rules (AGENTS.md)"), the SAME file codex
+  // boots from, so a grok agent shares the codex arm here.
+  if (runner === 'codex' || runner === 'grok') return 'AGENTS.md';
   // #3296: gemini-cli reads GEMINI.md as its context/brief file, the codex-AGENTS.md
   // / claude-CLAUDE.md analog. instructions.fileFor and the birth write both go
   // through this ONE mapping, so a gemini agent's brief lands in the file it boots
@@ -756,6 +759,7 @@ function recordedRunner(name) {
   // only (a live plist stays authoritative via the readJob above).
   if (provider === 'openai') return 'codex';
   if (provider === 'google') return 'gemini';
+  if (provider === 'xai') return 'grok'; // #3391
   return 'claude';
 }
 function instructionFile(name, runner) {
@@ -1063,6 +1067,12 @@ function trustAgentFolder(name, opts) {
      (provider !== 'google'). This is the post-birth entry point (trust-and-restart /
      the class1-autohandle sweep) reaching the same code; guard it the same way. */
   if (job.runner === 'gemini') return { wrote: false, runner: 'gemini' };
+  /* #3391: a grok agent clears its folder-trust gate with --trust at launch
+     (agent-supervisor.sh) and its birth writes go to its own grok hooks file, so
+     there is no CLAUDE trust to (re)write here -- the same reasoning and guard as the
+     gemini arm directly above. Without this a grok agent whose home is ~/.grok would
+     get a claude trust entry written into the wrong tool's config. */
+  if (job.runner === 'grok') return { wrote: false, runner: 'grok' };
   /* trustFolder soft-fails ({ok:false, because}) rather than throwing, so read ok.
      createIfAbsent matches the create path: on a fresh user the file may not exist. */
   let t = null;
@@ -1144,6 +1154,13 @@ function setAccount(name, dir, opts) {
      Lifts when the geminiaccounts slice lands. */
   if (job.runner === 'gemini') {
     return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on Gemini, which Kosmos supports on a single default account for now, so there is no account to move it to` };
+  }
+  /* #3391: grok is DEFAULT-ACCOUNT only in this slice too (no grokaccounts subsystem
+     yet), the same boundary and the same wrong-tool's-config hazard as the gemini arm
+     directly above (a grok agent's home is ~/.grok, not a ~/.claude* account). Refuse.
+     Lifts when a per-account GROK_HOME slice lands. */
+  if (job.runner === 'grok') {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on Grok, which Kosmos supports on a single default account for now, so there is no account to move it to` };
   }
 
   const accounts = require('./accounts');
@@ -1739,16 +1756,17 @@ function setModel(name, modelKey, opts) {
   /* The agent's PROVIDER, from the runner its job actually launches. One
      derivation, the same direction `createAgent` goes in reverse (#3296 adds the
      gemini arm). */
-  const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : 'anthropic';
+  const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : job.runner === 'grok' ? 'xai' : 'anthropic';
   let m;
-  if (agentProvider === 'openai' || agentProvider === 'google') {
-    /* #2140/#3296: OpenAI and Gemini models are FREE-FORM ids, not entries in the
-       static MODELS list, so key===arg===the model id. An EMPTY key is the
-       provider's own default -- codex/gemini pick their own (the gemini supervisor
-       arm pins gemini-2.5-flash when the model slot is empty) -- and writes an
-       empty model slot. A non-empty id is sanity-bounded here; where a live "this
-       account can run it" check exists (OpenAI) it is async at the server route. */
-    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : 'Gemini';
+  if (agentProvider === 'openai' || agentProvider === 'google' || agentProvider === 'xai') {
+    /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
+       entries in the static MODELS list, so key===arg===the model id. An EMPTY key is
+       the provider's own default -- codex/gemini/grok pick their own (the gemini
+       supervisor arm pins gemini-2.5-flash, the grok arm pins grok-4.6, when the model
+       slot is empty) -- and writes an empty model slot. A non-empty id is
+       sanity-bounded here; where a live "this account can run it" check exists (OpenAI)
+       it is async at the server route. */
+    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : agentProvider === 'google' ? 'Gemini' : 'Grok';
     const id = String(modelKey == null ? '' : modelKey).trim();
     if (id !== '') {
       if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
@@ -2166,6 +2184,23 @@ function geminiBridgePath() {
   return path.join(supportDir(), 'bin', 'gemini-report-bridge.js');
 }
 
+/* #3391: the grok report bridge, the exact sibling of the codex/gemini pairs above
+   and for the same #731 reason. `path.join(__dirname, '..', 'bin', ...)` is the form
+   bundle.contents.test.js scans for, so resolving the bridge THROUGH this helper is
+   what makes the #731 guard require the bundle build to ship it (a `path.resolve`
+   form would evade the guard and a served bundle would carry no grok bridge, so every
+   grok agent's self-report would silently point at a missing file). installSupervisor
+   copies source -> path (supportDir) on every refresh, so the birth write bakes the
+   STABLE supportDir location rather than the app tree, matching how codex's and
+   gemini's bridges survive an app-tree move. */
+function grokBridgeSource() {
+  return path.join(__dirname, '..', 'bin', 'grok-report-bridge.js');
+}
+
+function grokBridgePath() {
+  return path.join(supportDir(), 'bin', 'grok-report-bridge.js');
+}
+
 /**
  * Put the current supervisor where the jobs point, and answer whether it is
  * there.
@@ -2231,6 +2266,15 @@ function installSupervisor() {
     fs.copyFileSync(geminiBridgeSource(), geminiBridgeStaging);
     fs.chmodSync(geminiBridgeStaging, 0o755);
     fs.renameSync(geminiBridgeStaging, geminiBridgeDest);
+    // #3391: the grok report bridge rides the same refresh, same staging-rename
+    // discipline, same reason as the codex/gemini bridges above. create.js bakes
+    // grokBridgePath() (this destination) into a grok agent's hook file at birth,
+    // so it must be current here for every existing agent on the next refresh.
+    const grokBridgeDest = grokBridgePath();
+    const grokBridgeStaging = `${grokBridgeDest}.${process.pid}.new`;
+    fs.copyFileSync(grokBridgeSource(), grokBridgeStaging);
+    fs.chmodSync(grokBridgeStaging, 0o755);
+    fs.renameSync(grokBridgeStaging, grokBridgeDest);
     /* \u2b50 #1139: TELL THE SUPERVISOR WHERE THE ENGINE IS.
        It resolves `sendertoken.js` as `dirname($0)/../engine`, which is true in
        a checkout and in the bundle and FALSE for every real agent -- the two
@@ -2263,12 +2307,13 @@ function installSupervisor() {
     try { fs.rmSync(`${supervisorPath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${geminiBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(`${grokBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(path.join(path.dirname(supervisorPath()), `engine-path.${process.pid}.new`), { force: true }); } catch { /* best effort */ }
-    // ⚠️ NAME THE FILE. Several files ride this step (the supervisor and both
+    // ⚠️ NAME THE FILE. Several files ride this step (the supervisor and the three
     // report bridges); when one is absent the sentence must say WHICH, or a person
     // goes looking for a file that is present (#731: the bridge was missing from the
     // served bundle and the refusal blamed the supervisor, which had shipped).
-    const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
+    const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource(), grokBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
     return {
       ok: false,
       missing: Boolean(err && err.code === 'ENOENT' && absent.length),
@@ -2600,6 +2645,11 @@ function binPaths(opts) {
     // is keyed by the RUNNER name here ('gemini'), as it is for 'claude'.
     geminiBin: (opts && opts.geminiBin)
       || runners.resolveBin('gemini').bin,
+    // #3391: the Grok runner. Same ONE-priority-list contract as the others (env
+    // override authoritative, else the resolver's legacy rung). resolveBin is keyed
+    // by the RUNNER name here ('grok'), as it is for 'claude' and 'gemini'.
+    grokBin: (opts && opts.grokBin)
+      || runners.resolveBin('grok').bin,
   };
 }
 
@@ -3427,23 +3477,23 @@ function createAgentInner(opts) {
      person can actually create by picking their own name from a list. */
   const wantReportsTo = (opts && typeof opts.reportsTo === 'string' && opts.reportsTo.trim())
     ? opts.reportsTo.trim().slice(0, 80) : null;
-  const { claudeBin, tmuxBin, codexBin, geminiBin } = binPaths(opts);
+  const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin } = binPaths(opts);
 
   /**
-   * Which provider this agent runs on (#245, #3296). 'anthropic' is the default
-   * and the word every existing caller means by omission; 'openai' launches
-   * the codex runner; 'google' launches the gemini runner. RECORDED, never
-   * inferred: the choice lands in the plist (the runner argument), the profile,
-   * and the birth record, so no screen ever has to guess a runner from what
-   * happens to be in a pane.
+   * Which provider this agent runs on (#245, #3296, #3391). 'anthropic' is the
+   * default and the word every existing caller means by omission; 'openai' launches
+   * the codex runner; 'google' launches the gemini runner; 'xai' launches the grok
+   * runner. RECORDED, never inferred: the choice lands in the plist (the runner
+   * argument), the profile, and the birth record, so no screen ever has to guess a
+   * runner from what happens to be in a pane.
    */
   const provider = (opts && opts.provider !== undefined && opts.provider !== null && String(opts.provider) !== '')
     ? String(opts.provider) : 'anthropic';
-  const runner = provider === 'openai' ? 'codex' : provider === 'google' ? 'gemini' : 'claude';
-  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : claudeBin;
+  const runner = provider === 'openai' ? 'codex' : provider === 'google' ? 'gemini' : provider === 'xai' ? 'grok' : 'claude';
+  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : claudeBin;
 
   const steps = [];
-  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google') {
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
   }
   if (provider === 'google') {
@@ -3454,6 +3504,14 @@ function createAgentInner(opts) {
     // provider decision, symmetric with openai.
     if (!DRY_RUN && !runnerRunnable(geminiBin)) {
       return { outcome: OUTCOME.REFUSED, because: 'we could not find the Gemini runner on this computer, so an agent made now would never start', steps };
+    }
+  }
+  if (provider === 'xai') {
+    // #3391: refuse a Grok create the machine could never start, the same preflight
+    // as the openai/google arms -- a launchd job pointing at an absent runner just
+    // respawns forever. Kept beside the provider decision for symmetry.
+    if (!DRY_RUN && !runnerRunnable(grokBin)) {
+      return { outcome: OUTCOME.REFUSED, because: 'we could not find the Grok runner on this computer, so an agent made now would never start', steps };
     }
   }
   if (provider === 'openai') {
@@ -3568,18 +3626,18 @@ function createAgentInner(opts) {
   }
   let modelArg = null;
   if (wantModelKey !== undefined) {
-    if (provider === 'openai' || provider === 'google') {
-      /* #2140/#3296: OpenAI and Gemini models are FREE-FORM ids, not entries in
-         the static MODELS list `modelFor` reads (OpenAI's are per-account and
-         dynamic; Gemini's are the vendor's own catalogue and this default-account
-         slice carries no MODELS/picker for them). For both, key===arg===the model
-         id. An EMPTY value is the provider's own default -- for gemini the
-         supervisor pins `gemini-2.5-flash` when no `-m` is recorded, matching the
-         "Let OpenAI choose" default on the codex side -- so it leaves modelArg
-         null. A non-empty id is written as the `-m` arg, only sanity-bounded here
-         (a bad caller must not write an arbitrary string into the launchd job's
-         argv). */
-      const vendorLabel = provider === 'openai' ? 'OpenAI' : 'Gemini';
+    if (provider === 'openai' || provider === 'google' || provider === 'xai') {
+      /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
+         entries in the static MODELS list `modelFor` reads (OpenAI's are per-account
+         and dynamic; Gemini's and Grok's are the vendor's own catalogues and this
+         default-account slice carries no MODELS/picker for them). For all three,
+         key===arg===the model id. An EMPTY value is the provider's own default -- for
+         gemini the supervisor pins `gemini-2.5-flash` and for grok `grok-4.6` when no
+         `-m` is recorded, matching the "Let OpenAI choose" default on the codex side
+         -- so it leaves modelArg null. A non-empty id is written as the `-m` arg, only
+         sanity-bounded here (a bad caller must not write an arbitrary string into the
+         launchd job's argv). */
+      const vendorLabel = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : 'Grok';
       const id = String(wantModelKey).trim();
       if (id !== '') {
         if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
@@ -3667,6 +3725,13 @@ function createAgentInner(opts) {
        accounts arm below (which would look a codex/claude account up for a gemini
        agent). A default-account gemini agent reads ~/.gemini and gets its key from
        the generic secrets/env door. */
+  } else if (provider === 'xai') {
+    /* #3391: this slice ships DEFAULT-account Grok only, the exact mirror of the
+       gemini arm above. No grokaccounts subsystem yet (per-account GROK_HOME is a
+       later slice), so configDir stays null and any wantAccountDir is deliberately
+       ignored rather than routed into the CLAUDE accounts arm below. A default-account
+       grok agent reads ~/.grok and gets XAI_API_KEY from the generic secrets/env
+       door. */
   } else if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     const accountsMod = require('./accounts');
     /* Resolved for the same reason as the OpenAI arm above (#1486):
@@ -3906,7 +3971,7 @@ function createAgentInner(opts) {
    * is a dead click in words. Which condition suppressed it rides the
    * engine-side `alternative`, never the person's sentence.
    */
-  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : runner === 'gemini' ? 'the Gemini runner' : 'Claude Code';
+  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : runner === 'gemini' ? 'the Gemini runner' : runner === 'grok' ? 'the Grok runner' : 'Claude Code';
   /**
    * 🛑 tmux IS NOT A REQUIRED PROGRAM ON win32, AND REQUIRING IT HERE REFUSED
    * EVERY WINDOWS CREATE (#570). Measured, not reasoned: the first real
@@ -4510,12 +4575,12 @@ function createAgentInner(opts) {
        Claude-only: on OpenAI, configDir is a CODEX_HOME and this is the CLAUDE
        write, so createIfAbsent stays false there (the codex arm's own
        trustCodexFolder already creates ~/.codex/config.toml on a fresh account). */
-    /* #3296: skipped for gemini. This is the CLAUDE folder-trust write; a gemini
-       agent clears its own trust gate with `--skip-trust` at launch (agent-
-       supervisor.sh) and its birth writes go to the gemini settings.json branch
-       below, so running a claude trust write for a gemini worker folder would
-       write into the wrong tool's config. */
-    if (provider !== 'google') {
+    /* #3296/#3391: skipped for gemini AND grok. This is the CLAUDE folder-trust
+       write; a gemini agent clears its own trust gate with `--skip-trust` and a grok
+       agent with `--trust` at launch (agent-supervisor.sh), and their birth writes go
+       to their own config branches below, so running a claude trust write for a
+       gemini/grok worker folder would write into the wrong tool's config. */
+    if (provider !== 'google' && provider !== 'xai') {
       try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
@@ -4580,6 +4645,33 @@ function createAgentInner(opts) {
         const geminiHome = configDir || defaultAgentGeminiHome();
         geminisettings.ensurePrepared(path.join(geminiHome, 'settings.json'), geminiBridgePath());
       } catch { /* a gemini agent that self-reports late is not a failed creation */ }
+    }
+    /* #3391: the GROK create-moment birth write, the analog of the gemini block above
+       with two grok-specific simplifications (both measured against grok 1.0.41):
+         - NO auth pre-seed. Interactive grok boots straight to the prompt with just
+           XAI_API_KEY in the pane env ("Logged in with API key"); no config file is
+           needed to skip the login screen, so unlike gemini there is nothing to write
+           for auth and no operator-auth-mode to never-clobber.
+         - the report hooks go in a file WE own ($GROK_HOME/hooks/kosmos-report-bridge.json,
+           default account: ~/.grok via defaultAgentGrokHome), not merged into the
+           operator's config, so groksettings just owns that one file.
+       BEFORE bootstrap, same timing reason as the gemini/claude writes (hooks are read
+       at session start). Best-effort and non-gating: a grok agent that self-reports one
+       turn late is not a failed creation. The baked path is grokBridgePath() -- the
+       STABLE supportDir location installSupervisor keeps current on every refresh, NOT
+       the app tree -- so it survives an app-tree move exactly as the codex/gemini
+       bridges do, and the path.join form makes the #731 bundle guard require the build
+       to ship the bridge. Claude-compat hooks (~/.claude) are separately suppressed at
+       launch via GROK_CLAUDE_HOOKS_ENABLED=0 (agent-supervisor.sh), so a grok agent runs
+       only its own report hooks, not the fleet's Claude Code hooks.
+       ⚠️ The one residual, deferred per #3136 (the same as gemini): a WIPED ~/.grok loses
+       the hook file until the agent is remade. See the plan file's Deferred section. */
+    if (provider === 'xai') {
+      try {
+        const groksettings = require('./groksettings');
+        const grokHome = configDir || defaultAgentGrokHome();
+        groksettings.ensurePrepared(path.join(grokHome, 'hooks', 'kosmos-report-bridge.json'), grokBridgePath());
+      } catch { /* a grok agent that self-reports late is not a failed creation */ }
     }
   }
 

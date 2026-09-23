@@ -744,7 +744,7 @@ function addressable(sessionName, roster) {
     if (card.isAgentSession === true) {
       return { ok: false, because: 'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent' };
     }
-    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : 'Claude';
+    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : 'Claude';
     return { ok: false, because: 'there is no ' + runnerName + ' running in its window right now, so anything we typed would be run as a command instead of read' };
   }
   return { ok: true, card };
@@ -943,7 +943,9 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   // #3296: gemini names Gemini, not Claude -- an auth-failed gemini agent must point at
   // the Gemini sign-in/key, not send the person to reconnect Claude (the #2107 cross-
   // provider copy class). Product name 'Gemini', matching create.js's create/model copy.
-  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : 'Claude';
+  // #3391: grok names Grok for the same reason -- an auth-failed grok agent points at its
+  // own XAI_API_KEY/sign-in, not Claude's. Product name 'Grok', matching create.js.
+  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : 'Claude';
   /* 🛑 #1889. ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
      A pane whose screen says it is waiting on a BACKGROUND agent classifies
      `working`, but its own turn has ENDED and its REPL is at its prompt, so the
@@ -1227,12 +1229,14 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
      actually submit. */
   const gapMs = Math.max(
     pasteToEnterMs(Buffer.byteLength(wire, 'utf8')),
-    /* #3296: gemini gets the same enter-gap floor as codex. It is a REPL like codex
-       (not the claude composer), so it can swallow an Enter that rides a large paste
-       burst (#571); the floor is cheap insurance (invisible at agent-comms cadence) for
-       the core task-delivery mechanism, taken as a precaution rather than measured for
-       gemini specifically. */
-    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini') ? CODEX_ENTER_GAP_MS : 0,
+    /* #3296/#3391: gemini and grok get the same enter-gap floor as codex. Each is a
+       non-claude terminal TUI (not the claude composer), so it can swallow an Enter that
+       rides a large paste burst (#571); the floor is cheap insurance (invisible at
+       agent-comms cadence) for the core task-delivery mechanism, taken as a precaution
+       rather than measured per-runner. Grok drives a full-screen TUI with its own
+       composer, so the paste-swallow risk is the same class; the floor is the safe
+       default and a 0 here would be the unmeasured gamble. */
+    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok') ? CODEX_ENTER_GAP_MS : 0,
   );
   submitGap(gapMs);
   /**

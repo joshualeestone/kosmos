@@ -1,0 +1,217 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * The Grok side of self-reporting (#3391), the analog of
+ * bin/gemini-report-bridge.js and bin/codex-report-bridge.js. Grok Build has its
+ * OWN hook system (configured in the agent's grok hooks dir, exactly like Claude
+ * Code's and gemini's reporthook path, NOT codex's launch-time `notify` flag). On
+ * each lifecycle event it runs this script from INSIDE the agent's tmux pane,
+ * passing the event payload as JSON on STDIN (the gemini/claude shape, not codex's
+ * argv). This child inherits TMUX_PANE, which is the identity /api/report resolves
+ * -- the same evidence property as `kosmos report`, the codex bridge, and the
+ * gemini bridge.
+ *
+ * ⚠️ A PANE ID IS ITSELF A CLAIM (same caveat as the sibling bridges): ids are
+ * enumerable and the board has no auth, so a local process can pass another
+ * agent's pane. The launch token below is the stronger identity when present.
+ *
+ * 🔑 GROK CAN REPORT ITS FULL LIFECYCLE. Grok's hook events map cleanly to the
+ * report vocabulary (measured against the installed grok 1.0.41 on 2026-09-23):
+ *   SessionStart {source}                        -> started
+ *   UserPromptSubmit {prompt}                     -> working   (a turn started)
+ *   Notification {message,notification_type}      -> needs_you (a tool needs the
+ *       person; message carries the reason the route requires for needs_you). This
+ *       mapping is REASONED, mirrored from the gemini bridge, NOT measured for grok:
+ *       a Notification under --always-approve/bypassPermissions was not induced this
+ *       session (the same honesty the plan applies to StopFailure). The expectation is
+ *       that benign confirmations auto-approve and do not fire it, so a Notification
+ *       that DOES fire is a genuine attention signal -- but if grok fires it for an
+ *       auto-approved call, this would paint needs_you spuriously. It is bounded: the
+ *       report is auto:true, so it can never erase a deliberate blocked, and a live
+ *       check of grok's Notification-under-bypass behaviour is the follow-up.
+ *   Stop {reason:"end_turn",lastAssistantMessage} -> idle      (turn complete on a
+ *       GENUINE completion; lastAssistantMessage is the last words, so the card can
+ *       say what it finished with -- the analog of gemini's prompt_response)
+ *   StopCancelled {reason:"user_interrupt"}       -> idle      (MEASURED: this fires
+ *       INSTEAD of Stop when a turn is interrupted / a permission declined /
+ *       --max-turns / a no-progress bail. It MUST map, or an interrupted agent shows
+ *       "working" forever -- the #249 "looks fine but is stuck" failure)
+ *   StopFailure {reason}                          -> idle      (a turn ends on an API
+ *       error; the agent is alive and back at the prompt. Mapped from grok's
+ *       user-guide hooks doc; not induced live this session, so it is REASONED, not
+ *       measured -- but leaving it unmapped is the same stuck-on-working failure)
+ *   SessionEnd {reason}                           -> stopped
+ * An unknown hook_event_name is ignored, not guessed at -- the same "observe, don't
+ * invent" rule as the sibling bridges.
+ *
+ * 🔑 Grok emits BOTH camelCase and snake_case keys in the payload; this reads the
+ * snake_case `hook_event_name` (present, matching the sibling bridges) and, for the
+ * idle last-words, `lastAssistantMessage` (camelCase-only in the measured Stop
+ * payload) with a snake_case fallback.
+ *
+ * ⚠️ THIS MUST NEVER BREAK THE AGENT. Every failure is swallowed; the exit code
+ * is always 0; the POST has a short timeout. A board that is down costs a
+ * report, never a turn.
+ */
+
+const TIMEOUT_MS = 5000;
+/* The stdin read and the POST run SEQUENTIALLY (await readStdin, then await fetch),
+   so their timeouts ADD -- same shape as the gemini bridge. The stdin fallback is a
+   SHORTER, separate bound: a normal hook closes stdin the instant it finishes
+   writing, so `end` resolves us immediately and this timer never fires; it exists
+   only for the pathological "attached but never closed" case, where 2s is ample and
+   caps the total worst-case stall at ~7s (2s stdin + 5s POST). The hook runs inside
+   grok's turn, so a tight bound matters (the file's cardinal rule: never stall the
+   agent). */
+const STDIN_TIMEOUT_MS = 2000;
+
+/* The grok hook_event_name -> (report state) map. `auto: true` on ALL of them
+   because the MACHINE is writing this, not the agent: the route's #900/#1949/#2456
+   guards keep an automatic idle/working/needs_you from erasing a DELIBERATE
+   blocked/needs_you the agent filed during the turn. Without `auto`, a turn ending
+   (Stop -> idle) seconds after the agent filed `blocked` would erase it -- exactly
+   the bug the codex bridge's #1456 comment documents. */
+const STATE_FOR_EVENT = Object.freeze({
+  SessionStart: 'started',
+  UserPromptSubmit: 'working',
+  Notification: 'needs_you',
+  Stop: 'idle',
+  /* A turn that ends without a genuine completion fires StopCancelled (interrupt /
+     declined permission / --max-turns / no-progress) or StopFailure (API error)
+     INSTEAD of Stop. Both mean the turn is over and the agent is alive and idle;
+     mapping them to idle is what keeps an interrupted agent from showing "working"
+     forever. auto:true means neither can erase a deliberate blocked the agent filed. */
+  StopCancelled: 'idle',
+  StopFailure: 'idle',
+  /* SessionEnd -> stopped. The board's #900/#1949/#2456 auto-guard shields a
+     deliberate blocked/needs_you from an auto idle/working, but NOT from an auto
+     stopped -- so this can overwrite a blocked the agent filed. That is intended:
+     the session has actually ended, so `stopped` is the true state and a `blocked`
+     on a gone agent is stale. */
+  SessionEnd: 'stopped',
+});
+
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = '';
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(data); } };
+    try {
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (chunk) => { data += chunk; });
+      process.stdin.on('end', finish);
+      process.stdin.on('error', finish);
+      /* A hook invoked with no stdin attached (or one never closed) must not hang
+         the child and stall grok's turn. Resolve on the SHORT stdin bound if no
+         `end` arrives; the partial (usually empty) body is then parsed and, if it is
+         not valid JSON, ignored. See STDIN_TIMEOUT_MS on why this is separate from
+         and shorter than the POST timeout. */
+      setTimeout(finish, STDIN_TIMEOUT_MS).unref?.();
+    } catch { finish(); }
+  });
+}
+
+/* The pure event -> report translation, exported for tests. Returns { state, text }
+   or null for an event we do not map. Kept side-effect-free so the mapping (the
+   thing most likely to drift) is testable without a live board. */
+function reportFor(event) {
+  if (!event || typeof event !== 'object') return null;
+  const state = STATE_FOR_EVENT[event.hook_event_name];
+  if (!state) return null; // an unobserved event is ignored, never guessed at
+  /* The last words for the card (idle), or the reason a needs_you requires. For
+     needs_you the route REFUSES an empty note (selfreport.js: a needs_you/blocked
+     must carry a reason/on/owner), so a Notification with no message would be
+     dropped -- fall back to a plain, honest sentence so the red still lands. */
+  let text = '';
+  if (state === 'idle') {
+    /* Grok's Stop payload carries the last assistant message as `lastAssistantMessage`
+       (camelCase in the measured payload); accept a snake_case spelling too in case a
+       future grok build adds it. StopCancelled/StopFailure carry no last words, so the
+       card simply shows an empty idle for those, which is correct. */
+    const last = event.lastAssistantMessage != null ? event.lastAssistantMessage : event.last_assistant_message;
+    text = typeof last === 'string' ? last : '';
+  } else if (state === 'needs_you') {
+    text = (typeof event.message === 'string' && event.message.trim())
+      ? event.message
+      : 'the agent is waiting for a person';
+  }
+  return { state, text };
+}
+
+/* The /api/report body, exported so the ONE field the whole correctness argument
+   rests on -- `auto: true` -- is unit-testable. It silently regressed on the codex
+   bridge (#1456: an auto report without this flag lets a turn ending erase a
+   deliberate blocked), and dropping it here would pass green with no coverage, so it
+   is asserted directly. `env` is injectable for the test; production passes
+   process.env. */
+function buildBody(state, text, env) {
+  const e = env || process.env;
+  return {
+    state,
+    // The engine caps this; the words stay on this Mac (selfreport.js's note).
+    text,
+    on: '',
+    owner: '',
+    until: '',
+    auto: true,
+    from_pane: e.TMUX_PANE || '',
+  };
+}
+
+async function main() {
+  const raw = await readStdin();
+  let event;
+  try { event = JSON.parse(raw || ''); } catch { return; }
+
+  const mapped = reportFor(event);
+  if (!mapped) return;
+  const { state, text } = mapped;
+
+  const port = Number(process.env.KOSMOS_PORT) || 16180;
+  const body = JSON.stringify(buildBody(state, text, process.env));
+
+  /* Present the launch token when we have one (the supervisor mints it per launch
+     and puts it in the pane env). Same hex shape-test as the sibling bridges: a
+     partial write or a stray warning on stdout must not turn a working report into
+     a silent refusal on an enforcing board. Silence is the safe default -- an
+     agent launched before the mint has no token here and is identified by its pane
+     exactly as before. */
+  const headers = { 'content-type': 'application/json' };
+  const token = String(process.env.KOSMOS_AGENT_TOKEN || '').trim();
+  if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
+
+  /* Also present the board token (the same-account credential an enforcing board
+     accepts instead of a bare pane). Read via boardauth, the ONE source of truth
+     for the path. Guarded to this file's cardinal rule: a token we cannot read
+     must never break the agent. */
+  try {
+    const boardTok = require('../engine/boardauth').readToken();
+    if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
+  } catch { /* a missed board token must never become a failed turn */ }
+
+  /* Name this agent's Kosmos, so a board serving ANOTHER Kosmos answers 421
+     rather than refusing the report as a stranger's. Same guard as above. */
+  try {
+    const launchidentity = require('../engine/launchidentity');
+    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
+  } catch { /* a missed world header must never become a failed turn */ }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  await fetch(`http://127.0.0.1:${port}/api/report`, {
+    method: 'POST',
+    headers,
+    body,
+    signal: controller.signal,
+  }).catch(() => { /* a missed report must never become a failed turn */ })
+    .finally(() => clearTimeout(timer));
+}
+
+/* Run only when invoked directly (as grok's hook does); when required as a module
+   (the unit test) expose the pure mapping without firing a POST. */
+if (require.main === module) {
+  main().catch(() => { /* same rule as the top: never break the agent */ });
+}
+
+module.exports = { STATE_FOR_EVENT, reportFor, buildBody };

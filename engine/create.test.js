@@ -81,6 +81,10 @@ const CODEX_BIN = '/bin/cat';
    distinct from claudeBin -- so an assertion can tell a gemini-labelled job
    pointing at the GEMINI binary from one pointing at claude's or codex's. */
 const GEMINI_BIN = '/usr/bin/true';
+/* #3391: a FOURTH distinct real runnable binary, for the same reason GEMINI_BIN is
+   distinct -- so an assertion can tell a grok-labelled job pointing at the GROK
+   binary from one pointing at claude's, codex's, or gemini's. */
+const GROK_BIN = '/bin/pwd';
 
 /**
  * The supervisor as SHIPPED, read from disk.
@@ -3022,7 +3026,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // launchd environment alone never reaches the agent.
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
-  assert.equal(launches.length, 5, 'the supervisor launch lines moved; update this test with them');
+  assert.equal(launches.length, 6, 'the supervisor launch lines moved; update this test with them');
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently (#577, #540, #529).
   assert.match(script, /for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do/);
@@ -4033,6 +4037,124 @@ test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trus
     'the gemini arm must pin gemini-2.5-flash when the plist model slot is empty');
   assert.ok(script.includes('--approval-mode yolo --skip-trust -m "$GEMINI_MODEL"'),
     'the gemini launch line must pass yolo, skip-trust, and the pinned -m model');
+});
+
+test('#3391: a Grok agent is created on the grok runner, recorded, with the right launch vector, brief, and self-report hook file', () => {
+  recorder();
+  create.setDryRun(false);
+  const name = 'grok-kid';
+  const out = create.createAgent({ ...BINS, grokBin: GROK_BIN, name, role: 'pm', provider: 'xai' });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  // The vector: 0 bash, 1 supervisor, 2 name, 3 workdir, 4 runner-bin, 5 tmux,
+  // 6 log, 7 model (empty -> the supervisor pins grok-4.6), 8 runner.
+  const args = plistArgs(name);
+  assert.equal(args[4], GROK_BIN, 'the runner binary is not the grok path');
+  assert.equal(args[7], '', 'the model slot must be written empty so the supervisor can pin the default');
+  assert.equal(args[8], 'grok', 'the recorded runner is not grok');
+  // Recorded, never inferred: the profile and the birth record both say xai.
+  assert.equal(store.readProfile(name).provider, 'xai');
+  assert.equal(create.createdLog().slice(-1)[0].provider, 'xai');
+  // The brief is written to AGENTS.md (grok's native project-instructions file, the
+  // same one codex boots from), never CLAUDE.md.
+  const dir = create.workerDir(name);
+  assert.ok(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), 'a grok agent got no AGENTS.md to boot from');
+  assert.ok(!fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'a grok agent must not get its brief in CLAUDE.md');
+  assert.equal(create.briefFilename('grok'), 'AGENTS.md');
+  assert.ok(create.instructionFile(name).endsWith('AGENTS.md'), 'instructionFile did not resolve AGENTS.md from the recorded grok runner');
+  // The birth write reached the DEFAULT grok home's OWN hook file (not a shared
+  // settings file, and no auth pre-seed -- the env key suffices): the report hooks
+  // point at the grok bridge, so the board reads state from self-reports.
+  const hookPath = nodePath.join(create.defaultAgentGrokHome(), 'hooks', 'kosmos-report-bridge.json');
+  assert.ok(fs.existsSync(hookPath), 'the grok agent got no report-hook file');
+  const s = JSON.parse(fs.readFileSync(hookPath, 'utf8'));
+  for (const ev of ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'StopCancelled', 'StopFailure', 'SessionEnd']) {
+    const defs = s.hooks[ev];
+    assert.ok(Array.isArray(defs) && defs.some((d) => d.hooks.some((h) => h.command.includes('grok-report-bridge'))),
+      `the ${ev} report hook was not wired`);
+  }
+  // A Claude model catalogue key cannot be written into a grok launch (cross-vendor guard).
+  const badModel = create.setModel(name, 'opus');
+  assert.equal(badModel.outcome, create.OUTCOME.REFUSED);
+  assert.match(badModel.because, /is a Claude model/);
+  // A real free-form grok model id IS accepted and lands in the -m slot.
+  const setG = create.setModel(name, 'grok-4.6');
+  assert.equal(setG.outcome, create.OUTCOME.CREATED, setG.because);
+  assert.equal(plistArgs(name)[7], 'grok-4.6', 'the chosen Grok model was not written to the -m slot');
+  // Empty is "let the supervisor pin the default" -- an empty slot with a real label.
+  const setAuto = create.setModel(name, '');
+  assert.equal(setAuto.outcome, create.OUTCOME.CREATED, setAuto.because);
+  assert.equal(plistArgs(name)[7], '', 'an empty Grok model choice must clear the -m slot');
+  assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
+    'the auto (empty) Grok model must carry a real label');
+});
+
+test('#3391: a Grok create is refused when the runner is missing', () => {
+  recorder();
+  create.setDryRun(false);
+  const r = create.createAgent({ ...BINS, name: 'gk-norunner', role: 'pm', provider: 'xai', grokBin: '/nonexistent-grok' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /could not find the Grok runner/);
+});
+
+test('#3391: a Grok create with an account arg is created default-account (the account is ignored, pinned)', () => {
+  // This slice is default-account only, so a supplied account is deliberately ignored
+  // rather than routed into the CLAUDE accounts arm. Pin that so it is intentional.
+  recorder();
+  create.setDryRun(false);
+  const suppliedDir = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.grok-some-account');
+  const out = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-acct', role: 'pm', provider: 'xai', account: suppliedDir });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  assert.equal(plistArgs('gk-acct')[8], 'grok');
+  assert.equal(store.readProfile('gk-acct').provider, 'xai');
+  // DISCRIMINATING: the supplied account dir must appear NOWHERE in the plist (a
+  // regression routing opts.account into a grok config dir would surface it in the
+  // plist's EnvironmentVariables, which plistArgs cannot see).
+  const plistText = fs.readFileSync(create.plistPath('gk-acct'), 'utf8');
+  assert.ok(!plistText.includes(suppliedDir), 'the supplied account dir leaked into the plist; it must be dropped for a default-account grok agent');
+  // And the birth hook write landed in the DEFAULT grok home, not the supplied dir.
+  assert.ok(fs.existsSync(nodePath.join(create.defaultAgentGrokHome(), 'hooks', 'kosmos-report-bridge.json')),
+    'the grok report hooks were not written to the default home');
+  assert.ok(!fs.existsSync(nodePath.join(suppliedDir, 'hooks', 'kosmos-report-bridge.json')),
+    'the grok hooks were written under the supplied account dir; it must be ignored');
+});
+
+test('#3391: installJob refuses a grok agent at the root, so backfill/repair/import never mis-launch it as claude', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-backfill', role: 'pm', provider: 'xai' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  fs.rmSync(create.plistPath('gk-backfill'), { force: true });
+  const r = create.installJob('gk-backfill');
+  assert.equal(r.ok, false, 'installJob must refuse a grok agent, not reinstall it as a claude job');
+  assert.match(r.because, /Grok/, 'the refusal must name the runner, proving the root guard fired (recordedRunner read provider=xai)');
+  assert.ok(!fs.existsSync(create.plistPath('gk-backfill')), 'installJob wrote a job for a grok agent it should have refused');
+});
+
+test('#3391: trustAgentFolder and setAccount guard a grok agent out of the CLAUDE account path', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-guard', role: 'pm', provider: 'xai' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const t = create.trustAgentFolder('gk-guard');
+  assert.equal(t.runner, 'grok', 'trustAgentFolder fell through to the claude path for a grok agent');
+  assert.equal(t.wrote, false, 'a grok agent needs no claude trust write (it uses --trust)');
+  const sw = create.setAccount('gk-guard', nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.claude-work'));
+  assert.equal(sw.outcome, create.OUTCOME.REFUSED);
+  assert.match(sw.because, /single default account/, 'setAccount did not take the grok default-account-only guard');
+});
+
+test('#3391: the shipped supervisor launches a grok agent with bypass, always-approve, trust, a pinned model, and no fleet Claude hooks', () => {
+  // The launch flags are load-bearing and easy to drop silently. Asserted against the
+  // supervisor AS SHIPPED (read from disk), so a regression that drops a flag or the
+  // GROK_CLAUDE_HOOKS_ENABLED guard goes red here rather than passing green like the
+  // launch-line COUNT check does.
+  const script = supervisorText();
+  assert.match(script, /GROK_MODEL="\$\{MODEL:-grok-4\.6\}"/,
+    'the grok arm must pin grok-4.6 when the plist model slot is empty');
+  assert.ok(script.includes('--permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL"'),
+    'the grok launch line must pass bypassPermissions, always-approve, trust, and the pinned -m model');
+  assert.ok(script.includes('-e "GROK_CLAUDE_HOOKS_ENABLED=0"'),
+    'the grok launch must set GROK_CLAUDE_HOOKS_ENABLED=0 so the agent does not run the fleet ~/.claude hooks via claude-compat');
 });
 
 test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {
