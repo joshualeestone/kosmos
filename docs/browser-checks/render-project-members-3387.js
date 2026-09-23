@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: alist-grouphdr alist-newagent openAddMemberModal setAgentsGrouped AGENTS_GROUPED alist-emptymembers pjMemberHasIt pj-notyet
+// Browser-check-surface: alist-grouphdr alist-newagent openAddMemberModal setAgentsGrouped AGENTS_GROUPED alist-emptymembers pjMemberHasIt pj-notyet am-modal pjcard-members
 // (#2518) the distinctive web/index.html tokens this check asserts: the grouped consolidated
 // agents list's "Other Agents" sub-header + its New-agent +, and the functions that switch the
 // top rail head to "Project Members" and open the add-member modal from the rail. A change to any
@@ -90,16 +90,31 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       window.__setup3387();
       document.getElementById('rail-agents-new').click();
       const modal = document.getElementById('am-modal');
+      // #3486: measure the modal's rendered BOX, not only the `hidden` attribute. See the
+      // assertion below for why the attribute alone let a dead + ship.
+      const boxEl = modal ? modal.querySelector('.rm-box') : null;
+      const boxRect = boxEl ? boxEl.getBoundingClientRect() : null;
       const sel = document.getElementById('pj-one-add');
       const opts = sel ? [...sel.options].map((o) => o.value).filter(Boolean) : [];
       return {
         modalOpen: modal ? modal.hidden === false : null,
+        modalRenderedW: boxRect ? Math.round(boxRect.width) : 0,
+        modalRenderedH: boxRect ? Math.round(boxRect.height) : 0,
         toProject: (document.getElementById('am-project') || {}).textContent,
         freeOptions: opts,
       };
     });
     ok(t + ' #3387 the top + opens the add-member modal for the open project',
       addExisting.modalOpen === true && addExisting.toProject === 'Kosmos', JSON.stringify(addExisting));
+    // #3486 (Josh, live 0.6.89): the modal must RENDER ON SCREEN, not merely flip its `hidden`
+    // attribute. It was authored inside .pjcard-members, which #3305 hides with display:none in
+    // the consolidated view; display:none on an ancestor suppresses the whole subtree, so the
+    // fixed-position modal had hidden===false AND a 0x0 box -- the "Project Members +" that opened
+    // nothing. Assertion 2 above (hidden===false) PASSED through the entire bug because the attribute
+    // flips regardless of the ancestor's display. This reads the box's real dimensions, so it fails
+    // on the suppressed modal and passes once the modal is authored at the top level, out of the card.
+    ok(t + ' #3486 the add-member modal RENDERS on screen in consolidated (real dimensions, not just hidden=false)',
+      addExisting.modalRenderedW > 200 && addExisting.modalRenderedH > 80, JSON.stringify(addExisting));
     ok(t + ' #3387 the modal picker offers the free agents (not the members)',
       addExisting.freeOptions.length === 2 && addExisting.freeOptions.includes('out-a') && addExisting.freeOptions.includes('out-b')
         && !addExisting.freeOptions.includes('mem-1'), JSON.stringify(addExisting));
