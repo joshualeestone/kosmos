@@ -14687,11 +14687,11 @@ const STATE_COPY = {
   auth_failed:  { label: "Sign-in isn't working", attn: true  },
   /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
      connection to the API, distinct from auth_failed (the account is fine).
-     An attention state, but a RECOVERABLE one: Kosmos auto-restarts it when
-     connectivity returns (the self-heal, #3410), so this is the "lost its
-     connection, recovering" state, not a dead end. Named its own label rather
-     than folded into "Can't tell": the whole point of #3410 is to replace that
-     opaque UNKNOWN with a state that says what happened. */
+     An attention state, but a RECOVERABLE one: it is the kind of thing a restart
+     fixes once connectivity returns (the #3410 self-heal that will auto-restart
+     it is a follow-on PR, not built here -- this PR surfaces the state). Named its
+     own label rather than folded into "Can't tell": the whole point of #3410 is to
+     replace that opaque UNKNOWN with a state that says what happened. */
   connection_lost: { label: 'Connection lost', attn: true },
   /* Reported-only (#188's third verb): the agent said it is waiting on
      something that is not you. No pane shape produces it. */
@@ -14747,10 +14747,10 @@ const CARD_ST = {
   auth_failed:  { st: 'paused',  pres: 'on' },
   /* #3410: wears the same quiet "paused" pack shape as auth_failed -- work is
      stopped by something the agent cannot get past on its own, but the process
-     is still up (pres: 'on'), it just cannot reach the API. Recovery is
-     automatic (self-heal restart on connectivity return), so it is not alarmed
-     red; a louder treatment, if wanted, is a design call for whoever owns the
-     pack, not decided here. */
+     is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
+     red because it is recoverable (a restart on connectivity return will heal it;
+     that self-heal is a #3410 follow-on PR, not built here); a louder treatment,
+     if wanted, is a design call for whoever owns the pack, not decided here. */
   connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
      reserved for "somebody is waiting on YOU". */
