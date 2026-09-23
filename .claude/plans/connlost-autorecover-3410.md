@@ -67,6 +67,14 @@ confirmed in iter 1: for the `Connection dropped` code the on-screen retry warni
 `Connection dropped -- reconnecting (attempt N/M)`, which the `Connection dropped \(` alternative
 correctly does NOT match; the other network codes were not separately captured.
 
+SECOND PR-2 bound (raised iter 5): connection_lost has NO freshness signal (unlike auth_failed's
+#1930 liveAuth guard). The classify rule sits above the idle/finished fallbacks, so an agent that
+ALREADY RECOVERED and went idle still reads connection_lost while its old error line is in the ~25-row
+window. So a connectivity probe is necessary but NOT sufficient for PR 2: a recovered pane can show
+connectivity-up AND a stale error line at once. PR 2 must add a "still actually wedged" bound (no new
+activity since the error / the error is the live tail) before restarting, or it will restart an agent
+that healed on its own. Cosmetic for PR 1 (self-corrects as output scrolls the error out).
+
 ### DEFERRED (iter 4): DM/room busy indicator stays silent for connection_lost
 busyRow/paintBusy (the "<name> is working..." DM slot) shows only for `working` and
 `auth_failed`; connection_lost yields show=false, so the slot is hidden/empty (verified:

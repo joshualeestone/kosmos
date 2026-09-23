@@ -2036,6 +2036,14 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * note, so a self-reporting agent shows the state plus "its reports cannot know
  * about" rather than being masked back to working/idle. A missed wedged agent is
  * worse than a rare false pause -- this file's oldest trade.
+ *
+ * 📌 SCOPE: CLAUDE CODE ONLY, DELIBERATELY. These are Claude Code's formatter
+ * strings and the classify() rule that uses them lives in the Claude branch, so a
+ * CODEX pane wedged on the same transient network error still reads UNKNOWN
+ * ("Can't tell"). That gap is intentional for this PR: #3410 targets Claude Code
+ * (Josh's report), Codex's on-screen vocabulary was not captured, and a Codex
+ * WORKING read is already an unreliable signal (#2413). A Codex equivalent is a
+ * separate change with its own captured strings, not a silent omission here.
  */
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
@@ -3818,6 +3826,20 @@ function classify(pane, paneText) {
    * against a REAL captured retry sequence, that an in-flight retry draws live
    * working chrome (and hence never reaches here) before it acts on this state --
    * do not carry this premise forward into a restart on my word alone.
+   *
+   * ⚠️ A SECOND STALE-READ, ALSO COSMETIC FOR PR 1 AND LOAD-BEARING FOR PR 2: this
+   * rule sits ABOVE the idle/finished fallbacks, so an agent that ALREADY RECOVERED
+   * and went idle still reads connection_lost while its old error line remains in the
+   * ~25-row capture window (it scrolls out as the recovered agent produces new
+   * output, so PR 1 self-corrects within a few lines -- and a recently-recovered
+   * agent briefly labelled "Connection lost" is stale, not a false calm). Unlike
+   * auth_failed, this state has NO external freshness signal (auth_failed has the
+   * #1930 liveAuth-healthy guard; there is no "is the network back" probe in
+   * classify). ⇒ PR 2 must NOT restart on connection_lost alone: connectivity
+   * returning is necessary but not sufficient, because a recovered pane can show
+   * connectivity-up AND a stale error line at once. PR 2 needs a "still actually
+   * wedged" bound (no new activity since the error / the error is the live tail),
+   * not just a connectivity probe, or it will restart an agent that already healed.
    */
   /* The shared matchedLine helper (as rate_limited uses it): first row matching
      CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
