@@ -298,10 +298,14 @@ chat.setRunner((args) => {
      * A fixture with only success and only failure would photograph two thirds
      * of this feature.
      */
-    // Discriminated by SHAPE, not position (round 28): the Enter call has
-    // no -l flag, while the literal-text call does -- so a message whose
-    // text is exactly "Enter" no longer matches this arm on the text send
-    // and photographs a could_not where the fixture means an unconfirmed.
+    // #3419: since the body is PASTED (set-buffer/paste-buffer), the ONLY
+    // send-keys this fixture ever sees is the submit Enter, so `casey` failing
+    // here is unambiguously an Enter-failure -> UNCONFIRMED (text pasted, submit
+    // failed). The `!args.includes('-l') && last === 'Enter'` guard is retained
+    // belt-and-suspenders (round 28: it kept a message whose text was literally
+    // "Enter" from photographing a could_not on the text send back when the text
+    // went via `send-keys -l`); it is always true on this path now, harmless, and
+    // documents the old shape.
     if (String(args[2] || '').includes('casey') && !args.includes('-l') && args[args.length - 1] === 'Enter') {
       return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no current session' };
     }

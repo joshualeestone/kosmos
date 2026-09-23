@@ -515,6 +515,24 @@ test('#3419 the pane is re-verified right before the Enter: a pane that fell to 
   });
 });
 
+test('#3419 a caller-supplied envelope is whitespace-flattened before the pane, so no newline reaches it', () => {
+  // The newline-free-wire invariant the paste transport's safety rests on:
+  // paste-buffer (no -r) turns an LF into a CR, which in a fallen shell submits at
+  // paste time — before the pre-Enter re-verify. `text` is flattened by
+  // cleanMessage and the trailer refuses control chars, but the envelope arrives
+  // caller-supplied; deliver flattens its whitespace too. Prove a multi-line
+  // envelope cannot carry a newline into the paste.
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    const tmux = arm([ok(), ok()]);
+    const verdict = chat.deliver('casey', 'the body', board.agents, 'line one\nline two');
+    assert.equal(verdict.state, chat.DELIVERY.PLACED);
+    const wire = tmux.pastedText();
+    assert.ok(!/[\r\n]/.test(wire), 'a newline reached the pane: ' + JSON.stringify(wire));
+    assert.equal(wire, 'line one line two the body',
+      'the envelope is flattened to single spaces, then the body follows');
+  });
+});
+
 test('#3419 the paste→Enter delay grows with body size and is capped', () => {
   assert.equal(chat.pasteToEnterMs(0), 250, 'the base floor');
   assert.ok(chat.pasteToEnterMs(4096) > chat.pasteToEnterMs(0), 'larger body waits longer');

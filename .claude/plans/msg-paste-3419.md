@@ -113,3 +113,17 @@ stubbed so the suite does not pay it. Full node suite green (8094 tests, 0 fail)
   `send-keys` does not. Rests on claude-msg's 489-send fleet measurement, not a
   Kosmos-side measurement — the definitive confirmation is an operator watching a
   real busy-pane send land whole on the running app.
+  - ⚠️ Cross-reference: fleet bulletin `truncation-is-recipient-busyness-not-byte-count`.
+    That incident (a 2.6KB padded send to a busy recipient lost the padding AND the
+    body to a tail fragment, with an interior space missing) was the `send-keys`
+    KEYSTROKE RACE this PR replaces — a paste delivers to the composer atomically,
+    not as a per-keystroke stream — so it is evidence FOR pasting, not against it.
+    The residual it leaves open: the chunks are fired back-to-back with no
+    inter-chunk pacing (only the size-adaptive delay before the final Enter),
+    exactly as the fleet-proven claude-msg does over its 489 sends. Adding
+    inter-chunk pacing was considered and NOT done: it would deviate from the
+    proven reference on a guess, and the sub-256B chunk ceiling plus the
+    atomic-paste mechanism are what the fleet measured working. If an operator ever
+    sees a chunk drop on a genuinely busy pane, per-chunk pacing (or an idle-gate
+    before each paste, as claude-msg's classify does) is the first lever — a
+    follow-up, not a blind pre-emptive change here.
