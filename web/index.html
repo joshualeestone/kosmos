@@ -40453,7 +40453,14 @@ document.getElementById('pj-settings-link').addEventListener('click', () => {
   if (!p) return;
   paintProjectSettings(p);   // #3134: this cancels any pending save auto-advance (see paintProjectSettings)
   pjView('settings');
-  document.getElementById('pj-settings-back').focus();
+  // #3502: the back button is hidden in the consolidated view (removed as redundant), and a
+  // display:none element cannot take focus, so focusing it there would strand keyboard focus on
+  // the cog. Focus the settings heading instead so focus lands inside the view; the tab view
+  // still shows the back button and keeps it as the landing spot.
+  const settingsBack = document.getElementById('pj-settings-back');
+  if (settingsBack && getComputedStyle(settingsBack).display !== 'none') { settingsBack.focus(); return; }
+  const settingsHead = document.querySelector('#pj-settings-view .dname');
+  if (settingsHead) { if (!settingsHead.hasAttribute('tabindex')) settingsHead.setAttribute('tabindex', '-1'); settingsHead.focus(); }
 });
 document.getElementById('pj-remove-member').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
