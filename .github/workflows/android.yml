@@ -13,8 +13,8 @@
 #
 # WHAT GREEN CERTIFIES: the TWA skeleton still configures and assembles a debug APK
 # under a clean JDK-21 toolchain. It does NOT certify a signed release (that is the
-# conditional job below, inert until signing secrets exist), the Play listing, or
-# behavior on a device.
+# conditional release STEP below -- one step in this single build job, inert until
+# signing secrets exist), the Play listing, or behavior on a device.
 #
 # JDK-21 PROVISIONING (the piece the README flagged). The module's daemon-JVM
 # criteria (toolchainVersion=21 in gradle/gradle-daemon-jvm.properties) need a JDK 21
@@ -82,6 +82,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Supply-chain guard: verify the committed gradle/wrapper/gradle-wrapper.jar
+      # matches a published Gradle release checksum before ./gradlew executes it, so a
+      # tampered wrapper cannot run arbitrary code in CI.
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
       # Provision JDK 21 (Temurin). Sets JAVA_HOME to the runner's JDK 21, which both
       # satisfies the daemon-JVM criteria (via auto-detection) and is fed to the -D
       # override below (see the JDK-21 note in the header).
@@ -135,9 +141,10 @@ jobs:
           KOSMOS_UPLOAD_KEY_ALIAS: ${{ secrets.KOSMOS_UPLOAD_KEY_ALIAS }}
         run: |
           # Decode the keystore to a runner-local file (never committed) via a
-          # here-string, NOT a pipe: base64 is then the step's own last command, so a
-          # decode failure is its non-zero exit and aborts the step under the default
-          # `bash -e`. Point build.gradle's KOSMOS_UPLOAD_KEYSTORE env var at the file.
+          # here-string, NOT a pipe: a pipe would mask base64's exit code, whereas here
+          # base64's own non-zero exit on invalid input aborts the step under the
+          # runner's default `bash -e` before gradlew runs. Point build.gradle's
+          # KOSMOS_UPLOAD_KEYSTORE env var at the file.
           base64 --decode <<< "$KOSMOS_UPLOAD_KEYSTORE_BASE64" > "$RUNNER_TEMP/kosmos-upload.jks"
           export KOSMOS_UPLOAD_KEYSTORE="$RUNNER_TEMP/kosmos-upload.jks"
           ./gradlew :app:assembleRelease --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
