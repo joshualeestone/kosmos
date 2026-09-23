@@ -95,19 +95,17 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
   (touches web/, per-account homes).
 - setProvider switch-to-google (existing agent runner switch).
 - observed.js GOOGLE provider + account/liveness badge overlay.
-- **Launch-time re-apply of the gemini settings (born-again pattern).** create.js
-  bakes the report-bridge path into `~/.gemini/settings.json` ONCE at birth,
-  resolved as the installed `app/bin/gemini-report-bridge.js`. The siblings instead
-  RECOMPUTE at every launch: codex's supervisor uses `$(dirname "$0")/codex-report-
-  bridge.js`, and claude's reporthook is re-run by setup.sh on every update. So a
-  gemini agent survives normal restarts (the baked path is stable at the fixed
-  `~/.local/share/kosmos` install location) but has two gaps the siblings do not: a
-  RELOCATED/reinstalled app leaves the baked path stale, and a wiped `~/.gemini`
-  loses the hooks until the agent is remade. Both degrade SILENTLY to zero reports
-  (the bridge's cardinal rule swallows every failure). The robust fix is a
-  launch-time re-apply shim in agent-supervisor.sh (a `gemini-ensure-settings.js`
-  analog of `ensure-launch-trust.js`), deferred as a hot-path change of its own per
-  #3136; lower-probability given the fixed install convention.
+- **Launch-time re-apply of the gemini settings, for the WIPED-~/.gemini case only.**
+  The RELOCATION arm is now FIXED, not deferred: create.js bakes geminiBridgePath()
+  (the stable supportDir location installSupervisor copies the bridge to on every
+  refresh, via geminiBridgeSource()'s guard-visible path.join), so the baked path
+  survives an app-tree move exactly as codex's supportDir bridge does, and the bundle
+  build ships the bridge by name (#731 guard enforced). The one residual: if someone
+  WIPES ~/.gemini, the settings (pre-seed + hooks) are gone until the agent is remade,
+  degrading silently to zero reports. The fix is a launch-time re-apply shim in
+  agent-supervisor.sh (a gemini-ensure-settings.js analog of ensure-launch-trust.js),
+  deferred as a hot-path change of its own per #3136; low-probability (a wiped
+  ~/.gemini also loses the whole gemini config, so the agent needs re-setup anyway).
 
 ## Verify by content
 Whole-tree JS suite green; a new create.gemini + geminisettings + bridge unit

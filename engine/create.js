@@ -2078,6 +2078,24 @@ function bridgePath() {
   return path.join(supportDir(), 'bin', 'codex-report-bridge.js');
 }
 
+/* #3296: the gemini report bridge, the exact sibling of the codex pair above and
+   for the same #731 reason. `path.join(__dirname, '..', 'bin', ...)` is the form
+   bundle.contents.test.js scans for, so this file resolving the bridge THROUGH this
+   helper is what makes the #731 guard require the bundle build to ship it -- an
+   earlier draft baked the path with `path.resolve`, which the guard's regex does not
+   match, so a served bundle would have carried no gemini bridge and every gemini
+   agent's self-report would have silently pointed at a missing file. installSupervisor
+   copies source -> path (supportDir) on every refresh, so the birth write bakes the
+   STABLE supportDir location rather than the app tree, matching how codex's bridge
+   survives an app-tree move. */
+function geminiBridgeSource() {
+  return path.join(__dirname, '..', 'bin', 'gemini-report-bridge.js');
+}
+
+function geminiBridgePath() {
+  return path.join(supportDir(), 'bin', 'gemini-report-bridge.js');
+}
+
 /**
  * Put the current supervisor where the jobs point, and answer whether it is
  * there.
@@ -2134,6 +2152,15 @@ function installSupervisor() {
     fs.copyFileSync(bridgeSource(), bridgeStaging);
     fs.chmodSync(bridgeStaging, 0o755);
     fs.renameSync(bridgeStaging, bridgeDest);
+    // #3296: the gemini report bridge rides the same refresh, same staging-rename
+    // discipline, same reason as the codex bridge above. create.js bakes
+    // geminiBridgePath() (this destination) into a gemini agent's settings.json at
+    // birth, so it must be current here for every existing agent on the next refresh.
+    const geminiBridgeDest = geminiBridgePath();
+    const geminiBridgeStaging = `${geminiBridgeDest}.${process.pid}.new`;
+    fs.copyFileSync(geminiBridgeSource(), geminiBridgeStaging);
+    fs.chmodSync(geminiBridgeStaging, 0o755);
+    fs.renameSync(geminiBridgeStaging, geminiBridgeDest);
     /* \u2b50 #1139: TELL THE SUPERVISOR WHERE THE ENGINE IS.
        It resolves `sendertoken.js` as `dirname($0)/../engine`, which is true in
        a checkout and in the bundle and FALSE for every real agent -- the two
@@ -2165,12 +2192,13 @@ function installSupervisor() {
     // Leave nothing half-written beside the real one.
     try { fs.rmSync(`${supervisorPath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(`${geminiBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(path.join(path.dirname(supervisorPath()), `engine-path.${process.pid}.new`), { force: true }); } catch { /* best effort */ }
     // ⚠️ NAME THE FILE. Two files ride this step; when one is absent the
     // sentence must say WHICH, or a person goes looking for a file that is
     // present (#731: the bridge was missing from the served bundle and the
     // refusal blamed the supervisor, which had shipped).
-    const absent = [supervisorSource(), bridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
+    const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
     return {
       ok: false,
       missing: Boolean(err && err.code === 'ENOENT' && absent.length),
@@ -4448,22 +4476,21 @@ function createAgentInner(opts) {
        BEFORE bootstrap, for the same timing reason as the claude preaccepts (the
        picker/hooks are read at startup). Best-effort and non-gating: a gemini
        agent that self-reports one turn late, or meets the auth picker once, is
-       not a failed creation. The bridge path is resolved __dirname-relative the
-       way reporthook.hookScriptPath resolves the claude hook (engine/ beside
-       bin/, in both the installed and source layouts).
-       ⚠️ BAKED ONCE, unlike the siblings. codex recomputes its bridge path at every
-       launch ($(dirname "$0")/codex-report-bridge.js) and claude re-runs reporthook
-       on every update, whereas this writes the resolved path into ~/.gemini once and
-       never revisits it. Stable at the fixed ~/.local/share/kosmos install location,
-       but a RELOCATED app or a wiped ~/.gemini leaves it stale, degrading silently to
-       zero reports. The launch-time re-apply shim that would close this is a hot-path
-       change deferred per #3136 -- see the plan file's Deferred section. */
+       not a failed creation. The baked path is geminiBridgePath() -- the STABLE
+       supportDir location installSupervisor copies the bridge to on every refresh,
+       NOT the app tree -- so it survives an app-tree move exactly as codex's
+       supportDir bridge does, and installSupervisor keeps the bytes current there for
+       every existing agent. (Using geminiBridgeSource()'s path.join form is also what
+       makes the #731 bundle guard require the build to ship the bridge; an earlier
+       draft baked a path.resolve app-tree path that the guard could not see.)
+       ⚠️ The one residual, deferred per #3136: a WIPED ~/.gemini loses the settings
+       entirely until the agent is remade (a launch-time re-apply shim would close it).
+       See the plan file's Deferred section. */
     if (provider === 'google') {
       try {
         const geminisettings = require('./geminisettings');
         const geminiHome = configDir || defaultAgentGeminiHome();
-        const bridge = path.resolve(__dirname, '..', 'bin', 'gemini-report-bridge.js');
-        geminisettings.ensurePrepared(path.join(geminiHome, 'settings.json'), bridge);
+        geminisettings.ensurePrepared(path.join(geminiHome, 'settings.json'), geminiBridgePath());
       } catch { /* a gemini agent that self-reports late is not a failed creation */ }
     }
   }

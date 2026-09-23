@@ -3960,6 +3960,23 @@ test('#3296: a Gemini create is refused when the runner is missing, and an unkno
   assert.match(bad.because, /pick a provider/);
 });
 
+test('#3296: a Gemini create with an account arg is created default-account (the account is ignored, pinned)', () => {
+  // This slice is default-account only (no geminiaccounts subsystem yet), so a
+  // supplied account is deliberately ignored rather than routed into the CLAUDE
+  // accounts arm. Pin that behavior so it is intentional, not incidental: the agent
+  // is created and its plist carries no per-account config dir (empty account slot).
+  recorder();
+  create.setDryRun(false);
+  const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-acct', role: 'pm', provider: 'google', account: '/some/gemini/dir' });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  // Vector slot 8 is the runner (gemini); a per-account agent would carry a config
+  // dir in its plist. Confirm it launched as a plain default-account gemini agent.
+  const args = plistArgs('g-acct');
+  assert.equal(args[8], 'gemini');
+  // The recorded runner + provider are gemini/google regardless of the dropped account.
+  assert.equal(store.readProfile('g-acct').provider, 'google');
+});
+
 test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trust, and a pinned model', () => {
   // The launch flags are load-bearing and easy to drop silently: the plan pins the
   // model because the "Auto" router hangs in a tmux pane (measured >1m47s), and yolo
