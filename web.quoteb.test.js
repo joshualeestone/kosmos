@@ -18,7 +18,15 @@ const nodePath = require('node:path');
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
 function pageScope() {
-  const src = PAGE.match(/<script>([\s\S]*)<\/script>/);
+  /* NON-GREEDY (*?), because the page carries more than one <script> region: the
+     attributed theme-boot block, the main app script (the single BARE <script>),
+     and #718's attributed push-client block. A greedy [\s\S]* runs to the LAST
+     </script> in the file and folds the app's own closing </script> plus the
+     push block into the capture, so `new Function` chokes on an embedded
+     </script>. Anchored on the bare <script> (the attributed blocks are skipped)
+     and stopped at the FIRST </script>, this captures exactly the main app
+     script -- there is no </script> between it and its own close. */
+  const src = PAGE.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(src, 'the page has no script block');
   const written = {};
   const el = (id) => new Proxy(function () {}, {
