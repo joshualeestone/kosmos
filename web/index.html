@@ -17683,7 +17683,7 @@ async function tick() {
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
        (same auto-exit the Messages filter does at dmTotal <= 0). */
-    if (!c.needsYou && boardFilterActive() === 'attn') setBoardFilter(null);
+    if (!c.needsYou && document.body && boardFilterActive() === 'attn') setBoardFilter(null);
     /* #1898: the no-project subset of "Issue". Same hide-at-zero grammar as
        its parent tile above, so it appears only when an agent needs you AND named
        no project -- the case that lights no project tile and is otherwise caught
@@ -17692,7 +17692,7 @@ async function tick() {
     document.getElementById('st-attn-noproj').textContent = String(c.needsYouUnattributed || 0);
     document.getElementById('st-attn-noproj-tile').hidden = !c.needsYouUnattributed;
     /* #3423: same auto-exit for the No-project filter. */
-    if (!c.needsYouUnattributed && boardFilterActive() === 'noproj') setBoardFilter(null);
+    if (!c.needsYouUnattributed && document.body && boardFilterActive() === 'noproj') setBoardFilter(null);
     /* #2863: the unread-DM tally, summed client-side from the fleet (a.dmUnread)
        exactly as Working/Idle are counted from data.agents rather than trusting a
        second server derivation. A null dmUnread (unknown, mirroring p.unread null)
