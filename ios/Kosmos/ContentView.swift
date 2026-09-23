@@ -6,6 +6,10 @@ import WebKit
 struct ContentView: View {
     // Starts unlocked when the gate is off, so default behavior is unchanged.
     @State private var isUnlocked = !KosmosConfig.requireBiometricUnlock
+    // Set only when the app has actually gone to the background, so returning to
+    // the foreground re-prompts after a real background cycle - not after a
+    // transient .inactive (Control Center, a call, or the Face ID prompt itself).
+    @State private var didBackground = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -15,16 +19,35 @@ struct ContentView: View {
                     .ignoresSafeArea()
             } else {
                 LockView(onUnlock: unlock)
-                    .onAppear(perform: unlock)
             }
         }
+        .onAppear {
+            // Cold launch: onChange does not fire for scenePhase's initial value,
+            // so prompt here when we start locked.
+            if !isUnlocked { unlock() }
+        }
         .onChange(of: scenePhase) { newPhase in
-            // Re-lock when the app leaves the foreground, so resuming from the
-            // app switcher (or a lost/borrowed phone) must authenticate again,
-            // and the board is not left rendered in the multitasking snapshot.
-            // No-op when the gate is off. (iOS 16 single-parameter onChange.)
-            if newPhase != .active && KosmosConfig.requireBiometricUnlock {
+            // iOS 16 single-parameter onChange. No-op when the gate is off.
+            guard KosmosConfig.requireBiometricUnlock else { return }
+            switch newPhase {
+            case .background:
+                // Lock only on a real background (home / app switcher), never on
+                // .inactive: the Face ID prompt and transient interruptions also
+                // make the app .inactive, and re-locking there would fight the
+                // prompt. (App-switcher snapshot hardening - an .inactive privacy
+                // overlay - is a further enhancement, noted in the plan.)
                 isUnlocked = false
+                didBackground = true
+            case .active:
+                // Re-prompt on the return from a real background, driven here
+                // rather than from LockView.onAppear (which does not re-fire when
+                // LockView is already in the hierarchy).
+                if didBackground && !isUnlocked {
+                    didBackground = false
+                    unlock()
+                }
+            default:
+                break
             }
         }
     }
