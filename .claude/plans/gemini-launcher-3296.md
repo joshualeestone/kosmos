@@ -67,20 +67,32 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
    The @kosmos_runner=gemini tag is already generic.
 
 ## Deferred (documented on the card, out of this coherent unit)
-- **Cross-Kosmos gemini import (worldimport.js + installJob + worldstarts.js).** Full
-  support is a coherent deferred slice: worldimport.launchSpecOf maps codex-vs-claude
-  only, installJob (create.js ~2822) recognises only runner 'codex' and resolves
-  claudeBin otherwise, and worldstarts.firstStartOfImport (~515) likewise -- so passing
-  runner:'gemini' through any one of them without the others would be half-wired
-  (records gemini, launches claude). It needs all three fixed together (launchSpecOf
-  mapping + briefFilename + installJob geminiBin/birth-settings + worldstarts arm).
-  ⚠️ CORRECTED PREMISE: an earlier draft deferred this as "no gemini agent can be
-  imported yet (none exist)". That was WRONG -- gemini agents are creatable via the
-  server route today and ARE offered in the import picker, so the path is REACHABLE. The
-  interim is therefore NOT left to fail confusingly: worldimport.copyOne now REFUSES a
-  non-codex/claude agent CLEANLY ("cannot import between worlds yet, create it fresh"),
-  the same honest boundary setAccount/setProvider draw, instead of the old
-  downgrade-to-claude that failed partway on the missing CLAUDE.md brief and rolled back.
+- **installJob gemini support = backfill / repair / adopt / cross-world import.** The
+  FULL support is a coherent deferred slice: installJob (create.js) would need geminiBin
+  resolution + the birth settings write, worldimport.launchSpecOf a gemini mapping +
+  briefFilename, and worldstarts.firstStartOfImport a gemini arm -- all together, or a
+  caller records gemini while installJob launches claude. Until then every installJob
+  caller is guarded CLEANLY (no reachable path mis-launches a gemini agent as claude):
+  - installJob itself now REFUSES a gemini/grok agent at the ROOT (reads recordedRunner),
+    so its callers -- register.repair (the live repair route), worldstarts, and
+    worldimport -- all inherit a clean "cannot set up a launch job this way yet" refusal.
+  - worldimport.copyOne ALSO refuses earlier with an import-specific message (belt and
+    suspenders; it avoids the confusing partway brief-read failure).
+  ⚠️ CORRECTED PREMISE: an earlier draft deferred the import path as "no gemini agent can
+  be imported yet (none exist)". WRONG -- gemini agents are creatable via the server route
+  today and ARE offered in the import picker / repairable, so these paths are REACHABLE;
+  hence the clean refusals rather than a documented-but-live mis-launch.
+- **discover.connect adopting an on-disk GEMINI.md folder.** foundGemini (discover.js,
+  merged in #3392) lists a ~/.gemini-brief folder as an adoptable `runner:'gemini'` agent,
+  but connect()'s instructions-file loop only tries CLAUDE.md/AGENTS.md, so connecting one
+  fails confusingly ("no instructions") or registers it with no runner. PRE-DATES this
+  branch (#3392) and needs the same deferred installJob gemini support to actually launch
+  what it adopts, so it belongs with this slice. Documented, not fixed here.
+- **agent-supervisor.sh CLAUDE_CONFIG_DIR forward.** The `[ "$RUNNER" != codex ]` guard
+  (#3417 leak fix) forwards a leaked CLAUDE_CONFIG_DIR into a gemini/grok pane too. Inert
+  today (gemini reads no such variable, and a default gemini agent has no configDir), so
+  left as-is rather than risk retouching the leak guard for a cosmetic gain; tighten to
+  `= claude` if a future runner ever reads that variable.
 - **setProvider switching an EXISTING gemini agent AWAY to anthropic/openai.** Not
   blocked (works via the generic path: briefFilename(job.runner) handles the GEMINI.md
   rename and the agent fully converts). Low-risk and left as-is; it leaves the now-inert

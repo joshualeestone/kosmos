@@ -2813,6 +2813,24 @@ function installJob(name, opts) {
   if (!fs.existsSync(workerDir(clean))) {
     return { ok: false, because: 'there is no folder for it on this computer' };
   }
+  /* #3296: installJob (the backfill / adopt / repair / cross-world-import path, as
+     opposed to createAgentInner which writes its own plist) supports codex and claude
+     only -- the runner decision below reads opts.runner and defaults everything else to
+     claude, so a gemini agent would be (re)installed as a CLAUDE job with claudeBin.
+     Refuse cleanly at the ROOT here, so EVERY caller inherits it (register.repair,
+     worldstarts.firstStartOfImport, and worldimport -- which already refuses earlier)
+     rather than each silently mis-launching a gemini agent as claude. Full gemini
+     support in this path (geminiBin + the birth settings write) is the deferred backfill
+     slice; see the plan file. The agent's TRUE runner is read via recordedRunner (plist
+     then profile.provider), not opts, because callers pass no runner for gemini. Create
+     is unaffected: it never calls installJob. */
+  {
+    const wantRunner = (opts && opts.runner) || recordedRunner(clean);
+    if (wantRunner === 'gemini' || wantRunner === 'grok') {
+      const label = wantRunner === 'gemini' ? 'Gemini' : 'Grok';
+      return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a launch job for this way yet -- it can be created fresh, but not backfilled, repaired, or imported` };
+    }
+  }
   const { claudeBin, tmuxBin } = binPaths(opts);
   /* 🛑 THE RUNNER IS DECIDED BEFORE THE BINARY IS CHECKED (#1159). This checked
      `claudeBin` unconditionally, so ADOPTING A CODEX AGENT WAS REFUSED ON A

@@ -3987,6 +3987,21 @@ test('#3296: a Gemini create with an account arg is created default-account (the
     'the gemini settings were written under the supplied account dir; it must be ignored');
 });
 
+test('#3296: installJob refuses a gemini agent at the root, so backfill/repair/import never mis-launch it as claude', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-backfill', role: 'pm', provider: 'google' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  // Simulate the missing-job state installJob (backfill/repair) exists for: remove the
+  // plist so jobPresence is 'no' and the guard is reached.
+  fs.rmSync(create.plistPath('g-backfill'), { force: true });
+  const r = create.installJob('g-backfill');
+  assert.equal(r.ok, false, 'installJob must refuse a gemini agent, not reinstall it as a claude job');
+  assert.match(r.because, /Gemini/, 'the refusal must name the runner, proving the root guard fired (recordedRunner read provider=google)');
+  // The control: it must NOT have written a plist (a claude one would be the bug).
+  assert.ok(!fs.existsSync(create.plistPath('g-backfill')), 'installJob wrote a job for a gemini agent it should have refused');
+});
+
 test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLAUDE account path', () => {
   recorder();
   create.setDryRun(false);
