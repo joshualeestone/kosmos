@@ -8145,15 +8145,15 @@ test('the search is wired: pack markup verbatim, instant repaint, reset on switc
   // #2711 item 4 (Josh, 2026-09-10): the room search placeholder is just
   // "Search" now (narrower box), while its accessible name stays the fuller
   // "Search this conversation". Keyed on #pj-room-search specifically, because
-  // the agent-DM search (#d-talk-search) still carries the pack's fuller
-  // placeholder and a bare includes() would pass off that one.
+  // the agent-DM search (#d-talk-search) now carries the same "Search"
+  // placeholder (#3414) and a bare includes() would pass off either one.
   assert.ok(raw.includes('id="pj-room-search" placeholder="Search" aria-label="Search this conversation"'),
     "the room search lost its #2711-item-4 'Search' placeholder or its accessible name");
-  // The agent-DM search (#d-talk-search) keeps the fuller placeholder; item 4
-  // was the room search only. Pinned explicitly, since re-keying the room
-  // assertion above onto #pj-room-search removed the incidental coverage the
-  // old bare includes() gave the DM search's identical string.
-  assert.ok(raw.includes('id="d-talk-search" placeholder="Search this conversation" aria-label="Search this conversation"'),
+  // #3414 aligned the agent-DM search (#d-talk-search) to the room: the same
+  // short "Search" placeholder over the fuller "Search this conversation"
+  // accessible name. Keyed on the id, since both searches now share the
+  // "Search" placeholder string.
+  assert.ok(raw.includes('id="d-talk-search" placeholder="Search" aria-label="Search this conversation"'),
     "the agent-DM search lost its placeholder or accessible name");
   assert.ok(raw.includes('.tsearch { display: flex; align-items: center; gap: 6px; flex: 0 1 15rem; min-width: 0;'),
     "the tsearch rule drifted from the pack's values");

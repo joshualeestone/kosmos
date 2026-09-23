@@ -48,15 +48,24 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
    it should be there, and geometry is the easiest thing to keep asserting about
    an element that renders nothing. Nothing here measured whether it drew. */
 
-test('the box still says the between-you sentence it said before', () => {
+test('#3414: the between-you hint is gone from the direct box', () => {
   /**
-   * ⚠️ A CONTROL ON THE EDIT, not decoration. This sentence is ruled copy and
-   * is not what was wrong: "just between you and <name>" is true.
-   * (The persistence line "This stays here after a restart…" was removed on
-   * Josh's instruction 2026-09-22; its element and every setter/hide are gone
-   * from the page, so there is no longer a persistence assertion here.)
+   * 🛑 THIS SENTENCE WAS RULED COPY AND IS NOW REMOVED, and the reversal is
+   * deliberate, not a regression. The agent-DM box was rebuilt in #3414 to match
+   * the project conversation UI, locked from Josh's updated screenshot, and the
+   * "Just between you and <name>. Nothing here belongs to a project." hint was
+   * dropped with it (the element is gone from the markup; see the #3414 notes at
+   * the d-talk-label paint and the caprow). The persistence line was already
+   * removed on Josh's instruction 2026-09-22; this drops the second standing
+   * sentence.
+   *
+   * ⚠️ TENSION WORTH FLAGGING: an earlier pass ruled this sentence keep-copy. If
+   * Josh's screenshot in fact keeps it, restore the element rather than editing
+   * this test. It is asserted as an ABSENCE so re-adding the hint fails here and
+   * forces that decision again rather than passing silently.
    */
-  assert.match(PAGE, /Just between you and ' \+ name \+ '\. Nothing here belongs to a project\./);
+  assert.doesNotMatch(PAGE, /Just between you and ' \+ name \+ '\. Nothing here belongs to a project\./,
+    'the between-you hint the #3414 rebuild removed is back in the page');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
