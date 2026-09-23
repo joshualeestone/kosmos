@@ -85,6 +85,9 @@ const FX = {
           oldDmCount: document.querySelectorAll('#d-dmthread .dm, #d-dmthread .dm-b, #d-dmthread .dm-w').length,
           agentHasAv: !!(agent && agent.querySelector('.msg-av')),
           agentHasName: !!(agent && agent.querySelector('.msg-bd .msg-nm')),
+          // The DM agent name/avatar must NOT carry data-open-agent: the click handler is
+          // bound to #pj-room only, and the DM already lives inside m.from's detail panel.
+          agentHasOpen: !!(agent && (agent.querySelector('.msg-nm[data-open-agent]') || agent.querySelector('.msg-av[data-open-agent]'))),
           agentTimeInsideBubble: !!(agent && agent.querySelector('.msg-bd .msg-t')),
           mineHasAv: !!(mine && mine.querySelector('.msg-av')),
           // The fixture gives the operator a photo, so the user avatar is a PLAIN .msg-av
@@ -118,6 +121,7 @@ const FX = {
       chk(m.oldDmCount === 0, `${t} no old .dm/.dm-b/.dm-w markup remains in the DM thread`, `oldDm=${m.oldDmCount}`);
       chk(m.agentHasAv, `${t} the agent bubble has an avatar (.msg-av)`);
       chk(m.agentHasName, `${t} the agent name is bold INSIDE the bubble (.msg-bd .msg-nm)`);
+      chk(m.agentHasOpen === false, `${t} the DM agent name/avatar are NOT click-to-open (no dead data-open-agent affordance)`);
       chk(m.agentTimeInsideBubble, `${t} the agent timestamp is INSIDE the bubble (.msg-bd .msg-t)`);
       chk(m.mineHasAv, `${t} the user bubble has the user avatar (.msg-av)`);
       chk(m.minePhotoIsPlain, `${t} the user photo avatar is a plain .msg-av, no .mine (matches the room, #3414)`);

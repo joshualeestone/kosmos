@@ -5062,6 +5062,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* the thread-ground mask carving the wing's outer edge into the curve */
 .msg:not(.you) .msg-bd::after { left: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-right-radius: 12px 16px; z-index: -1; }
 .msg.you .msg-bd::after { right: -14px; width: 14px; height: 22px; background: var(--k-surface); border-bottom-left-radius: 12px 16px; z-index: -1; }
+/* #3414: the agent DM thread ground is --k-bg, not the room's --k-surface, so the tail
+   ground-mask must follow it or a sliver of the wrong ground shows at each bubble's tail.
+   One #d-dmthread rule (ID specificity) beats both the room mask above and its dark #000
+   overrides, and --k-bg flips per theme, so it is correct in light and dark alike. */
+#d-dmthread .msg-bd::after { background: var(--k-bg); }
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
    mask must stay the pure thread ground or it would stop carving. */
@@ -5091,6 +5096,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    either to go straight to that agent. No underline, no link look (Josh's rule), just
    a pointer cursor on hover. The person's OWN avatar (.msg-av.mine) is not a target. */
 .msg-nm, .msg:not(.you) .msg-av { cursor: pointer; }
+/* #3414: in the agent DM (#d-dmthread) the name/avatar are NOT click targets (see dmRow),
+   so keep the plain cursor there; the pointer above is for the room's data-open-agent. */
+#d-dmthread .msg-nm, #d-dmthread .msg:not(.you) .msg-av { cursor: default; }
 /* #3130 (Josh 6.68): the #1703 `.msg-role` agent-title span is no longer rendered
    in the dialog (removed in pjRoomRow), so its CSS rule is removed with it. The
    member roster's own title styling (pj-member-role) is unaffected. */
@@ -8769,7 +8777,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          belongs to a project, so it says nothing. #d-talk-label + the search ids are
          unchanged so the label-setter and the filter JS are untouched. -->
     <div class="d-talk-caprow">
-      <h3 class="dlab" id="d-talk-label"></h3>
+      <h3 id="d-talk-label"></h3>
       <div class="tsearch" id="d-talk-search-wrap">
         <span class="tsearch-i" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -24985,12 +24993,16 @@ function dmRow(m, name) {
        without a LAST) fall back to the disc rather than throwing. */
     const card = (typeof LAST !== 'undefined' && Array.isArray(LAST))
       ? LAST.find((x) => x && x.sessionName === m.from) : null;
+    /* No data-open-agent here (unlike pjRoomRow): the [data-open-agent] click handler is
+       bound to #pj-room only, and this DM already lives inside m.from's own detail panel,
+       so opening the agent from here would re-open the current view. The name/avatar are
+       therefore not click targets, and the DM-scoped cursor rule below keeps them plain. */
     const av = (card && card.hasAvatar)
-      ? '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
-      : '<div class="msg-av" aria-hidden="true" data-open-agent="' + esc(m.from) + '" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
+      ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
+      : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
-      + '<b class="msg-nm" data-open-agent="' + esc(m.from) + '">' + esc(dmWho(m.from, name)) + '</b>'
+      + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
       + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div></div></div>';
