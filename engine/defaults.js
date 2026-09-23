@@ -364,10 +364,10 @@ const BLOCK = [
   '',
   '**When you write to the person, call them by their name.** If you were given',
   'their name, it is in the "Who you work for" section of your instructions. The',
-  'other lines here say "the person" because they are general and cannot know who',
-  'you work for. You can. A message that uses their name reads as written to',
-  'them; a generic word like "the operator" reads as written about them to',
-  'someone else.',
+  'rest of these lines are general and cannot know who you work for, so they fall',
+  'back on "the person". You do not have to. A message that uses their name reads',
+  'as written to them; a generic word like "the operator" reads as written about',
+  'them to someone else.',
 ].join('\n');
 
 /**
@@ -550,10 +550,13 @@ function block() {
  *     not only newly created ones. The card asked for an edit INSIDE `### How to
  *     write to them`; that would have reached new agents only and missed the
  *     exact population reporting the problem, so it is a new section instead.
- *     WEAKEST PREMISE, NAMED: it assumes the name is present under `Who you work
- *     for`. `you.js` writes that heading unconditionally but an agent given no
- *     name has nothing to use; the wording degrades to the generic it replaces
- *     rather than breaking.
+ *     WEAKEST PREMISE, NAMED: it points at the `Who you work for` section, which
+ *     is not always present. `you.js` tellAgent splices that block only when the
+ *     operator record is `saved` (which `problem()` gates on a non-empty name)
+ *     and removes it otherwise, so an agent with no record has no such section at
+ *     all. The shipped prose is written conditionally ("If you were given their
+ *     name, it is in ...") so the absent-section case degrades to the generic
+ *     word rather than pointing at nothing.
  */
 const DOCTRINE_VERSION = 12;
 
