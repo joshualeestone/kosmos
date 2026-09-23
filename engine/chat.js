@@ -1839,35 +1839,35 @@ function lockedBecause() {
  * PigeonPete's #3417-categoryB pointer asks for, not a stored history entry).
  *
  * The row mirrors an agent-authored row (`from: <agent>`, `delivery: null`, the
- * shape `keepAgentReply` writes), so an unmodified `dmRow` renders it as a normal
- * "theirs" bubble; `kind: 'question'` lets the UI style it and key its dismiss on
- * the needs_you STATE. `reported` is carried through so the page can still say
- * "the agent told us this" rather than "it is on screen".
+ * shape `keepAgentReply` writes) so the existing thread renderer shows it as an
+ * ordinary incoming bubble; `kind: 'question'` lets the UI style it and key its
+ * dismiss on the needs_you STATE. `reported` is carried through so the page can
+ * still say "the agent told us this" rather than "it is on screen".
  *
- * DEDUP: if the thread's trailing real message is already exactly this text (the
- * agent typed its own question, or any same-text row), no synthetic row is added —
- * the question is already shown. Returns the input array unchanged when there is
- * no question, so a non-asking poll is untouched.
+ * CONTRACT the engine relies on. The web-render specifics (which renderer, which
+ * repaint key, which "just spoke" loop) live in the plan, per repo convention #5:
+ * cross-module behavioural assertions go stale silently in a shipped comment, and
+ * Mona's #3419 UI half reworks that exact render path. The engine depends only on
+ * these two invariants:
+ *   - STABLE `id` (`needs-you-question:<agent>`): a needs_you question is a
+ *     STANDING STATE, so one row per agent whose identity does not vary across
+ *     polls. Stored messages carry no `id`, so this cannot collide with a real row,
+ *     and a stable id lets the bubble update its text in place as the question
+ *     changes rather than churning the thread's repaint key.
+ *   - NO `at` (null): the board keeps no "since" timestamp for a standing question
+ *     (status.js classifies fresh each tick). ⚠️ Do NOT add a per-poll clock `at`.
+ *     A dated row would churn the thread's repaint key every ~5s (breaking the
+ *     #1926 anchor for a reader on the question) and re-stamp the agent as having
+ *     "just spoken" while it is actually WAITING. Staying dateless avoids both at
+ *     the source.
  *
- * ⚠️ STABLE `id`, NO `at` — because a needs_you question is a STANDING STATE, not
- * a dated event, and the board keeps no "since" timestamp for it (status.js
- * classifies fresh each tick). A per-poll clock `at` would (1) churn `dmRow`'s
- * repaint key `midOf = id || at` every ~5s, breaking the #1926 anchor for a
- * reader on the question, and (2) re-advance the `DM_SPOKE_AT` "just spoke"
- * heuristic each poll while the agent is actually WAITING. Both are avoided at the
- * source: a fixed `id` (`needs-you-question:<agent>`; stored messages carry no
- * `id`, so `midOf` uses it with no collision) keeps the repaint key stable and
- * lets the bubble update its text in place when the question changes, and `at:
- * null` makes the `DM_SPOKE_AT` loop skip the row (it guards `!m.at`) and
- * `pjWhen(null)` render no timestamp — correct for a live standing question. So
- * this needs no `ROOM_NOT_SPEECH` change on the UI side.
- *
- * DEDUP: only the TRAILING real row is compared (the common "the agent typed its
- * own question" case). A same-text question sitting further back with a newer real
- * row after it is NOT deduped — a rare transient double that clears when the
- * needs_you state clears, and the feature co-lands with the banner removal, so it
+ * DEDUP: only the TRAILING real row is compared by text. If the agent typed its
+ * own question (or any same-text row trails), no synthetic row is added -- the
+ * question is already shown. A same-text question sitting further back with a
+ * newer real row after it is NOT deduped -- a rare transient double that clears
+ * when the needs_you state clears and co-lands away with the banner removal, so it
  * is not worth a full-thread scan that could over-suppress a legitimately repeated
- * question.
+ * question. Returns the input unchanged when there is no question.
  */
 // The synthetic question row's stable id prefix. One standing-question row per
 // agent (see withQuestionRow); a fixed prefix so the id does not vary across

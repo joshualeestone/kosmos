@@ -39,22 +39,39 @@ The route (`server.js` ~10794) wires it in additively: it still emits
 compose in either order without breaking each other.
 
 ## Sequencing (why this is additive-first, and the merge co-lands)
-- Step 1 (this PR): inject the question as a message. Additive/non-breaking.
+- Step 1 (this PR): inject the question as a message (additive/non-breaking), AND
+  strip the now-redundant `needs_you` delivery note (see "Delivery-note strip"
+  below). Both co-land with step 2.
 - Step 2 (Mona, web/index.html): render the message + remove the `#d-qask` banner.
 - Step 3 (me, follow-up): drop the then-unused banner-only payload fields
   (`asking`/`question`/`questionBecause`).
+
+### Web-side render mechanics (kept here, not in the engine docstring)
+Per repo convention #5, the engine (`withQuestionRow`) must not carry by-name
+assertions about `web/index.html` internals, because Mona's step 2 reworks that
+exact render path. Recorded here instead, true as of step 1 and expected to move
+with step 2: an unmodified `dmRow` renders a `from`-truthy, `delivery: null` row
+as a "theirs" bubble; the repaint key is `midOf = id || at`; the `DM_SPOKE_AT`
+"just spoke" loop guards `!m.at`; `pjWhen(null)` renders no timestamp; the thread
+renders rows in array order with no `at`-sort, so the appended dateless row lands
+last. The engine relies only on the CONTRACT these imply (a stable per-agent `id`
+and a null `at`), not on the function names.
 ⚠️ MERGE TIMING: merging step 1 ALONE would briefly show the question twice (banner
 + bubble) until Mona's step 2 lands. So this PR is built/reviewed/green to be READY,
 and its merge co-lands with (or just before) Mona's UI half -- coordinated with
 Mona, not merged in isolation.
 
-## Deferred to Mona/Josh (flagged, not assumed)
-- Which `delivery.paneNote`/`paneState` lines are "noise" to strip. One
-  (`waitingNote` "it was mid-task, so it will not read this until it finishes")
-  was added deliberately so a person does not conclude the send is broken; the
-  card names "mid-task" / "waiting on an answer when sent" as noise. I strip
-  whichever Mona/Josh confirm -- engine-side (stop emitting), so her readers have
-  nothing dangling.
+## Delivery-note strip (Mona confirmed 2026-09-23; done in this PR)
+Mona confirmed which `delivery.paneNote` lines are noise: strip the `needs_you`
+"it was waiting on an answer when this was sent" note, KEEP "it was mid-task, so
+it will not read this until it finishes". So this PR now strips the `needs_you`
+case engine-side (`waitingNote` returns `null` for `status.STATE.NEEDS_YOU`), so
+Mona's readers have nothing dangling. It is stripped because the question now
+renders as its own dialog bubble, making that note a duplicate of the visible
+question; the "mid-task" note stands (a WORKING agent shows no bubble, so it is
+the only signal a person gets that the send landed and will be read later).
+
+## Still deferred to Mona/Josh (flagged, not assumed)
 - The overview "which agents are stuck" signal the banner doubled as (Josh
   default: remove; quiet-badge optional). Orthogonal to the question-as-message.
 
