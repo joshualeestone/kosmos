@@ -27,6 +27,8 @@ final class PushNotificationManager: NSObject {
     func configure() {
         UNUserNotificationCenter.current().delegate = self
 
+        // Both actions require device authentication before firing: approving or
+        // denying an agent permission prompt from the lock screen is sensitive.
         let approve = UNNotificationAction(
             identifier: Action.approve,
             title: "Approve",

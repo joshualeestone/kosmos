@@ -10,6 +10,9 @@ struct ContentView: View {
     // the foreground re-prompts after a real background cycle - not after a
     // transient .inactive (Control Center, a call, or the Face ID prompt itself).
     @State private var didBackground = false
+    // Bumped on every background re-lock so a biometric completion that resolves
+    // after the app backgrounded can be discarded instead of unlocking stale.
+    @State private var unlockGeneration = 0
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -38,6 +41,7 @@ struct ContentView: View {
                 // overlay - is a further enhancement, noted in the plan.)
                 isUnlocked = false
                 didBackground = true
+                unlockGeneration += 1
             case .active:
                 // Re-prompt on the return from a real background, driven here
                 // rather than from LockView.onAppear (which does not re-fire when
@@ -53,7 +57,12 @@ struct ContentView: View {
     }
 
     private func unlock() {
+        let generation = unlockGeneration
         BiometricAuth.authenticate { result in
+            // Discard a completion that resolved after a background re-lock bumped
+            // the generation (e.g. Home pressed during the Face ID sheet), so a
+            // stale success cannot leave the board unlocked past a background cycle.
+            guard generation == unlockGeneration else { return }
             switch result {
             case .success:
                 isUnlocked = true
