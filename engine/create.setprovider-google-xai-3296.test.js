@@ -178,3 +178,17 @@ test('#3296: a switch onto a runner that is not installed is refused, naming the
   assert.match(String(sw.because), /could not find the Gemini runner/, sw.because);
   assert.equal(create.readJob(name).runner, 'claude', 'the runner was switched despite the missing-runner refusal');
 });
+
+test('#3296/#3391: providerRunner is the ONE map every path resolves through, total over the provider set', () => {
+  // The map setProvider, createAgentInner and recordedRunner all call, extracted so a
+  // fifth provider reaches every path at once (Repo-Specific Convention #5). Pinned here
+  // so a change to one branch cannot silently diverge the runner a switch would pick.
+  assert.equal(create.providerRunner('openai'), 'codex');
+  assert.equal(create.providerRunner('google'), 'gemini');
+  assert.equal(create.providerRunner('xai'), 'grok');
+  assert.equal(create.providerRunner('anthropic'), 'claude', 'anthropic must floor at claude');
+  // Any unknown or absent value floors at claude, the historical default.
+  assert.equal(create.providerRunner('made-up'), 'claude');
+  assert.equal(create.providerRunner(undefined), 'claude');
+  assert.equal(create.providerRunner(null), 'claude');
+});

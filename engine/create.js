@@ -750,17 +750,26 @@ function briefFilename(runner) {
    undefined and the result defaults to claude, the historical fail-closed
    answer; the try/catch is a belt in case `readProfile` is ever changed to
    throw. */
+/* #3296/#3391: the ONE provider -> runner map. createAgentInner, setProvider and
+   recordedRunner each resolve a runner from a provider string, and a copy in each
+   is exactly the two-copies-of-one-fact defect (Repo-Specific Convention #5): a
+   fifth provider added here must reach the switch path and the recorded-runner
+   fallback for free, rather than silently missing one. `anthropic` and any unknown
+   or absent value both floor at claude, the historical default. Pure. */
+function providerRunner(provider) {
+  if (provider === 'openai') return 'codex';
+  if (provider === 'google') return 'gemini';
+  if (provider === 'xai') return 'grok';
+  return 'claude';
+}
 function recordedRunner(name) {
   const fromJob = (readJob(name) || {}).runner;
   if (fromJob) return fromJob;
   let provider;
   try { provider = store.readProfile(name).provider; } catch { provider = null; }
-  // #3296: the same provider->runner map createAgent uses, read as the fallback
-  // only (a live plist stays authoritative via the readJob above).
-  if (provider === 'openai') return 'codex';
-  if (provider === 'google') return 'gemini';
-  if (provider === 'xai') return 'grok'; // #3391
-  return 'claude';
+  // The same provider->runner map createAgent uses, read as the fallback only (a
+  // live plist stays authoritative via the readJob above).
+  return providerRunner(provider);
 }
 function instructionFile(name, runner) {
   const r = runner || recordedRunner(name);
@@ -1481,10 +1490,9 @@ function setProvider(name, provider, opts) {
   if (!job) {
     return noJobRefusal(clean, spoken, verdict, `${spoken} was not started by Kosmos, so we cannot change what it runs on.`);
   }
-  /* The provider -> runner map is the SAME one createAgentInner uses (its line
-     `provider === 'openai' ? 'codex' : ... : 'claude'`), so the two routes to a
-     runner cannot disagree. */
-  const runner = provider === 'openai' ? 'codex' : provider === 'google' ? 'gemini' : provider === 'xai' ? 'grok' : 'claude';
+  /* The ONE provider -> runner map (providerRunner), shared with createAgentInner
+     and recordedRunner, so the routes to a runner cannot disagree. */
+  const runner = providerRunner(provider);
   if (job.runner === runner) {
     /* The vendor word a person reads, keyed on the provider they asked for. */
     const already = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : provider === 'xai' ? 'Grok' : 'Anthropic';
@@ -1738,7 +1746,19 @@ function setProvider(name, provider, opts) {
          REFUSED if unknown -- fail closed, the silent-wrong-account guard the whole
          switch-account saga exists for; configDir = isDefault ? null : dir.
      Gated on !DRY_RUN exactly as the codex block is: a dry-run switch resolves no
-     account and validates no named one, the same parallel the codex path draws. */
+     account and validates no named one, the same parallel the codex path draws.
+     ⚠️ DELIBERATE FAIL-OPEN ON THE DEFAULT, unlike codex's fail-closed (raised in
+     review). The env-key door is NOT verified here: a switch to the default succeeds
+     even with no GEMINI_API_KEY/XAI_API_KEY configured, and the agent would boot dead
+     -- the #1211 shape. This is the SAME behaviour createAgentInner's google/xai arms
+     have, on purpose: fixing only the switch would make the two routes to one state
+     disagree, which is the #1600/#1373 defect-shape this file fights. A "default door
+     configured?" preflight belongs to a shared create+switch change keyed on one
+     predicate, not smuggled into this switch card. Two further reasons it is not done
+     here: the door is the SUPERVISOR's launch env, which this server process's env
+     need not reflect, so a naive check would false-refuse switches that would work;
+     and gemini/grok's default is a real env-key door an agent usually CAN start on,
+     which is exactly why they never grew codex's saga. */
   let switchAccount = null;
   if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
     const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
@@ -3633,7 +3653,9 @@ function createAgentInner(opts) {
    */
   const provider = (opts && opts.provider !== undefined && opts.provider !== null && String(opts.provider) !== '')
     ? String(opts.provider) : 'anthropic';
-  const runner = provider === 'openai' ? 'codex' : provider === 'google' ? 'gemini' : provider === 'xai' ? 'grok' : 'claude';
+  // The ONE provider->runner map (providerRunner), shared with setProvider and
+  // recordedRunner so a new provider reaches every path at once.
+  const runner = providerRunner(provider);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : claudeBin;
 
   const steps = [];
@@ -5098,6 +5120,7 @@ module.exports = {
   homeDir,
   instructionFile,
   briefFilename,
+  providerRunner,
   recordedRunner,
   plistPath,
   plannedModelArg,
