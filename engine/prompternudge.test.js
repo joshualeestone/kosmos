@@ -87,7 +87,10 @@ test('read caps over-long fields the same way write does (single-sourced shape)'
 test('shouldWrite skips ONLY the on-but-unreadable tick (do not fail toward silence)', () => {
   // roster === null while the Prompter is ON is a transient read failure; writing
   // [] there would wipe an open check-in for a full interval. That is the one skip.
-  assert.equal(nudge.shouldWrite(true, null), false, 'on + read failure must NOT overwrite the store');
+  assert.equal(nudge.shouldWrite(true, null), false, 'on + read failure (null) must NOT overwrite the store');
+  // heartbeat.step() treats BOTH null and undefined as a read failure, so shouldWrite
+  // must too -- a nullish check, not === null (guards against a future safeRoster shape).
+  assert.equal(nudge.shouldWrite(true, undefined), false, 'on + read failure (undefined) must NOT overwrite the store');
   // Every other case writes: off (clear), or a real read (array, even empty).
   // shouldWrite inspects only null-vs-array, never row contents, so a plain
   // non-empty array stands in for "a successful read" (no hand-built roster row --

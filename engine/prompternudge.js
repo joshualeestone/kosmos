@@ -112,17 +112,20 @@ function read() {
 }
 
 /** Whether the runner should REPLACE the store this tick. heartbeat.step() returns
- *  toAsk:[] BOTH when nothing is stalled AND when the roster read FAILED
- *  (`roster === null` while the Prompter is on -- a transient tmux read failure it
- *  deliberately treats as "skip this tick, keep the prev memory", NOT "the fleet
- *  emptied"). Writing [] on that failure would wipe an already-open check-in from
- *  the panel for a full interval, the exact "fail toward silence" that
- *  engine/heartbeat.js forbids. So skip only the on-but-unreadable case: write when
- *  the Prompter is OFF (roster null by choice; [] correctly clears the store) or
- *  when the roster read SUCCEEDED (an array -- even empty, "no agents", correctly
- *  clears it). `roster === null` while ON is the one skip. */
+ *  toAsk:[] BOTH when nothing is stalled AND when the roster read FAILED (a nullish
+ *  roster while the Prompter is on -- a transient tmux read failure it deliberately
+ *  treats as "skip this tick, keep the prev memory", NOT "the fleet emptied").
+ *  Writing [] on that failure would wipe an already-open check-in from the panel for
+ *  a full interval, the exact "fail toward silence" that engine/heartbeat.js forbids.
+ *  So skip only the on-but-unreadable case: write when the Prompter is OFF (roster
+ *  nullish by choice; [] correctly clears the store) or when the roster read
+ *  SUCCEEDED (an array -- even empty, "no agents", correctly clears it).
+ *  🔑 NULLISH, not `=== null`: heartbeat.step() treats BOTH null and undefined as a
+ *  read failure, so the two guards must reason identically about "unreadable" -- a
+ *  `!== null` here would let an `undefined` roster (a future safeRoster refactor)
+ *  slip through and wipe the store. */
 function shouldWrite(settingOn, roster) {
-  return !settingOn || roster !== null;
+  return !settingOn || roster != null;
 }
 
 module.exports = { write, read, shouldWrite, FILE };
