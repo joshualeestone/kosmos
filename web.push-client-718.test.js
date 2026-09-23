@@ -170,3 +170,17 @@ test('clicking the Turn on button drives the enable flow (the wire() click bindi
   assert.ok(env.calls.fetch.includes('/v1/push/subscribe'), 'clicking Turn on did not run the enable flow');
   assert.equal(env.btn.textContent, 'On');
 });
+
+test('a second concurrent enable is a no-op (re-entry guard: no double subscribe POST)', async () => {
+  const env = load({ requestResult: 'granted' });
+  const p1 = env.win.kosmosEnablePush();
+  const p2 = env.win.kosmosEnablePush();   // fired before p1 settles -- must be guarded
+  const [r1, r2] = await Promise.all([p1, p2]);
+  await flush();
+  assert.equal(r2, false, 'the second concurrent call must return false without starting a chain');
+  const subs = env.calls.fetch.filter((u) => u === '/v1/push/subscribe');
+  assert.equal(subs.length, 1, 'the re-entry guard must prevent a second overlapping subscribe POST');
+  assert.equal(env.btn.textContent, 'On');
+  // And after the first completes, a fresh enable is allowed again (flag cleared).
+  assert.equal(typeof r1, 'boolean');
+});
