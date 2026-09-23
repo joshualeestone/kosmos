@@ -69,9 +69,11 @@ struct ContentView: View {
             case .failed(let message):
                 NSLog("[Biometric] unlock failed: \(message)")
             case .unavailable(let message):
-                // No biometrics enrolled/available: do not lock the user out of
-                // their own board - fall open. A production policy may require a
-                // passcode instead; that is a product decision (#718).
+                // Reachable only when the device has NO passcode set at all: with
+                // .deviceOwnerAuthentication, a passcode-but-no-biometrics device
+                // still gates via passcode. Do not lock a passcode-less user out
+                // of their own board - fall open. Whether to hard-gate even that
+                // case is a product decision (#718).
                 NSLog("[Biometric] unlock unavailable, falling open: \(message)")
                 isUnlocked = true
             }
