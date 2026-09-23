@@ -498,6 +498,7 @@ function emitStagingRevertWarning(write = (s) => process.stderr.write(s)) {
 
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
+const handoffRestart = require('./engine/handoff-restart'); // #3492: "write a handoff, then restart" prompts + freshness gate
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
 /* #1946: whether this board enforces the board token, and the token, resolved at
    start() (real boot) rather than at require -- ensureToken() writes a file, and a
@@ -1892,6 +1893,26 @@ function knownAgent(name) {
     return Boolean(card) && card.isNamedOurs === true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * #3492: a snapshot of an agent's handoff file, for the "write a handoff, then
+ * restart" flow. The path is the SAME one the auto-handoff sweep writes to
+ * (autohandoffSweep.handoffPathFor), so the two features agree on where an
+ * agent's handoff lives. { exists, mtimeMs } is the shape handoffRestart
+ * .handoffIsFresh compares: a missing file reads as not-existing (statSync
+ * throws on ENOENT), never as a zero mtime. `session` is the real tmux session
+ * (sessionOf), not the display name -- the path is per-session, like the model
+ * and memory-ring readers above.
+ */
+function handoffFileSnap(session) {
+  const p = autohandoffSweep.handoffPathFor(store, session);
+  try {
+    const st = fs.statSync(p);
+    return { path: p, exists: true, mtimeMs: st.mtimeMs };
+  } catch {
+    return { path: p, exists: false, mtimeMs: null };
   }
 }
 
@@ -5206,6 +5227,88 @@ const server = http.createServer((req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /**
+   * #3492: the three primitives behind the "Write a handoff, then restart"
+   * option on the restart confirm dialog. The CLIENT orchestrates the phases
+   * (the same shape as the plain restart, which polls /api/status client-side
+   * between /restart and the wake 'hello'); these routes are the primitives.
+   *
+   *   ask    -> deliver the handoff-write prompt to the LIVE agent, and return
+   *             the current handoff-file mtime as the baseline to poll against.
+   *   status -> report whether the handoff has been (re)written since baseline.
+   *   pickup -> after the restart, deliver the pointer to the fresh session.
+   *
+   * 🛑 THE FLOW NEVER RESTARTS ON A MAYBE. The client proceeds to POST /restart
+   * only after `ask` returned a PLACED delivery (the prompt actually landed) AND
+   * `status` returned fresh:true (the handoff was actually written). An
+   * unconfirmed ask or an unwritten handoff surfaces to the person instead --
+   * losing an agent's context to a mistimed restart is worse than making them
+   * choose. The prompts live in engine/handoff-restart.js (pure + tested), not
+   * inline here, so the wording is one source, not the client's guess.
+   */
+  const hrAsk = pathname.match(/^\/api\/agent\/([^/]+)\/handoff-restart\/ask$/);
+  if (hrAsk && req.method === 'POST') {
+    const name = decodeSegment(hrAsk[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    const session = sessionOf(name);
+    // No live session = nobody to write a handoff. The client should fall back
+    // to a plain restart (or not offer this option); 409 is the same "there is
+    // nothing to act on here" the /message send route uses for an absent pane.
+    if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
+    const snap = handoffFileSnap(session);
+    let delivery;
+    try { delivery = chat.deliver(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
+    catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
+    sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
+      delivery,
+      handoffPath: snap.path,
+      // The baseline the client passes back to `status`: the mtime if the file
+      // exists now, else empty (no file yet -> any appearance is fresh).
+      baseline: snap.exists ? snap.mtimeMs : '',
+    });
+    return;
+  }
+
+  const hrStatus = pathname.match(/^\/api\/agent\/([^/]+)\/handoff-restart\/status$/);
+  if (hrStatus && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(hrStatus[1]);
+    if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    const session = sessionOf(name);
+    if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
+    let baseline = '';
+    try { baseline = new URL(req.url, ROUTING_BASE).searchParams.get('baseline') || ''; } catch { baseline = ''; }
+    // Reconstruct the BEFORE snapshot from the baseline: empty means the file
+    // did not exist when we asked; a number is its mtime then. The freshness
+    // decision is the engine's, not this route's.
+    const before = (baseline === '')
+      ? { exists: false, mtimeMs: null }
+      : { exists: true, mtimeMs: Number(baseline) };
+    const after = handoffFileSnap(session);
+    sendJson(res, 200, {
+      fresh: handoffRestart.handoffIsFresh(before, after),
+      exists: after.exists,
+      mtimeMs: after.mtimeMs,
+    });
+    return;
+  }
+
+  const hrPickup = pathname.match(/^\/api\/agent\/([^/]+)\/handoff-restart\/pickup$/);
+  if (hrPickup && req.method === 'POST') {
+    const name = decodeSegment(hrPickup[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    const session = sessionOf(name);
+    if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
+    const snap = handoffFileSnap(session);
+    let delivery;
+    try { delivery = chat.deliver(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
+    sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
   }
 

@@ -9570,8 +9570,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          dialog because that is where the footer sends people to learn the
          cost. rst-small above stays the per-agent part: what is in flight. -->
     <p class="rm-small" id="rst-cost">They come back with nothing in their memory, and anything they were part way through ends, including anything they agreed to and have not done yet. Their instructions and their files are untouched.</p>
+    <!-- #3492 (Josh, 2026-09-23): the THIRD option. A plain Restart forgets
+         everything the agent was doing; this one asks the agent to write a
+         handoff first, waits for it, then restarts and points the fresh session
+         at that handoff so it picks up cleanly. Placed between "leave it running"
+         and the plain "Restart" so the context-preserving option sits next to
+         the one it improves on. The LABEL is a clear working one, swappable per
+         Mona/Josh (the card leaves wording TBD); styling stays plain `btn` here
+         so the dialog-CSS lane (#3493/#3494) owns the look. -->
     <div class="rm-acts">
       <button class="btn" id="rst-keep" type="button">Leave it running</button>
+      <button class="btn" id="rst-handoff-go" type="button">Write a handoff, then restart</button>
       <button class="btn" id="rst-go" type="button">Restart</button>
     </div>
     <div class="fmsg" id="rst-msg" role="alert" aria-live="assertive"></div>
@@ -30521,6 +30530,13 @@ function openRestartModal(btn, name, opts) {
   go.hidden = false;
   go.disabled = false;
   go.textContent = 'Restart ' + shown;
+  /* #3492: the third option shares this dialog's lifecycle, so it is un-hidden
+     and re-enabled on every open exactly as rst-go is (a prior handoff-restart
+     run may have disabled it). Its label is static (a phrase, not "Restart
+     <name>"), so it is not rebuilt from `shown` here. */
+  const hgo = document.getElementById('rst-handoff-go');
+  hgo.hidden = false;
+  hgo.disabled = false;
   RST_FOR = btn;
   RST_RETURN = btn;
   document.getElementById('rst-modal').hidden = false;
@@ -30904,6 +30920,148 @@ document.getElementById('rst-go').addEventListener('click', async () => {
     restoreConfirm();
     document.getElementById('rst-msg').textContent = 'We could not reach Kosmos to restart them.';
   }
+});
+
+/* #3492: how long to wait for the agent to finish writing its handoff before we
+   fall back to asking the person. `let`, not `const`, so a browser-check can
+   shorten them to exercise the timeout arm fast (the same seam
+   RESTART_READY_WINDOW_MS uses). Production: up to two minutes, polled every
+   three seconds -- a handoff is a real piece of writing, not an instant. */
+let HANDOFF_WAIT_MS = 120000;
+let HANDOFF_POLL_MS = 3000;
+
+/* #3492: the "Write a handoff, then restart" flow. It is the plain rst-go flow
+   with TWO phases wrapped around it:
+     BEFORE the restart -- ask the live agent to write a handoff (a PLACED
+       delivery, or we stop and let the person choose), then poll until the
+       handoff file is confirmed (re)written or the wait elapses. A restart NEVER
+       proceeds on a maybe: an unconfirmed ask or an unwritten handoff restores
+       the confirm view so the person can Restart-anyway or leave it running.
+     AFTER the restart -- the SAME post-restart wake path (autoHelloAfterRestart),
+       but delivering the handoff pointer (deliverPickup) instead of 'hello', so
+       the fresh session continues rather than starting cold.
+   The K-loader interstitial plays only during the actual restart (phase 3); the
+   handoff-write wait shows a plain status line, because it can run for a while
+   and a spinning K there would misread as the restart hanging. */
+document.getElementById('rst-handoff-go').addEventListener('click', async () => {
+  const btn = RST_FOR;
+  const name = btn && btn.dataset.restartAgent;
+  if (!name) return;
+  const card = (LAST || []).find((a) => a && a.sessionName === name) || CURRENT;
+  const shown = (card && (card.name || card.displayName)) || name;
+  const go = document.getElementById('rst-go');
+  const hgo = document.getElementById('rst-handoff-go');
+  const keep = document.getElementById('rst-keep');
+  const list = document.getElementById('rst-list');
+  const small = document.getElementById('rst-small');
+  const cost = document.getElementById('rst-cost');
+  const msg = document.getElementById('rst-msg');
+  const listWasHidden = list.hidden;
+  const showConfirm = (on) => {
+    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on; hgo.hidden = !on;
+    list.hidden = on ? listWasHidden : true;
+  };
+  const setStatus = (t) => { msg.textContent = t; };
+  const restoreConfirm = () => {
+    RST_BUSY = false; msg.innerHTML = ''; showConfirm(true);
+    go.disabled = false; hgo.disabled = false;
+  };
+  // Enter the flow: hide the confirm content and disable the actions. RST_BUSY
+  // gates Escape/backdrop the same as rst-go -- this is a committed multi-step
+  // action; the timeout/refusal arms below restore the confirm view as the exit.
+  go.disabled = true; hgo.disabled = true; RST_BUSY = true;
+  showConfirm(false);
+  setStatus('Asking ' + shown + ' to write a handoff…');
+
+  // Phase 1 -- ask the live agent to write its handoff. Only a PLACED delivery
+  // (the prompt actually landed) advances the flow.
+  let ask;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/ask', { method: 'POST' });
+    ask = await res.json().catch(() => null);
+  } catch {
+    restoreConfirm();
+    setStatus('We could not reach Kosmos to ask ' + shown + ' for a handoff. You can Restart without one, or leave it running.');
+    return;
+  }
+  if (RST_FOR !== btn) return;   // the modal was reused for another agent mid-request
+  if (!(ask && ask.delivery && ask.delivery.state === 'placed')) {
+    restoreConfirm();
+    const because = ask && ask.delivery && ask.delivery.because ? ' (' + ask.delivery.because + ')' : '';
+    const notRunning = ask && ask.error && !ask.delivery;
+    setStatus(notRunning
+      ? (shown + ' is not running, so there is no session to write a handoff. You can Restart without one, or leave it running.')
+      : ('We could not ask ' + shown + ' to write a handoff' + because + '. You can Restart without one, or leave it running.'));
+    return;
+  }
+
+  // Phase 2 -- wait for the handoff to be confirmed (re)written.
+  setStatus(shown + ' is writing its handoff…');
+  const baseline = (ask.baseline === undefined || ask.baseline === null) ? '' : String(ask.baseline);
+  const deadline = Date.now() + HANDOFF_WAIT_MS;
+  let wrote = false;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, HANDOFF_POLL_MS));
+    if (RST_FOR !== btn) return;   // superseded / closed
+    let st = null;
+    try {
+      const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/status?baseline=' + encodeURIComponent(baseline), { cache: 'no-store' });
+      st = await res.json().catch(() => null);
+    } catch { /* the next poll can try again */ }
+    if (st && st.fresh === true) { wrote = true; break; }
+  }
+  if (!wrote) {
+    restoreConfirm();
+    setStatus(shown + ' has not finished its handoff yet. Restart anyway (its progress may be lost), or leave it running?');
+    return;
+  }
+
+  // Phase 3 -- the restart itself, now with the branded K-loader interstitial
+  // (the same choreography rst-go uses).
+  setStatus('');
+  msg.innerHTML = RESTART_BUSY_HTML;
+  const kcv = msg.querySelector('canvas.chg-restart-k');
+  if (kcv) startKLoader(kcv);
+  const busyStart = Date.now();
+  const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
+  let out = null; let resOk = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
+    resOk = res.ok;
+    out = await res.json().catch(() => null);
+  } catch {
+    restoreConfirm();
+    setStatus('The handoff was written, but we could not reach Kosmos to restart ' + shown + '. Try Restart again.');
+    return;
+  }
+  if (!restartTook(resOk, out)) {
+    restoreConfirm();
+    setStatus(restartFailureLine(out));
+    return;
+  }
+  // Hold the loader for the remainder of the floor so the K plays in full.
+  const wait = Math.max(0, holdMs - (Date.now() - busyStart));
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+
+  // Phase 4 -- point the fresh session at its handoff once it is back up. Same
+  // capture-and-recheck receipt guard as rst-go.
+  const note = noteFor(btn);
+  const showNote = (t) => { if (CURRENT && CURRENT.sessionName === name && note && note.isConnected) note.textContent = t; };
+  showNote('Restarted. Pointing the fresh session at its handoff…');
+  const stillMine = (RST_FOR === btn);
+  if (stillMine) {
+    RST_BUSY = false;
+    msg.innerHTML = '';
+    showConfirm(true);
+    go.disabled = false;
+    hgo.disabled = false;
+    closeRestartModal();
+  }
+  await tick();
+  autoHelloAfterRestart(name, showNote,
+    'Restarted, and pointed the fresh session at its handoff to pick up where it left off.',
+    'Restarted. When it is back, tell it to read its handoff at ' + ask.handoffPath + '.',
+    () => deliverPickup(name));
 });
 
 /* #5 insurance (Josh 0.6.44): Trust & Restart. POST /api/agent/<name>/trust-and-restart
@@ -37041,16 +37199,27 @@ async function restartReadyWait(name, mine) {
    that the message reached the agent's session; NOT 'recorded' (only whether it
    was filed in the thread, which can differ). Claim "said hello" only on placed,
    so a person is never falsely told the agent was greeted (worse than manual). */
-async function sendWakeHello(name, token, report, saidText, manualText) {
+/* #3492: `deliver` is an OPTIONAL async function that performs the post-restart
+   send and returns the delivery verdict object ({state}) or null. It defaults to
+   the plain restart's wake 'hello'. The restart-with-handoff flow passes
+   deliverPickup instead, so the fresh session is pointed at its handoff rather
+   than merely greeted -- one function, one 'placed'-only success rule, two
+   messages. Existing callers omit it and get the 'hello' behaviour unchanged. */
+async function sendWakeHello(name, token, report, saidText, manualText, deliver) {
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: 'hello' }),
-    });
-    const out = await res.json().catch(() => null);
+    const delivery = deliver
+      ? await deliver()
+      : await (async () => {
+          const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text: 'hello' }),
+          });
+          const out = await res.json().catch(() => null);
+          return (res.ok && out && out.delivery) ? out.delivery : null;
+        })();
     if (token !== RESTART_HELLO_SEQ[name]) return;
-    const placed = res.ok && out && out.delivery && out.delivery.state === 'placed';
+    const placed = delivery && delivery.state === 'placed';
     report(placed ? saidText : manualText);
   } catch {
     if (token !== RESTART_HELLO_SEQ[name]) return;
@@ -37058,12 +37227,23 @@ async function sendWakeHello(name, token, report, saidText, manualText) {
   }
 }
 
-async function autoHelloAfterRestart(name, report, saidText, manualText) {
+/* #3492: deliver the pickup pointer to a freshly-restarted session. Returns the
+   delivery verdict so sendWakeHello claims success only on 'placed' -- the same
+   proof-not-assumption rule the wake hello uses (a pickup that did not land must
+   not read as "pointed at its handoff"). The message text is the server's
+   (engine/handoff-restart.pickupPrompt), not composed here. */
+async function deliverPickup(name) {
+  const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/pickup', { method: 'POST' });
+  const out = await res.json().catch(() => null);
+  return (res.ok && out && out.delivery) ? out.delivery : null;
+}
+
+async function autoHelloAfterRestart(name, report, saidText, manualText, deliver) {
   const mine = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
   const ready = await restartReadyWait(name, mine);
   if (mine !== RESTART_HELLO_SEQ[name]) return;    // a newer restart of this agent superseded us
   if (!ready) { report(manualText); return; }
-  await sendWakeHello(name, mine, report, saidText, manualText);
+  await sendWakeHello(name, mine, report, saidText, manualText, deliver);
 }
 
 /**
