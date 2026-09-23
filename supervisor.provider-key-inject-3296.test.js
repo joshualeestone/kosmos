@@ -148,3 +148,29 @@ test('grok: with BOTH a global-door key and a per-account key, the PER-ACCOUNT v
   assert.ok(all.includes('globaldoorvalue') && all.includes('peraccountvalue'), 'both values are passed');
   assert.equal(all[all.length - 1], 'peraccountvalue', 'the per-account key wins as the last -e');
 });
+
+/* The two "per-account wins" tests above run against a RECORDER fake tmux and rest on one
+   property of REAL tmux: a repeated `-e VAR=` resolves to the LAST value. That property is
+   what makes appending the per-account key after the global-door loop the winner, so verify
+   it against the real tmux binary once -- the codebase's "measured, not assumed" practice for
+   tmux-env claims (bin/agent-supervisor.sh cites "measured on 3.6a" for its own). Skips
+   cleanly if no real tmux is installed (CI/no-tmux hosts), since the fake-tmux tests above
+   already pin the ordering our code controls; this pins only tmux's own resolution. */
+test('real tmux resolves a repeated -e to the LAST value (the precedence the per-account override rests on)', () => {
+  const candidates = ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux', '/usr/bin/tmux'];
+  let realTmux = candidates.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
+  if (!realTmux) {
+    try { realTmux = require('node:child_process').execSync('command -v tmux', { encoding: 'utf8' }).trim() || null; }
+    catch { realTmux = null; }
+  }
+  if (!realTmux) { console.log('# no real tmux found — skipping the real-tmux precedence check'); return; }
+  const label = `aw-prec-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  const run = (args) => spawnSync(realTmux, ['-L', label, ...args], { encoding: 'utf8', timeout: 10000 });
+  try {
+    run(['new-session', '-d', '-s', 's', '-e', 'AWTESTVAR=firstvalue', '-e', 'AWTESTVAR=lastvalue', 'sleep 5']);
+    const shown = (run(['show-environment', '-t', 's', 'AWTESTVAR']).stdout || '').trim();
+    assert.equal(shown, 'AWTESTVAR=lastvalue', 'real tmux must resolve a repeated -e to the LAST value, or the per-account key override is unsound');
+  } finally {
+    run(['kill-server']);
+  }
+});

@@ -132,3 +132,8 @@ Full whole-tree suite + full challenge-loop before PR.
   claudeaccounts, which also inline 8000. A named constant in gemini/grok only would DIVERGE from the
   established sibling pattern; if it is worth a constant it should be one shared across all four
   account modules, which is a separate cleanup.
+- **nextWorkDir is exported/tested but has no caller yet (iter 4 NIT).** Deferred: it mirrors
+  openaiaccounts.nextWorkDir exactly -- the unlabelled work-slot allocator the connect-UI follow-on
+  will call (openai's own connect flow uses it; the store route here uses dirForLabel for named
+  accounts). It is unit-tested, so it is not an unarmed guard; removing it would diverge the
+  gemini/grok modules from the sibling account-module contract this slice was told to mirror.
