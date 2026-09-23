@@ -11,7 +11,8 @@
  *   - the header is "Direct Message to <agent>" in the big project-name font (not the small
  *     uppercase .dlab), with the search shrunk to just "Search";
  *   - the "Just between you and <agent>" hint element is GONE;
- *   - the conversation box is the black (--k-bg) edge-to-edge treatment (no card radius).
+ *   - the conversation box ground is pure white on light and pure black on dark, scoped to
+ *     #d-talk-box, edge-to-edge with no card radius (#3414-followup, Josh 2026-09-23).
  *
  * Harness posture mirrors render-agent-msg-gray-2805.js: load over file://, answer the thread
  * poll from a fixture, set CURRENT, call paintTalk. The paint is what `node --test` cannot see.
@@ -105,17 +106,6 @@ const FX = {
           hintPresent: !!document.getElementById('d-talk-hint'),
           boxRadius: box ? getComputedStyle(box).borderTopLeftRadius : null,
           boxBg: box ? getComputedStyle(box).backgroundColor : null,
-          // Resolve --k-bg to the SAME rgb() form as a computed backgroundColor, by
-          // painting it onto a probe, so the assertion can compare them for equality
-          // rather than merely for both being non-empty.
-          kbg: (() => {
-            const probe = document.createElement('span');
-            probe.style.backgroundColor = 'var(--k-bg)';
-            document.body.appendChild(probe);
-            const rgb = getComputedStyle(probe).backgroundColor;
-            probe.remove();
-            return rgb;
-          })(),
         };
       });
       const t = `[${theme}]`;
@@ -138,8 +128,10 @@ const FX = {
       // The ground follows --k-bg (near-black in dark, theme-appropriate in light). Require
       // the box background to EQUAL the resolved --k-bg and not be the transparent default,
       // so a box that stops using --k-bg reds here (the old both-non-empty form could not fail).
-      chk(!!m.boxBg && m.boxBg !== 'rgba(0, 0, 0, 0)' && m.boxBg === m.kbg,
-        `${t} the box background equals the resolved --k-bg`, `bg=${m.boxBg} kbg=${m.kbg}`);
+      // #3414-followup (Josh 2026-09-23): the dialogue-area ground is pure white on light and
+      // pure black on dark, scoped to #d-talk-box (not the theme off-white --k-bg).
+      const wantBg = theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)';
+      chk(m.boxBg === wantBg, `${t} the dialogue box ground is ${wantBg} (pure ${theme === 'dark' ? 'black' : 'white'})`, `bg=${m.boxBg}`);
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       if (process.env.SHOT_DIR) {
         await page.screenshot({ path: path.join(process.env.SHOT_DIR, 'agentdm-' + theme + '.png') }).catch(() => {});

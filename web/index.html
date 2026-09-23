@@ -2252,7 +2252,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    and the shrunk "Search" on the right. Padding keeps content off the literal edge (his own
    caveat). Ground uses --k-bg so it reads near-black in dark (his "background should be
    black") and stays theme-appropriate in light, matching "copy the project dialog". */
-#d-talk-box { background: var(--k-bg); border-radius: 0; }
+/* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA ground is pure white on light and
+   pure black on dark (dark override below), scoped to #d-talk-box only, not the whole
+   detail panel, matching the mock. This replaces the theme off-white --k-bg (#faf9f7 /
+   #0c0d0f) that read as "no colour" against the surrounding surface. */
+#d-talk-box { background: var(--k-surface); border-radius: 0; }
 #d-talk-label { font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; text-transform: none;
                 color: var(--k-ink); margin: 0; line-height: 1.2; }
 /* .d-talk-caprow layout, center-alignment and the #d-talk-label flex live with the
@@ -5066,7 +5070,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    ground-mask must follow it or a sliver of the wrong ground shows at each bubble's tail.
    One #d-dmthread rule (ID specificity) beats both the room mask above and its dark #000
    overrides, and --k-bg flips per theme, so it is correct in light and dark alike. */
-#d-dmthread .msg-bd::after { background: var(--k-bg); }
+#d-dmthread .msg-bd::after { background: var(--k-surface); } /* #3414-followup: the DM bubble-tail ground-mask follows the #d-talk-box ground (--k-surface = #ffffff on light; the dark override sets both to #000 together, so no tail seam shows). */
 /* hover coherence (#2921): the wing darkens with the bubble on hover, so it does not stay
    unshaded while the body dims. Only the colored ::before takes the overlay; the ::after
    mask must stay the pure thread ground or it would stop carving. */
@@ -5160,6 +5164,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox, :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root:not([data-theme="light"]) body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
   :root:not([data-theme="light"]) body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root:not([data-theme="light"]) body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
+  /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA is pure black on dark, box + its
+     bubble-tail ground-mask together, mirroring the room's #000 thread ground above. */
+  :root:not([data-theme="light"]) body:not(.plus-active) #d-talk-box, :root:not([data-theme="light"]) body:not(.plus-active) #d-dmthread .msg-bd::after { background: #000000; }
 }
 @media (min-width: 960px) {
   @media (prefers-color-scheme: dark) {
@@ -8061,6 +8068,8 @@ html:not([data-fed-ui="signup"]) #pj-plus-signup { display: none !important; }
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox, :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox { margin-left: 12px; margin-right: 12px; }
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer .composerbox:not(.dragging), :root[data-theme="dark"] body:not(.plus-active) .pj-say.composerbox:not(.dragging) { background: #17191c; }
 :root[data-theme="dark"] body:not(.plus-active) .msg:not(.you) .msg-bd::after, :root[data-theme="dark"] body:not(.plus-active) .msg.you .msg-bd::after { background: #000000; }
+/* #3414-followup (Josh 2026-09-23): explicit-dark twin of the DIALOGUE-AREA pure-black ground (box + bubble-tail mask). */
+:root[data-theme="dark"] body:not(.plus-active) #d-talk-box, :root[data-theme="dark"] body:not(.plus-active) #d-dmthread .msg-bd::after { background: #000000; }
 
 @media (min-width: 960px) {
 :root[data-theme="dark"] body.consolidated:not(.plus-active) .pj3 > .pjmid { background: #000000; }
