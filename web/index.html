@@ -5586,32 +5586,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    first was `.08`, a deliberately stronger wash than the token's `.05`, which
    made it a value nobody would ever see rather than a defence. */
 #d-qask-text::-webkit-scrollbar-track, .pj-screen::-webkit-scrollbar-track { background: var(--k-sunk); border-radius: 3px; }
-.qopts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-/* An option. Deliberately NOT the page's commit styling: a question with two
-   equal answers has no primary, and emphasising one would recommend it.
-   ⚠️ ONE VALUE DROPPED FROM THE DRAWING: `white-space: nowrap`. The labels are
-   the agent's own words, unbounded in length ("Yes, and don't ask again for
-   this project"), and a nowrap button inside a wrapping row cannot shrink --
-   it stretches the page sideways, which is the exact failure round 21 measured
-   at 1262px on this app's message rows. The drawing's labels are short; real
-   ones are not. */
-.qopt { font: inherit; font-size: .9375rem; font-weight: 600;
-  color: var(--k-ink); background: var(--k-surface);
-  border: 1px solid var(--k-optline); border-radius: 10px;
-  padding: .5em 1.05em; cursor: pointer; }
-.qopt:hover { border-color: var(--k-ink-2); }
-.qopt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.qopt[disabled] { opacity: .5; cursor: not-allowed; }
 /* The out. One line, and it points DOWN at the composer this page already has
    rather than away to another screen. */
-/* ⚠️ `.qask p.qout`, NOT `.qout`. `.qask p` above is (0,1,1) and beat a bare
-   class (0,1,0) on specificity, so every declaration here except `color` was
-   dead and the line rendered at .9375rem/4px -- the same size as the question
-   label two inches above it, which is what the committed screenshot shows.
-   Measured before: 15px/4px. This is the `.pjthread` precedent this stylesheet
-   already cites: a rule that HAS its element and is silently outranked reads
-   in the diff exactly like a rule that works. */
-.qask p.qout { margin: 10px 0 0; font-size: .8125rem; color: var(--k-ink-2); }
 .dmbar { margin-top: 14px; }
 #d-say { flex: 1 1 auto; }
 /* Inside the room's box the field is bare: the box carries the border and the
@@ -8811,8 +8787,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              stays in the DOM either way. -->
         <button class="qask-expand" id="d-qask-expand" type="button" hidden
                 aria-expanded="false" aria-controls="d-qask-text">Show full command</button>
-        <div class="qopts" id="d-qopts" hidden></div>
-        <p class="qout" id="d-qout" hidden>Or write your own answer below.</p>
         <!-- ⚠️ A HINT, NOT A VERDICT PILL, ruled by Mona Lisa 2026-08-20 after a
              reviewer read the picture. This line is a RECOVERY INSTRUCTION and
              its whole job is to say the buttons still work; the failure
@@ -8827,7 +8801,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              false of a line about buttons: borrowing a class across containers
              inherits a claim written for the other container. The plan
              specified `.delivery.failed` here and the plan was wrong. -->
-        <p class="qout" id="d-qask-fail" hidden></p>
         <!-- #2129 recovery: the one-click Trust & Restart, surfaced HERE for the
              folder-trust prompt so a person stuck on it acts in one click
              instead of the Terminal arrow-key path. Same route and behaviour as
@@ -26210,19 +26183,6 @@ function openDetail(sessionName, section, fromProject) {
      -- a private conversation and a live question with buttons that send. */
   {
     document.getElementById('d-qask').hidden = true;
-    document.getElementById('d-qopts').innerHTML = '';
-    /* ⚠️ AND THE CACHE THAT SPEAKS FOR IT. The paint skips its rebuild when
-       `__lastOpts` matches what it is about to write, so clearing the markup
-       here without clearing the cache left the next identical paint believing
-       the buttons were already on screen. They were not: the person got the
-       hazard, the sentence, the terminal question, an empty options row, and
-       "Or write your own answer below." pointing at nothing -- and it never
-       recovered, because every later poll took the same skip. Reproduced two
-       ways: reopening the same agent, and opening a second agent sitting at
-       the identical prompt (the markup carries no name, so it matches). */
-    document.getElementById('d-qopts').__lastOpts = null;
-    document.getElementById('d-qopts').hidden = true;
-    document.getElementById('d-qout').hidden = true;
     /* ⚠️ THE SENTENCE AND THE CAPTURED PANE TOO. They sit behind `hidden`, so
        nothing was shown — but this block's own rule is that the box holds the
        strongest version of cross-agent misattribution, and leaving one agent's
@@ -26241,8 +26201,6 @@ function openDetail(sessionName, section, fromProject) {
        paint, and the switch-reset below clears the receipt and re-enables the
        button (once, matching the trust-restart twin). */
     document.getElementById('d-qask-text').__q2808 = null;
-    document.getElementById('d-qask-fail').textContent = '';
-    document.getElementById('d-qask-fail').hidden = true;
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
     /* 🛑 THE READER'S PLACE BELONGS TO THE AGENT, AND THIS ELEMENT IS SHARED.
        One #d-dmthread serves every agent. `__heldTop` and `__heldAtBottom`
