@@ -13420,6 +13420,28 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         stops, nothing else. Kosmos only does what you asked an agent to do.
       </p>
     </section>
+    <!-- #718: Push to this device. A PER-DEVICE control, so it lives in "This
+         computer" beside Sounds -- by the same #3138 rule that moved Sounds here:
+         whether THIS phone or computer shows a notification is a property of the
+         device, not a board-read Automation setting. It is also the delivery path
+         the Prompter (#2632/#2623) was missing: turning it on asks the browser for
+         permission, subscribes through the service worker, and POSTs the
+         subscription to the board's same-origin /v1/push/subscribe (which proxies
+         to the coordinator), so a push sent from the Mac shows a system
+         notification even when the board tab is closed. Placed BEFORE Sounds so
+         Sounds stays last in the section (#3138).
+         A BUTTON, not a toggle: a browser permission cannot be revoked from script,
+         so an honest control asks once and then reports the state rather than
+         pretending it can switch the grant back off. -->
+    <section class="dbox">
+      <h3 class="dlab">Push to this device</h3>
+      <div class="setrow" id="push-row" style="margin-top:14px;">
+        <div><b>Get notified on this device</b>
+          <p class="dhint" style="margin:2px 0 0;">Turn on notifications so Kosmos can tell you when something needs you, even when this page is closed. Set this on each phone or computer you want alerts on.</p></div>
+        <button class="btn uprime" id="push-enable" type="button">Turn on</button>
+      </div>
+      <p class="dhint" id="push-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
     <!-- #2436 (Josh, 2026-09-07): the master on/off for the #2407 new-message sound.
          #3138 (Josh, 6.68): MOVED here to This computer (from Automations), LAST in the
          section -- whether YOU hear the pop is a property of this machine, so it belongs
@@ -13524,25 +13546,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            so a more prominent placement later is a pure move (Mona's polish). Hidden
            while empty so it costs nothing when nothing is stalled. -->
       <div id="hb-nudges" class="hb-nudges" role="region" aria-label="Agent check-ins" hidden></div>
-    </section>
-    <!-- #718: Push to this device. The in-app delivery channel #2632/#2623 noted was
-         missing: the Prompter above knows which agents stopped but "can't nudge you
-         yet". This is the nudge path. A person turns push on per device (phone or
-         desktop), which asks the browser for permission, subscribes through the
-         service worker, and stores the subscription on this Mac's board (Raiden's
-         /v1/push/* routes). After that a push sent from the Mac shows a system
-         notification even when the board tab is closed.
-         A BUTTON, not a toggle: a browser permission cannot be revoked from script,
-         so an honest control asks once and then reports the state rather than
-         pretending it can switch the grant back off. -->
-    <section class="dbox">
-      <h3 class="dlab">Push to this device</h3>
-      <div class="setrow" id="push-row" style="margin-top:14px;">
-        <div><b>Get notified on this device</b>
-          <p class="dhint" style="margin:2px 0 0;">Turn on notifications so Kosmos can tell you when something needs you, even when this page is closed. Set this on each phone or computer you want alerts on.</p></div>
-        <button class="btn uprime" id="push-enable" type="button">Turn on</button>
-      </div>
-      <p class="dhint" id="push-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own
@@ -50825,16 +50828,19 @@ setInterval(tick, 5000);
    against; this is the caller. */
 setInterval(ageCheckedStamp, 1000);
 </script>
-<!-- #718: PWA push client. Kept as its OWN script block, after the app's main
-     script, because it is self-contained platform wiring (service-worker
+<!-- #718: PWA push client. Its own block, given id="push-client" so it is NOT a
+     second attribute-less script tag -- the page tests lift the app source by the
+     single bare one, and a second bare tag breaks every one of them. Placed after
+     the app's main script; self-contained platform wiring (service-worker
      registration + the permission/subscribe/POST flow) with no dependency on the
-     app's state, and isolating it keeps a browser without service-worker or push
-     support from touching anything above. The endpoints and contract are locked
-     with Raiden (coordinator side, #718): GET /v1/push/vapid-key returns
-     {"key":"<base64url>"}; POST /v1/push/subscribe takes PushSubscription.toJSON()
-     as application/json; both are same-origin so the board cookie authenticates
-     them with credentials:'same-origin'. -->
-<script>
+     app's state, so a browser without service-worker or push support touches
+     nothing above. The board serves these routes same-origin and proxies them to
+     the kosmos-relay coordinator (Raiden, webpush-718): GET /v1/push/vapid-key
+     returns {"key":"..."} (the coordinator's real VAPID public key); POST
+     /v1/push/subscribe takes PushSubscription.toJSON() as application/json.
+     Same-origin, so credentials:'same-origin' carries the board session; the board
+     attaches the coordinator bearer token server-side. -->
+<script id="push-client">
 (function () {
   'use strict';
   var SW_URL = '/sw.js';

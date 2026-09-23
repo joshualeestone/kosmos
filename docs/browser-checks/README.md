@@ -1036,3 +1036,4 @@ Reds on origin/main, where none of `body.plus-active` / the canvases /
 `syncPlusChrome` exist. Chromium (the assertion is computed style + class
 toggles, engine-agnostic; both schemes are the coverage that matters here).
 - render-remove-force-2651.js -- #2651: the untied-remove override affordance (clear an untied card without stopping its session).
+- `render-push-718.js` -- #718: the PWA push client end-to-end -- `/sw.js` serves as a worker, the client registers it and it controls the page, and a REAL push delivered through the worker's own `push` handler (via the Chromium DevTools `ServiceWorker.deliverPushMessage` verb) shows the notification MAPPED from the coordinator's real `{kind, agent, project, id, address}` payload, with the click-through built from the Mac address. Chromium-only by design (Web Push + the CDP verb are Chromium's); headed by default. Needs a first-run-complete board.
