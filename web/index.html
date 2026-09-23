@@ -25357,102 +25357,9 @@ async function paintTalk(sessionName, agentName) {
   const flying = TALK_SENDING && TALK_FLIGHT === sessionName;
 
   /* --- the question, and the answers to it --- */
-  /**
-   * ⚠️ THE HOLD IS COMPUTED FIRST, because two things below read it and the
-   * first version declared it between them — a temporal-dead-zone
-   * ReferenceError that threw on EVERY paint, with all 931 text tests green,
-   * because nothing in the suite renders the page. Caught by rendering it.
-   */
-  /**
-   * ⚠️ KEYED ON THE MENU, NOT ON THE SLICE. `question.text` is what
-   * `questionIn` returns: six lines above the marker THROUGH TO THE END OF THE
-   * CAPTURE. So any character changing anywhere below the menu made this a
-   * "different question" and spent the hold -- and the pane accumulates, which
-   * is the whole reason the hold exists. Measured: answer a menu, let the agent
-   * print one more line underneath it, and within one poll the buttons were
-   * back, live, over the prompt just answered. A context percentage ticking
-   * from 42% to 41% did it too.
-   *
-   * The identity of a question, for this purpose, is the options it offers. If
-   * those are the same options, it is the same question, whatever else the pane
-   * has done since.
-   */
-  TALK_QUESTION[sessionName] = talkKey(body);
-  const answered = TALK_ANSWERED[sessionName];
-  const held = !!(answered && (Date.now() - answered.at) < TALK_ANSWER_HOLD_MS);
-  /**
-   * ⚠️ A POLL THAT COULD NOT READ THE SCREEN DOES NOT SPEND THE HOLD, and the
-   * first version let it. `question: null` under `asking: true` is a
-   * first-class route state with its own sentence — the capture failed, or the
-   * marker scrolled out of the slice — and treating it as "a different
-   * question" deleted the hold, so the NEXT good poll re-offered live buttons
-   * over a prompt this person had already answered. That is the second press
-   * the hold exists to prevent, and it is the we-could-not-look versus
-   * it-is-not-there conflation this codebase splits everywhere else, including
-   * in the route that feeds this very paint.
-   *
-   * So the hold is spent by exactly two things: TIME, and a question we can
-   * actually see that is a DIFFERENT one. Not by an absent one.
-   */
-  /**
-   * ⚠️ A QUESTION WE CAN SEE BUT CANNOT KEY IS NOT "the same question".
-   *
-   * `talkKey` returns null whenever `options` is null, and the first version of
-   * this guard read a null key as "no question to compare", which is the arm
-   * written for a question that is ABSENT. So: answer a menu, and within the
-   * thirty-second hold the agent asks anything the parser will not vouch for --
-   * a free-text question, or a new menu whose labels wrap, which `optionsIn`
-   * refuses by design -- and `different` stayed false, `stillTheSame` stayed
-   * true, and the WHOLE `#d-qask` block hid, question text included, while the
-   * board card said Issue.
-   *
-   * That is verbatim the harm this file names two hundred lines up: "panel
-   * gone, no buttons, while the board card still said the person was needed."
-   * It is the same failure as the line-0 identity collapse fixed earlier on
-   * this branch, arriving through the other door: there the key was too weak to
-   * tell two questions apart, here it does not exist at all.
-   *
-   * The rule the comment above states is the right one and this is what
-   * implementing it looks like: spent by TIME, and by a question we can
-   * actually see that is not the one that was answered. Unkeyable is not
-   * absent. There is no double-answer risk in spending it here, because a
-   * payload with no options renders no buttons to press twice.
-   */
-  const cannotKey = !TALK_QUESTION[sessionName] && !!(body.asking && body.question);
-  const different = !!(answered && TALK_QUESTION[sessionName]
-    && answered.question !== TALK_QUESTION[sessionName]);
-  /**
-   * ⚠️ UNKEYABLE RELAXES THE HIDE AND DOES NOT SPEND THE HOLD, and the first
-   * version of this fix conflated them because one boolean fed both.
-   *
-   * Feeding `cannotKey` into `different` also deleted `TALK_ANSWERED`, and that
-   * re-opened the exact defect the hold was built for: answer a menu, let the
-   * pane print ONE indented line under the run (which `optionsIn` refuses by
-   * design, and which this branch's own example -- "✳ Thinking… (41% context
-   * left)" -- is), and the hold was forgotten. One tick later the line clears,
-   * the same menu re-parses, and the buttons are back LIVE over the prompt just
-   * answered. The 409 screen-check cannot catch that one: the visible menu
-   * still matches the label, so the send is consistent and wrong.
-   *
-   * Nothing was gained by the deletion. `opts` is null on an unkeyable tick
-   * anyway, so no buttons render whether the hold stands or not; the only thing
-   * the deletion changed was what happens on the tick AFTER.
-   *
-   * So they are separated: the panel is SHOWN (a question we can see must not
-   * be hidden while the board says Issue) and the answer is REMEMBERED (the
-   * next keyable tick decides by equality, as it always did). The cost is that
-   * the question text can appear for a tick and go again when the menu
-   * re-parses, which is the honest price of not being able to tell one
-   * unkeyable question from another.
-   */
-  const stillTheSame = held && !different && !cannotKey;
-  if (answered && (!held || different)) delete TALK_ANSWERED[sessionName];
-  /* --- the question, and the answers to it --- */
   const qask = document.getElementById('d-qask');
   const qlab = document.getElementById('d-qask-lab');
   const qtext = document.getElementById('d-qask-text');
-  const qopts = document.getElementById('d-qopts');
-  const qout = document.getElementById('d-qout');
   const qTrust = document.getElementById('d-qask-trust-restart');
   const live = body.presence === 'on';
   /* #3419 (Josh, 0.6.89): the "waiting on an answer" needs_you banner is GONE.
@@ -25465,7 +25372,12 @@ async function paintTalk(sessionName, agentName) {
      #2129 wants that one-click recovery kept. So the box shows ONLY for the
      folder-trust recovery; every other asking/stranded/reported state is hidden
      here and spoken as a bubble instead. */
-  const nowHidden = !(body.asking && body.answerNote) || stillTheSame;
+  /* #3419: the box shows only for the #2129 folder-trust recovery (answerNote),
+     and that recovery must never be suppressed by the old menu answer-hold -- it
+     is resolved by Trust & Restart, not by answering a menu. So the show-gate is
+     just the folder-trust state; the answer-hold machinery is gone (the menu it
+     guarded is gone). */
+  const nowHidden = !(body.asking && body.answerNote);
   /**
    * ⚠️ THE RESCUE COMES BEFORE EVERY HIDE IN THIS SECTION, and its first
    * version did not.
@@ -25662,96 +25574,15 @@ async function paintTalk(sessionName, agentName) {
      ordinary thread bubble now (engine withQuestionRow, #3455) that the person
      answers in the normal composer or ignores -- "no prompt box". The engine's
      injected question row carries only text (no options), so the boxed option
-     buttons have no place; opts is forced null, qopts/qout never render, and the
-     answer-hold / keying machinery above (TALK_ANSWERED, stillTheSame, ...) is
-     now inert. (That inert machinery + the sendTalk `chose` option-answer path
-     are dead and scheduled for removal in a focused follow-up, kept out of this
-     cut-gate change to leave the shared composer send path untouched.) */
-  const opts = null;
-  /* ⚠️ DEAD WHILE A SEND IS IN THE AIR. A paint that lands mid-flight rebuilds
-     these, and the first version rebuilt them ENABLED — undoing the send's own
-     disable. The double send was still refused by the TALK_SENDING guard, so
-     the press became a silent no-op: a button that looks pressable, is pressed,
-     and does nothing at all, for as long as a flight can honestly run. */
-  const dead = flying ? ' disabled' : '';
-  const wanted = opts
-    ? opts.map((o) => '<button class="qopt" type="button"' + dead + ' data-n="' + esc(String(o.n))
-        + '" data-label="' + esc(o.label) + '">' + esc(o.label) + '</button>').join('')
-    : '';
-  /**
-   * ⚠️ ONLY WHEN IT CHANGED. This paint runs every five seconds, and an
-   * unconditional `innerHTML =` destroys and recreates the buttons even when
-   * the markup is byte-identical — so a keyboard user who tabs onto an option
-   * loses focus to <body> within five seconds, over and over, on the one
-   * control this panel exists for. The room fixed exactly this at its own
-   * question region ("round 31 … the stranded-keyboard state, rebuilt by the
-   * poll five seconds after the fix for it").
-   */
-  /* ⚠️ COMPARED AGAINST WHAT WE WROTE, not against what the DOM reads back.
-     `esc()` writes `&quot;` and serialization returns a bare `"`, so an option
-     labelled `Yes, run "npm test"` never matched itself and rebuilt on every
-     poll — the exact round-trip the picker's own cache replaced in round 35,
-     with its comment saying so. Measured here in Chromium before the change:
-     rebuilt on a byte-identical repaint for that label and no other. */
-  if (qopts.__lastOpts !== wanted) {
-    qopts.__lastOpts = wanted;
-    // The focused button is about to stop existing, so the focus goes
-    // somewhere real first rather than to the document.
-    const losing = document.activeElement;
-    const wasMine = losing && qopts.contains(losing);
-    // ⚠️ THE SAME OPTION, not merely an option. Restoring to the first button
-    // moves somebody standing on "No" onto "Yes" -- silently, every five
-    // seconds, on a control whose whole job is which one they picked.
-    const wasN = wasMine ? losing.dataset.n : null;
-    qopts.innerHTML = wanted;
-    if (wasMine) {
-      const same = wasN ? qopts.querySelector('.qopt[data-n="' + wasN + '"]') : null;
-      // Same rule as the hide rescue above: never hand focus to a box this
-      // paint is about to disable.
-      if (same) same.focus();
-      else if (!closing) say.focus();
-      else document.getElementById('d-talk-box').focus();
-    }
-  }
-  qopts.hidden = !opts;
-  qout.hidden = !opts;
+     buttons, their focus-preserving rebuild, and the answer-hold that guarded a
+     double-press are all gone with the menu. The #d-qopts / #d-qout elements are
+     removed from the markup; nothing renders an option here. */
 
   /* --- the thread --- */
   const rows = Array.isArray(body.messages) ? body.messages : [];
   const thread = document.getElementById('d-dmthread');
   thread.__lastBody = body; thread.__lastName = name;
   paintTalkThread(body, name);
-  /**
-   * ⚠️ NOTHING WAS ANSWERED, SO NOTHING MAY LOOK ANSWERED (drawing, state 4).
-   * After a send that failed, the question stays and the buttons stay live --
-   * and this says so, because a person who has just been told their answer did
-   * not get through has every reason to assume the buttons are now spent.
-   *
-   * It carries the INSTRUCTION only, never the reason: the row in the thread
-   * above is the history and already states what happened. That split is the
-   * room's own (`pjMsg`: "a row is history, so it states what happened and
-   * stops; the instruction about what to do lives in the live line, once"),
-   * and saying the failure twice on one screen is the noise this codebase
-   * keeps removing.
-   */
-  /* ⚠️ THE FAILURE LINE BELONGS TO THE QUESTION IT FAILED AGAINST. Keyed the
-     same way as the hold, so a new question clears it: without that, a failed answer left
-     "The buttons still work." standing under every later menu, on a page that
-     polls every five seconds and stays open for days. */
-  const failed = TALK_FAILED[sessionName];
-  // Keyed the same way as the hold, for the same reason.
-  const nowQ = TALK_QUESTION[sessionName];
-  /* ⚠️ SPENT BY A DIFFERENT QUESTION, NOT BY AN ABSENT ONE -- the same rule as
-     the hold above, which was decided this way three lines up while this was
-     decided the other way. One poll that could not read the screen would
-     otherwise drop the state-4 sentence for a question still standing. It
-     costs a reassurance rather than an answer, and it is the same split. */
-  if (failed && nowQ && failed.question !== nowQ) {
-    delete TALK_FAILED[sessionName];
-  }
-  const qfail = document.getElementById('d-qask-fail');
-  qfail.textContent = (opts && TALK_FAILED[sessionName]) ? 'The buttons still work.' : '';
-  qfail.hidden = !qfail.textContent;
 
   const older = document.getElementById('d-talk-older');
   older.textContent = body.olderCount
