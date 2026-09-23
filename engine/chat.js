@@ -109,17 +109,20 @@ const DELIVERY = {
 /**
  * One message, one line.
  *
- * ⚠️ NOT a style preference — and 📌 the mechanism CHANGED with #3419, though the
- * behaviour did not. When the body went in via `send-keys -l`, a newline reached
- * the composer as a submit, so a two-line message was delivered as two messages
- * with the second half arriving as its own instruction while the agent was
- * already acting on the first. The body is PASTED now (`pasteWire`, bracketed
- * paste), so a newline would NO LONGER auto-submit — but `cleanMessage` still
- * flattens to one line, on purpose: keeping "one message is one turn" unchanged,
- * with the single Enter as the only submit. Letting a paste carry real newlines
- * is a deliberate scope decision for another change, not something this transport
- * quietly enabled. Runs of whitespace are collapsed rather than refused, so the
- * person's paragraph arrives as a paragraph-shaped sentence rather than an error.
+ * ⚠️ NOT a style preference. When the body went in via `send-keys -l`, a newline
+ * reached the composer as a submit, so a two-line message was delivered as two
+ * messages with the second half arriving as its own instruction while the agent
+ * was already acting on the first. `cleanMessage` flattens every run of
+ * whitespace to a single space so this cannot happen, and #3419 does NOT change
+ * that: the body is pasted now, but the paste is issued without `-p` (no
+ * bracketed-paste markers — see the paste-transport note), so whether a raw
+ * pasted newline would submit is NOT something this code has verified, and
+ * nothing here relies on it either way. The flattening stays, "one message is
+ * one turn" stays, and letting a paste carry real newlines is a separate change
+ * that would have to establish that behaviour first — it is not something this
+ * transport quietly enabled. Runs of whitespace are collapsed rather than
+ * refused, so the person's paragraph arrives as a paragraph-shaped sentence
+ * rather than an error.
  */
 const MAX_TEXT = 2000;
 
@@ -2048,11 +2051,24 @@ function pauseMs(ms) {
  *   - An injected `pauser` (the test seam, like `runner` for tmux) always wins,
  *     so a test that wants to ASSERT the gap records it without sleeping.
  *   - With NO pauser but an injected `runner`, tmux is stubbed — there is no
- *     real pane whose bracketed-paste close we are waiting on — so the real
- *     sleep is pointless and is SKIPPED. This keeps the synchronous board (and
- *     the ~8k-test suite) from paying a real 250ms+ per send against a fake
- *     tmux; the gap exists for a live TUI, which by definition has runner=null.
- *   - Production (runner=null, pauser=null) takes the real `pauseMs` wait. */
+ *     real pane whose paste we are waiting to flush — so the real sleep is
+ *     pointless and is SKIPPED. This keeps the synchronous board (and the
+ *     ~8k-test suite) from paying a real 250ms+ per send against a fake tmux;
+ *     the gap exists for a live TUI, which by definition has runner=null.
+ *   - Production (runner=null, pauser=null) takes the real `pauseMs` wait.
+ *
+ * 🛑 COST, STATED SO IT IS NOT SHIPPED SILENTLY (#3419). This wait BLOCKS THE
+ * WHOLE BOARD, which is single-threaded and synchronous (see the DELIVERY
+ * docstring). Before #3419 only a codex pane paid a pause (500ms); every other
+ * send paid ~0. Now EVERY send pays this gap (250ms floor, up to 2000ms for a
+ * multi-KB body). A fan-out — a room `sendPost` to N members, the silent-sweep
+ * catch-up, the periodic autohandoff/unanswered sweeps — sends sequentially, so
+ * it freezes the board for at least N×250ms. That is the deliberate cost of
+ * submitting a paste reliably (an Enter sent before the bytes flush races the
+ * paste); the delay is claude-msg's fleet-proven constant and is NOT lowered
+ * here on a guess. A per-recipient concurrent send would remove the multiplier
+ * but is an architectural change well outside this transport fix — a real
+ * follow-up, not a silent regression. Noted on the plan file too. */
 function submitGap(ms) {
   if (pauser) { pauser(ms); return; }
   if (runner) return; // stubbed tmux (tests): no real pane to wait on

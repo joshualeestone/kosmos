@@ -80,6 +80,30 @@ paste transport (they now read `set-buffer` chunks / a reassembled message rathe
 than a `send-keys -l` arg). The paste→Enter real sleep is skipped when tmux is
 stubbed so the suite does not pay it. Full node suite green (8094 tests, 0 fail).
 
+## Trade-offs accepted (called out, not shipped silently)
+
+- **The paste→Enter delay now blocks the whole board on every send.** The server
+  is single-threaded and synchronous, so the size-adaptive gap (250ms floor, up to
+  2000ms) is paid by every send, not just codex as before, and a fan-out to N
+  members (room post, silent-sweep, periodic sweeps) freezes the board for at
+  least N×250ms. It is the deliberate cost of submitting a paste reliably (an
+  Enter before the bytes flush races the paste), using claude-msg's fleet-proven
+  constant. A per-recipient concurrent send would remove the multiplier but is an
+  architectural change outside this transport fix. Documented at `submitGap` in
+  engine/chat.js. Possible follow-up card if fan-out latency is felt in practice.
+
+## Deferred (out of scope for part a)
+
+- **connect.js sign-in-code send still uses `send-keys -l`.** Same primitive this
+  PR replaces, but the connect flow's target pane is fresh/idle (not an agent
+  mid-turn), so the busy-pane truncation does not apply. Left for a "part b" if
+  the class is ever swept fleet-wide.
+- **Browser-check multi-chunk reassembly is exercised at 1 byte.** render-thread's
+  reassembly proof uses a 1-byte body (single chunk); the multi-chunk case
+  (>256B) is proven at the engine layer by chat.test.js ("a message larger than
+  one chunk is pasted whole, in order"), so this is an integration-coverage nicety,
+  not a gap in what is proven.
+
 ## Follow-up
 
 - Splinter/Angel review the PR. Ping Splinter when it is up.
