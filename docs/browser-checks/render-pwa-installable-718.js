@@ -1,4 +1,4 @@
-// Browser-check-surface: pwa-installable-718 manifest apple-touch-icon
+// Browser-check-surface: manifest apple-touch-icon
 /**
  * PWA installability check (#718, the "home-screen icon shows" third of
  * "Kosmos on a phone: push notifications, a home-screen icon, and store
@@ -154,4 +154,4 @@ const HEADED = process.env.HEADED !== '0';
     console.log('\nno installability problems found');
   }
   process.exit(problems.length ? 1 : 0);
-})();
+})().catch((e) => { console.error('FAIL  render-pwa-installable-718: ' + (e && e.stack || e)); process.exit(1); });
