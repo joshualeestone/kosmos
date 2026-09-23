@@ -40,10 +40,23 @@ table (the designated Anthropic model reference) and consistent with the existin
   runs-on, made-before) 42/42, so the picker render surfaces do not pin a model count that the
   addition breaks. The picker is data-driven from MODELS via the /api route (server.js:4386)
   and is theme-agnostic per model, so light/dark is the existing theme handling.
-- Swept the whole tree for any other hardcoded anthropic model count or exact model list: the
-  only one is create.test.js (updated); the other "6"s are unrelated (file counts, argv
-  lengths, step numbers). Context limit is covered by the ASSUMED_LIMIT_MODELS regex
-  (`/^claude-(opus|sonnet|fable)-/` matches `claude-opus-5-5`).
+- Coupled-index audit (there were FOUR surfaces; my first grep sweep was under-scoped and
+  missed the derived-order test, which the full `yarn test` run and the iteration-1 review both
+  caught):
+  1. `engine/create.js` MODELS array (updated).
+  2. `engine/status.js` MODEL_NAMES (updated).
+  3. `engine/create.test.js` #1026 count + #2140 order (updated).
+  4. `engine/model-sort-order-2284.test.js` #2284 order (updated). This one derives the order
+     from `create.MODELS.filter(...).map(...)` and deepEquals a hardcoded list, so it is neither
+     a literal "count" nor a verbatim list and my count/list grep missed it.
+  5. `web/index.html` USAGE_MODEL_PRICES (the #2840 token-cost map): NOT updated, deferred to
+     fast-follow #3460. Per the map's NO-GUESSING rule an unpriced model is excluded from the
+     cost figure and named in `unpriced` (graceful, not a crash); Opus 5.5 is a launching model
+     whose price may shift and whose cache-write field is only derivable, so it is deliberately
+     left unpriced here.
+  Context limit is covered by the ASSUMED_LIMIT_MODELS regex (`/^claude-(opus|sonnet|fable)-/`
+  matches `claude-opus-5-5`). Model tests after the fix: create.test.js + status.test.js +
+  model-sort-order-2284.test.js = 361/361.
 
 ## Weakest premise (named)
 That `claude-opus-5-5` is the exact, current id and that Opus 5.5 belongs ahead of Opus 5 in
