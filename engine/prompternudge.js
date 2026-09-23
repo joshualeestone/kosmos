@@ -42,6 +42,13 @@ const store = require('./store');
 const BASE = store.ROOT;
 const FILE = path.join(BASE, 'prompter-nudges.json');
 
+// The field caps, defined ONCE and applied by BOTH write() and read() so the store's
+// shape is genuinely single-sourced (not single-sourced by copying the same literal
+// into two functions -- the "two derivations of one fact" defect). A session name is
+// a tmux/discord handle; a state is one of heartbeat's short classify() words.
+const SESSION_CAP = 120;
+const STATE_CAP = 40;
+
 /** Replace the pending nudge set with this tick's `toAsk`. Accepts the heartbeat
  *  `toAsk` shape ([{ session, from, to }]); anything malformed is coerced or
  *  dropped rather than trusted. Returns { ok }. */
@@ -49,18 +56,20 @@ function write(toAsk) {
   const list = Array.isArray(toAsk) ? toAsk : [];
   const nudges = [];
   for (const n of list) {
-    const session = n && typeof n.session === 'string' ? n.session.slice(0, 120) : '';
+    const session = n && typeof n.session === 'string' ? n.session.slice(0, SESSION_CAP) : '';
     if (!session) continue; // a nudge with no agent cannot be rendered or acted on
     nudges.push({
       session,
-      from: n.from != null ? String(n.from).slice(0, 40) : null,
-      to: n.to != null ? String(n.to).slice(0, 40) : null,
+      from: n.from != null ? String(n.from).slice(0, STATE_CAP) : null,
+      to: n.to != null ? String(n.to).slice(0, STATE_CAP) : null,
     });
   }
   const payload = { v: 1, at: new Date().toISOString(), nudges };
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = FILE + '.tmp';
+    // PID-scoped temp so two writers cannot clobber each other's tmp mid-write
+    // (mirrors engine/commitments.js); the atomic rename then publishes it.
+    const tmp = FILE + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(payload) + '\n', { mode: 0o600 });
     fs.renameSync(tmp, FILE);
     return { ok: true };
@@ -82,15 +91,15 @@ function read() {
   // sentence or an object it did not expect.
   const nudges = [];
   for (const n of parsed.nudges) {
-    // Apply the SAME length caps write() applies (session 120, from/to 40), so a
-    // hand-edited or older file cannot hand the API uncapped fields -- the store's
-    // shape is single-sourced across both ends rather than trusting the file.
-    const session = n && typeof n.session === 'string' ? n.session.slice(0, 120) : '';
+    // Apply the SAME caps write() applies, from the SESSION_CAP/STATE_CAP consts
+    // above (not copied literals), so a hand-edited or older file cannot hand the
+    // API uncapped fields and the two ends cannot drift apart.
+    const session = n && typeof n.session === 'string' ? n.session.slice(0, SESSION_CAP) : '';
     if (!session) continue;
     nudges.push({
       session,
-      from: n.from != null ? String(n.from).slice(0, 40) : null,
-      to: n.to != null ? String(n.to).slice(0, 40) : null,
+      from: n.from != null ? String(n.from).slice(0, STATE_CAP) : null,
+      to: n.to != null ? String(n.to).slice(0, STATE_CAP) : null,
     });
   }
   return { at: parsed.at || null, nudges };

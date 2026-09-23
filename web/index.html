@@ -18708,7 +18708,9 @@ function prompterCheckinQuestion(n) {
   const to = n && n.to;
   if (to === 'auth_failed') return 'needs to sign in again. Reconnect it, or is it done?';
   if (to === 'connection_lost') return 'lost its connection. Reconnect it, or is it done?';
-  return 'seems to have stopped. Still mid-something, finished, or stopped?';
+  // The catch-all covers stopped/idle/unknown (all in heartbeat's ASK_ON_EXIT_TO),
+  // so "gone quiet" reads honestly for an idle agent, not only a stopped one.
+  return 'seems to have gone quiet. Still mid-something, finished, or stopped?';
 }
 async function paintPrompterNudges() {
   const box = document.getElementById('hb-nudges');
