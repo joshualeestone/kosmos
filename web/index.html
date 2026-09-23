@@ -25778,7 +25778,7 @@ async function paintTalk(sessionName, agentName) {
      the same thing twice in the same glance. */
   say.placeholder = say.disabled
     ? name + ' cannot be reached right now'
-    : 'Message ' + name + '\u2026';
+    : 'Write something or @name to message someone\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
   /* #967: the Terminal tab's respond-in-context box shares this one presence
      read, so it gates identically to the composer above rather than computing
