@@ -90,6 +90,44 @@ Gradle 8.9's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
 Android CI is not wired today; when it is, the runner's JDK-21 provisioning is
 the piece to add.
 
+## Release signing (upload keystore)
+
+`app/build.gradle` wires a **release** `signingConfig` to the Play **upload**
+keystore. No key material or password lives in git — the build reads them at build
+time from environment variables, and the keystore file itself lives under
+`~/.config/secrets/` (mode 600), filed via `/add-secret`, never committed (also
+covered by `android/.gitignore`'s `*.jks` / `*.keystore` rules).
+
+The build reads four env vars: `KOSMOS_UPLOAD_KEYSTORE` (path to the `.jks`),
+`KOSMOS_UPLOAD_STORE_PASSWORD`, `KOSMOS_UPLOAD_KEY_PASSWORD`, and
+`KOSMOS_UPLOAD_KEY_ALIAS`. **If `KOSMOS_UPLOAD_KEYSTORE` is unset the release build
+stays unsigned** rather than failing to configure, so a fresh clone or a CI runner
+without the keystore still builds; `assembleDebug` is never affected.
+
+On this box the material is in the agent secrets map under two targets — resolve
+them straight into the environment (values never touch the command line):
+
+```
+# keystore path (file-path credential) + store/key passwords + alias (env credential)
+export KOSMOS_UPLOAD_KEYSTORE="$(secrets-map.sh path kosmos-android-upload-keystore)"
+eval "$(secrets-map.sh env kosmos-android-upload-signing)"
+./gradlew :app:assembleRelease          # produces a signed release APK
+```
+
+Verify the signature with `apksigner` from build-tools:
+
+```
+$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --print-certs \
+  app/build/outputs/apk/release/app-release.apk
+```
+
+**Provisioning elsewhere (CI / another machine).** The keystore is intentionally
+not in the repo, so any other machine must have it provisioned out-of-band and the
+four env vars set (the same shape as the JDK-21 note above). The upload key is
+`RSA-4096`, alias `kosmos-upload`, valid to 2054. With **Play App Signing**, this
+upload key is resettable by Google if ever lost — it is the upload key, not the
+distributed app-signing key.
+
 ## Finishing the app (after the front-door origin is decided)
 
 This skeleton points at the **placeholder** origin `https://app.kosmos.io/`

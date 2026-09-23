@@ -17,6 +17,26 @@ android {
         versionName "0.1.0"
     }
 
+    // Release signing wires to the Play UPLOAD keystore. NO key material or
+    // password lives in git: the build resolves them at build time from the agent
+    // secrets map into environment variables (see android/README.md "Release
+    // signing"). The keystore itself is stored under ~/.config/secrets/ (mode 600),
+    // filed via /add-secret, never committed (also caught by android/.gitignore's
+    // *.jks / *.keystore rules). When the env is ABSENT — a fresh clone, or CI
+    // without the keystore provisioned — the release build stays UNSIGNED rather
+    // than failing configuration, and assembleDebug is unaffected either way.
+    signingConfigs {
+        release {
+            def uploadKeystore = System.getenv("KOSMOS_UPLOAD_KEYSTORE")
+            if (uploadKeystore) {
+                storeFile file(uploadKeystore)
+                storePassword System.getenv("KOSMOS_UPLOAD_STORE_PASSWORD")
+                keyAlias System.getenv("KOSMOS_UPLOAD_KEY_ALIAS") ?: "kosmos-upload"
+                keyPassword System.getenv("KOSMOS_UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             // No shrinking for the skeleton: a TWA has almost no app code, and
@@ -24,6 +44,11 @@ android {
             // until there is real native code to shrink.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Attach the upload signing config only when its keystore env is present,
+            // so a keystore-less checkout still configures and builds (unsigned).
+            if (System.getenv("KOSMOS_UPLOAD_KEYSTORE")) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
