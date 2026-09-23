@@ -38309,7 +38309,13 @@ function pjMember(m, suppressTold, withMinus, hideState) {
        scoped actions, the escalation gradient member < archive <
        remove-from-Kosmos). */
     + (toldLine ? '<span class="pj-told">' + toldLine + '</span>' : '')
-    + pjMemberHasIt(m)
+    /* #3437 (Josh, 2026-09-22): the "has it" line ("We cannot tell whether it has
+       this yet") is agent status, and Josh does not want status text on the project
+       members column -- name + role only. Gated on the same hideState the state label
+       above already uses, so it drops in the project column (hideState true) and stays
+       in the Settings members list (hideState falsy), where a person managing
+       membership can use the signal. */
+    + (hideState ? '' : pjMemberHasIt(m))
     + '</span>'
     /* #520 piece ten, then #762: the mock's minus, at the row's end, shown
        on hover or keyboard focus wherever it is drawn. Project settings

@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: alist-grouphdr alist-newagent openAddMemberModal setAgentsGrouped AGENTS_GROUPED alist-emptymembers
+// Browser-check-surface: alist-grouphdr alist-newagent openAddMemberModal setAgentsGrouped AGENTS_GROUPED alist-emptymembers pjMemberHasIt pj-notyet
 // (#2518) the distinctive web/index.html tokens this check asserts: the grouped consolidated
 // agents list's "Other Agents" sub-header + its New-agent +, and the functions that switch the
 // top rail head to "Project Members" and open the add-member modal from the rail. A change to any
@@ -279,6 +279,32 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3387b the empty-members hint tells the truth for off-board members (not "no agents yet")',
       !!mismatch.emptyHintText && /not on this board/.test(mismatch.emptyHintText)
         && !/no agents on this project yet/i.test(mismatch.emptyHintText), JSON.stringify(mismatch));
+
+    // 10) #3437 (Josh, 2026-09-22): the "has it" status line ("We cannot tell whether it has this
+    //     yet", from pjMemberHasIt on an unknown instructions state) drops from the project members
+    //     column (hideState true), where Josh wants name + role only, but STAYS in the Settings
+    //     members list (hideState false). Both directions from ONE member prove the gate is
+    //     conditional, not a blanket removal. Direct pjMember() calls: the shipped renderer, exact gate.
+    await page.goto(PAGE);
+    const hasItGate = await page.evaluate(() => {
+      const m = { sessionName: 'unk-1', name: 'Helen of Troy', role: 'Project Manager',
+        present: true, state: 'working', hasAvatar: false, told: {}, instructions: { state: 'unknown' } };
+      const projCol = pjMember(m, false, true, true);    // hideState true  -> project members column
+      const settings = pjMember(m, false, true, false);  // hideState false -> Settings members list
+      const NOTYET = /pj-notyet|We cannot tell whether it has this yet/;
+      return {
+        projHasNotyet: NOTYET.test(projCol),
+        settingsHasNotyet: NOTYET.test(settings),
+        projHasName: projCol.indexOf('Helen of Troy') !== -1,
+        projHasRole: projCol.indexOf('pj-member-role') !== -1,
+      };
+    });
+    ok(t + ' #3437 the "has it" status line is gone from the project members column',
+      hasItGate.projHasNotyet === false, JSON.stringify(hasItGate));
+    ok(t + ' #3437 CONTROL: the "has it" line still shows in the Settings members list (gate is conditional, not a blanket removal)',
+      hasItGate.settingsHasNotyet === true, JSON.stringify(hasItGate));
+    ok(t + ' #3437 name + role still render in the project members column',
+      hasItGate.projHasName === true && hasItGate.projHasRole === true, JSON.stringify(hasItGate));
 
     await page.close();
   }
