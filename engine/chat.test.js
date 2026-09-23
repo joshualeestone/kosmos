@@ -274,6 +274,18 @@ test('#3296: a dead gemini agent (shell pane) is refused with "no Gemini running
   });
 });
 
+test('#3391: a dead grok agent (shell pane) is refused with "no Grok running", NOT "no Claude running"', () => {
+  // The grok analog of the gemini/#2100 case: a grok agent whose runner never came up
+  // holds a shell pane, so it hits the not-addressable branch. Its owner must not be
+  // told "no Claude running" for an agent they created on Grok -- it must name Grok.
+  withFleet([fleet.agent('grokbot', { state: 'stopped', runner: 'grok', command: '-zsh' })], (board) => {
+    const verdict = chat.deliver('grokbot', 'hello', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+    assert.match(verdict.because, /no Grok running in its window/);
+    assert.doesNotMatch(verdict.because, /no Claude running/);
+  });
+});
+
 test('#2100 control: a stopped CLAUDE agent KEEPS the "no Claude running" line (provider-aware, not a blanket reword)', () => {
   // The discriminator: identical not-addressable branch, but runner claude vs
   // codex must produce different copy. If this returned the codex line the fix
@@ -348,6 +360,28 @@ test('a send to a CODEX pane waits at least the codex gap between the paste and 
     // send never waits less than the measured 500ms even for a tiny message.
     assert.ok(seq[1][1] >= chat.CODEX_ENTER_GAP_MS, 'codex gap is the minimum');
     assert.ok(chat.CODEX_ENTER_GAP_MS >= 500, 'measured boundary on codex 0.149.1: 0.5s submits, 0 does not');
+  });
+});
+
+test('#3391: a send to a GROK pane waits at least the codex gap between the paste and Enter, the same floor codex/gemini get', () => {
+  // Grok is a non-claude terminal TUI, recognized tag-only (status.js: isGrokPane =
+  // runner === 'grok'), so an idle grok pane is addressable without a screen match.
+  // It gets the CODEX_ENTER_GAP_MS floor for the same #571 reason gemini does: a
+  // composer that can take an immediate Enter as part of a large paste must not race it.
+  // Grok fronts as `node` (status.js: "grok fronts as node too"), recognized by the
+  // @kosmos_runner tag, so the fixture's process is node with the grok runner tag.
+  withFleet([fleet.agent('grokll', { state: 'idle', runner: 'grok', command: 'node' })], (board) => {
+    const tmux = arm([ok(), ok()]);
+    chat.setPauser((ms) => { tmux.calls.push(['<pause>', ms]); });
+    const verdict = chat.deliver('grokll', 'answer with: direct works', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.PLACED);
+    const seq = tmux.calls.filter((c) => c[0] === 'paste-buffer' || c[0] === 'send-keys' || c[0] === '<pause>');
+    // paste, pause, Enter — in that order, the same as codex.
+    assert.equal(seq.length, 3);
+    assert.equal(seq[0][0], 'paste-buffer');
+    assert.equal(seq[1][0], '<pause>');
+    assert.deepEqual(seq[2].slice(-1), ['Enter']);
+    assert.ok(seq[1][1] >= chat.CODEX_ENTER_GAP_MS, 'a grok pane must pay the codex floor, not 0');
   });
 });
 

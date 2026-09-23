@@ -57,6 +57,15 @@ test('#3296: a gemini AUTH_FAILED note names Gemini, never Claude (the sign-in t
   assert.doesNotMatch(unsure, /Claude/, 'the unconfirmed gemini note still leaks Claude');
 });
 
+test('#3391: a grok AUTH_FAILED note names Grok, never Claude (the key/sign-in the person must fix is Grok\'s)', () => {
+  const confirmed = chat.waitingNote(AUTH_FAILED, COULD_NOT, 'grok');
+  assert.match(confirmed, /its Grok sign-in was not working/, 'the grok note is not Grok-named');
+  assert.doesNotMatch(confirmed, /Claude/, 'the grok AUTH_FAILED note leaks the word Claude -- it would point the person at the wrong reconnect');
+  const unsure = chat.waitingNote(AUTH_FAILED, UNCONFIRMED, 'grok');
+  assert.match(unsure, /its Grok sign-in was not working/, 'the unconfirmed grok note is not Grok-named');
+  assert.doesNotMatch(unsure, /Claude/, 'the unconfirmed grok note still leaks Claude');
+});
+
 test('#2107: a Claude AUTH_FAILED note still says Claude, and an unknown runner degrades to Claude', () => {
   assert.match(chat.waitingNote(AUTH_FAILED, COULD_NOT, 'claude'), /its Claude sign-in was not working/, 'the claude note lost its name');
   // degrade: no runner (the pre-#2107 default) -> Claude, never blank or Codex
