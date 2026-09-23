@@ -90,9 +90,12 @@ const FX = {
           agentHasOpen: !!(agent && (agent.querySelector('.msg-nm[data-open-agent]') || agent.querySelector('.msg-av[data-open-agent]'))),
           agentTimeInsideBubble: !!(agent && agent.querySelector('.msg-bd .msg-t')),
           mineHasAv: !!(mine && mine.querySelector('.msg-av')),
-          // The fixture gives the operator a photo, so the user avatar is a PLAIN .msg-av
-          // (the img fills it); .mine is only for the no-photo disc. This pins that dmRow
-          // matches pjRoomRow and does not re-add .mine to the photo case (#3414).
+          // The generic fetch stub answers the /api/you/avatar HEAD probe 200, so refreshYou
+          // treats the operator as having a picture and the user avatar takes the PHOTO branch:
+          // a plain .msg-av (the img fills it); .mine is only for the no-photo disc. This pins
+          // that dmRow matches pjRoomRow and does not re-add .mine to the photo case (#3414).
+          // If that probe ever stops answering 200, this arm reds (no img), it never silently
+          // shifts to the disc path.
           minePhotoIsPlain: !!(mine && mine.querySelector('.msg-av img') && !mine.querySelector('.msg-av.mine')),
           mineTimeInsideBubble: !!(mine && mine.querySelector('.msg-bd .msg-t')),
           mineHasName: !!(mine && mine.querySelector('.msg-nm')),

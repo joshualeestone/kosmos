@@ -113,6 +113,10 @@ a restart" line is already gone from current main.
   rule if Josh wants literal black in light too. His screenshot is dark-mode only.
 - Delivery verdict KEPT on the user side (silent on success) -- removing it would hide real delivery
   failures; it is DM-specific and load-bearing. Happy path still matches the room.
+- Composer placeholder is "Write something..." NOT the room's full "Write something or @name to
+  message someone...". A 1:1 DM has no "someone" to @-mention (the @mention picker is wired to
+  #pj-post only), so shipping the room's literal text would advertise unwired functionality, a dead
+  affordance. Reversible: restore the room string and wire @mention to #d-say if Josh wants it.
 
 ## #3419 coordination (ICK, separate card, priority after #3414)
 Contract agreed with ICK (REPLY sent): she injects the needs_you question into the thread payload as

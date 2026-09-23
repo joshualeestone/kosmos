@@ -5484,10 +5484,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-member-role { display: block; color: var(--label-3); opacity: .9; }
 
 /* ⚠️ AN EMPTY RECEIPT TAKES NO ROOM. #3134-followup (Josh 6.72) removed the inline
-   `.delivery` receipt from the ROOM entirely, so this no longer governs any room path.
-   It still applies to the DM view, which renders `<span class="delivery ...">` from a
-   possibly-empty `v.said`: an empty inline element would still carry the rule's margin
-   and line box, a stray gap under a post, so an empty receipt collapses to nothing. */
+   `.delivery` receipt from the ROOM, and #3414 made the DM (dmRow) OMIT the `.delivery`
+   span when `v.said` is empty rather than render an empty one. So no path emits an empty
+   receipt any more; this rule is now a cheap defensive no-op against a future one, kept
+   rather than a live dependency. */
 .delivery:empty { display: none; }
 
 /* ⚠️ THE GAP LIVED ON THE PER-AGENT WRAPPER, which the grouped line removed —
