@@ -24035,12 +24035,11 @@ function memoryBox(a) {
       + u.note + '</p>';
   }
   const band = memBand(pct);
-  /* 🛑 THE FOURTH SURFACE, and the comment beside the detail badge records the
-     last time one was left behind: "three surfaces, one fact, and the third
-     left on the old treatment". This box was the fourth, printing the capped
-     figure directly while the other three had moved to `memPrint`. The bar's
-     WIDTH keeps the capped number, which is correct: a bar cannot draw past its
-     own end, and that is the reason the printed figure had to become a word. */
+  /* 🛑 A MEMORY SURFACE THAT WAS LEFT BEHIND ONCE: this box printed the capped
+     figure directly while the other memory surfaces had moved to `memPrint`.
+     The bar's WIDTH keeps the capped number, which is correct: a bar cannot draw
+     past its own end, and that is the reason the printed figure had to become a
+     word. */
   return '<div class="memrow"><span class="bar"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
     + '<span class="pct">' + memPrint(a.context, pct) + '</span></div>'
     + (pct >= NEARLY_FULL
