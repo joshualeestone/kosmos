@@ -1,0 +1,134 @@
+# Android build CI (#718). Closes the gap android/README.md flagged: "Android CI
+# is not wired today; when it is, the runner's JDK-21 provisioning is the piece to
+# add." This wires exactly that.
+#
+# 🛑 WHAT THIS IS AND IS NOT. Like `test.yml`, this is ADVISORY: nothing here blocks
+# a merge, because a merge is server-side and no workflow gates it without branch
+# protection with a required check. Branch protection was deliberately NOT enabled
+# on this repo (see test.yml's header: it gates every merge for the whole roster and
+# fights the "merge fast" posture, and `gh pr merge --admin` bypasses it anyway).
+# Making THIS a required status check is the same repo-admin decision, deliberately
+# left to a human. So this is a second, visible signal the create-pr CI-watch already
+# honors, not a gate.
+#
+# WHAT GREEN CERTIFIES: the TWA skeleton still configures and assembles a debug APK
+# under a clean JDK-21 toolchain. It does NOT certify a signed release (that is the
+# conditional job below, inert until signing secrets exist), the Play listing, or
+# behavior on a device.
+#
+# WHY THE JDK-21 OVERRIDE. android/gradle.properties pins
+# `org.gradle.java.installations.paths` at THIS fleet box's keg-only JDK 21
+# (/opt/homebrew/...), a path that does not exist on a CI runner. The README calls
+# this out: "a runner without a JDK 21 on that literal path will fail the daemon
+# criteria." So every gradle call below passes
+# `-Dorg.gradle.java.installations.paths="$JAVA_HOME"`, overriding the per-box path
+# with the runner's setup-java JDK 21. The machine-independent `toolchainVersion=21`
+# criteria (gradle/gradle-daemon-jvm.properties) then resolve against it.
+
+name: android
+
+# Only run when the Android module (or this workflow) changes. The rest of the repo
+# is a macOS node app whose android/ dir is an isolated Gradle project, so a node-only
+# PR should not pay for an Android build. Path-filtering is safe here precisely because
+# this is advisory, not a required check: a required check that is path-filtered can
+# wedge PRs that never trigger it ("expected but never ran"), but an advisory one cannot.
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+
+# Least privilege: this job only reads the repo and builds. It needs no write scope.
+# Uses pull_request (not pull_request_target), so untrusted PR code never runs with
+# elevated access or sees repo secrets on a fork PR.
+permissions:
+  contents: read
+
+# Cancel a superseded run of the same event+ref (a rapid re-push / PR sync) instead of
+# queuing a redundant build. Mirrors test.yml; the push/PR pair still lands in separate
+# groups (refs/heads/... vs refs/pull/N/merge), an accepted harmless double-run.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: assembleDebug (+ conditional signed release)
+    # ubuntu, NOT macos. Unlike test.yml's node suite (which makes macOS-specific
+    # assumptions), an Android Gradle build is platform-independent JVM tooling: JDK +
+    # Android SDK, no native macOS dependency (this is the Android shell, not iOS).
+    # ubuntu-latest is the Android-CI norm and ships the Android SDK. If a genuine
+    # platform issue ever surfaces here, macos-latest is the documented fallback.
+    runs-on: ubuntu-latest
+    # The debug build is ~seconds; bound a hung run well under the 360-min default.
+    timeout-minutes: 20
+    # Pull the keystore-material secret to a job-level env var so the conditional
+    # release step can test its presence. When the secret does not exist this is the
+    # empty string, so the release step below is skipped and the job is debug-only.
+    # NOTE: the secrets are intentionally NOT provisioned by this PR. Adding signing
+    # material to GitHub Actions secrets is a separate repo-admin decision (surfaced to
+    # the repo owner), not an autonomous one. This workflow only wires the conditional.
+    env:
+      KOSMOS_UPLOAD_KEYSTORE_BASE64: ${{ secrets.KOSMOS_UPLOAD_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Provision JDK 21 (Temurin). Sets JAVA_HOME to the runner's JDK 21, which the
+      # gradle calls below feed to -Dorg.gradle.java.installations.paths (see header).
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Provision the Android SDK + accept licenses. AGP (compileSdk 35, build-tools
+      # 35.0.0) auto-downloads the platform/build-tools it needs against this.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Legibility: surface the toolchain versions so drift arrives here as a readable
+      # line rather than later as an opaque red (mirrors test.yml's "which node").
+      - name: Toolchain versions
+        run: |
+          echo "java:        $(java -version 2>&1 | head -1 || echo ABSENT)"
+          echo "JAVA_HOME:   ${JAVA_HOME:-unset}"
+          echo "ANDROID_HOME:${ANDROID_HOME:-unset} ANDROID_SDK_ROOT:${ANDROID_SDK_ROOT:-unset}"
+
+      # The always-on gate: a clean debug build needs no secrets. --no-daemon because
+      # the runner is ephemeral (a persistent daemon buys nothing). The -D override is
+      # the crux the README flagged (see header).
+      - name: assembleDebug (always-on gate)
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
+
+      # Conditional signed release. Runs ONLY when the signing secrets exist, so until
+      # a repo admin provisions them this step is skipped and the debug gate above is
+      # the whole value. It also depends on the release signingConfig in
+      # android/app/build.gradle (added in the #718 signing PR): with the secrets set
+      # AND that config present, this produces a signed release APK; without the config
+      # it would build unsigned, which is why the guard is the secrets, not this step.
+      #
+      # Expected secrets (names are the contract for whoever provisions them later):
+      #   KOSMOS_UPLOAD_KEYSTORE_BASE64  - the upload .jks, base64-encoded
+      #   KOSMOS_UPLOAD_STORE_PASSWORD   - store password
+      #   KOSMOS_UPLOAD_KEY_PASSWORD     - key password
+      #   KOSMOS_UPLOAD_KEY_ALIAS        - alias (optional; build.gradle defaults it)
+      - name: assembleRelease (only when signing secrets are present)
+        if: ${{ env.KOSMOS_UPLOAD_KEYSTORE_BASE64 != '' }}
+        working-directory: android
+        env:
+          KOSMOS_UPLOAD_STORE_PASSWORD: ${{ secrets.KOSMOS_UPLOAD_STORE_PASSWORD }}
+          KOSMOS_UPLOAD_KEY_PASSWORD: ${{ secrets.KOSMOS_UPLOAD_KEY_PASSWORD }}
+          KOSMOS_UPLOAD_KEY_ALIAS: ${{ secrets.KOSMOS_UPLOAD_KEY_ALIAS }}
+        run: |
+          # Materialize the keystore to a runner-local file (never committed) and point
+          # build.gradle's KOSMOS_UPLOAD_KEYSTORE env var at it. Decode via a file, not
+          # a pipe, so a decode error fails loudly here rather than yielding an empty key.
+          echo "$KOSMOS_UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kosmos-upload.jks"
+          export KOSMOS_UPLOAD_KEYSTORE="$RUNNER_TEMP/kosmos-upload.jks"
+          ./gradlew :app:assembleRelease --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
