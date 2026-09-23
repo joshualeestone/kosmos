@@ -418,12 +418,26 @@ test('a soft-hyphen name evasion is caught (\\p{Cf} strip)', () => {
 
 // ---- TOCTOU closure caught by the iteration-4 blind review ------------------
 
-test('verdict.post is the sanitized snapshot the board publishes (allowed fields only)', () => {
-  const v = fg.guard(clean(), { trusted: true });
+test('verdict.post is the sanitized snapshot the board publishes (allowed fields only, disjoint links)', () => {
+  const cand = clean();
+  const v = fg.guard(cand, { trusted: true });
   assert.equal(v.publish, true);
   assert.ok(v.post && typeof v.post === 'object');
   for (const k of Object.keys(v.post)) assert.ok(fg.ALLOWED_FIELDS.includes(k), 'snapshot has a non-allowed key: ' + k);
   assert.equal(v.post.body, clean().body);
+  // links must be a FRESH array, not the caller's live reference.
+  assert.notEqual(v.post.links, cand.links, 'post.links is the caller live array');
+  assert.deepEqual(v.post.links, cand.links);
+});
+
+test('mutating the caller links array after guard cannot change what the board publishes (TOCTOU)', () => {
+  const cand = clean();
+  const liveLinks = ['https://example.com/ok'];
+  cand.links = liveLinks;
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.publish, true);
+  liveLinks[0] = 'ghp_' + 'a'.repeat(36); // caller mutates AFTER inspection
+  assert.ok(!/ghp_/.test(String(v.post.links[0])), 'a post-inspection mutation leaked into the published snapshot');
 });
 
 test('a PROTOTYPE-chain getter cannot smuggle a leak (bad_prototype + snapshot)', () => {

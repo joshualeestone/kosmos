@@ -261,6 +261,15 @@ function snapshot(candidate) {
   for (const field of ALLOWED_FIELDS) {
     if (field in candidate) snap[field] = candidate[field];
   }
+  // links is the one MUTABLE allowed field. Copying the reference above would
+  // leave verdict.post.links === the caller's live array, so a caller could
+  // mutate it AFTER inspection and the board would publish the mutation -- no
+  // getter or Proxy needed. Copy it into a fresh, disjoint array, reading each
+  // element once. Bounded to LIMITS.links + 1 so an oversize count is still
+  // detectable by valueFindings while a giant array cannot be fully copied.
+  // String elements are immutable so the copy is frozen; a non-string element is
+  // refused by valueFindings, so nothing mutable is ever published.
+  if (Array.isArray(snap.links)) snap.links = snap.links.slice(0, LIMITS.links + 1);
   return snap;
 }
 
