@@ -1816,8 +1816,17 @@ function unreachableStates() {
          day that stops being true is a failure rather than a discovery. */
       const clockOnly = await page.evaluate(async () => {
         const at = new Date(Date.now() - 65 * 1000).toISOString();
+        /* ⚠️ COUNT RAISED 8 -> 30 (#3414). The agent-DM rebuild made
+           #d-talk-box (and its #d-dmthread) fill the panel edge-to-edge, so a
+           taller box no longer overflows on eight short lines and `scrolls`
+           went false, which fires the "did not overflow, so the scroll-hold is
+           UNCHECKED" control below. This is the same shape #413 hit with the
+           70-column question the day the page went full-width. The scroll-hold
+           behaviour is unchanged and still worth testing, so the fixture is
+           lengthened to overflow the taller box rather than the control
+           weakened. Thirty matches the sibling scroll block (2c). */
         window.__fx = {
-          messages: Array.from({ length: 8 }, (_, i) => ({
+          messages: Array.from({ length: 30 }, (_, i) => ({
             text: 'message number ' + (i + 1) + ' with enough words in it to take a line or two of the box',
             at, delivery: { state: 'placed', because: null, at, paneNote: null },
           })),
