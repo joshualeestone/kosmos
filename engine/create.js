@@ -113,6 +113,13 @@ const MODELS = [
     why: 'The newest and most capable Fable. Strong on code, and it reports progress as it works through a long task.' },
   { key: 'fable', provider: 'anthropic', label: 'Claude Fable 5', arg: 'claude-fable-5',
     why: 'The previous Fable. Very capable, and the most expensive to run. For work where being right matters more than being quick.' },
+  // #3459 (Josh, 2026-09-23): add Opus 5.5, the newest Opus. Id claude-opus-5-5
+  // confirmed against Anthropic's current model list (no date suffix). Placed
+  // ahead of Opus 5 per the most-powerful-first order; the existing Opus entries
+  // stay unchanged. Named in status.js MODEL_NAMES too, so a running 5.5 agent is
+  // not shown its raw id (the same pairing the Fable 5.1 entry documents).
+  { key: 'opus55', provider: 'anthropic', label: 'Claude Opus 5.5', arg: 'claude-opus-5-5',
+    why: 'The newest Opus, with a very large context for long, involved work.' },
   { key: 'opus', provider: 'anthropic', label: 'Claude Opus 5', arg: 'claude-opus-5',
     why: 'Slower, and it holds more of a long job in its head.' },
   // #1356: Josh asked to add Opus 4.8 (2026-08-28). The product already knew it

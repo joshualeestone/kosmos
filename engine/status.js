@@ -4905,6 +4905,7 @@ function readGrokContext(agentName, sess) {
  * status board follows.
  */
 const MODEL_NAMES = {
+  'claude-opus-5-5': 'Claude Opus 5.5', // #3459: added to the picker; name it here too so a running 5.5 agent is not shown its raw id
   'claude-opus-5': 'Claude Opus 5',
   'claude-sonnet-5': 'Claude Sonnet 5',
   'claude-fable-5': 'Claude Fable 5',
