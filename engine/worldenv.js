@@ -5,9 +5,10 @@
  * module is required.
  *
  * 🛑 WHY THIS EXISTS, AND WHY IT CANNOT WAIT FOR start().
- * ~26 engine modules capture the data root at REQUIRE time -- `const BASE =
+ * ~27 engine modules capture the data root at REQUIRE time -- `const BASE =
  * store.ROOT` (commitments, you, policy, limits, remote, notify, ping, forget,
- * engmode, heartbeat-setting, autoupdate, prompternudge) and, the shape the first survey missed,
+ * engmode, heartbeat-setting, autoupdate, prompternudge) and, the shape the first
+ * survey missed,
  * `const DIR = path.join(store.ROOT, 'x')` (a11ystatus, activity, liveness,
  * disruption, attachments, messages, usage, firstrun, sendertoken, discover,
  * cloudflare, githubdevice, tokendoor, remove, selfreport). `store.ROOT` is a live

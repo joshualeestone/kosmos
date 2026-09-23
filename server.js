@@ -14297,8 +14297,22 @@ function start(port = PORT) {
              so it is not the telemetry Josh removed and needs no opt-out. The
              store REPLACES the set each tick, so a resolved stall clears itself.
              Best-effort like the rest of the tick: a missed write is a missed
-             nudge and the board's status surfaces still show the truth. */
-          try { prompternudge.write(outcome.toAsk); } catch { /* best-effort */ }
+             nudge and the board's status surfaces still show the truth.
+             🛑 DO NOT WRITE ON A ROSTER READ FAILURE. heartbeat.step() returns
+             toAsk:[] BOTH when nothing is stalled AND when safeRoster() failed
+             (roster === null while the Prompter is ON -- a transient tmux read
+             failure it deliberately treats as "skip this tick, keep the prev
+             memory", NOT "the fleet emptied"). Replacing the store with [] on that
+             failure would wipe an already-open check-in from the panel for a full
+             interval, the exact "fail toward silence" engine/heartbeat.js forbids.
+             So write only on a real read (roster is an array, even empty = "no
+             agents", which correctly clears the store) or when the Prompter is OFF
+             (roster is null by choice, and [] correctly clears the store). Skip
+             only the on-but-unreadable case -- policy single-sourced + unit-tested
+             in engine/prompternudge.js shouldWrite(). */
+          if (prompternudge.shouldWrite(setting.on, roster)) {
+            try { prompternudge.write(outcome.toAsk); } catch { /* best-effort */ }
+          }
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);

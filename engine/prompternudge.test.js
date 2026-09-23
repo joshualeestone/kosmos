@@ -84,6 +84,16 @@ test('read caps over-long fields the same way write does (single-sourced shape)'
   assert.equal(got.to.length, 40);
 });
 
+test('shouldWrite skips ONLY the on-but-unreadable tick (do not fail toward silence)', () => {
+  // roster === null while the Prompter is ON is a transient read failure; writing
+  // [] there would wipe an open check-in for a full interval. That is the one skip.
+  assert.equal(nudge.shouldWrite(true, null), false, 'on + read failure must NOT overwrite the store');
+  // Every other case writes: off (clear), or a real read (array, even empty).
+  assert.equal(nudge.shouldWrite(true, []), true, 'on + empty roster ("no agents") writes to clear');
+  assert.equal(nudge.shouldWrite(true, [{ sessionName: 'a' }]), true, 'on + real roster writes');
+  assert.equal(nudge.shouldWrite(false, null), true, 'off writes [] to clear the store');
+});
+
 test('read on a corrupt or wrong-shape file returns empty and does not throw', () => {
   fresh();
   fs.writeFileSync(nudge.FILE, 'not json');
