@@ -973,7 +973,12 @@ function waitingNote(state, outcome, runner, backgroundWait) {
     case status.STATE.NEEDS_YOU:
       // Deliberately weaker than "this answered its question". We observed a
       // question on its screen; what its interface did with the keystroke is
-      // not something we watched.
+      // not something we watched. (#3419 note: this looks redundant once the
+      // question renders as a thread bubble, but `waitingNote` is shared by
+      // EVERY chat.deliver caller -- the Compact/Clear route reaches it too, and
+      // its `memoryCommand` reader substitutes "between tasks" on a null note,
+      // which is false for a waiting agent. Stripping it is a step-3 job scoped
+      // to the message route only, after auditing all deliver callers.)
       return 'it was waiting on an answer when this was sent';
     case status.STATE.RATE_LIMITED:
       return unsure
@@ -2140,6 +2145,71 @@ function lockedBecause() {
   return 'this conversation is locked by another window, or by one that stopped part-way through a send';
 }
 
+/**
+ * #3419: the agent's live `needs_you` question rendered AS A THREAD MESSAGE, not
+ * only as the interruptive "waiting on an answer" banner.
+ *
+ * Pure and view-level: it takes the messages the route already read plus the
+ * question the route already derived (live `questionIn`, or the reported
+ * fallback), and returns the messages with a synthetic question row appended.
+ * NOTHING is persisted — the question is derived live each poll, exactly like the
+ * `asking`/`question` banner fields it replaces, so this row appears while the
+ * question stands and clears with the state (the state-keyed lifecycle
+ * PigeonPete's #3417-categoryB pointer asks for, not a stored history entry).
+ *
+ * The row carries only what marks it as the agent speaking: `from: <agent>`,
+ * `delivery: null` (no delivery verdict; set explicitly where an agent reply omits
+ * the field, both falsy), `kind: 'question'` for the UI to key on, and `reported`
+ * so the page can distinguish "the agent told us this" from "it is on screen". How
+ * the thread RENDERS such a row is described in the plan, not asserted here, since
+ * Mona's #3419 UI half reworks that path (repo convention #5).
+ *
+ * CONTRACT the engine relies on. The web-render specifics (which renderer, which
+ * repaint key, which "just spoke" loop) live in the plan, per repo convention #5:
+ * cross-module behavioural assertions go stale silently in a shipped comment, and
+ * Mona's #3419 UI half reworks that exact render path. The engine depends only on
+ * these two invariants:
+ *   - STABLE `id` (`needs-you-question:<agent>`): a needs_you question is a
+ *     STANDING STATE, so one row per agent whose identity does not vary across
+ *     polls. Stored messages carry no `id`, so this cannot collide with a real row,
+ *     and a stable id lets the bubble update its text in place as the question
+ *     changes rather than churning the thread's repaint key.
+ *   - NO `at` (null): the board keeps no "since" timestamp for a standing question
+ *     (status.js classifies fresh each tick). ⚠️ Do NOT add a per-poll clock `at`.
+ *     A dated row would churn the thread's repaint key every ~5s (breaking the
+ *     #1926 anchor for a reader on the question) and re-stamp the agent as having
+ *     "just spoken" while it is actually WAITING. Staying dateless avoids both at
+ *     the source.
+ *
+ * DEDUP: only the TRAILING real row is compared by text. If the agent typed its
+ * own question (or any same-text row trails), no synthetic row is added -- the
+ * question is already shown. A same-text question sitting further back with a
+ * newer real row after it is NOT deduped -- a rare transient double that clears
+ * when the needs_you state clears and co-lands away with the banner removal, so it
+ * is not worth a full-thread scan that could over-suppress a legitimately repeated
+ * question. Returns the input unchanged when there is no question.
+ */
+// The synthetic question row's stable id prefix. One standing-question row per
+// agent (see withQuestionRow); a fixed prefix so the id does not vary across
+// polls. Stored messages carry no `id`, so this cannot collide with a real row.
+const NEEDS_YOU_QUESTION_ID_PREFIX = 'needs-you-question:';
+
+function withQuestionRow(messages, agentName, question) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!question || typeof question.text !== 'string' || !question.text) return list;
+  const last = list.length ? list[list.length - 1] : null;
+  if (last && typeof last.text === 'string' && last.text === question.text) return list;
+  return list.concat([{
+    id: NEEDS_YOU_QUESTION_ID_PREFIX + String(agentName),
+    at: null,
+    text: question.text,
+    from: String(agentName),
+    delivery: null,
+    kind: 'question',
+    reported: Boolean(question.reported),
+  }]);
+}
+
 function appendMessage(projectId, agent, entry, bornAt) {
   // ⚠️ EVERYTHING from the read to the rename happens inside the lock. Holding
   // it for the write alone would not help: the loss is in the gap between the
@@ -2600,6 +2670,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  withQuestionRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmUnreadAll, dmUnread, DM_SEEN,
