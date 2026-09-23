@@ -2247,14 +2247,17 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    ground, so removing the border leaves a clean filled panel rather than an invisible one. */
 #d-talk-box { border: 0; }
 /* #3414 (Josh, 2026-09-22): the agent DM reuses the project consolidated-view conversation
-   look -- a black, edge-to-edge conversation area filling the panel top-to-bottom, no card
+   look -- an edge-to-edge conversation area filling the panel top-to-bottom, no card
    radius, with the header on the left ("Direct Message to <agent>" in the project-name font)
    and the shrunk "Search" on the right. Padding keeps content off the literal edge (his own
-   caveat). The ground colour itself is set by the #3414-followup rule below. */
+   caveat). The ground colour (pure white on light, pure black on dark) is set by the
+   #3414-followup rule below. */
 /* #3414-followup (Josh 2026-09-23): the DIALOGUE AREA ground is pure white on light and
    pure black on dark (dark override below), scoped to #d-talk-box only, not the whole
    detail panel, matching the mock. This replaces the theme off-white --k-bg (#faf9f7 /
    #0c0d0f) that read as "no colour" against the surrounding surface. */
+/* background restated here (it matches .dbox above) as the light half of the box's base +
+   dark-#000 ground pair, so the pair reads together; border-radius:0 overrides .dbox's 16px. */
 #d-talk-box { background: var(--k-surface); border-radius: 0; }
 #d-talk-label { font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; text-transform: none;
                 color: var(--k-ink); margin: 0; line-height: 1.2; }
