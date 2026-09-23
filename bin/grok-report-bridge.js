@@ -21,9 +21,15 @@
  *   SessionStart {source}                        -> started
  *   UserPromptSubmit {prompt}                     -> working   (a turn started)
  *   Notification {message,notification_type}      -> needs_you (a tool needs the
- *       person; under --always-approve/bypassPermissions benign confirmations are
- *       auto-approved and do not fire this, so a Notification that DOES fire is a
- *       genuine attention signal -- message carries the reason the route needs)
+ *       person; message carries the reason the route requires for needs_you). This
+ *       mapping is REASONED, mirrored from the gemini bridge, NOT measured for grok:
+ *       a Notification under --always-approve/bypassPermissions was not induced this
+ *       session (the same honesty the plan applies to StopFailure). The expectation is
+ *       that benign confirmations auto-approve and do not fire it, so a Notification
+ *       that DOES fire is a genuine attention signal -- but if grok fires it for an
+ *       auto-approved call, this would paint needs_you spuriously. It is bounded: the
+ *       report is auto:true, so it can never erase a deliberate blocked, and a live
+ *       check of grok's Notification-under-bypass behaviour is the follow-up.
  *   Stop {reason:"end_turn",lastAssistantMessage} -> idle      (turn complete on a
  *       GENUINE completion; lastAssistantMessage is the last words, so the card can
  *       say what it finished with -- the analog of gemini's prompt_response)

@@ -90,8 +90,16 @@ picker, or accounts-subsystem change.
   #3136, the same as gemini's wiped-~/.gemini residual.
 
 ## Weakest premise
-StopFailure->idle is REASONED from grok's user-guide hooks doc, not induced live this
-session (an API error is hard to force). If StopFailure never fires or carries a
-different name, the only cost is that an API-error-ended turn would not report idle
-(it would still not be wrong -- Stop/StopCancelled cover the common paths, both
-measured). Everything else is measured against the installed CLI.
+Two mappings are REASONED, not measured live this session; both are bounded and both
+mirror the merged gemini bridge:
+- StopFailure->idle is from grok's user-guide hooks doc, not induced live (an API error
+  is hard to force). If StopFailure never fires or carries a different name, the only
+  cost is that an API-error-ended turn would not report idle (still not wrong --
+  Stop/StopCancelled cover the common paths, both measured).
+- Notification->needs_you: a Notification under --always-approve/bypassPermissions was
+  not induced (benign confirmations auto-approve). The expectation is that a
+  Notification that fires is a genuine attention signal, but if grok fires it for an
+  auto-approved call it would paint needs_you spuriously. Bounded by auto:true (it can
+  never erase a deliberate blocked); a live check is the follow-up.
+Everything else (SessionStart/UserPromptSubmit/Stop/StopCancelled, the config/hooks
+paths, the api-key login-skip) is measured against the installed grok 1.0.41.
