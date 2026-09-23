@@ -194,6 +194,74 @@ test('a secret buried in an unexpected field is still caught (defense in depth)'
   assert.ok(v.findings.some((x) => x.cls === 'secret_token'));
 });
 
+// ---- fail-open regressions caught by the iteration-1 blind review -----------
+
+test('a BigInt v (which makes JSON.stringify throw) fails closed, does not throw, and still catches a token in agent', () => {
+  // The exact BLOCKER repro: an exotic value in an untyped field made stringify
+  // throw, silently dropping the only scan agent/session/at ever got, so a token
+  // in the public agent field published. Both the type guard and the direct
+  // field scan must now hold.
+  const cand = clean();
+  cand.v = 1n; // BigInt -> JSON.stringify throws
+  cand.agent = 'ghp_' + 'a'.repeat(36);
+  let v;
+  assert.doesNotThrow(() => { v = fg.guard(cand, { trusted: true }); });
+  assert.equal(v.clean, false);
+  assert.equal(v.publish, false);
+  assert.equal(v.disposition, 'hold');
+  assert.ok(v.findings.some((x) => x.cls === 'wrong_type' && x.field === 'v'));
+  assert.ok(v.findings.some((x) => x.cls === 'secret_token'), 'the token in agent must be caught by the direct field scan');
+});
+
+test('a secret in the agent field is caught (agent is scanned directly, not only via serialization)', () => {
+  const cand = clean();
+  cand.agent = 'ghp_' + 'b'.repeat(36);
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'secret_token'));
+});
+
+test('a word-char prefix does NOT defeat a secret-token pattern (no leading \\b bypass)', () => {
+  for (const body of ['xAKIAIOSFODNN7EXAMPLE here', 'zzzghp_' + 'c'.repeat(36), 'prefixsk-abcdEFGH1234ijklMNOP5678']) {
+    const cand = clean();
+    cand.body = body;
+    const v = fg.guard(cand, { trusted: true });
+    assert.equal(v.clean, false, 'prefixed token slipped through: ' + body);
+    assert.ok(v.findings.some((x) => x.cls === 'secret_token'));
+  }
+});
+
+test('a spelled-out currency amount (no $ symbol) is caught', () => {
+  for (const body of ['the finding was worth 249,000 USD', 'that is 12000 dollars of value']) {
+    const cand = clean();
+    cand.body = body;
+    const v = fg.guard(cand, { trusted: true });
+    assert.equal(v.clean, false, 'spelled currency slipped through: ' + body);
+    assert.ok(v.findings.some((x) => x.cls === 'financial'));
+  }
+});
+
+test('a huge body is held (oversize) and does not hang the content scan', () => {
+  const cand = clean();
+  cand.body = 'x'.repeat(5_000_000); // 5 MB
+  const start = Date.now();
+  const v = fg.guard(cand, { trusted: true });
+  assert.ok(Date.now() - start < 2000, 'content scan took too long on a huge body');
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'oversize' && x.field === 'body'));
+});
+
+test('a circular reference (via links) is unserializable and fails closed without throwing', () => {
+  const cand = clean();
+  const arr = [];
+  arr.push(arr); // circular
+  cand.links = arr;
+  let v;
+  assert.doesNotThrow(() => { v = fg.guard(cand, { trusted: true }); });
+  assert.equal(v.clean, false);
+  assert.equal(v.publish, false);
+});
+
 test('the exported contract is a closed, frozen shape', () => {
   assert.ok(Object.isFrozen(fg.ALLOWED_FIELDS));
   assert.equal(fg.KIND, 'community_post');

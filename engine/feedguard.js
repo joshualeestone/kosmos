@@ -71,35 +71,52 @@ const LIMITS = Object.freeze({ agent: 80, session: 80, topic: 120, body: 4000, l
    detector that only proves it RUNS proves nothing. */
 const PATTERNS = Object.freeze([
   // Secret-shaped tokens. These prefixes are strong signals with near-zero
-  // false-positive rate, which is why they are matched by prefix rather than by
-  // entropy.
-  { cls: 'secret_token', re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/, why: 'GitHub fine-grained PAT' },
-  { cls: 'secret_token', re: /\bgh[posru]_[A-Za-z0-9]{30,}\b/, why: 'GitHub token' },
-  { cls: 'secret_token', re: /\bsk-[A-Za-z0-9_-]{20,}\b/, why: 'OpenAI-style secret key' },
-  { cls: 'secret_token', re: /\bAKIA[0-9A-Z]{16}\b/, why: 'AWS access key id' },
-  { cls: 'secret_token', re: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, why: 'Slack token' },
+  // false-positive rate. NOTE: deliberately NO leading \b anchor. A \b before
+  // the prefix is defeated by prepending one word char (`xAKIA...`), which is a
+  // trivial bypass; matching the shape ANYWHERE is the fail-closed choice, and a
+  // rare false positive is only a held post.
+  { cls: 'secret_token', re: /github_pat_[A-Za-z0-9_]{20,}/, why: 'GitHub fine-grained PAT' },
+  { cls: 'secret_token', re: /gh[posru]_[A-Za-z0-9]{30,}/, why: 'GitHub token' },
+  { cls: 'secret_token', re: /sk-[A-Za-z0-9_-]{20,}/, why: 'OpenAI-style secret key' },
+  { cls: 'secret_token', re: /AKIA[0-9A-Z]{16}/, why: 'AWS access key id' },
+  { cls: 'secret_token', re: /xox[baprs]-[A-Za-z0-9-]{10,}/, why: 'Slack token' },
   { cls: 'secret_token', re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/, why: 'PEM private key' },
   // Cardano / wallet material. This org's products deal in on-chain assets, so
   // a leaked wallet key is a real class here, not a hypothetical.
-  { cls: 'secret_token', re: /\b(?:addr1|stake1|xprv|xpub|ed25519_sk1?)[0-9a-z]{20,}\b/, why: 'Cardano/wallet key material' },
+  { cls: 'secret_token', re: /(?:addr1|stake1|xprv|xpub|ed25519_sk1?)[0-9a-z]{20,}/, why: 'Cardano/wallet key material' },
   // A long, mixed, high-entropy run that is not a known prefix. Conservative on
   // purpose: >= 32 chars with at least three character classes. A 40-char git
   // sha (one class, hex) does NOT trip this; a random API token does. Because we
-  // are fail-closed, the cost of a rare false positive is a held post.
-  { cls: 'high_entropy', re: /\b(?=[^\s]*[a-z])(?=[^\s]*[A-Z])(?=[^\s]*[0-9])[A-Za-z0-9_\-+/=]{32,}\b/, why: 'long high-entropy token' },
+  // are fail-closed, the cost of a rare false positive is a held post. The scan
+  // input is length-capped (see contentFindings) so the lookaheads cannot become
+  // a CPU sink on a huge body.
+  { cls: 'high_entropy', re: /(?=[^\s]*[a-z])(?=[^\s]*[A-Z])(?=[^\s]*[0-9])[A-Za-z0-9_\-+/=]{32,}/, why: 'long high-entropy token' },
   // Email address. A human email is PII. The agent's own persona handle is not
   // an email, so this does not fire on legitimate identity.
-  { cls: 'email', re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/, why: 'email address (PII)' },
+  { cls: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, why: 'email address (PII)' },
   // Phone number in a recognizable shape. Kept specific (a real phone layout)
   // rather than "any run of digits", which would flag every id and timestamp.
   { cls: 'phone', re: /(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b/, why: 'phone number (PII)' },
   // A material currency figure. This is the April $249,000 class: a real
   // financial number on a public surface. Small change ($5) does not trip it;
-  // a grouped or four-plus-digit amount does. A backstop, not a ledger scan --
-  // the real protection against financials is not naming them in a post at all.
+  // a grouped or four-plus-digit amount does. Both the $-prefixed and the
+  // spelled-out (`249,000 USD` / `249000 dollars`) forms are covered, because
+  // the un-symbol form is the more likely paraphrase. A backstop, not a ledger
+  // scan -- the real protection is not naming a real financial in a post at all.
   { cls: 'financial', re: /(?:USD\s?)?\$\s?\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/, why: 'grouped currency amount' },
   { cls: 'financial', re: /\$\s?\d{4,}(?:\.\d+)?\b/, why: 'large currency amount' },
+  { cls: 'financial', re: /\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:USD|dollars?)\b/i, why: 'grouped currency amount (spelled)' },
+  { cls: 'financial', re: /\b\d{4,}(?:\.\d+)?\s*(?:USD|dollars?)\b/i, why: 'large currency amount (spelled)' },
 ]);
+
+/* An upper bound on how much of any one string the pattern net scans. Real
+   fields are far smaller (LIMITS caps body at 4000), and an oversize field is
+   already a structural finding that holds the post, so truncating the scan input
+   removes a CPU-DoS surface (a multi-megabyte body run through the high-entropy
+   lookaheads) without weakening any real check: a leak in the first 16 KB is
+   still caught, and a post long enough to hide a secret past 16 KB is oversize
+   and held regardless. */
+const SCAN_CAP = 16384;
 
 /* Names that must never appear in a public agent post. A small, explicit,
    extensible denylist -- the operator and the operator's handles. Name
@@ -108,13 +125,18 @@ const PATTERNS = Object.freeze([
    people) covers the rest. Case-insensitive. The board can pass more via opts. */
 const DEFAULT_DENY_NAMES = Object.freeze(['Josh Stone', 'joshualeestone', 'joshua lee stone']);
 
-/* Turn a candidate into the list of string fields to scan. The scan is over
-   VALUES the agent authored (topic, body, links) plus, defensively, the whole
-   candidate serialized, so a secret hidden in an unexpected field is still seen
-   even though the unexpected field already fails the structural check. */
+/* Turn a candidate into the list of string fields to scan. Every string-bearing
+   field is scanned DIRECTLY here (agent, session, at, topic, body, links), so a
+   field's coverage never depends on the whole-object serialization succeeding.
+   contentFindings ADDS the serialization on top, as defense in depth for a
+   secret buried in an unexpected field -- but the serialization is never the
+   ONLY scan any field gets. Each value is truncated to SCAN_CAP. */
 function scannableStrings(candidate) {
   const out = [];
-  const push = (v) => { if (typeof v === 'string' && v) out.push(v); };
+  const push = (v) => { if (typeof v === 'string' && v) out.push(v.length > SCAN_CAP ? v.slice(0, SCAN_CAP) : v); };
+  push(candidate.agent);
+  push(candidate.session);
+  push(candidate.at);
   push(candidate.topic);
   push(candidate.body);
   if (Array.isArray(candidate.links)) candidate.links.forEach(push);
@@ -138,6 +160,14 @@ function structuralFindings(candidate) {
   }
   if (candidate.kind !== undefined && candidate.kind !== KIND) {
     f.push({ cls: 'wrong_kind', field: 'kind', why: 'kind must be ' + KIND });
+  }
+  // `v` must be a plain number. This is minimization AND a fail-closed guard: an
+  // exotic value here (a BigInt) is what makes JSON.stringify throw, which is the
+  // path a leak could ride if serialization were a field's only scan. It is not
+  // (scannableStrings scans every field directly), but refusing a non-number v
+  // closes the throw at its source too.
+  if (candidate.v !== undefined && candidate.v !== null && typeof candidate.v !== 'number') {
+    f.push({ cls: 'wrong_type', field: 'v', why: 'v must be a number' });
   }
   const strCap = (field) => {
     const v = candidate[field];
@@ -179,8 +209,15 @@ function structuralFindings(candidate) {
 function contentFindings(candidate, denyNames) {
   const f = [];
   const strings = scannableStrings(candidate);
+  // The whole-object serialization is defense in depth for a secret buried in an
+  // unexpected field. If it THROWS (e.g. a BigInt or a circular reference in an
+  // allowed-but-untyped field), that is itself a fail-closed finding -- never a
+  // silent empty that would drop this extra scan. The per-field scans above have
+  // already covered every string field directly, so a throw here does not blind
+  // any field; it only forfeits the belt-and-braces pass, and we hold the post.
   let whole = '';
-  try { whole = JSON.stringify(candidate); } catch { whole = ''; }
+  try { whole = JSON.stringify(candidate); } catch { f.push({ cls: 'unserializable', field: null, why: 'candidate could not be serialized' }); whole = ''; }
+  if (whole.length > SCAN_CAP) whole = whole.slice(0, SCAN_CAP);
   const patternHaystacks = strings.concat(whole ? [whole] : []);
   for (const s of patternHaystacks) {
     for (const p of PATTERNS) {
