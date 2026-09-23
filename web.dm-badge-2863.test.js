@@ -107,10 +107,8 @@ test('the DM badge CSS is the red bubble, absolute, with a dark twin and the mem
   assert.match(rule[0], /background: #b3261e/, 'the badge is not the app red #b3261e');
   assert.match(rule[0], /pointer-events: none/, 'the badge would eat the card click');
   assert.match(PAGE, /:root\[data-theme="dark"\] \.dmbadge \{[^}]*#ff8c82/, 'no forced-dark twin for the DM badge');
-  /* Scoped to :not(.unk): the unknown-memory badge is anchored to the BOTTOM of
-     the gauge, a different corner, so offsetting it too would stretch it tall. */
-  assert.match(PAGE, /\.agauge:has\(\.dmbadge\) \.membadge:not\(\.unk\) \{ top: 24px; \}/,
-    'the plain memory badge is not dropped below the DM bubble on co-occurrence, or the offset is not scoped to :not(.unk)');
-  assert.doesNotMatch(PAGE, /\.agauge:has\(\.dmbadge\) \.membadge \{ top: 24px; \}/,
-    'the co-occurrence offset hits every .membadge (incl. the bottom-anchored .unk), which stretches the unknown badge');
+  /* #3501: the unknown-word badge (.membadge.unk) was removed, so the co-occurrence
+     offset now targets the plain .membadge (the near-full number) directly. */
+  assert.match(PAGE, /\.agauge:has\(\.dmbadge\) \.membadge \{ top: 24px; \}/,
+    'the memory number badge is not dropped below the DM bubble on co-occurrence');
 });

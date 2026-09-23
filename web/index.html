@@ -2134,55 +2134,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
                       border: 2px dashed #9aa0a6; }
 /* THE MEMORY WARNING IS A NUMBER, NOT A METAPHOR: it sits on the gauge, the
    instrument it belongs to, not in the status row. */
-/* The unknown-memory caption, ported from the pack (FROZEN-2026-08-19).
-   ⚠️ IT EXISTS BECAUSE THE WORDS WERE ONLY IN AN `aria-label`. The dashed ring
-   distinguishes those cards and nothing on screen said what dashed MEANT, so a
-   screen-reader user had the fact and a sighted person had a shape. The pack's
-   own rule is "shape distinguishes, words identify"; this is the words.
-   ⚠️ IT MUST NOT INHERIT .membadge's RED. Red there is "nearly full", a measured
-   severity. Unknown is not a severity and must never borrow one.
-   ⚠️ It reserves no space, by the pack's reasoning: `.membadge` is absolute, so
-   it takes no layout and cannot make one card taller than its neighbour. */
-.membadge.unk {
-  /* ⚠️ `-15px`, not `-7px`. MEASURED — and REMEASURED, because the number here
-     was wrong: `docs/browser-checks/render-memory-words.js` reports 62px for
-     "Unknown" and 78px for "Not yet read", not the 105px this comment claimed.
-     The reasoning survives the correction: even at 78px the caption is wider
-     than the gap either side of an 82px gauge's dot, so it still crosses the
-     presence dot's x-range, and at -7px its 2px
-     ring painted over the bottom 4px of the dot — a distinct signal (online /
-     not running / could not check) partly obscured on every unknown-memory
-     card. Horizontal separation is not available; vertical is. */
-  top: auto; bottom: -15px; right: auto; left: 50%; transform: translateX(-50%);
-  /* ⚠️ AND THE GAUGE MAKES ROOM FOR IT. Moving the caption clear of the presence
-     dot pushed it into the name below: the badge is absolutely positioned, so it
-     takes no layout and cannot push anything itself. There is no offset that
-     clears BOTH a dot above and a name below within the original spacing —
-     measured -7px collided with the dot, -15px collided with the name — so the
-     card gives it the space instead. `:has` scopes that to the cards that
-     actually carry a caption, leaving every other card's rhythm untouched. */
-  font: 600 .625rem var(--font-ui); letter-spacing: .01em; white-space: nowrap;
-  color: var(--k-ink); background: var(--k-bg);
-  border: 1px solid var(--k-rule); border-radius: 100px;
-  box-shadow: 0 0 0 2px var(--k-surface);
-  padding: .1rem .4rem;
-}
-/* ⚠️ 26px, and the 14px I first wrote was a NO-OP: `.agauge` already carries
-   `margin: 0 auto 14px`, so the rule parsed, applied, and changed nothing —
-   and the measurement afterwards showed the SAME gap, which is what caught it.
-   The badge is 17px tall and hangs 15px below the gauge, so it needs about
-   12px more than the resting rhythm to clear the name. */
-.agauge:has(.membadge.unk) { margin-bottom: 26px; }
-/* ⚠️ AND THE DETAIL HEADER NEEDS THE SAME RESERVATION, which it never had. The
-   rule above is scoped to `.agauge`, so the identical caption on the agent page
-   hung 15px BELOW its header with nothing making room for it — measured by
-   `docs/browser-checks/render-memory-words.js`, which is the only instrument
-   here that can see it. This PREDATES the two-word split: it is the caption's
-   -15px offset, not its width, so it was live for "Unknown" too and no test
-   could have caught it, because the suite reads text.
-   ⚠️ Scoped with `:has` for the same reason as the card's rule — only the
-   headers that actually carry a caption pay the space. */
-.dav-wrap:has(.membadge.unk) { margin-bottom: 26px; }
+/* #3501: the `.membadge.unk` unknown-memory caption (states unknown /
+   not-yet-read / not-set-yet) was removed. Josh flagged it as meaningless to end
+   users, and its bottom-anchored offset was what forced the name-push reservation
+   above. The unknown fact remains on the ring (dashed state + aria-label), the
+   Memory box, and the list row. */
+/* #3501: the two `:has(.membadge.unk) { margin-bottom: 26px }` reservations were
+   removed with the unknown-word badge. They existed only to make room for that
+   caption, and they were what pushed the agent name down. The near-full number
+   badge below is absolutely positioned and needs no such reservation. */
 .membadge { position: absolute; top: 2px; right: -6px;
             font: 700 .6875rem var(--k-mono);
             font-variant-numeric: tabular-nums;
@@ -2201,12 +2161,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    bubble so they stack rather than overlap. The DM bubble keeps the corner
    because "someone is waiting on you" outranks "memory is nearly full". The list
    row has no membadge (it uses a memory bar), so it needs no such rule. */
-/* :not(.unk) is load-bearing: the unknown-memory badge (.membadge.unk) is
-   anchored to the BOTTOM of the gauge (bottom:-15px, top:auto), a different
-   corner entirely, so it never collides with the DM bubble. Only the plain
-   near-full number badge sits top-right where the DM bubble does. Offsetting
-   the .unk one too would give it both a top and a bottom and stretch it tall. */
-.agauge:has(.dmbadge) .membadge:not(.unk) { top: 24px; }
+/* #3501: the `:not(.unk)` qualifier was dropped with the unknown-word badge --
+   only the near-full number badge remains, so the plain `.membadge` selector is
+   exact now. */
+.agauge:has(.dmbadge) .membadge { top: 24px; }
 .ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
          border: 0; background: none;
          /* One padding declaration only: a second one in this same rule was
@@ -15235,11 +15193,12 @@ function memBand(pct) {
    must degrade to the honest unknown, never reach innerHTML raw. Same
    for-the-day-upstream-changes posture as the answer button's tie gate. */
 /* ⚠️ THE ONE PLACE THE TWO UNKNOWN ANSWERS BECOME WORDS, and it is shared for
-   the same reason memBand and pctOf are: this fact has FIVE renderers — the
-   card badge, the ring's aria-label, the list row, the Memory box and the
-   detail header — and this file's own comments record them drifting apart
-   twice, each time because somebody updated the surfaces they could see.
-   A sixth surface added later gets the split for free by calling this.
+   the same reason memBand and pctOf are: several surfaces need this one fact, and
+   this file's own comments record them drifting apart twice, each time because
+   somebody updated the surfaces they could see. web.memory-words.test.js pins the
+   number of CALLERS (not the number of visible surfaces) so a new one must call
+   this rather than hardcode a literal. #3501 removed the card memory badge, one
+   caller.
 
    🔑 The distinction, and why only one of them is safe to claim:
      notYet   NOTHING HAS BEEN RECORDED YET. An admission, and we can see that
@@ -15628,13 +15587,10 @@ function ring(a) {
   /* ⚠️ The pack gauge: gt/gf/gu classes, base stroke-width 4 as an
      ATTRIBUTE so the .warn/.high CSS (5/6) can thicken it -- weight is the
      third cue after arc length and colour. The unknown-memory fact is carried
-     three ways: this ring's aria-label (whichever `memUnknown` sentence applies), the dashed
-     shape the pack pairs with the unknown card, and -- since the caption was
-     restored as `.membadge unk` -- the visible word from `memUnknown` in the same
-     .agauge container. ⚠️ The two strings are deliberately disjoint, so an
-     assertion about one cannot be satisfied by the other; see the badge. ⚠️ This used to say the
-     caption "is gone at Josh's call", which stopped being true when the badge
-     came back and would have read as permission to delete it again. The avatar stays inside the ring (this app's real data;
+     two ways on the board card: this ring's aria-label (whichever `memUnknown`
+     sentence applies) and the dashed shape the pack pairs with the unknown card.
+     (#3501 removed the third, the visible `.membadge unk` caption word; the
+     Memory box on the detail screen states the fact in words there.) The avatar stays inside the ring (this app's real data;
      the pack draws faces in the same slot). */
   const pct = pctOf(ctx);
   if (pct === null) {
@@ -15821,29 +15777,14 @@ function card(a) {
     ? '<div class="note">Not the same as idle. We cannot see this one, so we are not telling you it is fine.</div>'
     : '';
 
-  /* ⚠️ THREE STATES IN ONE SLOT, and the unknown one is the whole point. The
-     board's summary line used to carry "N with unknown memory limits"; Josh cut
-     it, which left the dashed ring as the only sighted signal and the words
-     "Memory unknown" living solely in an `aria-label`. That is the could-not-
-     look versus is-not-there split failing for exactly the people who cannot
-     hear the label. The tally was doing this job by accident, fleet-wide; this
-     does it per card, which is where it belonged.
-     `unk` is checked FIRST: a null percent can never be >= NEARLY_FULL, but
-     ordering it this way means the severity badge cannot be reached by an
-     unknown, whatever pctOf later returns. */
-  const badge = pct === null
-    /* ⚠️ `aria-hidden`: the ring's aria-label already carries the authoritative
-       sentence — the one that says what HAPPENED rather than naming a state.
-       Without this a screen reader says the fact twice per card.
-       ⚠️ It used to QUOTE that sentence as "Memory could not be read.", which
-       stopped being true for half the cards when the engine learned to tell
-       "nothing recorded yet" from "we could not read it". A comment that is the
-       whole justification for hiding something must not quote a string the
-       thing it hides may not have.
-       The gap this badge closes was always the SIGHTED half. (Mona Lisa,
-       2026-08-19; the pack uses this pattern 160 times on .haz/.qmark/.rest.) */
-    ? `<span class="membadge unk" aria-hidden="true">${memUnknown(a.context).word}</span>`
-    : (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
+  /* #3501: the unknown-memory WORD badge (.membadge.unk, states unknown /
+     not-yet-read / not-set-yet) was removed. Josh flagged it as meaningless to
+     end users, and it was the state that pushed the agent name down. The unknown
+     fact still reaches sighted and screen-reader users through the ring's dashed
+     state and aria-label, the Memory box, and the list row. The near-full NUMBER
+     badge below stays: it is a measured reading, absolutely positioned (so it
+     never pushes the name), and guarded by server.test.js. */
+  const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
@@ -15906,7 +15847,8 @@ function lrowRing(a) {
 /* #1915: the same memory ring for the DETAIL avatar, scaled to sit just outside the
    88px avatar. Same reading (pctOf) and band (memBand) as the board rings and the
    MEMORY panel, so all surfaces agree. Unknown (pct null) draws no ring, matching
-   lrowRing; the detail's .membadge (unk) and MEMORY panel carry the unknown case. */
+   lrowRing; on the detail screen the MEMORY panel carries the unknown case (this
+   ring is aria-hidden, and #3501 removed the detail's .membadge unk word). */
 function detailRing(a) {
   const pct = pctOf(a.context);
   if (pct === null) return '';
@@ -24142,12 +24084,11 @@ function memoryBox(a) {
       + u.note + '</p>';
   }
   const band = memBand(pct);
-  /* 🛑 THE FOURTH SURFACE, and the comment beside the detail badge records the
-     last time one was left behind: "three surfaces, one fact, and the third
-     left on the old treatment". This box was the fourth, printing the capped
-     figure directly while the other three had moved to `memPrint`. The bar's
-     WIDTH keeps the capped number, which is correct: a bar cannot draw past its
-     own end, and that is the reason the printed figure had to become a word. */
+  /* 🛑 A MEMORY SURFACE THAT WAS LEFT BEHIND ONCE: this box printed the capped
+     figure directly while the other memory surfaces had moved to `memPrint`.
+     The bar's WIDTH keeps the capped number, which is correct: a bar cannot draw
+     past its own end, and that is the reason the printed figure had to become a
+     word. */
   return '<div class="memrow"><span class="bar"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
     + '<span class="pct">' + memPrint(a.context, pct) + '</span></div>'
     + (pct >= NEARLY_FULL
@@ -25966,16 +25907,14 @@ function openDetail(sessionName, section, fromProject) {
   /* The pack's header badge and the two reading boxes, all off the same
      shared derivations the board uses (memBand/pctOf/modelLine). */
   const dpct = pctOf(a.context);
-  /* ⚠️ THE FOURTH SURFACE OF ONE FACT. `card()`, `lrow()` and `memoryBox()` all
-     say the shared unknown word at `pct === null`; this stayed a two-state slot (percent or
-     nothing) while the card's `.membadge` became a three-state one. The fact is
-     still stated on this screen by the Memory box, so it was never an honesty
-     failure — but "three surfaces, one fact, and the third left on the old
-     treatment" was this branch's own note, and this was the fourth. */
+  /* #3501: the unknown-memory WORD state of this header badge (.membadge.unk) was
+     removed with the card's. The badge now shows ONLY the near-full number; the
+     unknown fact is stated on this screen by the Memory box (the detail ring
+     draws nothing and is aria-hidden when unknown). */
   const dbadge = document.getElementById('d-membadge');
-  dbadge.className = 'membadge' + (dpct === null ? ' unk' : '');
+  dbadge.className = 'membadge';
   dbadge.textContent = memPrint(a.context, dpct);
-  dbadge.hidden = !(dpct === null || dpct >= NEARLY_FULL);
+  dbadge.hidden = !(dpct >= NEARLY_FULL);
   document.getElementById('d-ring').innerHTML = detailRing(a);
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');

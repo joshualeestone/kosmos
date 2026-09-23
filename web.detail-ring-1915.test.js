@@ -77,7 +77,7 @@ test('the colour/weight band changes at the thresholds, off the shared memBand',
   assert.match(detailRing({ context: { percent: 85 } }), /class="gf high"/);  // at/over NEARLY_FULL
 });
 
-test('an unknown reading draws no ring (the membadge unk + memory panel carry unknown)', () => {
+test('an unknown reading draws no ring (the memory panel + ring aria carry unknown)', () => {
   for (const ctx of [null, undefined, {}, { percent: null }, { percent: 'x' }]) {
     assert.equal(detailRing({ context: ctx }), '', `${JSON.stringify(ctx)} drew a ring`);
   }
