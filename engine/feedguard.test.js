@@ -43,7 +43,8 @@ test('the positive control really exercises every pattern (a clean body is not a
   // pattern against the clean body explicitly and require no match.
   const body = clean().body;
   for (const p of fg.PATTERNS) {
-    assert.equal(p.re.test(body), false, 'clean body unexpectedly matched ' + p.why);
+    const hit = p.fn ? p.fn(body) : p.re.test(body);
+    assert.equal(hit, false, 'clean body unexpectedly matched ' + p.why);
   }
 });
 
@@ -260,6 +261,108 @@ test('a circular reference (via links) is unserializable and fails closed withou
   assert.doesNotThrow(() => { v = fg.guard(cand, { trusted: true }); });
   assert.equal(v.clean, false);
   assert.equal(v.publish, false);
+});
+
+// ---- fail-open regressions caught by the iteration-2 blind review -----------
+
+test('a Symbol at (skipped by both scans) fails closed and cannot smuggle a token', () => {
+  const cand = clean();
+  cand.at = Symbol('ghp_' + 'a'.repeat(36));
+  let v;
+  assert.doesNotThrow(() => { v = fg.guard(cand, { trusted: true }); });
+  assert.equal(v.clean, false);
+  assert.equal(v.publish, false);
+  assert.ok(v.findings.some((x) => x.cls === 'wrong_type' && x.field === 'at'));
+});
+
+test('guard(candidate, null) does not throw and holds', () => {
+  let v;
+  assert.doesNotThrow(() => { v = fg.guard(clean(), null); });
+  assert.equal(v.publish, false, 'null opts means no asserted trust -> held');
+  assert.equal(v.clean, true);
+  // any non-object opts is coerced, not thrown on
+  for (const bad of [null, 42, 'x', true]) {
+    assert.doesNotThrow(() => fg.guard(clean(), bad));
+  }
+});
+
+test('a many-links candidate is bounded and does not hang the scan', () => {
+  const cand = clean();
+  cand.links = [];
+  for (let i = 0; i < 60; i++) cand.links.push('https://example.com/' + 'a'.repeat(2000));
+  const start = Date.now();
+  const v = fg.guard(cand, { trusted: true });
+  assert.ok(Date.now() - start < 2000, 'many-links scan took too long');
+  assert.equal(v.clean, false); // > LIMITS.links -> oversize
+  assert.ok(v.findings.some((x) => x.cls === 'oversize' && x.field === 'links'));
+});
+
+test('newly added leak classes are caught: SSN, card, AWS STS (ASIA)', () => {
+  const cases = [
+    ['ssn', 'his ssn is 123-45-6789 apparently'],
+    ['card', 'card 4111 1111 1111 1111 on file'],
+    ['card', 'card 4111-1111-1111-1111 on file'],
+    ['secret_token', 'temp creds ASIAIOSFODNN7EXAMPLE here'],
+  ];
+  for (const [cls, body] of cases) {
+    const cand = clean();
+    cand.body = body;
+    const v = fg.guard(cand, { trusted: true });
+    assert.equal(v.clean, false, cls + ' slipped: ' + body);
+    assert.ok(v.findings.some((x) => x.cls === cls), body + ' not classed ' + cls);
+  }
+});
+
+test('non-USD currency figures are caught', () => {
+  for (const body of ['the loss was €249,000 total', 'that is 249,000 EUR', '£120000 gone']) {
+    const cand = clean();
+    cand.body = body;
+    const v = fg.guard(cand, { trusted: true });
+    assert.equal(v.clean, false, 'currency slipped: ' + body);
+    assert.ok(v.findings.some((x) => x.cls === 'financial'));
+  }
+});
+
+test('name-denylist evasions are caught after normalization', () => {
+  const evasions = [
+    'Jos​h Stone asked me to',   // zero-width space
+    'Josh\nStone asked me to',         // newline for the space
+    'Ｊｏｓｈ Stone did', // full-width "Josh"
+  ];
+  for (const body of evasions) {
+    const cand = clean();
+    cand.body = body;
+    const v = fg.guard(cand, { trusted: true });
+    assert.equal(v.clean, false, 'name evasion slipped: ' + JSON.stringify(body));
+    assert.ok(v.findings.some((x) => x.cls === 'human_name'));
+  }
+});
+
+test('a non-enumerable own property is caught as an unexpected field', () => {
+  const cand = clean();
+  Object.defineProperty(cand, 'stash', { value: 'ghp_' + 'z'.repeat(36), enumerable: false });
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'unexpected_field' && x.field === 'stash'));
+});
+
+test('two secrets in two different fields yield two field-attributed findings', () => {
+  const cand = clean();
+  cand.topic = 'ghp_' + 'a'.repeat(36);
+  cand.body = 'ghp_' + 'b'.repeat(36);
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  const tokenFields = v.findings.filter((x) => x.cls === 'secret_token').map((x) => x.field);
+  assert.ok(tokenFields.includes('topic'), 'topic leak not attributed');
+  assert.ok(tokenFields.includes('body'), 'body leak not attributed');
+});
+
+test('an oversize at is a structural finding', () => {
+  const cand = clean();
+  cand.at = 'x'.repeat(fg.LIMITS.at + 1);
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.clean, false);
+  assert.ok(v.findings.some((x) => x.cls === 'oversize' && x.field === 'at'));
 });
 
 test('the exported contract is a closed, frozen shape', () => {
