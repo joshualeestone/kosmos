@@ -1,0 +1,86 @@
+'use strict';
+/**
+ * #3508: the Prompter's IN-APP nudge store -- the delivery half #2623 removed,
+ * rebuilt LOCAL.
+ *
+ * 🛑 WHAT #2623 REMOVED, AND WHY THIS IS NOT THAT. The heartbeat's `check_in`
+ * nudge used to ride engine/notify.js, a PHONE-HOME POST, deleted as telemetry
+ * (Josh, 2026-09-09, "invasion of privacy"). #2631's own commit message said "A
+ * future in-app delivery channel is a separate build." This is that build, and it
+ * is a LOCAL 0600 file with NO endpoint and NO switch: nothing leaves the Mac, so
+ * it is not the telemetry Josh ruled out and needs no opt-out. The web UI reads
+ * this file through an API on the same machine and renders the question.
+ *
+ * 🔑 THE STORE IS THE CURRENT PENDING SET, REPLACED EACH TICK. engine/heartbeat.js
+ * `step()` already computes `toAsk` -- the agents in an open stall worth a
+ * check-in -- fresh every tick from the board's classified states. This holds the
+ * latest such list. When a stall resolves, the next tick's toAsk drops that agent
+ * and `write` replaces the set, so the nudge clears on its own; there is no
+ * separate "dismiss" bookkeeping to drift. The runner calls `write` every tick
+ * (best-effort); the API calls `read`.
+ *
+ * 🔑 WHO + WHEN, NEVER THE WORDS. Each entry carries only `session`, `from` (the
+ * state it was in) and `to` (the stall state now). The app composes the question
+ * ("mid-something, finished, or stopped?") from those; this store never holds a
+ * sentence, matching the removed payload's own rule and the heartbeat header.
+ *
+ * Never throws: a write or read failure degrades to "no nudges", because a missed
+ * nudge is a missed nudge (the board's own status surfaces still show the truth)
+ * and must never take down the tick or the poll.
+ */
+
+const fs = require('node:fs');
+const path = require('node:path');
+const store = require('./store');
+
+const BASE = process.env.AGENT_WORKFORCE_DATA || store.ROOT;
+const FILE = path.join(BASE, 'prompter-nudges.json');
+
+/** Replace the pending nudge set with this tick's `toAsk`. Accepts the heartbeat
+ *  `toAsk` shape ([{ session, from, to }]); anything malformed is coerced or
+ *  dropped rather than trusted. Returns { ok }. */
+function write(toAsk) {
+  const list = Array.isArray(toAsk) ? toAsk : [];
+  const nudges = [];
+  for (const n of list) {
+    const session = n && typeof n.session === 'string' ? n.session.slice(0, 120) : '';
+    if (!session) continue; // a nudge with no agent cannot be rendered or acted on
+    nudges.push({
+      session,
+      from: n.from != null ? String(n.from).slice(0, 40) : null,
+      to: n.to != null ? String(n.to).slice(0, 40) : null,
+    });
+  }
+  const payload = { v: 1, at: new Date().toISOString(), nudges };
+  try {
+    fs.mkdirSync(path.dirname(FILE), { recursive: true });
+    const tmp = FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(payload) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, FILE);
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** The current pending nudges, or an empty set on any read/parse failure. */
+function read() {
+  let raw;
+  try { raw = fs.readFileSync(FILE, 'utf8'); } catch { return { at: null, nudges: [] }; }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return { at: null, nudges: [] }; }
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.nudges)) {
+    return { at: null, nudges: [] };
+  }
+  // Re-shape defensively: a hand-edited or older file must not hand the API a
+  // sentence or an object it did not expect.
+  const nudges = [];
+  for (const n of parsed.nudges) {
+    const session = n && typeof n.session === 'string' ? n.session : '';
+    if (!session) continue;
+    nudges.push({ session, from: n.from != null ? String(n.from) : null, to: n.to != null ? String(n.to) : null });
+  }
+  return { at: parsed.at || null, nudges };
+}
+
+module.exports = { write, read, FILE };
