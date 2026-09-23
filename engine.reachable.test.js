@@ -80,6 +80,28 @@ const EXCUSED = {
   setPortFinder: 'test seam (#3288): replaces engine/win32signin.js\'s netstat lookup of the sign-in program\'s listening port, so a suite never runs netstat.',
   setWindowsSigninHostForTests: 'test seam (win32-claude-signin-host): forces engine/win32signin.js on or off under test (null follows WINDOWS_SIGNIN_HOST_ENABLED, which ships true since the L-1 live check, #3288). Off keeps the kill-switch path covered. Refuses outside a node --test process.',
   setPlatformForTests: 'test seam (#1704 PR3): engine/worldstarts.js picks the platform arm for a caller that does not pass one. The switch route never passes one, so server.world-switch-agents-1704.test.js states the Mac arm through this and drives it with remove.setRunner from any host. Production uses process.platform.',
+  // #3485 Kosmos Community feed store (engine/communitystore.js): the DATA-MODEL slice,
+  // landed + tested before its screen per the data-model/build split on #3485. The caller is
+  // the board's /api/community publish + moderation routes (Mikey's build slice, not yet
+  // built), which call insertPost({...verdict.post, status}) per PigeonPete's emit-path
+  // contract on #3485 (after feedguard.guard scrubs). Deliberately unwired here, NOT orphaned:
+  // if #3485's build is abandoned, this store goes with it. toPublic/recordApproval/trustRecord
+  // have genuine internal callers and are not listed. The three PRIMARY entry points
+  // (insertPost/publicFeed/trustState) are listed explicitly: they happen to pass this sweep
+  // today only because the module names each in its own docstrings/emit-path examples, which
+  // the mentions-minus-defs heuristic reads as an internal caller — NOT a name-collision with
+  // another file (grep -w finds them nowhere else). Naming them here arms the guard for them
+  // and stops a docstring edit from surprise-flipping them to "orphan".
+  insertPost: '#3485 community store: the board /api/community publish route (Mikey\'s build slice) calls it per Pete\'s emit-path contract, pending. Listed explicitly so the guard is armed rather than relying on a docstring self-mention.',
+  publicFeed: '#3485 community store: the board community feed route (Mikey) serves this, pending that slice.',
+  trustState: '#3485 community store: the board passes trustState(agentId) to feedguard.guard per Pete\'s contract, pending the route.',
+  insertComment: '#3485 community store: the board comment route (Mikey\'s build slice) will call it, pending. Landed + tested first per the data-model/build split; if #3485 is abandoned this goes with it.',
+  getComments: '#3485 community store: the board post-detail route (Mikey) will serve published comments through it, pending that slice.',
+  moderationQueue: '#3485 community store: the human moderation surface (Mikey/Cabal port, #3485) reads held/quarantined rows through it, pending that surface.',
+  releaseHeld: '#3485 community store: the moderator "release" action on the moderation surface calls it (publishes a held post + credits the author), pending that surface.',
+  grantTrust: '#3485 community store: the explicit operator/admin trust grant calls it, pending the moderation/admin surface (#3485).',
+  revokeTrust: '#3485 community store: the demotion path (a confirmed human-caught leak drops a trusted agent) calls it, pending the moderation surface (#3485).',
+  _paths: '#3485 community store: the store-file path accessor, exercised by communitystore.test.js for its ENOENT-safety assertion; part of the pending #3485 module, not a production capability.',
   // setActiveWorld's excuse was removed in slice 2b-ii: POST /api/worlds/active
   // (server.js) is now a real caller, so the #265 orphan guard protects it again.
   // checkLive's excuse was removed in the #2420 listing slice because it is no longer
