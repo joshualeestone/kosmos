@@ -359,6 +359,14 @@ const BLOCK = [
      softening it into a preference is how it stops being followed. */
   '- **Never use an em dash.** Not in a document, not in a message, not in a',
   '  file you leave behind. Use a comma, a full stop, or rewrite the sentence.',
+  '',
+  '### Use their name',
+  '',
+  '**When you write to the person, call them by their name.** It is written for',
+  'you in the "Who you work for" section of these instructions. Every other line',
+  'here says "the operator" or "the person" because those lines are general and',
+  'do not know who you work for. You do. A message that uses their name reads as',
+  'written to them; "the operator" reads as written about them to someone else.',
 ].join('\n');
 
 /**
@@ -528,8 +536,25 @@ function block() {
  *     refusal, but the verb surfaces the board's own reason and exits non-zero
  *     on any failure, so a different refusal still reaches the agent at runtime;
  *     the copy degrades to naming one example rather than the full set.
+ *
+ *  12. kosmos#3444. Josh (side note): agents address him as "operator" instead of
+ *     by name. His name is written under `## Who you work for` (you.js), but
+ *     nothing told an agent to USE it when writing, and every other mention of
+ *     the person here says "the operator" / "the person", so agents defaulted to
+ *     the generic word and the name sat unused. A NEW section, `### Use their
+ *     name`, tells the agent to call the person by the name in that section.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
+ *     `missingFrom` matches by heading, so the EXISTING fleet (the agents Josh is
+ *     already talking to, which is who his complaint is about) is re-offered it,
+ *     not only newly created ones. The card asked for an edit INSIDE `### How to
+ *     write to them`; that would have reached new agents only and missed the
+ *     exact population reporting the problem, so it is a new section instead.
+ *     WEAKEST PREMISE, NAMED: it assumes the name is present under `Who you work
+ *     for`. `you.js` writes that heading unconditionally but an agent given no
+ *     name has nothing to use; the wording degrades to the generic it replaces
+ *     rather than breaking.
  */
-const DOCTRINE_VERSION = 11;
+const DOCTRINE_VERSION = 12;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
