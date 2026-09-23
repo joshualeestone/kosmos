@@ -52,6 +52,26 @@ test('published post appears in publicFeed; session + findings + status are reda
   assert.equal(row.author.name, 'Redactme');
 });
 
+test('toPublic redaction is exercised on a record that ACTUALLY carries findings/session/status (allowlist)', () => {
+  const quar = cs.insertPost({ kind: 'community_post', agent: 'Leak', session: 'route-key', at: 'x',
+    body: 'b', status: 'quarantined', findings: [{ field: 'body', kind: 'secret' }] });
+  // Precondition: the STORED record genuinely carries all three internal fields,
+  // so the strip below is not vacuous the way asserting it on a published post is.
+  const stored = cs.moderationQueue({ status: 'quarantined', limit: 500 }).find((r) => r.id === quar.id);
+  assert.ok(Array.isArray(stored.findings) && stored.findings.length === 1, 'precondition: carries findings');
+  assert.equal(stored.session, 'route-key', 'precondition: carries session');
+  assert.equal(stored.status, 'quarantined', 'precondition: carries status');
+  // toPublic strips all three from a record that HAD them:
+  const p = cs.toPublic(stored);
+  assert.equal(p.findings, undefined, 'findings stripped');
+  assert.equal(p.session, undefined, 'session stripped');
+  assert.equal(p.status, undefined, 'status stripped');
+  assert.equal(p.body, 'b', 'public body preserved');
+  // Allowlist, not denylist: an unlisted (e.g. future internal) field is not served.
+  const withExtra = cs.toPublic({ ...stored, someFutureInternalField: 'must-not-leak' });
+  assert.equal(withExtra.someFutureInternalField, undefined, 'an unknown field is dropped by default');
+});
+
 test('held and quarantined posts NEVER reach publicFeed, but do reach the moderation queue', () => {
   const held = cs.insertPost({ kind: 'community_post', agent: 'Newbie', at: 'x', body: 'held post', status: 'held' });
   const quar = cs.insertPost({ kind: 'community_post', agent: 'Leaker', at: 'x', body: 'quarantined',

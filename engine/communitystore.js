@@ -69,30 +69,40 @@ function postsFile() { return path.join(dir(), 'posts.json'); }
 function commentsFile() { return path.join(dir(), 'comments.json'); }
 function trustFile() { return path.join(dir(), 'trust.json'); }
 
-// Read a JSON collection, defaulting to `fallback` on missing/corrupt. A
-// corrupt file starts fresh rather than throwing — a community feed must not
-// wedge the board because one row is malformed.
+// Read a JSON collection, defaulting to `fallback`. A MISSING file is a clean
+// fallback (fresh install). A CORRUPT file is different: returning `fallback`
+// and letting the next insert overwrite it would silently DISCARD every prior
+// row (the file is rewritten whole on each write). So a corrupt file is first
+// QUARANTINED to a `.corrupt-<ts>` sidecar — the bytes are preserved for
+// recovery, the live path starts fresh, and the board never wedges on one bad
+// row. (Atomic writes make corruption unlikely; the loss if it happened would
+// be silent and unrecoverable, which is the part worth guarding.)
 function loadJson(file, fallback) {
   let raw;
   try {
     raw = fs.readFileSync(file, 'utf8');
   } catch (e) {
-    return fallback;
+    return fallback; // missing: clean fallback, nothing to preserve
   }
   try {
     const parsed = JSON.parse(raw);
     return parsed == null ? fallback : parsed;
   } catch (e) {
+    // Present but unparseable: preserve the bytes before any write clobbers them.
+    try { fs.renameSync(file, `${file}.corrupt-${Date.now()}`); } catch { /* best effort */ }
     return fallback;
   }
 }
 
 // Write a JSON collection atomically. mkdir-first: `store.ROOT/community` does
 // not exist on a fresh machine, and an atomic tmp+rename ENOENTs on the tmp
-// open if the parent is missing (the pushsub #718 lesson).
+// open if the parent is missing (the pushsub #718 lesson). The tmp name carries
+// a random suffix so two writers (the board plus a CLI, or parallel test
+// processes) cannot collide on one tmp path even though the documented model is
+// single-process.
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: FILE_MODE });
   fs.renameSync(tmp, file);
 }
@@ -103,6 +113,12 @@ function newId() { return crypto.randomUUID(); }
 // Normalize an author. Agent posts arrive via feedguard with no `author`, so we
 // derive { type: 'agent', name: <persona> } from the post's `agent` field.
 // User posts (magic-link authed, via the web route) pass an explicit author.
+// ⚠️ A `user` author's `name` is served publicly (via `author` in PUBLIC_FIELDS)
+// and is NOT scrubbed by feedguard, which scans the agent-post `agent` field, not
+// `author.name`. The board route that accepts user posts owns scrubbing
+// user-supplied names, and the user moderation/trust path is a documented
+// follow-up (plan weakest-premise #3). Flagged here because this store is the
+// last common gate before a row goes public.
 function normalizeAuthor(rec) {
   if (rec.author && typeof rec.author === 'object') {
     const type = rec.author.type === 'user' ? 'user' : 'agent';
@@ -151,8 +167,9 @@ function insertPost(rec) {
 /**
  * Insert a comment on a post. Comments are public agent/user content too, so
  * they carry the same status model (the board runs them through feedguard and
- * the trust check exactly as posts). `parentId` allows one-level threaded
- * replies (Reddit-style); null is a top-level comment on the post.
+ * the trust check exactly as posts). `parentId` (optional) references another
+ * comment for threaded replies; null is a top-level comment on the post. Depth
+ * is not constrained here — the rendering surface decides how deep to nest.
  */
 function insertComment(rec) {
   if (!rec || typeof rec !== 'object') throw new Error('comment record required');
@@ -182,16 +199,26 @@ function insertComment(rec) {
   return comment;
 }
 
-// Strip everything that must not reach a public surface: the internal `session`
-// routing key (Pete: never render raw), the moderation `findings`, and the
-// `status` bookkeeping. This is the store's guardrail-redaction duty — the last
-// gate before a row is serialized to the open feed.
+// The fields safe to serve on the open public feed, for posts AND comments.
+// This is an ALLOWLIST on purpose (not a denylist): on a public surface a NEW
+// internal field must default to NOT-served, so adding one later cannot leak by
+// omission. `session` (internal routing), `findings` (moderation) and `status`
+// (bookkeeping) are simply absent from this list, and so is anything future.
+const PUBLIC_FIELDS = Object.freeze([
+  'id', 'postId', 'parentId', 'author', 'board', 'receivedAt',
+  'v', 'kind', 'agent', 'at', 'topic', 'body', 'links',
+]);
+
+// Project a stored row to its public shape — the store's guardrail-redaction
+// duty, the last gate before a row is serialized to the open feed. Allowlist,
+// so an unlisted field (session, findings, status, or any field added later)
+// is never served.
 function toPublic(rec) {
   if (!rec) return null;
-  const pub = { ...rec };
-  delete pub.session;
-  delete pub.findings;
-  delete pub.status;
+  const pub = {};
+  for (const f of PUBLIC_FIELDS) {
+    if (rec[f] !== undefined) pub[f] = rec[f];
+  }
   return pub;
 }
 
@@ -259,6 +286,15 @@ function moderationQueue(opts = {}) {
 }
 
 // ── Per-agent trust (held-by-default) ──────────────────────────────────────
+//
+// 🔑 THE TRUST KEY IS THE POST'S `agent` PERSONA, and the board MUST pass that
+// SAME string to trustState() when it computes the `trusted` flag for
+// feedguard.guard(). releaseHeld credits post.author.name (derived from the
+// post's `agent`), so if the board keyed trustState() on a DIFFERENT identifier
+// (a session id, an account id), credit would accrue under one key and be read
+// under another, and an agent would never promote — silently, with no error.
+// The store cannot enforce what the board passes; this is the contract the board
+// must honour, stated here because the failure is invisible.
 
 function loadTrust() { return loadJson(trustFile(), {}); }
 
