@@ -8416,6 +8416,10 @@ test('--k-sunk is DEFINED, in both themes, not merely defended with a fallback',
   // `dmRow` emits when `m.from` is set, since #175 -- takes that transparent
   // default. Two earlier versions of this comment were false about that:
   // "and every message bubble", then "dmRow emits dm mine unconditionally".)
+  // #3414: `dmRow` now emits the room's `.msg`/`.msg-bd` markup (agent bubble
+  // `--agent-msg`, the person's own `--usermsg-tint`) rather than the old
+  // `.dm`/`dm theirs`/`dm mine` rows named above; this test reads only the
+  // `--k-sunk` CSS token, which is unaffected either way.
   // The light fallback on the dark ground is a 5%-black wash on #17191c, which
   // is not a sunk panel, it is a missing one. So the token is defined per theme.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
