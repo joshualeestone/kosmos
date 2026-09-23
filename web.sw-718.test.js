@@ -100,4 +100,10 @@ test('notificationFor honors an explicit title/body and survives a payload-less 
   // A push with no data at all must not throw and must render a default.
   const none = notificationFor({ data: null });
   assert.ok(none.title && none.options.body, 'a payload-less push produced an empty notification');
+  // A valid but NON-OBJECT body (JSON null, a number, a bare string) must also
+  // render a default rather than throwing on a property read and dropping the push.
+  for (const weird of [null, 42, 'a bare string', true]) {
+    const n = notificationFor(ev(weird));
+    assert.ok(n.title && n.options.body, 'a non-object push body (' + JSON.stringify(weird) + ') was dropped');
+  }
 });

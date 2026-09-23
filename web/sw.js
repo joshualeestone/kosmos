@@ -137,6 +137,11 @@ function notificationFor(event) {
   if (event.data) {
     try { data = event.data.json(); }
     catch (_e) { data = {}; }
+    // A push can carry a valid but non-object body (JSON `null`, a number, a
+    // bare string), which would make the property reads below throw and lose the
+    // notification. The coordinator only ever sends an object, so this is
+    // defensive; it costs one line to never drop a push over a shape surprise.
+    if (!data || typeof data !== 'object') data = {};
   }
   let title = (typeof data.title === 'string' && data.title) ? data.title : '';
   let body = (typeof data.body === 'string' && data.body) ? data.body : '';
