@@ -114,15 +114,26 @@ const firstViewportVis = `() => { const e = document.querySelector('.pj-viewport
     // shares, and the safety arm below is a real detail-view assertion.)
     await setEng(false);
 
-    // --- ARM 3: SAFETY - an ASKING agent keeps its question terminal visible in Off -
-    // The fix must NEVER hide this: it is how a waiting agent gets answered.
-    // openDetail directly (the card can resolve to two nodes and sit under the open
-    // detail panel; the real navigation entry point is openDetail either way).
+    // --- ARM 3: SAFETY - an ASKING agent keeps its COMPOSER available in Off -
+    // The fix must NEVER gate this away: it is how a waiting agent gets answered.
+    // #3419: the answer is typed in the composer (#d-say) now, not the removed
+    // #d-qask question panel (a needs_you question is a thread bubble). So the safety
+    // invariant is that the composer stays present and enabled in Off, not that the
+    // old question box is visible. openDetail directly (the card can resolve to two
+    // nodes and sit under the open detail panel; the real navigation entry point is
+    // openDetail either way).
     await page.evaluate(() => { if (typeof openDetail === 'function') openDetail('asky'); });
     await page.waitForSelector('#panel-detail:not([hidden])');
     await page.waitForTimeout(700);
-    const qaskVis = await visId('d-qask');
-    chk(qaskVis === 'VISIBLE', 'SAFETY: an asking agent keeps its question panel (#d-qask) VISIBLE even with Engineering mode OFF (never gated away - it is how the answer is typed)', qaskVis);
+    // PRESENT, not necessarily enabled: Engineering mode gates the project ROOM's
+    // one-to-one box, never the agent-page composer, so the invariant is that #d-say
+    // is on screen in Off (not gated away). Whether it is disabled is a presence
+    // concern (off/unsure agents), which Engineering mode does not control.
+    const sayState = await page.evaluate(() => {
+      const say = document.getElementById('d-say');
+      return (say && !say.hidden && say.getClientRects().length) ? 'PRESENT' : 'MISSING';
+    });
+    chk(sayState === 'PRESENT', 'SAFETY: an asking agent keeps its composer (#d-say) on screen even with Engineering mode OFF (never gated away - it is how the answer is typed)', sayState);
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {

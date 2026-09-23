@@ -1299,6 +1299,47 @@ function unreachableStates() {
         problems.push(`[${theme}] refusal: the route's own sentence reached the panel: ${JSON.stringify(both.borrowed)}`);
       }
 
+      /* #3419: THE TALK-TAB NEEDS-ATTENTION DOT FOLLOWS THE needs_you STATE, not the
+         (now folder-trust-only) #d-qask box. A needs_you question is a thread bubble,
+         and a person on another tab still needs the dot to know Talk has something to
+         answer. paintTalk sets a `data-needs` marker on #d-qask from body.asking, and
+         detailDots reads it via the MutationObserver. This shipped untested and the dot
+         regressed once (it keyed on #d-qask visibility, which the menu removal restricted
+         to the folder-trust recovery). Both arms: the dot LIGHTS on a plain needs_you
+         question while #d-qask stays hidden, and CLEARS when nothing is asking. The
+         observer fires detailDots asynchronously, so each read is after a short wait. */
+      const talkDot = () => page.evaluate(() => {
+        const b = document.querySelector('#d-nav button[data-go="talk"]');
+        return !!(b && b.hasAttribute('data-dot'));
+      });
+      await page.evaluate(async (q) => {
+        window.__fx = { messages: [], olderCount: 0, historyBecause: null, historyUnfilable: false,
+          presence: 'on', presenceBecause: null, asking: true, question: q, questionBecause: null,
+          options: null, answerNote: null };
+        await paintTalk('april', 'April');
+      }, QUESTION);
+      await page.waitForTimeout(80);
+      const dotAsking = await talkDot();
+      const boxHiddenAsking = await page.evaluate(() => document.getElementById('d-qask').hidden);
+      if (!dotAsking) {
+        problems.push(`[${theme}] talk-dot: a plain needs_you question did not light the Talk-tab `
+          + 'needs-attention dot (#3419 re-drive off the data-needs marker)');
+      }
+      if (!boxHiddenAsking) {
+        problems.push(`[${theme}] talk-dot: #d-qask is showing for a plain needs_you question `
+          + '(it must be the folder-trust recovery box only)');
+      }
+      await page.evaluate(async () => {
+        window.__fx = { messages: [], olderCount: 0, historyBecause: null, historyUnfilable: false,
+          presence: 'on', presenceBecause: null, asking: false, question: null, questionBecause: null,
+          options: null, answerNote: null };
+        await paintTalk('april', 'April');
+      });
+      await page.waitForTimeout(80);
+      if (await talkDot()) {
+        problems.push(`[${theme}] talk-dot: the Talk-tab dot stayed lit with nothing asking (it must clear)`);
+      }
+
       }
     }
     await page.close();

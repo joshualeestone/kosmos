@@ -443,19 +443,23 @@ async function main() {
     await page.goto(BASE, { waitUntil: 'networkidle' });
     await page.waitForSelector('.acard[data-agent="mara"] .ansgo', { timeout: 10000 });
     await page.click('.acard[data-agent="mara"] .ansgo');
-    await page.waitForFunction(() => {
-      const q = document.getElementById('d-qask');
-      return q && !q.hidden;
-    }, null, { timeout: 10000 });
+    /* #3419: wait on the PAGE opening, not on `#d-qask`. The question is a thread
+       bubble now, and `#d-qask` stays hidden for a plain needs_you agent (it is the
+       folder-trust recovery box only), so the old `!q.hidden` wait would time out --
+       and per this file's own note above, a throw here ends the run and silently
+       skips every assertion after it. The assertion is that the answer button lands
+       on the agent's page (`#panel-detail`), which does not need the engine seam. */
+    await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 10000 });
     check(await page.evaluate(() => !document.getElementById('panel-detail').hidden),
-      'the answer button lands on the agent’s own page, which is where its question is');
+      'the answer button lands on the agent’s own page, which is where its question bubble is');
 
     /* The room in Engineering-mode Off. #2691 (Josh 2026-09-10) walked back the
        #2575/#2146 asking-override: the one-to-one box no longer reopens in Off
        when an agent is waiting. So in Off the room keeps ONE composer (the
        room's), the raw screen stays hidden, and #pj-thread stays folded even
        while an agent is asking. A waiting agent is answered in Off through the
-       DETAIL view (#d-qask, driven above), not through this room box. */
+       DETAIL view (the agent's own page, opened above -- #3419: a thread bubble
+       answered in the composer), not through this room box. */
     await page.goto(BASE + '?tab=projects', { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-project]', { timeout: 10000 });
     await page.click('[data-project]');

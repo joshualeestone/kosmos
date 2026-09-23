@@ -2469,12 +2469,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-sec-talk { flex: 1 1 auto; min-height: 0; }
 /* overflow-y:auto is a FALLBACK: normally #d-dmthread (flex:1) absorbs the height and the box
-   does not overflow, so no box scrollbar shows. But when #d-qask (a live question) is showing
-   in a SHORT window, the non-thread children (label, question + options, composer) can exceed
-   the box after the thread has shrunk to 0; without this they would be clipped below the
-   fixed-height box with no page scroll to reach them, hiding the answer buttons (#2622 iter-4).
-   The box then scrolls to keep the composer and options reachable. Mutually exclusive with the
-   thread's own scroll in practice: the box overflows only once the thread is already at 0. */
+   does not overflow, so no box scrollbar shows (a long thread scrolls INSIDE #d-dmthread). But
+   the non-thread children -- the #d-qask folder-trust recovery box and the composer -- can
+   exceed the box in a SHORT window after the thread has shrunk to 0; without this they would be
+   clipped below the fixed-height box with no page scroll to reach them (#2622 iter-4).
+   #3419: the answer-menu question box and its option buttons that once sat here are gone (a
+   needs_you question is a thread bubble now), so the composer is the child this keeps reachable.
+   Mutually exclusive with the thread's own scroll in practice: the box overflows only once the
+   thread is already at 0. */
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; max-height: none; }
 /* The panel is a flex column, so its direct children stretch by default. That is right for
@@ -8525,13 +8527,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        rename. The markup ships the nameless form so a painter that returns
        early never leaves the previous agent's name on a button.
        🔑 THE DOT IS A SHAPE, so it survives greyscale; colour reinforces. It is
-       set by `detailDots` from the same facts the sections render (an open
-       question in the talk box; the instructions needing the person, which is
-       either the running copy older than the file or the file changed under
-       the editor since it was opened), which
-       watches those elements' `hidden` attribute rather than being called by
-       each painter, so the nav cannot say "needs you" about a section that
-       does not. -->
+       set by `detailDots` from the same facts the sections render (a needs_you
+       question -- rendered as a thread bubble now (#3419), tracked via the
+       `data-needs` marker paintTalk sets on `#d-qask` -- or the folder-trust
+       recovery box; the instructions needing the person, which is either the
+       running copy older than the file or the file changed under the editor since
+       it was opened), which watches those elements' `hidden`/`data-needs`
+       attributes rather than being called by each painter, so the nav cannot say
+       "needs you" about a section that does not. -->
   <div class="dbody">
   <div class="dleft">
   <div class="dhead">
@@ -12087,8 +12090,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          #2691, Josh 2026-09-10: this area is now Engineering-mode ONLY (pjApplyEngMode
          gates it on ENG_ON). In the default view a waiting agent is signalled by the
          roster ("Issue" + the #2699 red triangle) and answered through the detail
-         view (#d-qask); the earlier Off-mode asking-override + its dismiss breadcrumb
-         are gone (Josh: "all of that needs to go away"). -->
+         view (the agent's own page -- #3419: a thread bubble answered in the composer,
+         not the removed #d-qask question panel); the earlier Off-mode asking-override +
+         its dismiss breadcrumb are gone (Josh: "all of that needs to go away"). -->
     <div class="field" id="pj-thread">
       <!-- No id: nothing read the one it carried (round 25), the same
            unread-surface rule as the thread payload's agents copy. -->
@@ -22440,8 +22444,9 @@ document.getElementById('eng-toggle').addEventListener('click', engToggleClick);
    the agent picker, the question panel, and the one-to-one composer -- hide
    unless Engineering mode is on. #2691 (Josh 2026-09-10) removed the earlier
    Off-mode exception that kept the box up for a waiting agent; a waiting agent
-   is now signalled in the roster and answered through the detail view
-   (#d-qask), which stays visible in Off. */
+   is now signalled in the roster and answered through the detail view (the
+   agent's own page -- #3419: a thread bubble answered in the composer, which
+   stays available in Off). */
 function pjApplyEngMode() {
   const vp = document.querySelector('.pj-viewport');
   if (vp) vp.hidden = !ENG_ON;
@@ -22465,8 +22470,9 @@ function pjApplyEngMode() {
        The two surfaces a waiting agent needs are preserved in Off. The needs_you
        SIGNAL still shows in the member roster (the "Issue" status + the #2699
        red warning triangle on the avatar), and a waiting agent is still ANSWERED
-       in Off through the detail view (#d-qask, the agent's own page, reached from
-       the roster card's "See the question" button, proven visible in Off by
+       in Off through the detail view (the agent's own page, reached from the
+       roster card's "See the question" button -- #3419: the question is a thread
+       bubble answered in the composer, whose availability in Off is proven by
        render-engmode-gate-2131).
        One affordance that lived only in this box DOES move to Engineering mode:
        the "Not waiting? Clear it" control (pjClearState, the sole clear-selfreport
@@ -25144,12 +25150,13 @@ async function paintTalk(sessionName, agentName) {
    * version did not.
    *
    * It sat just above `qask.hidden = nowHidden`, which reads as "before the
-   * hide" and is not: the branch below clears the question and hides
-   * `#d-qask-text` first, and `#d-qask-text` is `tabindex="0"`, so a person
-   * standing in it had already been dropped to <body> by the time the rescue
-   * asked whether anyone was standing there. The check then found nobody and
-   * did nothing. **Both of those lines were written in the same round, forty
-   * minutes apart, and the second defeated the first.**
+   * hide" and is not: hiding the box drops focus off whatever inside it was
+   * focusable (#3419: that is the Trust & Restart button `#d-qask-trust-restart`
+   * of the folder-trust recovery -- the removed `#d-qask-text` question box was
+   * the original example), so a person standing in it had already been dropped to
+   * <body> by the time the rescue asked whether anyone was standing there. The
+   * check then found nobody and did nothing. **Both of those lines were written in
+   * the same round, forty minutes apart, and the second defeated the first.**
    *
    * Measured: stand in the question region with the composer closed, let the
    * question go, and focus landed on the document.
@@ -25203,10 +25210,6 @@ async function paintTalk(sessionName, agentName) {
   /* #2129: default the recovery button hidden every paint, so it only shows
      where the branch below explicitly turns it on. */
   if (qTrust) qTrust.hidden = true;
-  /* #2808: the dismiss button and the "Show full command" toggle, defaulted
-     hidden every paint (like qTrust) so they only show where a branch below
-     turns them on. Self-contained lookups; a self-contained handler drives
-     each, so the qask isolation tests do not throw on a delegate elsewhere. */
   if (body.answerNote) {
     /* #2129 folder-trust recovery: the ONLY state that still shows this box. The
        trust-dialog question is itself an ordinary thread bubble now (engine
@@ -25226,6 +25229,14 @@ async function paintTalk(sessionName, agentName) {
   // waiting on you, and the answer takes its place in the thread below as an
   // ordinary message. The whole block goes, not just its buttons.
   qask.hidden = nowHidden;
+  /* #3419: the Talk-tab needs-attention dot follows the needs_you STATE, not the
+     box's visibility. The box is folder-trust-only now (answerNote), but a plain
+     needs_you question still lives in the thread as a bubble the person on another
+     tab should be told about -- so `detailDots` reads this data-attr (and the
+     MutationObserver watches it) rather than `#d-qask`'s `hidden`, which no longer
+     tracks the needs_you state. REVERSIBLE: dropping this line fully de-escalates a
+     needs_you question -- no tab dot, discoverable only once Talk is open. */
+  if (body.asking) qask.setAttribute('data-needs', '1'); else qask.removeAttribute('data-needs');
   /* 🛑 FOCUS ARRIVES HERE, in the same turn the page opens. Pressing "answer"
      on a card must not leave a keyboard user on <body>. The question is a thread
      bubble now (#3419), and it is answered in the composer -- so focus lands on
@@ -27580,7 +27591,12 @@ function detailDots() {
     if (!b) return;
     if (on) b.setAttribute('data-dot', '1'); else b.removeAttribute('data-dot');
   };
-  set('talk', shown('d-qask'));
+  /* #3419: fire the Talk dot on the needs_you STATE (the `data-needs` marker paintTalk
+     sets from body.asking), not on `#d-qask` visibility -- the box is folder-trust-only
+     now, but a needs_you question is a thread bubble the person should still be told
+     about from another tab. `shown('d-qask')` keeps the folder-trust recovery lit too. */
+  const qaskEl = document.getElementById('d-qask');
+  set('talk', shown('d-qask') || !!(qaskEl && qaskEl.hasAttribute('data-needs')));
   /* #1841: the Instructions tab dot also lights for the working-rules update
      state, now that it lives on that tab -- either the doctrine prompt (made
      before the rules) or the reports section (Kosmos-made change to re-read). */
@@ -27593,9 +27609,13 @@ function detailDots() {
      line and a lifted neighbour would otherwise throw at load. */
   if (typeof MutationObserver === 'undefined') return;
   const mo = new MutationObserver(detailDots);
+  // #3419: `data-needs` on #d-qask carries the needs_you state now (see paintTalk +
+  // detailDots); watch it alongside `hidden` so the Talk dot updates when a needs_you
+  // question arrives or clears. The other ids carry no data-needs, so the added filter
+  // is a no-op for them.
   ['d-qask', 'd-instr-outdated', 'd-instr-stale', 'd-doctrine-note', 'd-instr-reports'].forEach((id) => {
     const el = document.getElementById(id);
-    if (el) mo.observe(el, { attributes: true, attributeFilter: ['hidden'] });
+    if (el) mo.observe(el, { attributes: true, attributeFilter: ['hidden', 'data-needs'] });
   });
   detailDots();
 })();
