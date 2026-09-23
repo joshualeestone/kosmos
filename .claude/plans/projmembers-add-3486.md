@@ -1,4 +1,4 @@
-# #3486 — Consolidated "Project Members +" opens nothing (live 0.6.89 bug)
+# #3486 - Consolidated "Project Members +" opens nothing (live 0.6.89 bug)
 
 ## The bug
 In the CONSOLIDATED view, with a project open, the "Project Members" rail head shows a `+`.
@@ -16,7 +16,7 @@ html[data-layout="consolidated"] body.consolidated .pj3 > .pjsplit > .pjcard-mem
 
 `display:none` on an ancestor removes the **entire subtree** from rendering, including a
 `position:fixed` descendant. So the rail `+` handler fired correctly (`#am-modal.hidden = false`),
-but the modal rendered as a **0×0 box** — hidden===false yet nothing on screen.
+but the modal rendered as a **0×0 box** - hidden===false yet nothing on screen.
 
 Proven with a real headless render of the app (real openProject → paintAgentList → grouping →
 `#rail-agents-new` click → `openAddMemberModal`):
@@ -46,19 +46,19 @@ cannot be suppressed by this rule or any future project-card display state.
   concern (the members card taking space / showing in consolidated) and is a wider blast radius.
 
 ## Regression guard
-`render-project-members-3387.js` assertion 2 only checked `modal.hidden === false` — it passed
+`render-project-members-3387.js` assertion 2 only checked `modal.hidden === false` - it passed
 through the whole bug. Added a `#3486` assertion that reads the modal's **rendered box dimensions**
 (`> 200 × > 80`) after the consolidated rail `+` click. It fails on the old (suppressed) markup and
 passes on the fix. Added `am-modal pjcard-members` to that check's surface annotation so this surface
 is guarded going forward.
 
 `render-addmem-flash-2429.js` declares `pj-one-add-go` (a token inside the moved block); its flash
-behavior is unaffected by the relocation and it re-runs green — carried as a per-check surface
+behavior is unaffected by the relocation and it re-runs green - carried as a per-check surface
 override trailer, not a code change.
 
 ## Weakest premise
 My reproduction is a headless render with mocked APIs, not Josh's exact clean-room build. The root
 cause (display:none ancestor → 0×0 fixed modal) is a CSS/DOM invariant that does not depend on the
 data, and the fix is verified by the modal rendering 1280×900 with the picker populated. What would
-change my mind: the promoted build still shows a dead `+` after this ships — which would mean a
+change my mind: the promoted build still shows a dead `+` after this ships - which would mean a
 SECOND suppression path I have not found (none seen: `#am-modal` now has no hideable ancestor).
