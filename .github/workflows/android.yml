@@ -16,14 +16,16 @@
 # conditional job below, inert until signing secrets exist), the Play listing, or
 # behavior on a device.
 #
-# WHY THE JDK-21 OVERRIDE. android/gradle.properties pins
-# `org.gradle.java.installations.paths` at THIS fleet box's keg-only JDK 21
-# (/opt/homebrew/...), a path that does not exist on a CI runner. The README calls
-# this out: "a runner without a JDK 21 on that literal path will fail the daemon
-# criteria." So every gradle call below passes
-# `-Dorg.gradle.java.installations.paths="$JAVA_HOME"`, overriding the per-box path
-# with the runner's setup-java JDK 21. The machine-independent `toolchainVersion=21`
-# criteria (gradle/gradle-daemon-jvm.properties) then resolve against it.
+# JDK-21 PROVISIONING (the piece the README flagged). The module's daemon-JVM
+# criteria (toolchainVersion=21 in gradle/gradle-daemon-jvm.properties) need a JDK 21
+# on the runner. actions/setup-java@v4 installs it and sets JAVA_HOME, and Gradle
+# auto-detects JAVA_HOME to satisfy the criteria -- that is the load-bearing
+# mechanism (verified locally: with org.gradle.java.installations.paths pointed at a
+# nonexistent path, a JDK-21 JAVA_HOME still builds green). android/gradle.properties
+# ALSO pins installations.paths at this fleet box's keg path, which does not exist on
+# a runner; every gradle call below passes -Dorg.gradle.java.installations.paths=
+# "$JAVA_HOME" to replace that dead path with the runner's JDK 21, so it is never a
+# stale entry. The -D is defensive redundancy on top of JAVA_HOME, not the mechanism.
 
 name: android
 
@@ -67,19 +69,22 @@ jobs:
     runs-on: ubuntu-latest
     # The debug build is ~seconds; bound a hung run well under the 360-min default.
     timeout-minutes: 20
-    # Pull the keystore-material secret to a job-level env var so the conditional
-    # release step can test its presence. When the secret does not exist this is the
-    # empty string, so the release step below is skipped and the job is debug-only.
-    # NOTE: the secrets are intentionally NOT provisioned by this PR. Adding signing
-    # material to GitHub Actions secrets is a separate repo-admin decision (surfaced to
-    # the repo owner), not an autonomous one. This workflow only wires the conditional.
+    # A boolean PRESENCE FLAG, not the secret value: `secrets.X != ''` evaluates to the
+    # string 'true'/'false' at env-resolution time, so the keystore material itself never
+    # enters this job-level env (and so never reaches the debug step's environment). The
+    # actual signing secrets are scoped to the conditional release step below. NOTE: the
+    # secrets are intentionally NOT provisioned by this PR -- adding signing material to
+    # GitHub Actions secrets is a repo-admin decision surfaced to the repo owner, not an
+    # autonomous one. This workflow only wires the conditional; with no secret, the flag
+    # is 'false' and the release step is skipped.
     env:
-      KOSMOS_UPLOAD_KEYSTORE_BASE64: ${{ secrets.KOSMOS_UPLOAD_KEYSTORE_BASE64 }}
+      HAS_SIGNING_SECRETS: ${{ secrets.KOSMOS_UPLOAD_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
-      # Provision JDK 21 (Temurin). Sets JAVA_HOME to the runner's JDK 21, which the
-      # gradle calls below feed to -Dorg.gradle.java.installations.paths (see header).
+      # Provision JDK 21 (Temurin). Sets JAVA_HOME to the runner's JDK 21, which both
+      # satisfies the daemon-JVM criteria (via auto-detection) and is fed to the -D
+      # override below (see the JDK-21 note in the header).
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -101,17 +106,19 @@ jobs:
 
       # The always-on gate: a clean debug build needs no secrets. --no-daemon because
       # the runner is ephemeral (a persistent daemon buys nothing). The -D override is
-      # the crux the README flagged (see header).
+      # the defensive JDK-21 piece (see header).
       - name: assembleDebug (always-on gate)
         working-directory: android
         run: ./gradlew :app:assembleDebug --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"
 
-      # Conditional signed release. Runs ONLY when the signing secrets exist, so until
-      # a repo admin provisions them this step is skipped and the debug gate above is
-      # the whole value. It also depends on the release signingConfig in
-      # android/app/build.gradle (added in the #718 signing PR): with the secrets set
-      # AND that config present, this produces a signed release APK; without the config
-      # it would build unsigned, which is why the guard is the secrets, not this step.
+      # Conditional signed release. Runs ONLY when the signing secrets exist (the
+      # presence flag is 'true'), so until a repo admin provisions them this step is
+      # skipped and the debug gate above is the whole value. Signed-vs-unsigned output
+      # is governed by android/app/build.gradle's own release signingConfig (added in
+      # the #718 signing PR, now on main): it signs only when the keystore AND both
+      # passwords are present, and otherwise stays unsigned with a WARN rather than
+      # failing. So this step can legitimately produce an unsigned APK on a partial
+      # secret set -- read build.gradle's WARN, not just this step's green.
       #
       # Expected secrets (names are the contract for whoever provisions them later):
       #   KOSMOS_UPLOAD_KEYSTORE_BASE64  - the upload .jks, base64-encoded
@@ -119,16 +126,18 @@ jobs:
       #   KOSMOS_UPLOAD_KEY_PASSWORD     - key password
       #   KOSMOS_UPLOAD_KEY_ALIAS        - alias (optional; build.gradle defaults it)
       - name: assembleRelease (only when signing secrets are present)
-        if: ${{ env.KOSMOS_UPLOAD_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_SIGNING_SECRETS == 'true' }}
         working-directory: android
         env:
+          KOSMOS_UPLOAD_KEYSTORE_BASE64: ${{ secrets.KOSMOS_UPLOAD_KEYSTORE_BASE64 }}
           KOSMOS_UPLOAD_STORE_PASSWORD: ${{ secrets.KOSMOS_UPLOAD_STORE_PASSWORD }}
           KOSMOS_UPLOAD_KEY_PASSWORD: ${{ secrets.KOSMOS_UPLOAD_KEY_PASSWORD }}
           KOSMOS_UPLOAD_KEY_ALIAS: ${{ secrets.KOSMOS_UPLOAD_KEY_ALIAS }}
         run: |
-          # Materialize the keystore to a runner-local file (never committed) and point
-          # build.gradle's KOSMOS_UPLOAD_KEYSTORE env var at it. Decode via a file, not
-          # a pipe, so a decode error fails loudly here rather than yielding an empty key.
-          echo "$KOSMOS_UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kosmos-upload.jks"
+          # Decode the keystore to a runner-local file (never committed) via a
+          # here-string, NOT a pipe: base64 is then the step's own last command, so a
+          # decode failure is its non-zero exit and aborts the step under the default
+          # `bash -e`. Point build.gradle's KOSMOS_UPLOAD_KEYSTORE env var at the file.
+          base64 --decode <<< "$KOSMOS_UPLOAD_KEYSTORE_BASE64" > "$RUNNER_TEMP/kosmos-upload.jks"
           export KOSMOS_UPLOAD_KEYSTORE="$RUNNER_TEMP/kosmos-upload.jks"
           ./gradlew :app:assembleRelease --no-daemon -Dorg.gradle.java.installations.paths="$JAVA_HOME"

@@ -87,8 +87,11 @@ Gradle 8.9's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
   own `~/.gradle/gradle.properties` or via `-Dorg.gradle.java.installations.paths=`.
   This is why the committed line is a per-box convenience, not a portable pin.
 
-Android CI is not wired today; when it is, the runner's JDK-21 provisioning is
-the piece to add.
+Android CI runs in `.github/workflows/android.yml`: on every push/PR touching
+`android/**` it provisions JDK 21 (via `actions/setup-java`, which sets the
+`JAVA_HOME` the daemon-JVM criteria auto-detect) and runs `:app:assembleDebug` as
+an always-on advisory gate. A conditional `:app:assembleRelease` job signs only
+when the upload-keystore secrets are present, and stays inert otherwise.
 
 ## Release signing (upload keystore)
 
