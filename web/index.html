@@ -26055,12 +26055,14 @@ async function sendTalk(text, chose, attachment) {
     let line;
     if (d.state === 'placed') {
       clearSent();
-      /* 🛑 SILENT WHEN IT WORKED (#402). This line printed "Placed into April's
+      /* 🛑 SILENT WHEN IT WORKED (#402), and as of #3419 silent for EVERY placed
+         message, not only the idle pane. This line printed "Placed into April's
          session." under every message that arrived, after Josh had ruled that
-         clause out of the room (2026-08-21) and out of this page's own thread
-         rows. The page was the one surface that never converged. It speaks
-         only when there is something about what happens next, and it keeps
-         the agent's name on the arms where something went wrong. */
+         clause out of the room (2026-08-21); #3419 finished the job by silencing
+         the consequence clause too (mid-task / waiting / usage-limit play-by-play
+         Josh named as noise). placedWords now returns '' for a placed message;
+         the agent's name still rides the unconfirmed/failed arms below, where
+         something actually went wrong. */
       line = placedWords(d);
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
@@ -43944,16 +43946,27 @@ function pjWhen(at) {
  * taken the timestamp with it. The room's row has always carried its own time
  * in its own element; the direct rows now do the same.
  */
-/* What a message that was PLACED owes the person, as plain text: nothing when
-   the agent was at its prompt, and the consequence when it was not ("It was
-   mid-task, so it will not read this until it finishes."). One rule for the
-   row in the thread and the line under the composer (#402), so the two cannot
-   disagree about what one send did. Josh's 2026-08-21 ruling for the room,
-   adopted by the agent page's rows the same week and by its composer line now. */
+/* What a message that was PLACED owes the person, as plain text.
+   #3419 (Josh, 0.6.89): NOTHING. A placed message says nothing about the agent's
+   internal state -- "the user does not need play-by-play about the agent's
+   internal state (mid-task, has-a-question, will-read-later); they just need
+   their message to land. KEEP only a genuine 'this did not get delivered' line."
+   So this is silent for EVERY placed message now, not only the idle pane: the
+   four consequential paneNotes (mid-task / waiting-on-an-answer / usage-limit /
+   could-not-tell) were the play-by-play Josh named as noise. The genuine
+   did-not-deliver lines live in the unconfirmed/failed branches, untouched.
+   One rule for the thread row and the composer line (#402), so the two cannot
+   disagree; this is the single point where the placed-consequence copy is
+   silenced, and the single point that restores it.
+   ⚠️ ICK (transport/delivery owner) recommended KEEPING the working-agent
+   "It was mid-task, so it will not read this until it finishes." note, because a
+   working agent shows no question bubble so that note is its only signal. Josh's
+   card names that exact line as noise to strip, so it goes -- but if his in-app
+   review wants only the mid-task note back, the restore is scoped here:
+     if (d && d.paneState === 'working' && d.paneNote) return <cap>(d.paneNote);
+   Flagged on #3419. Everything else stays silent. */
 function placedWords(d) {
-  const note = (d && d.paneNote) || '';
-  if (!note || d.paneState === 'idle') return '';
-  return note.charAt(0).toUpperCase() + note.slice(1) + (/[.!?]$/.test(note) ? '' : '.');
+  return '';
 }
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};
@@ -43965,10 +43978,11 @@ function pjVerdict(m, name) {
   const when = pjWhenPart(m.at);
   if (d.state === 'placed') {
     mark = '';
-    /* The note ALONE when it speaks: no placed-confirmation clause in front
-       of it. That clause is the one Josh named, and on the agent's own page a
-       note about what it was doing needs no antecedent -- the row sits under
-       the message it is about. */
+    /* #3419: a placed message's thread row carries NO delivery-status copy --
+       placedWords returns '' now (Josh: no play-by-play about the agent's
+       internal state; the message landed, the row under it says so by existing).
+       The unconfirmed/failed arms below still speak, because those are genuine
+       did-not-deliver states. */
     said = esc(placedWords(d));
   } else if (d.state === 'unconfirmed') {
     mark = ' unsure';
@@ -44892,10 +44906,12 @@ async function sendTerm() {
          message, and a box that now belongs to another agent is not ours. */
       if (!flightMoved() && say.value.trim() === text) say.value = '';
       if ((TERM_DRAFTS[sentName] || '').trim() === text) delete TERM_DRAFTS[sentName];
-      /* 🛑 SILENT WHEN IT WORKED (#402): placedWords returns '' on an idle pane,
+      /* 🛑 SILENT WHEN IT WORKED (#402): placedWords returns '' for a placed
+         message (as of #3419, for every placed message, not only the idle pane),
          so a clean placed clears the "Sending…" line and says nothing, matching
-         sendTalk and the thread rows. It speaks only when the note says something
-         about what happens next (queued behind the agent's work, say). */
+         sendTalk and the thread rows. The consequence clause (mid-task / waiting /
+         usage-limit) was the play-by-play Josh ruled out; only a genuine
+         did-not-deliver line remains, on the unconfirmed/failed arms below. */
       if (!flightMoved() && msg) msg.textContent = placedWords(d);
     } else if (d.state === 'unconfirmed') {
       /* May not have arrived: the words stay for a retry. */
