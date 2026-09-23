@@ -399,6 +399,7 @@ one invented by somebody who did not write them.
 | `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278) |
 | `render-found-count.js` | The found-agents screen: one label per row, a green Added, and a count that cannot disagree with its own rows (#1346). |
 | `render-long-title.js` | A long project title truncates instead of squeezing the search box (#1303 F). |
+| `render-title-descender-3438.js` | The project-detail title line-box clears descenders (the "g" in "Sourcing" is not clipped), keeping the one-line width ellipsis (#3438). |
 | `render-project-rows.js` | A project row is two lines, with its status on the agents line (#1303 E). |
 | `render-member-modal.js` | Adding a project member opens a real dialog, and there are three ways out (#1303 H item 3). |
 | `render-agent-lines.js` | A rail agent's two visible lines (name, title) measured as TEXT for tight leading, plus the #3131/#3187 status colour: the state word is kept hidden in a `.vh` clip and the row carries the right grey/green/red wash per state (#1303 A item 3, #3131, #3187). |
