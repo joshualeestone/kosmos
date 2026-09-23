@@ -493,13 +493,9 @@ if [ -z "$adopt" ]; then
   # is a truly clean launch: nothing is pinned (leaving CLAUDE_CONFIG_DIR unset, which is exactly
   # what #3383c's HOME re-injection relies on), and the trust write takes the default path.
   # Claude only -- codex uses CODEX_HOME and has no folder-trust gate, so it has no
-  # equivalent PROMPT to fix here.
-  # ⚠️ KNOWN GAP, tracked separately (not this card): the server-global LEAK itself is not
-  # Claude-specific. A board cold-started under one account's CODEX_HOME would leak it into a
-  # default-account codex pane exactly as it does CLAUDE_CONFIG_DIR here, misdirecting where
-  # codex reads its per-account config -- silently, with no trust-dialog symptom to point at
-  # it. This fix does NOT close that; it is scoped to the reported #3417 trust prompt. A codex
-  # CODEX_HOME resolution mirroring this block is its own follow-up.
+  # equivalent PROMPT. The CODEX_HOME arm of the SAME leak is handled by the #3430 block just
+  # below (it is not Claude-specific: a board cold-started under one account's CODEX_HOME leaks
+  # it into a default-account codex pane the same way).
   EFFECTIVE_CCD="${CLAUDE_CONFIG_DIR:-}"
   if [ "$RUNNER" != codex ] && [ -z "$EFFECTIVE_CCD" ]; then
     _srv_ccd="$("$TMUX_BIN" show-environment -g CLAUDE_CONFIG_DIR 2>/dev/null || true)"
@@ -515,6 +511,37 @@ if [ -z "$adopt" ]; then
     if [ -n "$EFFECTIVE_CCD" ]; then
       PANE_ENV+=(-e "CLAUDE_CONFIG_DIR=$EFFECTIVE_CCD")
     fi
+  fi
+  # 🛑 #3430: the CODEX_HOME arm of the #3417 leak, and it is FUNCTIONAL (a silently
+  # UNAUTHENTICATED codex agent, no prompt). But the FIX IS THE MIRROR of #3417, NOT a copy,
+  # because Josh's account lives in a DIFFERENT place per provider (Pete + ICK, verified):
+  #   - Claude's login IS the server-global (.claude-work1), so #3417 PINS it and realigns the
+  #     trust write there (ensure-launch-trust). Read == write == the account. Right for Claude.
+  #   - Codex's login is the DEFAULT home: default signin leaves auth.json in $HOME/.codex, and
+  #     create.js writes default-account codex trust via defaultAgentCodexHome()=$HOME/.codex,
+  #     DELIBERATELY skipping the engine/server CODEX_HOME. So the leaked server-global is the
+  #     WRONG home for codex -- a default codex agent that INHERITS it reads a home with NO auth.
+  # And codex has NO launch-time write-realign (ensure-launch-trust is Claude-only; auth is the
+  # user's login Kosmos never writes), so we CANNOT pin the leak and move the write to it the way
+  # #3417 does -- pinning the leak just makes the wrong read explicit (the pane already inherited
+  # it) and leaves the agent unauthenticated. We must point the READ at where auth already is.
+  # So OVERRIDE the pane's CODEX_HOME to the DEFAULT home (mirroring #3406's HOME re-injection for
+  # a default claude agent), defeating whatever the leak would have supplied. own-env-set (a
+  # per-account codex agent, plist CODEX_HOME) is left to the forwarding loop above; this fires
+  # only for a default agent (own env empty).
+  EFFECTIVE_CODEX_HOME="${CODEX_HOME:-}"
+  if [ "$RUNNER" = codex ] && [ -z "$EFFECTIVE_CODEX_HOME" ]; then
+    # defaultAgentCodexHome(), reproduced FAITHFULLY as its three tiers so it cannot silently
+    # diverge from engine/create.js:defaultAgentCodexHome() =
+    #   AGENT_WORKFORCE_CODEX_HOME || path.join(AGENT_WORKFORCE_HOME || os.homedir(), '.codex').
+    # An earlier version dropped the AGENT_WORKFORCE_HOME tier and leaned implicitly on the plist
+    # baking HOME=homeDir() (create.js), which is true today but is exactly the write-A-read-B
+    # coupling this card exists to close, so the tier is written out here rather than depended on.
+    # A CONCRETE path (no "set-but-empty vs unset" ambiguity); idempotent on a clean box (codex's
+    # own default is $HOME/.codex anyway) and it defeats the leak on a board cold-started under a
+    # stray CODEX_HOME. NOT the server-global (that was the #3432-v1 bug Pete + ICK caught).
+    EFFECTIVE_CODEX_HOME="${AGENT_WORKFORCE_CODEX_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.codex}"
+    PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
   fi
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge
@@ -541,7 +568,11 @@ if [ -z "$adopt" ]; then
       # silently fail (|| true) and the codex agent would hit the update prompt this
       # shim exists to dismiss. Empty NODE_BIN (no node anywhere) skips it, same
       # best-effort posture.
-      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
+      # #3430: EFFECTIVE_CODEX_HOME (resolved above), not ${CODEX_HOME:-}: the bare env var is
+      # empty for a default-account codex agent whose pane nonetheless inherits the server-global
+      # CODEX_HOME, so the dismiss must target the SAME home the pane reads or it writes the
+      # update-notice dismissal into a different home than the running agent.
+      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1

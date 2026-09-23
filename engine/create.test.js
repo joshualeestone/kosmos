@@ -1343,13 +1343,24 @@ test('the startup script, actually run, hands the pane its account and its board
            non-empty here, and re-injected so a default-account agent reads the trust we
            wrote rather than parking on the folder-trust prompt. An always-on rider like
            KOSMOS_WORLD, excluded here and pinned present by the positive check below. */
-        && !/^HOME=/.test(v));
+        && !/^HOME=/.test(v)
+        /* #3430: on the CODEX arm, CODEX_HOME rides ALWAYS -- a default codex agent is pinned to
+           defaultAgentCodexHome() ($HOME/.codex, where its auth lives) so it does not inherit a
+           leaked tmux server-global CODEX_HOME and run unauthenticated. It is non-empty here (a
+           concrete default path), a deliberate always-on rider on the codex arm like HOME is for
+           claude. Excluded here, pinned present by the codex positive check below. Claude panes
+           never carry it (the block is codex-arm-only), so this exclusion is codex-scoped. */
+        && !(!isClaude && /^CODEX_HOME=/.test(v)));
       assert.deepEqual(notToken, [],
         `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
       assert.ok(passed.includes('KOSMOS_WORLD='),
         `${label}: the KOSMOS_WORLD override stopped reaching the pane, so a default agent could inherit a named world: ` + JSON.stringify(r.newSession));
       assert.ok(passed.some((v) => /^HOME=/.test(v)),
         `${label}: HOME stopped reaching the pane, so a default-account agent would read a different .claude.json than we wrote and park on the trust prompt (#3383c): ` + JSON.stringify(r.newSession));
+      /* #3430: and the codex-arm CODEX_HOME pin must actually be there (keeps the exclusion
+         above honest) -- a default codex agent reads the default home where its auth lives. */
+      if (!isClaude) assert.ok(passed.some((v) => /^CODEX_HOME=/.test(v)),
+        `${label}: the codex CODEX_HOME pin stopped reaching the pane, so a default codex agent would inherit a leaked server-global home and run unauthenticated (#3430): ` + JSON.stringify(r.newSession));
       /* And the exclusion above must not become a place things hide: on claude the
          thing it excludes has to actually be there. Without this, deleting the
          renderer preference entirely would pass both arms of this test. */
