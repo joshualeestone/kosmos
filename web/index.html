@@ -25142,7 +25142,12 @@ async function paintTalk(sessionName, agentName) {
      and that recovery must never be suppressed by the old menu answer-hold -- it
      is resolved by Trust & Restart, not by answering a menu. So the show-gate is
      just the folder-trust state; the answer-hold machinery is gone (the menu it
-     guarded is gone). */
+     guarded is gone).
+     The route only ever sends `answerNote` alongside `asking` (answerNote ⇒ asking,
+     #1629), so `body.asking &&` is belt-and-suspenders here and the label branch
+     below keying on `answerNote` alone is equivalent -- kept explicit so a future
+     route change that decoupled them cannot silently show the box on a non-asking
+     paint. */
   const nowHidden = !(body.asking && body.answerNote);
   /**
    * ⚠️ THE RESCUE COMES BEFORE EVERY HIDE IN THIS SECTION, and its first
