@@ -1799,6 +1799,17 @@ function setProvider(name, provider, opts) {
         providerName, dir: mod.defaultDir(), isDefault: true, chosen,
       };
     } else {
+      /* 🛑 INTENTIONALLY FAIL-CLOSED, AND DELIBERATELY UNLIKE THE CODEX BLOCK ABOVE.
+         codex only refuses a named account when it was PICKED-and-missing and otherwise
+         falls through to accounts[0]; that fallback exists because the page began sending
+         the visible row on every switch, so an unpicked stale row must not refuse. This
+         gemini/grok arm has no such caller yet (the account picker is openai-only today,
+         so wantDir is null here and the default door is taken), so it refuses ANY unknown
+         wantDir. Do NOT "align" this with codex's unpicked-fallback when the gemini/grok
+         picker is wired (page lane): fail-closed is the silent-wrong-account guard, and
+         reintroducing a fallback here is the exact regression the switch-account saga
+         (#1373) exists to prevent. If the picker starts sending an unpicked visible row,
+         add the picked-vs-unpicked split codex has, not a bare fall-through. */
       const acct = mod.list().find((a) => a.dir === wantDir);
       if (!acct) {
         return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(providerName) };
