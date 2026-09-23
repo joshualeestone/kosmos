@@ -9673,6 +9673,100 @@ test('the reply route writes as the pane’s agent, whatever the body claims', a
   }
 });
 
+test('#3419 a needs_you agent’s thread payload carries its question as a message row', async () => {
+  // The engine half of #3419: the agent's question shows AS A MESSAGE in the
+  // dialog, not only via the interruptive "waiting on an answer" banner. Read back
+  // through the route the page actually polls (server.test.js:9774's discipline).
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([
+    fleet.agent('zeta', { state: 'needs_you' }),
+    fleet.agent('ida', { state: 'idle' }),
+  ]);
+  // fleet's per-target screen map feeds the roster CLASSIFY (so zeta is
+  // needs_you). The route ALSO derives the question from chat.viewport's own
+  // capture-pane (chat's tmux runner, a separate seam from status.setPaneCapture),
+  // so stub that to serve the question screen; questionIn then has the question to
+  // find. Only zeta calls viewport (the route gates it on asking), so idle ida is
+  // untouched. Non-capture tmux calls return benign success (this GET makes none).
+  chatEngine.setRunner((args) => {
+    if (args[0] === 'capture-pane') {
+      return { ran: true, spawnFailed: false, status: 0, out: 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n', err: '' };
+    }
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chatEngine.setDryRun(false);
+  try {
+    const asking = JSON.parse((await req('/api/agent/zeta/thread')).body);
+    // Additive: the banner field is still emitted, so this injection and Mona's
+    // banner removal compose in either order.
+    assert.equal(asking.asking, true, 'a needs_you agent still reports asking (additive)');
+    const q = asking.messages.find((m) => m.kind === 'question');
+    assert.ok(q, 'the question is injected into the thread messages as a row');
+    assert.match(q.text, /Do you want to proceed\?/, 'and it is the question the board classified needs_you from');
+    assert.equal(q.from, 'zeta', 'agent-authored: a "theirs" bubble, never an operator row');
+    assert.equal(q.delivery, null, 'no delivery verdict (keepAgentReply omits it; both are falsy, dmRow ignores it)');
+    assert.equal(q.at, null, 'no per-poll timestamp on a standing question (dmRow/DM_SPOKE_AT stay stable)');
+    assert.equal(q.id, 'needs-you-question:zeta', 'stable repaint id');
+    // CONTROL: an idle agent's thread carries NO question row, so the row above is
+    // caused by the needs_you state and not injected unconditionally.
+    const idle = JSON.parse((await req('/api/agent/ida/thread')).body);
+    assert.equal(idle.asking, false);
+    assert.ok(!idle.messages.some((m) => m.kind === 'question'), 'no question row when not asking');
+    // MIS-CASED URL: the route case-folds, so /Zeta resolves to zeta's card. The
+    // injected row must carry the CANONICAL session name, not the raw URL spelling
+    // (else dmWho's `from === sessionName` compare fails and it renders the raw
+    // string). This pins the reason the route passes card.sessionName, not `name`;
+    // a silent revert to `name` would make from/id 'Zeta' here and fail.
+    const miscased = JSON.parse((await req('/api/agent/Zeta/thread')).body);
+    const mq = miscased.messages.find((m) => m.kind === 'question');
+    assert.ok(mq, 'a mis-cased request still resolves and injects the question');
+    assert.equal(mq.from, 'zeta', 'the row carries the canonical session name, not the URL case');
+    assert.equal(mq.id, 'needs-you-question:zeta', 'and the id is canonical too');
+  } finally {
+    chatEngine.setRunner(null);
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#3419 a FAILED thread read still signals the failure -- no question row masks it', async () => {
+  // `question`/`asking` are derived from card/pane state, NOT from the thread read.
+  // So a needs_you agent whose thread read FAILS (non-BAD_THREAD: UNREADABLE /
+  // UNPARSEABLE) must NOT get a synthetic question row injected -- doing so would
+  // turn `messages: null` into `[row]`, and the client's "we cannot read what you
+  // have sent" notice gates on `!allRows.length`, so the read failure would be
+  // silently hidden behind a thread that looks like it holds only the question.
+  // The route injects only on a clean read (`historyBecause` unset), so the null
+  // failure-signal survives exactly as it did before #3419.
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('zeta', { state: 'needs_you' })]);
+  chatEngine.setRunner((args) => {
+    if (args[0] === 'capture-pane') {
+      return { ran: true, spawnFailed: false, status: 0, out: 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n', err: '' };
+    }
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chatEngine.setDryRun(false);
+  // Force a non-BAD_THREAD read failure. readThread is the same module property the
+  // route looks up at call time (server.js: `chat.readThread(...)`), so this patch
+  // is seen by the route; restored in finally like setRunner above.
+  const realReadThread = chatEngine.readThread;
+  chatEngine.readThread = () => { const e = new Error('the thread file could not be read'); e.code = 'UNREADABLE'; throw e; };
+  try {
+    const body = JSON.parse((await req('/api/agent/zeta/thread')).body);
+    assert.equal(body.messages, null, 'a failed read serves messages:null, never a synthetic-row array that hides it');
+    assert.ok(body.historyBecause, 'and the payload still says why the read failed');
+    // asking is still true (derived independently) -- which is exactly why the guard
+    // is load-bearing: without it, asking+question would have injected a row over null.
+    assert.equal(body.asking, true, 'the guard, not a missing question, is what suppresses the row');
+  } finally {
+    chatEngine.readThread = realReadThread;
+    chatEngine.setRunner(null);
+    fleet.restore();
+    void board;
+  }
+});
+
 test('the reply route refuses what it cannot attribute, and says why', async () => {
   /**
    * ⚠️ THE THREE ARMS THE SOURCE-GREP VERSION NEVER REACHED: a message the

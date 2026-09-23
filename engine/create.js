@@ -712,7 +712,15 @@ function jobMissing(name, platform) {
    the agent actually reads. Before this, every brief write assumed CLAUDE.md, so
    a codex agent got neither the "where your files go" doctrine nor its project
    folder path -- kosmos#2245. Pure. */
-function briefFilename(runner) { return runner === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'; }
+function briefFilename(runner) {
+  if (runner === 'codex') return 'AGENTS.md';
+  // #3296: gemini-cli reads GEMINI.md as its context/brief file, the codex-AGENTS.md
+  // / claude-CLAUDE.md analog. instructions.fileFor and the birth write both go
+  // through this ONE mapping, so a gemini agent's brief lands in the file it boots
+  // from.
+  if (runner === 'gemini') return 'GEMINI.md';
+  return 'CLAUDE.md';
+}
 /* The absolute brief path for an agent. `runner` is passed at birth (the plist
    is not written yet, so the runner is not readable back). Post-birth callers
    omit it and the RECORDED runner is read from the plist (readJob, never a live
@@ -744,7 +752,11 @@ function recordedRunner(name) {
   if (fromJob) return fromJob;
   let provider;
   try { provider = store.readProfile(name).provider; } catch { provider = null; }
-  return provider === 'openai' ? 'codex' : 'claude';
+  // #3296: the same provider->runner map createAgent uses, read as the fallback
+  // only (a live plist stays authoritative via the readJob above).
+  if (provider === 'openai') return 'codex';
+  if (provider === 'google') return 'gemini';
+  return 'claude';
 }
 function instructionFile(name, runner) {
   const r = runner || recordedRunner(name);
@@ -1043,6 +1055,14 @@ function trustAgentFolder(name, opts) {
     try { trustCodexFolder(folder, job.configDir, !job.configDir); return { wrote: true, runner: 'codex' }; }
     catch (err) { return { wrote: false, runner: 'codex', because: String((err && err.message) || err) }; }
   }
+  /* #3296: a gemini agent clears its folder-trust gate with --skip-trust at launch
+     (agent-supervisor.sh) and its birth writes go to its own gemini settings.json, so
+     there is no CLAUDE trust to (re)write here. Falling through to the trustFolder
+     below would write a claude trust entry for a gemini agent whose home is ~/.gemini
+     -- the exact wrong-tool's-config class createAgentInner guards at birth
+     (provider !== 'google'). This is the post-birth entry point (trust-and-restart /
+     the class1-autohandle sweep) reaching the same code; guard it the same way. */
+  if (job.runner === 'gemini') return { wrote: false, runner: 'gemini' };
   /* trustFolder soft-fails ({ok:false, because}) rather than throwing, so read ok.
      createIfAbsent matches the create path: on a fresh user the file may not exist. */
   let t = null;
@@ -1115,6 +1135,16 @@ function setAccount(name, dir, opts) {
     return noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`);
   }
   if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job, platform);
+  /* #3296: gemini is DEFAULT-ACCOUNT only in this slice (no geminiaccounts subsystem
+     yet), so there is no account to switch to -- and falling through to the CLAUDE
+     accounts path below would look a gemini agent up in ~/.claude*, write claude
+     trust/bypass into it, and rewrite the agent's plist with a claude account dir,
+     misconfiguring an agent whose home is ~/.gemini. Refuse, the same boundary
+     setProvider draws for google and the birth path draws with default-account-only.
+     Lifts when the geminiaccounts slice lands. */
+  if (job.runner === 'gemini') {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on Gemini, which Kosmos supports on a single default account for now, so there is no account to move it to` };
+  }
 
   const accounts = require('./accounts');
   const all = accounts.list();
@@ -1707,32 +1737,33 @@ function setModel(name, modelKey, opts) {
     return noJobRefusal(clean, spoken, verdict, `${spoken} was not started by Kosmos, so we cannot change what it runs on.`);
   }
   /* The agent's PROVIDER, from the runner its job actually launches. One
-     derivation, the same direction `createAgent` goes in reverse. */
-  const agentProvider = job.runner === 'codex' ? 'openai' : 'anthropic';
+     derivation, the same direction `createAgent` goes in reverse (#3296 adds the
+     gemini arm). */
+  const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : 'anthropic';
   let m;
-  if (agentProvider === 'openai') {
-    /* #2140: OpenAI models are PER-ACCOUNT and dynamic (accountModels' live
-       /v1/models fetch), so key===arg===the model id and they are not in the
-       static MODELS list. An EMPTY key is "Let OpenAI choose" -- auto, codex's
-       own default -- and writes an empty model slot (codex picks its own). A
-       non-empty id is sanity-bounded here; the "this agent's account can run
-       it" check is async and lives at the server change-model route (validated
-       against accountModels), the same seam the create route uses. */
+  if (agentProvider === 'openai' || agentProvider === 'google') {
+    /* #2140/#3296: OpenAI and Gemini models are FREE-FORM ids, not entries in the
+       static MODELS list, so key===arg===the model id. An EMPTY key is the
+       provider's own default -- codex/gemini pick their own (the gemini supervisor
+       arm pins gemini-2.5-flash when the model slot is empty) -- and writes an
+       empty model slot. A non-empty id is sanity-bounded here; where a live "this
+       account can run it" check exists (OpenAI) it is async at the server route. */
+    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : 'Gemini';
     const id = String(modelKey == null ? '' : modelKey).trim();
     if (id !== '') {
       if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
-        return { outcome: OUTCOME.REFUSED, because: 'that is not a valid OpenAI model name' };
+        return { outcome: OUTCOME.REFUSED, because: `that is not a valid ${vendorLabel} model name` };
       }
       /* Cross-vendor guard (same as the create path): a Claude model key is
-         never an OpenAI model, refused here without a network call. */
+         never an OpenAI or Gemini model, refused here without a network call. */
       const claudeMdl = modelsFor('anthropic').find((x) => x.key === id || x.arg === id);
       if (claudeMdl) {
-        return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one OpenAI runs, so ${spoken} cannot use it` };
+        return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one ${vendorLabel} runs, so ${spoken} cannot use it` };
       }
     }
     /* label is user-facing: the change-model route reports "${label} it is." An
        empty (auto) choice must read as a real phrase, not "null it is." */
-    m = { key: id, arg: id, provider: 'openai', label: id || 'OpenAI\'s default' };
+    m = { key: id, arg: id, provider: agentProvider, label: id || `${vendorLabel}'s default` };
   } else {
     m = modelFor(agentProvider, modelKey);
     if (!m) {
@@ -1860,6 +1891,40 @@ function defaultAgentGrokHome() {
 }
 
 /**
+ * Render a filesystem path as the QUOTED KEY STRING for a `[projects.<key>]`
+ * heading in codex's config.toml, choosing a form that is valid TOML and parses
+ * back to the exact same path.
+ *
+ * #3439: on Windows canonicalOnDisk returns a backslash path like
+ * `C:\Users\joshu\work\workers\marcus`. Placed raw inside `[projects."..."]`,
+ * the `\U` and `\u` sequences are read by TOML as (invalid) unicode escapes, so
+ * codex fails to load the WHOLE config.toml and every turn dies at load, before
+ * auth or network. macOS paths use forward slashes and never trip this, which is
+ * why it is Windows-only.
+ *
+ * The fix, VERIFIED against real codex on Windows: emit a backslash path as a
+ * TOML LITERAL string (single quotes), where the content is VERBATIM and needs
+ * no escaping -- `[projects.'C:\Users\...\marcus']`. codex then loads the config
+ * and the agent replies. We do NOT convert backslashes to forward slashes:
+ * codex looks a project up by its own canonicalize() output, a backslash path on
+ * Windows, so the PARSED key must stay the exact backslash path; a literal
+ * string preserves it byte-for-byte.
+ *
+ * A POSIX/macOS path (no backslash) keeps the existing double-quoted BASIC
+ * string, so its output is byte-for-byte what it always was and needs no
+ * migration. A path that contains a single quote cannot go in a literal string
+ * (TOML literals have no escape for one), so a backslash path that also holds a
+ * single quote (rare on Windows) falls back to a double-quoted basic string with
+ * backslash and double-quote escaped, which is also valid TOML.
+ */
+function tomlProjectKeyString(pathStr) {
+  const s = String(pathStr);
+  if (s.includes('\\') && !s.includes("'")) return `'${s}'`;
+  if (s.includes('\\')) return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return `"${s.replace(/"/g, '\\"')}"`;
+}
+
+/**
  * Trust an agent's folder for the codex runner, the way the Yes button on
  * codex's own trust dialog would. MEASURED (#245): the bypass flag does
  * not skip the dialog; only this config entry does. Append-only, once,
@@ -1882,7 +1947,11 @@ function trustCodexFolder(dir, home, agentDefaultAccount) {
   // macOS user where the on-disk dir is '~/Work', the raw-cased key we used to
   // write never matched codex's capital-cased lookup and the trust menu fired.
   // See trust.js canonicalOnDisk (realpathSync alone does NOT case-fold on macOS).
-  const key = `[projects."${require('./trust').canonicalOnDisk(dir)}"]`;
+  // #3439: render the key with tomlProjectKeyString so a Windows backslash path
+  // becomes a valid TOML literal-string key (raw `\U`/`\u` made codex fail to
+  // load config.toml at all). A POSIX path keeps its double-quoted form, so
+  // macOS output is byte-identical.
+  const key = `[projects.${tomlProjectKeyString(require('./trust').canonicalOnDisk(dir))}]`;
   if (text.includes(key)) return;
   fs.mkdirSync(codexHome, { recursive: true });
   fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
@@ -1939,10 +2008,24 @@ function forgetCodexFolder(dir, home, agentDefaultAccount) {
   const canon = trust.canonicalOnDisk(dir);
   const raw = path.resolve(String(dir));
   const spellings = canon === raw ? [canon] : [canon, raw];
+  // #3439: for each spelling, look for EVERY rendering the key could have on
+  // disk: (1) the new single-quoted TOML literal trustCodexFolder writes now for
+  // a Windows path, (2) the double-quoted BASIC form -- which is the existing,
+  // unchanged Mac key for a POSIX path, and (3) the OLD RAW double-quoted form a
+  // buggy Windows build wrote before this fix, so a config.toml that build
+  // corrupted gets cleaned on removal (migration). On a POSIX path (no backslash,
+  // no quote) all three collapse to the one existing key, so Mac behaviour is
+  // unchanged.
+  const keys = [];
+  const add = (k) => { if (!keys.includes(k)) keys.push(k); };
+  for (const spelling of spellings) {
+    add(`[projects.${tomlProjectKeyString(spelling)}]`); // new canonical rendering
+    add(`[projects."${spelling}"]`); // old raw double-quoted (migration); also the existing POSIX key
+    add(`[projects."${spelling.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`); // double-quoted escaped, if ever written
+  }
   let removed = false;
   let handEdited = false;
-  for (const spelling of spellings) {
-    const key = `[projects."${spelling}"]`;
+  for (const key of keys) {
     if (!text.includes(key)) continue;
     /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
        RegExp: a folder path can contain characters a regex would read as syntax,
@@ -2065,6 +2148,24 @@ function bridgePath() {
   return path.join(supportDir(), 'bin', 'codex-report-bridge.js');
 }
 
+/* #3296: the gemini report bridge, the exact sibling of the codex pair above and
+   for the same #731 reason. `path.join(__dirname, '..', 'bin', ...)` is the form
+   bundle.contents.test.js scans for, so this file resolving the bridge THROUGH this
+   helper is what makes the #731 guard require the bundle build to ship it -- an
+   earlier draft baked the path with `path.resolve`, which the guard's regex does not
+   match, so a served bundle would have carried no gemini bridge and every gemini
+   agent's self-report would have silently pointed at a missing file. installSupervisor
+   copies source -> path (supportDir) on every refresh, so the birth write bakes the
+   STABLE supportDir location rather than the app tree, matching how codex's bridge
+   survives an app-tree move. */
+function geminiBridgeSource() {
+  return path.join(__dirname, '..', 'bin', 'gemini-report-bridge.js');
+}
+
+function geminiBridgePath() {
+  return path.join(supportDir(), 'bin', 'gemini-report-bridge.js');
+}
+
 /**
  * Put the current supervisor where the jobs point, and answer whether it is
  * there.
@@ -2121,6 +2222,15 @@ function installSupervisor() {
     fs.copyFileSync(bridgeSource(), bridgeStaging);
     fs.chmodSync(bridgeStaging, 0o755);
     fs.renameSync(bridgeStaging, bridgeDest);
+    // #3296: the gemini report bridge rides the same refresh, same staging-rename
+    // discipline, same reason as the codex bridge above. create.js bakes
+    // geminiBridgePath() (this destination) into a gemini agent's settings.json at
+    // birth, so it must be current here for every existing agent on the next refresh.
+    const geminiBridgeDest = geminiBridgePath();
+    const geminiBridgeStaging = `${geminiBridgeDest}.${process.pid}.new`;
+    fs.copyFileSync(geminiBridgeSource(), geminiBridgeStaging);
+    fs.chmodSync(geminiBridgeStaging, 0o755);
+    fs.renameSync(geminiBridgeStaging, geminiBridgeDest);
     /* \u2b50 #1139: TELL THE SUPERVISOR WHERE THE ENGINE IS.
        It resolves `sendertoken.js` as `dirname($0)/../engine`, which is true in
        a checkout and in the bundle and FALSE for every real agent -- the two
@@ -2152,12 +2262,13 @@ function installSupervisor() {
     // Leave nothing half-written beside the real one.
     try { fs.rmSync(`${supervisorPath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(`${bridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(`${geminiBridgePath()}.${process.pid}.new`, { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(path.join(path.dirname(supervisorPath()), `engine-path.${process.pid}.new`), { force: true }); } catch { /* best effort */ }
-    // ⚠️ NAME THE FILE. Two files ride this step; when one is absent the
-    // sentence must say WHICH, or a person goes looking for a file that is
-    // present (#731: the bridge was missing from the served bundle and the
-    // refusal blamed the supervisor, which had shipped).
-    const absent = [supervisorSource(), bridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
+    // ⚠️ NAME THE FILE. Several files ride this step (the supervisor and both
+    // report bridges); when one is absent the sentence must say WHICH, or a person
+    // goes looking for a file that is present (#731: the bridge was missing from the
+    // served bundle and the refusal blamed the supervisor, which had shipped).
+    const absent = [supervisorSource(), bridgeSource(), geminiBridgeSource()].filter((f) => !fs.existsSync(f)).map((f) => path.basename(f));
     return {
       ok: false,
       missing: Boolean(err && err.code === 'ENOENT' && absent.length),
@@ -2484,6 +2595,11 @@ function binPaths(opts) {
     // never again disagree about where the runner lives.
     codexBin: (opts && opts.codexBin)
       || runners.resolveBin('openai').bin,
+    // #3296: the Gemini runner. Same ONE-priority-list contract as the others
+    // (env override authoritative, else the resolver's legacy rung). resolveBin
+    // is keyed by the RUNNER name here ('gemini'), as it is for 'claude'.
+    geminiBin: (opts && opts.geminiBin)
+      || runners.resolveBin('gemini').bin,
   };
 }
 
@@ -2748,6 +2864,24 @@ function installJob(name, opts) {
   }
   if (!fs.existsSync(workerDir(clean))) {
     return { ok: false, because: 'there is no folder for it on this computer' };
+  }
+  /* #3296: installJob (the backfill / adopt / repair / cross-world-import path, as
+     opposed to createAgentInner which writes its own plist) supports codex and claude
+     only -- the runner decision below reads opts.runner and defaults everything else to
+     claude, so a gemini agent would be (re)installed as a CLAUDE job with claudeBin.
+     Refuse cleanly at the ROOT here, so EVERY caller inherits it (register.repair,
+     worldstarts.firstStartOfImport, and worldimport -- which already refuses earlier)
+     rather than each silently mis-launching a gemini agent as claude. Full gemini
+     support in this path (geminiBin + the birth settings write) is the deferred backfill
+     slice; see the plan file. The agent's TRUE runner is read via recordedRunner (plist
+     then profile.provider), not opts, because callers pass no runner for gemini. Create
+     is unaffected: it never calls installJob. */
+  {
+    const wantRunner = (opts && opts.runner) || recordedRunner(clean);
+    if (wantRunner === 'gemini' || wantRunner === 'grok') {
+      const label = wantRunner === 'gemini' ? 'Gemini' : 'Grok';
+      return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a launch job for this way yet -- it can be created fresh, but not backfilled, repaired, or imported` };
+    }
   }
   const { claudeBin, tmuxBin } = binPaths(opts);
   /* 🛑 THE RUNNER IS DECIDED BEFORE THE BINARY IS CHECKED (#1159). This checked
@@ -3293,23 +3427,34 @@ function createAgentInner(opts) {
      person can actually create by picking their own name from a list. */
   const wantReportsTo = (opts && typeof opts.reportsTo === 'string' && opts.reportsTo.trim())
     ? opts.reportsTo.trim().slice(0, 80) : null;
-  const { claudeBin, tmuxBin, codexBin } = binPaths(opts);
+  const { claudeBin, tmuxBin, codexBin, geminiBin } = binPaths(opts);
 
   /**
-   * Which provider this agent runs on (#245). 'anthropic' is the default
+   * Which provider this agent runs on (#245, #3296). 'anthropic' is the default
    * and the word every existing caller means by omission; 'openai' launches
-   * the codex runner. RECORDED, never inferred: the choice lands in the
-   * plist (the runner argument), the profile, and the birth record, so no
-   * screen ever has to guess a runner from what happens to be in a pane.
+   * the codex runner; 'google' launches the gemini runner. RECORDED, never
+   * inferred: the choice lands in the plist (the runner argument), the profile,
+   * and the birth record, so no screen ever has to guess a runner from what
+   * happens to be in a pane.
    */
   const provider = (opts && opts.provider !== undefined && opts.provider !== null && String(opts.provider) !== '')
     ? String(opts.provider) : 'anthropic';
-  const runner = provider === 'openai' ? 'codex' : 'claude';
-  const runnerBin = runner === 'codex' ? codexBin : claudeBin;
+  const runner = provider === 'openai' ? 'codex' : provider === 'google' ? 'gemini' : 'claude';
+  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : claudeBin;
 
   const steps = [];
-  if (provider !== 'anthropic' && provider !== 'openai') {
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
+  }
+  if (provider === 'google') {
+    // #3296: refuse a Gemini create the machine could never start, the same
+    // preflight the openai arm does -- a launchd job pointing at an absent runner
+    // just respawns forever. The runner-runnable check for the required list
+    // below covers this too, but doing it here keeps the refusal beside the
+    // provider decision, symmetric with openai.
+    if (!DRY_RUN && !runnerRunnable(geminiBin)) {
+      return { outcome: OUTCOME.REFUSED, because: 'we could not find the Gemini runner on this computer, so an agent made now would never start', steps };
+    }
   }
   if (provider === 'openai') {
     /* #2140 LIFTED THE MODEL BOUNDARY. This clause used to refuse `opts.model`
@@ -3423,29 +3568,31 @@ function createAgentInner(opts) {
   }
   let modelArg = null;
   if (wantModelKey !== undefined) {
-    if (provider === 'openai') {
-      /* #2140: OpenAI models are PER-ACCOUNT and dynamic (accountModels' live
-         /v1/models fetch), so they are NOT in the static MODELS list `modelFor`
-         reads, and for them key===arg===the model id. An EMPTY value is the
-         "Let OpenAI choose" default -- auto, codex's own model, the prior
-         behaviour -- so it leaves modelArg null. A non-empty id is written as
-         the `-m` arg; it is only sanity-bounded here (the authoritative "this
-         account can run it" check is async and ran at the server create route,
-         against accountModels). The bound stops a bad caller writing an
-         arbitrary string into the launchd job's argv. */
+    if (provider === 'openai' || provider === 'google') {
+      /* #2140/#3296: OpenAI and Gemini models are FREE-FORM ids, not entries in
+         the static MODELS list `modelFor` reads (OpenAI's are per-account and
+         dynamic; Gemini's are the vendor's own catalogue and this default-account
+         slice carries no MODELS/picker for them). For both, key===arg===the model
+         id. An EMPTY value is the provider's own default -- for gemini the
+         supervisor pins `gemini-2.5-flash` when no `-m` is recorded, matching the
+         "Let OpenAI choose" default on the codex side -- so it leaves modelArg
+         null. A non-empty id is written as the `-m` arg, only sanity-bounded here
+         (a bad caller must not write an arbitrary string into the launchd job's
+         argv). */
+      const vendorLabel = provider === 'openai' ? 'OpenAI' : 'Gemini';
       const id = String(wantModelKey).trim();
       if (id !== '') {
         if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
-          return { outcome: OUTCOME.REFUSED, because: 'that is not a valid OpenAI model name', steps };
+          return { outcome: OUTCOME.REFUSED, because: `that is not a valid ${vendorLabel} model name`, steps };
         }
         /* Cross-vendor guard, cheap and sync: a Claude model KEY is never an
-           OpenAI model, so reject it here rather than write it into a codex
-           launch (the per-account "is this one of YOUR models" check is the
-           async one at the server route). Catches the "opus into codex" mistake
-           without a network call. */
+           OpenAI or Gemini model, so reject it here rather than write it into a
+           non-claude launch (the per-account "is this one of YOUR models" check,
+           where one exists, is the async one at the server route). Catches the
+           "opus into codex/gemini" mistake without a network call. */
         const claudeMdl = modelsFor('anthropic').find((x) => x.key === id || x.arg === id);
         if (claudeMdl) {
-          return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one OpenAI runs; pick one from OpenAI's list`, steps };
+          return { outcome: OUTCOME.REFUSED, because: `${claudeMdl.label} is a Claude model, not one ${vendorLabel} runs; pick one from ${vendorLabel}'s list`, steps };
         }
         modelArg = id;
       }
@@ -3512,6 +3659,14 @@ function createAgentInner(opts) {
        ⚠️ Fixing only the switch would have made the routes AGREE without an override
        and DISAGREE with one, which is this card's own defect pointing the other way. */
     configDir = acct.isDefault && !codexHomeOverridden() ? null : acct.dir;
+  } else if (provider === 'google') {
+    /* #3296: this slice ships DEFAULT-account Gemini only. There is no
+       geminiaccounts subsystem yet (the connect-UI / per-account GEMINI_CLI_HOME
+       work is deferred with the web/ un-gate), so configDir stays null and any
+       wantAccountDir is deliberately ignored rather than routed into the CLAUDE
+       accounts arm below (which would look a codex/claude account up for a gemini
+       agent). A default-account gemini agent reads ~/.gemini and gets its key from
+       the generic secrets/env door. */
   } else if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     const accountsMod = require('./accounts');
     /* Resolved for the same reason as the OpenAI arm above (#1486):
@@ -3751,7 +3906,7 @@ function createAgentInner(opts) {
    * is a dead click in words. Which condition suppressed it rides the
    * engine-side `alternative`, never the person's sentence.
    */
-  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : 'Claude Code';
+  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : runner === 'gemini' ? 'the Gemini runner' : 'Claude Code';
   /**
    * 🛑 tmux IS NOT A REQUIRED PROGRAM ON win32, AND REQUIRING IT HERE REFUSED
    * EVERY WINDOWS CREATE (#570). Measured, not reasoned: the first real
@@ -4355,8 +4510,15 @@ function createAgentInner(opts) {
        Claude-only: on OpenAI, configDir is a CODEX_HOME and this is the CLAUDE
        write, so createIfAbsent stays false there (the codex arm's own
        trustCodexFolder already creates ~/.codex/config.toml on a fresh account). */
-    try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
-    catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    /* #3296: skipped for gemini. This is the CLAUDE folder-trust write; a gemini
+       agent clears its own trust gate with `--skip-trust` at launch (agent-
+       supervisor.sh) and its birth writes go to the gemini settings.json branch
+       below, so running a claude trust write for a gemini worker folder would
+       write into the wrong tool's config. */
+    if (provider !== 'google') {
+      try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
+      catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    }
     /* 🛑 #1919, THE SAME CREATE MOMENT. The supervisor launches with
        --dangerously-skip-permissions, and Claude Code shows a one-time Bypass-Permissions
        consent (default `No, exit`) the FIRST time that flag runs in a config dir -- which
@@ -4376,7 +4538,7 @@ function createAgentInner(opts) {
        at rollback time). Leaving an inert account preference set is the safe direction -- the
        operator chose bypass mode for this account when they started the creation -- so this
        is fire-and-forget with no undo, unlike the trust write. */
-    if (provider !== 'openai') {
+    if (provider === 'anthropic') {
       try { require('./trust').preacceptBypass(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
       /* #3383, THE SAME CREATE MOMENT, one gate further. Claude Code's own first-run
@@ -4389,6 +4551,35 @@ function createAgentInner(opts) {
          same per-ACCOUNT reasoning as the bypass write above. */
       try { require('./trust').preacceptOnboarding(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
+    }
+    /* #3296: the GEMINI create-moment birth writes, the analog of the claude
+       trust+preaccept block above. ONE merge into the agent's gemini
+       settings.json (default account: ~/.gemini via defaultAgentGeminiHome):
+         - the auth pre-seed, so a launched agent boots straight to the prompt
+           instead of the interactive first-run auth picker (which would render
+           GEMINI_API_KEY in plaintext into a scraped pane), and
+         - the five lifecycle report hooks pointing at bin/gemini-report-bridge.js,
+           so the board reads the agent's state from its own self-reports instead
+           of scraping a pane (the #3296 whole point).
+       BEFORE bootstrap, for the same timing reason as the claude preaccepts (the
+       picker/hooks are read at startup). Best-effort and non-gating: a gemini
+       agent that self-reports one turn late, or meets the auth picker once, is
+       not a failed creation. The baked path is geminiBridgePath() -- the STABLE
+       supportDir location installSupervisor copies the bridge to on every refresh,
+       NOT the app tree -- so it survives an app-tree move exactly as codex's
+       supportDir bridge does, and installSupervisor keeps the bytes current there for
+       every existing agent. (Using geminiBridgeSource()'s path.join form is also what
+       makes the #731 bundle guard require the build to ship the bridge; an earlier
+       draft baked a path.resolve app-tree path that the guard could not see.)
+       ⚠️ The one residual, deferred per #3136: a WIPED ~/.gemini loses the settings
+       entirely until the agent is remade (a launch-time re-apply shim would close it).
+       See the plan file's Deferred section. */
+    if (provider === 'google') {
+      try {
+        const geminisettings = require('./geminisettings');
+        const geminiHome = configDir || defaultAgentGeminiHome();
+        geminisettings.ensurePrepared(path.join(geminiHome, 'settings.json'), geminiBridgePath());
+      } catch { /* a gemini agent that self-reports late is not a failed creation */ }
     }
   }
 
@@ -4665,6 +4856,10 @@ module.exports = {
   plannedModelArg,
   forgetCodexFolder,
   trustCodexFolder,
+  /* #3439: exported so the escaping/rendering can be unit-tested deterministically
+     on any OS, without going through canonicalOnDisk (which resolves against the
+     real filesystem and would not preserve a hard-coded Windows path on POSIX CI). */
+  tomlProjectKeyString,
   defaultAgentCodexHome,
   defaultAgentGeminiHome,
   defaultAgentGrokHome,

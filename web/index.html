@@ -26693,6 +26693,10 @@ function usageCharts4Html(series, totals, grandTotal) {
    OpenAI does not list a Codex price, so its tokens are left out and flagged. */
 const USAGE_MODEL_PRICES = {
   // id: { in, out, cw, cr }  -- $ per MILLION tokens
+  // opus-5-5 in/out/cr are the published Anthropic rates. cr is $0.20 = 0.05x input,
+  // a real break from the 0.1x the other Claude tiers use (like fable-5-1) -- do not
+  // "correct" it to 0.40. cw is the standard 1.25x input 5-minute write, as every row.
+  'claude-opus-5-5': { in: 4, out: 20, cw: 5.00, cr: 0.20 },
   'claude-opus-5': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
   'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
   'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
@@ -37710,7 +37714,13 @@ function pjMember(m, suppressTold, withMinus, hideState) {
        scoped actions, the escalation gradient member < archive <
        remove-from-Kosmos). */
     + (toldLine ? '<span class="pj-told">' + toldLine + '</span>' : '')
-    + pjMemberHasIt(m)
+    /* #3437 (Josh, 2026-09-22): the "has it" line ("We cannot tell whether it has
+       this yet") is agent status, and Josh does not want status text on the project
+       members column -- name + role only. Gated on the same hideState the state label
+       above already uses, so it drops in the project column (hideState true) and stays
+       in the Settings members list (hideState falsy), where a person managing
+       membership can use the signal. */
+    + (hideState ? '' : pjMemberHasIt(m))
     + '</span>'
     /* #520 piece ten, then #762: the mock's minus, at the row's end, shown
        on hover or keyboard focus wherever it is drawn. Project settings

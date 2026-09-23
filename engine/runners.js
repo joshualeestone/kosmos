@@ -461,6 +461,26 @@ function resolveBin(provider, opts) {
     const canonical = path.join(homeDir(), '.local', 'bin', MANIFEST.claude.binName);
     return { bin: canonical, present: isRunnable(canonical), managed: false, overridden: false };
   }
+  /* #3296: the Gemini runner. Like the claude branch, this is a LEGACY-rung
+     resolution today, not a managed tarball install: the gemini CLI is a
+     node-script package whose `gemini` bin is a `#!/usr/bin/env node` shebang
+     script (with the exec bit, so it clears isRunnable's X_OK exactly like
+     codex's symlink). A managed MANIFEST.gemini install is a later hardening;
+     until then the runner is the vendor's npm-global `gemini`, resolved the same
+     way codex resolves its legacy `/opt/homebrew/bin/codex` rung on this box.
+
+     Rungs: the env override (the harness/self-host contract every bin path
+     honours), then the legacy npm-global path. `managed` is always false (no
+     Kosmos-managed location yet), matching the vendor-external shape of the
+     claude branch. `envName` travels with the answer for the same reason it does
+     on the other branches: a refusal that names a variable must name the RIGHT
+     one. */
+  if (provider === 'gemini') {
+    const envGemini = process.env.AGENT_WORKFORCE_GEMINI_BIN;
+    if (envGemini) return { bin: envGemini, present: isRunnable(envGemini), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GEMINI_BIN' };
+    const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/gemini';
+    return { bin: legacy, present: isRunnable(legacy), managed: false, overridden: false };
+  }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
   // env names a path, that path is the answer, present or not -- so every

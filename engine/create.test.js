@@ -77,6 +77,10 @@ const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
    fixtures happen to distinguish them and switching's did not.
    ⇒ Two fixtures with the same value cannot test a choice between them. */
 const CODEX_BIN = '/bin/cat';
+/* #3296: a THIRD distinct real runnable binary, for the same reason CODEX_BIN is
+   distinct from claudeBin -- so an assertion can tell a gemini-labelled job
+   pointing at the GEMINI binary from one pointing at claude's or codex's. */
+const GEMINI_BIN = '/usr/bin/true';
 
 /**
  * The supervisor as SHIPPED, read from disk.
@@ -3018,7 +3022,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // launchd environment alone never reaches the agent.
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
-  assert.equal(launches.length, 4, 'the supervisor launch lines moved; update this test with them');
+  assert.equal(launches.length, 5, 'the supervisor launch lines moved; update this test with them');
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently (#577, #540, #529).
   assert.match(script, /for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do/);
@@ -3893,6 +3897,142 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   // route reports "${label} it is."; a null would render "null it is.").
   assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
     'the auto (empty) OpenAI model must have a real label, got ' + JSON.stringify(setAuto.model && setAuto.model.label));
+});
+
+test('#3296: a Gemini agent is created on the gemini runner, recorded, with the right launch vector, brief, and self-report settings', () => {
+  recorder();
+  create.setDryRun(false);
+  const name = 'gemini-kid';
+  const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name, role: 'pm', provider: 'google' });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  // The vector: 0 bash, 1 supervisor, 2 name, 3 workdir, 4 runner-bin, 5 tmux,
+  // 6 log, 7 model (empty -> the supervisor pins gemini-2.5-flash), 8 runner.
+  const args = plistArgs(name);
+  assert.equal(args[4], GEMINI_BIN, 'the runner binary is not the gemini path');
+  assert.equal(args[7], '', 'the model slot must be written empty so the supervisor can pin the default');
+  assert.equal(args[8], 'gemini', 'the recorded runner is not gemini');
+  // Recorded, never inferred: the profile and the birth record both say google.
+  assert.equal(store.readProfile(name).provider, 'google');
+  assert.equal(create.createdLog().slice(-1)[0].provider, 'google');
+  // The brief is written to GEMINI.md (the file gemini-cli boots from), never CLAUDE.md.
+  const dir = create.workerDir(name);
+  assert.ok(fs.existsSync(nodePath.join(dir, 'GEMINI.md')), 'a gemini agent got no GEMINI.md to boot from');
+  assert.ok(!fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'a gemini agent must not get its brief in CLAUDE.md');
+  assert.equal(create.briefFilename('gemini'), 'GEMINI.md');
+  assert.ok(create.instructionFile(name).endsWith('GEMINI.md'), 'instructionFile did not resolve GEMINI.md from the recorded gemini runner');
+  // The birth writes reached the DEFAULT gemini home's settings.json: the auth
+  // pre-seed (so the agent boots past the first-run picker) and the five report
+  // hooks (so the board reads state from self-reports, not a scraped pane).
+  const settingsPath = nodePath.join(create.defaultAgentGeminiHome(), 'settings.json');
+  assert.ok(fs.existsSync(settingsPath), 'the gemini agent got no settings.json (auth pre-seed + report hooks)');
+  const s = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  assert.equal(s.security.auth.selectedType, 'gemini-api-key', 'the auth pre-seed was not written');
+  for (const ev of ['SessionStart', 'BeforeAgent', 'Notification', 'AfterAgent', 'SessionEnd']) {
+    const defs = s.hooks[ev];
+    assert.ok(Array.isArray(defs) && defs.some((d) => d.hooks.some((h) => h.command.includes('gemini-report-bridge'))),
+      `the ${ev} report hook was not wired`);
+  }
+  // A Claude model catalogue key cannot be written into a gemini launch
+  // (cross-vendor guard, sync, no network call).
+  const badModel = create.setModel(name, 'opus');
+  assert.equal(badModel.outcome, create.OUTCOME.REFUSED);
+  assert.match(badModel.because, /is a Claude model/);
+  // A real free-form gemini model id IS accepted and lands in the -m slot.
+  const setG = create.setModel(name, 'gemini-2.5-pro');
+  assert.equal(setG.outcome, create.OUTCOME.CREATED, setG.because);
+  assert.equal(plistArgs(name)[7], 'gemini-2.5-pro', 'the chosen Gemini model was not written to the -m slot');
+  // Empty is "let the supervisor pin the default" -- an empty slot.
+  const setAuto = create.setModel(name, '');
+  assert.equal(setAuto.outcome, create.OUTCOME.CREATED, setAuto.because);
+  assert.equal(plistArgs(name)[7], '', 'an empty Gemini model choice must clear the -m slot');
+  assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
+    'the auto (empty) Gemini model must carry a real label');
+});
+
+test('#3296: a Gemini create is refused when the runner is missing, and an unknown provider still refuses', () => {
+  recorder();
+  create.setDryRun(false);
+  const r = create.createAgent({ ...BINS, name: 'g-norunner', role: 'pm', provider: 'google', geminiBin: '/nonexistent-gemini' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /could not find the Gemini runner/);
+  const bad = create.createAgent({ ...BINS, name: 'g-prov', role: 'pm', provider: 'moonshot' });
+  assert.equal(bad.outcome, create.OUTCOME.REFUSED);
+  assert.match(bad.because, /pick a provider/);
+});
+
+test('#3296: a Gemini create with an account arg is created default-account (the account is ignored, pinned)', () => {
+  // This slice is default-account only (no geminiaccounts subsystem yet), so a
+  // supplied account is deliberately ignored rather than routed into the CLAUDE
+  // accounts arm. Pin that behavior so it is intentional, not incidental: the agent
+  // is created and its plist carries no per-account config dir (empty account slot).
+  recorder();
+  create.setDryRun(false);
+  const suppliedDir = nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.gemini-some-account');
+  const out = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-acct', role: 'pm', provider: 'google', account: suppliedDir });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  assert.equal(plistArgs('g-acct')[8], 'gemini');
+  assert.equal(store.readProfile('g-acct').provider, 'google');
+  // ⚠️ DISCRIMINATING: the supplied account must be DROPPED, so its dir must appear
+  // NOWHERE in the plist. A per-account config dir surfaces in the plist's
+  // EnvironmentVariables (CLAUDE_CONFIG_DIR / account-env), which plistArgs (reads
+  // ProgramArguments only) cannot see -- so slot 8 == 'gemini' passes either way and
+  // is not the test. Read the whole plist text and assert the dir is absent: a
+  // regression that routed opts.account into a gemini config dir would make it appear.
+  const plistText = fs.readFileSync(create.plistPath('g-acct'), 'utf8');
+  assert.ok(!plistText.includes(suppliedDir), 'the supplied account dir leaked into the plist; it must be dropped for a default-account gemini agent');
+  // And the birth settings write landed in the DEFAULT gemini home, not the supplied dir.
+  assert.ok(fs.existsSync(nodePath.join(create.defaultAgentGeminiHome(), 'settings.json')),
+    'the gemini settings were not written to the default home');
+  assert.ok(!fs.existsSync(nodePath.join(suppliedDir, 'settings.json')),
+    'the gemini settings were written under the supplied account dir; it must be ignored');
+});
+
+test('#3296: installJob refuses a gemini agent at the root, so backfill/repair/import never mis-launch it as claude', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-backfill', role: 'pm', provider: 'google' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  // Simulate the missing-job state installJob (backfill/repair) exists for: remove the
+  // plist so jobPresence is 'no' and the guard is reached.
+  fs.rmSync(create.plistPath('g-backfill'), { force: true });
+  const r = create.installJob('g-backfill');
+  assert.equal(r.ok, false, 'installJob must refuse a gemini agent, not reinstall it as a claude job');
+  assert.match(r.because, /Gemini/, 'the refusal must name the runner, proving the root guard fired (recordedRunner read provider=google)');
+  // The control: it must NOT have written a plist (a claude one would be the bug).
+  assert.ok(!fs.existsSync(create.plistPath('g-backfill')), 'installJob wrote a job for a gemini agent it should have refused');
+});
+
+test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLAUDE account path', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-guard', role: 'pm', provider: 'google' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+
+  // trustAgentFolder must take the gemini arm (no claude trust write), proven by the
+  // returned runner: a fallthrough into the claude path would return runner:'claude'.
+  const t = create.trustAgentFolder('g-guard');
+  assert.equal(t.runner, 'gemini', 'trustAgentFolder fell through to the claude path for a gemini agent');
+  assert.equal(t.wrote, false, 'a gemini agent needs no claude trust write (it uses --skip-trust)');
+
+  // setAccount must REFUSE (gemini is default-account only) rather than look the agent
+  // up in claude accounts. The gemini-specific reason proves the guard fired, not a
+  // generic REFUSE_ACCOUNT that a claude-path lookup of an unknown dir would give.
+  const sw = create.setAccount('g-guard', nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.claude-work'));
+  assert.equal(sw.outcome, create.OUTCOME.REFUSED);
+  assert.match(sw.because, /single default account/, 'setAccount did not take the gemini default-account-only guard');
+});
+
+test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trust, and a pinned model', () => {
+  // The launch flags are load-bearing and easy to drop silently: the plan pins the
+  // model because the "Auto" router hangs in a tmux pane (measured >1m47s), and yolo
+  // is what stops an autonomous agent parking on a tool prompt. Asserted against the
+  // supervisor AS SHIPPED (read from disk), so a regression that drops -m or the yolo
+  // flag goes red here rather than passing green like the launch-line COUNT check does.
+  const script = supervisorText();
+  assert.match(script, /GEMINI_MODEL="\$\{MODEL:-gemini-2\.5-flash\}"/,
+    'the gemini arm must pin gemini-2.5-flash when the plist model slot is empty');
+  assert.ok(script.includes('--approval-mode yolo --skip-trust -m "$GEMINI_MODEL"'),
+    'the gemini launch line must pass yolo, skip-trust, and the pinned -m model');
 });
 
 test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {

@@ -10791,8 +10791,39 @@ const server = http.createServer((req, res) => {
      * would be two derivations of one fact again.
      */
     const owes = messageLog.owesReply(name);
+    /* #3419: surface the agent's live question as a MESSAGE in the thread, not only
+       as the interruptive "waiting on an answer" banner. ADDITIVE for now — the
+       banner fields (asking/question/…) below are unchanged, so Mona's banner
+       removal and this injection compose in either order; a follow-up drops the
+       then-unused banner-only fields. Not persisted: derived live each poll from
+       the same `question` the banner uses, deduped against a trailing real row. */
+    /* ⚠️ CANONICAL name, not the raw URL segment. `name` is case-tolerant
+       (decodeSegment of the path; the route case-folds so a mis-cased name still
+       drives display), so injecting the row under `name` would emit e.g.
+       from:'Zeta' / id:'needs-you-question:Zeta' while the live session is `zeta`
+       -- and dmWho compares `from === sessionName`, so a case slip renders the raw
+       string instead of the agent's display name. Every agent-authored write here
+       uses card.sessionName for exactly this (keepAgentReply's caller, `who`
+       above). card is non-null whenever `question` is (both gate on `asking`); the
+       `|| name` only ever applies on the no-op path where withQuestionRow ignores
+       the name anyway. */
+    /* Inject the question row ONLY when the read produced a real message LIST. A
+       HARD read failure (UNREADABLE/UNPARSEABLE) leaves `messages` null; before
+       this guard `withQuestionRow` coerced that null to `[]` and appended a row,
+       which MASKED the failure on the client (its "we cannot read what you have
+       sent" notice gates on `!allRows.length`, so one synthetic row hides it) and
+       flipped `Array.isArray(messages)` false->true, which the client's DM_SPOKE
+       seeding treats as "the read answered". Gate on `Array.isArray` so a null read
+       passes straight through unchanged (withPreviews(null) -> null), exactly as
+       before #3419. BAD_THREAD is deliberately NOT excluded here: it yields a valid
+       empty `[]` (the name simply cannot be filed, but the agent works), and a live
+       question on such an agent SHOULD still show -- that is the intended behaviour
+       the integration test below pins. */
+    const servedMessages = Array.isArray(messages)
+      ? chat.withQuestionRow(messages, (card && card.sessionName) || name, question)
+      : messages;
     sendJson(res, 200, {
-      messages: withPreviews(messages),
+      messages: withPreviews(servedMessages),
       olderCount,
       historyBecause,
       historyUnfilable,

@@ -259,6 +259,21 @@ test('#2100: a dead codex agent (shell pane) is refused with "no Codex running",
   });
 });
 
+test('#3296: a dead gemini agent (shell pane) is refused with "no Gemini running", NOT "no Claude running"', () => {
+  // The gemini analog of the #2100 codex case: a gemini agent whose runner never came
+  // up holds a shell pane, so it hits the not-addressable branch. Its owner must not be
+  // told "no Claude running" for an agent they created on Gemini -- it must name Gemini.
+  // (A gemini shell pane classifies 'stopped', not 'unknown' like codex -- gemini's
+  // classify arm is tag-based and lands with the launcher -- so the fixture asks
+  // 'stopped'; either way the not-addressable "no <runner> running" refusal fires.)
+  withFleet([fleet.agent('gembot', { state: 'stopped', runner: 'gemini', command: '-zsh' })], (board) => {
+    const verdict = chat.deliver('gembot', 'hello', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+    assert.match(verdict.because, /no Gemini running in its window/);
+    assert.doesNotMatch(verdict.because, /no Claude running/);
+  });
+});
+
 test('#2100 control: a stopped CLAUDE agent KEEPS the "no Claude running" line (provider-aware, not a blanket reword)', () => {
   // The discriminator: identical not-addressable branch, but runner claude vs
   // codex must produce different copy. If this returned the codex line the fix
@@ -700,6 +715,54 @@ test('the question the thread shows comes off the SAME screen the board called n
     assert.ok(found, 'the board says it is asking; the thread has to be able to show what');
     assert.match(found.text, /Do you want to proceed\?/);
   });
+});
+
+/* ── #3419: the question rendered as a thread message, not only a banner ────── */
+
+test('#3419 withQuestionRow appends the live question as an agent-authored message row', () => {
+  const msgs = [{ at: 't1', text: 'hello', from: null, delivery: { state: chat.DELIVERY.PLACED } }];
+  const out = chat.withQuestionRow(msgs, 'casey', { text: 'Do you want to proceed?' });
+  assert.equal(out.length, 2, 'the question is appended as a new row');
+  const row = out[1];
+  assert.equal(row.text, 'Do you want to proceed?');
+  assert.equal(row.from, 'casey', 'agent-authored, so dmRow renders it as a "theirs" bubble');
+  assert.equal(row.delivery, null, 'no delivery verdict on an agent-authored row (matches keepAgentReply)');
+  assert.equal(row.kind, 'question', 'marked so the UI can style it and key its dismiss on the needs_you STATE');
+  assert.equal(row.reported, false);
+  // ⚠️ STABLE id, NO at: a standing question is a state, not a dated event. The
+  // stable id keeps dmRow's midOf (id || at) repaint key from churning each poll,
+  // and a null at makes the DM_SPOKE_AT "just spoke" loop skip the row (it guards
+  // !m.at) so a waiting agent is not re-stamped as having just spoken.
+  assert.equal(row.id, 'needs-you-question:casey', 'stable per-agent id, not a per-poll clock');
+  assert.equal(row.at, null, 'no timestamp on a live standing question (pjWhen(null) renders nothing)');
+  // The input array is not mutated.
+  assert.equal(msgs.length, 1, 'the caller-owned array is not mutated');
+});
+
+test('#3419 withQuestionRow id is stable across polls and the same-text question is not doubled', () => {
+  // Two successive polls of the SAME standing question produce the SAME id (so the
+  // repaint anchor holds) and never a per-poll-varying value.
+  const a = chat.withQuestionRow([], 'casey', { text: 'proceed?' });
+  const b = chat.withQuestionRow([], 'casey', { text: 'proceed?' });
+  assert.equal(a[0].id, b[0].id, 'the standing-question id does not vary across polls');
+  assert.equal(a[0].at, null);
+  // A reported (off-screen) question is tagged so the page can say "the agent told
+  // us this" rather than "it is on screen".
+  const rep = chat.withQuestionRow([], 'casey', { text: 'ship it?', reported: true });
+  assert.equal(rep[0].reported, true);
+  // DEDUP: if the trailing real message is already this exact text (the agent typed
+  // its own question), no synthetic row is added.
+  const already = [{ at: 't1', text: 'ship it?', from: 'casey', delivery: null }];
+  const out = chat.withQuestionRow(already, 'casey', { text: 'ship it?' });
+  assert.equal(out.length, 1, 'the question is already the trailing message; not doubled');
+});
+
+test('#3419 withQuestionRow is a no-op when there is no question (a non-asking poll is untouched)', () => {
+  const msgs = [{ at: 't1', text: 'hello', from: null, delivery: null }];
+  assert.equal(chat.withQuestionRow(msgs, 'casey', null), msgs, 'same array, untouched');
+  assert.equal(chat.withQuestionRow(msgs, 'casey', { text: '' }), msgs, 'empty question text is no question');
+  // A non-array messages input degrades to [] rather than throwing.
+  assert.deepEqual(chat.withQuestionRow(null, 'casey', null), []);
 });
 
 /* ── what is ours to keep ────────────────────────────────────────────────── */
