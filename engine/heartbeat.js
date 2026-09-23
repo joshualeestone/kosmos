@@ -11,7 +11,7 @@
  *
  * DETECTION IS NOT REBUILT HERE. Every agent on the board already carries a
  * `state` classified by engine/status.js `classify()` (WORKING / IDLE / STOPPED
- * / NEEDS_YOU / RATE_LIMITED / AUTH_FAILED / UNKNOWN), the detector the whole
+ * / NEEDS_YOU / RATE_LIMITED / AUTH_FAILED / CONNECTION_LOST / UNKNOWN), the detector the whole
  * product trusts. This sweep COMPOSES that: given the roster's already-classified
  * states and what it saw last tick, it decides who is in an open STALL and worth
  * a CHECK-IN. A second detector here would be the "two derivations of the fleet"

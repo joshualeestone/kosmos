@@ -67,6 +67,15 @@ confirmed in iter 1: for the `Connection dropped` code the on-screen retry warni
 `Connection dropped -- reconnecting (attempt N/M)`, which the `Connection dropped \(` alternative
 correctly does NOT match; the other network codes were not separately captured.
 
+### DEFERRED (iter 4): DM/room busy indicator stays silent for connection_lost
+busyRow/paintBusy (the "<name> is working..." DM slot) shows only for `working` and
+`auth_failed`; connection_lost yields show=false, so the slot is hidden/empty (verified:
+NOT a false "is working" claim, so no #874 recurrence). Left silent DELIBERATELY: that
+matches `rate_limited`, connection_lost's actual pack-shape sibling, which is also silent
+there; `auth_failed`'s special line was driven by the specific #874 bug report. Adding
+connection_lost would make it inconsistent with rate_limited. If a real report shows the DM
+slot needs it, it is a one-line mirror of the auth_failed arm. Not PR 1 scope (board surfacing).
+
 ### reconcile coverage (added iter 1)
 reconcileReport now has a connection-lost half (rule 3b analog): scraped connection_lost stands over
 a self-report with a conflict note, so a Kosmos-managed agent's stale working/idle report cannot mask

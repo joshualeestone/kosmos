@@ -14942,8 +14942,9 @@ function taskLine(a, opts) {
  * derive their task line from `taskLine`, which calls this. The frozen pane
  * title used to be the fallback here; #209 removed it entirely (a title Kosmos
  * never writes and Claude Code freezes at first message is a fossil, not a
- * status), so today only `rate_limited` and `auth_failed` (#874) speak and
- * every other state shows nothing rather than a stale summary.
+ * status), so today only `rate_limited`, `auth_failed` (#874) and
+ * `connection_lost` (#3410) speak and every other state shows nothing rather
+ * than a stale summary.
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".

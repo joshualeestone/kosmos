@@ -46,7 +46,13 @@ const NETWORK_LINES = [
   "API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)",
   "API Error: Connection dropped (ECONNRESET)",
   "API Error: Unable to connect to API. Check your internet connection",
-  "API Error: Unable to connect to API (EAI_AGAIN)",
+  // The formatter's DEFENSIVE default arm ("Unable to connect to API (CODE)"),
+  // reached only by a network code the formatter does not specifically case.
+  // A neutral placeholder code, NOT EAI_AGAIN -- EAI_AGAIN always renders the
+  // "reach the API server" form above, so reusing it here would model a
+  // code/message pairing that does not occur. The point is only that the
+  // paren-arm regex fires.
+  "API Error: Unable to connect to API (E_OTHER_NET)",
   "API Error: Request timed out. Check your internet connection and proxy settings",
 ];
 
