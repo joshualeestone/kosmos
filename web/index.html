@@ -25455,7 +25455,17 @@ async function paintTalk(sessionName, agentName) {
   const qout = document.getElementById('d-qout');
   const qTrust = document.getElementById('d-qask-trust-restart');
   const live = body.presence === 'on';
-  const nowHidden = !body.asking || stillTheSame;
+  /* #3419 (Josh, 0.6.89): the "waiting on an answer" needs_you banner is GONE.
+     A live question now renders as an ordinary thread bubble (engine
+     withQuestionRow, #3455), so the person answers it in the normal composer or
+     ignores it and the conversation continues -- no boxed prompt, no "Clear this
+     message". The ONE thing this box still carries is the #2129 folder-trust
+     RECOVERY (Trust & Restart), which is a permission recovery, not a needs_you
+     question: it is the only state carrying body.answerNote (#1629), and Josh's
+     #2129 wants that one-click recovery kept. So the box shows ONLY for the
+     folder-trust recovery; every other asking/stranded/reported state is hidden
+     here and spoken as a bubble instead. */
+  const nowHidden = !(body.asking && body.answerNote) || stillTheSame;
   /**
    * ⚠️ THE RESCUE COMES BEFORE EVERY HIDE IN THIS SECTION, and its first
    * version did not.
@@ -25538,12 +25548,26 @@ async function paintTalk(sessionName, agentName) {
        screen treatment as the part of the screen that asked; a REPORTED one
        (body.question.reported) is the agent's own words, framed as reported so
        the screen-styled box is not read as its live screen right now. */
-    qlab.textContent = name + ' is waiting on an answer'
-      + (body.answerNote ? ', but not one typed here: ' + body.answerNote : '.')
-      + (body.question.reported === true ? ' This is what it told us it needs:' : '');
+    /* #3419: the ONLY state that still shows this box is the #2129 folder-trust
+       recovery (body.answerNote, #1629). Its label is recovery-framed, never
+       "waiting on an answer" -- Josh (#3419) does not want that needs_you wording
+       shown at all; a live question is a thread bubble now. The non-answerNote
+       arm is retained but is hidden every paint (see nowHidden above), so it is
+       computed and never seen; kept only so a change to the show-gate cannot
+       surface an empty label. */
+    qlab.textContent = body.answerNote
+      ? name + ' is stuck on a folder-trust prompt. ' + body.answerNote
+      : name + ' is waiting on an answer'
+        + (body.question.reported === true ? ' This is what it told us it needs:' : '');
     // The agent's screen, or its reported words, in the treatment the room uses.
+    /* #3419: the ONLY state that still shows this box is the #2129 folder-trust
+       recovery, and the engine (withQuestionRow, #3455) already injects that same
+       question as a thread bubble. So the box carries the recovery ACTION only --
+       never a second copy of the question text -- and qtext stays hidden for the
+       folder-trust state. It is still populated + shown on the (hidden)
+       non-answerNote arm so a change to the show-gate cannot surface an empty box. */
     pjSetScreen(qtext, body.question.text);
-    qtext.hidden = false;
+    qtext.hidden = !!body.answerNote;
     /* #2129: surface the one-click Trust & Restart ONLY for the folder-trust
        prompt, which is the only state carrying body.answerNote (#1629). Never on
        the #2456/#2575 reported-question false state (answerNote null there). */
@@ -25567,7 +25591,9 @@ async function paintTalk(sessionName, agentName) {
     qtext.__q2808 = qStr;
     if (qNew) qtext.classList.remove('expanded');
     if (qExpand) {
-      qExpand.hidden = !qLong;
+      /* #3419: no command-wall toggle on the folder-trust recovery strip -- its
+         qtext is hidden (the question is a bubble), so there is nothing to expand. */
+      qExpand.hidden = !qLong || !!body.answerNote;
       /* Label follows the CURRENT expanded state, so a repeat poll never stamps
          "Show full command" back over a box the person has opened. */
       const open = qtext.classList.contains('expanded');
