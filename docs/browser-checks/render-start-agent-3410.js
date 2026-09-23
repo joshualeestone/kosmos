@@ -62,8 +62,10 @@ function chk(ok, label, extra) {
   // A genuinely-OFFLINE agent for Part 7: a profile + worker folder + a plist (job)
   // but NO pane, which the server builds as state:'stopped' with session:null, i.e.
   // FOUND.NONE. Unlike 'nyx' (a login-shell pane = FOUND.OURS, which is why Parts
-  // 3-6 must MOCK /restart), 'ghost' lets Part 7 exercise the REAL /restart route
-  // and observe restartInner's honest FOUND.NONE refusal. (Recipe from
+  // 3-6 must MOCK /restart), 'ghost' lets Part 7 exercise the REAL /restart route.
+  // Post-#3418/#3429 restartInner BOOTSTRAPS the FOUND.NONE launchd job instead of
+  // refusing; in this dry-run sandbox the job never reports ready, so the honest
+  // "has not come back yet" line is shown (not the old refusal). (Recipe from
   // render-made-before.js: writeProfile + workerDir make a known offline row.)
   store.writeProfile('ghost', { displayName: 'Ghost' });
   fs.mkdirSync(create.workerDir('ghost'), { recursive: true });
@@ -306,7 +308,7 @@ function chk(ok, label, extra) {
       return { msg: m ? m.textContent.trim() : null, btnDisabled: btn ? btn.disabled : null };
     });
     chk(!!ghostMsg.msg && /has not come back/i.test(ghostMsg.msg),
-      'the REAL route FOUND.NONE bootstrap surfaces the honest "has not come back" line (#3418/#3429, not a false "Started")', ghostMsg.msg);
+      'the REAL FOUND.NONE route now bootstraps and surfaces the honest "has not come back" line (#3418/#3429, not a false "Started")', ghostMsg.msg);
     chk(!!ghostMsg.msg && !/Started /.test(ghostMsg.msg),
       'and no false-success "Started X" line on the real bootstrap attempt', ghostMsg.msg);
     chk(ghostMsg.btnDisabled === false, 'the button re-enables after the real bootstrap attempt', JSON.stringify(ghostMsg.btnDisabled));
