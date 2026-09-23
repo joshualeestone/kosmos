@@ -2032,7 +2032,7 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * about" rather than being masked back to working/idle. A missed wedged agent is
  * worse than a rare false pause -- this file's oldest trade.
  */
-const CONNECTION_LOST_MESSAGE = /Can't reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/;
+const CONNECTION_LOST_MESSAGE = /Can't reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
@@ -3001,29 +3001,6 @@ function authFailed(tail) {
 }
 
 /**
- * #3410. Claude Code's on-screen line for a TRANSIENT, restart-recoverable
- * network error, or null. The friendly-auth analog: leading indentation and
- * Claude's tree/bullet glyphs come off per row (they are drawing, not content),
- * and CONNECTION_LOST_MESSAGE is tested as a SUBSTRING of each row so the
- * "API Error:" prefix the TUI wraps around the formatted message does not
- * defeat the match. Returns the matched line, glyph-stripped, trimmed and capped,
- * so it rides along as evidence exactly like `authFailed`'s line. See
- * CONNECTION_LOST_MESSAGE for why the SSL/cert class is excluded.
- */
-function connectionLost(tail) {
-  const rows = String(tail == null ? '' : tail)
-    .split('\n')
-    .map((line) => line.replace(/^[\s>│├└─*❯›●]+/, ''));
-  for (const row of rows) {
-    if (CONNECTION_LOST_MESSAGE.test(row)) {
-      const line = row.trim();
-      return line.length > 240 ? line.slice(0, 240) + '…' : line;
-    }
-  }
-  return null;
-}
-
-/**
  * Claude Code's trust dialog on screen (#1629, point 3): the question row, or
  * null. See TRUST_PROMPT_QUESTION for the observed shape and why a marker row
  * was not enough. Leading indentation and tree glyphs come off per row, as in
@@ -3837,7 +3814,10 @@ function classify(pane, paneText) {
    * working chrome (and hence never reaches here) before it acts on this state --
    * do not carry this premise forward into a restart on my word alone.
    */
-  const connLine = connectionLost(tail);
+  /* The shared matchedLine helper (as rate_limited uses it): first row matching
+     CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
+     one derivation of "find the evidence line", not a private copy. */
+  const connLine = matchedLine(tail, [CONNECTION_LOST_MESSAGE]);
   if (connLine !== null) {
     return {
       state: STATE.CONNECTION_LOST,

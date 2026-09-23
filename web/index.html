@@ -14998,6 +14998,19 @@ function stateReason(a, opts) {
       ? "Looks like its Claude sign-in isn't working"
       : "Its Claude sign-in isn't working";
   }
+  /* #3410: a human sentence, not the raw terminal line. The evidence
+     ("API Error: Can't reach the API server ... (ENOTFOUND)") is the exact
+     terminal text Josh's #215 ruling says a white-collar person does not think
+     about; the card says what it MEANS. Same "Looks like" hedge as scraped
+     rate_limited/auth_failed above: SCRAPED asks only that the screen said so,
+     not that the network is proven down. The confident arm is unreachable from
+     today's engine (connection_lost is only ever SCRAPED) and kept for symmetry,
+     so a structured source strengthens the sentence by arriving. */
+  if (a && a.state === 'connection_lost') {
+    return a.stateConfidence === 'scraped'
+      ? 'Looks like it lost its internet connection'
+      : 'It lost its internet connection';
+  }
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks

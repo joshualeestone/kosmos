@@ -58,6 +58,7 @@ const plainify = (a) => Object.assign({}, a, { profile: { role: 'Assistant' }, c
 const connLostAgent = (extra) => plainify(Object.assign({}, BASE, {
   running: true,                 // the Claude process is up; it just cannot reach the API (pres:'on')
   state: 'connection_lost',
+  stateConfidence: 'scraped',    // classify() only ever emits this state as SCRAPED
   because: 'it lost its connection to the API',
   evidence: EVIDENCE,
 }, extra || {}));
@@ -103,4 +104,15 @@ test('card: the connection_lost pill wears a state class the stylesheet actually
 test('the page ships the expected connection_lost label copy', () => {
   assert.equal(pageLabel(), 'Connection lost',
     'the shipped STATE_COPY.connection_lost label changed; update this pin deliberately');
+});
+
+// #3410: the card says what the state MEANS in human terms (Josh #215: raw
+// terminal text is not what a white-collar person thinks about), not the raw
+// "API Error: ... (ENOTFOUND)" evidence line.
+test('card: a connection_lost agent shows a human sentence, not the raw API-Error evidence', () => {
+  const html = api.card(connLostAgent());
+  assert.match(html, /lost its internet connection/,
+    'the card does not explain the connection_lost state in plain words');
+  assert.doesNotMatch(html, /ENOTFOUND/,
+    'the raw terminal evidence leaked onto the card face instead of a human sentence');
 });
