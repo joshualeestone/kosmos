@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * The words the five memory surfaces use when there is no percentage.
+ * The words the four memory surfaces use when there is no percentage
+ * (#3501 removed the fifth, the card memory badge).
  *
  * ⚠️ THIS FILE EXECUTES THE FUNCTION RATHER THAN GREPPING FOR ITS TEXT. A test
  * that reads index.html as a string can only prove a sentence is present
@@ -9,9 +10,9 @@
  * produces it is reachable, and this repo has shipped a fully transparent
  * modal past 316 such tests. So `memUnknown` is extracted and CALLED.
  *
- * The second half is structural on purpose: the fact has five renderers, and
+ * The second half is structural on purpose: the fact has four renderers, and
  * this file's neighbours record them drifting apart twice. Pinning that each
- * renderer CALLS the shared derivation is what stops a sixth from being added
+ * renderer CALLS the shared derivation is what stops a fifth from being added
  * with a literal.
  */
 
@@ -136,7 +137,7 @@ test('every one of the four surfaces goes through the shared derivation', () => 
 
   /* ⚠️ THE OLD VERSION OF THIS BLOCK CHECKED THAT THREE STRINGS EXIST IN THE
      PAGE and never related any of them to `memUnknown`. It would have passed
-     with all five surfaces hardcoding literals. The count above is what holds
+     with all four surfaces hardcoding literals. The count above is what holds
      that line, so the anchors are gone rather than left looking like coverage. */
 });
 
