@@ -157,6 +157,24 @@ test('the tiles count them apart, and the row closes', () => {
     'the headline total is not what is running plus what is not');
 });
 
+test('#3483: the no-image avatar initial is vertically centered on its circle', () => {
+  /* face() draws the initial as an SVG <text> inside <circle cx=36 cy=36 r=23>. Josh
+     (0.6.88): the letter "sits slightly too high" off a hardcoded y=41 baseline. The fix
+     centers it on the circle's own centre with dominant-baseline; the headless render
+     measures the letter's bbox centre at exactly 36 (was ~33.5, too high). This pins the
+     centering so a revert to the old baseline reds. hasAvatar:false forces the initials
+     branch (not the <image> branch). */
+  const html = render('card', { ...offlineRow(), hasAvatar: false });
+  const text = html.match(/<text[^>]*class="avatar-initials"[^>]*>/);
+  assert.ok(text, 'the no-image avatar draws an initials <text>');
+  assert.match(text[0], /dominant-baseline="central"/,
+    'the initial is centred on its em-box, not floated off a fixed baseline');
+  assert.match(text[0], /\by="36"/,
+    'the initial centres on the circle centre (cy=36), the vertical-centering #3483 asks for');
+  assert.doesNotMatch(text[0], /\by="41"/,
+    'the old too-high baseline (#3483: "sits slightly too high") is gone');
+});
+
 for (const which of ['card', 'lrow']) {
   test(`${which}: drawn from the record`, () => {
     const html = render(which, offlineRow());
