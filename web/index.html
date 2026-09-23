@@ -5520,72 +5520,37 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    pane, and `questionIn` is documented as NOT a parser. So it keeps the
    screen treatment this app already uses for it in the room, inside the pack's
    box. Rewording a terminal into prose would be a claim about what was asked. */
-.qask .pj-screen { margin-top: 6px; max-height: 200px; }
-/* #2808 (Josh, 0.6.56): the raw command wall reads as "a terrible big mess" at
-   the top of the agent page. Collapse it to a short teaser by default; the
-   "Show full command" toggle (#d-qask-expand) adds `.expanded` to restore the
-   full scrollable box. `overflow` stays `auto` (the base .pj-screen), so the
-   always-on 6px scrollbar invariant render-talk pins is untouched: only the
-   collapsed HEIGHT changes. The extra class raises specificity past
-   `.qask .pj-screen` (0,2,0) so these win. */
-.qask .pj-screen.clamped { max-height: 4.5em; }
-.qask .pj-screen.clamped.expanded { max-height: 200px; }
-/* #2808: the toggle is a subtle text affordance, not a primary button. Colour
-   and focus ring match the sibling `.pj-question-clear` text button (--label-2)
-   and this file's k-component focus convention (--k-ink), not an undefined
-   token. */
-.qask-expand { display: inline-block; margin-top: 4px; background: none; border: 0;
-  padding: 0; font: var(--text-caption) var(--font-ui); color: var(--label-2);
-  text-decoration: underline; cursor: pointer; }
-.qask-expand:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-/* ⚠️ A PERSISTENT SCROLLBAR ON THE QUESTION, and it replaces a fade that would
-   have needed logic. `white-space: pre` is deliberate -- a captured line is
-   what the agent's screen showed, and wrapping a permission prompt destroys
-   the column alignment its options are drawn in -- so a line wider than the
-   box is CUT. Measured 2026-08-20: the box shows 100 characters of a session
-   `connect.js` creates at `-x 220`, and MOST of the question-bearing states in
-   `render-talk.js` cut -- the count is not quoted because it moved the moment
-   two states were added, in the same commit that wrote the third copy of it.
-   macOS hides the OVERLAY scrollbar until somebody
-   scrolls, so there was no affordance saying anything was missing, on the one
-   screen whose whole job is that a person READS the question.
-
-   Styling the pseudo-element opts this box out of overlay behaviour and back
-   to a bar that is always there when it is needed. It is better than the fade
-   it replaces for a reason worth keeping: the BROWSER owns the condition, so
-   it cannot draw when nothing is cut and cannot keep claiming "there is more"
-   once you have scrolled to the end -- the two lies a hand-drawn edge has to
-   be tested against. And the thumb's LENGTH says how much more, which a fade
-   cannot say at all.
-
-   Scoped to THIS box rather than to `.pj-screen`, which the room also uses:
-   the room's panes have the same defect and fixing them is not this branch's
-   surface. `-webkit-` is not a gamble here -- Kosmos opens the default
-   browser, which on a stock Mac is Safari, and both engines this product
-   meets are WebKit or Chromium. */
-/* ⚠️ BOTH AXES. `.pj-screen` is `overflow: auto`, not `overflow-x`, and the
-   question box is capped at 200px against a viewport `chat.js` reads 60 lines
-   of -- so a question that scrolls VERTICALLY is the ordinary case, not the
-   exotic one. Styling only `height` opted the element out of overlay
-   behaviour on both axes while sizing one of them, which left the vertical bar
-   at the engine's default thickness: a different width from its horizontal
-   sibling, eating layout width the box never reserved before. The cut this
-   fix was written for was horizontal; the rule reaches an axis nobody had
-   looked at. */
+/* #3419: the `.qask .pj-screen` question box and its #2808 "Show full command"
+   (.qask-expand) clamp/expand toggle are GONE with the answer menu -- a needs_you
+   question is a thread bubble now, not a raw-screen box inside #d-qask. Their
+   rules (`.qask .pj-screen`, `.qask .pj-screen.clamped[.expanded]`, `.qask-expand`)
+   were removed with the markup. The shared `.pj-screen::-webkit-scrollbar` rules
+   below stay: the room's raw screens still use `.pj-screen`. */
+/* A PERSISTENT 6px SCROLLBAR on every raw screen (.pj-screen), both axes.
+   macOS hides the OVERLAY scrollbar until a scroll, so a cut line in a window
+   capture reads as the whole line -- on the horizontal axis (a permission prompt
+   wider than the box, kept `white-space: pre` so the column alignment its options
+   are drawn in survives) and the vertical (`.pj-screen` is `overflow: auto`
+   against a viewport chat.js reads 60 lines of). Styling the pseudo-element opts
+   the box out of overlay behaviour: the BROWSER owns the condition, so the bar
+   cannot draw when nothing is cut nor keep claiming there is more once you reach
+   the end. `-webkit-` is safe here: Kosmos opens the default browser, WebKit or
+   Chromium. #3419: this once also scoped a `#d-qask-text` question box; that box
+   is gone with the answer menu, so these serve the room's raw screens only. */
 /* #113 part three: the same always-visible scrollbar on every raw screen
    (.pj-screen), not only the question pane -- macOS hides overlay scrollbars
    until a scroll, so a cut line in a window capture read as the whole line. */
-#d-qask-text::-webkit-scrollbar, .pj-screen::-webkit-scrollbar { height: 6px; width: 6px; -webkit-appearance: none; }
+.pj-screen::-webkit-scrollbar { height: 6px; width: 6px; -webkit-appearance: none; }
 /* No fallback on the thumb either, and this one was worse than the track's:
    `--k-ink-2` is defined at `:root` and in the dark block, so it could never
    render -- and `rgba(20,22,26,.4)` matches NEITHER theme's value, where the
    pack-verbatim fallbacks elsewhere in this file at least equal their token. */
-#d-qask-text::-webkit-scrollbar-thumb, .pj-screen::-webkit-scrollbar-thumb { background: var(--k-ink-2); border-radius: 3px; }
+.pj-screen::-webkit-scrollbar-thumb { background: var(--k-ink-2); border-radius: 3px; }
 /* No fallback on the track: `--k-sunk` is defined unconditionally at `:root`
    and per theme, so a fallback here can never render -- and the one written
    first was `.08`, a deliberately stronger wash than the token's `.05`, which
    made it a value nobody would ever see rather than a defence. */
-#d-qask-text::-webkit-scrollbar-track, .pj-screen::-webkit-scrollbar-track { background: var(--k-sunk); border-radius: 3px; }
+.pj-screen::-webkit-scrollbar-track { background: var(--k-sunk); border-radius: 3px; }
 /* The out. One line, and it points DOWN at the composer this page already has
    rather than away to another screen. */
 .dmbar { margin-top: 14px; }
