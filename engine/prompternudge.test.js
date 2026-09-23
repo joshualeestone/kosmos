@@ -89,8 +89,11 @@ test('shouldWrite skips ONLY the on-but-unreadable tick (do not fail toward sile
   // [] there would wipe an open check-in for a full interval. That is the one skip.
   assert.equal(nudge.shouldWrite(true, null), false, 'on + read failure must NOT overwrite the store');
   // Every other case writes: off (clear), or a real read (array, even empty).
+  // shouldWrite inspects only null-vs-array, never row contents, so a plain
+  // non-empty array stands in for "a successful read" (no hand-built roster row --
+  // fixture-discipline.test.js forbids those, and this predicate does not need one).
   assert.equal(nudge.shouldWrite(true, []), true, 'on + empty roster ("no agents") writes to clear');
-  assert.equal(nudge.shouldWrite(true, [{ sessionName: 'a' }]), true, 'on + real roster writes');
+  assert.equal(nudge.shouldWrite(true, ['x']), true, 'on + a non-empty read writes');
   assert.equal(nudge.shouldWrite(false, null), true, 'off writes [] to clear the store');
 });
 
