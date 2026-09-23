@@ -3987,6 +3987,26 @@ test('#3296: a Gemini create with an account arg is created default-account (the
     'the gemini settings were written under the supplied account dir; it must be ignored');
 });
 
+test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLAUDE account path', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-guard', role: 'pm', provider: 'google' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+
+  // trustAgentFolder must take the gemini arm (no claude trust write), proven by the
+  // returned runner: a fallthrough into the claude path would return runner:'claude'.
+  const t = create.trustAgentFolder('g-guard');
+  assert.equal(t.runner, 'gemini', 'trustAgentFolder fell through to the claude path for a gemini agent');
+  assert.equal(t.wrote, false, 'a gemini agent needs no claude trust write (it uses --skip-trust)');
+
+  // setAccount must REFUSE (gemini is default-account only) rather than look the agent
+  // up in claude accounts. The gemini-specific reason proves the guard fired, not a
+  // generic REFUSE_ACCOUNT that a claude-path lookup of an unknown dir would give.
+  const sw = create.setAccount('g-guard', nodePath.join(process.env.AGENT_WORKFORCE_HOME, '.claude-work'));
+  assert.equal(sw.outcome, create.OUTCOME.REFUSED);
+  assert.match(sw.because, /single default account/, 'setAccount did not take the gemini default-account-only guard');
+});
+
 test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trust, and a pinned model', () => {
   // The launch flags are load-bearing and easy to drop silently: the plan pins the
   // model because the "Auto" router hangs in a tmux pane (measured >1m47s), and yolo

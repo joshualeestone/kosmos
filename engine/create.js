@@ -1055,6 +1055,14 @@ function trustAgentFolder(name, opts) {
     try { trustCodexFolder(folder, job.configDir, !job.configDir); return { wrote: true, runner: 'codex' }; }
     catch (err) { return { wrote: false, runner: 'codex', because: String((err && err.message) || err) }; }
   }
+  /* #3296: a gemini agent clears its folder-trust gate with --skip-trust at launch
+     (agent-supervisor.sh) and its birth writes go to its own gemini settings.json, so
+     there is no CLAUDE trust to (re)write here. Falling through to the trustFolder
+     below would write a claude trust entry for a gemini agent whose home is ~/.gemini
+     -- the exact wrong-tool's-config class createAgentInner guards at birth
+     (provider !== 'google'). This is the post-birth entry point (trust-and-restart /
+     the class1-autohandle sweep) reaching the same code; guard it the same way. */
+  if (job.runner === 'gemini') return { wrote: false, runner: 'gemini' };
   /* trustFolder soft-fails ({ok:false, because}) rather than throwing, so read ok.
      createIfAbsent matches the create path: on a fresh user the file may not exist. */
   let t = null;
@@ -1127,6 +1135,16 @@ function setAccount(name, dir, opts) {
     return noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`);
   }
   if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job, platform);
+  /* #3296: gemini is DEFAULT-ACCOUNT only in this slice (no geminiaccounts subsystem
+     yet), so there is no account to switch to -- and falling through to the CLAUDE
+     accounts path below would look a gemini agent up in ~/.claude*, write claude
+     trust/bypass into it, and rewrite the agent's plist with a claude account dir,
+     misconfiguring an agent whose home is ~/.gemini. Refuse, the same boundary
+     setProvider draws for google and the birth path draws with default-account-only.
+     Lifts when the geminiaccounts slice lands. */
+  if (job.runner === 'gemini') {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on Gemini, which Kosmos supports on a single default account for now, so there is no account to move it to` };
+  }
 
   const accounts = require('./accounts');
   const all = accounts.list();
