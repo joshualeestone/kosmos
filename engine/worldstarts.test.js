@@ -625,6 +625,36 @@ test('PR4: an imported agent\'s first start is installJob, handed the runner, mo
   assert.deepEqual(readRecord().entries, [], 'a started import stayed on the list to start');
 });
 
+test('#3296/#3391: an imported gemini/grok agent starts as its OWN runner, and no Claude trust is pre-answered for it', () => {
+  // A gemini entry, a grok entry, and a claude entry (the control). firstStartOfImport
+  // used to collapse anything but codex to claude; it must now pass the real runner.
+  writeRecord([importEntry('gale', { runner: 'gemini' }), importEntry('grok', { runner: 'grok' }), importEntry('cla')]);
+  const trust = require('./trust');
+  const realTrust = trust.trustFolder;
+  const trusted = [];
+  trust.trustFolder = (dir) => { trusted.push(dir); return { ok: true }; };
+  const got = [];
+  let r;
+  try {
+    r = withInstallJob((name, opts) => { got.push({ name, opts }); return { ok: true, started: true }; },
+      () => worldstarts.resumePaused({ platform: MAC }));
+  } finally {
+    trust.trustFolder = realTrust;
+  }
+  assert.deepEqual(r.resumed, ['gale', 'grok', 'cla']);
+  // The entry's REAL runner reaches installJob -- gemini/grok are no longer sent as claude.
+  assert.deepEqual(got, [
+    { name: 'gale', opts: { platform: MAC, runner: 'gemini' } },
+    { name: 'grok', opts: { platform: MAC, runner: 'grok' } },
+    { name: 'cla', opts: { platform: MAC } },
+  ]);
+  // The CLAUDE trust pre-answer runs for the CLAUDE entry ONLY -- writing a Claude
+  // .claude.json for a gemini/grok agent is the wrong tool's config.
+  assert.equal(trusted.length, 1, 'trustFolder ran for the wrong number of agents: ' + JSON.stringify(trusted));
+  assert.ok(trusted[0].includes('cla'), 'the trust pre-answer went to the wrong agent: ' + trusted[0]);
+  assert.ok(!trusted.some((d) => d.includes('gale') || d.includes('grok')), 'a Claude trust file was pre-answered for a gemini/grok agent');
+});
+
 test('PR4 (Mac, end to end in dry-run): the copy\'s Claude folder is trusted, then installJob enables and bootstraps its job', () => {
   fs.mkdirSync(create.workerDir('fae'), { recursive: true });
   writeRecord([importEntry('fae')]);
