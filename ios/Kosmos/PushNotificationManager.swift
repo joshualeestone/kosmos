@@ -18,7 +18,6 @@ final class PushNotificationManager: NSObject {
     enum Action {
         static let approve = "APPROVE_ACTION"
         static let deny = "DENY_ACTION"
-        static let view = "VIEW_ACTION"
     }
 
     // MARK: - Configuration
@@ -103,8 +102,8 @@ final class PushNotificationManager: NSObject {
     // authenticated with the user's session. Left as a log so the token path is
     // exercised end-to-end without a live endpoint.
     private func registerTokenWithBoard(token: String) {
-        let preview = token.prefix(8)
-        NSLog("[Push] TODO(#718): upload APNs token to the coordinator once the registration endpoint + APNs key land. token=\(preview)...")
+        // Log only the byte count, never token material (see handleRegistration).
+        NSLog("[Push] TODO(#718): upload APNs token (\(token.count / 2) bytes) to the coordinator once the registration endpoint + APNs key land.")
     }
 }
 
@@ -132,7 +131,7 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             NSLog("[Push] user APPROVED an agent permission prompt")
         case Action.deny:
             NSLog("[Push] user DENIED an agent permission prompt")
-        case Action.view, UNNotificationDefaultActionIdentifier:
+        case UNNotificationDefaultActionIdentifier:
             NSLog("[Push] user opened the notification -> route to the board")
         default:
             break

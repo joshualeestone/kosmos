@@ -18,18 +18,6 @@ enum BiometricAuth {
         case unavailable(String)
     }
 
-    // Whether the device can evaluate biometrics right now (hardware present and
-    // enrolled).
-    static func isAvailable() -> Bool {
-        let context = LAContext()
-        var error: NSError?
-        let ok = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
-        if let error = error {
-            NSLog("[Biometric] unavailable: \(error.localizedDescription)")
-        }
-        return ok
-    }
-
     // Prompt for biometric unlock. Uses deviceOwnerAuthentication (not
     // ...WithBiometrics) so a passcode fallback is offered if Face ID fails,
     // matching what users expect from an unlock gate. The completion is always
