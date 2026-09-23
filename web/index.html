@@ -30789,15 +30789,23 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   const list = document.getElementById('rst-list');
   const small = document.getElementById('rst-small');
   const cost = document.getElementById('rst-cost');
+  /* #3492: the third button shares this singleton modal, so the plain-restart
+     interstitial must hide AND disable it too. Without this it stays visible and
+     enabled behind the K-loader during a plain Restart, and a click there would
+     launch the handoff flow concurrently with the in-flight restart (both share
+     RST_FOR/RST_BUSY and this one modal). Hidden in showConfirm, disabled on
+     entry, re-enabled in restoreConfirm -- symmetric with rst-go's own go. */
+  const hgo = document.getElementById('rst-handoff-go');
   const listWasHidden = list.hidden;   // the cost-based state to restore on a retry
   const showConfirm = (on) => {
-    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on;
+    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on; hgo.hidden = !on;
     list.hidden = on ? listWasHidden : true;
   };
   const clearLoader = () => { document.getElementById('rst-msg').innerHTML = ''; };
   // Enter the interstitial: hide the confirm content, mount + drive the branded loader.
   // RST_BUSY gates the Escape/backdrop exits (the restart is now committed).
   go.disabled = true;
+  hgo.disabled = true;
   RST_BUSY = true;
   showConfirm(false);
   document.getElementById('rst-msg').innerHTML = RESTART_BUSY_HTML;
@@ -30809,7 +30817,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
      always holds RESTART_HOLD_MS. Same test seam the model/provider interstitial uses. */
   const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
   // The confirm view, restored so the person can retry after a refusal or an error.
-  const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; };
+  const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; hgo.disabled = false; };
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
     const out = await res.json().catch(() => null);
@@ -30903,6 +30911,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
       showConfirm(true);
       go.textContent = wasGo;
       go.disabled = false;
+      hgo.disabled = false;   // #3492: symmetric with go, so it is not briefly visible-but-greyed before close
       closeRestartModal();
     }
     await tick();
@@ -30966,11 +30975,22 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
     RST_BUSY = false; msg.innerHTML = ''; showConfirm(true);
     go.disabled = false; hgo.disabled = false;
   };
-  // Enter the flow: hide the confirm content and disable the actions. RST_BUSY
-  // gates Escape/backdrop the same as rst-go -- this is a committed multi-step
-  // action; the timeout/refusal arms below restore the confirm view as the exit.
-  go.disabled = true; hgo.disabled = true; RST_BUSY = true;
-  showConfirm(false);
+  /* Has this flow been dismissed out from under us? Either the modal was reused
+     for another agent (RST_FOR moved) or it was closed (Escape / backdrop / the
+     "Leave it running" button). Checked at every await boundary in phases 1-2 so
+     an abort during the wait actually stops the flow rather than racing a late
+     fresh handoff into a restart the person just cancelled. */
+  const dismissed = () => RST_FOR !== btn || document.getElementById('rst-modal').hidden;
+  /* 🛑 PHASES 1-2 (ask + wait for the handoff) ARE ABORTABLE, and deliberately so:
+     nothing irreversible has happened yet -- we have only asked the agent to write
+     a handoff; no restart fires until the handoff is confirmed fresh. So RST_BUSY
+     stays FALSE and "Leave it running" stays visible + live through the wait, so
+     the person is never trapped for up to HANDOFF_WAIT_MS with no way out (that
+     no-exit window was the one wart in the first cut). RST_BUSY is set, and keep
+     hidden, only when we COMMIT to the restart in phase 3. */
+  go.disabled = true; hgo.disabled = true;
+  small.hidden = true; cost.hidden = true; go.hidden = true; hgo.hidden = true; list.hidden = true;
+  keep.hidden = false;
   setStatus('Asking ' + shown + ' to write a handoff…');
 
   // Phase 1 -- ask the live agent to write its handoff. Only a PLACED delivery
@@ -30980,11 +31000,12 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/ask', { method: 'POST' });
     ask = await res.json().catch(() => null);
   } catch {
+    if (dismissed()) return;
     restoreConfirm();
     setStatus('We could not reach Kosmos to ask ' + shown + ' for a handoff. You can Restart without one, or leave it running.');
     return;
   }
-  if (RST_FOR !== btn) return;   // the modal was reused for another agent mid-request
+  if (dismissed()) return;   // reused for another agent, or the person aborted mid-request
   if (!(ask && ask.delivery && ask.delivery.state === 'placed')) {
     restoreConfirm();
     const because = ask && ask.delivery && ask.delivery.because ? ' (' + ask.delivery.because + ')' : '';
@@ -31002,22 +31023,29 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
   let wrote = false;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, HANDOFF_POLL_MS));
-    if (RST_FOR !== btn) return;   // superseded / closed
+    if (dismissed()) return;   // superseded / closed / aborted during the wait
     let st = null;
     try {
       const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/status?baseline=' + encodeURIComponent(baseline), { cache: 'no-store' });
       st = await res.json().catch(() => null);
     } catch { /* the next poll can try again */ }
+    if (dismissed()) return;   // aborted while the status request was in flight, before we act on it
     if (st && st.fresh === true) { wrote = true; break; }
   }
+  if (dismissed()) return;
   if (!wrote) {
     restoreConfirm();
     setStatus(shown + ' has not finished its handoff yet. Restart anyway (its progress may be lost), or leave it running?');
     return;
   }
 
-  // Phase 3 -- the restart itself, now with the branded K-loader interstitial
-  // (the same choreography rst-go uses).
+  // Phase 3 -- the restart itself. We COMMIT here: nothing before this was
+  // irreversible, but the restart is, so from now on RST_BUSY gates Escape/
+  // backdrop and "Leave it running" is hidden, exactly as the plain rst-go path.
+  // The dismissed() check just above and this assignment are adjacent with no
+  // await between them, so an abort cannot slip in after the check.
+  RST_BUSY = true;
+  keep.hidden = true;
   setStatus('');
   msg.innerHTML = RESTART_BUSY_HTML;
   const kcv = msg.querySelector('canvas.chg-restart-k');

@@ -1,10 +1,10 @@
-# Plan — #3492: restart pop-up "Write a handoff, then restart"
+# Plan - #3492: restart pop-up "Write a handoff, then restart"
 
 Branch: `handoff-then-restart-3492` · Card: joshualeestone/kosmos#3492 · Owner: Angel · Target: 0.6.90
 
 ## Ask (Josh, 2026-09-23)
 On agent view -> restart, the confirm pop-up offers "leave running / restart". Add a THIRD option:
-"Write a handoff, then restart" — the app tells the agent to write its handoff, WAITS for completion,
+"Write a handoff, then restart" - the app tells the agent to write its handoff, WAITS for completion,
 then restarts, so the fresh session picks up cleanly. Splinter: build it, best-call-and-proceed;
 Windows parity is Homer's later (Mac first). I own it end to end (mechanism + the button).
 
@@ -12,7 +12,7 @@ Windows parity is Homer's later (Mac first). I own it end to end (mechanism + th
 - **Reuse the existing auto-handoff core.** `engine/autohandoff.js` `handoffPrompt(fillPct, path)`
   returns the operator handoff prompt; `engine/autohandoff-sweep.js` injects it via `chat.deliver`
   and writes to `handoffPathFor(store, session)` (wired in server.js:13899). #3492 reuses
-  `chat.deliver` + `handoffPathFor`, with a #3492 VARIANT prompt ("write your handoff — you are being
+  `chat.deliver` + `handoffPathFor`, with a #3492 VARIANT prompt ("write your handoff - you are being
   restarted and the fresh session will read it", NOT "keep working").
 - 🛑 **NO auto-pickup exists.** A fresh/restarted session does NOT read its handoff on startup
   (grep `handoff` in remove.js/create.js/agent-supervisor.sh = nothing). So the NOVEL piece is the
@@ -48,5 +48,5 @@ this timing. Verify against a real restart before relying on it.
 
 ## Verify
 - `node --test` the new engine tests + web render test, real exit read.
-- Full node suite via the runner; merge on CI GREEN (the `test` job flaky-times-out at the 15m cap —
+- Full node suite via the runner; merge on CI GREEN (the `test` job flaky-times-out at the 15m cap -
   a cancel is contention, rerun it; do NOT pkill the suite mid-run).

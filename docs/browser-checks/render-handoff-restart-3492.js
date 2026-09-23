@@ -245,6 +245,38 @@ const posted = (page, re, method) => page.evaluate(({ src, m }) => {
     `ask=${askOnly} status=${statusAfterRefuse} restart=${restartAfterRefuse}`);
   check('REFUSED-ASK: the confirm view is restored so the person can choose', afterRefuse.goBack && afterRefuse.modalOpen, JSON.stringify(afterRefuse));
 
+  // ---- Arm 4: ABORT DURING THE WAIT. Nothing irreversible has happened yet, so
+  //             "Leave it running" stays live through the handoff-write wait; clicking
+  //             it closes the modal and NEVER restarts.
+  await page.evaluate(() => {
+    window.__posted = [];
+    window.__askState = 'placed';
+    window.__statusCalls = 0; window.__freshAfterStatusCalls = Infinity;   // never fresh, so the wait runs
+    document.getElementById('__note').textContent = '';
+    openRestartModal(document.querySelector('#__ah [data-restart-agent]'), 'april');
+  });
+  await page.click('#rst-handoff-go');
+  // Wait until we are in the writing-handoff phase.
+  const inWait = await page.waitForFunction(
+    () => /writing its handoff/i.test(document.getElementById('rst-msg').textContent || ''),
+    { timeout: 2000 }).then(() => true).catch(() => false);
+  // During the wait: RST_BUSY is false and "Leave it running" is visible + live.
+  const duringWait = await page.evaluate(() => ({
+    busy: (typeof RST_BUSY !== 'undefined') ? RST_BUSY : null,
+    keepVisible: document.getElementById('rst-keep').hidden === false,
+  }));
+  // Click "Leave it running" to abort.
+  await page.click('#rst-keep');
+  await page.waitForTimeout(120);   // let a poll tick land so a racing restart would show
+  const afterAbort = await page.evaluate(() => ({
+    modalHidden: document.getElementById('rst-modal').hidden === true,
+  }));
+  const restartAfterAbort = await posted(page, /\/api\/agent\/[^/]+\/restart$/, 'POST');
+  check('ABORT: during the handoff-write wait the flow is abortable (RST_BUSY false, Leave-it-running live)',
+    inWait && duringWait.busy === false && duringWait.keepVisible, JSON.stringify(duringWait));
+  check('ABORT: clicking Leave-it-running closes the modal and NEVER restarts',
+    afterAbort.modalHidden && restartAfterAbort === 0, `modalHidden=${afterAbort.modalHidden} restart=${restartAfterAbort}`);
+
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);
 

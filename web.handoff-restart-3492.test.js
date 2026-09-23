@@ -45,7 +45,7 @@ test('openRestartModal resets the third button every open', () => {
 });
 
 test('the handler wires all three primitives and does NOT restart on a maybe', () => {
-  const h = SCRIPT.slice(SCRIPT.indexOf("getElementById('rst-handoff-go')"));
+  const h = SCRIPT.slice(SCRIPT.indexOf("getElementById('rst-handoff-go').addEventListener"));
   const body = h.slice(0, h.indexOf('#5 insurance')); // up to the next handler's banner
   assert.match(body, /handoff-restart\/ask/, 'phase 1: ask');
   assert.match(body, /handoff-restart\/status\?baseline=/, 'phase 2: poll status with a baseline');
@@ -61,6 +61,31 @@ test('the handler wires all three primitives and does NOT restart on a maybe', (
 test('the handoff-wait constants are overridable (test seam) and sane', () => {
   assert.match(SCRIPT, /let HANDOFF_WAIT_MS = \d+/);
   assert.match(SCRIPT, /let HANDOFF_POLL_MS = \d+/);
+});
+
+test('the plain rst-go handler also hides AND disables the third button', () => {
+  // Without this, a plain Restart plays its interstitial with rst-handoff-go left
+  // live behind it, and a click there launches the handoff flow concurrently.
+  const h = SCRIPT.slice(SCRIPT.indexOf("getElementById('rst-go').addEventListener"));
+  const body = h.slice(0, h.indexOf('\n});'));
+  assert.match(body, /const hgo = document\.getElementById\('rst-handoff-go'\)/, 'rst-go references the third button');
+  assert.match(body, /hgo\.hidden = !on/, 'rst-go showConfirm hides the third button with the rest');
+  assert.match(body, /hgo\.disabled = true/, 'rst-go disables the third button on entry');
+  assert.match(body, /hgo\.disabled = false/, 'rst-go re-enables it in restoreConfirm/success');
+});
+
+test('the handoff flow is abortable during the wait: keep live, RST_BUSY deferred to the restart', () => {
+  const h = SCRIPT.slice(SCRIPT.indexOf("getElementById('rst-handoff-go').addEventListener"));
+  const body = h.slice(0, h.indexOf('#5 insurance'));
+  // A dismissed() guard exists and is checked in the loop.
+  assert.match(body, /const dismissed = \(\) =>/, 'a dismissed() guard is defined');
+  assert.match(body, /if \(dismissed\(\)\) return;/, 'the loop bails on dismissal');
+  // keep stays visible at entry (not hidden with the rest), and RST_BUSY is set only at the restart.
+  assert.match(body, /keep\.hidden = false;/, 'Leave-it-running stays visible during the wait');
+  // The commit point: RST_BUSY becomes true and keep is hidden together, at phase 3.
+  const commit = body.indexOf('RST_BUSY = true;');
+  assert.ok(commit > -1, 'RST_BUSY is set at the restart commit');
+  assert.match(body.slice(commit, commit + 120), /keep\.hidden = true;/, 'keep is hidden at the same commit point');
 });
 
 // --- behavioral: the DRY generalization ---
@@ -119,7 +144,7 @@ test('deliverPickup returns the delivery verdict on ok, null otherwise', async (
 });
 
 test('the new user-facing strings carry no em dash (house style)', () => {
-  const h = SCRIPT.slice(SCRIPT.indexOf("getElementById('rst-handoff-go')"));
+  const h = SCRIPT.slice(SCRIPT.indexOf("getElementById('rst-handoff-go').addEventListener"));
   const body = h.slice(0, h.indexOf('#5 insurance'));
   assert.doesNotMatch(body, /—/, 'no em dash in the handler strings');
   // and the button label in the markup
