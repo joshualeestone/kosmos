@@ -2,6 +2,18 @@ plugins {
     id 'com.android.application'
 }
 
+// Release-signing inputs, resolved ONCE from the environment so the two config
+// blocks below share a single source rather than each calling getenv. All are
+// empty/absent unless an upload keystore has been provisioned (see the guarded
+// usage below and android/README.md "Release signing"). No key material or
+// password lives in git: the keystore itself is stored under ~/.config/secrets/
+// (mode 600), filed via /add-secret, and is also covered by android/.gitignore's
+// *.jks / *.keystore rules.
+def uploadKeystore      = System.getenv("KOSMOS_UPLOAD_KEYSTORE")
+def uploadStorePassword = System.getenv("KOSMOS_UPLOAD_STORE_PASSWORD")
+def uploadKeyPassword   = System.getenv("KOSMOS_UPLOAD_KEY_PASSWORD")
+def uploadKeyAlias      = System.getenv("KOSMOS_UPLOAD_KEY_ALIAS") ?: "kosmos-upload"
+
 android {
     namespace 'io.kosmos.app'
     compileSdk 35
@@ -17,22 +29,16 @@ android {
         versionName "0.1.0"
     }
 
-    // Release signing wires to the Play UPLOAD keystore. NO key material or
-    // password lives in git: the build resolves them at build time from the agent
-    // secrets map into environment variables (see android/README.md "Release
-    // signing"). The keystore itself is stored under ~/.config/secrets/ (mode 600),
-    // filed via /add-secret, never committed (also caught by android/.gitignore's
-    // *.jks / *.keystore rules). When the env is ABSENT — a fresh clone, or CI
-    // without the keystore provisioned — the release build stays UNSIGNED rather
-    // than failing configuration, and assembleDebug is unaffected either way.
     signingConfigs {
         release {
-            def uploadKeystore = System.getenv("KOSMOS_UPLOAD_KEYSTORE")
+            // Populated only when an upload keystore is provisioned. The block is
+            // always declared so buildTypes.release can reference it without a
+            // "signingConfig not found" error; its properties stay null otherwise.
             if (uploadKeystore) {
                 storeFile file(uploadKeystore)
-                storePassword System.getenv("KOSMOS_UPLOAD_STORE_PASSWORD")
-                keyAlias System.getenv("KOSMOS_UPLOAD_KEY_ALIAS") ?: "kosmos-upload"
-                keyPassword System.getenv("KOSMOS_UPLOAD_KEY_PASSWORD")
+                storePassword uploadStorePassword
+                keyPassword uploadKeyPassword
+                keyAlias uploadKeyAlias
             }
         }
     }
@@ -44,10 +50,22 @@ android {
             // until there is real native code to shrink.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Attach the upload signing config only when its keystore env is present,
-            // so a keystore-less checkout still configures and builds (unsigned).
-            if (System.getenv("KOSMOS_UPLOAD_KEYSTORE")) {
-                signingConfig signingConfigs.release
+            // Attach the upload signing config only when the keystore AND both
+            // passwords are present. On a partial env (keystore set, a password
+            // missing) attaching anyway would configure a signingConfig with a null
+            // password and then die later with an opaque packaging-task error; we
+            // instead stay UNSIGNED and warn loudly. This preserves the keystore-
+            // less "unsigned, not broken" behavior and leaves assembleDebug (which
+            // never reads these vars) untouched in every case.
+            if (uploadKeystore) {
+                if (uploadStorePassword && uploadKeyPassword) {
+                    signingConfig signingConfigs.release
+                } else {
+                    project.logger.warn("KOSMOS_UPLOAD_KEYSTORE is set but " +
+                        "KOSMOS_UPLOAD_STORE_PASSWORD/KOSMOS_UPLOAD_KEY_PASSWORD is missing; " +
+                        "the release build will be UNSIGNED. Resolve the " +
+                        "kosmos-android-upload-signing credential (see android/README.md).")
+                }
             }
         }
     }

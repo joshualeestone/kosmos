@@ -104,6 +104,15 @@ The build reads four env vars: `KOSMOS_UPLOAD_KEYSTORE` (path to the `.jks`),
 stays unsigned** rather than failing to configure, so a fresh clone or a CI runner
 without the keystore still builds; `assembleDebug` is never affected.
 
+**Set the keystore and both passwords together, or not at all.** If
+`KOSMOS_UPLOAD_KEYSTORE` is set but a password variable is missing (a partial env
+— e.g. you resolved the keystore path but forgot the `eval` of the signing
+credential), the release build **stays unsigned and prints a `WARN`** naming the
+missing variable, rather than signing with a null password and failing later with
+an opaque packaging error. So a release APK that came out unsigned when you meant
+to sign it means the env was incomplete — check the warning, resolve the
+`kosmos-android-upload-signing` credential, and rebuild.
+
 On this box the material is in the agent secrets map under two targets — resolve
 them straight into the environment (values never touch the command line):
 
