@@ -30,7 +30,7 @@ it is deliberately excluded.
 Verified by a real consolidated render (pinned pw-runtime): back buttons `display:none`, headings
 sit 24px below the view top, Documents/Tasks carry a 24px left inset (Settings 0, centered), and
 the Finder button paints gold. New browser-check `render-subview-cleanup-3502.js` asserts all of
-this with tab-view controls; positive-controlled (7 assertions fail on the pre-fix markup, all 14
+this with tab-view controls; positive-controlled (assertions fail on the pre-fix markup, all
 pass on the fix).
 
 ## Rejected / decisions
