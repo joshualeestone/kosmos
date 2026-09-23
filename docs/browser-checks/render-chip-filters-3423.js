@@ -21,6 +21,9 @@
  *   2c/2d. the SAME predicate lives inline in all three render families; lrow()
  *      (#alist) and onode() (#orgview) are pinned too, so a drift in any one copy
  *      fails here rather than shipping a silent list/org count-filter mismatch.
+ *   2e. the QUESTION divergence (mirror of 2b): an agent-reported needs_you question
+ *      renders the calm .question visual but still carries data-attn (it is in
+ *      c.needsYou), so a refactor keying data-attn on the visual attn set fails here.
  *   3. setBoardFilter is mutually exclusive: exactly one body.filter-* class + one
  *      tile aria-pressed=true at a time; null clears all.
  *   4. the CSS actually hides non-matching grid cards while a filter is on, and the
@@ -166,6 +169,27 @@ function chk(ok, label, extra) {
     chk(onodeMarks.nyxFound === true && onodeMarks.nyxAttn === true && onodeMarks.nyxNoproj === true
         && onodeMarks.beaFound === true && onodeMarks.beaAttn === false && onodeMarks.beaNoproj === false,
       'onode() (#orgview) marks match: the needs_you-no-project node gets both markers, the idle node gets neither', JSON.stringify(onodeMarks));
+
+    // 2e. the QUESTION divergence (the mirror of 2b): a needs_you agent whose question
+    // was reported BY THE AGENT (stateReportedBy:'agent') renders the CALM .question
+    // visual (cardStOf calms it), NOT the red .attn. But it IS still in c.needsYou, so
+    // it MUST carry data-attn. Pins the other direction: a refactor keying data-attn on
+    // the visual cardStOf.st==='attn' would silently drop agent-questions from the Issue
+    // filter (a count/filter mismatch) and fail here. classList (not a substring test)
+    // so the marker "data-attn" does not itself satisfy a visual-attn check.
+    const q = await page.evaluate(() => {
+      const real = LAST.find((a) => a.sessionName === 'nyx');
+      const div = document.createElement('div');
+      div.innerHTML = card({ ...real, stateReportedBy: 'agent' });
+      const el = div.firstElementChild;
+      return {
+        dataAttn: el.hasAttribute('data-attn'),
+        visualQuestion: el.classList.contains('question'),
+        visualAttn: el.classList.contains('attn'),
+      };
+    });
+    chk(q.dataAttn === true && q.visualQuestion === true && q.visualAttn === false,
+      'an agent-reported needs_you question gets data-attn (matches c.needsYou) but the calm question visual, not attn', JSON.stringify(q));
 
     // 3. setBoardFilter mutual exclusivity + aria-pressed.
     const excl = await page.evaluate(() => {
