@@ -76,10 +76,14 @@ function okFetch(payload) {
 test('prompterCheckinQuestion composes the question locally (the store holds no words)', () => {
   const stopped = prompterCheckinQuestion({ session: 'april', from: 'working', to: 'stopped' });
   assert.match(stopped, /mid-something, finished, or stopped/i);
-  // auth_failed is the one stall with a distinct cause worth naming to the person.
+  // auth_failed and connection_lost are the two stalls with a distinct cause worth
+  // naming (both in heartbeat.js ASK_ON_EXIT_TO, #3410) -- each reads distinctly.
   const authf = prompterCheckinQuestion({ session: 'april', from: 'working', to: 'auth_failed' });
-  assert.match(authf, /connection/i);
-  assert.notEqual(stopped, authf, 'the two stalls must not read identically');
+  assert.match(authf, /sign in/i);
+  const connlost = prompterCheckinQuestion({ session: 'april', from: 'working', to: 'connection_lost' });
+  assert.match(connlost, /connection/i);
+  // All three read distinctly, so an assertion about one cannot pass on another.
+  assert.equal(new Set([stopped, authf, connlost]).size, 3, 'the three stalls must not read identically');
 });
 
 test('a pending nudge renders the agent and its composed question, panel shown', async () => {

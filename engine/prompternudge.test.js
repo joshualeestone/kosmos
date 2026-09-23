@@ -14,8 +14,18 @@ const nodePath = require('node:path');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-nudge-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const nudge = require('./prompternudge');
+const store = require('./store');
 
 function fresh() { try { fs.unlinkSync(nudge.FILE); } catch { /* none */ } }
+
+test('the store lives under the ONE data-root derivation (store.ROOT), NOT bare $DATA', () => {
+  // #1848/#1856: routing through the raw AGENT_WORKFORCE_DATA switch skips the `Kosmos`
+  // app leaf that store.ROOT appends, so the file lands a stray sibling of a named
+  // world's dir. This assertion reds if the implementation ever reverts to that switch.
+  assert.equal(nudge.FILE, nodePath.join(store.ROOT, 'prompter-nudges.json'));
+  assert.match(nudge.FILE, /[/\\]Kosmos[/\\]prompter-nudges\.json$/,
+    'the nudge store must sit inside the Kosmos world leaf, not beside it');
+});
 
 test('read on an absent file returns an empty set', () => {
   fresh();
