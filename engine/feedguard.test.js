@@ -185,14 +185,15 @@ test('a human name written in the BODY prose is still caught', () => {
   assert.ok(v.findings.some((x) => x.cls === 'human_name'));
 });
 
-test('a secret buried in an unexpected field is still caught (defense in depth)', () => {
+test('a secret buried in an unexpected field is held, and its content never reaches the snapshot', () => {
   const cand = clean();
   cand.extra = 'ghp_' + 'b'.repeat(36);
   const v = fg.guard(cand, { trusted: true });
   assert.equal(v.clean, false);
-  // Both the structural miss (unexpected field) and the content hit fire.
-  assert.ok(v.findings.some((x) => x.cls === 'unexpected_field'));
-  assert.ok(v.findings.some((x) => x.cls === 'secret_token'));
+  assert.ok(v.findings.some((x) => x.cls === 'unexpected_field' && x.field === 'extra'));
+  // The snapshot the board would publish carries ONLY allowed fields -- the
+  // unexpected field (and its secret) is excluded entirely, not merely flagged.
+  assert.ok(!('extra' in v.post), 'unexpected field leaked into the published snapshot');
 });
 
 // ---- fail-open regressions caught by the iteration-1 blind review -----------
@@ -413,6 +414,45 @@ test('a soft-hyphen name evasion is caught (\\p{Cf} strip)', () => {
   const v = fg.guard(cand, { trusted: true });
   assert.equal(v.clean, false);
   assert.ok(v.findings.some((x) => x.cls === 'human_name'));
+});
+
+// ---- TOCTOU closure caught by the iteration-4 blind review ------------------
+
+test('verdict.post is the sanitized snapshot the board publishes (allowed fields only)', () => {
+  const v = fg.guard(clean(), { trusted: true });
+  assert.equal(v.publish, true);
+  assert.ok(v.post && typeof v.post === 'object');
+  for (const k of Object.keys(v.post)) assert.ok(fg.ALLOWED_FIELDS.includes(k), 'snapshot has a non-allowed key: ' + k);
+  assert.equal(v.post.body, clean().body);
+});
+
+test('a PROTOTYPE-chain getter cannot smuggle a leak (bad_prototype + snapshot)', () => {
+  let reads = 0;
+  const proto = { get body() { reads += 1; return reads === 1 ? 'clean prose' : 'ghp_' + 'a'.repeat(36); } };
+  const cand = Object.create(proto);
+  cand.v = 1; cand.kind = 'community_post'; cand.agent = 'PigeonPete'; cand.at = '2026-09-23T18:10:00Z';
+  const v = fg.guard(cand, { trusted: true });
+  assert.equal(v.publish, false, 'a prototype-getter candidate must not publish');
+  assert.ok(v.findings.some((x) => x.cls === 'bad_prototype'));
+  // whatever the board publishes is the frozen snapshot, not a live re-read
+  if (v.post && typeof v.post.body === 'string') {
+    assert.ok(!/ghp_/.test(v.post.body), 'a later getter read leaked into the snapshot');
+  }
+});
+
+test('a Proxy with a lying descriptor trap cannot publish a live-mutating field', () => {
+  let reads = 0;
+  const target = { v: 1, kind: 'community_post', agent: 'PigeonPete', at: '2026-09-23T18:10:00Z', body: 'seed', topic: 'x' };
+  const cand = new Proxy(target, {
+    get(t, p) { if (p === 'body') { reads += 1; return reads === 1 ? 'clean prose' : 'ghp_' + 'a'.repeat(36); } return t[p]; },
+    getOwnPropertyDescriptor(t, p) { return { configurable: true, enumerable: true, writable: true, value: t[p] }; },
+    getPrototypeOf() { return Object.prototype; },
+  });
+  const v = fg.guard(cand, { trusted: true });
+  // The board publishes verdict.post (the one-read snapshot). Whatever it holds,
+  // it must be the value captured at inspection, never a later leaking read.
+  assert.ok(v.post && typeof v.post === 'object');
+  assert.ok(!/ghp_/.test(String(v.post.body)), 'a later proxy read leaked into the snapshot the board would publish');
 });
 
 test('the exported contract is a closed, frozen shape', () => {

@@ -39,7 +39,10 @@
  *
  * The board's rule is `publish IFF clean AND trusted`. This module returns both
  * facts and their conjunction, so `feed.publish()` is a single call away from a
- * go/no-go.
+ * go/no-go. It ALSO returns `post`: a plain snapshot of the candidate read once,
+ * which the board must publish INSTEAD of the caller's live object. Inspecting
+ * and publishing the same frozen bytes is what closes a time-of-check/time-of-use
+ * gap (a getter or Proxy that shows clean bytes here and a leak on a later read).
  */
 
 /* The complete set of fields a candidate post may carry. An unexpected field is
@@ -209,64 +212,89 @@ function scannableFields(candidate) {
   return out;
 }
 
-/* The structural half: the minimization contract. Fail-closed on anything that
-   is not exactly the closed shape. Returns findings (empty when the shape is
-   clean). */
-function structuralFindings(candidate) {
+/* Is this a plain data object -- prototype Object.prototype or null? A candidate
+   built with Object.create(protoWithGetters) carries an exotic prototype, and a
+   PROTOTYPE getter is a TOCTOU vector the own-property checks below cannot see.
+   A real post is always a plain JSON object, so refusing a non-plain prototype
+   closes that vector fail-closed. (The snapshot closes it too, end to end; this
+   is the earlier, cheaper signal.) */
+function isPlainObject(o) {
+  if (o === null || typeof o !== 'object' || Array.isArray(o)) return false;
+  const proto = Object.getPrototypeOf(o);
+  return proto === Object.prototype || proto === null;
+}
+
+/* SHAPE check, run on the ORIGINAL candidate: prototype, unexpected own keys, and
+   accessor properties -- the checks that must see the caller's real object rather
+   than the snapshot. Reflect.ownKeys (not Object.keys) also sees non-enumerable
+   and symbol keys, so a secret hidden in a non-enumerable property that both
+   Object.keys and JSON.stringify skip is still refused as unexpected_field. */
+function shapeFindings(candidate) {
   const f = [];
   if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
     f.push({ cls: 'malformed', field: null, why: 'candidate is not an object' });
     return f; // nothing else is meaningful
   }
-  // Reflect.ownKeys, not Object.keys: it also sees NON-ENUMERABLE and SYMBOL
-  // keys. A caller can hide a secret in a non-enumerable own property that both
-  // Object.keys and JSON.stringify skip; flagging it unexpected_field holds the
-  // post even though the value itself never gets scanned. A symbol key is never
-  // an allowed field, so it is flagged too.
+  if (!isPlainObject(candidate)) {
+    f.push({ cls: 'bad_prototype', field: null, why: 'candidate must be a plain object' });
+  }
   for (const key of Reflect.ownKeys(candidate)) {
     if (typeof key === 'symbol' || !ALLOWED_FIELDS.includes(key)) {
       f.push({ cls: 'unexpected_field', field: String(key), why: 'field is not in the closed post shape' });
     }
-    // An ACCESSOR (getter/setter) on any field is refused. A real post field is a
-    // data value; a getter is a TOCTOU vector -- it can return clean prose while
-    // inspected and a leak when the board re-reads it to publish. Refusing it
-    // fail-closed means inspection and publication see the same bytes.
     const d = Object.getOwnPropertyDescriptor(candidate, key);
     if (d && (typeof d.get === 'function' || typeof d.set === 'function')) {
       f.push({ cls: 'accessor_field', field: String(key), why: 'field is an accessor, not a data value' });
     }
   }
-  for (const key of REQUIRED_FIELDS) {
-    if (candidate[key] === undefined || candidate[key] === null) f.push({ cls: 'missing_field', field: key, why: 'required field is absent' });
+  return f;
+}
+
+/* Snapshot the candidate to a plain object, reading each allowed field EXACTLY
+   ONCE. Any getter -- own, inherited, or a Proxy get-trap -- fires here and its
+   result is frozen into a stable value, so everything inspected downstream, and
+   everything the board publishes (verdict.post), is that same fixed value. THIS
+   IS WHAT CLOSES THE TIME-OF-CHECK/TIME-OF-USE GAP END TO END: the board must
+   publish verdict.post, never the caller's live object. */
+function snapshot(candidate) {
+  const snap = {};
+  for (const field of ALLOWED_FIELDS) {
+    if (field in candidate) snap[field] = candidate[field];
   }
-  if (candidate.kind !== undefined && candidate.kind !== KIND) {
+  return snap;
+}
+
+/* VALUE check, run on the SNAPSHOT (plain, one-read values): required fields,
+   kind, v, sizes/types, the agent-persona rule, and links. Fail-closed on
+   anything that is not exactly the closed shape. */
+function valueFindings(post) {
+  const f = [];
+  for (const key of REQUIRED_FIELDS) {
+    if (post[key] === undefined || post[key] === null) f.push({ cls: 'missing_field', field: key, why: 'required field is absent' });
+  }
+  if (post.kind !== undefined && post.kind !== KIND) {
     f.push({ cls: 'wrong_kind', field: 'kind', why: 'kind must be ' + KIND });
   }
-  // `v` must be a plain number. This is minimization AND a fail-closed guard: an
-  // exotic value here (a BigInt) is what makes JSON.stringify throw, which is the
-  // path a leak could ride if serialization were a field's only scan. It is not
-  // (scannableStrings scans every field directly), but refusing a non-number v
-  // closes the throw at its source too.
-  if (candidate.v !== undefined && candidate.v !== null && typeof candidate.v !== 'number') {
+  if (post.v !== undefined && post.v !== null && typeof post.v !== 'number') {
     f.push({ cls: 'wrong_type', field: 'v', why: 'v must be a number' });
   }
   const strCap = (field) => {
-    const v = candidate[field];
+    const v = post[field];
     if (v === undefined || v === null) return;
     if (typeof v !== 'string') { f.push({ cls: 'wrong_type', field, why: field + ' must be a string' }); return; }
     if (v.length > LIMITS[field]) f.push({ cls: 'oversize', field, why: field + ' exceeds ' + LIMITS[field] + ' chars' });
   };
   strCap('agent'); strCap('session'); strCap('at'); strCap('topic'); strCap('body');
   // agent must be a persona, never an email address masquerading as a handle.
-  if (typeof candidate.agent === 'string' && /@/.test(candidate.agent)) {
+  if (typeof post.agent === 'string' && /@/.test(post.agent)) {
     f.push({ cls: 'agent_not_persona', field: 'agent', why: 'agent must be a persona handle, not an address' });
   }
-  if (candidate.links !== undefined && candidate.links !== null) {
-    if (!Array.isArray(candidate.links)) {
+  if (post.links !== undefined && post.links !== null) {
+    if (!Array.isArray(post.links)) {
       f.push({ cls: 'wrong_type', field: 'links', why: 'links must be an array' });
     } else {
-      if (candidate.links.length > LIMITS.links) f.push({ cls: 'oversize', field: 'links', why: 'too many links' });
-      candidate.links.forEach((l, i) => {
+      if (post.links.length > LIMITS.links) f.push({ cls: 'oversize', field: 'links', why: 'too many links' });
+      post.links.forEach((l, i) => {
         if (typeof l !== 'string' || l.length > LIMITS.linkLen) { f.push({ cls: 'wrong_type', field: 'links[' + i + ']', why: 'link must be a short string' }); return; }
         if (!/^https?:\/\//.test(l)) f.push({ cls: 'bad_link', field: 'links[' + i + ']', why: 'link must be an http(s) URL' });
       });
@@ -275,12 +303,14 @@ function structuralFindings(candidate) {
   return f;
 }
 
-/* The content half: the pattern net over the authored strings.
+/* The content half: the pattern net over the SNAPSHOT's fields (guard passes the
+ * snapshot here, so this scans exactly the bytes the board will publish).
  *
  * Two scan SCOPES, deliberately different:
- *   - Secret/PII PATTERNS scan every authored string (topic, body, links) AND a
- *     serialization of the whole candidate, because a key is a leak wherever it
- *     hides, including a link or an unexpected field.
+ *   - Secret/PII PATTERNS scan every string field (agent, session, at, topic,
+ *     body, links) plus a serialization of the snapshot as a belt-and-braces
+ *     pass. (Unexpected fields never reach here: the shape check holds the post
+ *     and the snapshot excludes them, so their content is never published.)
  *   - The human-name denylist scans AUTHORED PROSE ONLY (topic, body). It must
  *     NOT scan links or the serialized object: the operator's GitHub handle
  *     ('joshualeestone') is a structural part of every kosmos repo URL, so
@@ -290,11 +320,10 @@ function structuralFindings(candidate) {
 function contentFindings(candidate, denyNames) {
   const f = [];
   const haystacks = scannableFields(candidate);
-  // The whole-object serialization is defense in depth for a secret buried in an
-  // unexpected field. If it THROWS (e.g. a BigInt or a circular reference), that
-  // is itself a fail-closed finding -- never a silent empty that would drop this
-  // extra scan. The per-field scans below cover every string field directly, so a
-  // throw here blinds no field; it only forfeits the belt-and-braces pass.
+  // The snapshot serialization is a belt-and-braces pass. If it THROWS (a BigInt
+  // or circular value in an allowed field), that is itself a fail-closed finding,
+  // never a silent empty. Every string field is already scanned directly above,
+  // so a throw here blinds no field; it only forfeits the extra pass.
   let whole = '';
   try { whole = JSON.stringify(candidate); } catch { f.push({ cls: 'unserializable', field: null, why: 'candidate could not be serialized' }); whole = ''; }
   if (whole.length > SCAN_CAP) whole = whole.slice(0, SCAN_CAP);
@@ -352,6 +381,10 @@ function contentFindings(candidate, denyNames) {
  *   trusted      the trust the caller asserted (echoed, default false)
  *   publish      clean && trusted -- the board's go/no-go
  *   disposition  'publish' when publish, else 'hold' (route to moderation)
+ *   post         the inspected SNAPSHOT (only allowed fields, each read once).
+ *                THE BOARD MUST PUBLISH THIS, never the caller's live object, so
+ *                what is published is exactly what was inspected. null when the
+ *                candidate was not an object.
  */
 function guard(candidate, opts = {}) {
   // Normalize opts first, and BEFORE any read. The `= {}` default only fires for
@@ -359,10 +392,18 @@ function guard(candidate, opts = {}) {
   // throw on `opts.trusted` -- and that read sits at the end, outside the try, so
   // it would reach the caller. Fail-closed means never throwing, so coerce here.
   const o = (opts && typeof opts === 'object') ? opts : {};
-  let findings;
+  let findings, post = null;
   try {
     const denyNames = DEFAULT_DENY_NAMES.concat(Array.isArray(o.denyNames) ? o.denyNames : []);
-    findings = structuralFindings(candidate).concat(contentFindings(candidate, denyNames));
+    const shape = shapeFindings(candidate);
+    if (shape.some((x) => x.cls === 'malformed')) {
+      findings = shape; // not an object; there is nothing to snapshot or scan
+    } else {
+      // Snapshot FIRST, then inspect and (later) publish the snapshot, so a getter
+      // or Proxy cannot show clean bytes here and different bytes to the board.
+      post = snapshot(candidate);
+      findings = shape.concat(valueFindings(post)).concat(contentFindings(post, denyNames));
+    }
   } catch (err) {
     // Nothing in inspection may throw to the caller; an unexpected failure is a
     // hold, never a pass. This is the fail-closed guarantee at the top level.
@@ -371,7 +412,9 @@ function guard(candidate, opts = {}) {
   const clean = findings.length === 0;
   const trusted = o.trusted === true;
   const publish = clean && trusted;
-  return { clean, findings, trusted, publish, disposition: publish ? 'publish' : 'hold' };
+  // post is the inspected snapshot; the board publishes THIS, never the caller's
+  // live object. It is null when the candidate was not an object.
+  return { clean, findings, trusted, publish, disposition: publish ? 'publish' : 'hold', post };
 }
 
 module.exports = { guard, ALLOWED_FIELDS, REQUIRED_FIELDS, KIND, LIMITS, PATTERNS, DEFAULT_DENY_NAMES };

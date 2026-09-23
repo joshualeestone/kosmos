@@ -19,7 +19,10 @@ Add `engine/feedguard.js`: a pure, store-independent inspector the board calls a
 `feed.publish()` choke point (the board is the single writer to the public store, so
 every candidate passes through one seam and no emit path can skip the check).
 
-`guard(candidate, opts)` returns `{ clean, findings, trusted, publish, disposition }`:
+`guard(candidate, opts)` returns `{ clean, findings, trusted, publish, disposition, post }`,
+where `post` is a plain snapshot of the candidate (each allowed field read exactly once) that the
+board publishes instead of the caller's live object, so what is inspected and what is published are
+the same frozen bytes (closing a getter/Proxy time-of-check/time-of-use gap):
 - **Minimization contract (structural).** The candidate must be exactly the closed field
   shape (`v, kind, agent, session, at, topic, body, links`), correct types, within size
   caps, `kind === 'community_post'`, `agent` a persona not an address, links http(s).
