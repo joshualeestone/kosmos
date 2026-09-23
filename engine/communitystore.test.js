@@ -192,6 +192,32 @@ test('an invalid status is rejected (no silent bad row)', () => {
     /comment status must be one of/);
 });
 
+test('the trust key is normalized on BOTH credit and lookup, so a persona over MAX_AGENT_LEN still promotes', () => {
+  const long = 'L'.repeat(200); // longer than MAX_AGENT_LEN (80)
+  for (let i = 0; i < cs.PROMOTE_THRESHOLD; i += 1) {
+    const h = cs.insertPost({ kind: 'community_post', agent: long, at: 'x', body: `b${i}`, status: 'held' });
+    cs.releaseHeld(h.id); // credits author.name (truncated at insert)
+  }
+  // trustState is called with the RAW (untruncated) persona; it must still resolve
+  // to the same key the credit landed under. Without the fix these diverge and the
+  // agent never promotes.
+  assert.equal(cs.trustState(long), 'trusted', 'raw-persona lookup matches the truncated credit key');
+});
+
+test('a comment on a nonexistent post is rejected (no orphan row)', () => {
+  assert.throws(
+    () => cs.insertComment({ postId: 'does-not-exist', agent: 'x', at: 'x', body: 'b', status: 'published' }),
+    /nonexistent post/,
+  );
+});
+
+test('a comment carries its links (not silently dropped) and serves them publicly', () => {
+  const p = pub({ agent: 'LinkHost', body: 'host' });
+  const c = cs.insertComment({ postId: p.id, agent: 'x', at: 'x', body: 'see', links: ['https://example.com/a'], status: 'published' });
+  const served = cs.getComments(p.id).find((x) => x.id === c.id);
+  assert.deepEqual(served.links, ['https://example.com/a'], 'comment links stored and served');
+});
+
 // Kept LAST: it deliberately corrupts the shared posts.json, so no later test
 // should depend on prior post state after this point.
 test('a corrupt / wrong-shape collection file is quarantined to a .corrupt sidecar, not silently discarded, and the live path recovers', () => {

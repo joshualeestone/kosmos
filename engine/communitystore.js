@@ -94,7 +94,14 @@ function trustFile() { return path.join(dir(), 'trust.json'); }
 function quarantineCorrupt(file) {
   try {
     fs.renameSync(file, `${file}.corrupt-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
-  } catch { /* best effort */ }
+  } catch (e) {
+    // Best-effort, but NOT silent: if the rename fails (read-only mount,
+    // permissions), the corrupt file stays in place and the next saveJson will
+    // overwrite it, destroying the bytes this quarantine exists to preserve. That
+    // is exactly the silent unrecoverable loss worth guarding, so at least make
+    // the failure visible on stderr rather than swallowing it.
+    try { console.error(`communitystore: could not quarantine corrupt file ${file}: ${e && e.message}`); } catch { /* ignore */ }
+  }
 }
 
 // Read a JSON collection, defaulting to `fallback`. A MISSING file is a clean
@@ -114,11 +121,12 @@ function loadJson(file, fallback) {
   }
   try {
     const parsed = JSON.parse(raw);
-    if (parsed == null) return fallback;
-    // Valid JSON of the WRONG SHAPE ({} or 42 where an array is expected) would
-    // throw on the next push/filter; treat a shape mismatch like corruption so
-    // the recovery is symmetric with the parse-error path, not a later TypeError.
-    if (typeof parsed !== 'object' || Array.isArray(parsed) !== Array.isArray(fallback)) {
+    // Valid JSON of the WRONG SHAPE (`null`, `42`, or `{}` where an array is
+    // expected) would throw on the next push/filter; treat any shape mismatch
+    // like corruption so recovery is symmetric with the parse-error path rather
+    // than a later TypeError. `null` counts as wrong-shape too (it is not the
+    // fallback collection), so it is quarantined, not silently accepted.
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed) !== Array.isArray(fallback)) {
       quarantineCorrupt(file);
       return fallback;
     }
@@ -204,11 +212,15 @@ function insertPost(rec) {
 }
 
 /**
- * Insert a comment on a post. Comments are public agent/user content too, so
- * they carry the same status model (the board runs them through feedguard and
- * the trust check exactly as posts). `parentId` (optional) references another
- * comment for threaded replies; null is a top-level comment on the post. Depth
- * is not constrained here — the rendering surface decides how deep to nest.
+ * Insert a comment on a post. A comment shares posts' STATUS + trust +
+ * moderation model (held/quarantined/published, held-by-default, moderationQueue
+ * + releaseHeld) but carries a REDUCED field set: body + links + author + at,
+ * not the post-level topic/board. `postId` and `parentId` are the board's
+ * routing keys, NOT part of feedguard's shape (its ALLOWED_FIELDS has no
+ * postId/parentId), so the board scrubs a comment's CONTENT fields through
+ * feedguard and attaches postId/parentId around that call — the store does not
+ * pass a whole comment candidate through the guard. `parentId` (optional)
+ * threads a reply; null is top-level. Depth is not constrained here.
  */
 function insertComment(rec) {
   if (!rec || typeof rec !== 'object') throw new Error('comment record required');
@@ -217,6 +229,11 @@ function insertComment(rec) {
   if (!STATUSES.includes(status)) {
     throw new Error(`comment status must be one of ${STATUSES.join('|')}`);
   }
+  // The parent post must exist. A comment on a nonexistent post is an orphan row
+  // that could never surface (getComments requires a published parent) and would
+  // sit in the moderation queue forever; reject it rather than store it silently.
+  const parent = loadJson(postsFile(), []).find((p) => p.id === String(rec.postId));
+  if (!parent) throw new Error('comment references a nonexistent post');
   const comment = {
     id: newId(),
     postId: String(rec.postId),
@@ -227,6 +244,9 @@ function insertComment(rec) {
     body: rec.body,
     receivedAt: nowISO(),
   };
+  // Links are public content a comment may carry (PUBLIC_FIELDS serves them); do
+  // not silently drop them. topic/board are post-level and intentionally omitted.
+  if (rec.links !== undefined) comment.links = rec.links;
   if (rec.session !== undefined) comment.session = rec.session; // internal, never public
   if (status !== 'published' && Array.isArray(rec.findings)) {
     comment.findings = rec.findings;
@@ -354,9 +374,21 @@ function moderationQueue(opts = {}) {
 
 function loadTrust() { return loadJson(trustFile(), {}); }
 
+// Normalize a trust key the SAME way normalizeAuthor normalizes a stored author
+// name (truncate to MAX_AGENT_LEN). This closes a real present asymmetry: the
+// credit side stores `author.name` truncated, while the board's lookup side
+// calls trustState() with the raw candidate `agent` (feedguard never truncates,
+// it only flags oversize). Without normalizing both sides, an agent persona over
+// MAX_AGENT_LEN would be credited under the truncated key and looked up under the
+// full one, and never promote. Applying it here makes the store self-consistent
+// regardless of which form the board passes.
+function trustKey(agentId) {
+  return String(agentId || '').slice(0, MAX_AGENT_LEN);
+}
+
 function trustRecord(agentId) {
   const all = loadTrust();
-  return all[agentId] || { trust: 'untrusted', approved_count: 0 };
+  return all[trustKey(agentId)] || { trust: 'untrusted', approved_count: 0 };
 }
 
 // The value the board passes to feedguard.guard({ trusted }).
@@ -413,13 +445,14 @@ function releaseHeld(id) {
 // Increment an agent's approved_count; flip to trusted at K. Idempotent-safe:
 // an already-trusted agent stays trusted.
 function recordApproval(agentId) {
+  const key = trustKey(agentId);
   const all = loadTrust();
-  const rec = all[agentId] || { trust: 'untrusted', approved_count: 0 };
+  const rec = all[key] || { trust: 'untrusted', approved_count: 0 };
   if (rec.trust !== 'trusted') {
     rec.approved_count = (rec.approved_count || 0) + 1;
     if (rec.approved_count >= PROMOTE_THRESHOLD) rec.trust = 'trusted';
   }
-  all[agentId] = rec;
+  all[key] = rec;
   saveJson(trustFile(), all);
   return rec;
 }
@@ -427,18 +460,18 @@ function recordApproval(agentId) {
 // Explicit operator/admin grant — promotes immediately, no ladder.
 function grantTrust(agentId) {
   const all = loadTrust();
-  all[agentId] = { trust: 'trusted', approved_count: PROMOTE_THRESHOLD };
+  all[trustKey(agentId)] = { trust: 'trusted', approved_count: PROMOTE_THRESHOLD };
   saveJson(trustFile(), all);
-  return all[agentId];
+  return all[trustKey(agentId)];
 }
 
 // Demotion: a confirmed human-caught leak drops a trusted agent back to
 // untrusted, to re-earn trust. Resets the ladder.
 function revokeTrust(agentId) {
   const all = loadTrust();
-  all[agentId] = { trust: 'untrusted', approved_count: 0 };
+  all[trustKey(agentId)] = { trust: 'untrusted', approved_count: 0 };
   saveJson(trustFile(), all);
-  return all[agentId];
+  return all[trustKey(agentId)];
 }
 
 module.exports = {
