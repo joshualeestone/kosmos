@@ -85,10 +85,22 @@ function okProbe() {
  */
 function fakeTmux(answers, opts) {
   const calls = [];
-  const probe = opts && Object.prototype.hasOwnProperty.call(opts, 'probe') ? opts.probe : okProbe();
+  const hasProbe = opts && Object.prototype.hasOwnProperty.call(opts, 'probe');
+  const probe = hasProbe ? opts.probe : okProbe();
+  // #3419: deliver() now probes the pane TWICE (verifyAtSend before the paste AND
+  // again immediately before the submit Enter, to close the shell-fallback window
+  // the multi-round-trip paste widens). A single static `probe` can only make BOTH
+  // verifies agree, so it cannot exercise the case the second guard exists for:
+  // healthy before the paste, fallen after it. `probeSeq` answers successive
+  // display-message calls in order (falling back to `probe`/okProbe once drained),
+  // so a test can drive the two verifies independently.
+  const probeSeq = opts && Array.isArray(opts.probeSeq) ? opts.probeSeq.slice() : null;
   const fn = (args) => {
     calls.push(args);
-    if (args[0] === 'display-message') return probe;
+    if (args[0] === 'display-message') {
+      if (probeSeq && probeSeq.length) return probeSeq.shift();
+      return probe;
+    }
     return answers.length ? answers.shift() : { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
   };
   fn.calls = calls;
@@ -469,6 +481,37 @@ test('#3419 a paste that fails on the FIRST chunk is could_not (nothing landed, 
     assert.equal(verdict.state, chat.DELIVERY.COULD_NOT,
       'nothing was pasted, so this must be the safe-to-resend verdict');
     assert.ok(!tmux.sends().some((s) => s[s.length - 1] === 'Enter'));
+  });
+});
+
+test('#3419 the pane is re-verified right before the Enter: a pane that fell to a shell after the paste gets NO Enter and is UNCONFIRMED', () => {
+  // The single most security-relevant addition: the paste transport opens a wider
+  // window between verifyAtSend and the keystroke than the old single send-keys,
+  // so the pane is re-checked immediately before the submit Enter. If it fell back
+  // to a shell in that window, the body is already pasted into that shell's input
+  // line — pressing Enter would EXECUTE it as a command. This proves the second
+  // verify refuses the Enter and reports the honest third state.
+  const healthy = { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+  const shell = { ran: true, spawnFailed: false, status: 0, out: '-zsh\t\t0\n', err: '' };
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    // First verify (before the paste) healthy; second verify (before the Enter)
+    // shows a shell.
+    const tmux = arm([ok(), ok()], { probeSeq: [healthy, shell] });
+    const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.UNCONFIRMED,
+      'a pane that fell to a shell after the paste must not read as placed');
+    assert.match(verdict.because, /changed before we could submit/);
+    assert.ok(tmux.pastes().length >= 1, 'the body WAS pasted before the pane fell');
+    assert.ok(!tmux.sends().some((s) => s[s.length - 1] === 'Enter'),
+      'NO Enter fired into the fallen shell — the whole point of the second verify');
+  });
+  withFleet([fleet.agent('casey', { state: 'idle' })], (board) => {
+    // CONTROL: both verifies healthy -> the Enter DOES fire and it is placed, so
+    // the refusal above is the second verify and not something else.
+    const tmux = arm([ok(), ok()], { probeSeq: [healthy, healthy] });
+    const verdict = chat.deliver('casey', 'have a look at the lease', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.PLACED, 'a pane healthy at both checks delivers');
+    assert.ok(tmux.sends().some((s) => s[s.length - 1] === 'Enter'), 'the Enter fires when both verifies pass');
   });
 });
 
