@@ -267,6 +267,16 @@ test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an 
   const frcBody = PAGE.slice(frcs, PAGE.indexOf('\n}', frcs));
   assert.match(frcBody, /frPollGates\(FR_GATE_SCREEN, FR_GATE_GEN\)/,
     'frRecheckGates re-polls the active gated screen at the current generation');
+  /* #2912: on the a11y gate screen, "Check again" ALSO asks the native app for an
+     on-demand re-measure (POST /api/a11y-recheck) so a fresh-install-no-FDA verdict is
+     forced fresh instead of re-reading the app's 60s native file. Bounded to
+     frRecheckGates's own body (frcBody), so a stray later mention cannot false-pass.
+     Guarded to the app-accessibility gate row so the re-measure never fires on a screen
+     without it (e.g. the S2 file-access gate, or Windows where the row is hidden). */
+  assert.match(frcBody, /'\/api\/a11y-recheck'/,
+    'frRecheckGates does not fire the #2912 on-demand a11y re-measure; "Check again" would re-read the stale 60s file on a no-FDA fresh install');
+  assert.match(frcBody, /querySelector\('\[data-gate="tmux"\]'\)/,
+    'the #2912 re-measure is not guarded to the app-accessibility gate row, so it would fire on screens without it');
   /* 🛑 THE WIRING ARM, REPOINTED RATHER THAN DROPPED, and it is the one that
      matters most on this card. The old assertion checked that the #fr-pane-3
      delegate routed a .fr-recheck click to frRecheckGates. That delegate can no

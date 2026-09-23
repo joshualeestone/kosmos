@@ -1262,7 +1262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Steady state is cheap: only a fileExists per request name. Resolve the install
         // (config load + disk path resolution) ONLY when a request is actually pending,
         // rather than every 1.5s tick for the app's whole idle lifetime.
-        let names = ["a11y-prompt-request", "file-access-prompt-request", "tmux-a11y-prompt-request"]
+        let names = ["a11y-prompt-request", "file-access-prompt-request", "tmux-a11y-prompt-request", "a11y-recheck-request"]
         let pending = names.contains { name in
             guard let u = storeFileURL(name) else { return false }
             return FileManager.default.fileExists(atPath: u.path)
@@ -1294,6 +1294,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // registered + listed in Accessibility before the user acts; the tmux gate
             // row's Turn On then just deep-links to the Accessibility pane (#3113).
             self?.spawnTmuxAutomationPrompt(kosmosHome: home)
+        }
+        consumeRequest(named: "a11y-recheck-request") { [weak self] in
+            // #2912: a manual "Check again" on the Access screen. Run ONLY the axcheck
+            // (AXIsProcessTrusted, no prompt) so a just-granted permission is re-measured
+            // and a11y-status.json is rewritten AT ONCE -- no axprompt (a re-check must not
+            // re-surface the system dialog) and no wait on the 60s timer. The app reading
+            // its OWN trust needs no Full Disk Access, which is exactly the fresh-install-
+            // no-FDA case where the engine's appGrant() read is unavailable and the route
+            // falls back to this native file -- so this is what makes "Check again" force a
+            // fresh verdict there instead of re-reading the same stale 60s file.
+            self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
         }
     }
 
