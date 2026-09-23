@@ -731,12 +731,12 @@ function unreachableStates() {
       const m = await page.evaluate(() => {
         const el = (id) => document.getElementById(id);
         const vis = (n) => !!(n && !n.hidden && n.getClientRects().length);
-        const bubble = document.querySelector('#d-dmthread .dm-b');
+        const bubble = document.querySelector('#d-dmthread .msg-bd');
         const cs = bubble ? getComputedStyle(bubble) : null;
         // #2660: the PERSON'S OWN bubble specifically. `bubble` above is the
         // first `.dm-b`, which may be the agent's `.dm.theirs` (now transparent);
         // the royal-blue tint lives on `.dm.mine`, so the colour check reads this.
-        const mineBubble = document.querySelector('#d-dmthread .dm.mine .dm-b');
+        const mineBubble = document.querySelector('#d-dmthread .msg.you .msg-bd');
         const qask = el('d-qask');
         return {
           pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -767,7 +767,7 @@ function unreachableStates() {
           // Per ROW, because a verdict belongs to one message and the thread's
           // whole text cannot say which. Rendered text of drawn rows only
           // (#687): a "sent as" nobody can see must not satisfy the control.
-          rows: Array.from(document.querySelectorAll('#d-dmthread .dm'))
+          rows: Array.from(document.querySelectorAll('#d-dmthread .msg'))
             .filter((r) => r.getBoundingClientRect().height > 0)
             .map((r) => r.innerText.replace(/\s+/g, ' ').trim()),
           sendDisabled: el('d-send').disabled,
@@ -842,8 +842,8 @@ function unreachableStates() {
             };
           })(),
           metaAlign: (() => {
-            const row = document.querySelector('#d-dmthread .dm.mine');
-            const w = row && row.querySelector('.dm-w');
+            const row = document.querySelector('#d-dmthread .msg.you');
+            const w = row && row.querySelector('.msg-t');
             return w ? getComputedStyle(w).textAlign : null;
           })(),
           label: el('d-talk-label').innerText,
@@ -1103,14 +1103,14 @@ function unreachableStates() {
         + 'reachability of a cut question is UNCHECKED (the fixtures, the box width, or the treatment changed)');
     }
     if (!measuredMeta) {
-      problems.push(`[${theme}] receipt: no state produced a .dm.mine receipt, so its alignment is UNCHECKED`);
+      problems.push(`[${theme}] receipt: no state produced a .msg.you receipt, so its alignment is UNCHECKED`);
     }
     if (!measuredBubbleWrap) {
       problems.push(`[${theme}] bubble: no state rendered a message bubble, so #1927's `
         + 'paragraph-preserving white-space: pre-wrap is UNCHECKED');
     }
     if (!measuredMineBubble) {
-      problems.push(`[${theme}] bubble: no state rendered the person's own (.dm.mine) bubble, `
+      problems.push(`[${theme}] bubble: no state rendered the person's own (.msg.you) bubble, `
         + "so #2660's royal-blue --usermsg-tint on the person's own message is UNCHECKED");
     }
 

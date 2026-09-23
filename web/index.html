@@ -4986,6 +4986,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    and radius match the DM bubble. A bodyless row draws no .msg-bd at all (pjMsg emits
    the wrapper only for non-empty body content), so there is no empty tinted box. */
 .msg-bd { padding: 8px 12px; border-radius: 12px; max-width: 78ch; }
+/* #3414: the DM now reuses .msg-bd, but the old DM bubble (.dm-b) carried
+   `white-space: pre-wrap; overflow-wrap: anywhere` (see the .dm-b rule) and .msg-bd does
+   not. The DM body comes through pjRich(pjWords), which KEEPS literal newlines, so without
+   pre-wrap a multi-line DM collapses to one line (regression caught by
+   render-dm-multiline-3208 / render-talk). Scope it to the DM thread only: the ROOM's
+   .msg-bd renders paragraphs via pjProse <p> blocks (no literal \n), so it needs none and
+   is left untouched. */
+#d-dmthread .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
