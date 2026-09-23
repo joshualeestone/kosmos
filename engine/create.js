@@ -3332,7 +3332,7 @@ function createAgentInner(opts) {
   }
   if (provider === 'google') {
     // #3296: refuse a Gemini create the machine could never start, the same
-    // preflight the openai arm does — a launchd job pointing at an absent runner
+    // preflight the openai arm does -- a launchd job pointing at an absent runner
     // just respawns forever. The runner-runnable check for the required list
     // below covers this too, but doing it here keeps the refusal beside the
     // provider decision, symmetric with openai.

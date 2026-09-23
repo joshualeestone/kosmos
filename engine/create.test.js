@@ -3960,6 +3960,19 @@ test('#3296: a Gemini create is refused when the runner is missing, and an unkno
   assert.match(bad.because, /pick a provider/);
 });
 
+test('#3296: the shipped supervisor launches a gemini agent with yolo, skip-trust, and a pinned model', () => {
+  // The launch flags are load-bearing and easy to drop silently: the plan pins the
+  // model because the "Auto" router hangs in a tmux pane (measured >1m47s), and yolo
+  // is what stops an autonomous agent parking on a tool prompt. Asserted against the
+  // supervisor AS SHIPPED (read from disk), so a regression that drops -m or the yolo
+  // flag goes red here rather than passing green like the launch-line COUNT check does.
+  const script = supervisorText();
+  assert.match(script, /GEMINI_MODEL="\$\{MODEL:-gemini-2\.5-flash\}"/,
+    'the gemini arm must pin gemini-2.5-flash when the plist model slot is empty');
+  assert.ok(script.includes('--approval-mode yolo --skip-trust -m "$GEMINI_MODEL"'),
+    'the gemini launch line must pass yolo, skip-trust, and the pinned -m model');
+});
+
 test('#245: openai refuses a model choice, an account choice, a missing runner, and an unknown provider refuses outright', () => {
   recorder();
   create.setDryRun(false);

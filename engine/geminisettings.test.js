@@ -108,6 +108,27 @@ test('a bridge path with a shell-hostile character is refused', () => {
   assert.match(r.because, /characters we will not embed/);
 });
 
+test('the file mode is preserved across the merge write', () => {
+  const { file } = tmpSettings();
+  fs.writeFileSync(file, JSON.stringify({ theme: 'dark' }, null, 2), { mode: 0o600 });
+  fs.chmodSync(file, 0o600); // defeat umask so the precondition is exact
+  const r = geminisettings.ensurePrepared(file, BRIDGE);
+  assert.equal(r.changed, true, 'the merge must have written (added the pre-seed + hooks)');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the birth mode was not carried onto the rewritten file');
+  assert.equal(readJSON(file).theme, 'dark', 'the person\'s content was lost'); // the write really happened
+});
+
+test('a dangling symlink is refused rather than replaced', () => {
+  const { dir, file } = tmpSettings();
+  const link = path.join(dir, 'settings-link.json');
+  fs.symlinkSync(path.join(dir, 'does-not-exist.json'), link);
+  const r = geminisettings.ensurePrepared(link, BRIDGE);
+  assert.equal(r.prepared, false);
+  assert.match(r.because, /link pointing at nothing/);
+  assert.ok(!fs.existsSync(path.join(dir, 'does-not-exist.json')),
+    'a dangling symlink target must not be created (that would sever someone\'s arrangement)');
+});
+
 // ---- bin/gemini-report-bridge.js: the event -> report mapping ----
 
 test('the bridge maps each gemini lifecycle event to the right state', () => {

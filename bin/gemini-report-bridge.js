@@ -8,7 +8,7 @@
  * NOT codex's launch-time `notify` flag). On each lifecycle event it runs this
  * script from INSIDE the agent's tmux pane, passing the event payload as JSON on
  * STDIN (not argv, which is codex's shape). This child inherits TMUX_PANE, which
- * is the identity /api/report resolves — the same evidence property as
+ * is the identity /api/report resolves -- the same evidence property as
  * `kosmos report` and the codex bridge.
  *
  * ⚠️ A PANE ID IS ITSELF A CLAIM (same caveat as the codex bridge): ids are
@@ -23,14 +23,14 @@
  *   Notification {notification_type,message}     -> needs_you (a tool needs the
  *       person; under `--approval-mode yolo` benign confirmations are
  *       auto-approved and never fire this, so a Notification that DOES fire is a
- *       genuine "yolo could not auto-handle" attention signal — message carries
+ *       genuine "yolo could not auto-handle" attention signal -- message carries
  *       the reason the route requires for needs_you)
  *   AfterAgent   {prompt,prompt_response}        -> idle      (turn complete;
  *       prompt_response is the last words, so the card can say what it finished
- *       with — the analog of codex's last-assistant-message)
+ *       with -- the analog of codex's last-assistant-message)
  *   SessionEnd   {reason}                        -> stopped
  * The one hook this script is wired for but does NOT map is any event outside
- * that list: an unknown hook_event_name is ignored, not guessed at — the same
+ * that list: an unknown hook_event_name is ignored, not guessed at -- the same
  * "observe, don't invent" rule as the codex bridge.
  *
  * ⚠️ THIS MUST NEVER BREAK THE AGENT. Every failure is swallowed; the exit code
@@ -45,7 +45,7 @@ const TIMEOUT_MS = 5000;
    guards keep an automatic idle/working/needs_you from erasing a DELIBERATE
    blocked/needs_you the agent filed during the turn. Without `auto`, a turn
    ending (AfterAgent -> idle) seconds after the agent filed `blocked` would erase
-   it — exactly the bug the codex bridge's #1456 comment documents. */
+   it -- exactly the bug the codex bridge's #1456 comment documents. */
 const STATE_FOR_EVENT = Object.freeze({
   SessionStart: 'started',
   BeforeAgent: 'working',
@@ -82,7 +82,7 @@ function reportFor(event) {
   /* The last words for the card (idle), or the reason a needs_you requires. For
      needs_you the route REFUSES an empty note (selfreport.js: a needs_you/blocked
      must carry a reason/on/owner), so a Notification with no message would be
-     dropped — fall back to a plain, honest sentence so the red still lands. */
+     dropped -- fall back to a plain, honest sentence so the red still lands. */
   let text = '';
   if (state === 'idle') {
     text = typeof event.prompt_response === 'string' ? event.prompt_response : '';
@@ -118,7 +118,7 @@ async function main() {
   /* Present the launch token when we have one (the supervisor mints it per launch
      and puts it in the pane env). Same hex shape-test as the codex bridge: a
      partial write or a stray warning on stdout must not turn a working report into
-     a silent refusal on an enforcing board. Silence is the safe default — an
+     a silent refusal on an enforcing board. Silence is the safe default -- an
      agent launched before the mint has no token here and is identified by its pane
      exactly as before. */
   const headers = { 'content-type': 'application/json' };

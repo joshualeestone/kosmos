@@ -65,11 +65,18 @@ no MODELS/picker, no accounts subsystem. Full challenge-loop, verify by content.
 5. **bin/agent-supervisor.sh** — gemini exec arm:
    `"$CLAUDE" --approval-mode yolo --skip-trust -m "${MODEL:-gemini-2.5-flash}"`.
    The @kosmos_runner=gemini tag is already generic.
-6. **engine/worldstarts.js** — firstStartOfImport gemini arm (record runner
-   'gemini', skip the claude trustFolder) so a cross-Kosmos gemini import does not
-   launch as claude.
 
 ## Deferred (documented on the card, out of this coherent unit)
+- **worldstarts.js / installJob cross-Kosmos gemini import.** Attempted a
+  worldstarts firstStartOfImport gemini arm, then REVERTED it: installJob
+  (create.js) only recognises runner 'codex' (line ~2776, `opts.runner === 'codex'
+  ? 'codex' : null`) and resolves claudeBin for anything else, so passing
+  runner:'gemini' through worldstarts would be half-wired (worldstarts records
+  gemini, installJob launches claude). Making it fully correct needs installJob
+  itself to grow a gemini arm (geminiBin resolution + the birth settings write),
+  which is its own coherent slice. Left byte-identical rather than half-wired; no
+  gemini agent can be imported yet (none exist, and import is same-machine
+  cross-world), so the path is dead for gemini today.
 - MANIFEST.gemini managed node-script install (legacy rung ships now).
 - Connect-UI un-gate + MODELS/CREATE_MODELS picker + geminiaccounts subsystem
   (touches web/, per-account homes).

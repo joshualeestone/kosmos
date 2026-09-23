@@ -5,11 +5,11 @@
  * that skips the interactive first-run auth picker, and the five lifecycle hooks
  * that make the agent self-report to the board. This is the Gemini analog of
  * engine/reporthook.js (the Claude report-hook merge) fused with the codex
- * trust/pre-accept writes — one module because gemini needs BOTH written into the
+ * trust/pre-accept writes -- one module because gemini needs BOTH written into the
  * SAME file before launch, and two writers of one file is this codebase's
  * most-shipped defect.
  *
- * ⚠️ MERGE-ONLY, NEVER CLOBBER — the same posture as reporthook.js: a person's
+ * ⚠️ MERGE-ONLY, NEVER CLOBBER -- the same posture as reporthook.js: a person's
  * real gemini configuration is preserved (mode from birth, unparseable files left
  * alone with a sentence, an ephemeral path never written into a durable file, and
  * a second run is a no-op). This settings file is the agent's home config; an
@@ -33,22 +33,22 @@ const AUTH_TYPE = 'gemini-api-key';
 /* The lifecycle events wired to the report bridge, and the state each one means.
    Gemini's hook event names are its OWN (measured: "Stop" is REJECTED by the
    CLI); these five are the ones that map cleanly to the report vocabulary. The
-   bridge itself decides the state from hook_event_name — this list only says
+   bridge itself decides the state from hook_event_name -- this list only says
    which events fire it. */
 const HOOK_EVENTS = Object.freeze([
   'SessionStart', 'BeforeAgent', 'Notification', 'AfterAgent', 'SessionEnd',
 ]);
 
 /* The dedup key: any command containing this stem is "ours". Matching on the
-   script STEM (not the full command) means a future change to the command text —
-   a flag, a different node path — will not stack a second entry beside an older
+   script STEM (not the full command) means a future change to the command text --
+   a flag, a different node path -- will not stack a second entry beside an older
    one; the cost is that such a change needs its own migration, stated here so
    nobody discovers it. Same doctrine as reporthook.js's MARKER. */
 const MARKER = 'gemini-report-bridge';
 
 /* The command gemini runs for a hook. Gemini executes a command hook as a SHELL
    STRING (measured: it spawns the shell with the command as the last arg), so
-   this is the posix shell form `node "<bridge>"` — the analog of reporthook.js's
+   this is the posix shell form `node "<bridge>"` -- the analog of reporthook.js's
    `bash "<script>"`. `node` rather than an absolute runtime: the gemini CLI is
    itself a `#!/usr/bin/env node` script, so a pane that launched gemini has node
    on PATH by construction, and the pane inherits that PATH for the hook. */
@@ -80,7 +80,7 @@ function definitionFor(bridgePath) {
 /**
  * Ensure the auth pre-seed and the five report hooks are present in the gemini
  * settings file. Idempotent and merge-only. Returns { prepared:true, changed } or
- * { prepared:false, because } in a sentence — never throws for an expected shape,
+ * { prepared:false, because } in a sentence -- never throws for an expected shape,
  * because the caller (create.js at birth) fails soft: a settings file it could
  * not prepare costs the agent a self-report / a first-run picker, not its
  * existence, which is the pre-#3296 world, not a corruption.
@@ -116,7 +116,7 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   try {
     target = fs.realpathSync(target);
   } catch {
-    /* Absent is the clean case — unless the path itself is a dangling symlink:
+    /* Absent is the clean case -- unless the path itself is a dangling symlink:
        writing over that severs somebody's dotfiles arrangement. */
     try { if (fs.lstatSync(target).isSymbolicLink()) return { prepared: false, because: 'that settings file is a link pointing at nothing, which is somebody’s arrangement to fix, not ours to replace' }; }
     catch { /* truly absent */ }
