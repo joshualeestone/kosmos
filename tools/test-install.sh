@@ -167,8 +167,9 @@ DATA_PATHS_BEFORE="$(data_paths)"
 #   only leaves the Mac via the opt-out feedback report. #3038 added the boot-time read without
 #   updating this list, so the first cut carrying it red-flagged ping.json here; blessed now.
 # ⇒ prompter-nudges.json (#3508, kosmos): the in-app check-in store. The runner tick writes the
-#   current nudge set to store.ROOT/Kosmos/prompter-nudges.json each tick (an empty set when the
-#   Prompter is off or nothing is stalled), and the web UI reads it via /api/prompter-nudges. This
+#   current nudge set to store.ROOT/prompter-nudges.json each tick (store.ROOT already ends in the
+#   Kosmos app leaf, so this lands at ./Kosmos/prompter-nudges.json; an empty set when the Prompter
+#   is off or nothing is stalled), and the web UI reads it via /api/prompter-nudges. This
 #   gate boots the installed board, so the store lands on first boot -- the same boot-marker case as
 #   .world-confirmed.json / ping.json above. #3508 added the boot-time write without updating this
 #   list, so the first cut carrying it (0.6.90) red-flagged prompter-nudges.json here; blessed now.
