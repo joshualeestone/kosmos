@@ -2448,6 +2448,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
                border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
                cursor: pointer; color: var(--k-ink-2); font: 500 .8125rem var(--font-ui); }
 .snav button:hover { color: var(--k-ink); }
+/* #3505 (Josh, 2026-09-23): size the SETTINGS nav pills to their longest label rather than
+   stretching to the full nav column, which read as cluttered full-width blocks ("Advanced" as
+   wide as "Kosmos Plus"). .snav is a flex column, so width:max-content shrinks #s-nav to its
+   widest button and the width:100% buttons all match that one width: uniform, left-aligned, no
+   longer full-column. Scoped to #s-nav (the Settings nav), NOT the shared .snav: the
+   agent-detail nav #d-nav is #3500's separate redesign and must not change here. max-width:100%
+   keeps it inside a narrow column. The 56rem row layout below already sets width:auto, so this
+   only affects the wide column layout. */
+#s-nav { width: max-content; max-width: 100%; }
 /* #3045 (Josh, 6.63 review): the "Model and Memory" pill (#2916's combined section) is the
    longest label in this 176px nav column, and at the default 28px side padding it word-wrapped
    to two lines. Keep it on one line: nowrap plus a little more inner room (18px sides) so the
@@ -3927,10 +3936,12 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      column 2, so Your Profile sat against the very top and the content box against the right edge.
      Add a top + right inset. Padding, not margin: the panel is width:100% in a grid cell and
      box-sizing is border-box globally, so padding insets the content without overflowing the
-     column (a margin-right would). Left stays on the grid column-gap; bottom stays 0 (it
-     scrolls). This does not change the panel's border-box width, so the #2842 fill assertion
-     (which measures the border-box) is unaffected. */
-  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings { grid-column: 2; grid-row: 1; margin: 0; width: 100%; padding: 24px 24px 0 0; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+     column (a margin-right would). #3505 (Josh, 2026-09-23): add a LEFT inset too. The panel's
+     left edge sits exactly on the projects-list column's right rule, so the settings nav pills
+     touched that vertical rule with a zero gap (measured: nav.left == rule.right). --space-8
+     matches the top/right insets; bottom stays 0 (it scrolls). This does not change the panel's
+     border-box width, so the #2842 fill assertion (which measures the border-box) is unaffected. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings { grid-column: 2; grid-row: 1; margin: 0; width: 100%; padding: 24px 24px 0 var(--space-8); min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dbody { grid-template-columns: minmax(120px, 30%) minmax(0, 1fr); justify-content: stretch; column-gap: 18px; }
   /* #3053: the relocated New Agent create panel gets the same display-column placement #2842 gave
