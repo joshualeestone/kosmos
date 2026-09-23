@@ -1841,13 +1841,12 @@ function lockedBecause() {
  * question stands and clears with the state (the state-keyed lifecycle
  * PigeonPete's #3417-categoryB pointer asks for, not a stored history entry).
  *
- * The row mirrors an agent-authored row (`from: <agent>`, no delivery verdict) so
- * the existing thread renderer shows it as an ordinary incoming bubble. It sets
- * `delivery: null` explicitly where `keepAgentReply` simply omits the field; both
- * are falsy, and the renderer's "theirs" branch keys on `from` and never reads
- * `delivery`, so they render identically. `kind: 'question'` lets the UI style it
- * and key its dismiss on the needs_you STATE. `reported` is carried through so the
- * page can still say "the agent told us this" rather than "it is on screen".
+ * The row carries only what marks it as the agent speaking: `from: <agent>`,
+ * `delivery: null` (no delivery verdict; set explicitly where an agent reply omits
+ * the field, both falsy), `kind: 'question'` for the UI to key on, and `reported`
+ * so the page can distinguish "the agent told us this" from "it is on screen". How
+ * the thread RENDERS such a row is described in the plan, not asserted here, since
+ * Mona's #3419 UI half reworks that path (repo convention #5).
  *
  * CONTRACT the engine relies on. The web-render specifics (which renderer, which
  * repaint key, which "just spoke" loop) live in the plan, per repo convention #5:
