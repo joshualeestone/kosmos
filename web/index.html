@@ -10058,6 +10058,52 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   </div>
 </div>
 
+<!-- #3486: the add-member modal lives HERE at the top level, beside the other
+     .rm-back modals, NOT inside .pjcard-members. It used to be authored inside
+     that card, and #3305 sets `.pjcard-members { display:none }` in the
+     consolidated view -- display:none on an ancestor suppresses the whole
+     subtree, including a position:fixed descendant, so the modal never rendered
+     when opened from the consolidated rail + (the "Project Members +" did
+     nothing, Josh's live 0.6.89 bug). A full-screen overlay opened from the rail
+     is not part of the card and must not share its display state; every sibling
+     modal is already top-level, so this one joins them. Ids/nesting are
+     unchanged (#pj-one-add-row stays inside), so paintFreeAgentPicker, the go
+     handler and amClose keep working by id from anywhere. -->
+<div class="rm-back" id="am-modal" hidden>
+<div class="rm-box rm-box-form am-box" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
+  <!-- 0.6.45 (Josh): the way out is an X in the corner, not a Cancel button
+       down in the acts row that crowded the dropdown. Reuses the `am-keep`
+       id so amClose (Cancel + backdrop + Escape) stays one function. -->
+  <button class="am-x" id="am-keep" type="button" aria-label="Close">&times;</button>
+  <h2 class="rm-title" id="am-t">Add a member</h2>
+  <p class="rm-small" id="am-in">To <b id="am-project"></b>.</p>
+  <div id="pj-one-add-row" style="margin-top: var(--space-5)">
+    <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
+         from a button, so it arrives on screen with no heading above it and
+         nothing on the row says what the menu is FOR: a sighted person got
+         a dropdown of names and a button, and had to infer. The aria-label
+         served a screen reader and nobody else, which is the shape this
+         file has removed twice before -- an accessible name doing the job
+         of copy.
+         📌 The `for` and the `id` make it the same one control, so clicking
+         the words opens the menu; the aria-label goes, because a labelled
+         control with an aria-label announces only the aria-label and the
+         two would then have to be kept in step forever. -->
+    <label class="flabel" for="pj-one-add">Who should join this project?</label>
+    <div class="frow">
+      <select id="pj-one-add"></select>
+      <button class="btn" id="pj-one-add-go" type="button">Add to project</button>
+    </div>
+  </div>
+  <!-- 0.6.45: the error on a FAILED add lives INSIDE the modal box. It used
+       to sit after #am-modal, in normal page flow BEHIND the fixed .rm-back
+       backdrop, so a reason written here was covered by the overlay. Now that
+       a successful add closes the modal, the only time this shows is a failure
+       with the modal still open, so it has to be on top of the backdrop. -->
+  <p class="fmsg" id="pj-one-msg" aria-live="polite" style="margin-top: var(--space-4)"></p>
+</div>
+</div>
+
 <!-- ⚠️ FIRST RUN. An overlay rather than a tab, and the reasoning is worth
      keeping: a person part way through setup must not be able to click into
      Settings, and a tab bar sitting above the welcome screen invites exactly
@@ -11867,51 +11913,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            stays uncluttered and the DOOR is what lives here: one quiet link
            to the settings rows where Remove has always been. -->
       <button class="linkish" id="pj-remove-member" type="button" style="margin-top:6px;">Remove a member&hellip;</button>
-      <!-- 🔑 THE PICKER LIVES IN A MODAL (kosmos#1303 H). Josh: "Let's make adding
-           a member to the project spawn a modal just like adding a task to the
-           project." It was an inline row that appeared where the button had been.
-           ⚠️ THE ROW IS WRAPPED, NOT REBUILT. `#pj-one-add`, `#pj-one-add-go` and
-           `#pj-one-add-row` keep their ids and their nesting, so
-           `paintFreeAgentPicker`, the go handler and the navigation reset all keep
-           working against the same elements. A fresh modal with new ids would have
-           been four more things to re-wire and four more to get wrong.
-           📌 It carries `role="dialog"` and `aria-modal`, so it joins the sweep in
-           #1316 and has to satisfy its rule: a way back that is not the action,
-           and Escape. Both are below. -->
-      <div class="rm-back" id="am-modal" hidden>
-      <div class="rm-box rm-box-form am-box" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
-      <!-- 0.6.45 (Josh): the way out is an X in the corner, not a Cancel button
-           down in the acts row that crowded the dropdown. Reuses the `am-keep`
-           id so amClose (Cancel + backdrop + Escape) stays one function. -->
-      <button class="am-x" id="am-keep" type="button" aria-label="Close">&times;</button>
-      <h2 class="rm-title" id="am-t">Add a member</h2>
-      <p class="rm-small" id="am-in">To <b id="am-project"></b>.</p>
-      <div id="pj-one-add-row" style="margin-top: var(--space-5)">
-        <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
-             from a button, so it arrives on screen with no heading above it and
-             nothing on the row says what the menu is FOR: a sighted person got
-             a dropdown of names and a button, and had to infer. The aria-label
-             served a screen reader and nobody else, which is the shape this
-             file has removed twice before -- an accessible name doing the job
-             of copy.
-             📌 The `for` and the `id` make it the same one control, so clicking
-             the words opens the menu; the aria-label goes, because a labelled
-             control with an aria-label announces only the aria-label and the
-             two would then have to be kept in step forever. -->
-        <label class="flabel" for="pj-one-add">Who should join this project?</label>
-        <div class="frow">
-          <select id="pj-one-add"></select>
-          <button class="btn" id="pj-one-add-go" type="button">Add to project</button>
-        </div>
-      </div>
-      <!-- 0.6.45: the error on a FAILED add lives INSIDE the modal box. It used
-           to sit after #am-modal, in normal page flow BEHIND the fixed .rm-back
-           backdrop, so a reason written here was covered by the overlay. Now that
-           a successful add closes the modal, the only time this shows is a failure
-           with the modal still open, so it has to be on top of the backdrop. -->
-      <p class="fmsg" id="pj-one-msg" aria-live="polite" style="margin-top: var(--space-4)"></p>
-      </div>
-      </div>
+      <!-- #3486: the add-member modal (#am-modal) was authored HERE, inside
+           .pjcard-members. Because #3305 hides that card with display:none in the
+           consolidated view, the fixed-position modal was suppressed with the card
+           and the consolidated "Project Members +" opened nothing. It now lives at
+           the top level beside the other .rm-back modals (search "id=\"am-modal\"").
+           It is opened by id from both the tab-view "Add member" button and the
+           consolidated rail +, so its DOM home does not matter to the wiring. -->
 
       <!-- ⚠️ PROJECT DOCUMENTS IS NET NEW: the pack's project page has three
            columns (members, conversation, tasks) and no documents section, so
