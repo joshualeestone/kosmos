@@ -111,13 +111,13 @@
      theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
      bluish inset is that world's own language, out of scope). #3260: this is now
      ONE fixed color per theme -- the earlier per-message variation was removed. */
-  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble (.msg:not(.you) .msg-bd) and the agent DM bubble (.dm.theirs .dm-b) so the two "agent message" surfaces cannot drift, so this pick relights both, not the room alone. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
+  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble and the agent DM bubble so the two "agent message" surfaces cannot drift; #3414 then rebuilt the DM onto the room's markup, so both are now literally the same selector, .msg:not(.you) .msg-bd. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
-     the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
+     the two selectors that use it (.msg.you .msg-bd, .pj-msg) stay a single
      source and a future opacity change is one edit per theme, not four scattered
      rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
-  --usermsg-tint: #e8ebf5; /* #3267: SOLID (opaque), so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once -- that fix is ground-independent. This exact hex is the value Josh approved on the white render (2026-09-18). Derived as ~.10 royal blue baked over --k-bg: exact for the cream-ground consumers (.dm.mine .dm-b, .pj-msg) and within a few RGB of the room bubble's --k-surface ground (imperceptible in light). One opaque token cannot byte-match every ground it serves; the approved appearance is the anchor. */
+  --usermsg-tint: #e8ebf5; /* #3267: SOLID (opaque), so the Option A overlap wing (which WOULD double-composite a translucent fill into the #3130 dark triangle) composites exactly once -- that fix is ground-independent. This exact hex is the value Josh approved on the white render (2026-09-18). Derived as ~.10 royal blue baked over --k-bg: exact for the cream-ground consumers (.msg.you .msg-bd, .pj-msg) and within a few RGB of the room bubble's --k-surface ground (imperceptible in light). One opaque token cannot byte-match every ground it serves; the approved appearance is the anchor. */
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings
@@ -2255,8 +2255,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #d-talk-box { background: var(--k-bg); border-radius: 0; }
 #d-talk-label { font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; text-transform: none;
                 color: var(--k-ink); margin: 0; line-height: 1.2; }
-.d-talk-caprow { align-items: center; margin: 0 0 10px; }
-.d-talk-caprow > #d-talk-label { flex: 1 1 auto; min-width: 0; }
+/* .d-talk-caprow layout, center-alignment and the #d-talk-label flex live with the
+   #2622 rule below, one place, so the two declarations cannot drift (Convention #5). */
 .dlab { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
         /* 600, the pack's weight (#179, ruled there): a box label at 700
            competes with the headings above it. */
@@ -4661,7 +4661,7 @@ body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #
    thread joins it as one flat white area. Consolidated keeps its own thread
    fill (background:none).
    Note: Josh's rationale was that a white dialog helps the blue own-message
-   tint stand out. That --usermsg-tint lives on the agent-DM thread (.dm.mine)
+   tint stand out. That --usermsg-tint lives on the agent-DM thread (.msg.you)
    and the "Talk to one of them" panel (.pj-msg), NOT on #pj-room, whose posts
    render plain (.msg). So in the room this is a cleaner-surface change, not a
    blue-contrast one; flagged for him on the card. */
@@ -4978,11 +4978,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg.you .msg-b { margin-left: calc(34px + 14px); }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
    (.msg.you) wears the royal-blue --usermsg-tint; an agent's wears the light-gray
-   --k-sunk -- the SAME two tokens the DM bubble already uses (.dm.mine / .dm.theirs),
+   --k-sunk -- the SAME two tokens the DM bubble already uses (.msg.you / .msg:not(.you)),
    both theme-defined (per-theme beside --k-sunk), so ONE rule each covers light and
    dark and the two surfaces cannot drift on the color. Only .msg-bd (the wrapped
    body: text + preview + attachments; the name/time header and the reaction row live
-   OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.dm-b). Padding
+   OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.msg-bd). Padding
    and radius match the DM bubble. A bodyless row draws no .msg-bd at all (pjMsg emits
    the wrapper only for non-empty body content), so there is no empty tinted box. */
 .msg-bd { padding: 8px 12px; border-radius: 12px; max-width: 78ch; }
@@ -5109,8 +5109,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    left, the search is constrained (not full-width) and sits on the caption's baseline;
    in .dsec (a flex column) the standalone search would otherwise stretch to full width.
    On a phone the row wraps so the search drops below rather than squishing. */
-.d-talk-caprow { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; }
-.d-talk-caprow #d-talk-hint { flex: 1 1 auto; min-width: 0; }
+.d-talk-caprow { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
+.d-talk-caprow > #d-talk-label { flex: 1 1 auto; min-width: 0; }
 .d-talk-caprow #d-talk-search-wrap { flex: 0 1 min(260px, 40%); align-self: center; }
 @media (max-width: 480px) {
   .d-talk-caprow { flex-wrap: wrap; }
@@ -5250,6 +5250,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    silently resolved either way. */
 .dmthread { display: flex; flex-direction: column; gap: 12px; min-height: 7rem;
   max-height: 15rem; overflow-y: auto; padding-right: 4px; }
+/* 🛑 #3414 ORPHANED, PENDING A FOCUSED CLEANUP: dmRow now emits the room's `.msg`
+   markup, so the `.dm` / `.dm.mine` / `.dm.theirs` / `.dm-b` / `.dm-w` RULES below
+   match nothing rendered any more. They are inert (dead selectors have no effect),
+   and several `.dm-b` selectors are shared lists whose LIVE siblings
+   (`.msg-b`, `.pj-msg-text`, `.tkdetail`) must stay, so the removal is a separate
+   surgical pass rather than a block delete. Tracked for a fast-follow. */
 .dm { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 .dm.mine { align-items: flex-end; }
 /* ⚠️ THIS BRANCH IS THE PRODUCER THE NOTE BELOW SAID DID NOT EXIST, and the note
@@ -5775,7 +5781,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   :root:not([data-theme="light"]) .msg-av { background: rgba(245,245,244,.10); }
   /* #2660: the user-message tint does NOT need a per-selector dark rule here --
      it rides the `--usermsg-tint` token, which is redefined 15% in every dark
-     token block (like --k-sunk), so `.dm.mine .dm-b` / `.pj-msg` flip on their
+     token block (like --k-sunk), so `.msg.you .msg-bd` / `.pj-msg` flip on their
      own. No forced-dark twin is generated for them either. */
 }
 /* ⚠️ `display: block` on all three, and it is not cosmetic. These are
@@ -8860,7 +8866,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            this box exists for. The room's own box carries a static label for
            the same reason. -->
       <textarea class="cinput" id="d-say" rows="1" maxlength="2000"
-             aria-label="Type a message for this agent" placeholder="Write something or @name to message someone&hellip;"></textarea>
+             aria-label="Type a message for this agent" placeholder="Write something&hellip;"></textarea>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
     </div>
     <!-- The attached-but-unsent files (#358, Josh 1:59 PM: "it just instantly
@@ -25036,8 +25042,10 @@ function dmRow(m, name) {
      the delivery verdict, when it speaks, follows it on the same line. The verdict stays
      silent on an ordinary success, so a message that worked shows only its time and
      matches the room; it speaks only on a real failure. */
+  /* Matches pjRoomRow: the photo case is a plain .msg-av (the img fills it); only the
+     no-photo case wears .mine, whose --k-ink background/ink is what the disc needs. */
   const youAv = YOU_PIC
-    ? '<div class="msg-av mine" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
+    ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
     : '<div class="msg-av mine" aria-hidden="true"></div>';
   return '<div class="msg you" data-mid="' + midOf(m) + '">' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
@@ -25238,7 +25246,7 @@ async function paintTalk(sessionName, agentName) {
      caveat — see the send verdict. */
   const say = document.getElementById('d-say');
   say.setAttribute('aria-label', 'A message for ' + name);
-  say.placeholder = 'Write something or @name to message someone…';
+  say.placeholder = 'Write something…';
   let body;
   // 404 is the route's standing refusal (a pane holding this name untied), not
   // a read that failed this second. The sentence below branches on it.
@@ -25786,7 +25794,7 @@ async function paintTalk(sessionName, agentName) {
      the same thing twice in the same glance. */
   say.placeholder = say.disabled
     ? name + ' cannot be reached right now'
-    : 'Write something or @name to message someone\u2026';
+    : 'Write something\u2026';
   document.getElementById('d-send').disabled = body.presence === 'off' || flying;
   /* #967: the Terminal tab's respond-in-context box shares this one presence
      read, so it gates identically to the composer above rather than computing

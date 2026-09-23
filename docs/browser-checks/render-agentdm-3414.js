@@ -77,7 +77,6 @@ const FX = {
         const q = (s) => document.querySelector(s);
         const label = document.getElementById('d-talk-label');
         const box = document.getElementById('d-talk-box');
-        const rootCss = getComputedStyle(document.documentElement);
         const agent = q('#d-dmthread .msg:not(.you)');
         const mine = q('#d-dmthread .msg.you');
         return {
@@ -87,7 +86,11 @@ const FX = {
           agentHasAv: !!(agent && agent.querySelector('.msg-av')),
           agentHasName: !!(agent && agent.querySelector('.msg-bd .msg-nm')),
           agentTimeInsideBubble: !!(agent && agent.querySelector('.msg-bd .msg-t')),
-          mineHasMineAv: !!(mine && mine.querySelector('.msg-av.mine')),
+          mineHasAv: !!(mine && mine.querySelector('.msg-av')),
+          // The fixture gives the operator a photo, so the user avatar is a PLAIN .msg-av
+          // (the img fills it); .mine is only for the no-photo disc. This pins that dmRow
+          // matches pjRoomRow and does not re-add .mine to the photo case (#3414).
+          minePhotoIsPlain: !!(mine && mine.querySelector('.msg-av img') && !mine.querySelector('.msg-av.mine')),
           mineTimeInsideBubble: !!(mine && mine.querySelector('.msg-bd .msg-t')),
           mineHasName: !!(mine && mine.querySelector('.msg-nm')),
           labelText: label ? (label.textContent || '') : null,
@@ -96,7 +99,17 @@ const FX = {
           hintPresent: !!document.getElementById('d-talk-hint'),
           boxRadius: box ? getComputedStyle(box).borderTopLeftRadius : null,
           boxBg: box ? getComputedStyle(box).backgroundColor : null,
-          kbg: (rootCss.getPropertyValue('--k-bg') || '').trim(),
+          // Resolve --k-bg to the SAME rgb() form as a computed backgroundColor, by
+          // painting it onto a probe, so the assertion can compare them for equality
+          // rather than merely for both being non-empty.
+          kbg: (() => {
+            const probe = document.createElement('span');
+            probe.style.backgroundColor = 'var(--k-bg)';
+            document.body.appendChild(probe);
+            const rgb = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return rgb;
+          })(),
         };
       });
       const t = `[${theme}]`;
@@ -106,7 +119,8 @@ const FX = {
       chk(m.agentHasAv, `${t} the agent bubble has an avatar (.msg-av)`);
       chk(m.agentHasName, `${t} the agent name is bold INSIDE the bubble (.msg-bd .msg-nm)`);
       chk(m.agentTimeInsideBubble, `${t} the agent timestamp is INSIDE the bubble (.msg-bd .msg-t)`);
-      chk(m.mineHasMineAv, `${t} the user bubble has the user avatar (.msg-av.mine)`);
+      chk(m.mineHasAv, `${t} the user bubble has the user avatar (.msg-av)`);
+      chk(m.minePhotoIsPlain, `${t} the user photo avatar is a plain .msg-av, no .mine (matches the room, #3414)`);
       chk(m.mineTimeInsideBubble, `${t} the user timestamp is INSIDE the bubble (.msg-bd .msg-t)`);
       chk(m.mineHasName === false, `${t} the user bubble carries NO name (operator row, #3130)`);
       chk(/^Direct Message to /.test(m.labelText || ''), `${t} the header reads "Direct Message to <agent>"`, JSON.stringify(m.labelText));
@@ -114,9 +128,11 @@ const FX = {
       chk(m.searchPlaceholder === 'Search', `${t} the search placeholder is just "Search"`, JSON.stringify(m.searchPlaceholder));
       chk(m.hintPresent === false, `${t} the "Just between you and <agent>" hint element is gone`);
       chk(m.boxRadius === '0px', `${t} the conversation box has no card radius (edge-to-edge)`, m.boxRadius);
-      // The ground follows --k-bg (near-black in dark, theme-appropriate in light). Compare the
-      // box background to the resolved --k-bg so it is not a brittle literal.
-      chk(!!m.boxBg && !!m.kbg, `${t} the box background and --k-bg both resolve`, `bg=${m.boxBg} kbg=${m.kbg}`);
+      // The ground follows --k-bg (near-black in dark, theme-appropriate in light). Require
+      // the box background to EQUAL the resolved --k-bg and not be the transparent default,
+      // so a box that stops using --k-bg reds here (the old both-non-empty form could not fail).
+      chk(!!m.boxBg && m.boxBg !== 'rgba(0, 0, 0, 0)' && m.boxBg === m.kbg,
+        `${t} the box background equals the resolved --k-bg`, `bg=${m.boxBg} kbg=${m.kbg}`);
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       if (process.env.SHOT_DIR) {
         await page.screenshot({ path: path.join(process.env.SHOT_DIR, 'agentdm-' + theme + '.png') }).catch(() => {});

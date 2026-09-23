@@ -72,14 +72,16 @@ a restart" line is already gone from current main.
                       (`.delivery`) is inside `.msg-bd` after `.msg-t`, on the user side only.
    - agent bubble now also has `.msg-av` (avatar) + `.msg-nm` (name bold inside).
    **Lifted `*.test.js`** (add helper deps to the dmRow slice AND flip assertions):
-   🛑 VERIFIED PATTERN (web.agent-answers.test.js, commit 12da42614, 9/9 green) — use this for every
-   lifted dmRow test: option (a) slicing the disc chain DOES NOT WORK because `DISC_TINTS`/`DISC_INKS`
-   are simple `const X = [...]` and `YOU_PIC` is `let YOU_PIC=false` — page.lift/page.slice cannot
-   slice simple const/let ("DISC_TINTS is not in the page"). Instead: in the `new Function` prefix
-   (next to the injected `let CURRENT=...`) inject
-   `let LAST=[{sessionName:<card.sessionName>,hasAvatar:true,avatarVer:3}]; let YOU_PIC=false;` and add
-   ONLY `pjAvatarVer` to the slice list. That routes theirs through the PHOTO avatar branch
-   (pjAvatarVer reads LAST, sliceable) and mine through the empty `.msg-av.mine` (YOU_PIC=false). The
+   🛑 PATTERN (fixture-discipline compliant): do NOT hand-build a LAST roster row
+   (`{sessionName, hasAvatar, avatarVer}`). The fixture-discipline meta-linter forbids any literal
+   `sessionName:` card/roster row (an earlier draft used the photo path with a hand-built LAST and
+   it red the linter). Route dmRow through the DISC avatar branch instead: in the `new Function`
+   prefix (next to the injected `let CURRENT=...`) inject `let LAST=[]; let YOU_PIC=false;` plus a
+   minimal disc palette `let DISC_TINTS=["#dfe5ea"]; let DISC_INKS=["#4a5560"];` (these const arrays
+   are not sliceable by page.lift/page.slice, so they are injected as literals), and add
+   `discTint, discInk, discIndex, initials` (all functions, sliceable) to the slice/lift list
+   alongside `pjAvatarVer`. That renders the theirs bubble with an initials disc avatar; the photo
+   avatar path stays covered by render-agentdm-3414 + web.avatarver-2762/room-2770. The
    escape test must pin the MESSAGE's raw form `/<img src=x/` (doesNotMatch), NOT `/<img/`, because
    the avatar legitimately adds `<img src="/api/agent/.../avatar?v=3">`. Also flip assertions:
    - web.agent-answers.test.js (two dmRow lifts: ~line 152 `slice` list, ~line 250 `lift` list)
@@ -89,6 +91,9 @@ a restart" line is already gone from current main.
    render-dm-multiline-3208, render-pjmsg-prewrap-2294, render-richtext-2067, render-room-msgbox-2806,
    render-talk-anchor-1926, render-talk-search, render-talk. (render-agent-msg-gray-2805 is the best
    TEMPLATE for the new check: file:// + addInitScript fetch-stub + CURRENT + paintTalk('april',...).)
+   ACTUAL: this list was the up-front sweep. web.dm-badge-2863, render-room-msgbox-2806 and
+   render-pjmsg-prewrap-2294 turned out to be NO CHANGE NEEDED (their `.dm`-shaped hits are prose in
+   comments or an unrelated tempdir name, not live markup assertions), and were left untouched.
 2. **New browser-check render-agentdm-3414.js** (mirror render-agent-msg-gray-2805's harness):
    assert agent row = `.msg` (NOT .you) with `.msg-av` + `.msg-nm` + `.msg-t` inside `.msg-bd`; user
    row = `.msg.you` with `.msg-av.mine`; header `#d-talk-label` text starts "Direct Message to " and

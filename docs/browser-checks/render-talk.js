@@ -734,8 +734,9 @@ function unreachableStates() {
         const bubble = document.querySelector('#d-dmthread .msg-bd');
         const cs = bubble ? getComputedStyle(bubble) : null;
         // #2660: the PERSON'S OWN bubble specifically. `bubble` above is the
-        // first `.dm-b`, which may be the agent's `.dm.theirs` (now transparent);
-        // the royal-blue tint lives on `.dm.mine`, so the colour check reads this.
+        // first `.msg-bd`, which may be the agent's `.msg:not(.you)` (transparent
+        // body); the royal-blue tint lives on `.msg.you`, so the colour check
+        // reads this.
         const mineBubble = document.querySelector('#d-dmthread .msg.you .msg-bd');
         const qask = el('d-qask');
         return {
