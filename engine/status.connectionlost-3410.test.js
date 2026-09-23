@@ -19,7 +19,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { classify, STATE, CONFIDENCE } = require('./status');
+const { classify, STATE, CONFIDENCE, reconcileReport } = require('./status');
 
 // Same helper shape the main status.test.js uses: a pane as the engine sees it,
 // with `session` present so classify() treats it as an agent's own pane.
@@ -122,4 +122,51 @@ test('an auth failure still reads auth_failed, not connection_lost', () => {
   const r = classify(pane(), authTail);
   assert.equal(r.state, STATE.AUTH_FAILED,
     'a real auth failure must not be reclassified as a transient connection loss');
+});
+
+// ---------------------------------------------------------------------------
+// reconcileReport: scraped connection_lost stands over a self-report (rule 3b, #3410)
+//
+// The board runs reconcileReport(report, scrapedStatus) for its OWN launched
+// agents -- the #3410 target population, which run the report hook. Without a
+// rule, a stale/idle report would mask the scraped connection_lost back to
+// working/idle/"Can't tell" -- the exact false calm #3410 removes. These pin the
+// rule-3b analog.
+// ---------------------------------------------------------------------------
+const connScrape = () => ({
+  state: STATE.CONNECTION_LOST,
+  confidence: CONFIDENCE.SCRAPED,
+  because: 'it lost its connection to the API',
+  evidence: "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)",
+});
+const report = (state, ageMs, now) => ({
+  found: true, state, confidence: CONFIDENCE.REPORTED,
+  because: 'reported ' + state, at: new Date(now - ageMs).toISOString(), auto: true,
+});
+
+test('#3410 reconcile: a FRESH `working` report does NOT mask scraped connection_lost', () => {
+  const now = Date.now();
+  const got = reconcileReport(report(STATE.WORKING, 30 * 1000, now), connScrape(), now);
+  assert.equal(got.state, STATE.CONNECTION_LOST,
+    'a fresh working report (necessarily from before the connection died) must not override the wedged screen');
+  assert.ok(got.conflict && /connection|reports cannot know/.test(String(got.conflict)),
+    'the disagreement must surface as a conflict note, not be silently swallowed');
+});
+
+test('#3410 reconcile: a `reported idle` does NOT render a wedged agent "at rest" (the exact false calm #3410 removes)', () => {
+  const now = Date.now();
+  const got = reconcileReport(report(STATE.IDLE, 30 * 1000, now), connScrape(), now);
+  assert.equal(got.state, STATE.CONNECTION_LOST,
+    'an idle report never decays; without rule 3b it would render a wedged agent "at rest and nothing is needed" forever');
+});
+
+// CONTROL — proves the two assertions above are not vacuous: for an ORDINARY
+// scraped state, a fresh `working` report DOES win. If reports never won,
+// "connection_lost stands over the report" would be trivially true.
+test('#3410 reconcile CONTROL: a fresh `working` report still leads for an ordinary idle scrape', () => {
+  const now = Date.now();
+  const ordinaryIdleScrape = { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is sitting at its prompt' };
+  const got = reconcileReport(report(STATE.WORKING, 30 * 1000, now), ordinaryIdleScrape, now);
+  assert.equal(got.state, STATE.WORKING,
+    'CONTROL: a fresh working report must win over an ordinary idle scrape, or the connection_lost result is meaningless');
 });

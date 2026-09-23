@@ -57,6 +57,22 @@ and is never touched — we only act once retries are exhausted and it sits idle
 Verified against the modeled retry chrome; if review shows the chrome differs, it's a one-line
 precedence move + a fixture.
 
+### PR 2 HARD PREREQUISITE (raised in challenge-loop iter 1)
+The precedence premise above is asserted about a UI we do not control. It is only COSMETIC for PR 1
+(surfacing). It is LOAD-BEARING for PR 2's auto-restart: restarting an agent mid-retry aborts a turn
+that might have recovered on its own. Before PR 2 restarts on this state, capture a REAL
+network-retry sequence from a live pane and confirm every retry frame carries live working chrome
+(spinner / esc-to-interrupt / a live timer) so it classifies working, never connection_lost. Also
+confirmed in iter 1: for the `Connection dropped` code the on-screen retry warning is
+`Connection dropped -- reconnecting (attempt N/M)`, which the `Connection dropped \(` alternative
+correctly does NOT match; the other network codes were not separately captured.
+
+### reconcile coverage (added iter 1)
+reconcileReport now has a connection-lost half (rule 3b analog): scraped connection_lost stands over
+a self-report with a conflict note, so a Kosmos-managed agent's stale working/idle report cannot mask
+it. Without this the feature was masked for its own target population. Covered by the three reconcile
+tests in status.connectionlost-3410.test.js.
+
 ## Verify
 - `node --test engine/status.test.js` (+ any connlost test file) green, real exit read.
 - Full node suite via the repo runner; merge on CI green (local runLauncher tests are flaky).

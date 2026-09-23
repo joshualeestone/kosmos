@@ -2026,9 +2026,11 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  *
  * ⚠️ ONE RESIDUAL, the same one AUTH_FRIENDLY_MESSAGE pins and accepts: a card or
  * message quoting one of these lines verbatim reads connection_lost. It is rare,
- * and when the agent is also self-reporting it surfaces as a CONFLICT (reconcileReport
- * rule 3), visible and recoverable, not a silent false state. A missed wedged agent
- * is worse than a rare false pause -- this file's oldest trade.
+ * and it is not silent: reconcileReport's connection-lost half (rule 3b, #3410)
+ * makes the scraped connection_lost stand over the agent's report WITH a conflict
+ * note, so a self-reporting agent shows the state plus "its reports cannot know
+ * about" rather than being masked back to working/idle. A missed wedged agent is
+ * worse than a rare false pause -- this file's oldest trade.
  */
 const CONNECTION_LOST_MESSAGE = /Can't reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/;
 
@@ -3824,6 +3826,16 @@ function classify(pane, paneText) {
    * The line rides along as evidence (the rate-limit / auth rule): we cannot
    * know the network is down, only that Claude Code SAID it could not reach the
    * API, so we show what the screen actually says.
+   *
+   * ⚠️ THE PRECEDENCE PREMISE IS ASSERTED ABOUT A UI WE DO NOT CONTROL, and it is
+   * only cosmetic for THIS surfacing-only PR: worst case a pane briefly reads
+   * "Connection lost" during a no-spinner retry frame, which is not harmful and
+   * is arguably accurate. It becomes LOAD-BEARING for the #3410 self-heal (PR 2),
+   * which restarts on this state -- restarting an agent that is still mid-retry
+   * would abort a turn that might have recovered on its own. So PR 2 must confirm,
+   * against a REAL captured retry sequence, that an in-flight retry draws live
+   * working chrome (and hence never reaches here) before it acts on this state --
+   * do not carry this premise forward into a restart on my word alone.
    */
   const connLine = connectionLost(tail);
   if (connLine !== null) {
@@ -5942,6 +5954,23 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        loop "at rest" forever. Report freshness cannot rescue it either (#966): a fresh report
        is necessarily from BEFORE a current failure and vouches for nothing now. */
     return { ...scraped, reported: false, conflict: 'its screen shows its Claude sign-in is being rejected, which its reports cannot know about' + saidWords(reported, nowMs) };
+  }
+  /* Rule 3b, connection-lost half (#3410). Same reasoning as the dead-token
+     half above, and DELIBERATELY NOT the rate-limit half below: a transient
+     network error read off the screen stands over ANY report. This state is only
+     reached once the WORKING checks (live spinner / retry chrome) have already
+     failed in classify(), so the agent has NO live activity -- its last report is
+     necessarily from BEFORE the connection died (the tool call that triggered the
+     error, or the Stop hook's end-of-turn `report idle`), and an idle report never
+     decays (rule 6), which would render a wedged agent "at rest and nothing is
+     needed" forever -- the exact false calm #3410 exists to remove for the very
+     population it targets (a Kosmos-managed agent runs the report hook, so it
+     almost always HAS a recent report). Report freshness cannot rescue it (#966):
+     a fresh `working` report predates the failure and vouches for nothing now.
+     Unlike a rate limit, a wedged agent is not still working and reporting to
+     localhost, so the "a fresh report wins" exception does not carry here. */
+  if (scraped.state === STATE.CONNECTION_LOST) {
+    return { ...scraped, reported: false, conflict: 'its screen shows it lost its connection to the API, which its reports cannot know about' + saidWords(reported, nowMs) };
   }
   /* Rule 3b, rate-limit half (#966). The rule above states its own
      justification -- "no hook fires once the request itself is refused" -- and
