@@ -166,11 +166,18 @@ DATA_PATHS_BEFORE="$(data_paths)"
 #   as .world-confirmed.json above. It is a local random id (never a machine fingerprint) and
 #   only leaves the Mac via the opt-out feedback report. #3038 added the boot-time read without
 #   updating this list, so the first cut carrying it red-flagged ping.json here; blessed now.
+# ⇒ prompter-nudges.json (#3508, kosmos): the in-app check-in store. The runner tick writes the
+#   current nudge set to store.ROOT/prompter-nudges.json each tick (store.ROOT already ends in the
+#   Kosmos app leaf, so this lands at ./Kosmos/prompter-nudges.json; an empty set when the Prompter
+#   is off or nothing is stalled), and the web UI reads it via /api/prompter-nudges. This
+#   gate boots the installed board, so the store lands on first boot -- the same boot-marker case as
+#   .world-confirmed.json / ping.json above. #3508 added the boot-time write without updating this
+#   list, so the first cut carrying it (0.6.90) red-flagged prompter-nudges.json here; blessed now.
 # Order matters: ADDED is `find . | sort`ed and compared as a literal string, so
 # EXPECTED_ADDS must be in sort order too. `.world-confirmed.json` sorts FIRST
 # (the leading '.' 0x2E collates before 'bin' 0x62), so it leads the list; ping.json ('p')
 # sorts after bin/ ('b') and before source-channel ('s').
-EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/bin/grok-report-bridge.js ./Kosmos/ping.json ./Kosmos/source-channel)"
+EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/bin/grok-report-bridge.js ./Kosmos/ping.json ./Kosmos/prompter-nudges.json ./Kosmos/source-channel)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
