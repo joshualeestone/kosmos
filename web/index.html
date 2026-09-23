@@ -1788,7 +1788,13 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
    is active at a time (the JS setBoardFilter enforces it); each hides non-matching
    rows in grid+list and DIMS them in org so the tree stays intact. The gold
    pressed/hover accent signals the active filter regardless of the tile's own red
-   alert colour, matching #st-dm-tile. */
+   alert colour, matching #st-dm-tile.
+   DELIBERATE DIVERGENCE (do not "fix"): a needs_trust card wears the visual .attn
+   class (cardStOf folds needs_trust into attn, so it reads red) but is NOT marked
+   data-attn, because the Issue count c.needsYou keys on state==='needs_you' only.
+   The filter must match its chip count, so needs_trust is excluded from it; adding
+   it here would show more cards than the "Issue" chip claims. render-chip-filters-3423.js
+   pins this with a needs_trust arm, so a future refactor that merges the two sets fails. */
 #st-attn-tile, #st-attn-noproj-tile { cursor: pointer; }
 #st-attn-tile:hover, #st-attn-noproj-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
 #st-attn-tile:focus-visible, #st-attn-noproj-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }

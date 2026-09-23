@@ -15,6 +15,9 @@
  *      agent's carries neither.
  *   2. the attn-vs-noproj DISTINCTION: card() on a needs_you agent WITH a project
  *      (stateProject set) emits data-attn but NOT data-noproj (real card clone).
+ *   2b. the needs_trust DIVERGENCE: a needs_trust card wears the red visual attn
+ *      class but carries NEITHER data-attn nor data-noproj, so the Issue filter
+ *      excludes it (data-attn matches c.needsYou, which keys on needs_you only).
  *   3. setBoardFilter is mutually exclusive: exactly one body.filter-* class + one
  *      tile aria-pressed=true at a time; null clears all.
  *   4. the CSS actually hides non-matching grid cards while a filter is on, and the
@@ -99,6 +102,25 @@ function chk(ok, label, extra) {
       'a needs_you agent WITH a project gets data-attn but NOT data-noproj', JSON.stringify(distinction));
     chk(distinction.noProject_noproj === true,
       'and a needs_you agent with NO project does get data-noproj', JSON.stringify(distinction));
+
+    // 2b. DELIBERATE DIVERGENCE (#3423): a needs_trust card wears the red .attn
+    // visual (class="acard attn ... needstrust") but is NOT marked data-attn,
+    // because the Issue count c.needsYou keys on state==='needs_you' only. The
+    // filter must match its chip count, so needs_trust is excluded. This pins it:
+    // if a future refactor merges the visual attn set into data-attn, it fails.
+    const trust = await page.evaluate(() => {
+      const html = card({ sessionName: 'trusty', running: false, state: 'needs_trust',
+        needsTrust: true, name: 'Trusty', because: 'Waiting at a workspace-trust prompt.' });
+      return {
+        hasVisualAttn: /\bclass="acard attn\b/.test(html) && /\bneedstrust\b/.test(html),
+        hasDataAttn: /\bdata-attn\b/.test(html),
+        hasDataNoproj: /\bdata-noproj\b/.test(html),
+      };
+    });
+    chk(trust.hasVisualAttn === true,
+      'a needs_trust card still wears the red visual attn/needstrust class', JSON.stringify(trust));
+    chk(trust.hasDataAttn === false && trust.hasDataNoproj === false,
+      'but a needs_trust card carries NEITHER data-attn nor data-noproj (excluded from the Issue filter to match c.needsYou)', JSON.stringify(trust));
 
     // 3. setBoardFilter mutual exclusivity + aria-pressed.
     const excl = await page.evaluate(() => {
