@@ -1351,18 +1351,23 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    active one filled with ink, the other outlined. Bigger than the .laypick segmented control
    (this is the screen's top-level choice, not a compact icon switch), and it uses ink/surface
    rather than gold so it never competes with the gold "Create project" / "Join Project" CTA. */
-.pj-mode { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 24px;
+/* #3495 (Josh, 2026-09-23): the Create/Join toggle is now a SEGMENTED selector - the two tabs are
+   joined (shared border, outer corners rounded) rather than separate pills with an "or". The active
+   tab fills; the radio stays the source of truth. */
+.pj-mode { display: inline-flex; align-items: stretch; flex-wrap: wrap; margin: 4px 0 24px;
            border: 0; padding: 0; min-width: 0; }
 .pj-mode-opt { display: inline-flex; align-items: center; font: inherit; font-weight: 700;
-               font-size: 1.0625rem; line-height: 1; padding: .8em 1.5em;
-               border-radius: var(--radius-pill, 100px); border: 1.5px solid var(--label);
+               font-size: 1.0625rem; line-height: 1; padding: .7em 1.4em;
+               border: 1.5px solid var(--label); border-radius: 0;
                background: none; color: var(--label); cursor: pointer; }
-/* The pill IS the control; the radio is visually hidden but stays focusable + keyboard-navigable. */
+.pj-mode-opt:first-of-type { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+.pj-mode-opt:last-of-type { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+.pj-mode-opt:not(:first-of-type) { border-left-width: 0; }
+/* The tab IS the control; the radio is visually hidden but stays focusable + keyboard-navigable. */
 .pj-mode-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 .pj-mode-opt:hover:not(:has(input:checked)) { background: var(--bg-elevated); }
 .pj-mode-opt:has(input:checked) { background: var(--label); color: var(--bg-elevated); border-color: var(--label); }
 .pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: 2px; }
-.pj-mode-or { color: var(--label-2); font-weight: 600; }
 /* Federation Kosmos+ gate: the "sign up for Kosmos+" prompt shown (via the
    data-fed-ui="signup" gate) instead of the fed entry points to a non-member. A
    quiet card, not an alarm: it explains the feature and offers the one action. */
@@ -9710,6 +9715,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   </div>
 </div>
 
+<!-- #3495 (Josh, 2026-09-23): the shared Kosmos Plus gate modal. showPlusGate(kind) opens it with
+     the kind's copy - "join" for the Join-an-external-project tab, "connect" for the grayed
+     Add-external person/agent buttons (one modal, two messages: #3495 items 3-5). The behaviour
+     (fed-gate state, when to gate) lives in fedGateMode; this modal only shows the prompt. -->
+<div class="rm-back" id="plus-gate-modal" hidden>
+  <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-gate-t" aria-describedby="plus-gate-msg">
+    <h2 class="rm-title" id="plus-gate-t">Kosmos Plus</h2>
+    <p class="rm-small" id="plus-gate-msg"></p>
+    <div class="rm-acts">
+      <button class="btn" type="button" id="plus-gate-close">Not now</button>
+      <button class="btn uprime" type="button" id="plus-gate-go">Sign up for Kosmos+</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- ============ VIEW TASK ============
      The one human verb and its undo (pack: Mark as done / reopen), plus the
@@ -12881,9 +12901,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          on the label; the input is visually hidden but focusable. -->
     <fieldset class="pj-mode">
       <legend class="vh">Create a new project or join an external one</legend>
-      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create New Project</label>
-      <span class="pj-mode-or" aria-hidden="true">or</span>
-      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join External Project</label>
+      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create a project</label>
+      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join an external project</label>
     </fieldset>
 
     <!-- Federation Kosmos+ gate (Josh launch spec, 2026-09-21): shown INSTEAD of the
@@ -12892,7 +12911,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          CSS hides it in every other mode. It routes into the in-app Kosmos Plus
          section (no hardcoded domain -- the Plus section owns where sign-up goes). -->
     <div id="pj-plus-signup" class="pj-plus-signup">
-      <p class="pj-plus-signup-t">Working across organizations is a Kosmos+ feature. Join external projects and invite people and agents from outside your Kosmos with Kosmos+.</p>
+      <!-- #3495 (Josh, 2026-09-23): the top explainer paragraph is removed; the "Kosmos Plus
+           feature / must be signed in" message now lives in the shared plus-gate modal
+           (showPlusGate). The #pj-plus-signup div + its Sign-up button stay for Angel's fed-gate
+           rework to keep or fold into the modal (her half owns data-fed-ui + fedGateMode). -->
       <button class="btn uprime" type="button" id="pj-plus-signup-go">Sign up for Kosmos+</button>
     </div>
 
@@ -24302,6 +24324,28 @@ function fedGateStamp(data) {
 function fedPlusSignupGo() {
   showTab('settings');
   settingsGo('plus');
+}
+/* #3495 (Josh, 2026-09-23): the shared Kosmos Plus gate modal. showPlusGate(kind) fills the copy
+   and shows it - kind is "join" (the Join-an-external-project tab) or "connect" (the grayed
+   Add-external person/agent buttons). One modal, two messages. It is a no-op if the modal DOM is
+   absent, so a caller (the fedGateMode gate behaviour, Angel's half) is always safe to call it. The
+   gate DECISION (when a viewer is gated) lives in fedGateMode; this only PRESENTS the prompt. */
+const PLUS_GATE_COPY = {
+  join: "It's a Kosmos Plus feature and you must be logged in to access it.",
+  connect: 'To connect external people or agents, you must be signed in as a Kosmos Plus user.',
+};
+function showPlusGate(kind) {
+  const back = document.getElementById('plus-gate-modal');
+  const msg = document.getElementById('plus-gate-msg');
+  if (!back || !msg) return;
+  msg.textContent = PLUS_GATE_COPY[kind] || PLUS_GATE_COPY.join;
+  back.hidden = false;
+  const close = document.getElementById('plus-gate-close');
+  if (close) close.focus();
+}
+function hidePlusGate() {
+  const back = document.getElementById('plus-gate-modal');
+  if (back) back.hidden = true;
 }
 function paintBuildMark(version, sourceChannel) {
   const el = document.getElementById('buildmark');
@@ -46393,6 +46437,10 @@ document.getElementById('pj-mode-create').addEventListener('change', () => { if 
 document.getElementById('pj-mode-join').addEventListener('change', () => { if (document.getElementById('pj-mode-join').checked) pjSetAddMode('join'); });
 // Federation Kosmos+ gate: the sign-up prompt routes into the in-app Kosmos Plus section.
 document.getElementById('pj-plus-signup-go').addEventListener('click', fedPlusSignupGo);
+/* #3495: the shared Plus-gate modal's own controls (Angel's behaviour calls showPlusGate to open it). */
+document.getElementById('plus-gate-close').addEventListener('click', hidePlusGate);
+document.getElementById('plus-gate-go').addEventListener('click', () => { hidePlusGate(); fedPlusSignupGo(); });
+(() => { const b = document.getElementById('plus-gate-modal'); if (b) b.addEventListener('click', (e) => { if (e.target === b) hidePlusGate(); }); })();
 document.getElementById('pj-add-ext-person').addEventListener('click', () => pjMintInvite('person'));
 document.getElementById('pj-add-ext-agent').addEventListener('click', () => pjMintInvite('agent'));
 document.getElementById('pj-invite-copy').addEventListener('click', pjCopyInvite);
