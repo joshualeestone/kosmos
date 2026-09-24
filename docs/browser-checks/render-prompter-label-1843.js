@@ -10,10 +10,13 @@
  *
  * What this pins, and why each line can fail:
  *  - the automation nav pill puts #s-sec-automation on screen (height > 0),
- *  - the section's control headings read exactly ["Auto-save", "Prompter",
- *    "Agent Communication", "Daily report"] in order (#3138 moved "Sounds" out to
- *    Settings > This computer) -- so a future edit that drops the rename, renames the
- *    wrong box, or changes which controls the section carries, goes red,
+ *  - the section's control headings read exactly the list in the headings
+ *    assertion below (that assertion is the source of truth; do not keep a second
+ *    copy of the array here that can drift) -- currently ["Auto-save", "Prompter",
+ *    "Agent Communication", "Daily report", "Recommender", "Assigner"] in order
+ *    (#3138 moved "Sounds" out to Settings > This computer; #2619 added Recommender
+ *    and Assigner) -- so a future edit that drops the rename, renames the wrong box,
+ *    or changes which controls the section carries, goes red,
  *  - no visible text inside the section still reads "Heartbeat" (the old name),
  *  - the save button's accessible name is "Save prompter settings" (a screen
  *    reader says the new name too, not just a sighted reader).
@@ -139,10 +142,14 @@ function chk(ok, label, extra) {
       // and asserted three -- stale once #2301 landed.
       // #2436 added the "Sounds" box (master new-message sound) between Prompter and
       // "Agent Communication".
-      // #3138 (Josh, 6.68): "Sounds" moved out of Automation to Settings > This computer, so the
-      // Automation section now has FOUR headings (Sounds is no longer between Prompter + Agent Comm).
-      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Agent Communication', 'Daily report']),
-        `[${theme}] the Automation headings read Auto-save, Prompter, Agent Communication, Daily report (Sounds moved to This computer #3138)`, JSON.stringify(sec.headings));
+      // #3138 (Josh, 6.68): "Sounds" moved out of Automation to Settings > This computer.
+      // #2619 (#3549) then added two automations, Recommender and Assigner (shipped as
+      // disabled "not active yet" controls until the behaviour lands), so the Automation
+      // section now has SIX headings. This cut-time-only check is not on any PR gate
+      // (#2518 class), so #3549's node test (web.settings-nav.test.js) was updated but
+      // this sibling was not, staling it and blocking the 0.6.91 cut (#3552).
+      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Agent Communication', 'Daily report', 'Recommender', 'Assigner']),
+        `[${theme}] the Automation headings read Auto-save, Prompter, Agent Communication, Daily report, Recommender, Assigner (#2619)`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
       // #2632/#2771 (Josh 2026-09): the toggle copy was changed so it no longer promises
       // an undeliverable nudge -- both the visible <b> label and the slider's aria-label

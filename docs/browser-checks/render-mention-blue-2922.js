@@ -25,7 +25,14 @@
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-mention-blue-2922.js
  *   (HEADED by default; HEADED=0 on a console-less machine.)
  *
- * // Browser-check-surface: pjmention pj-mention
+ * PART 2 (the live input highlight): #pj-post is backed by a mirror div that renders the SAME text
+ * with recognized @agent mentions blue, using pjMentionHighlightHTML -- the same recognized-name
+ * rule as the message, so input and message never disagree. Two things a source read cannot see are
+ * asserted here: (a) the live mention is COLOUR-ONLY, not bold (bold would widen the glyph and drift
+ * the mirror off the caret), and (b) the mirror's font/line-height/padding EXACTLY match #pj-post's,
+ * which is what keeps the visible text sitting where the caret is. Both are read from getComputedStyle.
+ *
+ * // Browser-check-surface: pjmention pj-mention pj-live-mention pj-post-mirror pj-mirror-in mention-live
  */
 'use strict';
 
@@ -164,8 +171,143 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
       check(`${tag} .pjmention clears WCAG AA (>=4.5:1) on every message-bubble ground`,
         fg != null && worst >= 4.5, JSON.stringify(ratios.map(([n, r]) => [n, Number(r.toFixed(2))])));
 
+      // ---- PART 2: the live @-mention highlight in #pj-post ------------------
+      const live = await page.evaluate(() => {
+        const set = new Set(['mona', 'renet-tilley']);
+        const H = (s) => pjMentionHighlightHTML(s, set);
+        const cs = (el, p) => getComputedStyle(el).getPropertyValue(p);
+        const post = document.getElementById('pj-post');
+        const mirror = document.getElementById('pj-post-mirror');
+        const inner = mirror && mirror.querySelector('.pj-mirror-in');
+        let liveWeight = null, normalWeight = null;
+        if (inner) {
+          inner.innerHTML = 'x<span class="pj-live-mention">@mona</span>';
+          const span = inner.querySelector('.pj-live-mention');
+          liveWeight = span && getComputedStyle(span).fontWeight;
+          normalWeight = getComputedStyle(inner).fontWeight;
+          inner.innerHTML = '';
+        }
+        let plainColor = null, liveColor = null, liveCaret = null;
+        if (post) {
+          plainColor = getComputedStyle(post).color;
+          post.classList.add('mention-live');
+          liveColor = getComputedStyle(post).color;
+          liveCaret = getComputedStyle(post).caretColor;
+          post.classList.remove('mention-live');
+        }
+        // Hidden-safe: on this bare file:// load #pj-post is hidden (offsetWidth 0). pjMentionPaint
+        // must NOT engage the mirror (add .mention-live) when the composer is not laid out, or a
+        // draft restored before the room is shown would look empty (transparent text over a 0-size
+        // mirror). Restore state after so no other arm is disturbed.
+        let hiddenSafe = null;
+        if (post && typeof pjMentionPaint === 'function') {
+          const prev = post.value;
+          post.value = 'draft @mona';
+          post.classList.remove('mention-live');
+          pjMentionPaint();
+          hiddenSafe = { offsetW: post.offsetWidth, mentionLive: post.classList.contains('mention-live') };
+          post.value = prev;
+          post.classList.remove('mention-live');
+          if (inner) inner.innerHTML = '';
+        }
+        return {
+          valid: H('hi @mona'), partial: H('hi @mon'), hyphen: H('@mona-'),
+          under: H('_@mona_'), esc: H('<b>@mona</b>'), twoLine: H('a\n@mona\n'),
+          mirrorPresent: !!(mirror && inner),
+          postFontSize: post && cs(post, 'font-size'), innerFontSize: inner && cs(inner, 'font-size'),
+          postLineHeight: post && cs(post, 'line-height'), innerLineHeight: inner && cs(inner, 'line-height'),
+          postPadTop: post && cs(post, 'padding-top'), innerPadTop: inner && cs(inner, 'padding-top'),
+          postPadLeft: post && cs(post, 'padding-left'), innerPadLeft: inner && cs(inner, 'padding-left'),
+          liveWeight, normalWeight, plainColor, liveColor, liveCaret, hiddenSafe,
+        };
+      });
+
+      check(`${tag} live: a recognized @agent becomes a .pj-live-mention span`,
+        live.valid === 'hi <span class="pj-live-mention">@mona</span>', live.valid);
+      check(`${tag} live: a partial/unrecognized @name stays plain (only recognized names blue)`,
+        live.partial === 'hi @mon', live.partial);
+      check(`${tag} live: @mona- (backend strips the trailing -) still highlights mona`,
+        live.hyphen === '<span class="pj-live-mention">@mona</span>-', live.hyphen);
+      check(`${tag} live: _@mona_ (underscore boundary) stays plain, like the backend`,
+        live.under === '_@mona_', live.under);
+      check(`${tag} live: HTML in the input is escaped`,
+        live.esc === '&lt;b&gt;@mona&lt;/b&gt;', live.esc);
+      check(`${tag} live: a trailing newline is padded so the mirror matches the textarea`,
+        /\n $/.test(live.twoLine), JSON.stringify(live.twoLine));
+      check(`${tag} live: the mirror (#pj-post-mirror .pj-mirror-in) is in the DOM`,
+        live.mirrorPresent, String(live.mirrorPresent));
+      // The alignment guarantee a source read cannot make: the mirror's text metrics EQUAL the
+      // textarea's, so wrapped/scrolled text sits exactly where the caret is.
+      check(`${tag} live: mirror font-size matches #pj-post`,
+        live.innerFontSize && live.innerFontSize === live.postFontSize, `${live.innerFontSize} vs ${live.postFontSize}`);
+      check(`${tag} live: mirror line-height matches #pj-post`,
+        live.innerLineHeight && live.innerLineHeight === live.postLineHeight, `${live.innerLineHeight} vs ${live.postLineHeight}`);
+      check(`${tag} live: mirror padding matches #pj-post`,
+        live.innerPadTop === live.postPadTop && live.innerPadLeft === live.postPadLeft,
+        `top ${live.innerPadTop} vs ${live.postPadTop}, left ${live.innerPadLeft} vs ${live.postPadLeft}`);
+      // COLOUR-ONLY, not bold: same weight as normal mirror text, or the glyphs widen and drift.
+      check(`${tag} live: .pj-live-mention is colour-only (same weight as normal text, NOT bold)`,
+        live.liveWeight != null && live.liveWeight === live.normalWeight, `${live.liveWeight} vs ${live.normalWeight}`);
+      // The textarea's own text goes transparent so only the mirror shows; the caret stays inked.
+      check(`${tag} live: #pj-post text is inked WITHOUT .mention-live (the class is what makes it transparent)`,
+        live.plainColor && live.plainColor !== 'rgba(0, 0, 0, 0)' && live.plainColor !== 'transparent', live.plainColor);
+      check(`${tag} live: #pj-post.mention-live text is transparent`,
+        live.liveColor === 'rgba(0, 0, 0, 0)', live.liveColor);
+      check(`${tag} live: #pj-post.mention-live keeps an inked caret (not transparent)`,
+        live.liveCaret && live.liveCaret !== 'rgba(0, 0, 0, 0)' && live.liveCaret !== 'transparent', live.liveCaret);
+      // Non-vacuous: requires offsetW === 0 (the composer really is hidden on this load) AND that
+      // pjMentionPaint did NOT add .mention-live there -- so a draft restored before the room is
+      // shown is not made invisible.
+      check(`${tag} live: pjMentionPaint is hidden-safe (offsetWidth 0 -> no .mention-live)`,
+        live.hiddenSafe && live.hiddenSafe.offsetW === 0 && live.hiddenSafe.mentionLive === false,
+        JSON.stringify(live.hiddenSafe));
+
       await browser.close();
     }
+  }
+
+  // DIFFERENTIAL (kosmos#2922 part 2, repo Convention #5): the recognized-name ALGORITHM is
+  // reproduced in two places -- pjMentionHighlightHTML (the live input) and pjRichSpans (the posted
+  // message). They must classify @mentions IDENTICALLY, or the input and the message disagree about
+  // what is a real mention. Rather than trust that two independently-typed regex chains stay equal,
+  // run the SAME fixtures through both and assert the highlighted @keys match. A future edit to one
+  // (e.g. widening the punctuation class) then fails here instead of shipping a silent desync. Pure
+  // JS, so one engine/theme is enough.
+  {
+    const browser = await playwright.chromium.launch({ headless: process.env.HEADED === '0' });
+    const page = await browser.newPage();
+    await page.goto('file://' + PAGE);
+    const rows = await page.evaluate(() => {
+      const set = new Set(['mona', 'renet-tilley', 'ice-cream-kitty']);
+      const fixtures = [
+        'hi @mona', '@mon', '@mona-', 'cc @mona.', '_@mona_', '(@mona)', '**@mona**', '~@mona~',
+        '@renet-tilley, @mona!', '@Mona', 'email a@mona', '@mona_bar', '@ice-cream-kitty done',
+        'plain, no mention', '@nobody here', 'two @mona and @renet-tilley', '@mona_', '@mona.-',
+        // Entity-adjacent: the one class where raw (pjMentionHighlightHTML) vs escaped (pjRichSpans)
+        // tokenization walks different bytes to reach the verdict. It cannot change the verdict --
+        // agent keys are [A-Za-z0-9._-] and can never hold &, <, >, ", so a word carrying an entity
+        // char (raw `mona&x` or escaped `mona&amp;x`) fails the key lookup on BOTH sides. These prove
+        // it rather than trusting the argument.
+        '@mona&x', '@mona<b>', '@mona"', '&@mona', '@mona&amp;', 'hi @mona&renet-tilley', '<@mona>',
+      ];
+      const keysFrom = (html, cls) => {
+        const re = new RegExp('class="' + cls + '">@([^<]+)<', 'g');
+        const out = []; let m;
+        while ((m = re.exec(html)) !== null) out.push(m[1]);
+        return out;
+      };
+      return fixtures.map((s) => {
+        const live = keysFrom(pjMentionHighlightHTML(s, set), 'pj-live-mention');
+        // pjRichSpans on the room path (agentNames supplied) is the posted-message highlighter.
+        const posted = keysFrom(pjRichSpans(s, null, set), 'pjmention');
+        return { s, live, posted, ok: JSON.stringify(live) === JSON.stringify(posted) };
+      });
+    });
+    for (const r of rows) {
+      check(`[differential] live == posted mention classification for ${JSON.stringify(r.s)}`,
+        r.ok, `live=${JSON.stringify(r.live)} posted=${JSON.stringify(r.posted)}`);
+    }
+    await browser.close();
   }
 
   const failed = results.filter((r) => !r.pass);

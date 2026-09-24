@@ -632,6 +632,8 @@ const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter'
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 const heartbeatSetting = require('./engine/heartbeat-setting');
+const recommenderSetting = require('./engine/recommender-setting'); // #2619
+const assignerSetting = require('./engine/assigner-setting'); // #2619
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
@@ -6411,6 +6413,61 @@ const server = http.createServer((req, res) => {
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = heartbeatSetting.read();
         sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #2619: the Recommender automation setting (Settings > Automation). Read-only
+     GET returns on + the three guards + their key order for the UI. Like
+     /api/heartbeat-setting it is a STATUS control: a read error is a 500, never a
+     false position. The behaviour that consumes this is a separate build; this
+     just persists the person's choice. */
+  if (pathname === '/api/recommender-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = recommenderSetting.read();
+      sendJson(res, 200, { on: r.on, guards: r.guards, guardKeys: recommenderSetting.GUARD_KEYS, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/recommender-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // One change per PUT (the UI commits each control on flip): either the
+        // on/off toggle, or ONE guard. setGuard merges a single guard so the other
+        // two are never reset (write({guards}) would refill missing guards to on).
+        let saved;
+        if (typeof body.guard === 'string') saved = recommenderSetting.setGuard(body.guard, body.value);
+        else if (typeof body.on === 'boolean') saved = recommenderSetting.setOn(body.on);
+        else saved = { ok: false, because: 'nothing to set (want {on} or {guard,value})' };
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = recommenderSetting.read();
+        sendJson(res, 200, { on: r.on, guards: r.guards, guardKeys: recommenderSetting.GUARD_KEYS, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #2619: the Assigner automation setting. Same STATUS-control contract. */
+  if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = assignerSetting.read();
+      sendJson(res, 200, { on: r.on, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/assigner-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        const saved = assignerSetting.setOn(body.on);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = assignerSetting.read();
+        sendJson(res, 200, { on: r.on, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
