@@ -8469,6 +8469,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   caret-color: #14161a; border-color: rgba(20, 22, 26, .28); }
 #plus-state2 .tk-inp::placeholder { color: #6b7280; -webkit-text-fill-color: #6b7280; opacity: 1; }
 #plus-state2 .field + .frow { margin-top: var(--space-5); }
+#plus-state2 .tk-inp.bad, #plus-state2 .tk-inp.bad:focus { border-color: var(--danger); } /* the shared error border still wins */
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
    whole app is already blue via the token override above; this frames the two
    working states as the mock's card. Their wired ids are untouched. */
