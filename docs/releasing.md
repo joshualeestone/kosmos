@@ -37,8 +37,8 @@ improvement it gained would have died with the session that wrote it.
    then run the cut in that session. An unlock in one SSH session did not reach a
    cut detached (nohup) into another. The preflight prints these commands when it
    finds the lock.
-   Since #3647, 1c also checks the two credentials step 3c needs whenever the
-   installer pkg is rebuilt (it does not contact Apple's notary service): that `security find-identity -v` lists the
+   Since #3647, 1c also checks the two credentials that step 3c's pkg rebuild
+   would need, on every cut (it does not contact Apple's notary service): that `security find-identity -v` lists the
    **Developer ID Installer** identity (missing or expired refuses), and that the
    notary key's secrets-map target (`KOSMOS_NOTARY_SECRET_TARGET` in
    `tools/lib/signing-identity.sh`, today `kosmos-notarize`) resolves to a

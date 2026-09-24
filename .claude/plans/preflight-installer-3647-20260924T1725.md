@@ -27,6 +27,11 @@ KOSMOS_SECRETS_MAP_BIN), like the existing codesign seam.
 - Test-signing a pkg in 1c: find-identity proves presence, and the existing app test-sign already
   proves the keychain is unlocked in this session (both identities live in the same login keychain).
 
+## Not covered, named
+Two valid Installer identities matching the same name (an ambiguous match) pass 1c; productsign at
+3c would then fail. build-installer-pkg.sh's own pre-check has the same limit. A real productsign
+test at 1c would cover it and was rejected above as unnecessary for presence.
+
 ## Weakest premise
 That a present Installer identity is usable whenever the Application one just signed (same keychain,
 same unlock). A separately locked or partitioned Installer key would still fail at 3c.

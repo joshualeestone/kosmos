@@ -14,7 +14,8 @@
 # Scope: this proves the Application key is reachable. Since #3647 it also checks that
 # the Developer ID INSTALLER identity is listed as valid (missing or expired refuses) and
 # that the notary .p8 resolves; step 3c needs both whenever the pkg is rebuilt. It does
-# not contact Apple's timestamp or notary services.
+# not contact Apple's timestamp or notary services, and it does not detect two Installer
+# identities matching the same name (3c's own check does not either; productsign would).
 #
 # Sourced by release.sh under `set -euo pipefail`; called as `kosmos_sign_preflight ||
 # exit 1`, bash 3.2.
