@@ -304,10 +304,12 @@ needs an update before phone notifications can be turned on" (`engine/phonenotif
 - Before cutting step 7, run the same `mac-request --help` check against the binary the bundle
   build will actually use: `KOSMOS_TUNNEL_BIN` if it is set, otherwise the default path above.
 
-**Follow-up card (not built yet):** nothing stops a bundle from being built with an old tunnel. A
-small guard in `tools/build-kosmos-bundle.sh` should refuse, or at least warn, when
-`PHONE_APP_CAN_RECEIVE` is `true` and the tunnel binary lacks `mac-request`. Until then, this
-check is done by hand.
+**The bundle build also checks this** (`tools/lib/connector-verbs.sh`, called from
+`tools/build-kosmos-bundle.sh`).
+- While `PHONE_APP_CAN_RECEIVE` is `false`, an old tunnel gets one line: "note: this Plus connector
+  predates mac-request; harmless until PHONE_APP_CAN_RECEIVE opens". The build goes on.
+- Once it is `true`, the build refuses to bundle a tunnel without `mac-request`.
+- The hand check above still comes first: a refused build at step 7 costs a release attempt.
 
 **Undo:** nothing has shipped. The binary only reaches people inside a board release (step 7).
 
