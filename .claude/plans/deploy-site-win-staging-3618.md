@@ -37,6 +37,9 @@ R2's staging pointer against the stale committed one and exits red.
   one) REFUSES the Mac deploy (A32). That matches prod's fail-closed rule and the old refusal when
   the static pointer failed served-verify. The cost: a gap in R2 staging reds Mac deploys. Chosen
   because a staging channel nobody can read is a real defect, not noise.
+- Once the staging pointer redirects, a TRANSIENT staging-probe failure falls back to comparing the
+  committed copy with what is served, which differs (R2's vs the site's), so that run exits red (A37).
+  The NOTE names the probe and says to re-run. Accepted: the same fail-closed rule as prod's probe.
 - A redirected alias whose checksum or bytes disagree with the prod pointer refuses (A29, A35).
   That assumes R2's alias is always the PROD build. In this repo a staging publish never touches the
   alias, but the R2 publish lives outside this repo; if it ever writes the alias on a STAGING
@@ -50,8 +53,8 @@ saying the site's `latest-win-staging.json` is still authoritative for his flow.
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, now 39 arms: A25 to A39 are new (staging redirect,
+`tools/test-deploy-site-served-win-3600.sh`, now 40 arms: A25 to A40 are new (staging redirect,
 its sidecar and bytes, no committed staging copy, R2 staging gone, committed staging newer than R2,
-alias checksum static/redirected/unprobeable, alias bytes on R2, A36 proving the no-committed-copy path really verifies, A37 for a failed staging probe, and A38 for a wrong-build alias zip while its sidecar is static, and A39 for a malformed served sha). A12 was rebuilt: the
+alias checksum static/redirected/unprobeable, alias bytes on R2, A36 proving the no-committed-copy path really verifies, A37 for a failed staging probe, and A38 for a wrong-build alias zip while its sidecar is static, A39 for a malformed served sha, and A40 as the control for the #3610 warning). A12 was rebuilt: the
 static-pointer drift control now uses a post-deploy served copy, because a redirected staging pointer
 is no longer compared with the committed one.

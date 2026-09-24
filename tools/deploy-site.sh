@@ -527,7 +527,7 @@ read_served_win_pointer() {  # <pointer file under dist> <redacted redirect targ
     *) echo "deploy-site: the served (redirected) $1 names '${SWP_NAME:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate ($3)."; exit 1 ;;
   esac
   case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$SWP_NAME', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
-  [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- investigate ($3)."; exit 1; }
+  [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- the deploy already ran, investigate ($3)."; exit 1; }
   case "$SWP_SHA" in *[!0-9a-fA-F]*) echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not hex -- investigate ($3)."; exit 1 ;; esac
   [ ${#SWP_SHA} -eq 64 ] || { echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not 64 characters -- investigate ($3)."; exit 1; }
 }
@@ -634,6 +634,10 @@ if [ -n "$WIN_SERVED_SHA" ]; then
       _wag=$(served_sha256 kosmos-win-x64.zip 300) || { echo "deploy-site: could not fetch the served kosmos-win-x64.zip to hash it -- the deploy already ran, investigate (#3610)."; exit 1; }
       [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
       ;;
+    200) : ;;   # served statically: git archive shipped the committed alias
+    *)
+      echo "deploy-site: NOTE (#3610): whether kosmos-win-x64.zip is served from R2 could not be probed (answer '${_waz%% *}'), so its bytes were NOT checked against the served build this run. Re-run the check." >&2
+      ;;
   esac
 fi
 # The STAGED Windows build, served whole: the Windows box verifies it from these served copies
@@ -685,10 +689,10 @@ case "${_wsp%% *}" in
     ;;
   200) : ;;   # served statically: git archive shipped the committed staging pointer
   '')
-    [ -z "$WIN_STAGED" ] || echo "deploy-site: NOTE (#3618): could not probe whether latest-win-staging.json is served by redirect (transport error or timeout), so checking the committed $WIN_STAGED. If that is refused while prod redirects it to R2, it is this probe, not the deploy; re-run the check." >&2
+    echo "deploy-site: NOTE (#3618): could not probe whether latest-win-staging.json is served by redirect (transport error or timeout), so checking the committed ${WIN_STAGED:-staging pointer (none committed: the staged build is NOT verified this run)}. If that is refused while prod redirects it to R2, it is this probe, not the deploy; re-run the check." >&2
     ;;
   *)
-    [ -z "$WIN_STAGED" ] || echo "deploy-site: NOTE (#3618): latest-win-staging.json answered ${_wsp%% *} (neither a redirect nor 200), so checking the committed $WIN_STAGED. The staging pointer route itself may be broken; check it." >&2
+    echo "deploy-site: NOTE (#3618): latest-win-staging.json answered ${_wsp%% *} (neither a redirect nor 200), so checking the committed ${WIN_STAGED:-staging pointer (none committed: the staged build is NOT verified this run)}. The staging pointer route itself may be broken; check it." >&2
     ;;
 esac
 WIN_STAGED_SUPERSEDED=0
@@ -707,7 +711,7 @@ if [ -n "$_wsup" ]; then
   case "${_wsr%% *}" in 301|302|303|307|308) : ;; *) _wsup="" ;; esac
 fi
 if [ -n "$_wsup" ]; then
-  echo "deploy-site: WARNING (#3600): latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $_wsup. It is superseded, so its zip and checksum are not served-verified (the staging pointer still is). The next Windows staging publish replaces it." >&2
+  echo "deploy-site: WARNING (#3600): latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $_wsup. It is superseded, so its zip and checksum are not served-verified (the staging pointer itself still is: served, and shape-checked when redirected, content-compared when static). The next Windows staging publish replaces it." >&2
   WIN_STAGED_SUPERSEDED=1
 fi
 if [ -n "$WIN_STAGED" ]; then
