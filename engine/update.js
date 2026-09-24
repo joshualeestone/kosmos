@@ -90,6 +90,14 @@ const SHA256_HEX = /^[0-9a-fA-F]{64}$/;
 /** The immutable name publish-kosmos-windows.sh gives a Windows build (`VERSIONED`). */
 function windowsBuildName(version, arch) { return `kosmos-${version}-win-${arch}.zip`; }
 /**
+ * The GENERIC (unversioned) name the /dist edge always serves. #3525: the updater falls back to
+ * this when the versioned name 404s on a misconfigured edge. It is derived here from arch alone,
+ * never read from the pointer's `artifact` field, so the fallback name is deterministic; the bytes
+ * it serves are still pinned to the manifest sha, so a moving generic alias cannot smuggle in a
+ * different build.
+ */
+function windowsGenericName(arch) { return `kosmos-win-${arch}.zip`; }
+/**
  * What a fetched pointer body says, or null when it cannot be trusted.
  *
  * Mac: today's rule, unchanged -- a string numeric x.y.z `version`; the result is `{version}`.
@@ -1191,7 +1199,7 @@ function prodPublishesRunning() {
 
 module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
-  pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, // the per-platform check (win32-update-check)
+  pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, windowsBuildName, windowsGenericName, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation
   rollbackOffer, beginRollback, inFlightKind, // S5 (#3017): the kept-previous-build offer, the user-initiated rollback, and which op holds single-flight
   windowsLocationRefusal, // S4: decision 5 -- the OneDrive/Program Files refusal sentence, or null
