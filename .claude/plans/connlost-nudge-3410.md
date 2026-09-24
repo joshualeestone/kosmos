@@ -35,10 +35,17 @@ A nudge makes Claude Code retry, and the retry reads WORKING. So the history (nu
 kept while the agent is briefly not lost, and dropped only after 10 minutes not lost. Escalation is
 sticky until then. A test interleaves lost, lost, working for an hour and asserts exactly 3 nudges.
 
+## Also fixed in review
+- An unreadable roster (a failed snapshot) no longer prunes the book, so it cannot reset the loop guard.
+- The server's per-tick gating is `makeTick` and is tested: live-execution gate, brake, no overlap.
+- Claude Code breaking its own error text onto continuation rows is matched (error row + up to 2
+  indented rows).
+
 ## Limits, stated rather than fixed
 - **A person half-way through typing** in the agent's prompt: the pane still reads connection_lost,
-  and the nudge is pasted after their draft and submitted with it. A draft cannot be told from
-  Claude Code's placeholder text without terminal styling, which the capture does not keep.
+  and the nudge is pasted after their draft and submitted with it. A roster card does not carry the
+  prompt row, so the sweep cannot see a draft today. Follow-up: expose whether the prompt row is empty
+  or a known placeholder ("❯ Try \"…\"") and refuse to nudge otherwise (fails safe: a missed nudge).
 - **The probe dials api.anthropic.com:443 directly.** It ignores the agent's ANTHROPIC_BASE_URL and
   any HTTPS_PROXY: behind a proxy that blocks direct TCP it never nudges, and with a custom endpoint
   down but the public host up it nudges in vain (the loop guard then escalates).

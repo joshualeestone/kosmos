@@ -61,6 +61,8 @@ function planHeal(entry, now, probeOk) {
 /* Fold one sweep's reading of an agent into its book entry. A different evidence line restarts
    the count, so only a pane that has not changed can reach MIN_SWEEPS. */
 function observe(prev, evidence) {
+  // A non-array prev.nudges is kept as-is on purpose: planHeal treats corrupt history as used up
+  // (escalate), and sweepOnce re-wraps it only when a nudge is actually sent.
   const nudges = prev && Array.isArray(prev.nudges) ? prev.nudges : (prev ? prev.nudges : []);
   const escalated = !!(prev && prev.escalated); // log an escalation once per loss, not every sweep
   if (prev && prev.evidence === evidence) return { evidence, sweeps: (prev.sweeps || 0) + 1, nudges, escalated, okSince: null };
@@ -74,7 +76,10 @@ function observe(prev, evidence) {
  */
 async function sweepOnce(o) {
   const book = (o && o.book instanceof Map) ? o.book : new Map();
-  const roster = (o && Array.isArray(o.roster)) ? o.roster : [];
+  // An unreadable roster (safeRoster returns null when the snapshot fails) is NOT an empty fleet:
+  // treating it as one would prune every entry, wiping the nudge history and escalations.
+  if (!o || !Array.isArray(o.roster)) return { results: [], skipped: 'roster unreadable' };
+  const roster = o.roster;
   const now = o && Number.isFinite(o.now) ? o.now : Date.now();
   const log = (o && typeof o.log === 'function') ? o.log : null;
   const results = [];
@@ -141,4 +146,25 @@ function probeApi({ host = 'api.anthropic.com', port = 443, timeoutMs = 3000 } =
   });
 }
 
-module.exports = { planHeal, observe, sweepOnce, probeApi, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };
+/* The server's per-tick wrapper, separate so its gating is testable: nothing runs unless live
+   execution is allowed and the brake is off, a tick never overlaps a slow previous one, and an
+   unreadable roster skips the tick. deps = { allowed, env, roster, probe, deliver, DELIVERY, log,
+   book, now }. Returns a function; each call returns the in-flight promise or null. */
+function makeTick(deps) {
+  let busy = false;
+  return function tick() {
+    if (!deps.allowed()) return null;                                       // inert under test / before opt-in
+    if ((deps.env || process.env).AGENT_WORKFORCE_CONNLOST_HEAL_OFF === '1') return null; // operator brake
+    if (busy) return null;                                                  // a slow probe must not overlap
+    let roster;
+    try { roster = deps.roster(); } catch { return null; }
+    if (!Array.isArray(roster)) return null;
+    busy = true;
+    return sweepOnce({
+      roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
+      probe: deps.probe, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
+    }).catch(() => null).finally(() => { busy = false; });
+  };
+}
+
+module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };

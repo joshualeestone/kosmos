@@ -81,7 +81,7 @@ test('#3410: network still down -> wait, no nudge', async () => {
   assert.equal(h.probes, 1, 'the probe runs only when an agent is ready to be nudged');
 });
 
-test('#3410: a new loss after a SHORT recovery restarts the sweep count but keeps the nudge history', async () => {
+test('#3410: a new loss after a SHORT recovery needs two unchanged sweeps again before a nudge', async () => {
   const h = harness();
   await sweep(h, lost(), 1000);
   await sweep(h, rosterFor(fleet.SCREEN.idle, 'idle'), 61000);
@@ -117,7 +117,9 @@ test('#3410: after MAX_NUDGES within the window it escalates instead of nudging 
   const h = harness();
   const logs = [];
   let t = 1000;
-  for (let i = 0; i < 20; i += 1) {
+  // 70 minutes of continuous loss: well past the 30-minute window, so a non-sticky escalation
+  // would start nudging again.
+  for (let i = 0; i < 70; i += 1) {
     await heal.sweepOnce({ roster: lost(), book: h.book, now: t, probe: h.probe, deliver: h.deliver, DELIVERY, log: (r) => logs.push(r.act) });
     t += 60000;
   }
@@ -147,4 +149,32 @@ test('#3410 probeApi: true for a listening port, false for a closed one (real so
     assert.equal(await heal.probeApi({ host: '127.0.0.1', port: open, timeoutMs: 2000 }), true);
   } finally { await new Promise((r) => server.close(r)); }
   assert.equal(await heal.probeApi({ host: '127.0.0.1', port: open, timeoutMs: 2000 }), false, 'the same port after close must read unreachable');
+});
+
+test('#3410: an unreadable roster (null) skips the sweep and keeps the history', async () => {
+  const h = harness();
+  await sweep(h, lost(), 1000);
+  assert.equal(h.book.size, 1);
+  const out = await heal.sweepOnce({ roster: null, book: h.book, now: 61000, probe: h.probe, deliver: h.deliver, DELIVERY });
+  assert.equal(out.skipped, 'roster unreadable');
+  assert.equal(h.book.size, 1, 'a failed snapshot must not wipe the loop guard');
+});
+
+test('#3410 makeTick: inert unless allowed, braked by env, never overlapping, skips an unreadable roster', async () => {
+  let rosterReads = 0;
+  const deps = (over) => ({ allowed: () => true, env: {}, book: new Map(), probe: async () => true,
+    deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY, roster: () => { rosterReads += 1; return lost(); }, ...over });
+  assert.equal(heal.makeTick(deps({ allowed: () => false }))(), null);
+  assert.equal(heal.makeTick(deps({ env: { AGENT_WORKFORCE_CONNLOST_HEAL_OFF: '1' } }))(), null);
+  assert.equal(rosterReads, 0, 'a gated tick must not even read the roster');
+  assert.equal(heal.makeTick(deps({ roster: () => { rosterReads += 1; return null; } }))(), null);
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const tick = heal.makeTick(deps({ probe: async () => { await slow; return true; } }));
+  const first = tick();
+  assert.ok(first, 'an allowed tick runs');
+  assert.equal(tick(), null, 'a second tick while the first is in flight must not start');
+  release();
+  await first;
+  assert.ok(tick(), 'after the first finishes, the next tick runs');
 });

@@ -14806,22 +14806,16 @@ function start(port = PORT) {
          `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1, own ~1-min timer, unref'd, best-effort. */
       const connlostBook = new Map(); // in memory: a board restart (or 10 min not lost) clears an escalation
-      let connlostBusy = false;
-      const connlostSweep = setInterval(() => {
-        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
-        if (process.env.AGENT_WORKFORCE_CONNLOST_HEAL_OFF === '1') return; // operator brake
-        if (connlostBusy) return; // a slow probe must not overlap the next tick
-        connlostBusy = true;
-        let roster;
-        try { roster = safeRoster(); } catch { connlostBusy = false; return; }
-        connlostHeal.sweepOnce({
-          roster, book: connlostBook, now: Date.now(),
-          probe: () => connlostHeal.probeApi(),
-          deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
-          DELIVERY: chat.DELIVERY,
-          log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? (r.delivered ? ' delivered' : ' NOT delivered') : ''} - ${r.because}\n`),
-        }).catch(() => { /* best-effort, like the sweeps above */ }).finally(() => { connlostBusy = false; });
-      }, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
+      const connlostTick = connlostHeal.makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: connlostBook,
+        probe: () => connlostHeal.probeApi(),
+        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? (r.delivered ? ' delivered' : ' NOT delivered') : ''} - ${r.because}\n`),
+      });
+      const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
       if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself

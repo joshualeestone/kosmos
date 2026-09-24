@@ -96,8 +96,8 @@
 // reason. A working agent that hit a transient network error and wedged is a
 // stall with no OTHER notify path, and -- unlike rate_limited -- it does NOT
 // recover on its own (the card's whole premise: it "stays wedged, doesn't
-// auto-retry"). The #3410 self-heal restarts it on connectivity return, but a
-// restart-in-progress reads `restarting` (not in this set, so not asked mid-recovery),
+// auto-retry"). The #3410 self-heal nudges it to retry once connectivity returns (a
+// retrying pane reads working, not in this set, so it is not asked mid-recovery),
 // and a connection_lost that PERSISTS past the heartbeat cadence is one the self-heal
 // could not clear (network still down / retry cap reached) -- exactly the "agent
 // stopped working" this feature exists to surface, not to swallow.

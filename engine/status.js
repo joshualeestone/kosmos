@@ -2078,10 +2078,20 @@ function connectionLostAtTail(tail) {
   // Only Claude Code's own error row counts ("⏺ API Error: …", or bare "API Error: …"), never the
   // agent's prose quoting the same words: that would read connection_lost on a healthy agent,
   // and PR 2b's sweep types into panes that read connection_lost.
-  for (let i = 0; i < rows.length; i += 1) if (API_ERROR_ROW.test(rows[i]) && CONNECTION_LOST_MESSAGE.test(rows[i])) at = i;
+  // Claude Code breaks its own long error text onto indented continuation rows (not tmux soft
+  // wraps, so capture-pane -J does not rejoin them), so the phrase is looked for on the error row
+  // joined with the up-to-2 continuation rows under it.
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!API_ERROR_ROW.test(rows[i])) continue;
+    let joined = rows[i];
+    for (let k = 1; k <= 2 && i + k < rows.length && /^\s{2,}\S/.test(rows[i + k]) && !/^\s*[⏺●❯›]/.test(rows[i + k]); k += 1) {
+      joined += ' ' + rows[i + k].trim();
+    }
+    if (CONNECTION_LOST_MESSAGE.test(joined)) at = i;
+  }
   if (at === -1) return null;
   for (let i = at + 1; i < rows.length; i += 1) if (/^\s*[⏺●]\s/.test(rows[i])) return null;
-  return matchedLine(rows[at], [CONNECTION_LOST_MESSAGE]);
+  return matchedLine(rows[at], [API_ERROR_ROW]);
 }
 
 /* #3410: Claude Code's live retry line, anchored at both ends:

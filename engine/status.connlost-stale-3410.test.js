@@ -49,3 +49,11 @@ test('#3410: the agent quoting the error words in its own prose is NOT connectio
     '✻ Worked for 12s · done 5:20 PM', ...CHROME].join('\n');
   assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
 });
+
+test('#3410: Claude Code breaking its error text onto a continuation row still reads connection_lost', () => {
+  // Claude Code wraps its own message with real line breaks on a narrow pane; -J does not rejoin them.
+  const pane = WEDGED.replace(ERR, '⏺ API Error: Connection refused — a firewall or proxy may be\n  blocking it (ECONNREFUSED)');
+  const r = status.classify(PANE, pane);
+  assert.equal(r.state, status.STATE.CONNECTION_LOST);
+  assert.match(r.evidence, /API Error: Connection refused/);
+});
