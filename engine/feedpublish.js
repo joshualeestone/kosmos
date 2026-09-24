@@ -42,12 +42,25 @@
 const feedguard = require('./feedguard');
 const communitystore = require('./communitystore');
 
+// The three dispositions this choke produces. Asserted against the store's own
+// exported STATUSES at load, so a rename there fails LOUDLY here (at require) rather
+// than silently at the first insert -- the store is the one source of truth for the
+// status vocabulary (#5, "two derivations of one fact"), and this keeps the two coupled.
+const HELD = 'held';
+const PUBLISHED = 'published';
+const QUARANTINED = 'quarantined';
+for (const s of [HELD, PUBLISHED, QUARANTINED]) {
+  if (!communitystore.STATUSES.includes(s)) {
+    throw new Error(`feedpublish: status "${s}" is not in communitystore.STATUSES -- the two have drifted`);
+  }
+}
+
 // The store's 3-way status from a feedguard verdict. A leak is quarantined even
 // from a trusted author (the scrubber is the harder backstop); a clean post is
 // published only if trusted, else held for a human to release.
 function statusFor(verdict) {
-  if (!verdict.clean) return 'quarantined';
-  return verdict.publish ? 'published' : 'held';
+  if (!verdict.clean) return QUARANTINED;
+  return verdict.publish ? PUBLISHED : HELD;
 }
 
 // Is this a WELL-FORMED submission at all? A candidate that is not an object, or
@@ -65,32 +78,43 @@ function isWellFormed(snapshot) {
   });
 }
 
-// Resolve the trust flag. An EXPLICIT opts.trusted wins (the human-post path,
-// where the site's identity model decides). Otherwise derive it from the agent's
-// ladder via the store. Neither given -> false (fail-closed: held, never published).
-function resolveTrusted(opts, agentId) {
+// Resolve the trust flag from an AUTHENTICATED identity ONLY.
+// 🛑 NEVER FROM THE CANDIDATE'S OWN `agent` FIELD. That field is caller-supplied
+// content; deriving trust from it would let any caller who reaches the route publish
+// as an already-promoted persona and skip held-by-default entirely (the whole feature
+// exists to prevent exactly that). So the caller must assert identity explicitly:
+//   - opts.trusted (boolean): the human-post path -- the SITE owns the human identity
+//     model and states the trust decision.
+//   - opts.agentId (string): the agent path -- the AUTHENTICATED agent identity (the
+//     route resolves it via resolveAgentSender's token check, NOT from candidate.agent),
+//     looked up on the store's held-by-default ladder.
+// Neither asserted -> false (fail-closed: held, never published). opts.trusted wins if
+// both are given.
+function resolveTrusted(opts) {
   if (typeof opts.trusted === 'boolean') return opts.trusted;
-  if (agentId != null && agentId !== '') return communitystore.trustState(agentId) === 'trusted';
+  if (opts.agentId != null && opts.agentId !== '') return communitystore.trustState(opts.agentId) === 'trusted';
   return false;
 }
 
 /**
  * Publish a POST candidate through the choke. `candidate` carries feedguard's
  * allowed fields ({ v?, kind?, agent, at?, topic, body, links? }). `opts`:
- *   agentId    derive trust from the ladder (defaults to candidate.agent)
- *   trusted    override the trust flag explicitly (human-post path)
+ *   agentId    the AUTHENTICATED agent identity (the route resolves it via
+ *              resolveAgentSender, NEVER from candidate.agent); trust is looked up
+ *              on the store ladder under it. The route MUST also set candidate.agent
+ *              to this same identity so attribution and the trust-credit key match.
+ *   trusted    assert the trust flag explicitly (the human-post path; the site owns
+ *              the human identity model). Wins over agentId if both are given.
  *   board      category slug the route assigns (taxonomy is the site's inventory)
  *   author     { type: 'user'|'agent', name } -- ALREADY name-scrubbed by the caller
  *   denyNames  extra deny-list names for feedguard, beyond its defaults
- * Returns { ok, status, id?, findings, error? }. `findings` is empty for a
- * published post and carries the moderation reasons otherwise.
+ * Returns { ok, status, id?, findings, error? }. 🛑 `findings` are MODERATOR-only
+ * (leak class + field); a route MUST NOT echo them to the submitting caller (an
+ * evasion oracle) -- they are here for internal/moderation callers.
  */
 function publishPost(candidate, opts = {}) {
   const o = (opts && typeof opts === 'object') ? opts : {};
-  const agentId = (o.agentId != null && o.agentId !== '')
-    ? o.agentId
-    : (candidate && typeof candidate === 'object' ? candidate.agent : undefined);
-  const trusted = resolveTrusted(o, agentId);
+  const trusted = resolveTrusted(o); // identity is opts-only, never candidate.agent
   const verdict = feedguard.guard(candidate, { trusted, denyNames: o.denyNames });
   if (!isWellFormed(verdict.post)) {
     // Not an object, or missing required fields: junk, not a leak. Reject rather
@@ -101,9 +125,16 @@ function publishPost(candidate, opts = {}) {
   const rec = { ...verdict.post, status };
   if (o.board != null) rec.board = o.board;
   if (o.author != null) rec.author = o.author;
-  if (status !== 'published') rec.findings = verdict.findings;
-  const stored = communitystore.insertPost(rec);
-  return { ok: true, status, id: stored.id, findings: status !== 'published' ? verdict.findings : [] };
+  if (status !== PUBLISHED) rec.findings = verdict.findings;
+  let stored;
+  try {
+    stored = communitystore.insertPost(rec);
+  } catch (err) {
+    // Honour the never-throws contract symmetrically with publishComment: a store
+    // write failure is ok:false, never an exception the caller must catch.
+    return { ok: false, status: 'rejected', findings: verdict.findings, error: String(err && err.message || err) };
+  }
+  return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
 }
 
 /**
@@ -120,8 +151,7 @@ function publishComment(candidate, opts = {}) {
   const c = (candidate && typeof candidate === 'object') ? candidate : {};
   // Strip the routing keys feedguard does not know about; guard only the content.
   const { postId, parentId, ...content } = c;
-  const agentId = (o.agentId != null && o.agentId !== '') ? o.agentId : content.agent;
-  const trusted = resolveTrusted(o, agentId);
+  const trusted = resolveTrusted(o); // identity is opts-only, never content.agent
   const verdict = feedguard.guard(content, { trusted, denyNames: o.denyNames });
   if (!isWellFormed(verdict.post)) {
     return { ok: false, status: 'rejected', findings: verdict.findings, error: 'comment content is not a well-formed submission (not an object or missing required fields)' };
@@ -129,7 +159,7 @@ function publishComment(candidate, opts = {}) {
   const status = statusFor(verdict);
   const rec = { ...verdict.post, postId, parentId, status };
   if (o.author != null) rec.author = o.author;
-  if (status !== 'published') rec.findings = verdict.findings;
+  if (status !== PUBLISHED) rec.findings = verdict.findings;
   let stored;
   try {
     stored = communitystore.insertComment(rec);
@@ -138,7 +168,7 @@ function publishComment(candidate, opts = {}) {
     // surface it as ok:false so the route returns a 400, never a 500.
     return { ok: false, status: 'rejected', findings: verdict.findings, error: String(err && err.message || err) };
   }
-  return { ok: true, status, id: stored.id, findings: status !== 'published' ? verdict.findings : [] };
+  return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
 }
 
 module.exports = { publishPost, publishComment, statusFor, resolveTrusted };

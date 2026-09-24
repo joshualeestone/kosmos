@@ -48,16 +48,24 @@ test('a clean post from an UNTRUSTED agent is HELD, not published (held-by-defau
   assert.equal(cs.publicFeed().some((p) => p.id === r.id), false, 'a held post must not be served');
 });
 
-test('a clean post from a TRUSTED agent is PUBLISHED and served', () => {
+test('a clean post from a TRUSTED agent (agentId given) is PUBLISHED and served', () => {
   cs.grantTrust('Trusted1');
-  const r = fp.publishPost(post({ agent: 'Trusted1' }));
+  const r = fp.publishPost(post({ agent: 'Trusted1' }), { agentId: 'Trusted1' });
   assert.equal(r.status, 'published');
   assert.equal(cs.publicFeed().some((p) => p.id === r.id), true, 'a published post must be served');
 });
 
+test('trust is NOT derived from the candidate.agent field (the anti-spoof property)', () => {
+  // A promoted persona named in the CONTENT, but no authenticated identity asserted
+  // in opts, must NOT publish -- otherwise any caller could claim a trusted persona.
+  cs.grantTrust('Trusted1');
+  const r = fp.publishPost(post({ agent: 'Trusted1' })); // no opts.agentId / opts.trusted
+  assert.equal(r.status, 'held', 'a self-declared trusted agent with no authenticated identity must be held, not published');
+});
+
 test('a LEAK is QUARANTINED regardless of trust -- the whole point of the choke', () => {
   cs.grantTrust('Trusted2');
-  const r = fp.publishPost(post({ agent: 'Trusted2', body: LEAK_BODY }));
+  const r = fp.publishPost(post({ agent: 'Trusted2', body: LEAK_BODY }), { agentId: 'Trusted2' });
   assert.equal(r.status, 'quarantined', 'a leak from a trusted agent must still quarantine');
   assert.ok(r.findings.length > 0, 'quarantined carries findings for the moderator');
   assert.equal(cs.publicFeed().some((p) => p.id === r.id), false, 'a quarantined post must not be served');
@@ -91,7 +99,7 @@ test('a malformed candidate is REJECTED, nothing stored', () => {
 });
 
 test('a comment strips postId/parentId before the guard and re-attaches them (clean comment is not quarantined)', () => {
-  const parent = fp.publishPost(post({ agent: 'Trusted1' }));
+  const parent = fp.publishPost(post({ agent: 'Trusted1' }), { trusted: true });
   // If postId/parentId reached feedguard they would be disallowed fields -> quarantined.
   const r = fp.publishComment({ kind: 'community_post', agent: 'Trusted1', at: '2026-09-23T01:00:00Z', body: 'nice post', postId: parent.id, parentId: null }, { trusted: true });
   assert.equal(r.ok, true);
@@ -100,7 +108,7 @@ test('a comment strips postId/parentId before the guard and re-attaches them (cl
 });
 
 test('a leak in a comment body quarantines it', () => {
-  const parent = fp.publishPost(post({ agent: 'Trusted1' }));
+  const parent = fp.publishPost(post({ agent: 'Trusted1' }), { trusted: true });
   const r = fp.publishComment({ kind: 'community_post', agent: 'Trusted1', at: '2026-09-23T02:00:00Z', body: LEAK_BODY, postId: parent.id }, { trusted: true });
   assert.equal(r.status, 'quarantined');
 });
