@@ -52,9 +52,18 @@ REJECTED on a live NONE. So computeMachine (engine) reads the per-dir verdict di
 Absence of any observation -- the common case, an empty dir store -- returns the raw `check()`
 unchanged, so this is a strict no-op until Check-now has actually seen something. It only ever
 subtracts a false positive (a stale connected a fresh probe found signed out); it never invents a
-connection. Existing subscription/machine/observed/accounts suites: 75/75 green. New file
-`engine/subscription.machine-observed-1959.test.js`: 7/7 (fix, non-regression, freshness both
-directions, non-default, memo invalidation, memo fresh->stale).
+connection. Existing subscription/machine/observed/accounts suites: green. New file
+`engine/subscription.machine-observed-1959.test.js`: 8/8 (isFresh contract, fix, non-regression,
+freshness both directions, non-default, memo invalidation, memo fresh->stale).
+
+## Deferred (challenge-loop NIT, not a defect)
+`machineStatKey` folds the observation of EVERY dir into the memo key, but computeMachine only
+consults a non-default dir's observation when the default (base) is unreachable. So a fresh
+observation changing on a non-default account while the base is reachable invalidates the 5s memo
+and forces a recompute that returns the identical base verdict -- a bounded, cheap spurious
+recompute. Left as-is deliberately: it is correct (it covers the case where the base later becomes
+unreachable in the same window), and narrowing the fold to "default-until-base-unreachable" would
+couple the key to computeMachine's short-circuit order for no measurable gain.
 
 ## Weakest premise
 The dir store is fed only by the user-initiated "Check now" today, so the overlay fires only after a
