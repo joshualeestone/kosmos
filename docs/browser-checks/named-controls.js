@@ -51,9 +51,11 @@ const SURFACES = [
      screen at a time behind a left nav, and a sweep that counts only controls
      with a rect sees the landing section alone. One surface per pill.
      #2916: 'memory' and 'skills' no longer have their own pills -- memory folds under the
-     'model' (Model and Memory) pill and skills under 'instr' (Instructions), both revealed
-     together, so the 'model' and 'instr' surfaces already sweep their controls. */
-  ...['talk', 'model', 'instr', 'profile', 'term', 'remove'].map((sec) => [
+     'model' ("AI Settings") pill and skills under 'instr' (Instructions), both revealed
+     together, so the 'model' and 'instr' surfaces already sweep their controls. #3500: 'remove'
+     likewise folds under 'term' (Advanced) and has no pill of its own, so the 'term' surface
+     sweeps the remove controls too -- it is not iterated here. */
+  ...['talk', 'model', 'instr', 'profile', 'term'].map((sec) => [
     'agent panel: ' + sec, async (pg) => {
       await pg.locator('.acard .namego').first().click();
       await pg.waitForTimeout(900);
@@ -76,13 +78,13 @@ const SURFACES = [
   ['restart dialog', async (pg) => {
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1200);
-    await pg.click('#d-nav button[data-go="model"]');   // #2916: Fresh start lives under Memory, now folded into the Model and Memory pill
+    await pg.click('#d-nav button[data-go="model"]');   // #2916: Fresh start lives under Memory, folded into the "AI Settings" (model) pill
     await pg.click('#d-restart-start');
   }],
   ['removal dialog', async (pg) => {
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1400);
-    await pg.click('#d-nav button[data-go="remove"]');
+    await pg.click('#d-nav button[data-go="term"]');   // #3500: Remove folded under the Advanced pill (term reveals d-sec-term + d-sec-remove)
     await pg.click('#d-remove-start');
   }],
   /* First run is six panes behind one overlay, and each is a surface a person
