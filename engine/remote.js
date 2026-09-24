@@ -221,21 +221,10 @@ let standingRefreshInFlight = false;
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
 /* The isolated coordinator read: the CURRENT standing string, or null when it could
-   not be determined (offline, auth, or -- today -- the source is not wired yet). A
-   null NEVER changes the cache, so a transient failure keeps the last-known standing
-   (no flicker) and the 403 backstop remains the hard gate.
-   🛑 PENDING ICK's mechanism answer: the board holds NO persistent bearer token (the
-   sign-in session token is spent at register) and keeps crypto in the kosmos-tunnel
-   binary ("NO CRYPTO HERE"), so this must call the binary's account verb via
-   setupRun(['account','me',...]) once ICK confirms it exists (or its exact shape).
-   Until then it returns null -> the refresh is a safe no-op and kosmosPlus() keeps
-   serving the enrolment-time cache exactly as the merged #3353 producer does. */
+   not be determined. A null NEVER changes the cache, so a transient failure keeps the
+   last-known standing (no flicker) and the 403 backstop remains the hard gate. */
 async function fetchStanding() {
-  // The mac-cert GET /v1/mac/standing lives in its own module (engine/mac-standing.js),
-  // NOT here: remote.js keeps the "NO CRYPTO HERE" boundary, exactly as updating.js is a
-  // separate module for its mac-cert POST. Lazy require breaks the remote<->mac-standing
-  // cycle (mac-standing reads remote.stateDir/coordinator/read/enrolled). Best-effort:
-  // any failure -> null -> the refresh keeps the last-known cached value.
+  // Lives in engine/mac-standing.js. Lazy require breaks the remote<->mac-standing cycle.
   try { return await require('./mac-standing').fetchStanding(); } catch { return null; }
 }
 /* Lazily refresh the cached standing when it is older than `ttlMs`. NON-BLOCKING by
@@ -546,9 +535,10 @@ function status() {
     register` path pipes the session token in this way, so the 30-day credential
     never sits on argv); when it is null the child gets no stdin, exactly as
     before -- so every existing caller is unaffected. */
-function setupRun(args, stdin = null) {
+function setupRun(args, stdin = null, timeoutMs = 0) {
   return new Promise((resolve) => {
     let spawned;
+    let timer = null;
     try {
       spawned = spawn(BIN(), args, { stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     } catch (err) {
@@ -568,12 +558,40 @@ function setupRun(args, stdin = null) {
       spawned.stdin.on('error', () => {});
       try { spawned.stdin.end(String(stdin)); } catch { /* the exit handler reports the real outcome */ }
     }
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try { spawned.kill('SIGKILL'); } catch { /* already gone */ }
+        resolve({ ok: false, because: 'the tunnel program did not answer in time', timedOut: true });
+      }, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+    }
     spawned.on('exit', (code) => {
+      if (timer) clearTimeout(timer);
       if (code === 0) { resolve({ ok: true, because: null, said: out.trim() }); return; }
       const lines = (errOut.trim() || out.trim()).split('\n').filter(Boolean);
       resolve({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')') });
     });
   });
+}
+
+/** One signed request to a coordinator /v1/mac/ route, through the tunnel's
+    `mac-request` verb (#718): the key stays in the tunnel binary, never here.
+    A POST body goes on stdin, never argv. Resolves to
+    { ok: true, data } with the coordinator's parsed JSON, or
+    { ok: false, because }. */
+// A signed request is one round trip; 20 s covers a slow network and still
+// frees a caller (a Settings turn-on) stuck on a hung tunnel.
+const MAC_REQUEST_TIMEOUT_MS = 20 * 1000;
+async function macRequest(method, routePath, body) {
+  if (!enrolled()) return { ok: false, because: 'this computer is not connected to Kosmos+' };
+  const args = ['mac-request', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(),
+    '--method', method, '--path', routePath];
+  // AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS is a test seam (a hung tunnel in a test).
+  const timeout = Number(process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS) || MAC_REQUEST_TIMEOUT_MS;
+  const r = await setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout);
+  if (!r.ok) return { ok: false, because: r.because };
+  try { return { ok: true, data: JSON.parse(r.said) }; }
+  catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
 }
 
 /** Forget this Mac (#793): retire it at the coordinator while its key still
@@ -1127,7 +1145,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { secondReset, forget, macRequest, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

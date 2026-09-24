@@ -256,6 +256,79 @@ function heardBudgetRecord() {
 function resetHeardBudgetForTests() {
   heardBudgetLog.length = 0;
 }
+// `sentence` is explicit, never read off `t`: a part's own sentence is
+// never the task's top-level one (a task with parts drops `who`/keeps one
+// `sentence` at the top, and a part given a `who` must be heard for the
+// part it was actually given, not the parent task's original wording).
+// `roster`: the caller's already-fetched snapshot, never a fresh
+// safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
+// per agent, and every call site here already has one in scope.
+function heardBy(projectId, t, who, sentence, roster) {
+  const name = typeof who === 'string' && who.trim() ? who.trim() : null;
+  if (!name || !t || typeof t.number !== 'number') return undefined;
+  let title = projectId;
+  try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
+  const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
+    + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
+  let sent;
+  try { sent = chat.deliver(name, line, roster); }
+  catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
+  return { who: name, state: sent.state, because: sent.because || null };
+}
+// `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
+// own exactly as before -- only #761's routes, which already have one in
+// scope for `heardBy`, pass it through instead of paying for a second
+// snapshot() in the same request.
+function tellEveryoneOn(t, roster) {
+  const named = tasks.whoOf(t);
+  if (!named.length) return undefined;
+  if (!roster) roster = safeRoster();
+  let last;
+  for (const one of named) {
+    try { last = projects.syncAgent(one, roster); }
+    catch (err2) { last = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
+  }
+  /* The LAST verdict, which is the shape the single-assignee route has
+     always returned. With several agents on a task the screen has no place
+     to show more than one, and inventing a per-agent panel here would be
+     drawing a surface nobody designed. */
+  return last;
+}
+/* #3595: give one part of a task to an agent, and tell it. The part-assign route and the
+   Assigner runner both call this, so the sequence (valve, assignPart, heardBy, tellEveryoneOn)
+   exists once. Three callers:
+   - screen: no valve, the pane line always.
+   - process (screen false): the parts valve applies and the pane line is spent from the heard
+     budget, both shared by agents.
+   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither shared agent
+     budget is charged (the Assigner has its own hourly caps); the part must still be free at
+     the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
+     reach the agent at all (COULD_NOT) the assignment is taken back, so nobody is left on a task
+     they were never told about.
+   Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
+function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
+  if (!screen && !assigner) {
+    const v = tasks.partValve();
+    if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
+  }
+  const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
+  const out = tasks.assignPart(projectId, n, partId, who, made);
+  if (!out.ok) return { ok: false, status: 400, because: out.because };
+  const r = roster || safeRoster();
+  let heard;
+  if (out.changed && (screen || assigner || heardBudgetAllows())) {
+    const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
+    heard = heardBy(projectId, out.task, who, sentence, r);
+    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord();
+  }
+  if (assigner && out.changed && !(heard && heard.state !== chat.DELIVERY.COULD_NOT)) {
+    // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
+    const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
+    return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard };
+  }
+  return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard };
+}
 function engineFreshness() {
   const now = Date.now();
   if (now - engineLook.at > 5000) {
@@ -635,6 +708,8 @@ const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
+const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's idle-assign behaviour (pure step; the runner is below)
+const brief = require('./engine/brief'); // #3595 phase 3: a project's goal, read safely from its BRIEF.md
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
@@ -643,6 +718,7 @@ const connections = require('./engine/connections');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
+const phonenotify = require('./engine/phonenotify');
 const styles = require('./engine/styles');
 const tips = require('./engine/tips');
 const inflight = require('./engine/inflight');
@@ -2411,6 +2487,9 @@ function drainOutboxNow(pass) {
     deliverReply: (entry) => {
       const problem = agentReplyProblem(entry.body.text);
       if (problem) return { outcome: 'dropped', because: problem };
+      // #718: no phone notification here, on purpose. This is a reply kept while
+      // its Kosmos was closed, delivered now because the person opened that
+      // Kosmos; they are looking at it, so a buzz would add nothing.
       const kept = keepAgentReply(entry.from, entry.body.text, entry.at);
       return kept.recorded === true ? { outcome: 'delivered' } : { outcome: 'retry', because: kept.because };
     },
@@ -6060,6 +6139,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* Phone notifications (#718), engine/phonenotify.js. GET: the switch and whether
+     this computer is connected to Kosmos+.
+     PUT {on:true} mints the notify token (once) and turns them on; {on:false}
+     turns them off. Off by default. The token never leaves this route. */
+  if (pathname === '/api/phone-notify' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, phonenotify.status()); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/phone-notify' && req.method === 'PUT') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        const saved = body.on ? await phonenotify.turnOn() : await phonenotify.turnOff();
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, phonenotify.status());
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+
   /* The daily product-feedback report (engine/feedback.js, kosmos#2037). The
      LOCAL half: read the reports the user's agent has written, and write one.
      Josh's "store locally regardless of the switch": this route never touches
@@ -6639,6 +6742,10 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* #3595: the Assigner now types "you were given task N" into agent panes, so as with the
+           Recommender, refuse a caller isViaScreen reads as a process. ADVISORY (a local process
+           can send the header); it stops the default CLI path only. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
         const saved = assignerSetting.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
@@ -10664,6 +10771,13 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        // #718: a phone buzzes on the change INTO needs_you, not on every repeat
+        // report, so read what this agent said last before recording this one.
+        let wasNeedsYou = false;
+        try {
+          const prior = selfreport.read(who);
+          wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you');
+        } catch { /* unknown reads as a change */ }
         const kept = selfreport.record(who, {
           state: body.state,
           project: typeof body.project === 'string' ? body.project : undefined,
@@ -10754,9 +10868,20 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { recorded: false, because: kept.because });
           return;
         }
-        /* #2623: the phone seam (engine/notify.js) was deleted. A reported
-           needs_you is recorded on the board as before; it no longer POSTs
-           anything off the Mac. */
+        // #718: phone notifications, only when the person turned them on
+        // (engine/phonenotify.js). Never the report's words.
+        if (body.state === 'needs_you' && !wasNeedsYou) {
+          // The project this report stands under, stated or carried forward (a
+          // permission hook's needs_you names none), shown by its name.
+          let projectName = null;
+          try {
+            const now = selfreport.read(who);
+            const pid = now && typeof now.project === 'string' ? now.project.trim() : '';
+            const pj = pid ? projects.get(pid, roster) : null;
+            projectName = pj ? pj.name : null;
+          } catch { projectName = null; }
+          phonenotify.happened({ kind: 'needs_you', id: 'report:' + kept.at + ':' + who, agent: sender.card.name || who, session: who, project: projectName });
+        }
         sendJson(res, 200, { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -10814,9 +10939,13 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
-        const kept = keepAgentReply(who, body.text);
-        /* #2623: the phone seam (engine/notify.js) was deleted. The reply is
-           recorded for the person's own thread as before; nothing leaves the Mac. */
+        const replyAt = new Date().toISOString();
+        const kept = keepAgentReply(who, body.text, replyAt);
+        // #718: phone notifications, only when the person turned them on
+        // (engine/phonenotify.js). Never the reply's words.
+        if (kept.recorded === true) {
+          phonenotify.happened({ kind: 'replied', id: 'reply:' + replyAt + ':' + who, agent: sender.card.name || who, session: who, project: null });
+        }
         sendJson(res, 200, {
           kept: kept.recorded === true,
           because: kept.recorded === true ? null : kept.because,
@@ -13551,45 +13680,8 @@ const server = http.createServer((req, res) => {
   // heardBudgetAllows/heardBudgetRecord: module scope, above, beside
   // ENGINE_STARTED_AT -- they must survive across requests, and every name
   // in this handler is redefined fresh per request.
-  // `sentence` is explicit, never read off `t`: a part's own sentence is
-  // never the task's top-level one (a task with parts drops `who`/keeps one
-  // `sentence` at the top, and a part given a `who` must be heard for the
-  // part it was actually given, not the parent task's original wording).
-  // `roster`: the caller's already-fetched snapshot, never a fresh
-  // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
-  // per agent, and every call site here already has one in scope.
-  function heardBy(projectId, t, who, sentence, roster) {
-    const name = typeof who === 'string' && who.trim() ? who.trim() : null;
-    if (!name || !t || typeof t.number !== 'number') return undefined;
-    let title = projectId;
-    try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
-    const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-      + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
-      + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
-    let sent;
-    try { sent = chat.deliver(name, line, roster); }
-    catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
-    return { who: name, state: sent.state, because: sent.because || null };
-  }
-  // `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
-  // own exactly as before -- only #761's routes, which already have one in
-  // scope for `heardBy`, pass it through instead of paying for a second
-  // snapshot() in the same request.
-  const tellEveryoneOn = (t, roster) => {
-    const named = tasks.whoOf(t);
-    if (!named.length) return undefined;
-    if (!roster) roster = safeRoster();
-    let last;
-    for (const one of named) {
-      try { last = projects.syncAgent(one, roster); }
-      catch (err2) { last = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
-    }
-    /* The LAST verdict, which is the shape the single-assignee route has
-       always returned. With several agents on a task the screen has no place
-       to show more than one, and inventing a per-agent panel here would be
-       drawing a surface nobody designed. */
-    return last;
-  };
+  // heardBy / tellEveryoneOn / givePart: module scope (below heardBudgetRecord), so the
+  // #3595 Assigner runner uses the same assign-and-tell path as the part route.
 
   /* #768/#992: a task's recorded lifecycle events, read-only, so the person can
      "get to it as a user" IN the app, not only by opening the folder. Keyed by
@@ -13812,29 +13904,22 @@ const server = http.createServer((req, res) => {
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
       const verb = partAct[4];
-      /* The parts valve (#803), the move half: a process reassigning parts in
-         a loop is the same runaway as adding them. Close and reopen are not
-         valved: they change a state, not who is commanded. */
-      if (verb === 'who' && !screen) {
-        const v = tasks.partValve();
-        if (v.refused) { res.setHeader('retry-after', String(v.retryAfterSecs)); sendJson(res, 429, { error: v.because, retry_after_secs: v.retryAfterSecs }); return; }
-      }
       try {
-        const out = verb === 'who'
-          ? tasks.assignPart(id, partAct[2], partAct[3], body && body.who, { via: screen ? 'screen' : 'process' })
-          : tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
-        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        // `out.changed`: assignPart reports whether `who` actually moved, so
-        // re-posting the same assignee does not re-type the same pane line
-        // (#304's rule). The budget check mirrors partMake's.
-        const roster = safeRoster();
-        let heard;
-        if (verb === 'who' && out.changed && (screen || heardBudgetAllows())) {
-          const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partAct[3])) || {}).sentence;
-          heard = heardBy(id, out.task, body && body.who, sentence, roster);
-          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+        if (verb === 'who') {
+          // givePart (module scope): the parts valve for a process caller (#803: a process
+          // reassigning parts in a loop is the same runaway as adding them), assignPart, and only
+          // on a real move (#304's rule) the pane line against the heard budget.
+          const g = givePart(id, partAct[2], partAct[3], body && body.who, { screen });
+          if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
+          if (!g.ok) { sendJson(res, 400, { error: g.because }); return; }
+          sendJson(res, 200, { task: g.task, told: g.told, heard: g.heard });
+          return;
         }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
+        // Close and reopen are not valved: they change a state, not who is commanded.
+        const out = tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        const roster = safeRoster();
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard: undefined });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -14781,6 +14866,35 @@ function start(port = PORT) {
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
+      /* #3595 phase 2: the Assigner runner. Reads assigner-setting every tick. For an agent on the
+         board that reads idle, whose commitments read clear and that has no open part of any task,
+         for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
+         agent belongs to, through givePart in its assigner mode (see givePart). Phase 3: with
+         nothing to hand out, it asks the agent (chat.deliver) to draft tasks toward a project's
+         BRIEF.md goal (engine/brief.js). The tick's composition is assigner.tick, with the reads
+         injected here.
+         Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
+      let assignerPrev;
+      const assignerSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
+        try {
+          const out = assigner.tick({
+            prev: assignerPrev, now: Date.now(),
+            readSetting: () => assignerSetting.read(),
+            readRoster: () => safeRoster(),
+            readRecords: () => projects.readAll(),
+            readCommitment: (session) => commitments.read(session),
+            readGoal: (project) => brief.readGoal(project && project.folder),
+            give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
+            ask: (session, text, roster) => chat.deliver(session, text, roster),
+            DELIVERY: chat.DELIVERY,
+          });
+          assignerPrev = out.next;
+          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
+          for (const a of out.asks) process.stdout.write(`assigner: asked ${a.name} (${a.session}) to draft tasks toward ${a.projectId}'s goal: ${a.verdict || 'threw'}\n`);
+        } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only
+      if (assignerSweep && typeof assignerSweep.unref === 'function') assignerSweep.unref();
       /* #2037 PR-C1: the daily product-feedback send sweep. The long-lived board
          owns the trigger because the short-lived `kosmos feedback` CLI cannot
          fire-and-forget a send (it exits). sendDailyOnce is opt-in-gated (default
@@ -14986,6 +15100,11 @@ if (require.main === module) {
        reconcileReport, which outranks this. Platform-agnostic, unit-tested with
        injected inputs. */
     require('./engine/status').setPaneCapture(require('./engine/win32capture').make());
+    /* The agents' own private browser (engine/agentbrowser.js): a one-time
+       install of the pinned server, started at boot in the background so it is
+       in place before the first agent launches. Never fatal and never awaited --
+       an agent launched before it lands simply starts without a browser. */
+    try { require('./engine/agentbrowser').kickInstall(); } catch { /* agents start without a browser */ }
   } else {
     /* #1078: on the non-win32 (Mac, and any other launchd-shaped) path, wire the
        created-never-run roster source. An agent Kosmos created but has never run
@@ -15277,6 +15396,7 @@ function reauthDecision(reauth, fileConnected, live, STATE) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests, reauthDecision,
+  givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the

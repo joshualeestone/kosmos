@@ -2,8 +2,10 @@
 /**
  * kosmos#768-batch (Josh 0.6.47 notes, screenshot 5.51.59): switching an agent's model
  * shows a RESTART INTERSTITIAL over "Restarting the agent", held on screen while the agent
- * restarts, then the confirm dialog reduces to the one action left: "Say hello to <agent>
- * to reactivate them on <provider>."
+ * restarts, then the confirm dialog reduces to one line naming the provider. Since #2716 the
+ * app sends the wake hello itself, so that line is "Restarted on <provider>. Waking them..."
+ * while the hello is pending; render-autohello-switch-2716.js covers how it resolves (to the
+ * confirmation, or to "Say hello to <agent> to reactivate them on <provider>.").
  *
  * #2692 (Josh, design channel 2026-09-10): the interstitial's mark is now the BRANDED K
  * LOADER (the big K made of dots that gathers and opens back to the circle, startKLoader),
@@ -197,11 +199,11 @@ function check(name, pass, detail) {
       hasLoaderCanvas: !!document.querySelector('#chg-msg .chg-restart canvas.chg-restart-k'),
       loaderPainted: loaderPainted(),
       noPulsingIcon: !document.querySelector('#chg-msg .chg-restart .kspin'),
-      noReducedYet: !/Say hello/i.test(msg.textContent),
+      noReducedYet: !/Say hello|Waking them/i.test(msg.textContent),
     };
     await sleep(400); // past the 300ms hold
     const reducedText = msg.textContent;
-    const modelDone = /Say hello to FClaude-Casey to reactivate them on Claude\./.test(reducedText) && keep.textContent === 'Done';
+    const modelDone = /^Restarted on Claude\. Waking them…$/.test(reducedText) && keep.textContent === 'Done';
     // The success render detached the canvas (msg.textContent replaced the interstitial), so the
     // real loader's rAF loop bails on its next frame. It was connected during busy and is not now.
     const modelCanvasDetachedAfter = modelCanvasConnectedDuringBusy && !!modelCanvas && !modelCanvas.isConnected;
@@ -231,16 +233,16 @@ function check(name, pass, detail) {
       hasLoaderCanvas: !!document.querySelector('#chg-msg .chg-restart canvas.chg-restart-k'),
       loaderPainted: loaderPainted(),
       noPulsingIcon: !document.querySelector('#chg-msg .chg-restart .kspin'),
-      noReducedYet: !/Say hello/i.test(msg.textContent),
+      noReducedYet: !/Say hello|Waking them/i.test(msg.textContent),
     };
     await sleep(400); // past the 300ms hold
     const providerReducedText = msg.textContent;
-    const providerDone = /Say hello to FClaude-Casey to reactivate them on OpenAI\./.test(providerReducedText) && keep.textContent === 'Done';
+    const providerDone = /^Restarted on OpenAI\. Waking them…$/.test(providerReducedText) && keep.textContent === 'Done';
     if (!back.hidden) keep.click();
 
     // 6. THE PROVIDER FLOW, ANTHROPIC ARM: the switch names ONE vocabulary end to end. CURRENT
     //    is now an OpenAI agent (runner 'codex'), so switching to Anthropic is a real change; the
-    //    interstitial must say "Setting up Anthropic" and the reduced line "reactivate them on
+    //    interstitial must say "Setting up Anthropic" and the reduced line "Restarted on
     //    Anthropic" (the provider the person chose), NOT "Claude". want !== 'openai', so the
     //    openaiAllDead guard does not apply. This arm was previously untested.
     CURRENT = { sessionName: 'sess-2', name: 'FCodex-Casey', runner: 'codex', isNamedOurs: true };
@@ -269,8 +271,8 @@ function check(name, pass, detail) {
     await sleep(400);
     const providerAnthReducedText = msg.textContent;
     // The whole dialog speaks "Anthropic", never "Claude": consistent last-screen vocabulary.
-    const providerAnthConsistent = /Say hello to FCodex-Casey to reactivate them on Anthropic\./.test(providerAnthReducedText)
-      && !/reactivate them on Claude/i.test(providerAnthReducedText) && keep.textContent === 'Done';
+    const providerAnthConsistent = /^Restarted on Anthropic\. Waking them…$/.test(providerAnthReducedText)
+      && !/on Claude/i.test(providerAnthReducedText) && keep.textContent === 'Done';
     if (!back.hidden) keep.click();
 
     return { holdFloor, cycleMs, detachedPainted, modelCanvasDetachedAfter, busyShown, stillHeld, rendered, failFast, plainWorking, curAfterSet, modelBusy, reducedText, modelDone,
@@ -297,15 +299,15 @@ function check(name, pass, detail) {
     r.modelBusy && r.modelBusy.restarting && r.modelBusy.hasLoaderCanvas && r.modelBusy.loaderPainted && r.modelBusy.noReducedYet, JSON.stringify(r.modelBusy));
   check('#2692: the small pulsing .kspin mark Josh flagged is GONE from the restart interstitial',
     r.modelBusy && r.modelBusy.noPulsingIcon, JSON.stringify(r.modelBusy));
-  check('MODEL: after the hold the dialog reduces to "Say hello to <agent> to reactivate them on <provider>"',
+  check('MODEL: after the hold the dialog reduces to "Restarted on <provider>. Waking them..." (#2716: the app sends the hello)',
     r.modelDone, JSON.stringify((r.reducedText || '').slice(0, 90)));
   check('PROVIDER: the provider switch shows the branded K-loader "Setting up OpenAI" interstitial (canvas present and painting, pulsing .kspin gone), not plain "Working…"',
     r.providerBusy && r.providerBusy.settingUp && r.providerBusy.hasLoaderCanvas && r.providerBusy.loaderPainted && r.providerBusy.noPulsingIcon && r.providerBusy.noReducedYet, JSON.stringify(r.providerBusy));
-  check('PROVIDER: after the hold the provider dialog reduces to "Say hello to <agent> to reactivate them on OpenAI"',
+  check('PROVIDER: after the hold the provider dialog reduces to "Restarted on OpenAI. Waking them..."',
     r.providerDone, JSON.stringify((r.providerReducedText || '').slice(0, 90)));
   check('PROVIDER (Anthropic arm): the branded-loader interstitial says "Setting up Anthropic" (not "Setting up Claude"), canvas painting, pulsing .kspin gone',
     r.providerAnthBusy && r.providerAnthBusy.settingUp && r.providerAnthBusy.hasLoaderCanvas && r.providerAnthBusy.loaderPainted && r.providerAnthBusy.noPulsingIcon && r.providerAnthBusy.notClaudeSetup, JSON.stringify(r.providerAnthBusy));
-  check('PROVIDER (Anthropic arm): the dialog speaks ONE vocabulary -- reduces to "reactivate them on Anthropic", never "on Claude"',
+  check('PROVIDER (Anthropic arm): the dialog speaks ONE vocabulary -- reduces to "Restarted on Anthropic", never "on Claude"',
     r.providerAnthConsistent, JSON.stringify((r.providerAnthReducedText || '').slice(0, 90)));
 
   await browser.close();
@@ -314,5 +316,5 @@ function check(name, pass, detail) {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-model-restart-interstitial: the model switch ("Restarting the agent") and the provider switch ("Setting up OpenAI") both show the #2692 branded K-loader interstitial (canvas, actually painting, the old pulsing .kspin gone), held on the max(2s, one-cycle) floor on success then reduced to "Say hello to <agent> to reactivate them on <provider>"; a failure renders at once; the three remaining dialogs (account move, compact, clear) stay on plain "Working…".');
+  console.log('render-model-restart-interstitial: the model switch ("Restarting the agent") and the provider switch ("Setting up OpenAI") both show the #2692 branded K-loader interstitial (canvas, actually painting, the old pulsing .kspin gone), held on the max(2s, one-cycle) floor on success then reduced to "Restarted on <provider>. Waking them..." while the app sends the hello; a failure renders at once; the three remaining dialogs (account move, compact, clear) stay on plain "Working…".');
 })();

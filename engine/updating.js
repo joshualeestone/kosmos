@@ -11,32 +11,27 @@
  * THE CONTRACT, from the coordinator route's author (Ice Cream Kitty, #988):
  *   POST /v1/mac/updating {"seconds": N}  when it begins applying
  *   POST /v1/mac/updating {"seconds": 0}  when it finishes
- * Authenticated with the mac's client certificate, like the other /v1/mac/*
- * routes. The deadline is capped at 15 minutes server-side, so asking for more
- * is safe and simply gets the cap.
+ * The deadline is capped at 15 minutes server-side, so asking for more is safe
+ * and simply gets the cap.
  *
- * 🛑 WHY THIS SPEAKS HTTP DIRECTLY INSTEAD OF GOING THROUGH kosmos-tunnel.
- * remote.js does not speak HTTP to the coordinator; it spawns the tunnel binary
- * with subcommands. Adding an `updating` subcommand looks smaller and is
- * strictly slower: the tunnel source is not in this repo at all, and the binary
- * is bundled, so a new subcommand reaches no Mac until a release cut. The mac
- * already holds the client certificate this route needs, and node can present it.
+ * 🛑 SIGNED THROUGH THE TUNNEL, NOT SENT FROM NODE (#3626).
+ * This module used to POST the route itself over HTTPS with the Mac's TLS client
+ * certificate, on the belief that the certificate authenticated it. It does not:
+ * the coordinator's verify_mac_request (kosmos-relay coordinator/src/auth.rs)
+ * reads only the x-kosmos-mac-id / x-kosmos-ts / x-kosmos-sig headers and has no
+ * client-certificate code, so the call could only ever answer 401 "missing
+ * signature headers" (measured on the sibling /v1/mac/standing route,
+ * kosmos#3626). The phone never heard "updating". The request now goes through
+ * remote.macRequest(), the tunnel binary's `mac-request` verb (kosmos-relay
+ * #103), which holds the Mac key and signs. The board does no crypto.
  *
  * 🛑 NOTHING HERE MAY FAIL AN UPDATE. The caller is the one route that installs
  * software. The fire-and-forget senders (engine/feedbacksend.js) are the
- * precedent: an outer try/catch that swallows everything, a short timeout, no
- * retry.
+ * precedent: an outer try/catch that swallows everything, nothing awaited, no
+ * retry. The tunnel child is bounded by macRequest's own timeout, and announce()
+ * returns before it even starts, so a slow coordinator cannot hold the update.
  */
-const fs = require('node:fs');
-const path = require('node:path');
-const https = require('node:https');
-const http = require('node:http');
-const { URL } = require('node:url');
-
 const ROUTE = '/v1/mac/updating';
-/* Short on purpose. This runs microseconds after the installer is spawned, on a
- * box about to be busy; a slow coordinator must not hold the update. */
-const TIMEOUT_MS = 3000;
 /* 🛑 EXACTLY THE SERVER'S CAP, WITH NO HEADROOM AND NO RENEWAL, AND AN EARLIER
  * VERSION OF THIS COMMENT SAID "more than any install should need", WHICH IS NOT
  * TRUE OF A VALUE EQUAL TO THE CAP. The server caps at 15 minutes; this asks for
@@ -48,11 +43,20 @@ const TIMEOUT_MS = 3000;
  * direction is today's behaviour; recorded as a weakest premise in the plan. */
 const DEFAULT_SECONDS = 900;
 
-/* Test seam. It replaces THE TRANSPORT AND NOTHING ELSE: enrolment, the
- * certificate read, and the URL derivation all still run, so an arm can catch a
- * wrong path, a missing cert or a broken coordinator derivation. An earlier
- * version replaced the whole send, which made every one of those invisible. */
-let requestFactory = null;
+/* Log a failure ONCE instead of swallowing it (#3626): the first failure is
+ * written to stderr (the log launchd keeps for the board), the same reason again
+ * is not, and a success clears the latch. A silent failure is how the unsigned
+ * call went unnoticed. */
+let lastLogged = null;
+function logFailure(because) {
+  let reason = String(because || 'unknown failure');
+  /* A board newer than its bundled tunnel (no `mac-request` verb yet) says this;
+     name the cause, the way engine/phonenotify.js does for the same message. */
+  if (/unrecognized subcommand/.test(reason)) reason += ' (the tunnel on this computer is too old to sign this; it arrives with the next Kosmos update)';
+  if (reason === lastLogged) return;
+  lastLogged = reason;
+  try { process.stderr.write('kosmos#3626: ' + ROUTE + ' failed: ' + reason + '\n'); } catch { /* logging must not throw */ }
+}
 
 /* ⚠️ THIS IS NOT THE PRODUCTION GUARD. It is a test-only export, so its own arms
  * can assert the predicate. The live guard is INLINED at the top of announce(),
@@ -103,8 +107,9 @@ function announce(v) {
     /* 🛑 THE GUARD THAT KEEPS THE SUITE OFF THE REAL COORDINATOR (kosmos#988),
        AND IT RUNS BEFORE ANY require(), WHICH IS HALF THE POINT.
 
-       WITHOUT THE GUARD: running the suite on an ENROLLED Mac posts a real
-       `{"seconds":900}` carrying the operator's client certificate, and
+       WITHOUT THE GUARD: running the suite on an ENROLLED Mac sends a real
+       `{"seconds":900}` signed with the operator's Mac key (and since #3626 that
+       request is ACCEPTED, where the old unsigned one was refused), and
        update.marker-1728 drives a child stub that never exits, so nothing ever
        clears it. The operator's phone then reads "your Mac is updating Kosmos,
        back in a moment" for the full 15-minute cap while nothing is updating:
@@ -125,9 +130,11 @@ function announce(v) {
        single line is the body of ping.js's underTest(), and the exported
        underTest() above still delegates so nothing else copies it.
 
-       Keyed on an INJECTED FACTORY rather than on the environment, so a test that
-       supplies its own transport touches no network and must still run. */
-    if (!requestFactory && process.env.NODE_TEST_CONTEXT) return;
+       Keyed on the TUNNEL-BINARY SEAM (#3626): the call is made under the test
+       runner only when a test has pointed AGENT_WORKFORCE_TUNNEL_BIN at its own
+       fake tunnel, which touches no network. Without that, the real bundled
+       tunnel would run. */
+    if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) return;
     /* Still lazy: update.js is required early, and remote.js freezes its root at
        module scope. update.js's autoPref() requires ./autoupdate late for the
        same reason. CITED BY FUNCTION, NOT BY LINE: this comment has carried a
@@ -138,7 +145,7 @@ function announce(v) {
        writes {on:false} and calls ensure(); it does NOT remove the enrolment,
        which only forget()/retire does. So enrolled() stays TRUE forever on a Mac
        that turned Kosmos Plus off, and gating on it alone would keep POSTing to
-       the PAID coordinator, carrying that Mac's client certificate, after the
+       the PAID coordinator, signed by that Mac, after the
        customer switched the feature off. remote.js gates every other "is there
        anything live to say here" question on the switch as well: pendingDevices()
        is `!settings.on || !enrolled()`, ensure()'s `wanted` is
@@ -149,119 +156,20 @@ function announce(v) {
        CLOSED here, which is the safe direction for a paid route. */
     if (!remote.read().on || !remote.enrolled()) return;
 
-    const dir = remote.stateDir();
-    let cert;
-    let key;
-    try {
-      cert = fs.readFileSync(path.join(dir, 'tls.crt'));
-      key = fs.readFileSync(path.join(dir, 'tls.key'));
-      /* Locality, not behaviour. enrolled() said these exist; if one vanished in
-         the window since, this returns quietly. Removing this catch changes
-         NOTHING observable, because the outer guard swallows the same throw and
-         no request gets built either way (measured by perturbation). It is kept
-         because the local return says what happens here, and it is documented as
-         indistinguishable so nobody writes an arm claiming to discriminate it. */
-    } catch { return; }
-
-    const base = new URL(remote.coordinator());
-    /* Keep any path prefix a self-hosted coordinator carries: `https://h/kosmos`
-       must become `/kosmos/v1/mac/updating`, not `/v1/mac/updating`. */
-    const prefix = base.pathname.replace(/\/+$/, '');
-    const body = JSON.stringify({ seconds: n });
-    const opts = {
-      protocol: base.protocol,
-      hostname: base.hostname,
-      port: base.port || undefined,
-      path: prefix + ROUTE,
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
-      cert,
-      key,
-      timeout: TIMEOUT_MS,
-      /* Not a claim about whether the global agent would work: an earlier version
-         of this comment asserted that it "silently ignores per-request cert/key",
-         which is not something I measured and which Agent#getName appears to
-         contradict. What IS true and is the reason: a fresh connection per call
-         needs no assumption about how the socket pool is keyed, and it avoids
-         parking a keep-alive socket keyed on the identity certificate for a call
-         that happens roughly twice per update. */
-      agent: false,
-    };
-    /* 🛑 NO `ca` OPTION, DELIBERATELY. An earlier version honoured
-       AGENT_WORKFORCE_TUNNEL_CA here and claimed it was "the same way remote.js
-       honours it for the tunnel". That is false: remote.js documents that var as
-       "extra CA for a dev/self-host RELAY ONLY" and passes it as --tunnel-ca.
-       It is not the coordinator's CA. Worse, setting `ca` REPLACES the default
-       trust store, so a self-hoster who set it for their relay while still
-       talking to the public coordinator would fail verification on every
-       announce, silently, because this fails open. There is no documented
-       coordinator CA var; until there is, the system store is the right answer.
-       TLS verification is never disabled either way. */
-
-    const make = requestFactory || defaultRequest;
-    const req = make(opts, body);
-    /* Observationally indistinguishable from the outer guard, like the cert-read
-       catch above: deleting it leaves the suite green because the outer catch
-       swallows the TypeError either way. Kept for locality, documented so nobody
-       writes an arm claiming to discriminate it. */
-    if (!req || typeof req.on !== 'function') return;
-    /* Every one of these is a path an update must survive. */
-    req.on('error', () => { /* unreachable coordinator, TLS refusal, DNS, bad protocol */ });
-    /* The backstop for a coordinator that accepts a connection and never
-       answers. Measured: against a server that cannot reply, the request is torn
-       down at TIMEOUT_MS and the process exits; without the `timeout` option it
-       waits indefinitely.
-       ⚠️ AN EARLIER VERSION OF THIS COMMENT CLAIMED THIS DESTROY WAS THE ONLY
-       THING THAT EVER CLOSED A CONNECTION, "INCLUDING ON SUCCESS", AND THAT THE
-       BOARD HELD A SOCKET FOR 3s PER ANNOUNCE. THAT WAS FALSE, AND IT WAS MY OWN
-       HARNESS. I measured it with execFileSync, which BLOCKS the measuring
-       process's event loop, so the local server never accepted the connection at
-       all (server log empty) and the 3s I recorded was the timeout firing against
-       a server that could not answer. Re-measured with spawn, the parent free to
-       run: the request is answered and the process exits at ~16ms. There is no
-       socket hold on the success path. */
-    req.on('timeout', () => { try { req.destroy(); } catch { /* already gone */ } });
-    req.on('response', (res) => {
-      try {
-        const code = res.statusCode;
-        /* One line, on the log launchd keeps, for the case nobody could
-           otherwise see: this route is merged but not yet deployed, so the first
-           real deployment has no other client-side way to be checked.
-           remote.js's setupRun sets the same precedent. Still fail-open: a bad status
-           changes nothing the caller does. */
-        if (typeof code !== 'number' || code < 200 || code >= 300) {
-          process.stderr.write('kosmos#988: coordinator answered ' + String(code) + ' for ' + ROUTE + '\n');
-        }
-        /* Drain, then release. res.resume() alone is NOT covered by any arm
-           (deleting it leaves the suite green), stated here because two other
-           lines in this file carry the same disclosure and a reader would
-           otherwise assume this one is covered like its neighbours. */
-        res.resume();
-      } catch { /* draining must not throw either */ }
-    });
-    if (typeof req.end === 'function') req.end(body);
+    /* Fire and forget: not awaited, so announce() returns before the tunnel child
+       even starts. The promise never rejects (macRequest resolves every outcome),
+       and the .catch is there so a future change cannot turn it into an
+       unhandled rejection on the install path. */
+    remote.macRequest('POST', ROUTE, { seconds: n })
+      .then((r) => { if (!r || !r.ok) logFailure(r && r.because); else lastLogged = null; })
+      .catch((err) => logFailure(err && err.message));
   } catch { /* nothing here may reach the caller */ }
 }
 
-function defaultRequest(opts) {
-  return (opts.protocol === 'http:' ? http : https).request(opts);
-}
-
-/* Replaces the transport only. Pass null to restore the real one. */
-function setRequestFactory(f) { requestFactory = typeof f === 'function' ? f : null; }
-
 module.exports = {
   ROUTE,
-  TIMEOUT_MS,
   DEFAULT_SECONDS,
   announce,
   seconds,
   underTest,
-  /* the real protocol dispatch, exported so it can be covered: rewriting it to
-     always use https left the suite green, and https.request on an http: URL
-     throws into the outer catch, i.e. silently dead */
-  dispatch: defaultRequest,
-  /* test seam: replaces the TRANSPORT only, so enrolment, the certificate read
-     and the URL derivation all still run under test */
-  setRequestFactory,
 };

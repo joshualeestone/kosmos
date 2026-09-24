@@ -210,7 +210,31 @@ function argvFor(prepared, opts) {
   const autonomy = AUTONOMY[String(o.runner || prepared.runner || 'claude')];
   if (autonomy) argv.push(autonomy);
   if (o.model) argv.push('--model', String(o.model));
+  /**
+   * 🔑 THE AGENT'S OWN BROWSER (engine/agentbrowser.js), claude only. A path the
+   * caller resolved; absent means no flag, so every caller that does not ask
+   * gets exactly the argv it always did.
+   *
+   * ⚠️ `--mcp-config` IS VARIADIC: it swallows every following word that is not
+   * a flag. Measured on the box: a prompt placed after it was read as a second
+   * config path and claude refused to start. So it goes HERE, before
+   * `launchArgs` (which opens with `--session-id`) and before streamArgvFor's
+   * `-p`, and never last.
+   *
+   * 📌 NO `--strict-mcp-config`. That would drop the person's own connectors
+   * (Gmail, Slack...) from the agent; the browser sits beside them instead.
+   */
+  const runner = String(o.runner || prepared.runner || 'claude');
+  if (o.mcpConfig && runner === 'claude') argv.push('--mcp-config', String(o.mcpConfig));
   return argv.concat(prepared.launchArgs);
+}
+
+/* The browser config for one launch: the spec may carry a path, or a function
+   asked at EVERY launch so a supervisor's relaunch picks up an install that
+   finished after it started. Never throws; a failed answer is no browser. */
+function mcpConfigFor(s) {
+  try { return typeof s.mcpConfig === 'function' ? (s.mcpConfig() || null) : (s.mcpConfig || null); }
+  catch { return null; }
 }
 
 /**
@@ -325,7 +349,7 @@ function launch(spec) {
         console off the screen. The empty string after `start` is the WINDOW TITLE
         argument -- omitting it makes `start` treat a quoted program path as the
         title and launch nothing, which is a genuinely baffling failure to debug. */
-  const argv = argvFor(prepared, s);
+  const argv = argvFor(prepared, { ...s, mcpConfig: mcpConfigFor(s) });
   const bin = binFor(s);
   let child;
   try {
@@ -472,7 +496,7 @@ function launchStreaming(spec) {
     if (!prepared.ok) return { ok: false, because: prepared.because };
   }
 
-  const argv = streamArgvFor(prepared, s);
+  const argv = streamArgvFor(prepared, { ...s, mcpConfig: mcpConfigFor(s) });
   const bin = binFor(s);
   let child;
   try {

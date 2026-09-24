@@ -17,11 +17,12 @@ surface as buildable stubs (#718) are both here now. Full context on the cards
 - `Kosmos/ContentView.swift` holds the single front-door origin value
   (`KosmosConfig.boardURL`), the one place to repoint, mirroring the Android
   skeleton's `strings.xml`.
-- `Kosmos/AppDelegate.swift` + `Kosmos/PushNotificationManager.swift`: the APNs
-  client-registration path and the notification categories/actions, bridged to
-  the SwiftUI app via `@UIApplicationDelegateAdaptor`. Buildable stubs — the
-  APNs auth key (.p8), the `aps-environment` entitlement, and the coordinator's
-  token-upload endpoint are external unblocks (#718), marked in code.
+- `Kosmos/AppDelegate.swift` + `Kosmos/PushNotificationManager.swift`: APNs
+  registration and the notification categories/actions, bridged to the SwiftUI
+  app via `@UIApplicationDelegateAdaptor`. The device token is registered with
+  the coordinator (see "Push" below). The `aps-environment` entitlement is in
+  `Kosmos.entitlements`; the APNs auth key (.p8) lives on the coordinator, not
+  in the app.
 - `Kosmos/BiometricAuth.swift`: Face ID / Touch ID unlock, gated behind
   `KosmosConfig.requireBiometricUnlock` (default off, so the shell behaves as
   before). `NSFaceIDUsageDescription` is set as a build setting so the generated
@@ -64,20 +65,51 @@ that one step:
 
 Neither blocks the build deliverable, which is compile+link against the SDK.
 
-## App Store presence is gated on the front door (#2854), unchanged by Xcode
+## Push: how the app registers for notifications (#718)
 
-Identical to Android: a store app needs ONE fixed public front-door origin that
-routes to the user's own Mac, because the relay hands each user a per-user
-hostname. `KosmosConfig.boardURL` is a **placeholder** (`app.kosmos.io`) until
-that origin is decided (#2854, owned by Splinter and Josh). Xcode being
-installed does not clear this; the shell can be built and iterated now, but not
-submitted, until the front door exists.
+The app renders the coordinator sign-in page (`KosmosConfig.coordinatorOrigin`,
+`https://login.kosmosplus.com`, decided on #2854). After sign-in, and on every
+later load of a signed-in page, the page posts `{token: "<session>"}` to the
+`kosmosSession` WebKit message handler; at sign-out, or when its saved session
+turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
+
+- **Origin gate.** A post is accepted only from the main frame of exactly
+  `https://login.kosmosplus.com` (scheme, host and port). Anything else is
+  dropped before the body is read (`PushBridge.isTrustedSender`).
+- **Storage.** The session is kept in the Keychain
+  (`AfterFirstUnlockThisDeviceOnly`, `SessionKeychain`), never UserDefaults, and
+  is never logged. The Keychain lets a relaunch register before the page loads.
+- **Register / unregister** (`PushRegistrar`). When both the APNs device token
+  and a session are present, the app calls `POST /v1/push/apns/register` on the
+  coordinator origin with `Authorization: Bearer <session>` and
+  `{token, bundle_id, environment}`; a repeat of the same pair is not re-sent.
+  On sign-out it calls `POST /v1/push/apns/unregister` with the OLD session,
+  then forgets it. A 401 forgets the session; a 403 keeps it.
+- **Environment.** `sandbox` on the simulator or under a development
+  provisioning profile, `production` otherwise (read from
+  `embedded.mobileprovision` at runtime, not `#if DEBUG`).
+
+- **Tapping a notification** opens `https://<address>/`, where `address` is the
+  Mac's host from the coordinator's payload. Only a single hostname label under
+  the coordinator's domain (`kosmosplus.com`, taken from
+  `KosmosConfig.coordinatorOrigin`) is accepted (`PushBridge.boardURL`); anything
+  else leaves the app where it is.
+
+### Tests that run without a simulator
+
+`LogicTests/run.sh` compiles the Foundation-only files (`PushBridgeLogic.swift`,
+`PushRegistrar.swift`) for macOS with the tests and runs them. It ends with one
+`VERDICT:` line; no verdict line means the run did not finish. Pass a directory
+to run the suite against a modified copy of those two files (how the suite was
+shown able to fail). CI runs it, plus a simulator-SDK build, in
+`.github/workflows/ios.yml` on any change under `ios/` (advisory, like the
+Android job).
+
+If the person declines notification permission, the app never asks APNs for a
+token, so the device is never registered and receives no pushes. That is logged.
 
 ## Not in scope
 
-The front-door origin (#2854), the board's service worker, the coordinator's
-web-push / APNs *send* path and the APNs auth key, the `aps-environment`
-entitlement + provisioning profile, a signing certificate, App Store
-submission, and simulator execution. (The native *client* surface that clears
-Review 4.2 — APNs registration, notification actions, biometric unlock — is now
-present as buildable stubs, #718.)
+The coordinator's APNs send path and the APNs auth key (kosmos-relay, Kano), a
+signing certificate and provisioning profile with push enabled, App Store
+submission, and simulator execution (no runtime on the build box yet).

@@ -2062,6 +2062,20 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  */
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
+/* #3410: Claude Code's live retry line, anchored at both ends:
+   "✻ <error> · Retrying in 5s · attempt 4/10". Measured 2026-09-24 (2.1.281) in all 152
+   retrying frames: always the ✻ glyph, always at column 0 (the glyph did not animate).
+   Column 0 is required because agent prose continuation rows are indented. The class is
+   WORKING_LINE's spinner frames WITHOUT `*`, since this anchor is plain text and a markdown
+   "* " bullet ending in the suffix would otherwise match.
+   NOT covered, deliberately: #874's "  └ Retrying in 30 seconds… (attempt 7/10)" layout. It was
+   only ever seen under a 401 (which authFailed catches), never under a network error, and its
+   persistence after the retries end is unmeasured; matching it anywhere in the tail let a stale
+   row make a wedged pane read working (a false calm the self-heal would never act on). */
+const RETRYING_LINES = [
+  /^[·✢✳✶✻✽] .*·\s+Retrying in\s+\d+s\s+·\s+attempt\s+\d+\/\d+\s*$/u,
+];
+
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
    marker sets. Whitespace INSIDE the timer group is \s+ too, so a
@@ -3817,15 +3831,31 @@ function classify(pane, paneText) {
                return closed ? line : line + '…';
              })() };
   }
+  /* #3410: Claude Code's LIVE retry line. Measured 2026-09-24 (Claude Code 2.1.281,
+     API pointed at a closed port): for all 152 seconds of retrying the pane drew
+     "✻ Connection refused — … (ECONNREFUSED) · Retrying in 5s · attempt 4/10", which
+     has no ellipsis and no "(Ns" timer, so WORKING_LINE never matched and every one of
+     those frames read connection_lost. Only after attempt 10/10 did the line become
+     "⏺ API Error: …" with no retry suffix. At 80 columns (measured) Claude Code truncates the
+     error text with "…" and keeps the suffix on the same row, so it did not wrap there;
+     the board's capture-pane -J would also rejoin a wrapped row. An agent that is retrying is mid-turn, so it
+     reads WORKING, which the #3410 self-heal does not act on. Keyed on the retry suffix,
+     not the error wording, so any error Claude Code retries this way matches (the
+     evidence line names the actual error). */
+  const retryLine = matchedLine(tail, RETRYING_LINES);
+  if (retryLine !== null) {
+    return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED,
+             because: 'it is retrying a failed request to the API', evidence: retryLine };
+  }
   /**
    * #3410. A TRANSIENT network error, sitting on the pane with no live activity.
    *
    * 🔑 PLACEMENT IS THE SAFETY. This sits BELOW every working check
-   * (`hasLiveInterruptLine`, `backgroundAgentWait`, `WORKING_LINE`) on purpose:
-   * Claude Code retries a network error internally and draws working chrome
-   * (a live spinner / "retrying in Ns") while it does, so an agent that is
-   * ACTIVELY RETRYING classifies WORKING above and is never touched by the
-   * self-heal restart (#3410 PR 2). Only once the retries are exhausted and the
+   * (`hasLiveInterruptLine`, `backgroundAgentWait`, `WORKING_LINE`, and the
+   * `RETRYING_LINES` rule just above) on purpose: Claude Code retries a network
+   * error internally and draws a live "· Retrying in Ns · attempt K/N" line while
+   * it does, so an agent that is ACTIVELY RETRYING classifies WORKING and is never
+   * touched by the self-heal restart (#3410 PR 2). Only once the retries are exhausted and the
    * error line is sitting on a pane with no live spinner do we reach here -- the
    * exact "wedged, will not recover on its own" state Josh hit, which used to
    * fall through to the idle footer rule or to UNKNOWN ("Can't tell"). It sits
@@ -3836,15 +3866,13 @@ function classify(pane, paneText) {
    * know the network is down, only that Claude Code SAID it could not reach the
    * API, so we show what the screen actually says.
    *
-   * ⚠️ THE PRECEDENCE PREMISE IS ASSERTED ABOUT A UI WE DO NOT CONTROL, and it is
-   * only cosmetic for THIS surfacing-only PR: worst case a pane briefly reads
-   * "Connection lost" during a no-spinner retry frame, which is not harmful and
-   * is arguably accurate. It becomes LOAD-BEARING for the #3410 self-heal (PR 2),
-   * which restarts on this state -- restarting an agent that is still mid-retry
-   * would abort a turn that might have recovered on its own. So PR 2 must confirm,
-   * against a REAL captured retry sequence, that an in-flight retry draws live
-   * working chrome (and hence never reaches here) before it acts on this state --
-   * do not carry this premise forward into a restart on my word alone.
+   * ✅ THE PRECEDENCE PREMISE WAS MEASURED (2026-09-24, Claude Code 2.1.281, a real
+   * captured retry sequence) AND WAS FALSE AS FIRST WRITTEN: the retry line has no
+   * ellipsis and no "(Ns" timer, so WORKING_LINE missed it and all 152 retrying
+   * seconds read connection_lost. RETRYING_LINES now catches it
+   * (status.connlost-retry-3410.test.js, built from those frames). A future Claude Code
+   * that draws its retry differently would reopen this, and the self-heal restarts on
+   * this state, so re-measure after a Claude Code UI change.
    *
    * ⚠️ A SECOND STALE-READ, ALSO COSMETIC FOR PR 1 AND LOAD-BEARING FOR PR 2: this
    * rule sits ABOVE the idle/finished fallbacks, so an agent that ALREADY RECOVERED

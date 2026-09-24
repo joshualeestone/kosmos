@@ -5,7 +5,20 @@ import UserNotifications
 // notification categories/actions, and foreground/response handling. Kept
 // separate from AppDelegate so the behavior is testable and the delegate stays a
 // thin forwarder.
-final class PushNotificationManager: NSObject {
+final class PushNotificationManager: NSObject, ObservableObject {
+
+    // One tap's request to open a board. Each tap gets its own id, so a second tap
+    // on the same Mac is a new request rather than an unchanged value.
+    struct BoardRequest: Equatable {
+        let id = UUID()
+        let url: URL
+    }
+
+    // A board a tapped notification asked to open, waiting for the WebView to load
+    // it. Held here rather than loaded directly because a tap can arrive before
+    // the WebView exists (a cold launch from the notification, or the biometric
+    // lock still showing); the WebView loads it and clears it when it can.
+    @Published var boardToOpen: BoardRequest?
 
     // The one notification category the board uses today: an agent asking the
     // user to approve or deny a permission prompt. Additional categories (e.g.
@@ -63,7 +76,9 @@ final class PushNotificationManager: NSObject {
                 return
             }
             guard granted else {
-                NSLog("[Push] notification authorization denied by user")
+                // No APNs token is requested, so this device is never registered
+                // with the coordinator and receives no pushes.
+                NSLog("[Push] notification authorization denied by user; this device will not be registered for pushes")
                 return
             }
             DispatchQueue.main.async {
@@ -72,43 +87,84 @@ final class PushNotificationManager: NSObject {
         }
     }
 
+    // MARK: - Registration with the coordinator
+
+    // Registers and unregisters this device's APNs token with the coordinator
+    // (kosmos-relay POST /v1/push/apns/register and /unregister, #718). Built
+    // lazily so the Keychain is first read after launch, not at class init.
+    private lazy var registrar = PushRegistrar(
+        coordinator: KosmosConfig.coordinatorOrigin,
+        bundleID: Bundle.main.bundleIdentifier ?? "io.kosmos.app",
+        environment: PushNotificationManager.apsEnvironment(),
+        store: SessionKeychain.live,
+        pendingStore: SessionKeychain.pendingUnregister,
+        transport: PushRegistrar.urlSessionTransport()
+    )
+
+    // Which APNs environment issued this build's device tokens (see
+    // PushBridge.environment for why this is read from the profile, not #if DEBUG).
+    private static func apsEnvironment() -> PushBridge.Environment {
+        #if targetEnvironment(simulator)
+        let isSimulator = true
+        #else
+        let isSimulator = false
+        #endif
+        let profile = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision")
+            .flatMap { try? Data(contentsOf: $0) }
+        return PushBridge.environment(isSimulator: isSimulator, provisioningProfile: profile)
+    }
+
     // MARK: - Registration results
 
     func handleRegistration(deviceToken: Data) {
-        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
-        NSLog("[Push] APNs device token received (\(token.count / 2) bytes)")
-        registerTokenWithBoard(token: token)
+        let token = PushBridge.hexToken(deviceToken)
+        // Log only the byte count, never token material.
+        NSLog("[Push] APNs device token received (\(deviceToken.count) bytes)")
+        registrar.didReceiveDeviceToken(token)
     }
 
     func handleRegistrationFailure(_ error: Error) {
-        // Expected until the APNs auth key (.p8) lands and the app is provisioned
-        // with the aps-environment entitlement (#718 external ask). Logged, not
-        // fatal - the board still renders.
-        NSLog("[Push] APNs registration failed (expected until the APNs key + provisioning land): \(error.localizedDescription)")
+        // Expected until the app is provisioned with the aps-environment
+        // entitlement under a real signing identity (#718). Logged, not fatal:
+        // the board still renders.
+        NSLog("[Push] APNs registration failed: \(error.localizedDescription)")
     }
 
     func handleRemoteNotification(
         userInfo: [AnyHashable: Any],
         completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        // Log presence only, never the raw payload (it may carry tokens/PII once
-        // the coordinator's push-send path is wired). TODO(#718): handle the
-        // payload (badge sync, board refresh) when that path lands.
+        // Log presence only, never the raw payload. TODO(#718): badge sync / board
+        // refresh when the board wants it.
         NSLog("[Push] remote notification received (\(userInfo.count) key(s))")
         completionHandler(.noData)
     }
 
-    // MARK: - Token upload (stub, one place to wire)
+    // MARK: - The kosmosSession bridge
 
-    // Upload the APNs device token to the coordinator so it can target this
-    // device. STUB: the coordinator endpoint is not decided yet (it already
-    // carries VAPID/web-push; APNs token registration is the sibling path, #718).
-    // When the endpoint lands, POST { token, platform: "ios", bundle_id } here,
-    // authenticated with the user's session. Left as a log so the token path is
-    // exercised end-to-end without a live endpoint.
-    private func registerTokenWithBoard(token: String) {
-        // Log only the byte count, never token material (see handleRegistration).
-        NSLog("[Push] TODO(#718): upload APNs token (\(token.count / 2) bytes) to the coordinator once the registration endpoint + APNs key land.")
+    // The name the coordinator sign-in page posts to
+    // (window.webkit.messageHandlers.kosmosSession, kosmos-relay d3c411e).
+    static let sessionHandlerName = "kosmosSession"
+
+    // Called by the WebView bridge on the main thread with what WebKit knows about
+    // the sender. The origin gate runs here, before the body is even parsed, so a
+    // post from anywhere but the coordinator's main frame is dropped unread.
+    func handleSessionMessage(body: Any, isMainFrame: Bool, scheme: String, host: String, port: Int) {
+        guard PushBridge.isTrustedSender(
+            isMainFrame: isMainFrame,
+            scheme: scheme,
+            host: host,
+            port: port,
+            coordinator: KosmosConfig.coordinatorOrigin
+        ) else {
+            NSLog("[Push] ignored a kosmosSession post from an untrusted frame")
+            return
+        }
+        guard let message = PushBridge.parseSessionMessage(body) else {
+            NSLog("[Push] ignored a malformed kosmosSession post")
+            return
+        }
+        registrar.didReceive(message)
     }
 }
 
@@ -137,7 +193,18 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         case Action.deny:
             NSLog("[Push] user DENIED an agent permission prompt")
         case UNNotificationDefaultActionIdentifier:
-            NSLog("[Push] user opened the notification -> route to the board")
+            // Only the coordinator's `address` field decides where a tap goes, and
+            // only when it is a plain host under the relay domain (PushBridge.boardURL).
+            let target = PushBridge.boardURL(
+                fromNotification: response.notification.request.content.userInfo,
+                coordinator: KosmosConfig.coordinatorOrigin
+            )
+            if let target = target {
+                NSLog("[Push] tapped notification opens \(target.host ?? "?")")
+                DispatchQueue.main.async { self.boardToOpen = BoardRequest(url: target) }
+            } else {
+                NSLog("[Push] tapped notification had no usable address; staying put")
+            }
         default:
             break
         }

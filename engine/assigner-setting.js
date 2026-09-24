@@ -1,19 +1,18 @@
 'use strict';
 /* #2619: the persisted setting for the Assigner automation (Settings >
- * Automation). When on, the Assigner turns the person's goals into assigned work
- * - mapping top goals to prioritized tasks, and giving agents with no work some.
+ * Automation). When on, an idle agent is given the next unassigned task in one of
+ * its projects, or asked to draft tasks toward a project's BRIEF.md goal when the
+ * project has none (#3595 phases 2 and 3).
  *
  * SCOPE (this module is the SETTING, not the behaviour): it persists on/off the
  * same way engine/heartbeat-setting.js does (atomic tmp + rename, safe defaults,
- * a write failure returns a reason and never throws). The actual goal-to-task
- * mapping + idle-agent assignment is a separate, larger build (agent
- * orchestration, coupled to the v2 flywheel) that will READ this setting.
+ * a write failure returns a reason and never throws). The behaviour that reads it
+ * is engine/assigner.js.
  *
- * OFF BY DEFAULT, deliberately (like recommender-setting.js, unlike heartbeat/
- * auto-save): an automation whose behaviour is not yet wired must not read as ON,
- * or a person enabling it would expect work to be assigned and see nothing. Off
- * means "not enabled", which is honest until the behaviour lands. (Recorded on
- * the card: flip the default to on WITH the behaviour, not before.)
+ * ON BY DEFAULT since #3595 phase 2 wired the idle-assign behaviour (engine/assigner.js):
+ * the flip landed WITH the behaviour, as recorded on the card. Its limits are structural (it only
+ * gives an existing unassigned task to an existing member), so it follows heartbeat-setting's
+ * shape: missing reads on, corrupt or unreadable reads off.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -33,7 +32,7 @@ function read() {
   try {
     raw = fs.readFileSync(FILE, 'utf8');
   } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, ok: true };  // never configured -> off
+    if (err && err.code === 'ENOENT') return { on: true, ok: true };  // never configured -> on (#3595)
     return { on: false, ok: false };
   }
   let parsed;
@@ -41,8 +40,9 @@ function read() {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { on: false, ok: false };
   }
-  // OFF by default: only an explicit true enables it.
-  return { on: parsed.on === true, ok: true };
+  // ON by default (#3595, as heartbeat-setting): a stored file missing the flag reads on, exactly as
+  // an absent one does; only an explicit false is off. A corrupt or unreadable file reads off.
+  return { on: typeof parsed.on === 'boolean' ? parsed.on : true, ok: true };
 }
 
 function write(patch) {

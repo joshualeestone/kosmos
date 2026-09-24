@@ -8,10 +8,15 @@
  * assert the REQUEST this engine makes and, above all, that nothing here can
  * fail an install or reach a real coordinator from the suite.
  *
- * 🛑 THE SEAM REPLACES THE TRANSPORT ONLY. Enrolment, the certificate read and
- * the URL derivation all still run under test, so a wrong path, a missing cert
- * or a broken coordinator derivation is visible here. An earlier version of this
- * file replaced the whole send, which made every one of those invisible.
+ * 🛑 SINCE #3626 THE REQUEST IS SIGNED BY THE TUNNEL, NOT SENT FROM NODE.
+ * announce() hands the route and body to remote.macRequest(), which runs the
+ * tunnel binary's `mac-request` verb. Two seams, used for two kinds of arm:
+ *   - capture() replaces remote.macRequest on the module object, which is what
+ *     announce() calls through, so the lifecycle and gate arms stay synchronous;
+ *   - the END-TO-END arms leave macRequest real and point
+ *     AGENT_WORKFORCE_TUNNEL_BIN at a fake tunnel that records argv and stdin,
+ *     inside a tripwire on http.request / https.request, so a return to the old
+ *     unsigned direct call (refused 401 by the coordinator, kosmos#3626) is red.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,13 +28,21 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-updating-988-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 
 /* A state dir shaped exactly as remote.enrolled() requires: mac_id, address,
-   tls.crt, tls.key. Real files, so the certificate read is exercised. */
+   tls.crt, tls.key, because enrolled() checks for all four. */
 const STATE = nodePath.join(SANDBOX, 'enrolled');
 fs.mkdirSync(STATE, { recursive: true });
 fs.writeFileSync(nodePath.join(STATE, 'mac_id'), 'test-mac\n');
 fs.writeFileSync(nodePath.join(STATE, 'address'), 'test.example\n');
 fs.writeFileSync(nodePath.join(STATE, 'tls.crt'), 'CERT-BYTES\n');
 fs.writeFileSync(nodePath.join(STATE, 'tls.key'), 'KEY-BYTES\n');
+
+/* The tunnel-binary seam, set BEFORE anything runs: the suite guard in
+   announce() lets a call through under the test runner only when this is set, so
+   it is also what keeps the real bundled tunnel (and the paid coordinator) out of
+   the suite. The fake touches no network. */
+const { makeFakeTunnel, waitForCalls, tripwire } = require('../test-support/fake-mac-request');
+const FAKE = makeFakeTunnel();
+process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE.bin;
 
 const updating = require('./updating');
 const update = require('./update');
@@ -91,23 +104,31 @@ function unenrol() {
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(SANDBOX, 'no-such-dir');
   setPlus(true);   // isolate the enrolment axis: the switch is not what is off here
 }
-/* A fake request object with the surface announce() uses, and nothing else. */
-function fakeReq() {
-  const handlers = {};
-  return {
-    handlers,
-    destroyed: false,
-    on(ev, fn) { handlers[ev] = fn; return this; },
-    ended: undefined,
-    end(b) { this.ended = b; },
-    destroy() { this.destroyed = true; },
-    fire(ev, arg) { if (handlers[ev]) handlers[ev](arg); },
-  };
-}
-function capture() {
+/* capture() replaces remote.macRequest with a recorder. Each call is kept in the
+   shape the arms read: { method, path, body } with `body` the JSON text the tunnel
+   would receive on stdin. `answer`, when given, is what the fake resolves to
+   (default: the coordinator accepted it). release() puts the real one back. */
+let realMacRequest = null;
+function capture(answer) {
+  const remote = require('./remote');
+  if (!realMacRequest) realMacRequest = remote.macRequest;
   const calls = [];
-  updating.setRequestFactory((opts, body) => { calls.push({ opts, body }); return fakeReq(); });
+  remote.macRequest = (method, path, body) => {
+    calls.push({ method, path, body: JSON.stringify(body) });
+    return typeof answer === 'function' ? answer() : Promise.resolve({ ok: true, data: {} });
+  };
   return calls;
+}
+function release() { if (realMacRequest) require('./remote').macRequest = realMacRequest; }
+/* Let the fire-and-forget .then/.catch in announce() run. */
+const settle = () => new Promise((r) => setImmediate(r));
+/* Collect what announce() writes to stderr while fn runs. */
+async function stderrOf(fn) {
+  const real = process.stderr.write;
+  let out = '';
+  process.stderr.write = (chunk) => { out += String(chunk); return true; };
+  try { await fn(); await settle(); } finally { process.stderr.write = real; }
+  return out;
 }
 /* The switch is a FILE, so an arm run ALONE (--test-name-pattern) would find
    remote.json missing and read off, failing for a fixture reason. afterEach alone
@@ -116,7 +137,7 @@ function capture() {
 test.beforeEach(() => { setPlus(true); });
 
 test.afterEach(() => {
-  updating.setRequestFactory(null);
+  release();
   delete process.env.AGENT_WORKFORCE_TUNNEL_STATE;
   delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
   /* The switch lives in a FILE, not in the environment, so unlike the two lines
@@ -133,43 +154,38 @@ test.afterEach(() => {
    turn a green run red at the very end. */
 test.after(() => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
+  FAKE.cleanup();
 });
 
 /* ---- THE BLOCKER ARM ------------------------------------------------------ */
 
-test('#988 BLOCKER: an in-process announce with no factory injected reaches no transport', () => {
-  enrol();
-  updating.setRequestFactory(null);
+test('#988 BLOCKER: under the test runner with NO test tunnel binary, announce runs nothing', () => {
   /* node --test sets NODE_TEST_CONTEXT, so underTest() is true here. Without the
-     guard, running the suite on an ENROLLED Mac posts a real {"seconds":900}
-     with the operator's client certificate, and one existing suite drives a
-     child stub that never exits, so nothing clears it: the operator's phone then
-     reads "back in a moment" for the full 15-minute cap while nothing is
-     updating. This card's own message, inverted, by its own test suite. */
+     guard, running the suite on an ENROLLED Mac would run the real bundled tunnel,
+     which SIGNS with the operator's key, so since #3626 the coordinator ACCEPTS a
+     real {"seconds":900}; one existing suite drives a child stub that never exits,
+     so nothing clears it and the operator's phone reads "back in a moment" for the
+     full 15-minute cap while nothing is updating.
+     Observed at BOTH doors: the macRequest recorder (the signed path) and a
+     tripwire on http/https (the old direct path). */
+  enrol();
   assert.equal(updating.underTest(), true, 'the suite must be recognisable as a test context');
-  /* Observe the REAL transport. An earlier version of this arm installed a
-     counting factory and then nulled it, so the counter could never increment
-     and the arm asserted 0 against nothing: it stayed green with the guard
-     removed. Stub node:https/node:http instead, which is what announce() reaches
-     when no factory is injected. */
-  const https = require('node:https');
-  const http = require('node:http');
-  const realHttps = https.request;
-  const realHttp = http.request;
-  let reached = 0;
-  https.request = (...a) => { reached++; return fakeReq(); };
-  http.request = (...a) => { reached++; return fakeReq(); };
+  const calls = capture();
+  const wire = tripwire();
+  const seam = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  delete process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   try {
     assert.doesNotThrow(() => updating.announce(900));
-  } finally { https.request = realHttps; http.request = realHttp; }
-  assert.equal(reached, 0, 'the suite must not reach the real transport with no factory injected');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; wire.restore(); }
+  assert.equal(calls.length, 0, 'no tunnel call may be made under test without a test tunnel binary');
+  assert.deepEqual(wire.dialled, [], 'and no direct request either');
 });
 
-test('#988 CONTROL: the guard does NOT disable an injected transport', () => {
+test('#988 CONTROL: the guard does NOT disable a test that supplies its own tunnel', () => {
   enrol();
   const calls = capture();
   updating.announce(900);
-  assert.equal(calls.length, 1, 'a test that supplies its own transport touches no network and must still run');
+  assert.equal(calls.length, 1, 'with the test tunnel seam set, the same announce must run');
 });
 
 /* ---- the request itself, now visible through the seam --------------------- */
@@ -178,65 +194,51 @@ test('#988: POST to the documented route with a seconds body', () => {
   enrol();
   const calls = capture();
   updating.announce(900);
-  assert.equal(calls[0].opts.method, 'POST');
-  assert.equal(calls[0].opts.path, '/v1/mac/updating');
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].path, '/v1/mac/updating');
   assert.deepEqual(JSON.parse(calls[0].body), { seconds: 900 });
 });
 
-test('#988: the client certificate and key are attached, read from the state dir', () => {
+test('#3626: the announce goes out SIGNED -- one `mac-request` call with the body on stdin, and no direct dial', async () => {
+  /* The real macRequest, the real argv and stdin, a fake tunnel. The coordinator
+     URL, including a self-hosted path prefix, is passed to the tunnel as given: the
+     tunnel owns the route derivation now. */
   enrol();
-  const calls = capture();
-  updating.announce(900);
-  assert.equal(String(calls[0].opts.cert), 'CERT-BYTES\n', 'the cert must be the enrolled one');
-  assert.equal(String(calls[0].opts.key), 'KEY-BYTES\n', 'the key must be the enrolled one');
-});
-
-test('#988: the timeout is wired into the request, not merely declared', () => {
-  enrol();
-  const calls = capture();
-  updating.announce(900);
-  assert.equal(calls[0].opts.timeout, updating.TIMEOUT_MS);
-});
-
-test('#988: TLS verification is never disabled', () => {
-  enrol();
-  const calls = capture();
-  updating.announce(900);
-  assert.notEqual(calls[0].opts.rejectUnauthorized, false);
-  assert.equal(calls[0].opts.agent, false, 'a fresh connection per call, not a pooled keep-alive socket');
-});
-
-test('#988: the RELAY CA is never applied to the coordinator, even when it is set', () => {
-  /* 🛑 THIS ARM MUST SET THE VAR. Asserting `opts.ca === undefined` with the var
-     UNSET is vacuous: reintroducing `ca: process.env.AGENT_WORKFORCE_TUNNEL_CA`
-     then yields undefined too, and the mutation survives. Measured. The var is
-     documented in remote.js as relay-only, and setting `ca` REPLACES the trust
-     store, so a self-hoster with a relay CA would fail verification on every
-     announce, silently, because this fails open. That is exactly the person who
-     HAS the var set. */
-  enrol();
-  process.env.AGENT_WORKFORCE_TUNNEL_CA = '/tmp/some-relay-ca.pem';
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://host.example:8443/kosmos';
+  FAKE.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{}';
+  const wire = tripwire();
+  let calls;
   try {
-    const calls = capture();
     updating.announce(900);
-    assert.equal(calls[0].opts.ca, undefined, 'the relay CA must not reach the coordinator connection');
-  } finally { delete process.env.AGENT_WORKFORCE_TUNNEL_CA; }
+    calls = await waitForCalls(FAKE, 1);
+  } finally { wire.restore(); delete process.env.FAKE_MAC_REQUEST_MODE; }
+  assert.deepEqual(wire.dialled, [], 'no direct http/https request: that is the unsigned path the coordinator refuses');
+  assert.equal(calls.length, 1, 'exactly one tunnel call, so a module that sends nothing is red here too');
+  const c = calls[0];
+  assert.equal(c.args[0], 'mac-request', 'the signing verb');
+  assert.equal(FAKE.flag(c, '--method'), 'POST');
+  assert.equal(FAKE.flag(c, '--path'), '/v1/mac/updating');
+  assert.equal(FAKE.flag(c, '--state-dir'), STATE, 'signed with THIS Mac\'s key directory');
+  assert.equal(FAKE.flag(c, '--coordinator'), 'https://host.example:8443/kosmos');
+  assert.deepEqual(JSON.parse(c.stdin), { seconds: 900 }, 'the body reaches the tunnel on stdin, never argv');
+  assert.ok(!c.args.some((a) => a.includes('900')), 'and the body is not on argv');
 });
 
-test('#988: a self-hosted coordinator keeps its path prefix', () => {
+test('#3626: a hung tunnel does not hold announce(), which returns before the child starts', async () => {
   enrol();
-  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://host.example/kosmos';
-  const calls = capture();
-  updating.announce(0);
-  assert.equal(calls[0].opts.path, '/kosmos/v1/mac/updating');
-});
-
-test('#988: an http coordinator is reachable, not silently dead', () => {
-  enrol();
-  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://localhost:9099';
-  const calls = capture();
-  updating.announce(0);
-  assert.equal(calls[0].opts.protocol, 'http:', 'a dev coordinator over http must not be dropped');
+  FAKE.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'hang';
+  process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '300';
+  try {
+    const t0 = Date.now();
+    assert.equal(updating.announce(900), undefined);
+    assert.ok(Date.now() - t0 < 200, 'announce() must return at once; the install path cannot wait on the tunnel');
+    await waitForCalls(FAKE, 1);
+    const out = await stderrOf(() => new Promise((r) => setTimeout(r, 600)));
+    assert.match(out, /kosmos#3626: \/v1\/mac\/updating failed: .*did not answer in time/,
+      'the bounded tunnel call ends, and its timeout reaches the board log');
+  } finally { delete process.env.FAKE_MAC_REQUEST_MODE; delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS; }
 });
 
 /* ---- the gates ------------------------------------------------------------ */
@@ -248,39 +250,12 @@ test('#988: an unenrolled machine says nothing, because there is nothing to say 
   assert.equal(calls.length, 0);
 });
 
-test('#988: remote exports coordinator and stateDir as FUNCTIONS, not frozen values', () => {
-  /* A cross-module contract that would break silently. If a refactor exported
-     these as pre-evaluated values instead of the arrow functions, updating.js
-     would call a string, throw, and the outer fail-open catch would swallow it:
-     the announce would go quiet forever with nothing red anywhere. */
+test('#3626: remote exports macRequest as a FUNCTION', () => {
+  /* A cross-module contract that would break silently: if it were missing or not
+     callable, announce() would throw inside its fail-open guard and go quiet
+     forever with nothing red anywhere. */
   const remote = require('./remote');
-  assert.equal(typeof remote.coordinator, 'function', 'a frozen value here dies silently in announce()');
-  assert.equal(typeof remote.stateDir, 'function', 'and the state dir must re-derive per call');
-});
-
-test('#988: the ENROLMENT gate is load-bearing, not shadowed by the certificate read', () => {
-  /* 🛑 THE ARM ABOVE CANNOT PROVE THIS, and I only noticed because a reviewer
-     mutated the code. unenrol() points at a directory with NONE of the four
-     files, so deleting `if (!remote.enrolled()) return;` still produces
-     calls.length === 0, just via the cert-read catch instead: the same observable
-     outcome down a different path, which is the definition of an arm that cannot
-     fail for its stated reason.
-     enrolled() requires FOUR files; the cert read looks at two. This fixture has
-     the two certs and neither identity file, which is a plausible mid-forget() or
-     partially written state dir, and it is the only shape that separates the
-     gates. Measured: with the guard removed it sends a real POST carrying a
-     possibly orphaned client certificate. */
-  const orphan = nodePath.join(SANDBOX, 'orphan');
-  fs.mkdirSync(orphan, { recursive: true });
-  fs.writeFileSync(nodePath.join(orphan, 'tls.crt'), 'CERT-BYTES\n');
-  fs.writeFileSync(nodePath.join(orphan, 'tls.key'), 'KEY-BYTES\n');
-  process.env.AGENT_WORKFORCE_TUNNEL_STATE = orphan;
-  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
-  const remote = require('./remote');
-  assert.equal(remote.enrolled(), false, 'the fixture must be UNenrolled, or this arm proves nothing');
-  const calls = capture();
-  updating.announce(900);
-  assert.equal(calls.length, 0, 'an unenrolled mac must not present a certificate it still happens to hold');
+  assert.equal(typeof remote.macRequest, 'function', 'a missing macRequest dies silently in announce()');
 });
 
 /* ---- THE COMMERCIAL SWITCH, WHICH IS A SEPARATE AXIS FROM ENROLMENT --------- */
@@ -289,8 +264,8 @@ test('#988: an ENROLLED mac with Kosmos Plus switched OFF says nothing', () => {
   /* Turning Plus off does NOT unenrol. remote.setOn(false) writes {on:false} and
      calls ensure(); only forget()/retire removes the identity files. So a Mac that
      once paid and then switched off keeps enrolled() === true forever, and a guard
-     that reads only the files would keep POSTing to the PAID coordinator with that
-     Mac's client certificate after the customer turned the feature off.
+     that reads only the files would keep POSTing to the PAID coordinator, signed by
+     that Mac, after the customer turned the feature off.
      This is the arm the guard exists for, and the two assertions below are
      deliberately BOTH present: the first proves the fixture is the dangerous one
      (still enrolled, files intact), so a future change that quietly unenrols here
@@ -320,8 +295,8 @@ test('#988: a DAMAGED settings file fails CLOSED, it does not announce', () => {
   /* read() returns {on:false} on ENOENT, on unreadable, on unparseable and on a
      non-object, and this route is a paid one, so unreadable must mean silent
      rather than "assume the customer is paying". Asserting the direction here
-     because it is the one place where an error path decides whether a client
-     certificate goes on the wire. */
+     because it is the one place where an error path decides whether a signed
+     request goes out. */
   enrol();
   const remote = require('./remote');
   fs.writeFileSync(remote.FILE, '{ this is not json');
@@ -329,57 +304,6 @@ test('#988: a DAMAGED settings file fails CLOSED, it does not announce', () => {
   const calls = capture();
   updating.announce(900);
   assert.equal(calls.length, 0, 'a damaged settings file must not authorise a POST to the paid coordinator');
-});
-
-test('#988 CONTROL: the same fixture WITH the identity files present does send', () => {
-  const whole = nodePath.join(SANDBOX, 'orphan-complete');
-  fs.mkdirSync(whole, { recursive: true });
-  for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(whole, f), 'x\n');
-  process.env.AGENT_WORKFORCE_TUNNEL_STATE = whole;
-  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
-  const calls = capture();
-  updating.announce(900);
-  assert.equal(calls.length, 1, 'the arm above must fail for the MISSING IDENTITY, not for the fixture');
-});
-
-test('#988: a certificate that vanishes AFTER the enrolment check says nothing rather than throwing', () => {
-  /* 🛑 THE RACE THIS ARM IS FOR, and an earlier version of it never reached the
-     code it named. It deleted tls.key and then called announce(), but
-     remote.enrolled() re-checks existsSync on every call, so the function
-     returned at the enrolment gate and the readFileSync catch below it was never
-     entered. That made the arm redundant with the unenrolled arm above and left
-     a real branch uncovered. Forcing enrolled() true with the key absent is the
-     only way in: it is exactly the window the code's own comment describes.
-     ⚠️ SCOPE, so this arm does not overclaim a second time: it asserts the
-     OUTCOME (nothing sent, nothing thrown) and cannot say WHICH guard produced
-     it. Removing the inner catch leaves this green, because the outer guard
-     swallows the same throw and builds no request either way. That is measured,
-     and the library says so at the site. */
-  const partial = nodePath.join(SANDBOX, 'partial');
-  fs.mkdirSync(partial, { recursive: true });
-  for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(partial, f), 'x\n');
-  process.env.AGENT_WORKFORCE_TUNNEL_STATE = partial;
-  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
-  fs.rmSync(nodePath.join(partial, 'tls.key'));
-  const calls = capture();
-  const remote = require('./remote');
-  const real = remote.enrolled;
-  remote.enrolled = () => true;   // the gate has already passed; the file goes now
-  try {
-    assert.doesNotThrow(() => updating.announce(900));
-    assert.equal(calls.length, 0, 'no request may be built without a key');
-  } finally { remote.enrolled = real; }
-});
-
-test('#988 CONTROL: the same fixture WITH the key present does send, so the arm above is not vacuous', () => {
-  const whole = nodePath.join(SANDBOX, 'whole');
-  fs.mkdirSync(whole, { recursive: true });
-  for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(whole, f), 'x\n');
-  process.env.AGENT_WORKFORCE_TUNNEL_STATE = whole;
-  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
-  const calls = capture();
-  updating.announce(900);
-  assert.equal(calls.length, 1, 'the cert-vanished arm must fail for the MISSING KEY, not for the fixture');
 });
 
 /* ---- the deadline value --------------------------------------------------- */
@@ -430,15 +354,28 @@ test('#988: the default is EXACTLY the cap, which is a limit and not headroom', 
 
 /* ---- fail-open, which is the governing constraint ------------------------- */
 
-test('#988 FAIL-OPEN: a throwing transport does not reach the caller', () => {
+test('#988 FAIL-OPEN: a macRequest that THROWS does not reach the caller', () => {
   enrol();
-  updating.setRequestFactory(() => { throw new Error('coordinator on fire'); });
+  capture(() => { throw new Error('tunnel on fire'); });
   assert.doesNotThrow(() => updating.announce(900));
 });
 
-test('#988 FAIL-OPEN: a factory returning junk does not reach the caller', () => {
+test('#3626 FAIL-OPEN: a macRequest that REJECTS is caught and logged, never an unhandled rejection', async () => {
   enrol();
-  updating.setRequestFactory(() => null);
+  capture(() => Promise.reject(new Error('tunnel crashed')));
+  let unhandled = null;
+  const onUnhandled = (e) => { unhandled = e; };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const out = await stderrOf(() => updating.announce(900));
+    assert.match(out, /kosmos#3626: \/v1\/mac\/updating failed: tunnel crashed/);
+  } finally { process.off('unhandledRejection', onUnhandled); }
+  assert.equal(unhandled, null, 'a rejection on the install path must never go unhandled');
+});
+
+test('#988 FAIL-OPEN: a macRequest returning junk does not reach the caller', () => {
+  enrol();
+  capture(() => null);
   assert.doesNotThrow(() => updating.announce(900));
 });
 
@@ -479,7 +416,7 @@ const CHILD = { handlers: {}, announced: [] };
   update.setInstallRunner(null);
   update.setInstalledRoot(null);
   CHILD.announced = calls.map((c) => JSON.parse(c.body).seconds);
-  updating.setRequestFactory(null);
+  release();
 }
 
 test('#988 WIRING: beginning to apply announces a deadline', () => {
@@ -535,67 +472,29 @@ test('#988 WIRING: a boot may only ever clear, never set', () => {
   assert.ok(calls.every((c) => JSON.parse(c.body).seconds === 0));
 });
 
-test('#988: the timeout handler destroys the request rather than leaving it hanging', () => {
+test('#3626: a failure is LOGGED ONCE, not swallowed, and a success re-arms the log', async () => {
+  /* Before #3626 every announce failed 401 and a status line was the only trace;
+     now the tunnel's own reason reaches the board log, once per distinct reason. */
   enrol();
-  let made = null;
-  updating.setRequestFactory(() => { made = fakeReq(); return made; });
-  updating.announce(900);
-  assert.ok(made, 'a request must have been built');
-  assert.equal(made.destroyed, false);
-  made.fire('timeout');
-  assert.equal(made.destroyed, true, 'a timed-out request must be destroyed, not left to hang');
+  const refused = () => Promise.resolve({ ok: false, because: 'the coordinator said no (401): missing signature headers' });
+  capture(refused);
+  const first = await stderrOf(() => updating.announce(900));
+  assert.match(first, /kosmos#3626: \/v1\/mac\/updating failed: .*401/, 'the reason reaches the board log');
+  const again = await stderrOf(() => updating.announce(0));
+  assert.equal(again, '', 'the same reason is not logged a second time');
+  capture(() => Promise.resolve({ ok: false, because: "error: unrecognized subcommand 'mac-request'" }));
+  const old = await stderrOf(() => updating.announce(0));
+  assert.match(old, /too old to sign this/, 'an old tunnel is named as such, the way phonenotify does');
+  capture();
+  assert.equal(await stderrOf(() => updating.announce(0)), '', 'a success is silent');
+  capture(refused);
+  assert.match(await stderrOf(() => updating.announce(0)), /401/, 'after a success the same failure is logged again');
 });
 
-test('#988: a handler that throws still cannot reach the caller', () => {
+test('#988 CONTROL: an accepted announce is silent', async () => {
   enrol();
-  let made = null;
-  updating.setRequestFactory(() => { made = fakeReq(); return made; });
-  updating.announce(900);
-  made.destroy = () => { throw new Error('already gone'); };
-  assert.doesNotThrow(() => made.fire('timeout'));
-  assert.doesNotThrow(() => made.fire('error', new Error('socket')));
-});
-
-test('#988: a non-2xx answer is reported on stderr, once per response, and changes nothing', () => {
-  enrol();
-  let made = null;
-  updating.setRequestFactory(() => { made = fakeReq(); return made; });
-  updating.announce(900);
-  const real = process.stderr.write;
-  const lines = [];
-  process.stderr.write = (s) => { lines.push(String(s)); return true; };
-  try { made.fire('response', { statusCode: 401, resume() {} }); }
-  finally { process.stderr.write = real; }
-  assert.equal(lines.length, 1, 'a route that is merged but undeployed has no other client-side check');
-  assert.match(lines[0], /401/);
-});
-
-test('#988 CONTROL: a 2xx answer is silent', () => {
-  enrol();
-  let made = null;
-  updating.setRequestFactory(() => { made = fakeReq(); return made; });
-  updating.announce(900);
-  const real = process.stderr.write;
-  const lines = [];
-  process.stderr.write = (s) => { lines.push(String(s)); return true; };
-  try { made.fire('response', { statusCode: 204, resume() {} }); }
-  finally { process.stderr.write = real; }
-  assert.equal(lines.length, 0);
-});
-
-test('#988: the error handler is REGISTERED, which is the line the fail-open guarantee rests on', () => {
-  /* Deleting req.on('error') left this suite green, so the one handler the
-     governing constraint depends on was unarmed. (Measured separately: on this
-     Node version its removal did NOT crash a refused or DNS-failed announce,
-     because the throw surfaces inside the outer guard. Armed anyway: an unguarded
-     line on the install route should not depend on that staying true.) */
-  enrol();
-  let made = null;
-  updating.setRequestFactory(() => { made = fakeReq(); return made; });
-  updating.announce(900);
-  assert.equal(typeof made.handlers.error, 'function', 'an error listener must be registered');
-  assert.equal(typeof made.handlers.timeout, 'function', 'a timeout listener must be registered');
-  assert.equal(typeof made.handlers.response, 'function', 'a response listener must be registered');
+  capture();
+  assert.equal(await stderrOf(() => updating.announce(900)), '');
 });
 
 /* The clears now carry an owner-identity guard, so an arm must drive a child that
@@ -636,7 +535,7 @@ test('#988 WIRING: a child that EXITS ZERO still clears, because the shell masks
 
 test('#988: the first-tick clear happens ONCE, not on every tick forever', async () => {
   /* The arm that only counted ">= 2" could not tell "once more" from "a fresh
-     mTLS connection to the coordinator every 60 seconds from every enrolled
+     signed request to the coordinator every 60 seconds from every enrolled
      Mac". This one can. */
   enrol();
   update.resetCache();
@@ -662,58 +561,8 @@ test('#988: the first-tick clear happens ONCE, not on every tick forever', async
   assert.equal(cleared, 2, `boot plus exactly one tick; got ${cleared} across ~8 ticks`);
 });
 
-test('#988: the body reaches the WIRE, not just the seam argument', () => {
-  /* defaultRequest(opts) ignores the factory's second argument, so the body
-     travels only through req.end(body). Deleting that call left the whole suite
-     green: content-length would still say 15 and the coordinator would learn
-     nothing, silently, until the 3s timeout. */
-  enrol();
-  let made = null;
-  updating.setRequestFactory(() => { made = fakeReq(); return made; });
-  updating.announce(900);
-  assert.ok(made.ended !== undefined, 'req.end() must be called WITH the body');
-  assert.deepEqual(JSON.parse(made.ended), { seconds: 900 });
-});
-
-test('#988: the coordinator HOST and PORT are derived, not hardcoded', () => {
-  enrol();
-  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://host.example:8443/base';
-  const calls = capture();
-  updating.announce(0);
-  assert.equal(calls[0].opts.hostname, 'host.example', 'hardcoding a host left the suite green');
-  assert.equal(calls[0].opts.port, '8443', 'the port was never asserted either');
-  assert.equal(calls[0].opts.path, '/base/v1/mac/updating');
-});
-
-test('#988: content-type and content-length are set for the coordinator', () => {
-  enrol();
-  const calls = capture();
-  updating.announce(900);
-  assert.equal(calls[0].opts.headers['content-type'], 'application/json');
-  assert.equal(calls[0].opts.headers['content-length'], Buffer.byteLength(JSON.stringify({ seconds: 900 })));
-});
-
 test('#988: a NON-INTEGER deadline is truncated rather than put on the wire as a float', () => {
   assert.equal(updating.seconds(900.7), 900);
-});
-
-test('#988: defaultRequest picks the module the protocol names', () => {
-  /* The real dispatch had NO coverage: rewriting it to always use https left the
-     suite green, and https.request({protocol:'http:'}) throws ERR_INVALID_PROTOCOL
-     which the outer catch swallows, i.e. exactly the "silently dead" case the
-     http arm claims to guard. */
-  const https = require('node:https');
-  const http = require('node:http');
-  const realHttps = https.request;
-  const realHttp = http.request;
-  const seen = [];
-  https.request = () => { seen.push('https'); return fakeReq(); };
-  http.request = () => { seen.push('http'); return fakeReq(); };
-  try {
-    updating.dispatch({ protocol: 'http:' });
-    updating.dispatch({ protocol: 'https:' });
-  } finally { https.request = realHttps; http.request = realHttp; }
-  assert.deepEqual(seen, ['http', 'https'], 'each protocol must reach its own module');
 });
 
 test('#988: the update path does not drag remote/ping/store into a test process', () => {
@@ -738,36 +587,30 @@ test('#988: the update path does not drag remote/ping/store into a test process'
     "process.stdout.write(JSON.stringify({remote:has('remote.js'),ping:has('ping.js'),store:has('store.js')}));",
   ].join('\n');
   const repo = nodePath.join(__dirname, '..');
-  const out = execFileSync(process.execPath, ['-e', script, repo], {
-    env: { ...process.env, NODE_TEST_CONTEXT: '1' },
-    encoding: 'utf8',
-  });
+  /* WITHOUT the tunnel-binary seam: the guard only lets a call through when a
+     test supplies a tunnel, and this arm is about the path that has none. */
+  const env = { ...process.env, NODE_TEST_CONTEXT: '1' };
+  delete env.AGENT_WORKFORCE_TUNNEL_BIN;
+  const out = execFileSync(process.execPath, ['-e', script, repo], { env, encoding: 'utf8' });
   const loaded = JSON.parse(out);
   assert.equal(loaded.remote, false, 'requiring remote from the update path freezes the data root');
   assert.equal(loaded.ping, false, 'ping.js freezes it too');
   assert.equal(loaded.store, false, 'and store.root() reaches the legacy-store migration');
 });
 
-test('#988 END TO END: the REAL transport delivers the POST, with no factory and no test context', async () => {
-  /* 🛑 THE CARD'S DELIVERABLE, AND UNTIL NOW IT HAD ZERO COVERAGE. Every other arm
-     either injects a factory or runs under NODE_TEST_CONTEXT, so nothing connected
-     announce() to defaultRequest. Measured: making the feature COMPLETELY INERT on
-     a real Mac (`if (!requestFactory) return;`) left the whole suite green.
-     This runs a child WITHOUT NODE_TEST_CONTEXT against a local http coordinator.
-     http is deliberate: it ignores cert/key, so no TLS fixture is needed and the
-     request still travels the production path. */
+test('#988 END TO END: under production conditions the announce goes through the tunnel, and nothing dials the coordinator directly', async () => {
+  /* 🛑 THE CARD'S DELIVERABLE. Every other arm runs under NODE_TEST_CONTEXT or
+     replaces macRequest, so this is the arm that connects announce() to the real
+     helper and the real spawn. A child WITHOUT NODE_TEST_CONTEXT, enrolled and
+     switched on, with the coordinator pointed at a local http server: the fake
+     tunnel must receive the signed request, and the server must receive NOTHING,
+     because a direct hit there is the unsigned path #3626 removed. */
   const http = require('node:http');
-  const received = [];
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.on('data', (c) => { body += c; });
-    req.on('end', () => {
-      received.push({ method: req.method, url: req.url, body, type: req.headers['content-type'] });
-      res.writeHead(204).end();
-    });
-  });
+  const direct = [];
+  const server = http.createServer((req, res) => { direct.push(req.method + ' ' + req.url); res.writeHead(204).end(); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
+  FAKE.reset();
   try {
     const { spawn } = require('node:child_process');
     const script = [
@@ -778,44 +621,29 @@ test('#988 END TO END: the REAL transport delivers the POST, with no factory and
       "for(const f of ['mac_id','address','tls.crt','tls.key']) fs.writeFileSync(p.join(st,f),'x');",
       "process.env.AGENT_WORKFORCE_TUNNEL_STATE=st;",
       "process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR='http://127.0.0.1:'+process.argv[2];",
-      /* The COMMERCIAL switch, which announce() gates on as well as the files. The
-         child's data root is a fresh sandbox, so remote.json does not exist and
-         read() correctly returns {on:false}: without this the production path is
-         silent and the arm fails for the right reason at the wrong place.
-         remote's OWN derivation of the path rather than a hardcoded
-         'Kosmos/remote.json', so a change to the data layout cannot make this arm
-         write to a path nothing reads and pass by being silently skipped.
-         Loading remote here is safe: the load-ordering guarantee has its own
-         subprocess arm above, and the data root is already set. */
+      /* The COMMERCIAL switch, via remote's own derivation of the path. */
       "const R=require(p.join(process.argv[1],'engine/remote.js'));",
       "fs.mkdirSync(p.dirname(R.FILE),{recursive:true});",
       "fs.writeFileSync(R.FILE,JSON.stringify({on:true}));",
       "require(p.join(process.argv[1],'engine/updating.js')).announce(900);",
-      "setTimeout(()=>{},400);",
     ].join('\n');
-    const env = { ...process.env };
+    const env = { ...process.env, AGENT_WORKFORCE_TUNNEL_BIN: FAKE.bin, FAKE_MAC_REQUEST_MODE: 'ok:{}' };
     delete env.NODE_TEST_CONTEXT;          // the whole point: production conditions
-    delete env.AGENT_WORKFORCE_TUNNEL_CA;
-    /* 🛑 spawn, NOT execFileSync. execFileSync BLOCKS this process's event loop,
-       so the server above cannot accept the connection while the child is alive:
-       the child then hits its own 3s timeout and the arm silently measures a
-       timeout instead of a round trip. (The assertions still passed, because TCP
-       delivers the written bytes into the kernel buffer regardless of when the JS
-       server drains them, so it was real wire coverage measuring the wrong thing.)
-       With spawn the parent stays free, the server answers, and the child's
-       RESPONSE path runs too. Bounded by a kill timer: a regression in the
-       request timeout handling can hang rather than fail. */
+    /* spawn, not execFileSync, so this process stays free to answer a direct hit
+       if the child made one; bounded by a kill timer. */
     const child = spawn(process.execPath, ['-e', script, nodePath.join(__dirname, '..'), String(port)],
       { env, stdio: ['ignore', 'ignore', 'inherit'] });
     const killer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 15000);
     const code = await new Promise((r) => child.on('exit', r));
     clearTimeout(killer);
+    const calls = await waitForCalls(FAKE, 1);
     assert.equal(code, 0, 'the production announce path must not crash the child');
-    assert.equal(received.length, 1, 'the production path must actually deliver the POST');
-    assert.equal(received[0].method, 'POST');
-    assert.equal(received[0].url, '/v1/mac/updating');
-    assert.equal(received[0].type, 'application/json');
-    assert.deepEqual(JSON.parse(received[0].body), { seconds: 900 });
+    assert.deepEqual(direct, [], 'the coordinator must receive NO direct request: that is the unsigned path');
+    assert.equal(calls.length, 1, 'the production path must actually hand the request to the tunnel');
+    assert.equal(calls[0].args[0], 'mac-request');
+    assert.equal(FAKE.flag(calls[0], '--path'), '/v1/mac/updating');
+    assert.equal(FAKE.flag(calls[0], '--coordinator'), 'http://127.0.0.1:' + port);
+    assert.deepEqual(JSON.parse(calls[0].stdin), { seconds: 900 });
   } finally { server.close(); }
 });
 
@@ -887,7 +715,7 @@ test('#988: a SUPERSEDED child\'s late exit must NOT clear a live install\'s ban
 test('#988: a board run from a SOURCE CHECKOUT does not announce at all', () => {
   /* No installedRoot() means a dev checkout (node server.js,
      tools/restart-local-board.sh), which is routine on this fleet. Without the
-     gate it makes real mTLS POSTs with the operator's certificate and can CLEAR
+     gate it makes real signed POSTs as the operator's Mac and can CLEAR
      a deadline the INSTALLED board just set. */
   enrol();
   const calls = capture();
@@ -931,19 +759,18 @@ test('#988 CONTROL: the same call WITH an installed root does announce', () => {
   assert.ok(calls.length > 0, 'the arm above must fail for the MISSING ROOT, not because clearing broke');
 });
 
-test('#988 CONTROL: with the wiring driven and NO factory, nothing is sent and nothing throws', () => {
-  /* This arm never set an installed root, so startPolling()'s boot clear was
-     skipped and announce() was never entered: it asserted 0 against a call that
-     was never attempted, and caught nothing in a 41-mutation sweep. */
+test('#988 CONTROL: with the wiring driven and NO test tunnel, nothing is sent and nothing throws', () => {
+  /* An installed root is set, so startPolling()'s boot clear really enters
+     announce(); without the seam the guard must stop it there. */
   enrol();
   update.setInstalledRoot(() => SANDBOX);
-  updating.setRequestFactory(null);
-  const https = require('node:https');
-  const realHttps = https.request;
-  let reached = 0;
-  https.request = () => { reached++; return fakeReq(); };
+  const calls = capture();
+  const wire = tripwire();
+  const seam = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  delete process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   try {
     assert.doesNotThrow(() => { const t = update.startPolling(60000); clearInterval(t); });
-  } finally { https.request = realHttps; update.setInstalledRoot(null); }
-  assert.equal(reached, 0, 'the boot path must not reach the real transport under test either');
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; wire.restore(); update.setInstalledRoot(null); }
+  assert.equal(calls.length, 0, 'the boot path must not reach the tunnel under test without the seam');
+  assert.deepEqual(wire.dialled, [], 'nor dial directly');
 });

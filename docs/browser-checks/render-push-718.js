@@ -93,15 +93,15 @@ function check(name, pass, detail) {
 
   const wiring = await page.evaluate(() => ({
     hasSWApi: 'serviceWorker' in navigator,
-    enableFn: typeof window.kosmosEnablePush,
+    toggleFn: typeof window.kosmosPhoneNotifyToggle,
     registerFn: typeof window.kosmosRegisterServiceWorker,
-    button: !!document.getElementById('push-enable'),
-    msg: !!document.getElementById('push-msg'),
+    button: !!document.getElementById('phone-notify-toggle'),
+    msg: !!document.getElementById('phone-notify-msg'),
   }));
   check('the browser exposes the service worker API', wiring.hasSWApi);
-  check('the client exposes kosmosEnablePush()', wiring.enableFn === 'function', wiring.enableFn);
+  check('the client exposes kosmosPhoneNotifyToggle()', wiring.toggleFn === 'function', wiring.toggleFn);
   check('the client exposes kosmosRegisterServiceWorker()', wiring.registerFn === 'function', wiring.registerFn);
-  check('the "Turn on" push control is in the page', wiring.button && wiring.msg);
+  check('the Phone notifications control is in the page', wiring.button && wiring.msg);
 
   /* --- 3. the worker registers, activates, and CONTROLS the page ------------ */
   /* The client registers on load. Wait for an active worker, then reload so the
