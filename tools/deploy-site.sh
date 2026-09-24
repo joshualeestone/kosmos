@@ -206,6 +206,8 @@ ptr_artifact()  { printf '%s' "$1" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*
 ptr_sha()       { printf '%s' "$1" | sed -n 's/.*"sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 ptr_version()   { printf '%s' "$1" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+# The version inside a Windows zip NAME (kosmos-<version>-win-x64.zip), empty if it is not that shape.
+win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p'; }
 
 # #2571: DERIVE the current Windows versioned zip name from latest-win.json, the same way ART is
 # learned from latest.json above -- replacing the stale hardcoded $WINZIP (kosmos-0.6.24, while
@@ -506,7 +508,7 @@ WIN_SERVED_SHA=""
 # zip being verified ($WINZIP here: the sha-verified committed name, or an explicit KOSMOS_WIN_ZIP),
 # never from a pointer's separate `version` field, which nothing checks against the name. The
 # redirect branch re-reads it from the served name.
-WIN_PROD_VERSION=$(printf '%s' "$WINZIP" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
+WIN_PROD_VERSION=$(win_zip_version "$WINZIP")
 if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   _wr=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$HOST/dist/latest-win.json" 2>/dev/null) || _wr=''
   case "${_wr%% *}" in
@@ -521,10 +523,12 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
       case "$_swv" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served latest-win.json names '$_swv', which is not a bare file name -- the deploy already ran, investigate (#3600)."; exit 1 ;; esac
       [ -n "$WIN_SERVED_SHA" ] || { echo "deploy-site: the served (redirected) latest-win.json names $_swv but no sha256 -- investigate (#3600)."; exit 1; }
       WIN_VERIFY=$_swv
-      WIN_PROD_VERSION=$(printf '%s' "$WIN_VERIFY" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
-      _wcv=$(printf '%s' "$WINZIP" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
+      _wcv=$WIN_PROD_VERSION   # the committed name's version, before it is replaced by the served one
+      WIN_PROD_VERSION=$(win_zip_version "$WIN_VERIFY")
       if [ "$WIN_VERIFY" != "$WINZIP" ]; then
-        if [ -n "$_wcv" ] && [ "$(printf '%s\n%s\n' "$_wcv" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$_wcv" ]; then
+        if [ -z "$_wcv" ]; then
+          echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's Windows name $WINZIP has no readable version, so which is newer cannot be told. Verifying what users get ($WIN_VERIFY)." >&2
+        elif [ "$(printf '%s\n%s\n' "$_wcv" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$_wcv" ]; then
           # The site's Windows name is NEWER than what prod serves: a Windows promote was committed
           # but R2 was not updated, so users did NOT get it. Not a Mac deploy failure, but loud.
           echo "deploy-site: WARNING (#3600): the site's Windows name $WINZIP is NEWER than what prod serves by redirect ($WIN_VERIFY). R2 was not updated, so users do NOT have that Windows build. Verifying what they do get ($WIN_VERIFY); publish the build to R2 to finish the Windows promote." >&2
@@ -580,7 +584,7 @@ fi
 WIN_STAGED_SUPERSEDED=0
 WIN_STAGED_VERSION=""
 # From the sha-verified NAME, like the prod side, not the staging pointer's `version` field.
-[ -z "$WIN_STAGED" ] || WIN_STAGED_VERSION=$(printf '%s' "$WIN_STAGED" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
+[ -z "$WIN_STAGED" ] || WIN_STAGED_VERSION=$(win_zip_version "$WIN_STAGED")
 if [ -n "$WIN_STAGED" ] && [ -n "$WIN_STAGED_VERSION" ] && [ -n "$WIN_PROD_VERSION" ] \
    && [ "$(printf '%s\n%s\n' "$WIN_STAGED_VERSION" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$WIN_PROD_VERSION" ]; then
   echo "deploy-site: WARNING (#3600): the committed latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $WIN_PROD_VERSION. It is superseded, so its zip and checksum are not served-verified (the staging pointer still is). The next Windows staging publish replaces it." >&2

@@ -41,6 +41,8 @@
 #   A20 the same on the STAGED side: a staging pointer whose `version` says 0.6.30 but whose name is
 #       0.6.55 is not treated as superseded
 #   A21 R2's zip bytes do not hash to the sha its pointer and sidecar agree on -> refuse
+#   A22 the committed Windows name has no readable version -> a "cannot be told" NOTE, never the
+#       "committed is older, stale" claim; rc 0
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -152,6 +154,7 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-behind   - as redirect, but R2 serves an OLDER build (0.6.30) than the committed 0.6.40
 #   redirect-probenone - as redirect, but the un-followed probe fails at transport (curl exit 7)
 #   redirect-badbytes - as redirect, but R2's WZ_NEW bytes change after its sha was published
+#   redirect-oddname  - as redirect, but the committed pointer names legacy-win.zip (no version)
 #   static-versionskew - static, the committed pointer's version field says 0.6.99, and the staged
 #                        zip is unservable
 # $2 (optional) staged: "" none | old (0.6.45, absent from R2) | new (0.6.55, in R2) | new-missing
@@ -188,6 +191,11 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   ( cd "$s/dist" && shasum -a 256 "$WZ_OLD" > "$WZ_OLD.sha256" )
   oldsha=$(sha_of "$s/dist/$WZ_OLD")
   write_win_ptr "$s/dist/latest-win.json" "$WV_OLD" "$oldsha"
+  if [ "$mode" = redirect-oddname ]; then
+    printf 'LEGACY\n' > "$s/dist/legacy-win.zip"
+    ( cd "$s/dist" && shasum -a 256 legacy-win.zip > legacy-win.zip.sha256 )
+    printf '{"version":"x","sha256":"%s","versioned":"legacy-win.zip"}\n' "$(sha_of "$s/dist/legacy-win.zip")" > "$s/dist/latest-win.json"
+  fi
   if [ "$mode" = static-versionskew ]; then
     printf '{"version":"0.6.99","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$oldsha" "$WZ_OLD" > "$s/dist/latest-win.json"
   fi
@@ -463,5 +471,14 @@ else
   bad "A21: corrupt served zip bytes were not caught (rc=$RC); out=$out"
 fi
 
+# A22) no readable committed version: say so, do not claim the committed pointer is the older one.
+read -r S L R <<<"$(make_scenario redirect-oddname)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "has no readable version, so which is newer cannot be told" && ! has "$out" "is older, so the committed pointer is stale"; then
+  pass "A22: an unversioned committed name gets the 'cannot be told' NOTE, not a staleness claim, rc=0"
+else
+  bad "A22: an unversioned committed name was mislabeled or failed (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 21 arms passed"
+echo "test-deploy-site-served-win-3600: all 22 arms passed"
