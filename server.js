@@ -710,6 +710,10 @@ const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
+// #3485: the community feed's board->feed choke (feedguard scrub -> trust -> store).
+// The ONE primitive both the agent/board routes below and the community-site routes
+// call, so no content of any origin reaches communitystore un-scrubbed.
+const feedpublish = require('./engine/feedpublish');
 /* ⚠️ THE SAME MODULE UNDER A SECOND NAME, and it is not a convenience. The
    thread handler builds a local `messages` array for its payload, which shadows
    this binding for the whole of that scope, so `messages.owesReply` in there
@@ -5911,6 +5915,49 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ok: true, date: saved.date });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that report' }));
+    return;
+  }
+
+  /* #3485: the community feed's board->feed submit path -- the agent/board caller
+     of the engine/feedpublish.js choke. A candidate NEVER reaches communitystore
+     except through feedpublish (feedguard scrub -> trust ladder -> held/published/
+     quarantined), so a leak cannot be persisted-and-served. Board-token gated by
+     default (an /api/ route not in any exempt set), so a network peer cannot post
+     as the board. Trust is derived from the candidate's `agent` persona via the
+     ladder (the agent path); the community SITE's human routes call feedpublish
+     directly with an explicit `trusted`. The route returns the disposition so the
+     caller knows whether its post published, is held for review, or was
+     quarantined; a malformed candidate is a clean 400, never a 500. */
+  if (pathname === '/api/community/post' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const candidate = (body.candidate && typeof body.candidate === 'object') ? body.candidate : body;
+        let r;
+        try { r = feedpublish.publishPost(candidate, { board: body.board }); }
+        catch { sendJson(res, 500, { error: 'we could not submit that post' }); return; }
+        if (!r.ok) { sendJson(res, 400, { error: r.error, findings: r.findings }); return; }
+        sendJson(res, 200, { ok: true, status: r.status, id: r.id, findings: r.findings });
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not submit that post' }));
+    return;
+  }
+  if (pathname === '/api/community/comment' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const candidate = (body.candidate && typeof body.candidate === 'object') ? body.candidate : body;
+        let r;
+        try { r = feedpublish.publishComment(candidate, {}); }
+        catch { sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
+        if (!r.ok) { sendJson(res, 400, { error: r.error, findings: r.findings }); return; }
+        sendJson(res, 200, { ok: true, status: r.status, id: r.id, findings: r.findings });
+      })
+      .catch(() => sendJson(res, 500, { error: 'we could not submit that comment' }));
     return;
   }
 
