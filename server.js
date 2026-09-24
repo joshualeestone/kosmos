@@ -12125,11 +12125,9 @@ const server = http.createServer((req, res) => {
            ride this message as one `[kosmos]` note after the person's words (a reaction
            is feedback, so it waits for a message rather than waking the agent). Marked
            told only once the words reached the pane; otherwise they wait for the next. */
-        /* Not on a numbered menu answer: the pane gets a bare digit there, and anything
-           typed after it could land in whatever prompt comes next. Checked on the text as
-           well as `chose`, because `chose` is dropped when no menu is showing and a bare
-           digit is exactly what a menu takes. The note waits for the next ordinary message. */
-        const reactionNote = (chose || /^\s*\d+\s*$/.test(String(body.text || ''))) ? '' : chat.dmReactionNote(name);
+        /* Not on a numbered menu answer (chat.dmNoteMayRide); the note waits for the next
+           ordinary message. */
+        const reactionNote = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNote(name) : '';
         const delivery = chat.deliver(name, body.text, roster, opPrefix,
           (attachments.wireNote(files.recs) || '') + reactionNote);
         if (reactionNote && delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.state === chat.DELIVERY.UNCONFIRMED)) {

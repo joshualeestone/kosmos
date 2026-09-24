@@ -59,6 +59,7 @@ const FX = {
       if (/\/api\/agent\/[^/]+\/thread\/react$/.test(u) && opts && opts.method === 'POST') {
         const body = JSON.parse(opts.body);
         window.__reacts.push({ url: u, body });
+        if (window.__hold) await window.__hold;   // lets a check switch agents mid-request
         return enc({ ok: true, op: 'add', emoji: body.emoji, at: body.at, reactions: [{ emoji: body.emoji, count: 1, who: ['you'], mine: true }] });
       }
       if (/\/api\/project\/.*\/react$/.test(u)) { window.__reacts.push({ url: u, room: true }); return enc({ ok: true, reactions: [] }); }
@@ -130,6 +131,43 @@ const FX = {
   chk(r3.sent.length === 1 && !p.room && p.body && p.body.at === A1 && p.body.emoji === r3.emoji,
     'a pick from the shared picker goes to the DM route with that row\'s at', JSON.stringify(r3.sent));
   chk(r3.closed, 'the picker closes after a pick', JSON.stringify(r3));
+  // A response that lands after the person moved to another agent must not repaint.
+  const r4 = await page.evaluate(async (A1) => {
+    window.__reacts.length = 0;
+    let release;
+    window.__hold = new Promise((res) => { release = res; });
+    const box = document.querySelector('#d-dmthread .rxns[data-at="' + A1 + '"]');
+    const pills = () => [...box.querySelectorAll('.rxn')].map((b) => b.getAttribute('data-emoji')).join(',');
+    const before = pills();
+    const quicks = [...box.querySelectorAll('.rxn-quick .rxn-pick')];
+    const other = quicks.find((b) => b.getAttribute('data-emoji') !== '👍') || quicks[quicks.length - 1];
+    other.click();
+    for (let i = 0; i < 50 && !window.__reacts.length; i++) await new Promise((res) => setTimeout(res, 10));
+    CURRENT = { sessionName: 'someone-else', name: 'Someone' };
+    release();
+    window.__hold = null;
+    await new Promise((res) => setTimeout(res, 150));
+    const after = pills();   // the emojis, not the count: a repaint can swap one pill for another
+    CURRENT = { sessionName: 'april', name: 'April' };
+    return { sent: window.__reacts.length, before, after };
+  }, A1);
+  chk(r4.sent === 1 && r4.after === r4.before, 'a late answer after switching agents does not repaint the old row', JSON.stringify(r4));
+
+  // A pick into a DM that is no longer on screen goes nowhere.
+  const r5 = await page.evaluate(async (A1) => {
+    window.__reacts.length = 0;
+    const box = document.querySelector('#d-dmthread .rxns[data-at="' + A1 + '"]');
+    box.querySelector('.rxn-more').click();
+    const picker = document.getElementById('rxn-picker');
+    const opened = !picker.hidden;
+    document.getElementById('panel-detail').hidden = true;
+    const pick = picker.querySelector('.rxn-pick');
+    pick.click();
+    await new Promise((res) => setTimeout(res, 150));
+    document.getElementById('panel-detail').hidden = false;
+    return { opened, sent: window.__reacts.length };
+  }, A1);
+  chk(r5.opened && r5.sent === 0, 'a pick into a DM that is no longer on screen sends nothing', JSON.stringify(r5));
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
 
   await browser.close();

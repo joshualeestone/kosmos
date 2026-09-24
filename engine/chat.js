@@ -2815,6 +2815,16 @@ function dmReactionNote(agent) {
     + '. A reaction is feedback, not a message: it needs no reply.';
 }
 
+/* Whether the note may ride this message at all. Never on a numbered menu answer: the
+   pane gets a bare digit there, and anything typed after it could land in whatever
+   prompt comes next. Checked on `chose` (the button that was pressed) AND on the text,
+   because the route drops `chose` when no menu is showing and a bare digit is exactly
+   what a menu takes. */
+function dmNoteMayRide(text, chose) {
+  if (chose) return false;
+  return !/^\s*\d+\s*$/.test(String(text == null ? '' : text));
+}
+
 /* After a message carrying that note reached the pane, record that the agent has now
    been told: `reactionsTold` becomes each agent message's current `reactions`. Called
    only when the delivery placed or was typed (unconfirmed); a send that never reached
@@ -2849,7 +2859,7 @@ function markDmReactionsTold(agent) {
 module.exports = {
   DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
-  dmReactions, dmReactionPills, reactDirect, dmReactionNote, markDmReactionsTold,
+  dmReactions, dmReactionPills, reactDirect, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,

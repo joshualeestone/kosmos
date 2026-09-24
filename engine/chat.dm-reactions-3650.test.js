@@ -157,3 +157,27 @@ test('#3650: the quoted start never splits an emoji in half', () => {
   assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(note), false, 'no lone high surrogate');
   assert.ok(note.includes('a'.repeat(47) + '😀…"'), note);
 });
+
+test('#3650: the note never rides a menu answer, by the pressed button or by a bare digit', () => {
+  assert.equal(chat.dmNoteMayRide('thanks', null), true);
+  assert.equal(chat.dmNoteMayRide('Yes, go ahead', 'Yes, go ahead'), false, 'a pressed option (chose) with words');
+  assert.equal(chat.dmNoteMayRide('1', null), false, 'a bare digit with no chose');
+  assert.equal(chat.dmNoteMayRide(' 12 ', null), false);
+  assert.equal(chat.dmNoteMayRide('1 more thing', null), true, 'a digit inside words is an ordinary message');
+});
+
+test('#3650: a duplicated emoji in a stored message draws one pill', () => {
+  assert.deepEqual(chat.dmReactions({ reactions: ['👍', '👍', '🔥'] }), ['👍', '🔥']);
+  assert.equal(chat.dmReactionPills({ reactions: ['👍', '👍'] }).length, 1);
+});
+
+test('#3650: a message of exactly the snippet length is quoted whole, without an ellipsis', () => {
+  const agent = 'rxexact';
+  const at = '2026-09-24T15:00:00.000Z';
+  const text = 'b'.repeat(47) + '😀';   // 48 code points
+  chat.appendMessage(chat.DIRECT, agent, { text, from: agent, at });
+  chat.reactDirect(agent, at, '👍');
+  const note = chat.dmReactionNote(agent);
+  assert.ok(note.includes('"' + text + '"'), note);
+  assert.equal(note.includes('…'), false);
+});
