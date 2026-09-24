@@ -2312,6 +2312,23 @@ test('listFiles: a huge subfolder cannot push a top-level file off, and the cut 
   assert.ok(out.total <= 2001 && out.total > 1, `total ${out.total} is outside the budget`);
 });
 
+test('listFiles: the stamp changes when only truncated flips, so a polling page repaints the note (#2245)', () => {
+  reset();
+  const dir = folder('docs-stamp-trunc');
+  fs.writeFileSync(path.join(dir, 'real.txt'), 'x');
+  fs.mkdirSync(path.join(dir, 'sub'));
+  // Dot-entries are read (they count against the budget) but never listed, so the
+  // listed file set stays exactly { real.txt } on both sides of the budget.
+  for (let i = 0; i < 2000; i++) fs.writeFileSync(path.join(dir, 'sub', `.n${i}`), 'x');
+  const under = projects.listFiles(dir, 50);
+  fs.writeFileSync(path.join(dir, 'sub', '.n-extra'), 'x');
+  const over = projects.listFiles(dir, 50);
+  assert.deepEqual(over.names, under.names, 'CONTROL: the listed files must be identical');
+  assert.equal(under.truncated, undefined);
+  assert.equal(over.truncated, true);
+  assert.notEqual(over.stamp, under.stamp, 'truncated flipped but the stamp did not, so the page would skip the repaint');
+});
+
 test('openFile: a file in a subfolder the list shows opens by its relative path (#2245)', () => {
   reset();
   const dir = folder('open-nested');

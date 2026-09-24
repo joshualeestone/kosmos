@@ -1393,7 +1393,7 @@ function listFiles(folder, limit) {
      one -- unlike a bare `\0`/`\n` join, which two review rounds independently
      flagged as a theoretical (never practical) collision. */
   const stamp = crypto.createHash('sha1')
-    .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n')).digest('hex').slice(0, 16);
+    .update(files.map((f) => JSON.stringify([f.name, f.size, f.modified])).join('\n') + (truncated ? '\ntruncated' : '')).digest('hex').slice(0, 16);
   /* ⚠️ `names` IS EVERY FILE, not the capped view, and it is here rather than
      behind a second route because the two answers must come from ONE read of
      the folder. A message body's path citations are matched against this list,

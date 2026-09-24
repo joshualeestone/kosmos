@@ -12190,8 +12190,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            `h3.dlab` heading and the same column this file already uses — so
            Mona Lisa is blessing or replacing something that already sits in the
            system rather than something I made up.
-           ⚠️ THE LIST IS THE PROJECT'S FOLDER, top level, newest first, and
-           that is ALL it will ever be. Agents write into the project folder, so
+           ⚠️ THE LIST IS THE PROJECT'S FOLDER (and its subfolders to a bounded
+           depth, #2245), newest first. Agents write into the project folder, so
            what they produce is already here.
            🛑 THIS COMMENT USED TO PROMISE THAT ATTACHED FILES WOULD JOIN THIS
            LIST once the attachment path landed, and that sentence was the reason
@@ -12218,7 +12218,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              is what stops it looking like the other one arrived. (#110, heading
              from Mona Lisa.) -->
         <!-- Josh, 2026-09-10 (#2711 item 13): just "Files". Still the
-             project folder, top level, newest first, as the comment above says. -->
+             project folder, newest first, as the comment above says. -->
         <h3 class="dlab">Files</h3>
         <!-- #3218: View-All sits right after the header (before the list) so keyboard focus reaches
              it in reading order. The consolidated view grids it into the header row far-right; being
@@ -39949,6 +39949,8 @@ function pjById(id) { return PROJECTS.find((p) => p.id === id) || null; }
    list left standing would dress another project's words as citations of files
    this one does not have. */
 let PJ_DOC_NAMES = null;
+/* #2245: shown by both document views when the folder walk stopped short. */
+const PJ_DOCS_PARTIAL = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
 let TK_OPEN = null;        // the task number the task page is showing
 
 /** Re-read the store; loadProjects itself repaints the open project on
@@ -41647,8 +41649,9 @@ function paintFreeAgentPicker(p, sel, btn) {
  * ⚠️ WHAT THIS SCREEN MAY CLAIM, the same discipline chat.js carries about a
  * keystroke. "These are the files in this project's folder, a moment ago" is
  * ours to say. "This is everything for this project" is NOT, and the list does
- * not say it: the folder is the top level only, and files that arrive through
- * the conversation are not there until the attachment path lands.
+ * not say it: the folder walk is bounded (#2245) and says so when it stopped
+ * short, and files that arrive through the conversation are not there until the
+ * attachment path lands.
  *
  * A folder we cannot read produces a SENTENCE rather than an empty list,
  * because "no documents yet" and "we could not look" are different facts and
@@ -41753,7 +41756,7 @@ async function openDocsView() {
     PJ_DOCS_PAGE = 0;
     pjDocsPaintPage();
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
-    if (body.truncated === true) msg.textContent = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
+    if (body.truncated === true) msg.textContent = PJ_DOCS_PARTIAL;
   } catch {
     if (PJ_CURRENT === forProject && PJ_VIEW === 'docs') msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
@@ -41897,7 +41900,7 @@ async function pjLoadDocs(id) {
     return;
   }
   /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
-  msg.textContent = body.truncated === true ? 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.' : '';
+  msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : '';
   for (const f of files) {
     /* A BUTTON, not a div with a handler: this opens a file, and an action
        that cannot be reached from the keyboard is not an action for everyone. */
