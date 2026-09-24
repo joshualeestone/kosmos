@@ -1,13 +1,16 @@
 'use strict';
 /*
  * #3485: the community feed board->feed submit routes (POST /api/community/post
- * and /api/community/comment). These are the agent/board caller of the
- * engine/feedpublish.js choke; the choke's disposition logic is unit-tested in
- * engine/feedpublish.test.js, so these tests cover the HTTP plumbing: a candidate
- * routes through feedpublish (never straight into the store), the disposition is
- * returned, a leak quarantines, and a malformed candidate is a clean 400.
- * A fresh test board is non-enforcing, so the sensitive-route gate lets the
- * fetches through without a board token (same as the other server route tests).
+ * and /api/community/comment) -- the AGENT/BOARD caller of the engine/feedpublish.js
+ * choke. The choke's disposition logic is unit-tested in engine/feedpublish.test.js;
+ * these tests cover the HTTP contract that the ROUTE owns:
+ *   - identity is AUTHENTICATED by the agent token (resolveAgentSender), never taken
+ *     from a body.agent field -- so a caller cannot post as an already-trusted persona
+ *   - no agent token -> 403; a clean post is held/published by the AUTHENTICATED
+ *     agent's ladder; a leak quarantines; a malformed candidate is a clean 400
+ *   - findings are NOT echoed to the submitter (an evasion oracle)
+ * A fresh test board is non-enforcing, so the board-token sensitive-gate lets the
+ * fetches through; the agent-token auth is what these tests exercise.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -15,82 +18,118 @@ const path = require('node:path');
 const { test } = require('node:test');
 const assert = require('node:assert');
 
-const FAKE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-route-'));
-process.env.HOME = FAKE_HOME;
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-route-'));
+process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-route-home-'));
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
-process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-route-data-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-route-proj-'));
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-route-work-'));
 process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-route-launch-'));
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { start, server } = require('./server');
+const fleet = require('./test-support/fleet');
+const sendertoken = require('./engine/sendertoken');
 const cs = require('./engine/communitystore');
 
-async function boot(t) {
-  await start(0);
-  t.after(() => { server.closeAllConnections(); server.close(); });
-  return `http://127.0.0.1:${server.address().port}`;
+test.before(async () => { await start(0); });
+// Close the server after the run so the process exits (and node --test flushes its
+// buffered output) rather than hanging on the open listener.
+test.after(() => { try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } });
+
+function base() { return `http://127.0.0.1:${server.address().port}`; }
+function board(t) {
+  const b = fleet.install([
+    fleet.agent('RouteAgent', { state: 'idle' }),
+    fleet.agent('OtherAgent', { state: 'idle' }),
+    fleet.agent('Sneaky', { state: 'idle' }), // never granted trust -- for the spoof test
+  ]);
+  t.after(() => b.restore());
+  return b;
 }
-function post(base, path_, body) {
-  return fetch(`${base}${path_}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+function post(path_, body, token) {
+  const headers = { 'content-type': 'application/json' };
+  if (token) headers['x-kosmos-agent-token'] = token;
+  return fetch(`${base()}${path_}`, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 function cleanPost(overrides = {}) {
   return { kind: 'community_post', agent: 'RouteAgent', at: '2026-09-23T00:00:00Z', body: 'hello from the route', ...overrides };
 }
 const LEAK_BODY = 'contact Josh Stone directly';
 
-test('POST /api/community/post routes a clean UNTRUSTED post to HELD (not served)', async (t) => {
-  const base = await boot(t);
-  const r = await post(base, '/api/community/post', cleanPost({ agent: 'HeldAgent' }));
-  assert.equal(r.status, 200);
-  const j = await r.json();
-  assert.equal(j.ok, true);
-  assert.equal(j.status, 'held');
-  assert.equal(cs.publicFeed().some((p) => p.id === j.id), false, 'a held post must not be served');
+test('no agent token -> 403 (posting requires an authenticated agent)', async (t) => {
+  board(t);
+  const r = await post('/api/community/post', cleanPost());
+  assert.equal(r.status, 403);
 });
 
-test('POST /api/community/post publishes a clean TRUSTED post', async (t) => {
-  const base = await boot(t);
+test('a clean post from an UNTRUSTED authenticated agent is HELD (not served)', async (t) => {
+  board(t);
+  const tok = sendertoken.mint('RouteAgent').token;
+  const r = await post('/api/community/post', cleanPost(), tok);
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.equal(j.status, 'held');
+  assert.equal(cs.publicFeed().some((p) => p.id === j.id), false);
+  assert.equal(j.findings, undefined, 'findings must NOT be echoed to the submitter');
+});
+
+test('a clean post from a TRUSTED authenticated agent is PUBLISHED', async (t) => {
+  board(t);
   cs.grantTrust('RouteAgent');
-  const r = await post(base, '/api/community/post', cleanPost({ agent: 'RouteAgent' }));
+  const tok = sendertoken.mint('RouteAgent').token;
+  const r = await post('/api/community/post', cleanPost(), tok);
   const j = await r.json();
   assert.equal(j.status, 'published');
   assert.equal(cs.publicFeed().some((p) => p.id === j.id), true);
 });
 
-test('POST /api/community/post QUARANTINES a leak even from a trusted agent', async (t) => {
-  const base = await boot(t);
+test('SPOOF CLOSED: a caller cannot publish as another trusted persona by claiming body.agent', async (t) => {
+  board(t);
+  cs.grantTrust('OtherAgent'); // a promoted persona the caller is NOT
+  const tok = sendertoken.mint('Sneaky').token; // authenticated as the never-trusted Sneaky
+  const r = await post('/api/community/post', cleanPost({ agent: 'OtherAgent' }), tok); // claims to be OtherAgent
+  const j = await r.json();
+  assert.equal(j.status, 'held', 'a claimed trusted persona must not publish; trust is the authenticated agent\'s');
+  const stored = cs.moderationQueue().find((p) => p.id === j.id);
+  assert.equal(stored.author.name, 'Sneaky', 'the post is attributed to the AUTHENTICATED agent, not the claimed one');
+});
+
+test('a LEAK quarantines even from a trusted authenticated agent', async (t) => {
+  board(t);
   cs.grantTrust('RouteAgent');
-  const r = await post(base, '/api/community/post', cleanPost({ agent: 'RouteAgent', body: LEAK_BODY }));
+  const tok = sendertoken.mint('RouteAgent').token;
+  const r = await post('/api/community/post', cleanPost({ body: LEAK_BODY }), tok);
   const j = await r.json();
   assert.equal(r.status, 200);
-  assert.equal(j.status, 'quarantined', 'a leak must not publish through the route');
+  assert.equal(j.status, 'quarantined');
   assert.equal(cs.publicFeed().some((p) => p.id === j.id), false);
 });
 
-test('POST /api/community/post rejects a malformed candidate with a clean 400', async (t) => {
-  const base = await boot(t);
-  const r = await post(base, '/api/community/post', { body: '' }); // missing required kind/agent/at + empty body
+test('a malformed candidate is a clean 400 (with a valid token)', async (t) => {
+  board(t);
+  const tok = sendertoken.mint('RouteAgent').token;
+  const r = await post('/api/community/post', { body: '' }, tok);
   assert.equal(r.status, 400);
-  const j = await r.json();
-  assert.equal(j.error && typeof j.error, 'string');
 });
 
-test('POST /api/community/comment routes a clean comment on a published post', async (t) => {
-  const base = await boot(t);
+test('a comment from an authenticated agent on a published post', async (t) => {
+  board(t);
   cs.grantTrust('RouteAgent');
-  const parent = await (await post(base, '/api/community/post', cleanPost({ agent: 'RouteAgent' }))).json();
-  const r = await post(base, '/api/community/comment', { kind: 'community_post', agent: 'RouteAgent', at: '2026-09-23T01:00:00Z', body: 'good point', postId: parent.id });
+  const tok = sendertoken.mint('RouteAgent').token;
+  const parent = await (await post('/api/community/post', cleanPost(), tok)).json();
+  const r = await post('/api/community/comment', { kind: 'community_post', agent: 'RouteAgent', at: '2026-09-23T01:00:00Z', body: 'good point', postId: parent.id }, tok);
   const j = await r.json();
   assert.equal(r.status, 200);
   assert.equal(j.status, 'published');
   assert.equal(cs.getComments(parent.id).some((c) => c.id === j.id), true);
 });
 
-test('POST /api/community/comment on a nonexistent post is a clean 400, never a 500', async (t) => {
-  const base = await boot(t);
-  const r = await post(base, '/api/community/comment', { kind: 'community_post', agent: 'RouteAgent', at: '2026-09-23T02:00:00Z', body: 'orphan', postId: 'no-such-post' });
+test('a comment on a nonexistent post is a clean 400, never a 500', async (t) => {
+  board(t);
+  const tok = sendertoken.mint('RouteAgent').token;
+  const r = await post('/api/community/comment', { kind: 'community_post', agent: 'RouteAgent', at: '2026-09-23T02:00:00Z', body: 'orphan', postId: 'no-such-post' }, tok);
   assert.equal(r.status, 400);
 });

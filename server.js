@@ -5918,28 +5918,51 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* #3485: the community feed's board->feed submit path -- the agent/board caller
+  /* #3485: the community feed's board->feed submit path -- the AGENT/BOARD caller
      of the engine/feedpublish.js choke. A candidate NEVER reaches communitystore
      except through feedpublish (feedguard scrub -> trust ladder -> held/published/
-     quarantined), so a leak cannot be persisted-and-served. Board-token gated by
-     default (an /api/ route not in any exempt set), so a network peer cannot post
-     as the board. Trust is derived from the candidate's `agent` persona via the
-     ladder (the agent path); the community SITE's human routes call feedpublish
-     directly with an explicit `trusted`. The route returns the disposition so the
-     caller knows whether its post published, is held for review, or was
-     quarantined; a malformed candidate is a clean 400, never a 500. */
+     quarantined), so a leak cannot be persisted-and-served.
+     🛑 IDENTITY IS AUTHENTICATED, NEVER SELF-DECLARED. Board-token gated by default
+     (an /api/ route in no exempt set), so no network peer reaches it; and WITHIN the
+     route the posting agent is resolved via resolveAgentSender (its AGENT TOKEN),
+     never from a `body.agent` field -- otherwise any local caller could post as an
+     already-trusted persona and skip held-by-default (the mirror of /api/team's
+     "never a self-declared body.creator"). The authenticated identity is what we
+     attribute the post to AND what we key the trust ladder on, so the two match.
+     The human-post path is NOT here: the community SITE's routes call feedpublish
+     directly with an explicit `trusted` and their own (site-owned) identity model.
+     🛑 findings (leak class + field) are moderator-only and are NOT echoed to the
+     submitter -- returning them would be an evasion oracle. */
   if (pathname === '/api/community/post' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const candidate = (body.candidate && typeof body.candidate === 'object') ? body.candidate : body;
+        // Authenticate the posting agent by its token (never body.agent).
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'posting to the community feed requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this post is from' }); return;
+        }
+        const agentId = sender.card.sessionName;
+        // Build the candidate from the content only (strip the envelope), then bind
+        // its `agent` to the AUTHENTICATED identity so attribution == the trust key.
+        let candidate;
+        if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
+        else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
+        candidate.agent = agentId;
         let r;
-        try { r = feedpublish.publishPost(candidate, { board: body.board }); }
+        try { r = feedpublish.publishPost(candidate, { agentId, board: body.board }); }
         catch { sendJson(res, 500, { error: 'we could not submit that post' }); return; }
-        if (!r.ok) { sendJson(res, 400, { error: r.error, findings: r.findings }); return; }
-        sendJson(res, 200, { ok: true, status: r.status, id: r.id, findings: r.findings });
+        if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
+        sendJson(res, 200, { ok: true, status: r.status, id: r.id });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not submit that post' }));
     return;
@@ -5950,12 +5973,29 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const candidate = (body.candidate && typeof body.candidate === 'object') ? body.candidate : body;
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'commenting on the community feed requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this comment is from' }); return;
+        }
+        const agentId = sender.card.sessionName;
+        // Keep postId/parentId (the primitive strips them for the guard, re-attaches
+        // after); strip only the transport envelope. Bind agent to the authenticated id.
+        let candidate;
+        if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
+        else { const { candidate: _c, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
+        candidate.agent = agentId;
         let r;
-        try { r = feedpublish.publishComment(candidate, {}); }
+        try { r = feedpublish.publishComment(candidate, { agentId }); }
         catch { sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
-        if (!r.ok) { sendJson(res, 400, { error: r.error, findings: r.findings }); return; }
-        sendJson(res, 200, { ok: true, status: r.status, id: r.id, findings: r.findings });
+        if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
+        sendJson(res, 200, { ok: true, status: r.status, id: r.id });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not submit that comment' }));
     return;
