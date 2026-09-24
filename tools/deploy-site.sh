@@ -519,14 +519,17 @@ WIN_UNPUBLISHED=""   # set when the site's Windows build is newer than what R2 s
 # The prod Windows version users get, for the staged block below, always read from the NAME of the
 # zip being verified ($WINZIP here: the sha-verified committed name, or an explicit KOSMOS_WIN_ZIP),
 # never from a pointer's separate `version` field, which nothing checks against the name. The
-# redirect branch re-reads it from the served name.
+# redirect branch re-reads it from the served name. The R2 reads below (probe, pointer, sidecar, zip)
+# are separate requests, so a Windows publish landing between them can refuse a good deploy: re-run
+# once before investigating R2.
 WIN_PROD_VERSION=$(win_zip_version "$WINZIP")
-WIN_COMMITTED_VERSION=$WIN_PROD_VERSION   # kept: the staged block compares against both
+WIN_SITE_VERSION=$WIN_PROD_VERSION   # the site's name (committed, or KOSMOS_WIN_ZIP); staged compares vs both
 if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   _wr=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$HOST/dist/latest-win.json" 2>/dev/null) || _wr=''
   case "${_wr%% *}" in
     301|302|303|307|308)
-      _swj=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/latest-win.json") || { echo "deploy-site: the served latest-win.json redirects (${_wr#* }) but could not be read through the redirect -- the deploy already ran, investigate (#3600)."; exit 1; }
+      _wrt=$(_served_verify_redact_userinfo "${_wr#* }")   # the redirect target, credentials redacted
+      _swj=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/latest-win.json") || { echo "deploy-site: the served latest-win.json redirects ($_wrt) but could not be read through the redirect -- the deploy already ran, investigate (#3600)."; exit 1; }
       _swv=$(ptr_versioned "$_swj"); WIN_SERVED_SHA=$(ptr_sha "$_swj")
       # The name becomes a URL path below, so accept only the shape publish-kosmos-windows.sh writes.
       case "$_swv" in
@@ -542,14 +545,14 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
         _wnewer=""
         [ -z "$_wcv" ] || _wnewer=$(printf '%s\n%s\n' "$_wcv" "$WIN_PROD_VERSION" | sort -V | tail -1)
         if [ -z "$_wcv" ] || [ -z "$_wnewer" ]; then
-          echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's Windows name $WINZIP has no readable version (or the compare failed), so which is newer cannot be told. Verifying what users get ($WIN_VERIFY)." >&2
+          echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect ($_wrt) and it names $WIN_VERIFY; the site's Windows name $WINZIP has no readable version (or the compare failed), so which is newer cannot be told. Verifying what users get ($WIN_VERIFY)." >&2
         elif [ "$_wnewer" = "$_wcv" ]; then
           # The site's Windows name is NEWER than what prod serves: a Windows promote was committed
           # but R2 was not updated, so users did NOT get it. Not a Mac deploy failure, but loud.
           echo "deploy-site: WARNING (#3600): the site's Windows name $WINZIP is NEWER than what prod serves by redirect ($WIN_VERIFY). R2 was not updated, so users do NOT have that Windows build. Verifying what they do get ($WIN_VERIFY); publish the build to R2 to finish the Windows promote." >&2
           WIN_UNPUBLISHED="$WINZIP"
         else
-          echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's committed Windows name $WINZIP is older, so the committed pointer is stale. Verifying what users get ($WIN_VERIFY). This is expected after a Windows publish to R2 and is not a deploy failure." >&2
+          echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect ($_wrt) and it names $WIN_VERIFY; the site's committed Windows name $WINZIP is older, so the committed pointer is stale. Verifying what users get ($WIN_VERIFY). This is expected after a Windows publish to R2 and is not a deploy failure." >&2
         fi
       fi
       ;;
@@ -604,10 +607,16 @@ WIN_STAGED_VERSION=""
 # From the sha-verified NAME, like the prod side, not the staging pointer's `version` field.
 [ -z "$WIN_STAGED" ] || WIN_STAGED_VERSION=$(win_zip_version "$WIN_STAGED")
 _wsup=""
-for _wref in "$WIN_PROD_VERSION" "$WIN_COMMITTED_VERSION"; do
+for _wref in "$WIN_PROD_VERSION" "$WIN_SITE_VERSION"; do
   [ -n "$WIN_STAGED" ] && [ -n "$WIN_STAGED_VERSION" ] && [ -n "$_wref" ] || continue
   [ "$(printf '%s\n%s\n' "$WIN_STAGED_VERSION" "$_wref" | sort -V | tail -1)" = "$_wref" ] && { _wsup=$_wref; break; }
 done
+# Only a staged zip that is itself served by REDIRECT can be missing for that reason. Served
+# statically, git archive shipped the committed zip, so checking it is cheap and a 404 is a real drop.
+if [ -n "$_wsup" ]; then
+  _wsr=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/$WIN_STAGED" 2>/dev/null) || _wsr=''
+  case "${_wsr%% *}" in 301|302|303|307|308) : ;; *) _wsup="" ;; esac
+fi
 if [ -n "$_wsup" ]; then
   echo "deploy-site: WARNING (#3600): the committed latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $_wsup. It is superseded, so its zip and checksum are not served-verified (the staging pointer still is). The next Windows staging publish replaces it." >&2
   WIN_STAGED_SUPERSEDED=1

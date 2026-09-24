@@ -47,6 +47,8 @@
 #   A23 right after a Windows promote R2 missed: committed 0.6.40, R2 0.6.30, and the staging pointer
 #       still names the committed 0.6.40 -> the staged build is superseded (vs the committed build),
 #       so the deploy reaches the unpublished WARNING and exits 0 instead of dying on the staged zip
+#   A24 a superseded staged build whose zip is served STATICALLY (no redirect) is still verified: the
+#       skip is only for a staged zip that is itself redirected
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -497,5 +499,14 @@ else
   bad "A23: the post-promote R2-lag state died on the staged zip or lost the warning (rc=$RC); out=$out"
 fi
 
+# A24) static path, staged == prod (superseded by version) but served statically: verified, no skip.
+read -r S L R <<<"$(make_scenario static committed)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "published and verified" && ! has "$out" "not newer than the prod Windows build"; then
+  pass "A24: a superseded staged zip served statically is verified, not skipped, rc=0"
+else
+  bad "A24: a statically served superseded staged zip was skipped or failed (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 23 arms passed"
+echo "test-deploy-site-served-win-3600: all 24 arms passed"

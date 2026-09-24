@@ -70,7 +70,7 @@ The pre-deploy committed-pointer vs committed-bytes agreement (#2571) still runs
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Twenty-three arms with a redirect-aware
+`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Twenty-four arms with a redirect-aware
 curl stub: the card's shape (A1) with a control pinning the old semantics (A2), an unserved served
 zip (A3), a pointer/sidecar disagreement (A4), the static path unchanged (A5) and its control (A6),
 a superseded staged build skipped (A7), a newer served staged build verified (A8) and its control
@@ -81,7 +81,8 @@ using the KOSMOS_WIN_ZIP override's version (A16), a committed build newer than 
 unpublished (A17), a status-less probe falling back strictly (A18), and the prod version read from the checked
 name rather than a pointer's version field (A19), the same on the staged side (A20), and served
 zip bytes that do not hash to the published sha (A21), and an unversioned committed name that
-must not be called stale (A22), and the post-promote R2-lag state reaching the warning (A23).
+must not be called stale (A22), the post-promote R2-lag state reaching the warning (A23), and a superseded staged zip served
+statically still verified (A24: the skip applies only when the staged zip itself redirects).
 Red-capability: against origin/main's deploy-site.sh, A1 fails with the exact prod message.
 
 ## Status
