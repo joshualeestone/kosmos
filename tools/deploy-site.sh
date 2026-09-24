@@ -528,6 +528,8 @@ read_served_win_pointer() {  # <pointer file under dist> <redacted redirect targ
   esac
   case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$SWP_NAME', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
   [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- investigate ($3)."; exit 1; }
+  case "$SWP_SHA" in *[!0-9a-fA-F]*) echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not hex -- investigate ($3)."; exit 1 ;; esac
+  [ ${#SWP_SHA} -eq 64 ] || { echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not 64 characters -- investigate ($3)."; exit 1; }
 }
 # #3600/#3618: for a zip named by a REDIRECTED pointer, the served .sha256 must describe what the
 # pointer advertises (the Windows updater fetches it FIRST and refuses a mismatch), and the served zip
