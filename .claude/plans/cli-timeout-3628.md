@@ -7,30 +7,40 @@ execFile kills the child and reports err.code = null, err.signal = 'SIGTERM', so
 timed-out run read as exit 0: a PASS for any test expecting success. A spawn failure
 (err.code = 'ENOENT', a string) read as 0 the same way.
 
-The card named two files. A sweep found 12 copies in 10 cli.*.test.js files. A wider
-sweep for other spellings (`err?.code ?? 0`, `(err && err.code) || 0`, `err.code || 0`)
-found none, with a positive control proving the pattern matches all three spellings.
-cli.world-outbox-1704.test.js already mapped to -1, and engine/create.js (production)
-maps to 1; both are safe and unchanged.
+The card named two files. The class is wider: 12 copies with a 0 fallback in 10
+cli.*.test.js files, plus 5 files with `err ? (err.code ?? 1) : 0` and
+cli.project-create-3388's catch with a 1 fallback, where a kill reads as a clean failure
+(a PASS for tests expecting exit 1 or `notEqual(code, 0)`). The first sweep only looked
+for 0 fallbacks; the blind review found the 1s. cli.world-outbox-1704 (-1) and
+engine/create.js (production, 1) are unchanged.
 
 ## Change
-- All 12 sites: `err ? (typeof err.code === 'number' ? err.code : 'no exit code (' +
-  (err.signal || err.code) + ')') : 0`. A string can never equal a numeric expected
-  code, and the failure message names the signal or error.
-- The multi-MB stdin cases (5 calls in cli.msg-stdin-2909 and cli.post-stdin-2909) get a
-  named 60s timeout. They escape megabytes through sed, which took 10s at load 60; now
-  that a timeout fails the test, the 20s default had no margin under fleet load. The post
-  file's runCli did not accept a timeout argument, so it gained one (otherwise the new
-  argument would have silently done nothing).
+Every harness (16 files, 18 sites) now REJECTS when execFile gives no numeric exit
+code, with "the CLI gave no exit code (<signal or error>): killed by the harness timeout
+or never started." Otherwise it resolves `err ? err.code : 0`.
+
+Why reject and not a sentinel: my first version mapped the missing code to a labelled
+string. The blind review (BLOCKER, reasoned and then shown in the contrast test) pointed
+out a string still satisfies `assert.notEqual(code, 0)`, which nine tests use to mean "it
+failed". Any sentinel has that flaw; only failing the test does not.
+
+The multi-MB stdin cases (5 calls) get a named 60s timeout (BIG_INPUT_TIMEOUT_MS): they
+escape megabytes through sed, 10s at load 60, and a timeout now fails the test. The
+post-stdin runCli gained its timeoutMs parameter (it silently ignored a 4th argument).
 
 ## Tests
 cli.exit-code-mapping-3628.test.js:
-- a real stub killed by a 200ms timeout, and a real ENOENT, through the old mapping
-  (contrast: both read 0) and the new one (both read a labelled string);
-- real exit codes 3 and 0 still map as before;
-- a guard: no *.test.js may contain the unsafe form, with a positive control on the
-  pattern and a floor (>=10 files use the safe form) so the scan must reach the harnesses.
-  Perturbation: reverting one harness reds the guard.
+- the harness shape, on a real stub killed by a 200ms timeout and a real ENOENT: both
+  reject; real exit codes 3 and 0 resolve;
+- CONTRAST: on a real kill the old 0 fallback reads 0, the old 1 fallback reads 1, and a
+  sentinel passes notEqual(code, 0);
+- guard over root and engine/ test files: no `typeof x.code === 'number' ? x.code : 0|1`,
+  `x.code ?? 0|1`, `x.code || 0|1` (x = err, e, error); any bare `err ? err.code : 0` must
+  sit with the reject line; positive controls for every spelling, a negative control for
+  the safe form, and a floor (>= 16 files carry the reject line, excluding this file).
+  Perturbations: restoring `?? 1` in one file, and deleting the reject line in another,
+  each red the guard.
+All 16 harness files: 107/108 pass with the guard at the time, 5/5 guard after tightening.
 
 ## Found along the way (not a code defect)
 The CLI tests first failed at exactly 20s on every case. That was the agent1 syspolicyd
