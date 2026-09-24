@@ -4018,16 +4018,19 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      make sure the sign-in button at the top isn't touching that horizontal rule for the
      header space and move it down a little bit too." Two consolidated-scoped fixes, spacing
      only -- Josh is reworking the settings sub-nav himself, so the nav is untouched:
-       (1) The top sign-in row (.plus-topbar, defined ~line 8228) sat FLUSH against the
+       (1) The top sign-in row (.plus-topbar, base rule ~line 8244) sat FLUSH against the
            consolidated header's bottom rule -- measured: .plus-topbar top == header rule
            bottom, 0px gap. A top inset lifts the "Already have Kosmos+? Sign in" pill off
            the rule.
-       (2) The decorative wordmark canvas (#plus-mark, ~line 8198) is min(560px,82%) wide,
-           which in the NARROWER consolidated column renders ~260px tall and pushes the
+       (2) The decorative wordmark canvas (#plus-mark, base rule ~line 8214) is min(560px,82%)
+           wide, which in the NARROWER consolidated column renders ~260px tall and pushes the
            hero + value props far down the pane. Trim its footprint HERE only (the tab
-           view keeps the full immersive wordmark) so the content reads higher. */
-  html[data-layout="consolidated"] body.consolidated #s-sec-plus .plus-topbar { margin-top: var(--space-5); }
-  html[data-layout="consolidated"] body.consolidated #s-sec-plus #plus-mark { width: min(420px, 70%); margin: 2px 0 4px; }
+           view keeps the full immersive wordmark) so the content reads higher.
+     Both scoped to #plus-state1 -- the HOME/marketing state that holds the top sign-in row
+     and the wordmark -- NOT #s-sec-plus, so the state-2 sign-in-wizard "Not now" row (also
+     a .plus-topbar, in a different state) is left alone. */
+  html[data-layout="consolidated"] body.consolidated #plus-state1 .plus-topbar { margin-top: var(--space-5); }
+  html[data-layout="consolidated"] body.consolidated #plus-state1 #plus-mark { width: min(420px, 70%); margin: 2px 0 4px; }
   /* 🔑 AND THE SIZE SITS BESIDE ITS FILE, NOT AT THE FAR RIGHT. Josh: "I'd also
      like to have the file sizes of the files closer to the actual files
      themselves."
