@@ -57,7 +57,7 @@ was the real gap, and I had not seen it.)
   multi-line), confirmed by browser-checks-reason-grep.test.js.
 
 ## Verification
-- docs/browser-checks/render-autohello-switch-2716.js, 15 checks. The old source
+- docs/browser-checks/render-autohello-switch-2716.js, 17 checks. The old source
   invariant (2 x poll > hold), which was red by design, is replaced by three
   behavioural arms: an early report still lands once the line is painted;
   nothing is written if the dialog closes first; the wait gives up after the
@@ -67,5 +67,8 @@ was the real gap, and I had not seen it.)
   land in the next dialog (red without the token check). Arm 11 clicks the real
   #d-model-go with the hold (600ms) longer than two readiness polls, so the hello
   is placed before the held render for real (measured 187ms) and the dialog
-  still ends on the confirmation (red without the retry).
+  still ends on the confirmation. Arm 11b does the same through the real
+  #d-provider-go (measured 231ms), which has its own call site and an extra
+  accounts refresh. Removing the retry reds arms 7, 11 and 11b; removing the
+  provider call site reds 11b.
 - web.change-dialog.test.js (source wiring, run from the repo root): 3 pass.

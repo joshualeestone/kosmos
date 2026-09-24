@@ -49,10 +49,14 @@ function initStub() {
     const method = (opts && opts.method ? String(opts.method) : 'GET').toUpperCase();
     window.__posted.push({ url: u, method, body: (opts && opts.body) || null });
     if (/\/api\/agent\/[^/]+\/thread$/.test(u) && method === 'POST') return enc(window.__threadResp);
-    // The real model-switch flow (arm 11) POSTs here first.
+    // The real model-switch and provider-switch flows (arms 11, 11b) POST here first.
     if (/\/api\/agent\/[^/]+\/model$/.test(u) && method === 'POST') {
       window.__statusSinceRestart = 0;
       return enc({ outcome: 'changed', because: 'Changed and restarting on the new model.' });
+    }
+    if (/\/api\/agent\/[^/]+\/provider$/.test(u) && method === 'POST') {
+      window.__statusSinceRestart = 0;
+      return enc({ outcome: 'changed', provider: 'openai', because: 'OpenAI it is. It is starting again now.' });
     }
     if (/\/api\/status(\?|$)/.test(u)) {
       window.__statusSinceRestart += 1;
@@ -257,6 +261,43 @@ function initStub() {
     s11.helloAt !== null && s11.helloAt < 600, 'helloAt=' + s11.helloAt + 'ms, hold=600ms');
   check('real model switch: the dialog still ends on the confirmation',
     s11.threads === 1 && /^Reactivated on Claude, and said hello to wake /.test(s11.msg), 'threads=' + s11.threads + ' msg=' + JSON.stringify(s11.msg));
+
+  // ---- Arm 11b: the REAL provider-switch path, same timing relationship ----
+  // changeProviderNow has its own call site and an extra awaited accounts refresh, so it
+  // is driven end to end too rather than inferred from the model path.
+  const s11b = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const back = document.getElementById('chg-modal');
+    const msg = document.getElementById('chg-msg');
+    back.hidden = true; msg.textContent = '';
+    window.__posted = [];
+    window.__threadResp = { recorded: true, delivery: { state: 'placed' } };
+    window.__statusSinceRestart = 0;
+    window.__readyAfterCalls = 2;
+    window.__kosmosRestartHoldMs = 600;
+    CURRENT = { sessionName: 'april', name: 'April', displayName: 'April', runner: 'claude', isNamedOurs: true };
+    const psel = document.getElementById('d-provider');
+    psel.innerHTML = '<option value="openai">OpenAI</option>';
+    psel.value = 'openai';
+    const pgo = document.getElementById('d-provider-go');
+    pgo.disabled = false;
+    pgo.click();
+    document.getElementById('chg-go').click();
+    let helloAt = null;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 2500) {
+      if (helloAt === null && window.__posted.some((x) => /\/thread$/.test(x.url))) helloAt = Date.now() - t0;
+      await sleep(20);
+    }
+    const out = { helloAt, msg: msg.textContent, threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length };
+    window.__kosmosRestartHoldMs = undefined;
+    document.getElementById('chg-keep').click();
+    return out;
+  });
+  check('real provider switch: the hello is placed BEFORE the held render (the race actually occurs)',
+    s11b.helloAt !== null && s11b.helloAt < 600, 'helloAt=' + s11b.helloAt + 'ms, hold=600ms');
+  check('real provider switch: the dialog still ends on the confirmation',
+    s11b.threads === 1 && /^Reactivated on OpenAI, and said hello to wake /.test(s11b.msg), 'threads=' + s11b.threads + ' msg=' + JSON.stringify(s11b.msg));
 
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);
