@@ -165,9 +165,12 @@ function disabled(env) {
  */
 function configFor(o) {
   const x = o || {};
-  /* With an executablePath (the Mac): Playwright's own shell. `--browser chromium`
-     alone would ask for the full "Chrome for Testing", which is not installed. */
-  const browser = x.executablePath
+  /* The Mac drives Playwright's own shell by path (`--browser chromium` alone would
+     ask for the full "Chrome for Testing", which is not installed). A Mac config
+     with no path is refused rather than quietly becoming an Edge config. */
+  const mac = x.platform === 'darwin' || x.executablePath !== undefined;
+  if (mac && !x.executablePath) throw new Error('a Mac browser config needs the shell\'s path');
+  const browser = mac
     ? ['--browser', 'chromium', '--executable-path', String(x.executablePath)]
     : ['--browser', 'msedge'];
   return {
@@ -228,7 +231,7 @@ function launchConfig(opts) {
     }
     const text = JSON.stringify(configFor({
       node: o.node || process.execPath, cli: cliPath(), outputDir: outputDir(),
-      executablePath: mac ? shellExe(o.arch) : undefined,
+      platform, executablePath: mac ? shellExe(o.arch) : undefined,
     }), null, 2) + '\n';
     return writeConfigIfNeeded(configPath(), text) ? configPath() : null;
   } catch { return null; }
@@ -311,9 +314,9 @@ async function ensureInstalled(opts) {
    is taken over only when its owner is gone OR its heartbeat stopped for
    LOCK_STALE_MS, so a dead owner whose pid was reused cannot hold it forever.
    ⚠️ It is not airtight: two takers of one stale lock, or a Mac that slept through
-   a live owner's heartbeat, can leave two installers running. That costs a
-   duplicate download and nothing more, because ensureShell never removes a
-   proven install (it re-checks after the lock and again at the swap). */
+   a live owner's heartbeat, can leave two installers running. ensureShell
+   re-checks for an installed shell after taking the lock and again just before
+   its swap; both installers write the same pinned, checksum-verified bytes. */
 const LOCK_BEAT_MS = 60 * 1000;
 const LOCK_STALE_MS = 5 * 60 * 1000;
 function lockPath() { return path.join(homeDir(), '.shell-install.lock'); }
@@ -428,8 +431,8 @@ async function ensureShell(opts) {
     if (!said.includes(SHELL.version)) throw new Error('the browser did not answer with its version');
     fs.writeFileSync(path.join(tree, '.verified'), shellStamp(arch) + '\n');
     fs.mkdirSync(path.dirname(shellDir(arch)), { recursive: true });
-    /* Never replace a proven install, whoever holds the lock. Anything else at
-       this CPU's folder is a leftover that never got its marker. */
+    /* Checked again just before the swap: an install that landed meanwhile is
+       kept, and only a folder without its marker is removed. */
     if (shellInstalled(arch)) return { ok: true, already: true };
     fs.rmSync(shellDir(arch), { recursive: true, force: true });
     fs.renameSync(tree, shellDir(arch));

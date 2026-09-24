@@ -125,7 +125,9 @@ test('the Mac pin: one sha256-pinned headless shell per Mac CPU, at the version 
 });
 
 test('the Mac config: the pinned shell by path, headless, isolated, and nothing that reaches the person\'s browser', () => {
-  const cfg = ab.configFor({ node: '/K/node', cli: '/R/cli.js', outputDir: '/T/out', executablePath: '/R/shell' });
+  assert.throws(() => ab.configFor({ platform: 'darwin', node: '/K/node', cli: '/R/cli.js', outputDir: '/T/out' }),
+    /needs the shell/, 'a Mac config with no path never becomes an Edge config');
+  const cfg = ab.configFor({ platform: 'darwin', node: '/K/node', cli: '/R/cli.js', outputDir: '/T/out', executablePath: '/R/shell' });
   assert.deepEqual(cfg.mcpServers['kosmos-browser'].args,
     ['/R/cli.js', '--browser', 'chromium', '--executable-path', '/R/shell', '--headless', '--isolated', '--output-dir', '/T/out']);
   const args = cfg.mcpServers['kosmos-browser'].args;

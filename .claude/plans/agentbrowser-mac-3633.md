@@ -50,9 +50,9 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   every minute while it works. It is taken over only when the owner is gone or the heartbeat
   has stopped for 5 minutes, so a dead owner whose pid was reused cannot hold it forever. The
   lock is not airtight (two takers of one stale lock, or a Mac asleep through a live owner's
-  heartbeat, can leave two installers running), so the one act that could do harm is made
-  safe instead: `ensureShell` re-checks for a proven install after taking the lock and again
-  at the swap, and never removes one. A double install costs a duplicate download. Under the lock it sweeps what interrupted installs left
+  heartbeat, can leave two installers running). `ensureShell` re-checks for an installed shell
+  after taking the lock and again just before its swap, and both installers write the same
+  pinned, checksum-verified bytes. Under the lock it sweeps what interrupted installs left
   (staging folders whose owner pid is gone) and prunes old shell versions to the highest one
   below the pinned version, by version order and only among version-named folders, which a
   still-running agent from the previous release may name.
@@ -72,7 +72,7 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 22 pass (16 of them new for the Mac). Shell test: 10 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 22 pass (16 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 10 checks
   across four arms (installed, not installed, env opt-out, file opt-out).
 
 ## Known and left
