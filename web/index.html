@@ -8489,16 +8489,25 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
    move between views. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar
    rule changes the width), and on resize, which a zoom or a move to another display fires. */
 window.kosmosMeasureScrollbarWidth = function () {
+  var d = null;
   try {
-    var d = document.createElement('div');
+    d = document.createElement('div');
     d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow-y:scroll';
     document.documentElement.appendChild(d);
     document.documentElement.style.setProperty('--scrollbar-width', (d.offsetWidth - d.clientWidth) + 'px');
-    d.remove();
   } catch (e) { /* no measurement: the header falls back to its unpadded 24px */ }
+  finally { if (d && d.parentNode) d.remove(); }
 };
 window.kosmosMeasureScrollbarWidth();
-window.addEventListener('resize', window.kosmosMeasureScrollbarWidth);
+/* A window drag fires resize many times a second; one measurement per frame is plenty. */
+(function () {
+  var queued = false;
+  window.addEventListener('resize', function () {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
+  });
+})();
 </script>
 </head>
 <body>

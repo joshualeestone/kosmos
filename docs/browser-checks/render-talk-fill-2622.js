@@ -412,10 +412,11 @@ async function measure(page) {
     // A1p: the width is re-measured, not fixed at load. A resize (which a zoom or a display move
     // fires) replaces a planted wrong value with the measured one, and the Windows stamp re-measures
     // too (its scrollbar rule changes the width).
-    const remeasure = await page.evaluate(() => {
+    const remeasure = await page.evaluate(async () => {
       const before = document.documentElement.style.getPropertyValue('--scrollbar-width');
       document.documentElement.style.setProperty('--scrollbar-width', '99px');
       window.dispatchEvent(new Event('resize'));
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const after = document.documentElement.style.getPropertyValue('--scrollbar-width');
       return { before, after, platformHook: /kosmosMeasureScrollbarWidth\(\)/.test(String(applyPlatformCopy)) };
     });
