@@ -370,7 +370,7 @@ test('#2617: the per-agent table reuses the model table markup, and the non-agen
   assert.match(html, /<span class="tv-mnl" title="Ann">Ann<\/span>/, 'a truncated name has no title to read it by');
   assert.equal((html.match(/class="tv-mrow( muted)?"/g) || []).length, 3, 'one row per shown entry');
   const muted = html.slice(html.indexOf('tv-mrow muted'));
-  assert.ok(muted.includes(U.USAGE_MODEL_COLORS[6]), 'the non-agent row must use the muted Other color');
+  assert.ok(muted.includes(U.USAGE_MODEL_COLORS[U.USAGE_MODEL_COLORS.length - 1]), 'the non-agent row must use the muted Other color');
   assert.ok(!muted.includes(U.USAGE_MODEL_COLORS[0]), 'the non-agent row took the first agent color');
   assert.equal(U.usageAgentTableHtml([]), '', 'no rows, no table (the block stays hidden)');
 });
@@ -387,7 +387,7 @@ test('#2617: agents rank by the total the table shows, not by the engine\'s outp
   // Here the higher-output agent has the far smaller total, so the orders differ.
   const rows = U.usageAgentRows({ ...BY_AGENT, elsewhere: Z,
     agents: [{ name: 'talky', shown: 'Talky', ...B(500, 0) }, { name: 'reader', shown: 'Reader', ...B(10, 90000) }] });
-  assert.deepEqual(rows.map((r) => r.name), ['Reader', 'Talky'], 'rows follow the engine order, so the bars step up');
+  assert.deepEqual(rows.map((r) => r.name), ['Reader', 'Talky'], 'rows must follow the total the table shows, not the engine\'s output order');
 });
 
 test('#2617: "% total" is of the page grand total, so unmatched tokens leave the rows short of 100%', () => {
