@@ -215,6 +215,18 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   assert.ok(wwSaved, 'the outbox refusal keeps the piped message in a file');
   assert.equal(fs.readFileSync(wwSaved[1], 'utf8'), big);
   fs.rmSync(path.dirname(wwSaved[1]), { recursive: true });
+  const boomErr = [];
+  const boom = await cli.main(['post', '--stdin', 'proj-1'], {
+    env: { KOSMOS_AGENT_TOKEN: AGENT }, hook: hookStub, out: () => {}, err: (x) => boomErr.push(x),
+    readStdin: async () => ({ text: 'outbox broke', ended: true }),
+    outbox: { keepFromClient: () => { throw new Error('engine missing'); }, WRONG_WORLD_SENTENCES: {} },
+    fetch: async () => ({ status: 421, text: async () => JSON.stringify({ wrongWorld: true }) }),
+  });
+  assert.equal(boom, 1, 'an outbox that throws is a failure, not a crash');
+  const boomSaved = boomErr.join('\n').match(/saved at (\S+)/);
+  assert.ok(boomSaved, 'the piped message is kept even when the outbox throws: ' + boomErr.join(' | '));
+  assert.equal(fs.readFileSync(boomSaved[1], 'utf8'), 'outbox broke');
+  fs.rmSync(path.dirname(boomSaved[1]), { recursive: true });
   const argRefused = await run(['post', 'proj-1', 'typed'], () => ({ status: 403, body: { error: 'no such room' } }));
   assert.doesNotMatch(argRefused.err, /saved at/, 'argument-mode text is still on the command line; nothing is saved');
   const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });

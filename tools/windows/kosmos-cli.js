@@ -354,7 +354,8 @@ async function verbPost(ctx, args) {
     return code;
   }
   if (ctx.wrongWorld(r)) {
-    const kept = ctx.keepForLater('post', body);
+    let kept = 1;
+    try { kept = ctx.keepForLater('post', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
     if (kept !== 0) keepPiped();   /* #2909: the outbox refused it (e.g. too long); keep a piped message */
     return kept;
   }

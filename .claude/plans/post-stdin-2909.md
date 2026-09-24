@@ -27,8 +27,9 @@ Known asymmetries, accepted:
   empty refusal carries the existing POWERSHELL_PIPE_NOTE. Git Bash (kosmos.sh execs node) works.
 
 ## Decisions
-- Both CLIs read at most one byte past the board's 6 MB limit, judged on the raw bytes, and refuse
-  (without a saved copy) anything bigger, so an accidental huge pipe is never held whole or truncated.
+- Both CLIs stop reading just past the board's 6 MB limit (bash: one byte past; Windows: at the chunk
+  that crosses it), judged on the raw bytes, and refuse (without a saved copy) anything bigger, so an
+  accidental huge pipe is never held whole or truncated.
 - Windows --stdin waits up to 120 s for a quiet pipe (feedback triage's limit), not 3 s: a piped
   command such as `gh` can be slow to start.
 - Argument-mode control-character dropping is bash-only (its hand-rolled escaper would emit invalid

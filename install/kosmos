@@ -1266,9 +1266,11 @@ cmd_post() {
       # dropped, so an over-limit message is refused rather than truncated and posted.
       local _raw _rawn
       _raw="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-read.XXXXXX")" && chmod 600 "$_raw" || { [ -n "${_raw:-}" ] && rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2; }
+      trap 'rm -f "$_raw"' INT TERM   # a Ctrl-C while waiting on an open pipe must not leave the copy behind
       if ! LC_ALL=C head -c "$((POST_BODY_MAX_BYTES + 1))" > "$_raw"; then
-        rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2
+        trap - INT TERM; rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2
       fi
+      trap - INT TERM
       _rawn="$(LC_ALL=C wc -c < "$_raw" | LC_ALL=C tr -d ' ')" || { rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2; }
       if [ "$_rawn" -gt "$POST_BODY_MAX_BYTES" ]; then
         rm -f "$_raw"
