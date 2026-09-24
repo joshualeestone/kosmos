@@ -42,8 +42,9 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 - Opt-out: `KOSMOS_AGENT_BROWSER=off`, or a file named `off` in the managed
   `playwright-mcp` folder. The file is the Mac's real path: a launchd-started supervisor
   does not inherit the operator's shell env. The boot install honours it too. The file is
-  read on Windows as well (nothing creates it, so Windows behaves as before). Removing it
-  takes effect at the next board start.
+  read on Windows as well (nothing creates it, so Windows behaves as before). It is read
+  fresh at every agent launch; an install the board skipped because of it is not started
+  again until the next board start.
 - One folder per shell version AND per CPU (`chrome-headless-shell/<version>/<arch>`), so
   installing one CPU's shell does not replace another CPU's shell of the same version.
 - Mostly one install at a time: `ensureShell` takes a lock file holding its pid and touches it
@@ -76,6 +77,12 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   across four arms (installed, not installed, env opt-out, file opt-out).
 
 ## Known and left
+- Nothing in the app writes the opt-out file yet: an operator creates it by hand. A Settings
+  switch is a follow-up.
+- Pruning keeps the pinned version and one other, so an agent whose browser was launched from
+  a version two or more releases old loses that folder at the next install. A running browser
+  keeps working (an open file survives its unlink); a new launch from the old path would fail
+  until the agent restarts and gets the current config.
 - The lock's heartbeat (the owner touching the lock every minute) has no test of its own; the
   takeover rules around it do (live pid refused, dead pid taken, stale heartbeat taken, a lock
   with no readable pid yet treated as live).
