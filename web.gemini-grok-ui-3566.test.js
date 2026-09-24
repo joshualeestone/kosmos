@@ -114,6 +114,18 @@ test('#3566: the provider an agent is ON stays selectable so the menu can show i
   assert.equal(opt(sel, 'google').disabled, true);
 });
 
+test('#3566: the first-run model step does not call Gemini or Grok coming soon, and says where they connect', () => {
+  for (const name of ['Gemini', 'Grok']) {
+    const m = PAGE.match(new RegExp('<b>' + name + '</b><small>[^<]*</small></div><span class="soon"[^>]*>([^<]*)</span>'));
+    assert.ok(m, 'the first-run ' + name + ' row moved; re-anchor this test');
+    assert.equal(m[1], 'After setup', 'the first-run ' + name + ' pill says ' + JSON.stringify(m[1]));
+  }
+  assert.match(PAGE, /id="fr-later-models"[^>]*>Gemini and Grok connect with an API key in Settings, AI Models/,
+    'the first-run step no longer says where Gemini and Grok connect');
+  const llama = PAGE.match(/<b>Llama<\/b><small>[^<]*<\/small><\/div><span class="soon"[^>]*>([^<]*)<\/span>/);
+  assert.ok(llama && llama[1] === 'Coming soon', 'CONTROL: a genuinely unavailable provider must still say Coming soon');
+});
+
 test('#3566: the key step posts to the engine route for the picked provider, and sends no label', () => {
   const at = PAGE.indexOf("document.getElementById('acct-apikey-go').addEventListener('click'");
   assert.notEqual(at, -1, 'the Gemini/Grok Add handler is gone');

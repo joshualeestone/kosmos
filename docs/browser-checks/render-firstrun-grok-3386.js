@@ -53,6 +53,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         hasGrok: !!grok,
         grokCompany: grok ? (grok.querySelector('.llm-w small') || {}).textContent : null,
         grokSoon: grok ? !!grok.querySelector('.soon') : false,
+        grokPill: grok && grok.querySelector('.soon') ? grok.querySelector('.soon').textContent.trim() : null,
         markText: mark ? (mark.textContent || '').trim() : null,
         markHasSvg: mark ? !!mark.querySelector('svg') : null,
         markVisible: mark ? mark.offsetParent !== null : false,
@@ -63,10 +64,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
 
     ok(t + ' #3386 fr-pane-5 (the model step) is present', res.paneFound === true, JSON.stringify(res));
-    ok(t + ' #3386 a Grok / xAI "coming soon" tile is in the model step', res.hasGrok === true && res.grokCompany === 'xAI' && res.grokSoon === true, JSON.stringify(res));
+    /* #3566: Grok connects in Settings, AI Models now, so its pill says "After setup", never "Coming soon". */
+    ok(t + ' #3386/#3566 a Grok / xAI tile is in the model step, pointing to after setup', res.hasGrok === true && res.grokCompany === 'xAI' && res.grokSoon === true && res.grokPill === 'After setup', JSON.stringify(res));
     ok(t + ' #3386 Grok uses the "X" initial-letter chip, not a (wrong-brand) SVG', res.markText === 'X' && res.markHasSvg === false, JSON.stringify(res));
     ok(t + ' #3386 Grok is grouped with Gemini before the "Runs on this computer" divider', res.geminiIdx >= 0 && res.grokIdx === res.geminiIdx + 1 && res.dividerIdx > res.grokIdx, JSON.stringify(res));
-    ok(t + ' #3386 nine coming-soon tiles in the model step (Gemini + Grok + seven)', res.offCount === 9, JSON.stringify(res));
+    ok(t + ' #3386 nine not-connectable-here tiles in the model step (Gemini + Grok + seven)', res.offCount === 9, JSON.stringify(res));
     // Visual: only meaningful if the pane actually laid out (file:// nav can bail). This is a flat
     // assertion harness with no real gating, so the two arms below are companion diagnostics, not a
     // gate: if the pane did not lay out BOTH fail, and the first tells you WHY (not laid out) vs the

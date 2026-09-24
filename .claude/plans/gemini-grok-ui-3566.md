@@ -23,9 +23,13 @@ The engine already creates, switches and stores keys for Gemini (`google`) and G
    keyed provider (openai/google/xai), strings parametrised by provider name.
 5. One normaliser `acctProvider(x)` replaces the two-way `=== 'openai'` / `!== 'openai'` reads
    that decide "is this a Claude account".
+6. **First-run model step** (Splinter's scope call, 08:09 CDT): Gemini/Grok no longer say
+   "Coming soon". Their pill reads "After setup" and one line says they connect with an API key
+   in Settings, AI Models. Chosen over an in-wizard connect because the wizard's Continue and
+   first-agent steps are built for Claude and OpenAI; a Gemini-only first run is its own change.
+   Weakest premise: that a new user will find AI Models after setup from that one line.
 
 ## Out of scope (stays as is)
-- First-run wizard rows for Gemini/Grok (they stay "Coming soon" there; follow-on card).
 - Subscription sign-in for Gemini/Grok (#3296 / #3391).
 - Model pickers for Gemini/Grok (the CLI's default model is used).
 
