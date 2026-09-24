@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Test for tools/lib/cut-sign-preflight.sh (#3579): the cut proves it can sign
 # before the gated steps, and a locked keychain stops it with the unlock commands.
-# Stub codesign binaries drive each arm, so this runs on any box (CI included).
+# Stub codesigns (shell functions) drive each arm, so this runs on any box (CI included).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
@@ -23,6 +23,7 @@ trap 'rm -rf "$WORK"' EXIT
 cs_ok()      { echo ran >> "$WORK/cs-ok.ran"; return 0; }
 cs_locked()  { echo "/tmp/x/probe: errSecInternalComponent" >&2; return 1; }
 cs_locked2() { echo "User interaction is not allowed." >&2; return 1; }
+cs_ambig()   { echo "Developer ID Application: X: ambiguous (matches A and B)" >&2; return 1; }
 cs_noid()    { echo "Developer ID Application: X: no identity found" >&2; return 1; }
 cs_odd()     { echo "something nobody has seen" >&2; return 3; }
 cs_args()    { printf '%s\n' "$@" > "$WORK/cs-args.argv"; return 0; }
@@ -39,6 +40,7 @@ out="$(run cs_locked)"; rc=$?
 [ "$rc" = 1 ] && ok "a locked keychain refuses" || bad "a locked keychain should refuse (rc=$rc)"
 case "$out" in *"login keychain is LOCKED"*) ok "it names the lock" ;; *) bad "it did not name the lock: $out" ;; esac
 case "$out" in *"security unlock-keychain"*) ok "it prints the unlock command" ;; *) bad "no unlock command: $out" ;; esac
+case "$out" in *"SAME session"*"not detached"*) ok "it says to unlock in the cut's own session, not a detached one" ;; *) bad "no same-session guidance: $out" ;; esac
 case "$out" in *errSecInternalComponent*) ok "it shows codesign's own error" ;; *) bad "codesign's error was hidden: $out" ;; esac
 
 # The other spelling of the same lock.
@@ -50,6 +52,11 @@ out="$(run cs_noid)"; rc=$?
 [ "$rc" = 1 ] && ok "a missing identity refuses" || bad "a missing identity should refuse (rc=$rc)"
 case "$out" in *"No usable identity"*) ok "it names the missing identity" ;; *) bad "it did not name the missing identity: $out" ;; esac
 case "$out" in *LOCKED*) bad "a missing identity was misread as a lock" ;; *) ok "a missing identity is not called a lock" ;; esac
+
+# --- ambiguous identity: refuses, and says TOO MANY, not none ---
+out="$(run cs_ambig)"; rc=$?
+case "$rc:$out" in 1:*"More than one identity"*) ok "an ambiguous identity refuses and says more than one matches" ;; *) bad "ambiguous misdiagnosed (rc=$rc): $out" ;; esac
+case "$out" in *"No usable identity"*) bad "an ambiguous identity was called missing" ;; *) ok "an ambiguous identity is not called missing" ;; esac
 
 # --- unknown failure: still refuses (never a silent pass on an unrecognised error) ---
 out="$(run cs_odd)"; rc=$?
@@ -76,16 +83,19 @@ grep -qx 'Some Other Identity' "$WORK/cs-args.argv" 2>/dev/null \
 grep -qx -- '--timestamp=none' "$WORK/cs-args.argv" 2>/dev/null \
   && ok "the probe stays off the network (--timestamp=none)" || bad "the probe asked for a network timestamp"
 
-# --- wired: release.sh calls it after the freeze and before the gated steps ---
+# --- wired: release.sh calls it after the versions-entry gate and BEFORE step 2's bump ---
+# (so a machine-only refusal mutates nothing; kosmos#3579 review)
 R="$REPO/tools/release.sh"
-freeze="$(grep -n '^release_freeze_notice ' "$R" | head -1 | cut -d: -f1)"
+entry="$(grep -n '^kosmos_versions_entry_gate_or_pending ' "$R" | head -1 | cut -d: -f1)"
 call="$(grep -n '^kosmos_sign_preflight || exit 1$' "$R" | head -1 | cut -d: -f1)"
-gate="$(grep -n '^kosmos_gate_or_abort "the gated steps' "$R" | head -1 | cut -d: -f1)"
-if [ -n "$freeze" ] && [ -n "$call" ] && [ -n "$gate" ] && [ "$freeze" -lt "$call" ] && [ "$call" -lt "$gate" ]; then
-  ok "release.sh runs the preflight after the freeze ($freeze) and before the gated steps ($gate), at line $call"
+bump="$(grep -n '^step "== 2. the version, in one place =="' "$R" | head -1 | cut -d: -f1)"
+ncalls="$(grep -c '^kosmos_sign_preflight' "$R")"
+if [ -n "$entry" ] && [ -n "$call" ] && [ -n "$bump" ] && [ "$entry" -lt "$call" ] && [ "$call" -lt "$bump" ]; then
+  ok "release.sh runs the preflight after the versions gate ($entry) and before the bump ($bump), at line $call"
 else
-  bad "release.sh wiring: freeze=[$freeze] preflight=[$call] gated=[$gate]; the preflight must sit between them"
+  bad "release.sh wiring: entry-gate=[$entry] preflight=[$call] bump=[$bump]; the preflight must sit between them"
 fi
+[ "$ncalls" = 1 ] && ok "release.sh calls the preflight exactly once" || bad "release.sh calls the preflight $ncalls times"
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 17 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 21 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }

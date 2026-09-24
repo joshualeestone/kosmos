@@ -11,10 +11,12 @@
 # So sign a throwaway copy of a system binary with the SAME identity step 4 uses,
 # here, in about a second. --timestamp=none keeps it off the network: the question
 # is only "can this session use the key", which a timestamp does not change.
-# Step 3c's productsign (Developer ID Installer) reads the same login keychain, so a
-# lock this probe finds would have killed that too.
+# Scope: this proves the Application key is reachable. Step 3c's productsign uses the
+# Developer ID INSTALLER identity from the same login keychain, so a lock found here
+# covers it too, but a missing or expired Installer cert is NOT probed.
 #
-# Sourced by release.sh under `set -euo pipefail`; errexit-safe, no pipes, bash 3.2.
+# Sourced by release.sh under `set -euo pipefail`; called as `kosmos_sign_preflight ||
+# exit 1`, bash 3.2.
 #
 # Seams (tests only): KOSMOS_CODESIGN_BIN replaces codesign.
 
@@ -48,15 +50,23 @@ kosmos_sign_preflight() {
 
   # Print codesign's own words first, whatever the cause, so nothing is inferred.
   echo "signing preflight: a test codesign with \"$id\" FAILED (rc=$rc):"
-  printf '%s\n' "$out" | sed 's/^/    /'
+  while IFS= read -r _line; do printf '    %s\n' "$_line"; done <<EOF
+$out
+EOF
   case "$out" in
     *errSecInternalComponent*|*"User interaction is not allowed"*)
-      echo "The identity is here but the login keychain is LOCKED, which is normal in an SSH session."
-      echo "Step 4 would fail the same way AFTER the suite and the page layer. Unlock it, then re-run the cut:"
+      echo "The identity is here but this session cannot use its key: the login keychain is LOCKED, which is normal over SSH."
+      echo "Step 4 would fail the same way AFTER the suite and the page layer. In the SAME session that will run the cut:"
       echo "    security unlock-keychain \"$kc\"          # prompts for the login password"
       echo "    security set-keychain-settings \"$kc\"    # no auto-lock while the cut runs"
+      echo "then run the cut in that session, not detached (nohup) from it: an unlock in one session did not reach a cut detached into another."
+      echo "If the keychain is already unlocked in this session, the key's partition list may not allow codesign:"
+      echo "    security set-key-partition-list -S apple-tool:,apple:,codesign: -s \"$kc\""
       ;;
-    *"no identity found"*|*"could not be found"*|*"ambiguous"*)
+    *"ambiguous"*)
+      echo "More than one identity matches \"$id\". Set KOSMOS_CODESIGN_ID to the exact one (its SHA-1 from 'security find-identity -v -p codesigning')."
+      ;;
+    *"no identity found"*|*"could not be found"*)
       echo "No usable identity named \"$id\" in this session's keychains. Cut on the Mac holding the cert, or set KOSMOS_CODESIGN_ID."
       ;;
     *)

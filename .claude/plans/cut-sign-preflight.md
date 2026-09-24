@@ -11,19 +11,25 @@ plain SSH session (Mortals) the login keychain is locked, so codesign fails with
   `build-kosmos-bundle.sh`), `--timestamp=none`. It classifies a failure as locked
   keychain, missing identity or unrecognised. Every failure refuses, with codesign's own
   output shown first.
-- `tools/release.sh`: new step 2c, sourced and called after the freeze and before the
-  gated steps. It sits after step 2 because `tools.release-gate.test.js` drives a sandbox
-  to step 2 with no signing identity.
-- `tools/test-cut-sign-preflight.sh`: 17 arms with function stubs (no fresh executables,
+- `tools/release.sh`: new step 1c, after the versions-entry gate and before step 2's bump,
+  so a machine-only refusal mutates nothing (no pushed bump).
+- `tools.release-gate.test.js`: its sandbox holds no cert, so `run_git` sets
+  `KOSMOS_CODESIGN_BIN=true` (the builtin) for the arms that must reach step 2. Control:
+  with `false` instead, exactly the 3 reach-step-2 arms go red, so they run through 1c.
+- `tools/test-cut-sign-preflight.sh`: 21 arms with function stubs (no fresh executables,
   which stall exec on some Macs), an identity drift check and a wiring-order check. Wired
   into `test:shell`.
-- `docs/releasing.md`: step 2c and the unlock commands.
+- `docs/releasing.md`: step 1c, the unlock commands, and the rule that the unlock must be in
+  the session that runs the cut (an unlock did not reach a nohup-detached cut on 09-24).
 
 ## Rejected
-- Before step 2: breaks the release-gate positive controls on any box without the cert.
+- After the freeze (the first draft): a refusal there leaves a pushed bump for a version
+  that never shipped. Review iteration 1 showed the release-gate conflict was a test seam,
+  not a placement constraint.
 - Auto-unlocking in release.sh: needs the login password in the cut. The operator unlocks,
   and the preflight says how.
-- Probing productsign separately: same login keychain, so one probe finds the lock.
+- Probing productsign separately: same login keychain, so one probe finds the lock. A
+  missing or expired Installer cert is not probed (stated in the lib header).
 
 ## Weakest premise
 That the failure strings (`errSecInternalComponent`, "User interaction is not allowed")

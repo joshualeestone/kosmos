@@ -24,20 +24,20 @@ improvement it gained would have died with the session that wrote it.
    deliberate -- waiting three seconds for ruled copy is better than spending
    fifteen minutes to be told the same thing -- but it is a loss of a working
    habit and you will meet it on every cut, not only on a slow one.
+   **1c. Test-sign with the cut's own identity (#3579)**, still before anything is
+   bumped or built. Step 4 signs Developer ID. Over a plain SSH session the login
+   keychain is **locked**: the identity is listed, but codesign cannot reach the key
+   and fails with `errSecInternalComponent`. That killed the 0.6.91 cut twice at step
+   4, after the full suite and the page layer, and a cut cannot resume. Now it stops
+   in about a second and mutates nothing. **Driving a cut on Mortals over SSH:** in
+   the SAME session that will run the cut, `security unlock-keychain
+   ~/Library/Keychains/login.keychain-db` (it prompts for the login password), then
+   `security set-keychain-settings ~/Library/Keychains/login.keychain-db` so it does
+   not re-lock mid-cut, then run the cut in that session. An unlock in one SSH session
+   did not reach a cut detached (nohup) into another. The preflight prints these
+   commands when it finds the lock.
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against
    the served `latest.json`, numerically rather than lexically.
-
-   **2c. Test-sign with the cut's own identity (#3579)**, right after the tree is
-   frozen and before the suite. Step 4 signs Developer ID. Over a plain SSH
-   session the login keychain is **locked**: the identity is listed, but codesign
-   cannot reach the key and fails with `errSecInternalComponent`. Before this step,
-   that killed the 0.6.91 cut at step 4, after the full suite and the page layer,
-   and a cut cannot resume. Now it stops in about a second. **Driving a cut on
-   Mortals over SSH? Unlock first**, then launch:
-   `security unlock-keychain ~/Library/Keychains/login.keychain-db` (it prompts for
-   the login password), then `security set-keychain-settings
-   ~/Library/Keychains/login.keychain-db` so the keychain does not re-lock
-   mid-cut. The preflight prints both commands when it finds the lock.
 3. **The whole suite**, on the tree that ships.
 4. **Build**, then copy the bundle, `.sha256` and `latest.json` to the site.
    ⚠️ The tarball and `latest.json` must land in the **same deploy**: shipping

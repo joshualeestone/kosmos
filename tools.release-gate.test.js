@@ -415,6 +415,11 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       HOME: home,
       KOSMOS_SITE: site,
       KOSMOS_HARNESS_IGNORE_CUT: '1',
+      /* #3579: step 1c test-signs with the Developer ID cert before the bump. The
+         sandbox holds no cert (CI runs on Linux and cert-less macOS), so the arms that
+         must reach step 2 point the preflight at the `true` builtin. The preflight has
+         its own tests in tools/test-cut-sign-preflight.sh. */
+      KOSMOS_CODESIGN_BIN: 'true',
     },
     timeout: 60000,
     killSignal: 'SIGKILL',

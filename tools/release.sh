@@ -523,6 +523,15 @@ kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has be
   "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7. Or leave it as an entry file carrying TIMESTAMP (see docs/releasing.md) and the deploy stamps it for you." \
   "$KOSMOS_STEP1_PAST_BOUND" "$KOSMOS_ENTRY_FILE" || exit 1
 
+step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="
+# Step 4 signs Developer ID. A locked login keychain (any plain SSH session, or a cut
+# detached from the session that unlocked it) made 0.6.91's first cuts die THERE, after
+# ~22 minutes of suite and page layer, and a cut does not resume. One throwaway test-sign
+# here costs about a second and mutates nothing, so a refusal leaves no pushed bump.
+# It runs in THIS process's security session, which is the one step 4 will sign from.
+. "$REPO/tools/lib/cut-sign-preflight.sh"
+kosmos_sign_preflight || exit 1
+
 step "== 2. the version, in one place =="
 node -e "
 const fs=require('fs'),p='$REPO/package.json';
@@ -646,16 +655,6 @@ DEPLOYED=0
 trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
-
-step "== 2c. the signing key answers, before the gated steps (#3579) =="
-# Step 4 signs Developer ID. A locked login keychain (any plain SSH session) made
-# 0.6.91's first cut die THERE, after ~22 minutes of suite and page layer, and a cut
-# does not resume. One throwaway test-sign here costs about a second. Placed after
-# the freeze, not before step 2, because tools.release-gate.test.js drives a sandbox
-# to step 2 with no signing identity; a stop here leaves only the step-2 bump, which
-# the re-cut's step 2 treats as already done.
-. "$REPO/tools/lib/cut-sign-preflight.sh"
-kosmos_sign_preflight || exit 1
 
 # #2017: do not run the gated steps (the suite here AND the browser layer at 3b)
 # into a box some OTHER heavy job is saturating. #1962 reserves the box against
