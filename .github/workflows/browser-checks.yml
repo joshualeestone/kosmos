@@ -153,7 +153,8 @@ jobs:
     # -- also launches webkit) plus a macOS runner being slower than a dev Mac puts a
     # real run in the several-minutes range. 40 is generous headroom for provision +
     # a hung run + further allowlist growth, without clipping an honest slow one. (The
-    # FULL page-check suite runs only at the release cut's 3b, never in this job.)
+    # FULL page-check suite never runs in this job; it runs at the cut's 3b and nightly
+    # in browser-checks-full.yml, #2518.)
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4

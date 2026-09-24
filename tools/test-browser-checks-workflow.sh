@@ -217,7 +217,7 @@ if command -v ruby >/dev/null 2>&1; then
   else HAVE_JQ=1; fi
   if [ -n "$HAVE_JQ" ]; then
   card() {
-    VIEWFAIL="${VIEWFAIL:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+    VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV:-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
         "label list") f=$(qarg "$@") || { echo "CALL unexpected label list without -q"; return 1; }
@@ -231,9 +231,12 @@ if command -v ruby >/dev/null 2>&1; then
         "issue view")
           [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
           f=$(qarg "$@") || { echo "CALL unexpected issue view without -q"; return 1; }
+          if [ -n "$VIEWBODY" ]; then jq -n --arg b "$VIEWBODY" "{body: \$b, comments: []}" | jq -r "$f"; return; fi
           printf "%s" "{\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person quoting it: Red checks: something else entirely\"}]}" | jq -r "$f" ;;
         "issue comment") echo "CALL comment $3 :: $*" ;;
-        "issue create") echo "CALL create :: $*" ;;
+        "issue create") echo "CALL create :: $*"
+          # keep the real body, so a later arm can read back what this job wrote
+          [ -n "$BODYFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$BODYFILE"; prevarg="$a"; done; }; true ;;
         "issue close") echo "CALL close $3 :: $*" ;;
         *) echo "CALL unexpected $*"; return 1 ;;
       esac; }
@@ -266,6 +269,15 @@ if command -v ruby >/dev/null 2>&1; then
   case "$out" in *"CALL comment"*|*"CALL create"*) fail "a green night commented or created: $out" ;; esac
   out="$(card success "")" || fail "card script failed on a green night with no card: $out"
   case "$out" in *"CALL "*) fail "a green night with no open card did anything: $out" ;; esac
+  # Round trip: the card this job CREATES is what the next night reads back. Feed the real
+  # created body (not a hand-written fixture) into issue view, so a reworded opening line
+  # or "Red checks:" format breaks this arm instead of silently making everything NEW.
+  : > "$BT/created-body"
+  out="$(BODYFILE="$BT/created-body" REDV="render-fields|regress-a-night (server did not boot)" card failure "")" || fail "round trip: create failed: $out"
+  [ -s "$BT/created-body" ] || fail "round trip: the created card body was not captured: $out"
+  out="$(VIEWBODY="$(cat "$BT/created-body")" REDV="render-fields|regress-a-night (server did not boot)|render-thread" card failure 7)" || fail "round trip: comment failed: $out"
+  newline="$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')"
+  [ "$newline" = "render-thread" ] || fail "round trip: reading back the card this job created, NEW should be exactly render-thread, got [$newline]: $out"
   pass "the card script: fresh red creates, open red comments leading with NEW checks, a timeout/cancel files, a null lookup is none, green closes, green with no card is a no-op"
   fi
 elif [ -n "${CI:-}" ]; then

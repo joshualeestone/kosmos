@@ -96,7 +96,8 @@ jobs:
   # non-success (failure, a timeout, a cancel) opens a card or comments on the open one,
   # leading with the checks NEW since the last red night, so a regression stands out
   # from runner noise; the first green scheduled run closes the card, so a streak ends.
-  # A workflow_dispatch run never reaches this job, so branch code never holds the token.
+  # A dispatch of this file as written never reaches this job (the schedule gate), so a
+  # dispatched branch does not get the token; editing the gate needs push access anyway.
   file-red-card:
     needs: browser-checks-full
     if: always() && github.event_name == 'schedule'
@@ -123,13 +124,13 @@ jobs:
           # Entries are separated by "|" (they can contain spaces); shown as " | ".
           red=$(printf '%s' "${RED:-(none captured)}" | sed 's/[[:space:]]*|[[:space:]]*/ | /g')
           if [ -n "$open" ]; then
-            # The entries named by this card's most recent report (this job's own body or
-            # comments, matched by their opening words, never a person's comment), so only
-            # NEW ones lead.
+            # The entries named by this card's most recent report, found by the opening words
+            # this job writes (startswith: same meaning in gh's gojq and in jq; a person
+            # pasting a report verbatim would also match), so only NEW ones lead.
             # If that report cannot be read, say so rather than calling everything new.
             unread=""
             if ! prev=$(gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
-                -q '[.body] + [.comments[].body] | map(select(test("^(The nightly full|Still not green)"))) | last // ""' \
+                -q '[.body] + [.comments[].body] | map(select(startswith("The nightly full") or startswith("Still not green"))) | last // ""' \
                 | sed -n 's/^.*Red checks: //p' | tail -n 1); then
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
             fi
