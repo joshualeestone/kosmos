@@ -73,7 +73,10 @@ function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
    sandbox / the account dir), else <home>/.grok. The operator's own ambient
    GROK_HOME is deliberately NOT honoured as the default -- a default-account agent
    is pinned to the standard ~/.grok the board knows, and a per-account home is
-   carried by the account's dir, never by an ambient env var. */
+   carried by the account's dir, never by an ambient env var. (The supervisor's grok
+   arm reads GROK_HOME first, but that variable reaches it only from a PER-ACCOUNT
+   plist: launchd starts it with exactly the plist's EnvironmentVariables. For a
+   default agent it computes these same tiers, so the two agree; #3391.) */
 function defaultDir() {
   return process.env.AGENT_WORKFORCE_GROK_HOME || path.join(homeDir(), '.grok');
 }

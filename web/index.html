@@ -19807,8 +19807,9 @@ function acctProvider(a) {
 function switchKeyedWord(p) {
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
-/* #3566: an OpenAI sentence re-said for the picker's provider. Gemini and Grok accounts are
-   pasted keys, never a sign-in, so "OpenAI sign-in" becomes "Gemini account" there. */
+/* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
+   "Gemini account" there. (#3391: a Grok account may be a key OR a subscription sign-in;
+   "Grok account" is true of both. Connecting a Grok subscription from this screen is part 2.) */
 function switchKeyedSay(text, p) {
   if (!keyOnlyProvider(p)) return text;
   return String(text).replace(/OpenAI sign-in/g, switchKeyedWord(p) + ' account').replace(/OpenAI/g, switchKeyedWord(p));
