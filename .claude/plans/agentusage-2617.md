@@ -1,5 +1,8 @@
 # Token Usage per agent, engine and route slice (kosmos#2617)
 
+(`token-usage-2617.md` in this folder is the earlier #2638 restore of the
+graphical page. This file is the per-agent work.)
+
 Josh (#2617): the Token Usage page used to be graphical and "broken down by
 per-agent token usage". The graphical view is restored and served (#2638, then
 the #2840 value view, in 0.6.90). The per-agent split was deferred as "engine
@@ -28,8 +31,15 @@ restore.
   failing freeze is logged, because it would repeat that on every request.
 - **Deterministic dedup.** Transcripts are read in sorted order, so a message
   that appears in two transcripts is credited to the same folder every scan.
+  Which copy wins is by path, not by which is the original. Kosmos resumes an
+  agent in its own folder, so both copies usually share a launch folder;
+  preferring the earliest row would move credit between days and disturb the
+  per-model totals this branch never rewrites.
 - **Ownership.** `usage.byAgent()` gives a folder to the agent whose own folder
-  it is, both sides compared after realpath, so a link and its target match.
+  it is, both sides compared after realpath, so a session cwd recorded through
+  a link matches the agent's real folder. Agent folders come from
+  `create.workerDir()`, which never returns a link (it refuses one and falls
+  back to the derived folder).
   Subfolders are not claimed, so an agent recorded on a broad folder cannot
   absorb sessions launched beneath it. A folder two agents share goes to
   `shared`. Folders no agent owns go to `elsewhere`.
