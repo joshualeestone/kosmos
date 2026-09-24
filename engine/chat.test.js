@@ -165,7 +165,7 @@ test('a non-string is refused, not coerced into "[object Object]"', () => {
 });
 
 test('a message longer than the cap is refused rather than truncated', () => {
-  assert.match(chat.messageProblem('x'.repeat(chat.MAX_TEXT + 1)), /8000 characters or fewer/);
+  assert.match(chat.messageProblem('x'.repeat(chat.MAX_TEXT + 1)), /10000 characters or fewer/);
   assert.equal(chat.messageProblem('x'.repeat(chat.MAX_TEXT)), null);
 });
 
