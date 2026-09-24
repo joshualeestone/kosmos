@@ -14801,11 +14801,12 @@ function start(port = PORT) {
       /* #3410 PR 2b: recover a network-wedged agent by itself. When an agent's pane has read
          connection_lost with the same error line on consecutive ticks and the API host is
          reachable again, type one retry message into it (engine/connlost-heal.js: a nudge keeps the
-         agent's context, where a restart would lose it). At most 3 nudges in 30 minutes, then it
-         stops and the card stays red for a person. Same gating as the class-1 sweep: inert under
+         agent's context, where a restart would lose it). At most 3 nudges per outage (an outage
+         ends only after a sustained recovery, see connlost-heal.js), then it stops and the card
+         stays red for a person. Same gating as the class-1 sweep: inert under
          `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1, own ~1-min timer, unref'd, best-effort. */
-      const connlostBook = new Map(); // in memory: a board restart (or 10 min not lost) clears an escalation
+      const connlostBook = new Map(); // in memory: a board restart (or the outage ending) clears an escalation
       const connlostTick = connlostHeal.makeTick({
         allowed: () => liveExecution.liveExecutionAllowed(),
         roster: () => safeRoster(),
