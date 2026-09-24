@@ -5722,7 +5722,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
   // tester: a dev's tmux Claude Code sessions filled first run with garbage agents). Real agents come in
   // later via the manual Import Agent (#1652) on the Create Agent screen.
   assert.match(adopt.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
-  assert.match(adopt.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.match(adopt.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i);
   assert.ok(!/already have|nothing to import|fr-name/.test(adopt.els['fr-fleet'].innerHTML),
     'onboarding still counts or offers the fleet on the adopt path');
 
@@ -10419,7 +10419,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
   });
   assert.match(found.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'first run surfaced found agents instead of the create / Giddy Up screen');
-  assert.match(found.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.match(found.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i);
   assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /found an agent|not in Kosmos yet|<input/i,
     'first run still renders a found-agents list; #2497 removed auto-import from onboarding');
 
@@ -10434,7 +10434,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
      found nothing is not the same as a search that could not run. It is still
      real. His point is that neither belongs on the screen that asks somebody to
      make their first agent, because both are the product talking about itself. */
-  assert.match(empty.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
+  assert.match(empty.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i,
     'the generic opening line is gone from the create-first-agent step');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /everything is connected|everything is in place/i,
     'the screen claims everything is connected, which it cannot know on the skipped-check or failed-search paths');
@@ -10458,7 +10458,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
     'a failed search is claiming a result');
   assert.doesNotMatch(blind.els['fr-fleet'].innerHTML, /could not look/i,
     'the failed-search confession is back on the create-first-agent step');
-  assert.match(blind.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
+  assert.match(blind.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i,
     'the neutral line is missing on the could-not-look path');
   assert.match(blind.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'the way forward is gone on a failed search');

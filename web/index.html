@@ -11462,7 +11462,7 @@ window.kosmosMeasureScrollbarWidth();
         .s9-row[data-added] .s9-added{display:inline-flex;align-items:center}
         </style>
 
-        <p class="fc-eyebrow">Your agents</p>
+        <p class="fc-eyebrow" id="fr-fleet-eyebrow">Setup complete</p>
         <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
              (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
              text below is only the pre-JS default. #2497: first run now ALWAYS
@@ -52004,21 +52004,15 @@ function frPaintFleet() {
   /* #3575 (Josh, 2026-09-24 07:51): KEEP the "Giddy Up" button ("several people ... laughed and
      thought that was cute and fun"), but the page must be about starting to use Kosmos, not about
      creating a first agent, and Giddy Up lands on the Agents dashboard instead of Create Agent.
-     Copy is April's draft per his "come up with a message"; he swaps it if he wants. "Let's get
-     started." stays as the body's first line: it was Josh's own phrase for this screen. */
+     The eyebrow and body are Josh's #3659 copy (below). */
   title.textContent = 'You\u2019re ready to start using Kosmos.';
-  // #2497 follow-on (Mona Lisa, spec on the card): everyone now lands here, including a user who
-  // already runs agents in Claude Code or Codex that onboarding deliberately no longer scoops up.
-  // One quiet POINTER (not a scan: it lists nothing, finds nothing) tells that user Kosmos is
-  // choosing not to import them and where manual Import lives, so "where are my agents?" does not
-  // reappear one screen later. #3575: Import is now reached from the dashboard, not the next
-  // screen. The pointer names "New agent" (#new-agent in the boardbar, #rail-agents-new in the
-  // consolidated rail), which shows on an empty AND a populated board; the empty state's "Create
-  // your first agent" button does not exist on an adopt machine's populated board.
-  box.innerHTML = '<p>Let\u2019s get started. Giddy Up takes you to your Agents dashboard, '
-    + 'home base for everything you do in Kosmos.</p>'
-    + '<p class="dhint" style="margin:6px 0 0;">Already have agents in Claude Code or Codex on this computer? '
-    + 'On the dashboard, choose New agent, then pick the Import option.</p>';
+  /* #3659 (Josh, 2026-09-24 17:49, verbatim): eyebrow SETUP COMPLETE, the headline above
+     unchanged, and ONE body line replacing both earlier paragraphs (it names import, so the #2497
+     pointer paragraph is retired by his copy). */
+  const eyebrow = document.getElementById('fr-fleet-eyebrow');
+  if (eyebrow) eyebrow.textContent = 'Setup complete';
+  box.innerHTML = '<p>Head to your dashboard to create or import agents, set up your projects, '
+    + 'and start building your next big idea.</p>';
   frActions({ label: 'Giddy Up', go: () => frFinish(() => showTab('agents')) });
   return;
 

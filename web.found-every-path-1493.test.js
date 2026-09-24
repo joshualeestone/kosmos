@@ -63,7 +63,7 @@ function paint(FR, FR_FOUND, FR_SCAN, FR_SCAN_INFLIGHT) {
 const DISCOVERY = ['SEARCH', 'SCAN-SEARCH', 'PAINT-FOUND', 'PAINT-SCAN', 'ARM-RESCAN'];
 function assertGiddyUpNoScan(r, where) {
   assert.equal(r.title, 'You’re ready to start using Kosmos.', `${where}: first run did not land on the #3575 start-using-Kosmos heading`);
-  assert.match(r.box, /Let’s get started\./, `${where}: the Giddy Up copy is gone`);
+  assert.match(r.box, /Head to your dashboard to create or import agents/, `${where}: the Giddy Up copy is gone (#3659)`);
   assert.ok(r.calls.includes('actions'), `${where}: the Giddy Up action was not rendered (calls: ${r.calls})`);
   for (const d of DISCOVERY) {
     assert.ok(!r.calls.includes(d), `${where}: onboarding still runs discovery (${d}) on first run (calls: ${r.calls})`);
