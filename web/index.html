@@ -26121,16 +26121,18 @@ async function paintTalk(sessionName, agentName) {
      `say.disabled` happened to hold, covering both flows.
 
      Fix: re-apply focus across the one-paint teardown steal, but bound the
-     intent's life BY TIME so it can never yank focus later. Within a short window
+     intent's life BY TIME so it does not linger. Within a short window
      (ANSWER_FOCUS_WINDOW_MS) of the FIRST PAINT THAT OBSERVES the intent (stamped
      into ANSWER_WANTS_FOCUS_AT there, NOT at the press -- see its declaration),
      and only when focus has fallen to <body>, enable the composer and re-focus
-     it. The teardown steal lands within a few ms of that first paint and the
-     recovery paint follows almost immediately, so the window covers the recovery;
-     a routine 5s poll and any user navigation fall far outside it, so neither can
-     re-grab focus a person placed deliberately -- which is the level-check
-     ambiguity a time bound resolves (a <body> from the teardown and a <body> from
-     a deliberate blur look identical, so only their TIMING can tell them apart).
+     it. The teardown steal lands within ~45ms of that first paint and the recovery
+     paint follows almost immediately, so the window covers the recovery; the
+     independent 5s poll's steady cadence is far outside it. Timing is the only
+     thing that separates a teardown steal from a person deliberately blurring to
+     <body> -- both look identical as `activeElement === body` -- so the window is
+     kept short precisely so a deliberate blur almost never lands inside it (the
+     narrow residual, and why it is acceptable, is spelled out at the
+     ANSWER_WANTS_FOCUS_AT declaration).
      Focusability is read from the NEXT state (`presence`); the composer is enabled
      before focusing (focusing a still-disabled element is a no-op) and the
      authoritative `say.disabled` write later in this paint re-derives the same
@@ -46180,12 +46182,24 @@ let ANSWER_WANTS_FOCUS = null;
    variable network latency into the budget, so on a slow read the window could
    expire before the panel ever paints and the fix would silently no-op. Measuring
    from the first observing paint decouples the window from the fetch: it only has
-   to cover paint-1 -> the teardown-recovery paint (a few ms), while the 5s poll
-   and any navigation still fall far outside it. 0 is the "not yet observed"
-   sentinel; the paint stamps it once. `performance.now()` (monotonic) so a wall
-   clock adjustment mid-window cannot distort the comparison. */
+   to cover paint-1 -> the teardown-recovery paint (measured ~45ms in the fixture),
+   while the 5s poll and any navigation fall far outside it. 0 is the "not yet
+   observed" sentinel; the paint stamps it once. `performance.now()` (monotonic) so
+   a wall clock adjustment mid-window cannot distort the comparison.
+   ⚠️ KEPT DELIBERATELY SHORT. Timing is the ONLY thing that separates the teardown
+   steal (immediate) from a person deliberately blurring to <body> (Tab into
+   browser chrome, a click on blank space) -- both land focus on <body> and are
+   otherwise indistinguishable. A wide window (an earlier version used 2000ms)
+   overlaps the independent 5s poll enough that such a deliberate blur, if it lands
+   in the same window, gets reversed by the next poll tick. 750ms covers the ~45ms
+   recovery with an order of magnitude of margin (ample even for a slow headed-cut
+   render burst, since paint-1 and its recovery paint are one post-fetch burst, not
+   a second network wait) while being far below both the 5s poll and human blur
+   reaction. The residual -- a deliberate blur to <body> AND a poll tick BOTH
+   within 750ms of the press -- is negligible and fails toward one extra focus of
+   the composer the person just chose to answer in. */
 let ANSWER_WANTS_FOCUS_AT = 0;
-const ANSWER_FOCUS_WINDOW_MS = 2000;
+const ANSWER_FOCUS_WINDOW_MS = 750;
 
 async function pjAnswerFrom(sessionName, displayName) {
   // Act on the machine name, SPEAK the display name -- the same split the
@@ -46245,9 +46259,11 @@ async function pjAnswerFrom(sessionName, displayName) {
    * declaration for why anchoring to the press would fold the async thread fetch
    * into the budget), and only when a <body> steal is what it sees; it drops the
    * intent once the window passes, the agent is off, or a DIFFERENT agent is
-   * opened. The window is why a routine 5s poll, or a return to this agent later,
-   * cannot re-grab focus a person placed themselves. So set the intent and RESET
-   * the clock to the not-observed sentinel; the paint starts it.
+   * opened (and openDetail also disarms it on any open). The short window is why a
+   * routine 5s poll, or a return to this agent later, almost never re-grabs focus a
+   * person placed themselves (the narrow residual is documented at the declaration).
+   * So set the intent and RESET the clock to the not-observed sentinel; the paint
+   * starts it.
    * (Before #3557 this was consumed on the first paint unconditionally, which lost
    * focus to the teardown steal that lands right after that paint; a first
    * intermediate fix kept it live until focus settled, which re-introduced the
