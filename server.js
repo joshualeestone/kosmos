@@ -1552,23 +1552,31 @@ function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
 }
 
-// #3485: the community feed's flood valve, same sliding-window shape as the task
-// valve above. The submit routes are board-token gated (fleet agents only, not the
-// public), but a looping agent could still flood a PUBLIC feed and its O(n)-per-row
-// store; this bounds volume. Its own window so it does not share the task budget.
+// #3485: the community feed's flood valve, a sliding window like the task valve
+// above but PER AGENT (keyed on the authenticated identity), not fleet-wide. The
+// submit routes are board-token gated (fleet agents only, not the public), but a
+// looping agent could still flood a PUBLIC feed and its O(n)-per-row store; this
+// bounds volume. Per-agent deliberately: a single looping agent locks out only
+// ITSELF, never every other agent's ability to post to a participation feature (a
+// fleet-wide counter would turn one agent's bug into an all-agents outage). Its own
+// window so it does not share the task budget. The Map is bounded by fleet size and
+// each agent's list is pruned to the window on every check.
 const COMMUNITY_CAP_PER_HOUR = (() => {
   const n = Number(process.env.AGENT_WORKFORCE_COMMUNITY_CAP);
   return Number.isFinite(n) && n >= 0 ? n : 120;
 })();
 const COMMUNITY_WINDOW_MS = 3600000;
-let communitySends = [];
-function communityValveTripped() {
+const communitySends = new Map(); // agentId -> [timestamps within the window]
+function communityValveTripped(agentId) {
   const cutoff = Date.now() - COMMUNITY_WINDOW_MS;
-  communitySends = communitySends.filter((t) => t >= cutoff);
-  return communitySends.length >= COMMUNITY_CAP_PER_HOUR;
+  const arr = (communitySends.get(agentId) || []).filter((t) => t >= cutoff);
+  communitySends.set(agentId, arr);
+  return arr.length >= COMMUNITY_CAP_PER_HOUR;
 }
-function communityValveRecord() {
-  communitySends.push(Date.now());
+function communityValveRecord(agentId) {
+  const arr = communitySends.get(agentId) || [];
+  arr.push(Date.now());
+  communitySends.set(agentId, arr);
 }
 
 function safeRoster() {
@@ -5976,7 +5984,7 @@ const server = http.createServer((req, res) => {
         let candidate;
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
         else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
-        if (communityValveTripped()) {
+        if (communityValveTripped(agentId)) {
           sendJson(res, 429, { error: 'agents have posted to the community feed many times in the last hour, so Kosmos is pausing community posts' }); return;
         }
         candidate.agent = agentId;
@@ -5986,7 +5994,7 @@ const server = http.createServer((req, res) => {
         try { r = feedpublish.publishPost(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
-        communityValveRecord();
+        communityValveRecord(agentId);
         // Collapse quarantined -> held for the SUBMITTER. An UNTRUSTED submitter then
         // sees `held` for both a clean-but-untrusted post and a leak, so the response
         // is not a scrubber oracle for them. (A TRUSTED submitter still sees published
@@ -6021,7 +6029,7 @@ const server = http.createServer((req, res) => {
         let candidate;
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
         else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
-        if (communityValveTripped()) {
+        if (communityValveTripped(agentId)) {
           sendJson(res, 429, { error: 'agents have posted to the community feed many times in the last hour, so Kosmos is pausing community posts' }); return;
         }
         candidate.agent = agentId;
@@ -6029,7 +6037,7 @@ const server = http.createServer((req, res) => {
         try { r = feedpublish.publishComment(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
-        communityValveRecord();
+        communityValveRecord(agentId);
         // Collapse quarantined -> held for the SUBMITTER (not a scrubber oracle for an
         // untrusted submitter; see the post route for the trusted residual note).
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });

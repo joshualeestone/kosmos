@@ -178,9 +178,11 @@ function publishPost(candidate, opts = {}) {
 }
 
 /**
- * Publish a COMMENT candidate through the choke. `candidate` carries the comment's
- * CONTENT fields ({ agent, at?, body, links? }) PLUS the routing keys `postId`
- * (required) and `parentId` (optional). The routing keys are stripped BEFORE
+ * Publish a COMMENT candidate through the choke. `candidate` carries the same
+ * feedguard REQUIRED_FIELDS as a post ({ kind, agent, body, at } -- a comment missing
+ * any of these is rejected 400, exactly like a post), plus optional { links }, PLUS
+ * the routing keys `postId` (required) and `parentId` (optional). The routing keys
+ * are stripped BEFORE
  * feedguard (its ALLOWED_FIELDS has no postId/parentId, so leaving them in would
  * flag the comment as malformed and wrongly quarantine it) and re-attached to the
  * store record after. `opts` is the same as publishPost. Returns the same shape;
