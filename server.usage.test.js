@@ -94,7 +94,7 @@ test('#2617: a roster that cannot be read says so, and a failing split leaves th
   const register = require('./engine/register');
   const usage = require('./engine/usage');
   const knownWas = register.known;
-  const splitWas = usage.byAgent;
+  const splitWas = usage.byAgentAsync;
   try {
     // Its own agent and transcript, so this does not lean on another test's data.
     const today = new Date().toISOString().slice(0, 10);
@@ -115,7 +115,7 @@ test('#2617: a roster that cannot be read says so, and a failing split leaves th
     assert.equal(body.byAgent.rosterRead, false, 'an unread roster was not stated');
     assert.deepEqual(body.byAgent.agents, []);
     register.known = knownWas;
-    usage.byAgent = () => { throw new Error('boom'); };
+    usage.byAgentAsync = async () => { throw new Error('boom'); };
     const res = await fetch(base + '/api/usage?days=1');
     assert.equal(res.status, 200, 'a failing per-agent split took the whole route down');
     body = await res.json();
@@ -123,7 +123,7 @@ test('#2617: a roster that cannot be read says so, and a failing split leaves th
     assert.ok(body.byDay && Object.keys(body.byDay).length, 'the per-model totals went with the split');
   } finally {
     register.known = knownWas;
-    usage.byAgent = splitWas;
+    usage.byAgentAsync = splitWas;
   }
 });
 

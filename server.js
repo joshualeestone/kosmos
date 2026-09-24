@@ -6545,24 +6545,24 @@ const server = http.createServer((req, res) => {
            `elsewhere`, and `rosterRead:false` says why. The per-folder split
            itself is NOT sent: it names every folder a session ran in (the
            person's home, project checkouts), and only its per-agent sum is
-           needed. The roster reads here are synchronous but bounded by the
-           number of agents and folders, not by transcript size. A failure in
-           this split must not blank the per-model page, so it degrades to null. */
+           needed. Folder paths are resolved asynchronously (byAgentAsync);
+           the roster reads stay synchronous and grow with the number of
+           agents. A failure in this split must not blank the per-model page,
+           so it degrades to null. */
         const { byFolder, ...rest } = result;
-        let byAgent = null;
-        try {
+        const split = (async () => {
           const known = register.known();
           const agents = known.ok ? known.names.map((name) => {
             let dir = null;
             try { dir = create.workerDir(name); } catch { dir = null; }
             return { name, shown: register.shownName(name), dir };
           }) : [];
-          byAgent = { ...usage.byAgent(result, agents), rosterRead: known.ok };
-        } catch (err) {
+          return { ...(await usage.byAgentAsync(result, agents)), rosterRead: known.ok };
+        })();
+        return split.then((byAgent) => byAgent, (err) => {
           console.error('usage: the per-agent split failed:', (err && err.message) || err);
-          byAgent = null;
-        }
-        sendJson(res, 200, { ...rest, byAgent });
+          return null;
+        }).then((byAgent) => sendJson(res, 200, { ...rest, byAgent }));
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));
     return;
