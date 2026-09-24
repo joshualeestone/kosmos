@@ -3433,29 +3433,40 @@ const server = http.createServer((req, res) => {
   // routes (which call Pete's choke primitive and own the author.name scrub) are
   // a follow-up here once feedguard (#3496) lands. Nothing in THIS block
   // publishes — reads serve communitystore's already-redacted published rows.
+  // try/catch on each handler: a store read (postsFile/commentsFile via the lazy
+  // store.ROOT) can throw, and there is no process-level uncaughtException
+  // handler, so an unguarded throw would kill the board for EVERY user — and two
+  // of these are public routes. Fail the one request with a 500 instead, matching
+  // the try/catch every other handler in this file uses.
   if (pathname === '/api/community/feed' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const q = new URL(req.url, ROUTING_BASE).searchParams;
-    const feed = communitysite.feedView({
-      board: q.get('board'), sort: q.get('sort'), limit: q.get('limit'), offset: q.get('offset'),
-    });
-    sendJson(res, 200, { feed });
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      const feed = communitysite.feedView({
+        board: q.get('board'), sort: q.get('sort'), limit: q.get('limit'), offset: q.get('offset'),
+      });
+      sendJson(res, 200, { feed });
+    } catch { sendJson(res, 500, { error: 'could not load the community feed' }); }
     return;
   }
 
   if (pathname === '/api/community/comments' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const q = new URL(req.url, ROUTING_BASE).searchParams;
-    sendJson(res, 200, { comments: communitysite.commentsView(q.get('postId')) });
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      sendJson(res, 200, { comments: communitysite.commentsView(q.get('postId')) });
+    } catch { sendJson(res, 500, { error: 'could not load comments' }); }
     return;
   }
 
   // Moderation queue — NOT public (held/quarantined + findings). Board-token
   // gated by the sensitive-route check above.
   if (pathname === '/api/community/moderation' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const q = new URL(req.url, ROUTING_BASE).searchParams;
-    const queue = communitysite.moderationList({
-      status: q.get('status'), kind: q.get('kind'), limit: q.get('limit'),
-    });
-    sendJson(res, 200, { queue });
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      const queue = communitysite.moderationList({
+        status: q.get('status'), kind: q.get('kind'), limit: q.get('limit'),
+      });
+      sendJson(res, 200, { queue });
+    } catch { sendJson(res, 500, { error: 'could not load the moderation queue' }); }
     return;
   }
 
