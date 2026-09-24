@@ -168,7 +168,7 @@ function configFor(o) {
   /* The Mac drives Playwright's own shell by path (`--browser chromium` alone would
      ask for the full "Chrome for Testing", which is not installed). A Mac config
      with no path is refused rather than quietly becoming an Edge config. */
-  const mac = x.platform === 'darwin' || x.executablePath !== undefined;
+  const mac = x.platform === 'darwin';
   if (mac && !x.executablePath) throw new Error('a Mac browser config needs the shell\'s path');
   const browser = mac
     ? ['--browser', 'chromium', '--executable-path', String(x.executablePath)]
@@ -328,7 +328,7 @@ let beat = null;
 let lockError = '';
 function takeLock() {
   lockError = '';
-  fs.mkdirSync(homeDir(), { recursive: true });
+  try { fs.mkdirSync(homeDir(), { recursive: true }); } catch (e) { lockError = String((e && e.message) || e); return false; }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const fd = fs.openSync(lockPath(), 'wx');
@@ -344,7 +344,8 @@ function takeLock() {
       if (pidAlive(owner) && quiet < LOCK_STALE_MS) { lockError = 'another browser install is already running'; return false; }
       /* Move a stale lock aside, then try to create ours again. */
       const mine = lockPath() + '.stale-' + process.pid;
-      try { fs.renameSync(lockPath(), mine); fs.rmSync(mine, { force: true }); } catch { /* another taker won; try once more */ }
+      try { fs.renameSync(lockPath(), mine); } catch { /* another taker won; try once more */ }
+      try { fs.rmSync(mine, { force: true }); } catch { /* best effort */ }
     }
   }
   lockError = lockError || 'another browser install is already running';

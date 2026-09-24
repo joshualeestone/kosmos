@@ -45,7 +45,7 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   read on Windows as well (nothing creates it, so Windows behaves as before). Removing it
   takes effect at the next board start.
 - One folder per shell version AND per CPU (`chrome-headless-shell/<version>/<arch>`), so
-  installing one CPU's shell can never replace or delete another's.
+  installing one CPU's shell does not replace another CPU's shell of the same version.
 - Mostly one install at a time: `ensureShell` takes a lock file holding its pid and touches it
   every minute while it works. It is taken over only when the owner is gone or the heartbeat
   has stopped for 5 minutes, so a dead owner whose pid was reused cannot hold it forever. The
@@ -53,9 +53,9 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   heartbeat, can leave two installers running). `ensureShell` re-checks for an installed shell
   after taking the lock and again just before its swap, and both installers write the same
   pinned, checksum-verified bytes. Under the lock it sweeps what interrupted installs left
-  (staging folders whose owner pid is gone) and prunes old shell versions to the highest one
-  below the pinned version, by version order and only among version-named folders, which a
-  still-running agent from the previous release may name.
+  (staging folders whose owner pid is gone) and prunes other shell versions to the single
+  highest one, by version order and only among version-named folders (a whole version folder,
+  every CPU in it), which a still-running agent from the previous release may name.
 - The board's retry gives up after 3 checksum failures in a row and logs it: a mismatch does
   not fix itself, and each try downloads about 100 MB.
 

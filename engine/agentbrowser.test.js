@@ -58,11 +58,11 @@ test('the config: Edge, headless, isolated profile, output kept out of the agent
 });
 
 test('launchConfig is Windows and Mac only, honours the opt-out, and is null until installed', () => {
-  assert.equal(ab.launchConfig({ platform: 'linux', install: false }), null, 'any other platform is untouched');
-  assert.equal(ab.launchConfig({ platform: 'darwin', install: false }), null, 'a Mac with nothing installed gets no flag');
+  assert.equal(ab.launchConfig({ platform: 'linux', install: false , env: {} }), null, 'any other platform is untouched');
+  assert.equal(ab.launchConfig({ platform: 'darwin', install: false , env: {} }), null, 'a Mac with nothing installed gets no flag');
   assert.equal(ab.launchConfig({ platform: 'win32', env: { KOSMOS_AGENT_BROWSER: 'off' } }), null);
   assert.equal(ab.isInstalled(), false);
-  assert.equal(ab.launchConfig({ platform: 'win32', install: false }), null,
+  assert.equal(ab.launchConfig({ platform: 'win32', install: false , env: {} }), null,
     'not installed yet = launch without a browser, never a flag naming a file that is not there');
   assert.equal(fs.existsSync(ab.configPath()), false);
 });
@@ -89,14 +89,14 @@ test('a proven install, then every launch gets a flag for a file holding exactly
   assert.deepEqual(await ab.ensureInstalled(fakeSeams({ download: async () => { throw new Error('must not download again'); } })),
     { ok: true, already: true });
 
-  const p = ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe' });
+  const p = ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe' , env: {} });
   assert.equal(p, ab.configPath());
   const written = JSON.parse(fs.readFileSync(p, 'utf8'));
   assert.deepEqual(written, ab.configFor({ node: 'C:\\K\\node.exe', cli: ab.cliPath(), outputDir: ab.outputDir() }));
 
   /* A damaged file is repaired, because a bad --mcp-config stops claude starting. */
   fs.writeFileSync(p, '{ not json');
-  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe' }), p);
+  assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe' , env: {} }), p);
   assert.deepEqual(JSON.parse(fs.readFileSync(p, 'utf8')), written);
 });
 
@@ -159,7 +159,7 @@ test('a shell that does not answer with its version installs nothing', async () 
 
 test('a proven shell, then a Mac launch gets a flag for a file naming exactly that shell', async () => {
   assert.equal(ab.isInstalled(), true, 'the server tree from the Windows arm above is in place');
-  assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'arm64', install: false }), null,
+  assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'arm64', install: false , env: {} }), null,
     'the server alone is not enough on a Mac: no shell, no flag');
   assert.deepEqual(await ab.ensureShell(shellSeams('arm64')), { ok: true });
   assert.equal(ab.shellInstalled('arm64'), true);
@@ -167,11 +167,11 @@ test('a proven shell, then a Mac launch gets a flag for a file naming exactly th
   assert.deepEqual(await ab.ensureShell(shellSeams('arm64', { download: async () => { throw new Error('must not download again'); } })),
     { ok: true, already: true });
 
-  const p = ab.launchConfig({ platform: 'darwin', arch: 'arm64', node: '/K/node', install: false });
+  const p = ab.launchConfig({ platform: 'darwin', arch: 'arm64', node: '/K/node', install: false , env: {} });
   assert.equal(p, ab.configPath());
   assert.deepEqual(JSON.parse(fs.readFileSync(p, 'utf8')),
-    ab.configFor({ node: '/K/node', cli: ab.cliPath(), outputDir: ab.outputDir(), executablePath: ab.shellExe('arm64') }));
-  assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'x64', install: false }), null, 'the other CPU is not installed');
+    ab.configFor({ platform: 'darwin', node: '/K/node', cli: ab.cliPath(), outputDir: ab.outputDir(), executablePath: ab.shellExe('arm64') }));
+  assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'x64', install: false , env: {} }), null, 'the other CPU is not installed');
 });
 
 test('the supervisor shim prints the path once installed, prints nothing otherwise, and always exits 0', async (t) => {
@@ -182,6 +182,7 @@ test('the supervisor shim prints the path once installed, prints nothing otherwi
      before its first await, so an empty folder here is a real observation. */
   const childEnv = { ...process.env };
   delete childEnv.NODE_TEST_CONTEXT;
+  delete childEnv.KOSMOS_AGENT_BROWSER;                           // an operator's own opt-out must not decide this test
   const run = (env) => spawnSync(process.execPath, [shim], { env: { ...childEnv, ...env }, encoding: 'utf8' });
   const empty = fs.mkdtempSync(path.join(SANDBOX, 'empty-'));
   const none = run({ AGENT_WORKFORCE_RUNNERS_DIR: empty });
@@ -307,7 +308,7 @@ test('a sandboxed board (AGENT_WORKFORCE_DRY_RUN=1) never starts the browser dow
   assert.equal(kicked, 0);
 });
 
-test('a lock that cannot be written says why, not "another install is running"', { skip: process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder this relies on' : false }, async () => {
+test('a lock that cannot be written says why, not "another install is running"', { skip: process.platform === 'win32' ? 'a read-only folder does not stop file creation on Windows' : (process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder this relies on' : false) }, async () => {
   fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   fs.rmSync(ab.lockPath(), { force: true });
   fs.chmodSync(ab.homeDir(), 0o555);                              // the lock file cannot be created
