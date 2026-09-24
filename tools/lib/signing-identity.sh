@@ -31,6 +31,6 @@ KOSMOS_SIGN_APP_DEFAULT="Developer ID Application: $KOSMOS_SIGN_TEAM_NAME ($KOSM
 KOSMOS_SIGN_INSTALLER_DEFAULT="Developer ID Installer: $KOSMOS_SIGN_TEAM_NAME ($KOSMOS_SIGN_TEAM_ID)"
 KOSMOS_NOTARY_KEY_ID_DEFAULT="43F2HU5BT8"
 KOSMOS_NOTARY_ISSUER_DEFAULT="69a6de7f-a03e-47e3-e053-5b8c7c11a4d1"
-# The secrets-map target holding that key's .p8 (build-installer-pkg.sh reads it for notarytool). A
+# EDIT-ONLY (no env override, unlike the values above): the secrets-map target holding that key's .p8 (build-installer-pkg.sh reads it for notarytool). A
 # new team's key filed under a NEW target must be named here, or the new key id pairs with the old .p8.
 KOSMOS_NOTARY_SECRET_TARGET="kosmos-notarize"

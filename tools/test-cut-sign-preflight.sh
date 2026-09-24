@@ -93,11 +93,12 @@ else
 fi
 # And no other shell script names the team: one place, or a partial switch ships two teams (#3643).
 # Fixed strings (-F): a team name like "Inc." or with parentheses must not be read as a regex.
-_team_all="$(grep -rlIF -e "$KOSMOS_SIGN_TEAM_ID" -e "$KOSMOS_SIGN_TEAM_NAME" -e "$KOSMOS_NOTARY_KEY_ID_DEFAULT" -e "$KOSMOS_NOTARY_ISSUER_DEFAULT" "$REPO/tools")"   # every text file under tools/
+# The whole repo (not only tools/), minus git internals, dependencies, plans and tests.
+_team_all="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$KOSMOS_SIGN_TEAM_ID" -e "$KOSMOS_SIGN_TEAM_NAME" -e "$KOSMOS_NOTARY_KEY_ID_DEFAULT" -e "$KOSMOS_NOTARY_ISSUER_DEFAULT" "$REPO")"
 if ! printf '%s\n' "$_team_all" | grep -q '/tools/lib/signing-identity.sh$'; then
   bad "CONTROL: the team sweep did not even find lib/signing-identity.sh, so it cannot see anything"
 else
-  _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/tools/test-' || true)"
+  _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/tools/test-' | grep -v '\.test\.js$' || true)"
   [ -z "$_team_hits" ] && ok "only lib/signing-identity.sh names the signing team or its notary key" || bad "the signing team or notary key is named outside lib/signing-identity.sh: $_team_hits"
 fi
 # And KOSMOS_CODESIGN_ID reaches the probe, as it reaches step 4.
