@@ -52521,7 +52521,9 @@ const TIPS = [
     foot: 'Tips come back from the ? button' },
   { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#create-name',
     body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
-  { id: 'ring', title: 'The ring is your agent\'s memory', show: () => tipVisible('#grid .agauge'), at: '#grid .agauge',
+  { id: 'ring', title: 'The ring is your agent\'s memory', /* Only a card that draws the gauge: a filled band (.gf) or the unknown-memory dashed ring (.gu).
+       An off or needs-trust card has a face and no ring. */
+    show: () => tipVisible('#grid .agauge .gf, #grid .agauge .gu'), at: '#grid .agauge',
     body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
       + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
       + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },

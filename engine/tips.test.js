@@ -53,3 +53,15 @@ test('a stored unknown id is dropped on read, and an unreadable file says so rat
   assert.equal(r.ok, false);
   assert.equal(tips.set({ seen: ['ring'] }).ok, false, 'a write over an unreadable file would forget what was seen');
 });
+
+/* Two lists name the tips: this allowlist and the page's TIPS table. A page tip missing here would be
+   refused as seen and re-show forever, so the two are pinned equal. */
+test('every tip the page shows is on the board\'s allowlist, and nothing else is', () => {
+  const page = fs.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const start = page.indexOf('const TIPS = [');
+  assert.ok(start > 0, 'the page has no TIPS table');
+  const table = page.slice(start, page.indexOf('\n];', start));
+  const ids = [...table.matchAll(/^  \{ id: '([a-z]+)'/gm)].map((m) => m[1]);
+  assert.ok(ids.length >= 5, 'read too few tip ids from the page: ' + ids.join(','));
+  assert.deepEqual([...ids].sort(), [...tips.TIP_IDS].sort());
+});

@@ -1,4 +1,4 @@
-// Browser-check-surface: tipcard helpq tips-toggle
+// Browser-check-surface: tipcard tipdim tippins tippin tip-go tip-off tip-arrow tip-bands helpq helpq-btn helpq-menu data-help tips-toggle tips-row
 'use strict';
 
 /**
