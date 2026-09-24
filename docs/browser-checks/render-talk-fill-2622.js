@@ -120,7 +120,7 @@ async function measure(page) {
       const t = document.getElementById('tabs').getBoundingClientRect();
       return { headRight: Math.round(r.right), tabsLeft: Math.round(t.left),
         gutter: getComputedStyle(document.documentElement).scrollbarGutter,
-        sbw: getComputedStyle(document.documentElement).getPropertyValue('--sbw').trim(),
+        sbw: getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim(),
         padRight: getComputedStyle(document.querySelector('.apphead')).paddingRight };
     });
     const boardHead = await headPos();
@@ -372,11 +372,11 @@ async function measure(page) {
     });
     console.log('MEASURE model section: ' + JSON.stringify(model));
     // A1m scope + A1n: every other view keeps the #1309 gutter, and the header does not move
-    // between the board, Talk and Model (--sbw pads the header by the dropped gutter's width).
+    // between the board, Talk and Model (--scrollbar-width pads the header by the dropped gutter's width).
     const modelHead = await headPos();
     chk(modelHead.gutter === 'stable' && boardHead.gutter === 'stable',
       'A1m scope: the board and the Model section keep the scrollbar gutter', JSON.stringify({ boardHead, modelHead }));
-    // A1n measures the real thing, but only where this runner's scrollbars take width (--sbw > 0);
+    // A1n measures the real thing, but only where this runner's scrollbars take width (--scrollbar-width > 0);
     // with overlay scrollbars there is no gutter to drop, so a pass would prove nothing: SKIP, loudly.
     if (boardHead.sbw && boardHead.sbw !== '0px') {
       chk(boardHead.headRight === talkHead.headRight && talkHead.headRight === modelHead.headRight
@@ -384,12 +384,13 @@ async function measure(page) {
         'A1n the header controls and tabs do not move between the board, Talk and Model',
         JSON.stringify({ boardHead, talkHead, modelHead }));
     } else {
-      console.log('SKIP  A1n (overlay scrollbars on this runner, --sbw=' + boardHead.sbw + '); A1o covers the mechanism');
+      console.log('SKIP  A1n (overlay scrollbars on this runner, --scrollbar-width=' + boardHead.sbw + '); A1o covers the mechanism');
     }
     // A1o, the mechanism in any scrollbar mode: with a 15px scrollbar the Talk header gains exactly
     // 15px of right padding, and the other views do not.
     const pad = await page.evaluate(async () => {
-      document.documentElement.style.setProperty('--sbw', '15px');
+      const bootWidth = document.documentElement.style.getPropertyValue('--scrollbar-width');
+      document.documentElement.style.setProperty('--scrollbar-width', '15px');
       const read = () => getComputedStyle(document.querySelector('.apphead')).paddingRight;
       const model = read();
       document.querySelector('#panel-detail .snav button[data-go="talk"]').click();
@@ -402,7 +403,8 @@ async function measure(page) {
       const consTalk = read();
       if (prevLayout === null) document.documentElement.removeAttribute('data-layout');
       else document.documentElement.setAttribute('data-layout', prevLayout);
-      document.documentElement.style.removeProperty('--sbw');
+      if (bootWidth) document.documentElement.style.setProperty('--scrollbar-width', bootWidth);
+      else document.documentElement.style.removeProperty('--scrollbar-width');
       return { model, talk, consTalk };
     });
     chk(parseFloat(pad.talk) - parseFloat(pad.model) === 15,

@@ -1078,6 +1078,7 @@ html { scroll-padding-top: 132px; }
      ⭐ Fixing it here rather than by narrowing the two long panes: narrowing
      treats the symptom and the next Settings row that overflows brings it back. */
   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
+  /* (The wide agent Talk view drops it too, and pads the header to match: see the #3497 block.) */
 /* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
    case; the comment above says per width, and the notice changed the
    heights): desktop stays 128 tall so 132 still clears; between 441 and
@@ -2457,16 +2458,16 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
     position: relative; flex: 1 1 auto; min-height: 0; height: auto;
     margin-right: calc(-1 * var(--space-8)); }
-  /* The page never scrolls in this view, so the #1309 scrollbar gutter (reserved on html so long
+  /* The page does not scroll in this view at any usable height (A1d), so the #1309 scrollbar gutter (reserved on html so long
      pages do not shift) would only hold an empty strip down the right edge on a Mac that shows
-     scrollbars. It is dropped here, and the header is padded by the scrollbar's width (--sbw,
+     scrollbars. It is dropped here, and the header is padded by the scrollbar's width (--scrollbar-width,
      measured at load) so the header does not move when an agent opens or closes, which is the
      shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
      (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
      nothing to drop or pad for. */
   html:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
   html:not([data-layout="consolidated"]) > body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead {
-    padding-right: calc(var(--space-8) + var(--sbw, 0px)); }
+    padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
   /* The build marker moves to the bottom-left corner, over the side column, so it does not sit
      inside the box under Post. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #buildmark { right: auto; left: 10px; }
@@ -8483,16 +8484,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   } catch (e) { /* private mode, a locked-down profile: the system theme is a fine answer */ }
 })();
 /* #3497: the width a scrollbar takes on this Mac (0 when scrollbars overlay, ~15px when they are
-   always shown), as --sbw. The wide Talk view drops the #1309 gutter so the box reaches the window
+   always shown), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches the window
    edge, and pads the header by this much so the header does not move between views. */
 (function () {
   try {
     var d = document.createElement('div');
     d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow:scroll';
     document.documentElement.appendChild(d);
-    document.documentElement.style.setProperty('--sbw', (d.offsetWidth - d.clientWidth) + 'px');
+    document.documentElement.style.setProperty('--scrollbar-width', (d.offsetWidth - d.clientWidth) + 'px');
     d.remove();
-  } catch (e) { /* no measurement: --sbw falls back to 0 and the header may move by a scrollbar's width */ }
+  } catch (e) { /* no measurement: --scrollbar-width falls back to 0 and the header may move by a scrollbar's width */ }
 })();
 </script>
 </head>
