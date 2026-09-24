@@ -529,7 +529,8 @@ async function measure(page) {
           const t = document.getElementById('tabs').getBoundingClientRect();
           return { headRight: Math.round(r.right), tabsLeft: Math.round(t.left),
             gutter: getComputedStyle(document.documentElement).scrollbarGutter,
-            sbw: getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim() };
+            sbw: getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim(),
+            given: Math.round(window.innerWidth - document.documentElement.getBoundingClientRect().width) };
         });
         const sBoard = await sHead();
         await sp.click('[data-agent="beatrix"]');
@@ -540,8 +541,10 @@ async function measure(page) {
         await sp.click('#panel-detail .snav button[data-go="model"]');
         await sp.waitForTimeout(300);
         const sModel = await sHead();
-        chk(sBoard.sbw === '15px' && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
-          'A1n ' + engine + ' precondition: scrollbars take 15px here and the board\'s computed gutter is stable, Talk\'s auto', JSON.stringify({ sBoard, sTalk }));
+        // Real scrollbars: Model scrolls and gives up 15px in both engines. The measured reservation of a
+        // page that does not scroll is 15px in Chromium and 0 in Playwright's WebKit, which reserves none.
+        chk(sModel.given === 15 && sBoard.sbw === (engine === 'webkit' ? '0px' : '15px') && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
+          'A1n ' + engine + ' precondition: a scrolling page gives up 15px, the measured reservation is ' + (engine === 'webkit' ? '0' : '15') + 'px, the board\'s computed gutter is stable and Talk\'s auto', JSON.stringify({ sBoard, sTalk, sModel }));
         chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
           'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (engine === 'webkit' ? ' (a guard in WebKit, which reserves no gutter on a page that does not scroll; Chromium is the control)' : ''), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
         chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight

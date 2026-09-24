@@ -8487,26 +8487,38 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
   } catch (e) { /* private mode, a locked-down profile: the system theme is a fine answer */ }
 })();
-/* #3497: the width a scrollbar takes here (0 when scrollbars overlay, ~15px when a Mac shows them,
-   10px under the Windows scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309
-   gutter so the box reaches the window edge, and pads the header by this much so the header does not
-   move between views. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar
-   rule changes the width), on resize (a zoom, a move to another display), on a pointer press (at
-   most once a second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
+/* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
+   scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
+   scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
+   the window edge, and wide headers are padded by this less what the page gives up, so the header
+   does not move between views. Read off the root itself, not a scrolling element: a runner that hides
+   scrollbars still reserves the root's gutter, and an element probe then reads 0 against a 15px
+   gutter. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar rule changes
+   the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
+   second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
    plugged in, which fires no resize, and the press that opens an agent then measures first. */
 window.kosmosMeasureScrollbarWidth = function () {
-  var d = null;
+  var root = document.documentElement;
+  var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
+  var x = window.scrollX, y = window.scrollY;
   try {
     /* A WebKit older than scrollbar-gutter (the Mac floor is 13.5) never reserved the #1309 gutter,
        so there is nothing to drop and padding the Talk header would itself move it (A1s). */
     if (!(window.CSS && CSS.supports && CSS.supports('scrollbar-gutter', 'stable'))) return;
-    d = document.createElement('div');
-    d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow-y:scroll';
-    document.documentElement.appendChild(d);
-    document.documentElement.style.setProperty('--scrollbar-width', (d.offsetWidth - d.clientWidth) + 'px');
-    document.documentElement.setAttribute('data-scrollbar-measured', '');
+    /* Forced and read in one task, so nothing paints in between. */
+    root.style.scrollbarGutter = 'stable';
+    root.style.overflow = 'hidden';
+    var gutter = Math.max(0, Math.round(window.innerWidth - root.getBoundingClientRect().width));
+    root.style.scrollbarGutter = prevGutter;
+    root.style.overflow = prevOverflow;
+    root.style.setProperty('--scrollbar-width', gutter + 'px');
+    root.setAttribute('data-scrollbar-measured', '');
   } catch (e) { /* no measurement: see data-scrollbar-measured in the #3497 CSS */ }
-  finally { if (d && d.parentNode) d.remove(); }
+  finally {
+    root.style.scrollbarGutter = prevGutter;
+    root.style.overflow = prevOverflow;
+    if (window.scrollX !== x || window.scrollY !== y) window.scrollTo(x, y);
+  }
 };
 window.kosmosMeasureScrollbarWidth();
 /* A window drag fires resize many times a second; one measurement per frame is plenty. */
