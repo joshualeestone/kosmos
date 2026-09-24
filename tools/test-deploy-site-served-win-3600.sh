@@ -184,6 +184,10 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-stagedr2  - as redirect, and the staging pointer redirects to R2 naming a newer 0.6.60
 #   redirect-stagedr2-badsum - as stagedr2, but R2's 0.6.60 sidecar disagrees with its pointer
 #   redirect-stagedr2-old - the staging pointer redirects to R2 naming 0.6.46 (< prod 0.6.48)
+#   redirect-stagedr2-badbytes - as stagedr2, but R2's 0.6.60 zip bytes do not match its pointer/sidecar
+#   redirect-stagedr2-gone - the staging pointer redirects, but R2 has no staging pointer at all
+#   redirect-aliasprobefail - as aliasstatic, and the un-followed probe of the alias .sha256 fails
+#   redirect-aliasbytes - as redirect, but R2's alias zip is another build than its pointer names
 #   redirect-behind   - as redirect, but R2 serves an OLDER build (0.6.30) than the committed 0.6.40
 #   redirect-probenone - as redirect, but the un-followed probe fails at transport (curl exit 7)
 #   redirect-badbytes - as redirect, but R2's WZ_NEW bytes change after its sha was published

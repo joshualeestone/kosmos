@@ -518,6 +518,7 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # #3618: read a Windows pointer that prod serves by REDIRECT (to R2). Sets SWP_NAME and SWP_SHA, and
 # refuses a name that is not a bare kosmos-<version>-win-x64.zip (it becomes a URL path below) or a
 # pointer with no sha. Call it as a plain statement, never in $(...): it sets globals and may exit.
+# Each call overwrites SWP_NAME/SWP_SHA, so copy them out before the next call.
 read_served_win_pointer() {  # <pointer file under dist> <redacted redirect target> <card tag, e.g. #3600>
   _rswj=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1") || { echo "deploy-site: the served $1 redirects ($2) but could not be read through the redirect -- the deploy already ran, investigate ($3)."; exit 1; }
   SWP_NAME=$(ptr_versioned "$_rswj"); SWP_SHA=$(ptr_sha "$_rswj")
@@ -602,9 +603,10 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   # real broken checksum: refuse. Served statically from the site commit it goes stale on every
   # Windows publish; warn, naming the fix (redirect it to R2), rather than red every Mac deploy.
   _wwant=$(printf '%s' "$WIN_SERVED_SHA" | tr '[:upper:]' '[:lower:]')
+  # Probe FIRST, then read, as every other classification here does, so both reads are of one state.
+  _war=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip.sha256" 2>/dev/null) || _war=''
   _was=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/kosmos-win-x64.zip.sha256") || { echo "deploy-site: could not re-read the served kosmos-win-x64.zip.sha256 -- the deploy already ran, investigate (#3610)."; exit 1; }
   _was=$(printf '%s' "$_was" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]')
-  _war=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip.sha256" 2>/dev/null) || _war=''
   case "${_war%% *}" in
     301|302|303|307|308)
       [ "$_was" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip.sha256 says '${_was:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA for the same build -- a broken alias checksum on R2. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
