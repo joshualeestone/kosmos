@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'dae349489371dc02' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -368,4 +368,27 @@ test('#2909: an agent holding the old headings is still offered the rich-text ru
   const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
   assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === owner[0].heading),
     'the section is offered to an agent that already has it, so missingFrom is not filtering');
+});
+
+test('#3570: the block says how to read a reaction and when to react back', () => {
+  const s = defaults.sections().filter((x) => x.heading === '### When someone reacts to your post');
+  assert.equal(s.length, 1, 'the reactions section is missing or duplicated');
+  const t = s[0].text;
+  assert.match(t, /Do not reply to a reaction/, 'the agent is not told a reaction needs no reply');
+  assert.match(t, /kosmos room/, 'the agent is not told where a reaction shows up');
+  assert.match(t, /react back, sparingly/, 'the agent is not given permission to react back');
+  assert.match(t, /at most one reaction on any post/, 'the one-per-post limit is missing');
+  assert.match(t, /never\s+react to your own posts/, 'the no-self-reaction rule is missing');
+});
+
+test('#3570: an agent holding the old headings is still offered the reactions section', () => {
+  const all = defaults.sections();
+  const heading = '### When someone reacts to your post';
+  const legacy = all.filter((s) => s.heading !== heading).map((s) => s.text).join('\n\n');
+  assert.ok(defaults.missingFrom(legacy).some((s) => s.heading === heading),
+    'an existing agent would never be offered the reactions section');
+  // CONTROL: an agent that holds it is offered nothing, so the filter discriminated.
+  const complete = all.map((s) => s.text).join('\n\n');
+  assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === heading),
+    'the section is offered to an agent that already has it');
 });
