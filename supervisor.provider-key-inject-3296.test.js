@@ -179,11 +179,12 @@ test('real tmux resolves a repeated -e to the LAST value (the precedence the per
    (auth.json, no key file) must reach grok with NO XAI_API_KEY at all, or grok runs on the
    key instead of the sign-in. An EMPTY value still counts as set to grok (measured), so the
    supervisor drops every door pair and runs grok through `env -u XAI_API_KEY`. */
-function runGrokWithAccount({ door, keyFile, authJson }) {
+function runGrokWithAccount({ door, keyFile, authJson, defaultHome }) {
   const tree = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-grok-sub-'));
   fs.mkdirSync(nodePath.join(tree, 'bin'), { recursive: true });
   fs.mkdirSync(nodePath.join(tree, 'secrets', 'env'), { recursive: true });
-  const acct = nodePath.join(tree, 'acct');
+  // defaultHome: no GROK_HOME, the account is <HOME>/.grok (the default account).
+  const acct = defaultHome ? nodePath.join(tree, '.grok') : nodePath.join(tree, 'acct');
   fs.mkdirSync(acct, { recursive: true });
   fs.symlinkSync(SUP, nodePath.join(tree, 'bin', 'agent-supervisor.sh'));
   if (door) fs.writeFileSync(nodePath.join(tree, 'secrets', 'env', 'XAI_API_KEY'), door);
@@ -196,7 +197,8 @@ function runGrokWithAccount({ door, keyFile, authJson }) {
     '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
     '  has-session) exit 1 ;;', '  *) exit 0 ;;', 'esac',
   ].join('\n') + '\n', { mode: 0o755 });
-  const env = { PATH: process.env.PATH, HOME: tree, REC: rec, AGENT_WORKFORCE_HOME: tree, GROK_HOME: acct };
+  const env = { PATH: process.env.PATH, HOME: tree, REC: rec, AGENT_WORKFORCE_HOME: tree };
+  if (!defaultHome) env.GROK_HOME = acct;
   spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), 'agent-grok', tree, '/usr/bin/true', fake, '', 'grok-4.6', 'grok'], { env, encoding: 'utf8', timeout: 20000 });
   const out = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
   fs.rmSync(tree, { recursive: true, force: true });
@@ -207,7 +209,7 @@ test('grok SUBSCRIPTION account: the door XAI_API_KEY is dropped and grok runs u
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true });
   assert.ok(rec.includes('new-session'), 'the grok arm launched');
   assert.ok(!/XAI_API_KEY=/.test(rec), 'no XAI_API_KEY value of any kind reaches the pane');
-  assert.match(rec, /GROK_CLAUDE_HOOKS_ENABLED=0 env -u XAI_API_KEY \/usr\/bin\/true /, 'grok is launched through env -u XAI_API_KEY');
+  assert.match(rec, /GROK_CLAUDE_HOOKS_ENABLED=0 \/usr\/bin\/env -u XAI_API_KEY \/usr\/bin\/true /, 'grok is launched through /usr/bin/env -u XAI_API_KEY');
   // The pair structure survived the filter: every -e is still followed by a NAME=value.
   const argv = rec.trim().split(/\s+/);
   argv.forEach((a, i) => { if (a === '-e') assert.match(argv[i + 1] || '', /^[A-Z_][A-Z0-9_]*=/, 'every -e still carries a NAME=value after the filter'); });
@@ -224,4 +226,17 @@ test('grok: an EMPTY key file with an auth.json is a subscription account (the s
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', keyFile: '', authJson: true });
   assert.ok(!/XAI_API_KEY=/.test(rec), 'an empty key file does not make it an api-key account');
   assert.match(rec, /env -u XAI_API_KEY/, 'it runs under env -u like any subscription account');
+});
+
+test('grok DEFAULT account (~/.grok) with a sign-in: the door key is dropped too, so it runs on the subscription the board lists', () => {
+  const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, defaultHome: true });
+  assert.ok(rec.includes('new-session'), 'the default grok arm launched');
+  assert.ok(!/XAI_API_KEY=/.test(rec), 'no XAI_API_KEY reaches a default agent whose ~/.grok holds a sign-in');
+  assert.match(rec, /\/usr\/bin\/env -u XAI_API_KEY/);
+});
+
+test('grok DEFAULT CONTROL: a default ~/.grok with NO sign-in keeps the door key', () => {
+  const rec = runGrokWithAccount({ door: 'globaldoorvalue', defaultHome: true });
+  assert.match(rec, /-e XAI_API_KEY=globaldoorvalue/, 'the door key still reaches a default agent with no sign-in');
+  assert.ok(!/env -u XAI_API_KEY/.test(rec));
 });

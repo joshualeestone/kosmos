@@ -173,8 +173,11 @@ test('driver: approve -> awaiting-code with the URL and code -> connected with a
   assert.equal(done.account.name, 'mine', 'the typed name is kept');
   assert.equal(fs.readFileSync(rec + '.key', 'utf8').trim(), '<unset>', 'grok ran with XAI_API_KEY REMOVED, not blanked');
   assert.equal(fs.readFileSync(rec + '.home', 'utf8').trim(), dir, 'GROK_HOME is the new account dir');
-  const argv = fs.readFileSync(rec + '.argv', 'utf8').trim();
-  assert.equal(argv, `login --device-auth --leader-socket ${nodePath.join(dir, 'leader-kosmos.sock')}`, 'its leader socket is inside the account dir, not ~/.grok');
+  const argv = fs.readFileSync(rec + '.argv', 'utf8').trim().split(' ');
+  assert.deepEqual(argv.slice(0, 3), ['login', '--device-auth', '--leader-socket']);
+  const sock = argv[3];
+  assert.ok(sock.startsWith(os.tmpdir()), 'its leader socket is in the temp dir, never ~/.grok/leader.sock');
+  assert.ok(Buffer.byteLength(sock) < 104, 'and short enough for macOS\'s 104-byte socket path limit');
   assert.ok(grok.list().some((a) => a.dir === dir), 'the account is listed afterwards');
 }));
 
@@ -227,4 +230,70 @@ test('driver: a name that already holds an account is refused before anything ru
 
 test('driver: no runner binary is refused', () => {
   assert.equal(grok.startGrokLogin({ label: 'x', grokBin: '' }).ok, false);
+});
+
+/* ---- slots, claims and anti-litter (iteration-2 review) ---------------------- */
+
+test('two unlabelled sign-ins at once get DIFFERENT work slots', () => withMode('hang', async () => {
+  grok.setGrokTimers({ forceKill: 200 });
+  for (const n of [1, 2, 3, 4]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
+  const a = grok.startGrokLogin({ grokBin: FAKE });
+  const b = grok.startGrokLogin({ grokBin: FAKE });
+  assert.equal(a.ok && b.ok, true);
+  assert.equal(grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work1')), true);
+  assert.equal(grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work2')), true, 'the second sign-in took the NEXT slot, not the same one');
+  grok.cancelGrokLogin(a.sessionId); grok.cancelGrokLogin(b.sessionId);
+  await waitFor(() => !grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work1')) && !grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work2')));
+}));
+
+test('a slot an API-key add has CLAIMED is skipped by an unlabelled sign-in and refused by a named one', () => withMode('hang', async () => {
+  grok.setGrokTimers({ forceKill: 200 });
+  for (const n of [1, 2, 3]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
+  const claimed = nodePath.join(SANDBOX, '.grok-work1');
+  fs.mkdirSync(claimed, { recursive: true });
+  fs.writeFileSync(nodePath.join(claimed, '.kosmos-claim'), '');
+  const s = grok.startGrokLogin({ grokBin: FAKE });
+  assert.equal(grok.isSignInPending(claimed), false, 'the claimed slot was not taken');
+  assert.equal(grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work2')), true);
+  grok.cancelGrokLogin(s.sessionId);
+  const namedDir = nodePath.join(SANDBOX, '.grok-claimedname');
+  fs.mkdirSync(namedDir, { recursive: true });
+  fs.writeFileSync(nodePath.join(namedDir, '.kosmos-claim'), '');
+  const named = grok.startGrokLogin({ label: 'claimedname', grokBin: FAKE });
+  assert.equal(named.ok, false);
+  assert.match(named.because, /being added under that name/);
+  await waitFor(() => !grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work2')));
+  fs.rmSync(claimed, { recursive: true, force: true }); fs.rmSync(namedDir, { recursive: true, force: true });
+}));
+
+test('anti-litter on a REUSED slot removes only the auth.json, and a reused slot drops the old display name', () => withMode('noauth', async () => {
+  for (const n of [1, 2]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
+  const slot = nodePath.join(SANDBOX, '.grok-work1');
+  fs.mkdirSync(slot, { recursive: true });
+  fs.writeFileSync(nodePath.join(slot, '.kosmos-name'), 'someone else');
+  fs.writeFileSync(nodePath.join(slot, 'keepme.txt'), 'not ours to delete');
+  const s = grok.startGrokLogin({ grokBin: FAKE });
+  assert.equal(fs.existsSync(nodePath.join(slot, '.kosmos-name')), false, 'the earlier account\'s name is not inherited');
+  // An auth.json with NO auth.x.ai entry, as a half-finished sign-in might leave: exit 0 cannot land it.
+  fs.writeFileSync(nodePath.join(slot, 'auth.json'), '{}');
+  await waitFor(() => grok.grokLoginStatus(s.sessionId).state === 'error');
+  await waitFor(() => !fs.existsSync(nodePath.join(slot, 'auth.json')));
+  assert.ok(fs.existsSync(slot), 'a dir we did not make is not removed');
+  assert.ok(fs.existsSync(nodePath.join(slot, 'keepme.txt')), 'only the auth.json is taken back');
+  fs.rmSync(slot, { recursive: true, force: true });
+}));
+
+test('checkLive: an EMPTY key file beside a sign-in is judged as the sign-in (the rule identityOf uses)', async () => {
+  const d = fresh('.grok-emptykey');
+  writeAuth(d, ENTRY({ refresh_token: 'r' }));
+  fs.writeFileSync(nodePath.join(d, '.kosmos-grok-apikey'), '', { mode: 0o600 });
+  assert.equal(grok.identityOf(d).authMode, 'subscription');
+  const v = await grok.checkLive(d);
+  assert.equal(v.state, grok.STATE.CONNECTED);
+  assert.match(v.because, /subscription/);
+  // CONTROL: an empty key file with NO sign-in is still the old UNKNOWN.
+  const e = fresh('.grok-emptykey-only');
+  fs.mkdirSync(e, { recursive: true });
+  fs.writeFileSync(nodePath.join(e, '.kosmos-grok-apikey'), '', { mode: 0o600 });
+  assert.equal((await grok.checkLive(e)).state, grok.STATE.UNKNOWN);
 });

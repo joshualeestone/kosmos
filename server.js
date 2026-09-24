@@ -1755,8 +1755,7 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    `mod` (geminiaccounts/grokaccounts), so the two cannot drift. The raw key is never
    logged or echoed back -- the response carries the label + the live verdict only. */
 /* #3566: the exclusive-create marker a label-less add holds on its slot while the key is checked. */
-const CLAIM_FILE = '.kosmos-claim';
-const CLAIM_STALE_MS = 10 * 60 * 1000;
+const { CLAIM_FILE, CLAIM_STALE_MS } = require('./engine/accountclaim');
 function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
   readBody(req)
     .then(async (raw) => {
@@ -1800,6 +1799,9 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
         for (let n = 0; n < 50 && !named && !failed; n += 1) {
           const spot = mod.nextWorkDir(exclude);
           if (!spot) break;
+          /* #3391: a slot a Grok subscription sign-in holds is not free: its cleanup would
+             delete a key stored here, and its success would be overridden by it. */
+          if (typeof mod.isSignInPending === 'function' && mod.isSignInPending(spot.dir)) { exclude.add(spot.dir); continue; }
           const claimFile = path.join(spot.dir, CLAIM_FILE);
           try {
             // lstat, not existsSync: a dangling symlink must read as a link, not as absent.
@@ -1835,6 +1837,10 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
           // An existing account is refused before anything is written into its folder.
           if (mod.identityOf(named.dir)) {
             sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+            return;
+          }
+          if (typeof mod.isSignInPending === 'function' && mod.isSignInPending(named.dir)) {
+            sendJson(res, 400, { error: `a sign-in for a ${providerLabel} account by that name is in progress; finish or cancel it first` });
             return;
           }
           const claimFile = path.join(named.dir, CLAIM_FILE);
@@ -1930,6 +1936,9 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
         sendJson(res, 400, { error: 'we could not check which agents are on this account, so nothing was changed', usedBy: [] });
         return;
       }
+      /* #3391: a Grok subscription account holds a sign-in, not a key; say which. */
+      let what = 'key';
+      try { const who = mod.identityOf(dir); if (who && who.authMode === 'subscription') what = 'sign-in'; } catch { /* keep "key" */ }
       const result = remove ? mod.removeAccount(dir, usedBy) : mod.forgetAccount(dir, usedBy);
       if (!result.ok) {
         /* #3566: stopUnavailable -- this route has no disconnect-and-stop (see above), so
@@ -1942,9 +1951,9 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
          without it a Disconnect here read "Removed." against a tooltip saying nothing is deleted. */
       sendJson(res, 200, remove
         ? { removed: !!result.removed, wasDefault: !!result.wasDefault,
-          because: result.removed ? 'That account is deleted. Its key is gone from this computer.' : (result.because || 'That account is already gone from this computer.') }
+          because: result.removed ? `That account is deleted. Its ${what} is gone from this computer.` : (result.because || 'That account is already gone from this computer.') }
         : { forgotten: !!result.forgotten, movedTo: result.movedTo || null, wasDefault: !!result.wasDefault,
-          because: result.forgotten ? 'That account is off the list. Its key is set aside on this computer, so nothing was deleted.' : (result.because || 'That account is already gone from this computer.') });
+          because: result.forgotten ? `That account is off the list. Its ${what} is set aside on this computer, so nothing was deleted.` : (result.because || 'That account is already gone from this computer.') });
     })
     .catch(() => sendJson(res, 400, { error: deleteDoor ? 'we could not delete that account' : 'we could not read that request' }));
 }

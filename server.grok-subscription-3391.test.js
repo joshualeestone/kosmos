@@ -26,12 +26,14 @@ process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(SANDBOX, '.grok');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
 
 const runners = require('./engine/runners');
+const grokAccounts = require('./engine/grokaccounts');
 const { start, server } = require('./server');
 
 const FAKE = nodePath.join(SANDBOX, 'fake-grok.sh');
 fs.writeFileSync(FAKE, [
   '#!/bin/bash',
   'printf "\\nTo sign in, open this URL in your browser:\\n\\n  https://accounts.x.ai/oauth2/device?user_code=ZXCV-BNMM\\n\\nConfirm this code in your browser:\\n\\n  ZXCV-BNMM\\n\\nWaiting for authorization...\\n"',
+  '[ "$FAKE_MODE" = hang ] && exec sleep 30',
   'sleep 0.3',
   'printf \'{"https://auth.x.ai::u9":{"email":"route@example.com","refresh_token":"r"}}\' > "$GROK_HOME/auth.json"',
   'exit 0',
@@ -98,4 +100,40 @@ test('no grok runner on this computer -> 400 with needsRunner', async () => {
 test('a body that is not an object is refused', async () => {
   const r = await fetch(base + '/api/accounts/grok/subscription/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '"x"' });
   assert.equal(r.status, 400);
+});
+
+/* The BLOCKER the iteration-2 review found: an API-key add must never land on a slot a
+   pending sign-in holds, or the sign-in's cleanup deletes the key (and its success would be
+   overridden by it). Both orders, through the real routes. */
+test('a key add during a pending sign-in never lands on its slot; a named one is refused; cancelling keeps the key account', async () => {
+  grokAccounts.setGrokTimers({ forceKill: 200 });
+  grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  process.env.FAKE_MODE = 'hang';
+  try {
+    for (const n of [1, 2, 3]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
+    const s = await (await post('/api/accounts/grok/subscription/start', {})).json();
+    const pendingDir = nodePath.join(SANDBOX, '.grok-work1');
+    assert.equal(grokAccounts.isSignInPending(pendingDir), true);
+    const add = await post('/api/accounts/grok/apikey', { key: 'xai-during-signin-1234567890' });
+    assert.equal(add.status, 200, 'the key add succeeds');
+    assert.equal(fs.existsSync(nodePath.join(pendingDir, '.kosmos-grok-apikey')), false, 'the key did NOT land on the pending sign-in\'s slot');
+    const keyDir = nodePath.join(SANDBOX, '.grok-work2');
+    assert.ok(fs.existsSync(nodePath.join(keyDir, '.kosmos-grok-apikey')), 'it took the next slot');
+
+    const named = await (await post('/api/accounts/grok/subscription/start', { label: 'busyname' })).json();
+    assert.ok(named.sessionId);
+    const refused = await post('/api/accounts/grok/apikey', { label: 'busyname', key: 'xai-named-collide-1234567890' });
+    assert.equal(refused.status, 400, 'a named key add onto a pending sign-in is refused');
+    assert.match((await refused.json()).error, /sign-in .* in progress/);
+
+    await post('/api/accounts/grok/subscription/cancel', { sessionId: s.sessionId });
+    await post('/api/accounts/grok/subscription/cancel', { sessionId: named.sessionId });
+    const until = Date.now() + 5000;
+    while ((fs.existsSync(pendingDir) || grokAccounts.isSignInPending(nodePath.join(SANDBOX, '.grok-busyname'))) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(fs.existsSync(pendingDir), false, 'the cancelled sign-in cleaned its own slot');
+    assert.ok(fs.existsSync(nodePath.join(keyDir, '.kosmos-grok-apikey')), 'and the key account survived it');
+  } finally {
+    delete process.env.FAKE_MODE;
+    grokAccounts.setFetcher(null);
+  }
 });

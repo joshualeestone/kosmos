@@ -31,15 +31,19 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
    - `nextWorkDir`: a slot is free only with neither a key file nor an auth.json.
    - `startGrokLogin / grokLoginStatus / cancelGrokLogin`: the openaiaccounts ChatGPT session shape
      (fresh dir, reserved slot, anti-litter, watchdog, force-kill, reaped session), device mode only,
-     no reauth in this PR. It spawns `grok login --device-auth --leader-socket <dir>/leader-kosmos.sock`
+     no reauth in this PR. It spawns `grok login --device-auth --leader-socket <tmpdir>/kgrok-<id>.sock`
      with GROK_HOME=<dir> and XAI_API_KEY removed from its env. On exit 0 the account must read back
      as a subscription row, or it is an error and the dir is cleaned.
+   - Slot safety both ways: an API-key add skips (unlabelled) or refuses (named) a dir a pending
+     sign-in holds (`isSignInPending`), and a sign-in skips or refuses a dir an API-key add has claimed.
+     The claim file's name and staleness live in `engine/accountclaim.js`, one copy for both.
    - Header corrected: the "Grok has no such file" paragraph predates `grok login`.
 2. `server.js`: `POST /api/accounts/grok/subscription/start`, `GET .../status`, `POST .../cancel`,
    mirroring the openai routes, including the needsRunner answer.
-3. `bin/agent-supervisor.sh` grok arm: a per-account agent whose GROK_HOME has an auth.json and NO key
-   file drops every `XAI_API_KEY=` entry from PANE_ENV and launches through `env -u XAI_API_KEY`, so
-   neither the secrets/env door nor a server-global value turns a subscription agent into an API-key one.
+3. `bin/agent-supervisor.sh` grok arm: an agent whose account home (GROK_HOME, or ~/.grok for the
+   default) has an auth.json and NO key file drops every `XAI_API_KEY=` entry from PANE_ENV and launches
+   through `/usr/bin/env -u XAI_API_KEY`, so neither the secrets/env door nor a server-global value turns a
+   subscription agent into an API-key one.
 
 ## Decided, and why
 - Device mode only: the board is headless-friendly and the measured flow is device auth. `--oauth`
@@ -48,9 +52,15 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
   sign-in works: with an EMPTY key it still listed models. Refreshing a live token from a probe is
   exactly what must not happen. Weakest premise: a refresh_token present does not prove it still works.
   The observed badge covers that.
-- The DEFAULT account (~/.grok) is untouched in the supervisor: its launch path already reads ~/.grok,
-  and a machine that set a door key for it keeps that behaviour. Its row now shows the subscription
-  email when ~/.grok has an auth.json and no key file.
+- The DEFAULT account (~/.grok) follows the same rule (changed in challenge iteration 2). Its row now
+  shows the subscription when ~/.grok holds a sign-in, so a default agent must run on that sign-in, or
+  the row, the "runs on" attribution and the observed badge would all describe a subscription the agent
+  was not using. Weakest premise: a machine with a door key AND a stale ~/.grok sign-in now runs default
+  agents on the sign-in; the row shows it, and a lapsed one reads as expired rather than connected.
+- The leader socket goes in the temp dir under a short per-sign-in name, not in the account dir: a long
+  account name could pass macOS's 104-byte socket path limit there.
+- A lapsed subscription is NONE (a local, provable lapse), and create refuses it with sign-in words,
+  not "xAI rejected the key".
 - Reauth of an existing subscription account is a follow-up (remove and add again works today).
 
 ## Verification

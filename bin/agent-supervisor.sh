@@ -653,14 +653,17 @@ if [ -z "$adopt" ]; then
       [ -n "$_xkey" ] && PANE_ENV+=(-e "XAI_API_KEY=$_xkey")
       unset _xkey
     fi
-    # #3391: a per-account SUBSCRIPTION agent (auth.json, no key file) must reach grok
-    # with NO XAI_API_KEY at all, or grok uses the key instead of the sign-in. An EMPTY
-    # value still counts as set to grok (measured), so the variable is REMOVED: every
+    # #3391: a SUBSCRIPTION account (auth.json, no key file) must reach grok with NO
+    # XAI_API_KEY at all, or grok uses the key instead of the sign-in. An EMPTY value
+    # still counts as set to grok (measured), so the variable is REMOVED: every
     # `-e XAI_API_KEY=...` pair the secrets/env door added is dropped from PANE_ENV, and
     # the pane runs grok through `env -u XAI_API_KEY` so a server-global value cannot
-    # reach it either. A key-file account and the default account are unchanged.
+    # reach it either. The default ~/.grok follows the same rule, because the board lists
+    # it as the subscription account it holds (engine/grokaccounts.js rowFor). A key-file
+    # account, and a default with no sign-in, are unchanged.
     _GROK_PREFIX=()
-    if [ -n "${GROK_HOME:-}" ] && [ ! -s "${GROK_HOME}/.kosmos-grok-apikey" ] && [ -f "${GROK_HOME}/auth.json" ]; then
+    _GROK_ACCT="${GROK_HOME:-${HOME}/.grok}"
+    if [ ! -s "${_GROK_ACCT}/.kosmos-grok-apikey" ] && [ -f "${_GROK_ACCT}/auth.json" ]; then
       _kept=()
       _i=0
       _n=${#PANE_ENV[@]}
@@ -678,8 +681,9 @@ if [ -z "$adopt" ]; then
       done
       PANE_ENV=(${_kept[@]+"${_kept[@]}"})
       unset _kept _i _n
-      _GROK_PREFIX=(env -u XAI_API_KEY)
+      _GROK_PREFIX=(/usr/bin/env -u XAI_API_KEY)
     fi
+    unset _GROK_ACCT
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \

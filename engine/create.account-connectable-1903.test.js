@@ -246,3 +246,23 @@ test('#3566: a named Grok account whose key xAI REJECTS is refused at create; an
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/* #3391: a Grok SUBSCRIPTION account has no key, so a lapsed one is refused with sign-in
+   words, never "xAI rejected that account's key". A live one passes. */
+test('#3391: a lapsed Grok subscription is refused as an expired sign-in; a renewable one passes', async () => {
+  const dir = nodePath.join(HOME, '.grok-subconn');
+  fs.mkdirSync(dir, { recursive: true });
+  const write = (entry) => fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::u': { email: 's@example.com', ...entry } }), { mode: 0o600 });
+  try {
+    write({ expires_at: '2000-01-01T00:00:00.000000Z' });
+    const bad = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(bad.ok, false, 'a lapsed sign-in was accepted for a create');
+    assert.match(bad.because, /That Grok sign-in has expired/);
+    assert.doesNotMatch(bad.because, /key/, 'a subscription has no key to blame');
+    write({ refresh_token: 'r' });
+    const good = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(good.ok, true, 'CONTROL: a renewable sign-in must pass');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

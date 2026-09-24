@@ -3600,6 +3600,11 @@ async function accountConnectable({ provider, accountDir } = {}) {
     if (!acct) return { ok: true };
     let live; try { live = await mod.checkLive(acct.dir); } catch (err) { return failOpenK(word + '.checkLive', err); }
     if (live && live.state === mod.STATE.NONE) {
+      /* #3391: a Grok subscription account has no key; its NONE is a lapsed sign-in. */
+      if (acct.authMode === 'subscription') {
+        return { ok: false, because: `That ${word} sign-in has expired, so an agent created on it could not run. `
+          + 'Sign in again in Settings, AI Models.' };
+      }
       return { ok: false, because: `${vendor} rejected that ${word} account's key, so an agent created on it could not run. `
         + 'Add a working key in Settings, AI Models.' };
     }

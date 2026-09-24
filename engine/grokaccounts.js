@@ -40,7 +40,8 @@
  *    (nobody configured a key here); a file that cannot be read is UNKNOWN.
  *  - A live check reddens (NONE) ONLY on xAI's own positive rejection of the key;
  *    unreachable / a non-attributed refusal is UNKNOWN, never a guessed NONE that
- *    blocks a good key.
+ *    blocks a good key. A SUBSCRIPTION account is judged offline and reddens only on
+ *    a provable lapse: no refresh token and an expiry in the past (#3391).
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -49,6 +50,7 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
+const accountclaim = require('./accountclaim');
 
 const STATE = subscription.STATE; // CONNECTED | NONE | UNKNOWN -- one vocabulary
 const PROVIDER = 'xai';
@@ -287,7 +289,12 @@ async function checkLive(dir, _opts) {
   const got = readKey(dir);
   if (got.kind === 'absent') return subscriptionVerdict(dir);
   if (got.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not read this account\'s stored key to check it' };
-  if (!got.key) return { state: STATE.UNKNOWN, checkedLive: true, because: 'this account\'s stored key is empty' };
+  /* An empty key file does not make an api-key account (identityOf and the supervisor
+     both say so), so a dir that also holds a sign-in is judged as the sign-in. */
+  if (!got.key) {
+    if (readAuth(dir).kind !== 'absent') return subscriptionVerdict(dir);
+    return { state: STATE.UNKNOWN, checkedLive: true, because: 'this account\'s stored key is empty' };
+  }
   const live = await validateLive(got.key);
   return { ...live, checkedLive: true };
 }
@@ -413,8 +420,9 @@ function forgetAccount(dir, usedBy) {
   /* Only ever a grok home directly inside this computer's home. Defence in depth on
      an unauthenticated local endpoint that renames directories. */
   /* 🛑 Defence in depth on a directory-renaming endpoint: the DEFAULT home (~/.grok) is the
-     machine's own CLI home, NOT a per-account artifact this subsystem manages (listed when it holds
-     a key or a sign-in, never credentialed by this module), so it is never ours to move. Refusing it closes the rm-your-whole-CLI-home
+     machine's own CLI home, NOT a per-account artifact this subsystem manages (listed
+     when it holds a key or a sign-in, never credentialed by this module), so it is
+     never ours to move. Refusing it closes the rm-your-whole-CLI-home
      path a manually-placed key file could otherwise open on the remove sibling. A deliberate
      DIVERGENCE from openaiaccounts, whose default IS disconnectable/deletable (#2684) because it is
      a codex-only home Kosmos manages; grok's default is the unmanaged machine-global key door. */
@@ -606,10 +614,17 @@ function resolveFreshGrokDir(label) {
     if (!got.ok) return { error: got.because };
     if (identityOf(got.dir)) return { error: 'there is already a Grok account by that name on this computer' };
     if (activeGrokDirs.has(got.dir)) return { error: 'a sign-in for that name is already in progress' };
+    if (accountclaim.claimHeld(got.dir)) return { error: 'another Grok account is being added under that name right now; try again in a moment' };
     spot = { label: got.label, dir: got.dir };
   } else {
-    spot = nextWorkDir(activeGrokDirs);
-    if (!spot) return { error: 'we could not find a free spot for another account' };
+    // Skip slots a live sign-in holds AND slots an API-key add has claimed.
+    const skip = new Set(activeGrokDirs);
+    for (;;) {
+      spot = nextWorkDir(skip);
+      if (!spot) return { error: 'we could not find a free spot for another account' };
+      if (!accountclaim.claimHeld(spot.dir)) break;
+      skip.add(spot.dir);
+    }
   }
   let st = null;
   try { st = fs.lstatSync(spot.dir); } catch { st = null; }
@@ -620,6 +635,8 @@ function resolveFreshGrokDir(label) {
     if (e && e.code === 'EEXIST') madeDir = false;
     else return { error: 'we could not make a place for that account on this computer' };
   }
+  // A reused slot must not hand an earlier account's display name to this one.
+  if (!madeDir) { try { fs.unlinkSync(nameFile(spot.dir)); } catch { /* none */ } }
   return { dir: spot.dir, label: spot.label, madeDir };
 }
 
@@ -637,7 +654,12 @@ function startGrokLogin({ label, grokBin } = {}) {
   /* XAI_API_KEY REMOVED, not blanked: an empty value still reads as set to grok. */
   const env = { ...process.env, GROK_HOME: spot.dir };
   delete env.XAI_API_KEY;
-  const args = ['login', '--device-auth', '--leader-socket', path.join(spot.dir, 'leader-kosmos.sock')];
+  /* The leader socket: grok's default is ~/.grok/leader.sock, the machine's own. A
+     path inside the account dir can pass macOS's 104-byte socket-path limit for a long
+     name, so it goes in the temp dir under a short per-sign-in name instead. */
+  const sessionId = crypto.randomBytes(16).toString('hex');
+  const sock = path.join(os.tmpdir(), `kgrok-${sessionId.slice(0, 12)}.sock`);
+  const args = ['login', '--device-auth', '--leader-socket', sock];
   let child;
   try {
     child = spawn(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -646,7 +668,6 @@ function startGrokLogin({ label, grokBin } = {}) {
     if (spot.madeDir) { try { fs.rmSync(spot.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     return { ok: false, because: 'we could not start the Grok sign-in' };
   }
-  const sessionId = crypto.randomBytes(16).toString('hex');
   const session = { id: sessionId, child, dir: spot.dir, label: spot.label || null, typedLabel: label, madeDir: spot.madeDir, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false };
   grokSessions.set(sessionId, session);
   /* Anti-litter a sign-in that did not land an account: a dir we made goes whole; a
@@ -657,7 +678,11 @@ function startGrokLogin({ label, grokBin } = {}) {
     else { try { fs.rmSync(authFile(session.dir), { force: true }); } catch { /* best effort */ } }
   };
   // Call only once the child is confirmed gone. Idempotent.
-  const freeSlotAndDir = () => { activeGrokDirs.delete(session.dir); dropDirIfOurs(); };
+  const freeSlotAndDir = () => {
+    activeGrokDirs.delete(session.dir);
+    dropDirIfOurs();
+    try { fs.rmSync(sock, { force: true }); } catch { /* best effort */ }
+  };
   const onData = (d) => {
     session.buf += String(d);
     const parsed = parseGrokLoginOutput(session.buf);
@@ -711,6 +736,9 @@ function startGrokLogin({ label, grokBin } = {}) {
   return { ok: true, sessionId };
 }
 
+/** Whether a live sign-in holds this dir (the API-key add skips or refuses it). */
+function isSignInPending(dir) { return activeGrokDirs.has(path.resolve(String(dir || ''))); }
+
 /** Poll a Grok sign-in. @returns {{ok:true, state, authUrl?, userCode?, account?, error?} | {ok:false, because}} */
 function grokLoginStatus(sessionId) {
   const s = grokSessions.get(sessionId);
@@ -742,6 +770,7 @@ module.exports = {
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, grokLoginStatus, cancelGrokLogin, setGrokTimers,
+  isSignInPending,
   readName, writeName,
   get HOME_FOR_TEST() { return homeDir(); },
 };
