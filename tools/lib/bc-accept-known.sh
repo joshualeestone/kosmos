@@ -71,7 +71,7 @@ kosmos_bc_apply_accept_known() {
       *"did not boot"*|*"never ran"*|*"matched no checks"*|*"could not run"*)
         _kept+=("$_f"); continue ;;
     esac
-    _name="${_f%% *}"                 # the check NAME, before any " (failed twice)" suffix
+    _name="${_f%% *}"                 # the check NAME, before any suffix (a genuine red is a bare label; only infra entries like "(server did not boot)" carry a suffix -- either shape resolves to the name here)
     _match=0
     for _ak in ${_ak_list[@]+"${_ak_list[@]}"}; do [ "$_ak" = "$_name" ] && { _match=1; break; }; done
     if [ "$_match" = 1 ]; then ACCEPTED_KNOWN+=("$_name"); else _kept+=("$_f"); fi
@@ -93,4 +93,39 @@ kosmos_bc_apply_accept_known() {
     for _a in ${ACCEPTED_KNOWN[@]+"${ACCEPTED_KNOWN[@]}"}; do [ "$_a" = "$_ak" ] && { _hit=1; break; }; done
     [ "$_hit" = 0 ] && log "note: KOSMOS_BC_ACCEPT_KNOWN named '$_ak' but it did not fail as an acceptable check this run (it passed, or it is an infra failure that keeps gating) -- drop it or fix the infra."
   done
+}
+
+# kosmos#1398b: the RELEASE-side gate for the accept-known lever, called from
+# release.sh's 3b step and RE-CHECKED just before the versions-entry is inserted
+# (closing the window in which the entry could be edited mid-cut). Kept here, beside
+# the filter, so both halves of the lever are unit-tested in one place.
+#
+# Args: $1 page-log (detects an accept happened), $2 cut channel, $3 version,
+#       $4 versions-entry file, $5 cut-log path (optional, defaults to the real one).
+# Reads KOSMOS_BC_ACCEPT_KNOWN / KOSMOS_BC_ACCEPT_REASON from the env. Echoes an
+# operator message and returns 1 to REFUSE (the caller exits), 0 to proceed. A no-op
+# (return 0, silent) when the lever was not used.
+#
+# 🛑 STAGING-ONLY, and the reason MUST reach the served entry -- the two properties
+# that keep a prod cut from leaning on this and keep an accepted staging red from
+# shipping with no trace. Recording to the cut log is best-effort (never fatal).
+kosmos_release_accept_known_gate() {
+  local _pagelog="${1:-}" _channel="${2:-}" _ver="${3:-}" _entry="${4:-}" _cutlog="${5:-$HOME/.claude/logs/cut-suite-runs.log}"
+  [ -n "${KOSMOS_BC_ACCEPT_KNOWN:-}" ] || return 0
+  grep -q 'ACCEPTED KNOWN-FAILING' "$_pagelog" 2>/dev/null || return 0
+  if [ "$_channel" != staging ]; then
+    echo "accept-known: KOSMOS_BC_ACCEPT_KNOWN accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but this is a '$_channel' cut."
+    echo "  This lever is STAGING-ONLY. Re-run with KOSMOS_CUT_CHANNEL=staging; refusing to ship a $_channel build past a known-failing check. Page output: $_pagelog"
+    return 1
+  fi
+  printf '%s version=%s accepted_known="%s" reason="%s"\n' \
+    "$(date -u +%FT%TZ)" "$_ver" "${KOSMOS_BC_ACCEPT_KNOWN}" "${KOSMOS_BC_ACCEPT_REASON:-}" \
+    >> "$_cutlog" 2>/dev/null || true
+  if ! grep -qF "${KOSMOS_BC_ACCEPT_REASON:-}" "$_entry" 2>/dev/null; then
+    echo "accept-known: accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but its reason is not written in the versions entry ($_entry)."
+    echo "  Put the accept reason into the entry's <p> so the served versions page names what shipped un-verified, then re-cut. Page output: $_pagelog"
+    return 1
+  fi
+  echo "   #1398b: accepted ${KOSMOS_BC_ACCEPT_KNOWN} (staging); recorded in the cut log and named in the versions entry."
+  return 0
 }

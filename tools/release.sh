@@ -283,6 +283,10 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # what THIS is: it excludes the caller's own pid, and tools/test-cut-guard.sh
 # runs a real `bash tools/release.sh` to prove it does not refuse itself.
 . "$REPO/tools/lib/cut-guard.sh"
+# #1398b: the accept-known release-side gate (staging-only + reason-in-entry). Sourced
+# here (main checkout, before $REPO is reassigned to the frozen tree at 2b) so the
+# function is defined for the 3b step and the entry-insertion re-check below.
+. "$REPO/tools/lib/bc-accept-known.sh"
 # #2006: the isolation-rerun discriminator for step 3's suite gate. Sourced
 # UNguarded and under set -e like cut-guard.sh above: a lib the cut cannot load
 # should abort the cut, not silently skip the guard.
@@ -826,41 +830,16 @@ fi
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
-# #1398b: if the page gate went green ONLY because KOSMOS_BC_ACCEPT_KNOWN accepted
-# named failing checks, this run is NOT a clean page pass, and it must leave a trace
-# in BOTH the release log and the SERVED versions entry -- never a silent pass. The
-# accept + reason are already printed above (the `^‼️` grep). Here we (1) record it
-# structurally in the cut log, and (2) REQUIRE the reason to be in the versions entry
-# that ships, refusing otherwise: an accepted red the served page does not mention is
-# exactly what this lever must not enable.
-if [ -n "${KOSMOS_BC_ACCEPT_KNOWN:-}" ] && grep -q 'ACCEPTED KNOWN-FAILING' "$_page_log" 2>/dev/null; then
-  # #1398b: this lever is STAGING-ONLY. CUT_CHANNEL defaults to prod (line 33), and a
-  # PROD cut must never ship past a named failing page check to real users -- prod is
-  # promoted deliberately by the operator. Refuse a non-staging cut that leaned on it.
-  if [ "$CUT_CHANNEL" != staging ]; then
-    echo "accept-known: KOSMOS_BC_ACCEPT_KNOWN accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but this is a '$CUT_CHANNEL' cut."
-    echo "  This lever is STAGING-ONLY. Re-run with KOSMOS_CUT_CHANNEL=staging; refusing to ship a $CUT_CHANNEL build past a known-failing check. Page output left at: $_page_log"
-    exit 1
-  fi
-  printf '%s version=%s accepted_known="%s" reason="%s"\n' \
-    "$(date -u +%FT%TZ)" "$V" "${KOSMOS_BC_ACCEPT_KNOWN}" "${KOSMOS_BC_ACCEPT_REASON:-}" \
-    >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
-  # grep -qF is a literal, single-pattern match (the lib already refused a multi-line
-  # or trivial reason, so this is one meaningful line). Fail-safe edge: a reason with
-  # HTML-special chars (& < >) that get escaped when written into the entry HTML would
-  # not substring-match and would REFUSE the cut -- annoying, never a silent ship. Keep
-  # the reason in the entry's <p> as plain prose to avoid it.
-  # The reason is guaranteed non-empty and meaningful here: the ACCEPTED banner this
-  # block keys on is printed by the lib only AFTER the >=10-non-space-char reason check
-  # passed, so we only verify it reached the served entry.
-  if ! grep -qF "${KOSMOS_BC_ACCEPT_REASON}" "$KOSMOS_ENTRY_FILE" 2>/dev/null; then
-    echo "accept-known: this run accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but its reason is not written in the versions entry ($KOSMOS_ENTRY_FILE)."
-    echo "  Put the accept reason into the entry's <p> so the SERVED versions page names what shipped un-verified, then re-cut."
-    echo "  A cut that leans on accept-known MUST say so in the artifact users see; refusing to ship it silently. Page output left at: $_page_log"
-    exit 1
-  fi
-  echo "   #1398b: accepted known-failing page checks (${KOSMOS_BC_ACCEPT_KNOWN}); recorded in the cut log and named in the versions entry."
-fi
+# #1398b: the release-side accept-known gate -- staging-only, records the accept to the
+# cut log, and refuses unless the reason reached the versions entry that ships. A no-op
+# when the lever was not used. Logic (and its unit tests) live in the lib; a refusal
+# leaves the page log named in its own message, so do NOT delete it on that path.
+# Capture whether an accept happened BEFORE the page log is deleted, so step 7 can
+# re-verify the reason survived to insertion (closing the 3b -> 7 edit window). Use an
+# `if` so set -e never aborts the common no-accept run.
+_bc_accepted=0
+if grep -q 'ACCEPTED KNOWN-FAILING' "$_page_log" 2>/dev/null; then _bc_accepted=1; fi
+kosmos_release_accept_known_gate "$_page_log" "$CUT_CHANNEL" "$V" "$KOSMOS_ENTRY_FILE" || exit 1
 rm -f "$_page_log"
 # <<< #2760-P1 gated-steps region END <<<
 
@@ -1230,6 +1209,13 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
   if [ ! -r "$SITE/versions.html" ]; then
     echo "   cannot read $SITE/versions.html, so there is nothing to insert the entry"
     echo "   into. That is the site checkout's versions page. Check the path, not the copy."
+    exit 1
+  fi
+  # #1398b: if 3b accepted known-failing checks, the reason MUST still be in the entry
+  # we are about to insert -- re-verify here to close the window in which
+  # .release-entry.html could have been edited between 3b and now (#1398b review WARNING).
+  if [ "${_bc_accepted:-0}" = 1 ] && ! grep -qF "${KOSMOS_BC_ACCEPT_REASON:-}" "$KOSMOS_ENTRY_FILE" 2>/dev/null; then
+    echo "accept-known: the accept reason is no longer in the versions entry ($KOSMOS_ENTRY_FILE) at insertion time -- edited out after 3b. Refusing to ship an accepted red the served page does not name."
     exit 1
   fi
   node "$REPO/tools/insert-release-entry.js" "$KOSMOS_ENTRY_FILE" --site "$SITE" || exit 1

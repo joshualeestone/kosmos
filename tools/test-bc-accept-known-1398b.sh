@@ -103,4 +103,38 @@ if [ "${#FAILED[@]}" -eq 1 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 0 ]
 then pass "no KOSMOS_BC_ACCEPT_KNOWN: FAILED is untouched"
 else fail "no-op (FAILED='${FAILED[*]:-}')"; fi
 
+# --- the RELEASE-side gate (kosmos_release_accept_known_gate) -- staging-only + the
+# reason must reach the served entry. Driven directly with temp files, no cut. ---
+GT="$(mktemp -d)"; trap 'rm -rf "$GT"' EXIT
+printf '%s\n' "‼️  ACCEPTED KNOWN-FAILING page checks (KOSMOS_BC_ACCEPT_KNOWN): render-thread" > "$GT/log-accept"
+printf 'PASS everything\nall page checks passed\n' > "$GT/log-clean"
+printf '<p>shipped with a note: %s here</p>\n' "$R" > "$GT/entry-has"
+printf '<p>shipped, no accept note here</p>\n' > "$GT/entry-missing"
+export KOSMOS_BC_ACCEPT_KNOWN="render-thread"; export KOSMOS_BC_ACCEPT_REASON="$R"
+
+# no accept happened (clean log) -> no-op, proceeds even on prod
+if kosmos_release_accept_known_gate "$GT/log-clean" prod 0.6.91 "$GT/entry-has" "$GT/cutlog" >/dev/null 2>&1
+then pass "release gate: no accept banner -> no-op proceeds (even on prod)"
+else fail "release gate no-op did not proceed"; fi
+
+# an accept on a NON-STAGING (prod) channel is refused
+out="$(kosmos_release_accept_known_gate "$GT/log-accept" prod 0.6.91 "$GT/entry-has" "$GT/cutlog" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && has "$out" "STAGING-ONLY"
+then pass "release gate: an accept on a prod cut is REFUSED (staging-only)"
+else fail "release gate prod refuse (rc=$rc, out='$out')"; fi
+
+# an accept on staging with the reason NOT in the entry is refused
+out="$(kosmos_release_accept_known_gate "$GT/log-accept" staging 0.6.91 "$GT/entry-missing" "$GT/cutlog" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && has "$out" "not written in the versions entry"
+then pass "release gate: reason absent from the served entry is REFUSED"
+else fail "release gate entry-missing (rc=$rc)"; fi
+
+# an accept on staging with the reason IN the entry proceeds and records to the cut log
+: > "$GT/cutlog"
+out="$(kosmos_release_accept_known_gate "$GT/log-accept" staging 0.6.91 "$GT/entry-has" "$GT/cutlog" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "(staging)" && has "$(cat "$GT/cutlog" 2>/dev/null)" "accepted_known"
+then pass "release gate: staging + reason-in-entry PROCEEDS and records accepted_known to the cut log"
+else fail "release gate happy path (rc=$rc, cutlog='$(cat "$GT/cutlog" 2>/dev/null)')"; fi
+unset KOSMOS_BC_ACCEPT_KNOWN KOSMOS_BC_ACCEPT_REASON
+
 if [ "$fails" -eq 0 ]; then echo "test-bc-accept-known-1398b: all arms passed"; else echo "test-bc-accept-known-1398b: $fails failed"; exit 1; fi

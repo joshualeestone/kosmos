@@ -301,3 +301,35 @@ is done.
 - Windows: `tools/test-promote-channel-win.sh` (the gate's 0/1/2 arms and the promote), and
   `tools.win-staging-verify.test.js` (the record writer against a local host, round-tripped
   through the real gate).
+
+## Overriding a known-failing page check on a staging cut (`KOSMOS_BC_ACCEPT_KNOWN`, #1398b)
+
+Sometimes a staging cut is blocked at step 3b (the headless page layer) by a page
+check that is failing for a reason that is **not** a signal about the version being
+cut -- e.g. a pre-existing product regression that also reds on the prior shipped
+build, or a check whose failure is being tracked separately. `KOSMOS_BC_ACCEPT_KNOWN`
+lets that staging cut proceed past **named** checks without hiding the browser or
+skipping the whole page layer -- every other check still gates.
+
+```
+KOSMOS_CUT_CHANNEL=staging \
+KOSMOS_BC_ACCEPT_KNOWN="render-thread,render-firstrun-wizard-flow" \
+KOSMOS_BC_ACCEPT_REASON="pre-existing thread-render regression, red on prior build too, tracked in #3542" \
+  bash tools/release.sh <version>
+```
+
+Rules the lever enforces, so it can never become a silent green:
+
+- **Named only.** Only the checks you name are accepted; any other failure still reds
+  the cut. Infra failures (a board that did not boot, a check that could not run, an
+  allowlist name that never ran) are **never** acceptable -- they keep gating.
+- **A meaningful reason is mandatory** (`KOSMOS_BC_ACCEPT_REASON`, >= 10 non-space
+  chars, one line). A blank / whitespace / one-character reason is refused.
+- **Staging only.** A non-staging (`prod`) cut that names accepted checks is refused.
+- **Named in the artifact.** The reason must appear in the version's `.release-entry.html`
+  `<p>` (put it in the entry copy before you cut), and the cut re-verifies it just before
+  the entry is inserted. The accept + reason are also written to `~/.claude/logs/cut-suite-runs.log`.
+  So the served versions page names what shipped un-verified; it can never read as a clean pass.
+
+`KOSMOS_IGNORE_MACHINE_CLAIM` and the other browser-check env vars are unaffected. The
+filter and the release-side gate are unit-tested in `tools/test-bc-accept-known-1398b.sh`.
