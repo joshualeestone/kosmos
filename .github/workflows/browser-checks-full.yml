@@ -33,6 +33,14 @@ on:
 permissions:
   contents: read
 
+# Every run step as bash -eo pipefail. Without this a step runs as plain `bash -e`, where a
+# pipeline's status is its LAST command's: the card's "could not read the last report"
+# branch could never fire (found in review). The test pins this default and runs the
+# embedded scripts under the same flags.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: browser-checks-full-${{ github.ref }}
   # A run in progress is never superseded; let it finish. (A PENDING run can still be
@@ -115,11 +123,13 @@ jobs:
           # Entries are separated by "|" (they can contain spaces); shown as " | ".
           red=$(printf '%s' "${RED:-(none captured)}" | sed 's/[[:space:]]*|[[:space:]]*/ | /g')
           if [ -n "$open" ]; then
-            # The entries named by this card's most recent report, so only NEW ones lead.
+            # The entries named by this card's most recent report (this job's own body or
+            # comments, matched by their opening words, never a person's comment), so only
+            # NEW ones lead.
             # If that report cannot be read, say so rather than calling everything new.
             unread=""
             if ! prev=$(gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
-                -q '[.body] + [.comments[].body] | map(select(test("Red checks: "))) | last // ""' \
+                -q '[.body] + [.comments[].body] | map(select(test("^(The nightly full|Still not green)"))) | last // ""' \
                 | sed -n 's/^.*Red checks: //p' | tail -n 1); then
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
             fi

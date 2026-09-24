@@ -164,6 +164,7 @@ if command -v ruby >/dev/null 2>&1; then
     # cancelled job makes failure() false), and on success to close the card.
     abort "file-red-card must run on every scheduled run and nothing else, got if: #{cj["if"].inspect}" unless cj["if"].to_s.gsub(/\s+/, " ").strip == "always() && github.event_name == \x27schedule\x27"
     abort "file-red-card must hold exactly issues: write, got #{cj["permissions"].inspect}" unless cj["permissions"] == { "issues" => "write" }
+    abort "browser-checks-full.yml must run steps as bash -eo pipefail (defaults.run.shell: bash); without it a pipeline reports its last command, got #{f["defaults"].inspect}" unless ((f["defaults"] || {})["run"] || {})["shell"] == "bash"
     abort "browser-checks-full.yml must never cancel a nightly run in progress (concurrency cancel-in-progress false), got #{(f["concurrency"] || {}).inspect}" unless (f["concurrency"] || {})["cancel-in-progress"] == false
     abort "the card step has no GH_TOKEN, so gh cannot file anything" unless (cj["steps"] || []).any? { |st| (st["env"] || {})["GH_TOKEN"].to_s.include?("github.token") }
     # The PR workflow never holds issues: write, at the top or in any job.
@@ -179,9 +180,9 @@ else
 fi
 
 # #2518: the two embedded scripts are behavior, not shape, so RUN them: extracted from
-# the parsed YAML and executed under -e and pipefail (the runner's default shell has -e;
-# pipefail is the stricter case), with gh stubbed as a shell FUNCTION (never a freshly
-# written executable).
+# the parsed YAML and executed under -eo pipefail, which is exactly what the steps get
+# (the invariants above pin defaults.run.shell: bash, i.e. bash -eo pipefail), with gh
+# stubbed as a shell FUNCTION (never a freshly written executable).
 if command -v ruby >/dev/null 2>&1; then
   BT="$(mktemp -d)"
   trap 'rm -rf "$BT"' EXIT
@@ -205,20 +206,27 @@ if command -v ruby >/dev/null 2>&1; then
   # through the script's OWN -q filter with real jq, so all three filters are exercised,
   # not bypassed. An empty issue list makes real jq print "null" for .[0].number, which is
   # the null path. VIEWFAIL=1 makes issue view fail, to check the unreadable-report path.
-  command -v jq >/dev/null 2>&1 || fail "jq is required to run the card script's own filter"
+  if ! command -v jq >/dev/null 2>&1; then
+    [ -n "${CI:-}" ] && fail "jq is missing under CI, so the card's filters cannot be run"
+    pass "SKIPPED the card script (no jq on this machine)"; HAVE_JQ=""
+  else HAVE_JQ=1; fi
+  if [ -n "$HAVE_JQ" ]; then
   card() {
-    VIEWFAIL="${VIEWFAIL:-}" RESULT="$1" OPEN="${2#null}" RED="render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+    VIEWFAIL="${VIEWFAIL:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
         "label list") f=$(qarg "$@") || { echo "CALL unexpected label list without -q"; return 1; }
-          printf "%s" "[]" | jq -r "$f" ;;
+          if [ -n "$LABEL" ]; then printf "%s" "[{\"name\":\"nightly-browser-checks-red\"}]"; else printf "%s" "[]"; fi | jq -r "$f" ;;
         "label create") echo "CALL label-create" ;;
         "issue list") f=$(qarg "$@") || { echo "CALL unexpected issue list without -q"; return 1; }
-          if [ -n "$OPEN" ]; then printf "%s" "[{\"number\":$OPEN},{\"number\":3}]"; else printf "%s" "[]"; fi | jq -r "$f" ;;
+          # Real gh prints an EMPTY line for a null -q result (jq -r would print "null");
+          # OPEN=null forces a literal "null" to exercise the guard in the script.
+          if [ "$OPEN" = null ]; then echo null
+          else r=$( { if [ -n "$OPEN" ]; then printf "%s" "[{\"number\":$OPEN},{\"number\":3}]"; else printf "%s" "[]"; fi; } | jq -r "$f"); [ "$r" = null ] && r=""; printf "%s\n" "$r"; fi ;;
         "issue view")
           [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
           f=$(qarg "$@") || { echo "CALL unexpected issue view without -q"; return 1; }
-          printf "%s" "{\"body\":\"card body\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person commented\"}]}" | jq -r "$f" ;;
+          printf "%s" "{\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person quoting it: Red checks: something else entirely\"}]}" | jq -r "$f" ;;
         "issue comment") echo "CALL comment $3 :: $*" ;;
         "issue create") echo "CALL create :: $*" ;;
         "issue close") echo "CALL close $3 :: $*" ;;
@@ -229,6 +237,8 @@ if command -v ruby >/dev/null 2>&1; then
   out="$(card failure "")" || fail "card script failed on a fresh streak: $out"
   case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields | render-thread | regress-a-night (server did not boot) | render-list-row render-fields (rich board did not boot)"*) ;; *) fail "a fresh red streak did not create the label and a card naming the red checks: $out" ;; esac
   case "$out" in *"CALL comment"*|*"CALL close"*) fail "a fresh red streak commented or closed: $out" ;; esac
+  out="$(LABEL=1 card failure "")" || fail "card script failed on a fresh streak with the label present: $out"
+  case "$out" in *"CALL label-create"*) fail "the label already exists but was created again: $out" ;; *"CALL create"*) ;; *) fail "a fresh streak with the label present filed no card: $out" ;; esac
   out="$(card failure 7)" || fail "card script failed with an open card: $out"
   # The NEW entries include a spaced composite that the last report did not name: it must
   # come through WHOLE (a whitespace split would leak "(rich" and "board" as fake checks).
@@ -252,6 +262,7 @@ if command -v ruby >/dev/null 2>&1; then
   out="$(card success "")" || fail "card script failed on a green night with no card: $out"
   case "$out" in *"CALL "*) fail "a green night with no open card did anything: $out" ;; esac
   pass "the card script: fresh red creates, open red comments leading with NEW checks, a timeout/cancel files, a null lookup is none, green closes, green with no card is a no-op"
+  fi
 elif [ -n "${CI:-}" ]; then
   fail "ruby is missing under CI, so the embedded scripts cannot be run"
 else
