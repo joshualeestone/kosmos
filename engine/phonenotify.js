@@ -36,10 +36,22 @@ const TOKEN_SHAPE = /^knt1_[A-Za-z0-9_-]{8,200}$/;
 const NOTIFY_ROUTE = '/v1/mac/notify';
 const CREDENTIAL_ROUTE = '/v1/mac/notify-credential';
 const TIMEOUT_MS = 4000;
-// The coordinator's caps (coordinator/src/notify.rs `caps`); it refuses anything over.
+// The coordinator's caps in UTF-8 BYTES (coordinator/src/notify.rs `caps`, Rust
+// String::len); it refuses anything over, so capping by characters would drop a
+// non-ASCII name silently.
 const CAPS = { id: 120, agent: 80, session: 80, project: 120 };
+// At most one needs_you buzz per agent per this long: permission prompts file a
+// needs_you each, and a busy session would otherwise buzz on every one.
+const NEEDS_YOU_COOLDOWN_MS = 5 * 60 * 1000;
 
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
+
+/** A coordinator URL for `route`, keeping a self-hosted path prefix
+    (https://h/kosmos -> https://h/kosmos/<route>). The one derivation. */
+function coordinatorUrl(route) {
+  const base = new URL(remote.coordinator());
+  return new URL(base.pathname.replace(/\/+$/, '') + route, base).toString();
+}
 
 /** { on, notifyId, token }. Missing file: off. Unreadable, unparseable or not a
     plain object: off. Only an explicit `on: true` is on. */
@@ -74,54 +86,78 @@ function status() {
 }
 
 function signinUrl() {
-  try { return new URL('/signin', remote.coordinator()).toString(); } catch { return null; }
+  try { return coordinatorUrl('/signin'); } catch { return null; }
 }
 
-/** Turn phone notifications on: mint the notify token if there is none yet,
-    then save on. Refused, with nothing saved, when the Mac is not connected to
-    Kosmos+ or the mint fails. */
-async function turnOn() {
+/** Turn phone notifications on: mint a fresh notify token (minting replaces
+    any earlier one at the coordinator, so a token it no longer knows is never
+    reused), then save on. One turn-on at a time: two at once would each mint and
+    could save the token the coordinator had already replaced. Refused, with
+    nothing saved, when this computer is not connected to Kosmos+ or the mint
+    fails. */
+let turningOn = null;
+function turnOn() {
+  if (!turningOn) turningOn = doTurnOn().finally(() => { turningOn = null; });
+  return turningOn;
+}
+async function doTurnOn() {
   if (!remote.enrolled()) {
     return { ok: false, because: 'connect this computer to Kosmos+ first, then turn phone notifications on' };
   }
   const s = readState();
   const notifyId = s.notifyId || crypto.randomUUID();
-  let token = s.token;
-  if (!token) {
-    const minted = await remote.macRequest('POST', CREDENTIAL_ROUTE, { install_id: notifyId });
-    if (!minted.ok) return { ok: false, because: 'Kosmos+ did not answer: ' + minted.because };
-    token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
-    if (!TOKEN_SHAPE.test(token)) return { ok: false, because: 'Kosmos+ answered in a shape we could not use' };
+  const minted = await remote.macRequest('POST', CREDENTIAL_ROUTE, { install_id: notifyId });
+  if (!minted.ok) {
+    if (/unrecognized subcommand|mac-request/.test(String(minted.because || ''))) {
+      return { ok: false, because: 'Kosmos on this computer needs an update before phone notifications can be turned on' };
+    }
+    return { ok: false, because: 'Kosmos+ did not answer: ' + minted.because };
   }
-  const saved = writeState({ on: true, notifyId, token });
-  if (!saved.ok) return saved;
-  return { ok: true };
+  const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
+  if (!TOKEN_SHAPE.test(token)) return { ok: false, because: 'Kosmos+ answered in a shape we could not use' };
+  return writeState({ on: true, notifyId, token });
 }
 
-/** Turn them off. The token is kept so turning back on needs no new mint; it
-    can only send events, and nothing is sent while off. */
+/** Turn them off. Nothing is sent while off. The token is kept on disk (it can
+    only send events), and turning on again mints a new one anyway. */
 function turnOff() {
   const s = readState();
   return writeState({ on: false, notifyId: s.notifyId, token: s.token });
 }
 
-const cap = (v, n) => (v === null || v === undefined || v === '' ? null : String(v).slice(0, n));
+/** `v` cut to at most `n` UTF-8 bytes, never inside a character. */
+function capBytes(v, n) {
+  let out = '';
+  let used = 0;
+  for (const ch of String(v)) {
+    const size = Buffer.byteLength(ch);
+    if (used + size > n) break;
+    out += ch;
+    used += size;
+  }
+  return out;
+}
+const cap = (v, n) => (v === null || v === undefined || v === '' ? null : capBytes(v, n));
 
 function payload(notifyId, { kind, id, agent, session, project }) {
   return {
     installId: notifyId,
     id: cap(id, CAPS.id),
     kind,
-    agent: String(agent || 'An agent').slice(0, CAPS.agent),
+    agent: capBytes(agent || 'An agent', CAPS.agent),
     session: cap(session, CAPS.session),
     project: cap(project, CAPS.project),
     at: new Date().toISOString(),
   };
 }
 
-// Test seam: (url, headers, body) => void. Without one, node --test never dials.
+// Test seams: (url, headers, body) => void, and a clock. Without an injected
+// sender, node --test never dials.
 let sender = null;
 function setSender(fn) { sender = typeof fn === 'function' ? fn : null; }
+let clock = () => Date.now();
+function setClock(fn) { clock = typeof fn === 'function' ? fn : () => Date.now(); }
+const lastNeedsYou = new Map();   // session -> when its last needs_you was sent
 
 function defaultSend(url, headers, body) {
   const u = new URL(url);
@@ -144,11 +180,17 @@ function happened(event) {
     const s = readState();
     if (!s.on || !s.token || !s.notifyId) return;
     if (!remote.enrolled()) return;
-    const base = new URL(remote.coordinator());
-    const url = new URL(base.pathname.replace(/\/+$/, '') + NOTIFY_ROUTE, base).toString();
+    if (event.kind === 'needs_you') {
+      const key = String(event.session || event.agent || '');
+      const now = clock();
+      const last = lastNeedsYou.get(key);
+      if (last !== undefined && now - last < NEEDS_YOU_COOLDOWN_MS) return;
+      lastNeedsYou.set(key, now);
+    }
+    const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
     (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { KINDS, status, turnOn, turnOff, happened, payload, setSender, readState };
+module.exports = { KINDS, NEEDS_YOU_COOLDOWN_MS, status, turnOn, turnOff, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastNeedsYou.clear() };

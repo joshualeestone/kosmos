@@ -35,14 +35,11 @@
  *      scope "/" and controls the page (navigator.serviceWorker.controller is
  *      non-null). Web push cannot be received without it; there is no SW in web/
  *      today, so this cannot be asserted yet.
- *  (3) [GATED: web-push subscribe + front-door #2854] Grant notification
- *      permission (Playwright: context.grantPermissions(['notifications'],
- *      { origin })), subscribe via pushManager.subscribe with the server's VAPID
- *      public key, and POST the subscription to the relay's /v1/push/subscribe
- *      (in the SEPARATE kosmos-relay repo, Raiden -- a branch, not on kosmos
- *      origin/main). The mobile story needs a real HTTPS front-door origin
- *      (#2854); http://127.0.0.1 is a secure context locally but is not the
- *      per-user hostname a phone reaches.
+ *  (3) [SUPERSEDED on #3510, option C] A phone subscribes on the Kosmos+
+ *      sign-in page ("Notify me on this phone"), not on the board, so there is
+ *      no board-origin subscribe to check here. The board side is the Phone
+ *      notifications setting (engine/phonenotify.js). A board-origin subscribe
+ *      was removed from #3520's client; bringing it back is option A on #3510.
  *  (4) [GATED: push send path, kosmos-relay -- Raiden] Trigger a send; the
  *      service worker's push handler fires and a notification is shown. Assert
  *      via the SW's notification bookkeeping, not a screenshot (a picture cannot

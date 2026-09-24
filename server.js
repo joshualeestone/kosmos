@@ -10846,10 +10846,15 @@ const server = http.createServer((req, res) => {
         // #718: phone notifications, only when the person turned them on
         // (engine/phonenotify.js). Never the report's words.
         if (body.state === 'needs_you' && !wasNeedsYou) {
+          // The project this report stands under, stated or carried forward (a
+          // permission hook's needs_you names none), shown by its name.
           let projectName = null;
-          if (typeof body.project === 'string' && body.project.trim()) {
-            try { const pj = projects.get(body.project.trim(), roster); projectName = pj ? pj.name : null; } catch { projectName = null; }
-          }
+          try {
+            const now = selfreport.read(who);
+            const pid = now && typeof now.project === 'string' ? now.project.trim() : '';
+            const pj = pid ? projects.get(pid, roster) : null;
+            projectName = pj ? pj.name : null;
+          } catch { projectName = null; }
           phonenotify.happened({ kind: 'needs_you', id: 'report:' + who + ':' + kept.at, agent: sender.card.name || who, session: who, project: projectName });
         }
         sendJson(res, 200, { recorded: true });

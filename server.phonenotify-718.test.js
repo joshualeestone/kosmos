@@ -53,6 +53,7 @@ const sendertoken = require('./engine/sendertoken');
 const selfreport = require('./engine/selfreport');
 const phonenotify = require('./engine/phonenotify');
 const ping = require('./engine/ping');
+const projects = require('./engine/projects');
 
 const WHO = 'leo';
 let base;
@@ -72,11 +73,16 @@ test.before(async () => {
 });
 test.after(() => {
   phonenotify.setSender(null);
+  phonenotify.setClock(null);
   server.closeAllConnections(); server.close();
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
+let fakeNow = 1e12;
 test.beforeEach(() => {
   sent.length = 0;
+  phonenotify.resetCooldownForTests();
+  fakeNow += 60 * 60 * 1000;
+  phonenotify.setClock(() => fakeNow);
   unenrol();
   fs.rmSync(TUNNEL_LOG, { force: true });
   try { fs.rmSync(selfreport.DIR, { recursive: true, force: true }); } catch { /* not there */ }
@@ -134,7 +140,7 @@ test('turning on mints through mac-request, body on stdin, token never returned'
   assert.equal(on.code, 200, on.text);
   assert.equal(on.json.on, true);
   assert.doesNotMatch(on.text, /knt1_/, 'the token leaked into the response');
-  assert.equal(on.json.signinUrl, 'https://coord.example.test/signin');
+  assert.equal(on.json.signinUrl, 'https://coord.example.test/kosmos/signin', 'the sign-in link dropped the self-hosted prefix');
   const log = fs.readFileSync(TUNNEL_LOG, 'utf8');
   assert.match(log, /ARGV: mac-request --coordinator https:\/\/coord\.example\.test\/kosmos --state-dir \S+ --method POST --path \/v1\/mac\/notify-credential\n/);
   const stdin = JSON.parse(log.split('STDIN:')[1]);
@@ -151,7 +157,8 @@ test('ON: needs_you sends once per change into it, reply sends replied, never th
     await report(h, 'needs_you');   // still waiting: no second buzz
     assert.equal(sent.length, 1, 'a repeat needs_you buzzed again');
     await report(h, 'working');
-    await report(h, 'needs_you');   // a new wait: buzz
+    fakeNow += phonenotify.NEEDS_YOU_COOLDOWN_MS + 1;
+    await report(h, 'needs_you');   // a new wait, past the cooldown: buzz
     assert.equal(sent.length, 2, 'a new needs_you after working did not send');
     await reply(h);
     assert.equal(sent.length, 3, 'a reply did not send');
@@ -167,6 +174,70 @@ test('ON: needs_you sends once per change into it, reply sends replied, never th
   assert.doesNotMatch(all, /THE REPORT WORDS|THE REPLY WORDS/, 'message words left the Mac');
   assert.equal(first.body.installId, phonenotify.readState().notifyId);
   assert.notEqual(first.body.installId, ping.installId());
+});
+
+test('at most one needs_you buzz per agent within the cooldown', async () => {
+  enrol();
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  await withLeo(async (h) => {
+    assert.equal(phonenotify.NEEDS_YOU_COOLDOWN_MS, 5 * 60 * 1000);
+    await report(h, 'needs_you');
+    await report(h, 'working');
+    fakeNow += 4 * 60 * 1000;       // fixed times, not derived from the constant under test
+    await report(h, 'needs_you');   // a new wait, but inside the cooldown
+    assert.equal(sent.length, 1, 'a second needs_you inside the cooldown buzzed');
+    await report(h, 'working');
+    fakeNow += 2 * 60 * 1000;
+    await report(h, 'needs_you');   // past it
+    assert.equal(sent.length, 2, 'a needs_you after the cooldown did not send');
+    await reply(h);                 // replies are not rate-limited
+    assert.equal(sent.length, 3);
+  });
+});
+
+test('needs_you names the project it stands under, carried forward when the report names none', async () => {
+  enrol();
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  const p = projects.create({ name: 'Henderson lease' });
+  await withLeo(async (h) => {
+    await call('POST', '/api/report', { headers: h, body: { state: 'working', project: p.id, text: 'x' } });
+    await report(h, 'needs_you');   // no project on this report
+  });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].body.project, 'Henderson lease');
+});
+
+test('turning on always mints a fresh token, one turn-on at a time', async () => {
+  enrol();
+  await Promise.all([
+    call('PUT', '/api/phone-notify', { body: { on: true } }),
+    call('PUT', '/api/phone-notify', { body: { on: true } }),
+  ]);
+  const mints = () => (fs.readFileSync(TUNNEL_LOG, 'utf8').match(/ARGV: mac-request/g) || []).length;
+  assert.equal(mints(), 1, 'two concurrent turn-ons each minted');
+  await call('PUT', '/api/phone-notify', { body: { on: false } });
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  assert.equal(mints(), 2, 'turning on again reused the old token instead of minting');
+});
+
+test('a tunnel too old for mac-request says this computer needs an update, not that Kosmos+ is down', async () => {
+  enrol();
+  const old = path.join(SANDBOX, 'old-tunnel');
+  fs.writeFileSync(old, "#!/bin/bash\necho \"error: unrecognized subcommand 'mac-request'\" >&2\nexit 2\n", { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
+  try {
+    const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
+    assert.equal(r.code, 400);
+    assert.match(r.json.error, /needs an update/);
+    assert.equal(phonenotify.readState().on, false);
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
+});
+
+test('names are capped in UTF-8 bytes, never inside a character', () => {
+  const b = phonenotify.payload('n', { kind: 'needs_you', agent: '\u00e9'.repeat(60), session: 's', project: '\u{1F600}'.repeat(40) });
+  assert.equal(Buffer.byteLength(b.agent), 80);
+  assert.equal(Buffer.byteLength(b.project), 120);
+  assert.equal(b.project, '\u{1F600}'.repeat(30));
 });
 
 test('turning off stops sending at once', async () => {

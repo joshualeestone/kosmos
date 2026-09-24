@@ -52790,10 +52790,14 @@ setInterval(ageCheckedStamp, 1000);
     var link = el('phone-notify-link');
     if (!btn) return;
     if (!st || !st.connected) {
-      btn.disabled = true;
-      btn.textContent = 'Turn on';
+      // Still on but no longer connected: nothing is sent, and it can be turned off.
+      var onButIdle = !!(st && st.on);
+      btn.disabled = !onButIdle;
+      btn.textContent = onButIdle ? 'Turn off' : 'Turn on';
       if (step) step.hidden = true;
-      setMsg(st ? 'Connect this computer to Kosmos+ first, then turn this on.' : 'This setting could not be read.');
+      setMsg(!st ? 'This setting could not be read.'
+        : onButIdle ? 'On, but this computer is not connected to Kosmos+, so nothing is sent.'
+        : 'Connect this computer to Kosmos+ first, then turn this on.');
       return;
     }
     btn.disabled = false;
@@ -52812,7 +52816,7 @@ setInterval(ageCheckedStamp, 1000);
 
   var busy = false;
   function toggle() {
-    if (busy || !current || !current.connected) return Promise.resolve(false);
+    if (busy || !current || (!current.connected && !current.on)) return Promise.resolve(false);
     busy = true;
     var want = !current.on;
     var btn = el('phone-notify-toggle');
