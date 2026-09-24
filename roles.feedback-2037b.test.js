@@ -41,6 +41,25 @@ test('the PM role carries the daily product-feedback instruction (write path + s
     'the prompt carries the explicit no-identifiers rule');
 });
 
+test('#3563: the report asks for a qualitative tasks note, in words, never counts', () => {
+  const i = roles.byKey('pm').instructions;
+  // Josh, 2026-09-24: tasks go INSIDE the existing report as the agent's own
+  // words ("good, bad, or ugly"), "not as a separate actual numerical call".
+  assert.match(i, /how are tasks going\?/i, 'Q4: the tasks question is asked');
+  assert.match(i, /bad or\s+ugly/i, 'Q4 invites the bad and the ugly, not only the good');
+  assert.match(i, /anything that is stuck/i, 'Q4 asks what is stuck');
+  assert.match(i, /do not count it: no numbers/i, 'Q4 forbids counts (no numerical task telemetry)');
+  assert.match(i, /no task titles or what a task says/i, 'Q4 forbids lifting task titles or contents');
+  // The lead-in names how many questions there are; it must agree with the list,
+  // or adding Q4 without updating "three" reads as a report with a stray extra.
+  const section = i.slice(i.indexOf('## Once a day: help make Kosmos better'));
+  const numbered = section.match(/^\d+\. /gm) || [];
+  const words = { 3: 'three', 4: 'four', 5: 'five' };
+  assert.equal(numbered.length, 4, 'the section lists four questions');
+  assert.match(section, new RegExp('these ' + words[numbered.length] + ' questions'),
+    'the lead-in count agrees with the numbered list');
+});
+
 test('the daily-feedback instruction is PM-scoped, not fleet-wide', () => {
   // The store is one file per day (engine/feedback.js: idempotent replace), so a
   // single designated author avoids clobbering. Targeting the PM matches the
