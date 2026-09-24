@@ -30,6 +30,14 @@ const MOD_LIMIT_MAX = 200;
 const MOD_LIMIT_DEFAULT = 100;
 const MOD_KINDS = Object.freeze(['all', 'post', 'comment']);
 const MOD_STATUSES = Object.freeze(['held', 'quarantined']);
+// 🔑 Must match communitystore's board-slug truncation. The store writes
+// `String(rec.board).slice(0, 120)` on the post path, and the public feed filters
+// by EXACT match (`p.board === board`), so if the store's storage length and this
+// read-side cap ever diverge, a `board=` filter would silently stop matching
+// stored rows — 0 results, no error. The store owns the canonical value (120);
+// this mirrors it deliberately, the same must-match-coupling discipline
+// communitystore's MAX_AGENT_LEN documents against feedguard (Convention #5,
+// kosmos#1228: two derivations of one fact is this codebase's most-shipped defect).
 const BOARD_SLUG_MAX = 120;
 
 // Coerce an untrusted value to a non-negative integer within [0, max], falling
