@@ -40,9 +40,16 @@ const MOD_STATUSES = Object.freeze(['held', 'quarantined']);
 // kosmos#1228: two derivations of one fact is this codebase's most-shipped defect).
 const BOARD_SLUG_MAX = 120;
 
-// Coerce an untrusted value to a non-negative integer within [0, max], falling
-// back to `dflt` on anything unparseable (NaN, negative, a string, undefined).
+// Coerce an untrusted query value to an integer in [min, max]:
+//   - ABSENT (undefined / null / '') -> `dflt`. This case is load-bearing:
+//     `URLSearchParams.get()` returns null for a missing param, and Number(null)
+//     is 0 (finite), so without this guard an absent limit would fall through to
+//     the min clamp and the default feed/moderation load would return 1 row
+//     instead of its default page size.
+//   - unparseable (NaN) -> `dflt`.
+//   - below `min` -> `min`; above `max` -> `max`; otherwise the floored integer.
 function clampInt(v, dflt, max, min = 0) {
+  if (v === undefined || v === null || v === '') return dflt;
   const n = Number(v);
   if (!Number.isFinite(n)) return dflt;
   const i = Math.floor(n);
