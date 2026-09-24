@@ -24,6 +24,10 @@
  * right edge, and the composer's bottom margin equals its side margins (A1b-A1g), including
  * when the header grows taller (A1f) and without moving the identity column (A1g).
  *
+ * #3497 gutter (0.6.91 QA): A1l-A1s cover dropping the #1309 scrollbar gutter in wide Talk and
+ * padding wide headers by the measured scrollbar width. A1n launches its own Chromium (without
+ * --hide-scrollbars) and WebKit, so running this by hand needs both Playwright browsers.
+ *
  * Scoping guard (A6): a non-Talk section (Model) must NOT be forced tall -- the
  * fill is :has()-gated to the Talk section only.
  *
@@ -537,9 +541,9 @@ async function measure(page) {
       await sp.waitForTimeout(300);
       const sModel = await sHead();
       chk(sBoard.sbw === '15px' && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
-        'A1n ' + engine + ' precondition: scrollbars take 15px here and the board reserves the gutter (so the arms below are not vacuous)', JSON.stringify({ sBoard, sTalk }));
+        'A1n ' + engine + ' precondition: scrollbars take 15px here and the board\'s computed gutter is stable, Talk\'s auto', JSON.stringify({ sBoard, sTalk }));
       chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
-        'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660', 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
+        'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (engine === 'webkit' ? ' (a guard in WebKit, which reserves no gutter on a page that does not scroll; Chromium is the control)' : ''), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
       chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight
         && sBoard.tabsLeft === sTalk.tabsLeft && sTalk.tabsLeft === sModel.tabsLeft,
         'A1n ' + engine + ': the header controls and tabs do not move between the board, Talk and Model', JSON.stringify({ sBoard, sTalk, sModel }));

@@ -1078,7 +1078,7 @@ html { scroll-padding-top: 132px; }
      ⭐ Fixing it here rather than by narrowing the two long panes: narrowing
      treats the symptom and the next Settings row that overflows brings it back. */
   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
-  /* (The wide agent Talk view is exempted from this gutter and pads the header to match: see the #3497 block.) */
+  /* (The wide agent Talk view is exempted from this gutter, and wide headers are padded to match: see the #3497 block.) */
 /* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
    case; the comment above says per width, and the notice changed the
    heights): desktop stays 128 tall so 132 still clears; between 441 and
