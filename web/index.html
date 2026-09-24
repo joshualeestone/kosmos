@@ -8568,6 +8568,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 <div class="tipdim" id="tipdim" hidden></div>
 <div id="tippins"></div>
 <div class="tipcard" id="tipcard" role="dialog" aria-modal="false" aria-labelledby="tipcard-title" hidden></div>
+<span class="vh" id="tip-live" aria-live="polite"></span>
 <div id="boot-cover"><div class="boot-spin" aria-hidden="true"></div></div>
 <!-- #2066 build marker: "which build am I on", present in a screenshot on every tab.
      A fixed body corner, NOT Settings: a problem screenshot is not of Settings, and a
@@ -13729,10 +13730,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <section class="dbox">
       <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
       <h3 class="dlab">Tips</h3>
-      <div class="setrow" id="tips-row">
+      <div class="setrow" id="tips-row" hidden>
         <div><b>Show tips</b>
           <p class="dhint" style="margin:2px 0 0;">A short note the first time you open each screen. The ? beside your name brings any of them back.</p></div>
-        <button class="toggle on" id="tips-toggle" role="switch" aria-checked="true" aria-label="Show tips the first time you open each screen"><i></i></button>
+        <button class="toggle" id="tips-toggle" role="switch" aria-label="Show tips the first time you open each screen"><i></i></button>
       </div>
     </section>
 
@@ -52508,15 +52509,19 @@ const TIP_BAND = (cls, label) => '<span><svg width="10" height="10" viewBox="0 0
 const TIPS = [
   { id: 'tour', tour: true, eb: 'Welcome to Kosmos', title: 'Four places to know',
     show: () => tipVisible('#boardbar') && !tipVisible('#panel-detail'),
-    pins: ['#new-agent', '#tabs [data-tab="agents"]', '#tabs [data-tab="projects"]', '#userpop-btn'],
-    body: '<ol><li><i>1</i><span><b>New agent</b> is where you make your first agent.</span></li>'
-      + '<li><i>2</i><span><b>Agents</b> shows everyone working for you.</span></li>'
-      + '<li><i>3</i><span><b>Projects</b> is where agents work together on something.</span></li>'
-      + '<li><i>4</i><span><b>Settings</b> live under your name, top right.</span></li></ol>',
+    /* Numbered from the places actually on screen, so the card's numbers always match its pins
+       (the consolidated layout hides the tab row). */
+    places: [
+      /* Each place names its tab-layout target first and its consolidated-layout one second. */
+      { at: ['#new-agent', '#rail-agents-new'], html: '<b>New agent</b> is where you make your first agent.' },
+      { at: ['#tabs [data-tab="agents"]', '#rail-agents .railname'], html: '<b>Agents</b> shows everyone working for you.' },
+      { at: ['#tabs [data-tab="projects"]', '#rail-projects .railname', '#rail-projects'], html: '<b>Projects</b> is where agents work together on something.' },
+      { at: ['#userpop-btn'], html: '<b>Settings</b> live under your name, top right.' },
+    ],
     foot: 'Tips come back from the ? button' },
   { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#create-name',
     body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
-  { id: 'ring', title: 'The ring is your agent\'s memory', show: () => tipVisible('#grid .ringwrap'), at: '#grid .ringwrap',
+  { id: 'ring', title: 'The ring is your agent\'s memory', show: () => tipVisible('#grid .agauge'), at: '#grid .agauge',
     body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
       + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
       + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },
@@ -52526,7 +52531,7 @@ const TIPS = [
   { id: 'projects', title: 'A project is shared work', show: () => tipVisible('#panel-projects') && !tipVisible('#panel-projects .pj3'),
     at: '#pj-new',
     body: '<p>Put a few agents on one project and they work on it together, in one conversation, with one set of files. Show projects as cards or as a roadmap.</p>' },
-  { id: 'project', title: 'Everything about this project, in one place', show: () => tipVisible('#panel-projects .pj3'), at: '#panel-projects .pj3',
+  { id: 'project', title: 'Everything about this project, in one place', show: () => tipVisible('#panel-projects .pj3'), at: '#pj-add-member',
     body: '<ol><li><i>1</i><span><b>Members</b> are the agents on it. Add more any time.</span></li>'
       + '<li><i>2</i><span><b>Conversation</b> is where you talk to all of them at once.</span></li>'
       + '<li><i>3</i><span><b>Files</b> collects everything they make.</span></li>'
@@ -52540,6 +52545,18 @@ let TIPS_STATE = null;          // { ok, seen, off } from the board; null until 
 let TIP_OPEN = null;            // the tip on screen, or null
 let TIP_RETURN = null;          // focus to restore on close
 let TIPS_TIMER = null;
+let TIPS_STARTED = false;
+let TIP_PLACES = [];            // the tour's places as numbered when it opened
+
+/* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden]. */
+function tipModalOpen() {
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), dialog[open]');
+}
+
+/* The tour's title counts what it numbers: "Four places to know" when all four are on screen. */
+function tipTourTitle(n) {
+  return (['', 'One place', 'Two places', 'Three places', 'Four places'][n] || 'Places') + ' to know';
+}
 
 function tipVisible(sel) {
   const el = document.querySelector(sel);
@@ -52566,7 +52583,8 @@ async function tipsSave(patch) {
 /* Periodic, not hooked into every navigation path: a tip reads the screen, so a new route
    to a screen needs no wiring to get its tip. Cheap: a few querySelector calls a second. */
 function tipsStart() {
-  if (TIPS_TIMER) return;
+  if (TIPS_STARTED) return;
+  TIPS_STARTED = true;
   tipsLoad().then(() => { paintTipsToggle(); tipsCheck(); TIPS_TIMER = setInterval(tipsCheck, 1200); });
 }
 
@@ -52574,21 +52592,28 @@ function tipsCheck() {
   if (!TIPS_STATE || !TIPS_STATE.ok || TIPS_STATE.off || TIP_OPEN) return;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return;
-  if (document.querySelector('dialog[open], .modal:not([hidden])')) return;
+  if (tipModalOpen()) return;
   const next = TIPS.find((t) => !TIPS_STATE.seen.includes(t.id) && t.show());
   if (next) tipShow(next, { auto: true });
 }
 
-function tipShow(t, { auto = false } = {}) {
+function tipShow(t, { auto = false, returnTo = null } = {}) {
   tipClose({ record: false });
   const card = document.getElementById('tipcard');
   if (!card) return;
   TIP_OPEN = t;
-  TIP_RETURN = auto ? null : document.activeElement;
+  TIP_RETURN = auto ? null : (returnTo || document.activeElement);
+  const places = t.tour
+    ? t.places.map((pl) => ({ ...pl, sel: pl.at.find((sel) => tipVisible(sel)) })).filter((pl) => pl.sel)
+    : [];
+  TIP_PLACES = places;
+  const body = t.tour
+    ? '<ol>' + places.map((pl, i) => '<li><i>' + (i + 1) + '</i><span>' + pl.html + '</span></li>').join('') + '</ol>'
+    : t.body;
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
     + '<button class="tip-x" type="button" aria-label="Close">&times;</button>'
     + '<div class="tip-eb">' + esc(t.eb || 'Tip') + '</div>'
-    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2>' + t.body
+    + '<h2 id="tipcard-title">' + esc(t.tour ? tipTourTitle(places.length) : t.title) + '</h2>' + body
     + '<div class="tip-acts">'
     + (t.foot ? '<span class="tip-foot">' + esc(t.foot) + '</span>' : '<button class="tip-off" type="button">Stop showing tips</button>')
     + '<button class="tip-go" type="button">Got it</button></div>';
@@ -52596,14 +52621,22 @@ function tipShow(t, { auto = false } = {}) {
   card.querySelector('.tip-go').addEventListener('click', () => tipClose({ record: true }));
   card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
   const off = card.querySelector('.tip-off');
-  if (off) off.addEventListener('click', () => { tipClose({ record: true }); tipsSave({ off: true }).then(paintTipsToggle); });
+  if (off) off.addEventListener('click', () => { tipClose({ record: true, also: { off: true } }).then(paintTipsToggle); });
+  const live = document.getElementById('tip-live');
+  if (live) live.textContent = 'Tip: ' + t.title;
+  tipLayout(t, card, places);
+  if (!auto) card.querySelector('.tip-go').focus();
+}
+
+/* Position only; the card's content and focus are left alone, so a resize does not rebuild it. */
+function tipLayout(t, card, places) {
   if (t.tour) {
     document.getElementById('tipdim').hidden = false;
     const pins = document.getElementById('tippins');
     pins.innerHTML = '';
-    t.pins.forEach((sel, i) => {
-      const el = document.querySelector(sel);
-      if (!el || !tipVisible(sel)) return;
+    (places || TIP_PLACES).forEach((pl, i) => {
+      const el = document.querySelector(pl.sel);
+      if (!el || !tipVisible(pl.sel)) return;
       const r = el.getBoundingClientRect();
       const pin = document.createElement('span');
       pin.className = 'tippin';
@@ -52619,7 +52652,6 @@ function tipShow(t, { auto = false } = {}) {
   } else {
     tipPlace(card, t.at);
   }
-  if (!auto) card.querySelector('.tip-go').focus();
 }
 
 /* Beside the thing, never over it: below when there is room, above otherwise, clamped to the
@@ -52644,7 +52676,7 @@ function tipPlace(card, sel) {
   card.style.setProperty('--ax', Math.round(Math.min(Math.max(14, r.left + r.width / 2 - left - 7), w - 28)) + 'px');
 }
 
-function tipClose({ record }) {
+function tipClose({ record, also = null }) {
   const t = TIP_OPEN;
   const card = document.getElementById('tipcard');
   if (card) { card.hidden = true; card.innerHTML = ''; }
@@ -52653,25 +52685,35 @@ function tipClose({ record }) {
   const pins = document.getElementById('tippins');
   if (pins) pins.innerHTML = '';
   TIP_OPEN = null;
+  const ret = TIP_RETURN;
+  TIP_RETURN = null;
+  if (ret && ret.focus && ret.isConnected) ret.focus();
   if (t && record) {
     if (TIPS_STATE && !TIPS_STATE.seen.includes(t.id)) TIPS_STATE.seen.push(t.id);
-    tipsSave({ seen: [t.id] });
+    /* One write for "closed" and "turn tips off", so two responses cannot race each other. */
+    return tipsSave({ seen: [t.id], ...(also || {}) });
   }
-  if (TIP_RETURN && TIP_RETURN.focus) TIP_RETURN.focus();
-  TIP_RETURN = null;
+  return Promise.resolve();
 }
 
 /* Escape closes any tip; a click outside closes the tour (a screen tip stays while you work).
    Closing either way counts as seen. */
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && TIP_OPEN) { e.preventDefault(); tipClose({ record: true }); }
+  if (e.key !== 'Escape' || !TIP_OPEN || tipModalOpen()) return;
+  /* A screen tip that opened by itself closes on Escape only when the person is in it or nowhere
+     in particular; an Escape meant for a field or a menu is left alone. */
+  const inCard = !!document.activeElement?.closest?.('#tipcard');
+  const nowhere = !document.activeElement || document.activeElement === document.body;
+  if (!TIP_OPEN.tour && !inCard && !nowhere) return;
+  e.preventDefault();
+  tipClose({ record: true });
 });
 document.addEventListener('pointerdown', (e) => {
   if (!TIP_OPEN || !TIP_OPEN.tour) return;
   if (e.target.closest('#tipcard') || e.target.closest('#helpq')) return;
   tipClose({ record: true });
 }, true);
-window.addEventListener('resize', () => { if (TIP_OPEN) tipShow(TIP_OPEN, { auto: true }); });
+window.addEventListener('resize', () => { const c = document.getElementById('tipcard'); if (TIP_OPEN && c) tipLayout(TIP_OPEN, c); });
 
 /* The ? menu: this screen's tip, the tour, the ring explainer. Reopening never needs the tip to be
    unseen, and works with tips turned off. */
@@ -52680,8 +52722,16 @@ function wireHelpq() {
   const menu = document.getElementById('helpq-menu');
   if (!btn || !menu) return;
   const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  /* The two header menus each stop their click, so each closes the other when it opens. */
+  const closeUser = () => {
+    const um = document.getElementById('userpop-menu');
+    const ub = document.getElementById('userpop-btn');
+    if (um && !um.hidden) { um.hidden = true; ub?.setAttribute('aria-expanded', 'false'); }
+  };
+  document.getElementById('userpop-btn')?.addEventListener('click', close, true);
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
+    closeUser();
     const open = menu.hidden;
     menu.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
@@ -52695,7 +52745,7 @@ function wireHelpq() {
     let t = null;
     if (want === 'screen') t = TIPS.find((x) => !x.tour && x.show()) || TIPS.find((x) => x.tour);
     else t = TIPS.find((x) => x.id === want);
-    if (t) tipShow(t);
+    if (t) tipShow(t, { returnTo: btn });
   });
   document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('#helpq')) close(); });
   menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); btn.focus(); } });
