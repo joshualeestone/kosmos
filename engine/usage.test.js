@@ -371,3 +371,17 @@ test('#2617: a day already frozen per model keeps its total; its folder split is
   const a = usage.byAgent(r, [{ name: 'ann', dir: '/w/ann' }], (p) => p);
   assert.equal(a.unattributed.output_tokens, 92, 'the pruned gap must be reported as unattributed');
 });
+
+test('#2617: an unreadable frozen file is rescanned, not fatal', async () => {
+  resetSandbox();
+  const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  fs.mkdirSync(usage.USAGE_DIR, { recursive: true });
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), '{not json', 'utf8');
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), '{not json', 'utf8');
+  const dir = projectDir('proj-bad');
+  fs.writeFileSync(nodePath.join(dir, 's.jsonl'),
+    cwdRow({ timestamp: `${day}T10:00:00.000Z`, id: 'q', cwd: '/w/ann', output: 5 }) + '\n', 'utf8');
+  const r = await usage.dailyUsageByModel(2);
+  assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 5, 'a malformed frozen total was not rescanned');
+  assert.equal(r.byFolder[day]['/w/ann'].output_tokens, 5, 'a malformed frozen folder split was not rescanned');
+});
