@@ -39,7 +39,8 @@ function goalFrom(text) {
   }
   const goal = body.join('\n').replace(/<!--[\s\S]*?-->/g, '').trim().replace(/\s+/g, ' ');
   if (!goal || goal === projects.BRIEF_GOAL_PLACEHOLDER || goal.includes(projects.BRIEF_GOAL_PLACEHOLDER)) return null;
-  return goal.length > GOAL_MAX ? goal.slice(0, GOAL_MAX - 1).trimEnd() + '…' : goal;
+  const chars = Array.from(goal); // by code point, so a trim never splits an emoji
+  return chars.length > GOAL_MAX ? chars.slice(0, GOAL_MAX - 1).join('').trimEnd() + '…' : goal;
 }
 
 /**

@@ -37,9 +37,12 @@ test('the Goal section ends at the next heading; blank, missing and comment-only
   assert.equal(brief.goalFrom(null), null);
 });
 
-test('a long goal is trimmed for the pane line', () => {
+test('a long goal is trimmed for the pane line, by code point (an emoji is never split)', () => {
   const g = brief.goalFrom('## Goal\n\n' + 'x'.repeat(brief.GOAL_MAX * 2) + '\n');
-  assert.equal(g.length, brief.GOAL_MAX);
+  assert.equal(Array.from(g).length, brief.GOAL_MAX);
+  const e = brief.goalFrom('## Goal\n\n' + '\u{1F680}'.repeat(brief.GOAL_MAX * 2) + '\n');
+  assert.equal(Array.from(e).length, brief.GOAL_MAX);
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(e), 'the trim left a lone surrogate');
 });
 
 test('readGoal: a real file is read; missing, a symlink, a directory and an oversize file are no goal', () => {
