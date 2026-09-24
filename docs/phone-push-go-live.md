@@ -82,7 +82,9 @@ used yet.
 
 ## Step 2. Put the APNs settings into the coordinator's env template [fleet]
 
-A kosmos-relay PR, reviewed like any other.
+A kosmos-relay PR, reviewed like any other. Kano is adding the `KOSMOS_APNS_*` lines to
+`deploy/kosmos-coordinator.env.template` (2026-09-24). This step is to confirm they are there, with
+the values below.
 
 - **Why a template change is needed.** The coordinator reads its settings from
   `/etc/kosmos-coordinator.env`, rendered from `deploy/kosmos-coordinator.env.template`, and
@@ -100,6 +102,21 @@ Add these. Names are from `coordinator/src/apns.rs` and `coordinator/src/main.rs
 | `KOSMOS_APNS_TEAM_ID` | from step 1 | The Apple team. |
 | `KOSMOS_APNS_KEY_PATH` | a file path on the box | Where the .p8 is read from. It is read from a file, never an env value, and never logged. |
 | `KOSMOS_PUSH` | `log` | Keeps every send to a log line for now. This one value covers both APNs and web push. |
+
+**Three traps, each checked before step 3** (Kano, verified against kosmos-relay #104):
+1. **`KOSMOS_APNS_BUNDLE_IDS` has no default.** If it is unset, every app registration gets a
+   400 and nothing reaches a phone. It is set to `io.kosmos.app` in the same change as the key
+   settings, never later.
+   Check: the rendered env contains `KOSMOS_APNS_BUNDLE_IDS=io.kosmos.app`.
+2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is the Kosmos Agent Manager, Inc.
+   Team ID. `KOSMOS_APNS_KEY_ID` and the .p8 must be a key made in that same team. A mismatch gets
+   `InvalidProviderToken` from Apple on every send.
+   Check: the Key ID and the Team ID both come from the same step 1 account.
+3. **`KOSMOS_PUSH=log` forces log-only whatever the key is.** Turning it off is its own step
+   (step 8), not part of this one.
+
+One .p8 covers both Apple's sandbox and production servers, so there is no separate development
+key.
 
 **What the coordinator does with these at startup:**
 - It sends to Apple only when all three `KOSMOS_APNS_KEY_*` settings are present, the key file
@@ -318,8 +335,11 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
   (`coordinator/src/main.rs`). Browser web push is no longer a product, and nothing subscribes to
   it from the apps.
 
-**Check:** `journalctl -u kosmos-coordinator` shows `apns: sending with token auth` with
-`bundles=1`.
+**Check:**
+- `journalctl -u kosmos-coordinator` shows `apns: sending with token auth` with `bundles=1`.
+  `bundles=0` means trap 1 (no bundle id allowed).
+- The first real send is not rejected with `InvalidProviderToken`, which would mean trap 2 (the
+  team and the key do not match).
 
 **Undo:** put `KOSMOS_PUSH=log` back in the template and redeploy with `INSTALL_ENV=1`. Sending
 stops once the service restarts.
