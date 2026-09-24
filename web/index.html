@@ -2613,6 +2613,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      equally, ballooning the .dleft row and re-opening the very gap this change closes. Pin the .dleft
      row to its content (auto) and let only the .dsecs row grow. Talk-scoped, like the wide rule. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { grid-template-rows: auto minmax(0, 1fr); }
+  /* Narrow width stacks the identity block and nav (~400px) above the Talk box, so a window-tall
+     panel left the box a sliver and pushed the composer off screen. Here the page scrolls instead
+     and the box itself is window-tall below the nav: scroll to it and the thread and composer fit.
+     render-talk-fill-2622 A2d pins it. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) { height: auto; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { height: calc(100vh - 2 * var(--space-8)); min-height: 320px; }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
