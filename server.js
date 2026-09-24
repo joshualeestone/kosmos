@@ -10055,8 +10055,9 @@ const server = http.createServer((req, res) => {
           }
           return connect.start({ configDir: prep.dir, requireInstallConfirm: true, installConfirmed });
         }
-        /* #3326: the DEFAULT sign-up start forwards reauth UNCONDITIONALLY, so sign-up always
-           runs a fresh `claude auth login`. Josh, 2026-09-24 14:38 CDT: "i want to force a fresh
+        /* #3326: the DEFAULT sign-up start forwards the request's reauth as-is (the sign-up
+           client always sends true) and no probe gates it, so sign-up always runs a fresh
+           `claude auth login`. Josh, 2026-09-24 14:38 CDT: "i want to force a fresh
            login everytime. I have seen the other way fail multiple times". This removes #3367's
            probe gate (force only when the credential probed dead). #3367 existed because a
            forced login over a still-working credential could strand the person. One mechanism for

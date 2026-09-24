@@ -98,6 +98,8 @@ function setRefreshExpiryReader(fn) { refreshExpiryReader = typeof fn === 'funct
    handling stay in one place. */
 function readCredAsync(service) {
   return new Promise((resolve) => {
+    // Guarded only by readRefreshExpiry's NODE_TEST_CONTEXT check: a harness run under plain
+    // node that drives a reauth would query the real keychain (a sandboxed, suffixed entry).
     execFile('security', ['find-generic-password', '-s', service, '-w'],
       { encoding: 'utf8', timeout: 5000 }, (err, stdout) => resolve(err ? null : stdout));
   });
@@ -112,7 +114,8 @@ async function readRefreshExpiry(ccd) {
 /* The expiry proof, used ONLY at the pane-death gate: `claude auth login` exits on success and
    that closes its pane, so the strand (a landed login whose "Login successful" frame was missed)
    happens there, after the CLI's writes are done. A live pane may still be mid-login, so no
-   other gate uses it, and the synchronous keychain read runs once per pane death, not per tick.
+   other gate uses it. The (asynchronous) keychain read runs at most once per pane death, and only
+   after checkLive has already read CONNECTED.
    FAILS CLOSED: it arms only when the baseline read before the launch returned a real number.
    A null baseline can mean "no entry" or "the read failed" (timeout, locked keychain), and a
    failed read followed by a good one would make the OLD credential look new, so null disables

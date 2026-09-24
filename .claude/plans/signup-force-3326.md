@@ -49,6 +49,18 @@ missed (read from connect.js's gates). It does NOT fix a forced login the person
 out. Josh's ruling accepts forcing; the real-Mac check must include an ABANDONED forced login, not
 only a completed one.
 
+**Only a real login moves refreshTokenExpiresAt.** The bare `Claude Code-credentials` entry is
+shared by every CCD-unset Claude process, each refreshing its access token about hourly. If such a
+refresh ever rewrote a later `refreshTokenExpiresAt`, an abandoned forced login whose pane then died
+would read as landed. Evidence against a sliding expiry: loginexpiry.js measured bare-entry expiries
+of 09-25 on active agents (fixed date, not sliding). The worst case stays bounded by the checkLive
+CONNECTED requirement. The real-Mac check should include a background agent refreshing during sign-up.
+
+**Agents already running on the credential.** If a fresh `auth login` invalidates the old refresh
+token, agents already running on the same default account could hit "choose a login method" even
+when the new login lands (the 0.6.84 symptom's other possible cause). Unmeasured; the real-Mac check
+must include an agent running on the default account during a forced sign-up.
+
 **macOS only.** expiryMoved reads the macOS keychain; on another platform (a Windows sign-in host)
 the proof is off and a missed login-done frame still goes stuck.
 

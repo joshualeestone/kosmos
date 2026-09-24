@@ -2215,6 +2215,41 @@ driverTest('#3326 FAIL-CLOSED: a baseline read that failed (null) disables the p
     'a failed baseline read must fall back to stuck, never connected: ' + st.because);
 });
 
+driverTest('#3326: a flow cancelled while its baseline keychain read is in flight launches nothing', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner.bind(term));
+  connect.setDryRun(false);
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let reads = 0;
+  connect.setRefreshExpiryReader(async () => { reads += 1; await gate; return 1790000000000; });
+  try {
+    await connect.start({ reauth: true });
+    await until(() => reads === 1, 5000);
+    await connect.cancel();
+    release();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(term.made, 0, 'a flow cancelled during the baseline read still opened a sign-in window');
+  } finally { subscription.setRunner(null); connect.setRefreshExpiryReader(null); }
+});
+
+driverTest('#3326: a present-but-DEAD credential never reads the keychain (deadCredential is already the proof)', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner.bind(term));
+  connect.setDryRun(false);
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  let reads = 0;
+  connect.setRefreshExpiryReader(() => { reads += 1; return 1790000000000; });
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.made >= 1, 5000);
+    assert.equal(reads, 0, 'a dead credential armed the keychain proof it does not need');
+  } finally { subscription.setRunner(null); connect.setRefreshExpiryReader(null); }
+});
+
 // #1922 (reauth-on-DEAD, the complement of the still-live test above): a RE-AUTH of a
 // credential that is DEAD at flow start (checkLive NONE) is the same dead->live proof case as a
 // present-but-dead first-run. start()'s deadCredential detection is gated `!reauth`, so the reauth
