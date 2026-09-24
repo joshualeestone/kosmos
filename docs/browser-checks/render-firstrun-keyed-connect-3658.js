@@ -42,19 +42,24 @@ const chk = (ok, label, extra) => {
   await page.addInitScript(() => {
     window.__posts = [];
     window.__accounts = [];
-    window.__nextKeyAnswer = null;
+    window.__runnerMissing = {};
+    window.__hold = null;
+    window.__unknown = false;
     const enc = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json' } });
     window.setInterval = () => 0;
     window.fetch = async (url, opts) => {
       const u = String(url);
       const m = u.match(/\/api\/accounts\/(gemini|grok)\/apikey$/);
       if (m && opts && opts.method === 'POST') {
-        window.__posts.push({ route: m[1], body: JSON.parse(opts.body) });
-        const a = window.__nextKeyAnswer;
-        if (a && a.status !== 200) return enc(a.body, a.status);
+        const body = JSON.parse(opts.body || '{}');
+        window.__posts.push({ route: m[1], body });
+        // Same order as the server: the runner first, then the key.
+        if (window.__runnerMissing[m[1]]) return enc({ needsRunner: true, error: 'we could not find the runner' }, 400);
+        if (!body.key) return enc({ error: 'that does not look like a key' }, 400);
+        if (window.__hold) await window.__hold;
         const provider = m[1] === 'gemini' ? 'google' : 'xai';
-        const account = { provider, connection: { state: 'connected' } };
-        window.__accounts.push(account);
+        const account = { provider, connection: { state: window.__unknown ? 'unknown' : 'connected' } };
+        if (!window.__unknown) window.__accounts.push(account);
         return enc({ ok: true, account });
       }
       if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: window.__accounts });
@@ -63,35 +68,52 @@ const chk = (ok, label, extra) => {
   });
   await page.goto(PAGE);
   const q = (fn, arg) => page.evaluate(fn, arg);
+  const settle = () => q(() => new Promise((r) => setTimeout(r, 120)));
   await q(() => {
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = false;
-    document.querySelectorAll('.fr-pane').forEach((p) => { p.hidden = p.id !== 'fr-pane-5'; });
+    frGo(5);
   });
+  await settle();
 
   const list = await q(() => {
     const pane = document.getElementById('fr-pane-5');
     const names = [...pane.querySelectorAll('.llm .llm-w b')].map((b) => b.textContent);
     const text = pane.innerText;
-    return { first4: names.slice(0, 4), heading: !!pane.querySelector('.smore-t'), after: /After setup/.test(text),
+    return { visible: !pane.hidden, first4: names.slice(0, 4), heading: !!pane.querySelector('.smore-t'), after: /After setup/.test(text),
       later: !!document.getElementById('fr-later-models'), runs: /Runs on this computer/i.test(text) };
   });
+  chk(list.visible, 'frGo(5) shows the model step', JSON.stringify(list));
   chk(JSON.stringify(list.first4) === JSON.stringify(['Claude', 'GPT', 'Gemini', 'Grok']), 'the list starts Claude, GPT, Gemini, Grok', JSON.stringify(list.first4));
   chk(!list.heading && !list.runs, 'one uninterrupted list: no "Runs on this computer" heading', JSON.stringify(list));
   chk(!list.after && !list.later, 'no "After setup" pill and no "connect later in Settings" line', JSON.stringify(list));
 
-  const g = await q(() => {
+  // Missing runner: the probe says so and the box never opens, so nobody is sent for a key.
+  const miss = await q(async () => {
+    window.__posts.length = 0;
+    window.__runnerMissing = { gemini: true };
     document.getElementById('fr-gemini-connect').click();
-    const flow = document.getElementById('fr-apikey-flow');
-    return { open: !flow.hidden, head: document.getElementById('fr-apikey-t').textContent,
+    await new Promise((r) => setTimeout(r, 120));
+    return { posts: window.__posts.slice(), boxHidden: document.getElementById('fr-apikey-flow').hidden,
+      msg: document.getElementById('fr-apikey-msg').textContent, expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded') };
+  });
+  chk(miss.posts.length === 1 && !miss.posts[0].body.key && miss.boxHidden && /`gemini`/.test(miss.msg) && /not installed/.test(miss.msg) && miss.expanded === 'false',
+    'a missing runner is found BEFORE the key box: the box stays shut and the tool is named', JSON.stringify(miss));
+
+  const g = await q(async () => {
+    window.__runnerMissing = {};
+    document.getElementById('fr-gemini-connect').click();
+    await new Promise((r) => setTimeout(r, 120));
+    return { open: !document.getElementById('fr-apikey-flow').hidden, head: document.getElementById('fr-apikey-t').textContent,
       href: document.getElementById('fr-apikey-getkey').getAttribute('href'),
       expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded') };
   });
   chk(g.open && /Google API key for Gemini/.test(g.head) && /aistudio\.google\.com/.test(g.href) && g.expanded === 'true',
-    'Gemini\'s Connect opens the key box for Gemini', JSON.stringify(g));
+    'with the runner present, Gemini\'s Connect opens the key box for Gemini', JSON.stringify(g));
 
-  const k = await q(() => {
+  const k = await q(async () => {
     document.getElementById('fr-apikey-key').value = 'AIza-typed-for-gemini';
     document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 120));
     return { head: document.getElementById('fr-apikey-t').textContent, key: document.getElementById('fr-apikey-key').value,
       gem: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded'),
       grok: document.getElementById('fr-grok-connect').getAttribute('aria-expanded') };
@@ -100,39 +122,56 @@ const chk = (ok, label, extra) => {
     'switching to Grok re-labels the box and clears the Gemini key', JSON.stringify(k));
 
   const empty = await q(async () => {
+    window.__posts.length = 0;
     document.getElementById('fr-apikey-go').click();
     await new Promise((r) => setTimeout(r, 50));
     return { posts: window.__posts.length, msg: document.getElementById('fr-apikey-msg').textContent };
   });
   chk(empty.posts === 0 && /Paste the key first/.test(empty.msg), 'an empty Add is refused without a request', JSON.stringify(empty));
 
-  const add = await q(async () => {
-    document.getElementById('fr-apikey-key').value = '  xai-secret  ';
-    document.getElementById('fr-apikey-go').click();
-    for (let i = 0; i < 50 && !/connected/.test(document.getElementById('fr-apikey-msg').textContent); i++) await new Promise((r) => setTimeout(r, 20));
-    const b = document.getElementById('fr-grok-connect');
-    return { posts: window.__posts.slice(), msg: document.getElementById('fr-apikey-msg').textContent,
-      boxHidden: document.getElementById('fr-apikey-flow').hidden, btn: b.textContent.trim(), disabled: b.disabled };
-  });
-  const p0 = add.posts[0] || {};
-  chk(add.posts.length === 1 && p0.route === 'grok' && p0.body && p0.body.key === 'xai-secret',
-    'Add POSTs the trimmed key to the Grok route', JSON.stringify(add.posts));
-  chk(add.boxHidden && add.msg === 'Grok is connected.', 'a good key closes the box and says Grok is connected', JSON.stringify(add));
-  chk(/Connected/.test(add.btn) && add.disabled, 'the Grok row turns to a disabled Connected', JSON.stringify(add));
-
-  const missing = await q(async () => {
+  // Switch provider while an Add is in flight: Add must not stay disabled, and the key
+  // that landed must still show its row as Connected.
+  const sw = await q(async () => {
     window.__posts.length = 0;
-    window.__nextKeyAnswer = { status: 400, body: { needsRunner: true, error: 'we could not find the Gemini runner on this computer' } };
-    document.getElementById('fr-gemini-connect').click();
-    document.getElementById('fr-apikey-key').value = 'AIza-key';
+    let release; window.__hold = new Promise((r) => { release = r; });
+    document.getElementById('fr-apikey-key').value = 'xai-in-flight';
     document.getElementById('fr-apikey-go').click();
-    for (let i = 0; i < 50 && !/runner/.test(document.getElementById('fr-apikey-msg').textContent); i++) await new Promise((r) => setTimeout(r, 20));
-    const b = document.getElementById('fr-gemini-connect');
-    return { posts: window.__posts.length, msg: document.getElementById('fr-apikey-msg').textContent,
-      boxOpen: !document.getElementById('fr-apikey-flow').hidden, btn: b.textContent.trim() };
+    await new Promise((r) => setTimeout(r, 30));
+    document.getElementById('fr-gemini-connect').click();
+    await new Promise((r) => setTimeout(r, 80));
+    release(); window.__hold = null;
+    await new Promise((r) => setTimeout(r, 200));
+    const b = document.getElementById('fr-grok-connect');
+    return { addDisabled: document.getElementById('fr-apikey-go').disabled, grok: b.textContent.trim(), grokDisabled: b.disabled };
   });
-  chk(missing.posts === 1 && /Gemini runner is not installed on this computer yet/.test(missing.msg) && missing.boxOpen && missing.btn === 'Connect',
-    'a missing runner is said plainly, the box stays and the row stays Connect', JSON.stringify(missing));
+  chk(sw.addDisabled === false, 'switching provider mid-request leaves Add usable', JSON.stringify(sw));
+  chk(/Connected/.test(sw.grok) && sw.grokDisabled, 'a key that landed after the switch still shows its row as Connected', JSON.stringify(sw));
+
+  // A normal Add for Gemini, with the provider's answer "unknown": saved, but not claimed connected.
+  const unk = await q(async () => {
+    window.__unknown = true;
+    document.getElementById('fr-apikey-key').value = '  AIza-secret  ';
+    document.getElementById('fr-apikey-go').click();
+    for (let i = 0; i < 50 && !/saved|connected/.test(document.getElementById('fr-apikey-msg').textContent); i++) await new Promise((r) => setTimeout(r, 20));
+    window.__unknown = false;
+    const b = document.getElementById('fr-gemini-connect');
+    return { last: window.__posts[window.__posts.length - 1], msg: document.getElementById('fr-apikey-msg').textContent,
+      boxHidden: document.getElementById('fr-apikey-flow').hidden, btn: b.textContent.trim(), expanded: b.getAttribute('aria-expanded'),
+      focused: document.activeElement && document.activeElement.id };
+  });
+  chk(unk.last && unk.last.route === 'gemini' && unk.last.body.key === 'AIza-secret', 'Add POSTs the trimmed key to the Gemini route', JSON.stringify(unk.last));
+  chk(unk.boxHidden && /key is saved/.test(unk.msg) && unk.btn === 'Connect', 'an unconfirmed key is said to be saved, not connected, and the row stays Connect', JSON.stringify(unk));
+  chk(unk.expanded === 'false' && unk.focused === 'fr-apikey-msg', 'after Add the button is no longer expanded and focus lands on the result', JSON.stringify(unk));
+
+  // Entering the step paints a row whose account already connected.
+  const entry = await q(async () => {
+    window.__accounts.push({ provider: 'google', connection: { state: 'connected' } });
+    frGo(5);
+    await new Promise((r) => setTimeout(r, 150));
+    const b = document.getElementById('fr-gemini-connect');
+    return { btn: b.textContent.trim(), disabled: b.disabled };
+  });
+  chk(/Connected/.test(entry.btn) && entry.disabled, 'entering the step shows an already-connected Gemini as Connected', JSON.stringify(entry));
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
 
   await browser.close();
