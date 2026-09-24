@@ -1305,6 +1305,13 @@ function revealFolder(folder) {
   }
 }
 
+/* #2245: the bounds on the documents walk. See listFiles. LIST_SKIP_DIRS holds only
+   folders that are never somebody's deliverable (dependency and cache trees); names a
+   person or agent also uses for real output (build, dist, target, env) are walked. */
+const LIST_MAX_DEPTH = 3;
+const LIST_MAX_SCAN = 2000;
+const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', '__pycache__', 'Pods', 'DerivedData']);
+
 /**
  * The files in a project's folder, newest first.
  *
@@ -1312,7 +1319,7 @@ function revealFolder(folder) {
  * until then, which hid the agent work #2245 was filed about). A project folder is
  * a place a person and their agents both write into, so an UNBOUNDED walk would
  * turn "the last ten documents" into a crawl of somebody's whole working tree: the
- * walk is capped in depth and in entries read, and skips dependency/build trees.
+ * walk is capped in depth and in entries read, and skips dependency and cache trees.
  * Directories, dotfiles and anything that is not a regular file are left out — a
  * symlink (file or folder) is not listed or entered, because the thing it points at
  * is what would open and this list would be naming the wrong file.
@@ -1321,11 +1328,6 @@ function revealFolder(folder) {
  * "this project has no documents" and "we could not look" are different
  * sentences and only one of them is about the project.
  */
-/* #2245: the bounds on the documents walk. See listFiles. */
-const LIST_MAX_DEPTH = 3;
-const LIST_MAX_SCAN = 2000;
-const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'dist', 'build', 'target', 'Pods', 'DerivedData']);
-
 function listFiles(folder, limit) {
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
@@ -1339,33 +1341,39 @@ function listFiles(folder, limit) {
      `/` as the separator (on Windows too), and openFile accepts exactly that shape.
      Bounded three ways, because this runs on every panel poll:
        - depth: LIST_MAX_DEPTH folders below the project folder;
-       - noise: dot-entries and LIST_SKIP_DIRS (dependency/build/cache trees an agent's
+       - noise: dot-entries and LIST_SKIP_DIRS (dependency and cache trees an agent's
          tooling makes; a thousand node_modules files are not "files in this project");
-       - cost: at most LIST_MAX_SCAN directory entries read in total. Past that the walk
-         stops and `truncated: true` says the list is partial rather than complete.
+       - cost: at most LIST_MAX_SCAN entries read BELOW the top level. The top level is
+         read in full and does not count, as it always was. Past the budget the walk stops
+         and `truncated: true` says the list is partial rather than complete.
      🛑 A SYMLINKED FOLDER IS NEVER ENTERED. The dirent reports the link itself
      (isDirectory() is false for a link), so a link cannot loop the walk or lead it out
      of the project -- the same rule that already keeps a symlinked FILE off the list. */
   const files = [];
   let scanned = 0;
   let truncated = false;
-  const walk = (abs, rel, depth) => {
+  /* BREADTH-FIRST, so shallower files are reached before deeper ones when the budget runs out. */
+  const queue = [{ abs: state.real, rel: '', depth: 0 }];
+  while (queue.length) {
+    const { abs, rel, depth } = queue.shift();
     let ents;
     try {
       ents = fs.readdirSync(abs, { withFileTypes: true });
     } catch (err) {
-      if (depth === 0) throw err;
-      return; // an unreadable subfolder is skipped; the rest of the project still lists
+      if (depth === 0) return { ok: false, because: 'we could not read what is in that folder', files: [] };
+      continue; // an unreadable subfolder is skipped; the rest of the project still lists
     }
     for (const ent of ents) {
-      if (scanned >= LIST_MAX_SCAN) { truncated = true; return; }
-      scanned += 1;
+      if (depth > 0) {
+        if (scanned >= LIST_MAX_SCAN) { truncated = true; break; }
+        scanned += 1;
+      }
       if (ent.name.startsWith('.')) continue;
       const relName = rel ? rel + '/' + ent.name : ent.name;
       // ⚠️ isFile()/isDirectory() on the DIRENT, so a symlink is excluded without a
       // second stat: withFileTypes reports the link itself, which is what we want here.
       if (ent.isDirectory()) {
-        if (depth < LIST_MAX_DEPTH && !LIST_SKIP_DIRS.has(ent.name)) walk(path.join(abs, ent.name), relName, depth + 1);
+        if (depth < LIST_MAX_DEPTH && !LIST_SKIP_DIRS.has(ent.name)) queue.push({ abs: path.join(abs, ent.name), rel: relName, depth: depth + 1 });
         continue;
       }
       if (!ent.isFile()) continue;
@@ -1373,11 +1381,7 @@ function listFiles(folder, limit) {
       try { st = fs.statSync(path.join(abs, ent.name)); } catch { continue; }
       files.push({ name: relName, size: st.size, modified: st.mtime.toISOString() });
     }
-  };
-  try {
-    walk(state.real, '', 0);
-  } catch (err) {
-    return { ok: false, because: 'we could not read what is in that folder', files: [] };
+    if (truncated) break;
   }
   files.sort((a, b) => (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
   /* #761: a stamp that changes whenever the list would, so a page can ask every

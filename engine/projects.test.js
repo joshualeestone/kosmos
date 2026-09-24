@@ -2249,11 +2249,11 @@ test('listFiles: a file in a subfolder is listed by its relative path (#2245)', 
   assert.equal(out.truncated, undefined, 'a small folder must not claim to be truncated');
 });
 
-test('listFiles: dependency/build trees, hidden folders and too-deep folders are not walked (#2245)', () => {
+test('listFiles: dependency/cache trees, hidden folders and too-deep folders are not walked (#2245)', () => {
   reset();
   const dir = folder('docs-noise');
   fs.writeFileSync(path.join(dir, 'real.md'), 'a');
-  for (const noise of ['node_modules/pkg', '__pycache__', 'venv/lib', 'dist', 'build', 'target', '.git', '.venv']) {
+  for (const noise of ['node_modules/pkg', '__pycache__', 'venv/lib', 'Pods', 'DerivedData', '.git', '.venv']) {
     fs.mkdirSync(path.join(dir, noise), { recursive: true });
     fs.writeFileSync(path.join(dir, noise, 'junk.js'), 'x');
   }
@@ -2261,8 +2261,10 @@ test('listFiles: dependency/build trees, hidden folders and too-deep folders are
   fs.mkdirSync(path.join(dir, 'a', 'b', 'c', 'd'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'a', 'b', 'c', 'at-depth-3.txt'), 'x');
   fs.writeFileSync(path.join(dir, 'a', 'b', 'c', 'd', 'at-depth-4.txt'), 'x');
+  fs.mkdirSync(path.join(dir, 'build'));
+  fs.writeFileSync(path.join(dir, 'build', 'deliverable.pdf'), 'x'); // a real-output name IS walked
   const names = projects.listFiles(dir, 500).files.map((f) => f.name).sort();
-  assert.deepEqual(names, ['a/b/c/at-depth-3.txt', 'real.md'], `unexpected list: ${JSON.stringify(names)}`);
+  assert.deepEqual(names, ['a/b/c/at-depth-3.txt', 'build/deliverable.pdf', 'real.md'], `unexpected list: ${JSON.stringify(names)}`);
 });
 
 test('listFiles: a symlinked FOLDER is neither listed nor entered, so it cannot lead out (#2245)', () => {
@@ -2287,14 +2289,27 @@ test('listFiles: a symlinked FOLDER is neither listed nor entered, so it cannot 
   projects.setRevealRunner(null);
 });
 
-test('listFiles: the walk stops at its scan budget and says the list is partial (#2245)', () => {
+test('listFiles: a huge TOP level is still listed in full, as before #2245', () => {
   reset();
-  const dir = folder('docs-budget');
+  const dir = folder('docs-bigtop');
   for (let i = 0; i < 2100; i++) fs.writeFileSync(path.join(dir, `f${i}.txt`), 'x');
   const out = projects.listFiles(dir, 10);
   assert.equal(out.ok, true);
+  assert.equal(out.total, 2100, 'the top level lost files to the subfolder budget');
+  assert.equal(out.truncated, undefined, 'a top-level-only folder claimed to be truncated');
+});
+
+test('listFiles: a huge subfolder cannot push a top-level file off, and the cut is flagged (#2245)', () => {
+  reset();
+  const dir = folder('docs-bigsub');
+  // Named to sort BEFORE the top-level file, so a depth-first walk would reach it first.
+  fs.mkdirSync(path.join(dir, 'aaa-data'));
+  for (let i = 0; i < 2100; i++) fs.writeFileSync(path.join(dir, 'aaa-data', `r${i}.csv`), 'x');
+  fs.writeFileSync(path.join(dir, 'zzz-report.pdf'), 'x');
+  const out = projects.listFiles(dir, 5000);
+  assert.ok(out.names.includes('zzz-report.pdf'), 'a top-level file was dropped for a big subfolder');
   assert.equal(out.truncated, true, 'a walk that hit its budget did not say so');
-  assert.ok(out.total <= 2000 && out.total > 0, `total ${out.total} is outside the budget`);
+  assert.ok(out.total <= 2001 && out.total > 1, `total ${out.total} is outside the budget`);
 });
 
 test('openFile: a file in a subfolder the list shows opens by its relative path (#2245)', () => {

@@ -41752,6 +41752,8 @@ async function openDocsView() {
     PJ_DOCS_TOTAL = Number(body.total) || files.length;
     PJ_DOCS_PAGE = 0;
     pjDocsPaintPage();
+    /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
+    if (body.truncated === true) msg.textContent = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
   } catch {
     if (PJ_CURRENT === forProject && PJ_VIEW === 'docs') msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
@@ -41894,7 +41896,8 @@ async function pjLoadDocs(id) {
     all.hidden = true;
     return;
   }
-  msg.textContent = '';
+  /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
+  msg.textContent = body.truncated === true ? 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.' : '';
   for (const f of files) {
     /* A BUTTON, not a div with a handler: this opens a file, and an action
        that cannot be reached from the keyboard is not an action for everyone. */
@@ -41922,6 +41925,19 @@ async function pjLoadDocs(id) {
   /* #3306 (Josh 2026-09-19): the rail door reads just "View All", no count. The
      total still lives on the all-files screen this door opens, so nothing is lost. */
   all.textContent = 'View All';
+}
+
+/* #2245: the documents list names a subfolder file by its path relative to the project
+   (reports/q3.pdf), so a cited path is matched on its LONGEST trailing run of segments that
+   is in the list, and data-ref carries that listed name. The shortest run tried is the
+   basename, so a bare `notes.md` still matches a top-level notes.md. */
+function pjCiteKey(core, names) {
+  const segs = core.split('/');
+  for (let i = 0; i < segs.length; i++) {
+    const key = segs.slice(i).join('/');
+    if (key && names.has(key)) return key;
+  }
+  return null;
 }
 
 /**
@@ -41964,18 +41980,18 @@ function pjLinkPaths(text, names) {
     const core = m[1];
     const tail = m[2];
     if (!core) return pjInline(tok);
-    /* A cited path may be written with folders in front of it. The FILE is
-       what we can open, so the last segment is what is matched -- but only
+    /* A cited path may be written with folders in front of it. It is matched
+       by pjCiteKey (#2245) -- but only
        when the whole token has no `..` in it, because a token that walks up
        is not describing a file in this project and should not be dressed as
        one even if its basename collides. */
     if (core.includes('..')) return pjInline(tok);
-    const base = core.split('/').pop();
-    if (!names.has(base)) return pjInline(tok);
+    const key = pjCiteKey(core, names);
+    if (key === null) return pjInline(tok);
     hit = true;
     return '<span class="ref">' + esc(core)
-      + '<button class="refgo" type="button" data-ref="' + esc(base)
-      + '" aria-label="Show me ' + esc(base) + '">Show me</button></span>' + esc(tail);
+      + '<button class="refgo" type="button" data-ref="' + esc(key)
+      + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>' + esc(tail);
   }).join('');
   /* ⚠️ Identical output to the old path when nothing matched, byte for byte:
      the reassembly above escapes every token and every whitespace run, so a
@@ -42327,7 +42343,7 @@ function pjRichSpans(seg, names, agentNames) {
       }
     }
     /* A cited project file -> a "Show me" chip (#355), same PATH rule as
-       pjLinkPaths (last segment, no `..`), only when a `names` set is supplied.
+       pjLinkPaths (pjCiteKey, no `..`), only when a `names` set is supplied.
        Held like the URL so the chip is atomic and inert through the emphasis
        pass -- `**notes.md**` bolds the chip rather than leaking a marker.
        ⚠️ One deliberate difference from pjLinkPaths: the lookup here is on the
@@ -42339,11 +42355,11 @@ function pjRichSpans(seg, names, agentNames) {
        vanishingly rare; using the escaped `core` as-is is what keeps the chip
        from double-escaping. */
     if (hasNames && core && !core.includes('..')) {
-      const base = core.split('/').pop();
-      if (names.has(base)) {
+      const key = pjCiteKey(core, names);
+      if (key !== null) {
         return hold('<span class="ref">' + core
-          + '<button class="refgo" type="button" data-ref="' + base
-          + '" aria-label="Show me ' + base + '">Show me</button></span>') + mm[2];
+          + '<button class="refgo" type="button" data-ref="' + key
+          + '" aria-label="Show me ' + key + '">Show me</button></span>') + mm[2];
       }
     }
     return tok;
@@ -42563,8 +42579,8 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
 
 /* ⚠️ DELEGATED ON THE THREAD, because every poll rebuilds the messages: a
    listener bound to a chip is bound to an element the next repaint destroys.
-   The button carries the BASENAME, which is the only shape open-file accepts,
-   and the refusal shown is the engine's own sentence rather than a second,
+   The button carries the name the documents list gave (pjCiteKey), which is a
+   shape open-file accepts, and the refusal shown is the engine's own sentence rather than a second,
    weaker copy of it. */
 document.getElementById('pj-room').addEventListener('click', async (e) => {
   const go = e.target && e.target.closest ? e.target.closest('.refgo') : null;
