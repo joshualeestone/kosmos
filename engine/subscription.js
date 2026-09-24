@@ -537,8 +537,11 @@ function observedReachable(raw, dir) {
     }).badge;
     if (badge === 'rejected') {
       /* a FRESH live probe found this account signed out (check-now -> STATE.NONE);
-         it needs to sign in again, so it does not count as reachable and the banner
-         must not keep claiming a stale "connected". */
+         it does not count as reachable, so the banner stops claiming a stale
+         "connected" and correctly reads not-connected. STATE.NONE is the user-visible
+         effect: renderConnection shows only its "cannot reach a subscription" headline
+         for NONE and intentionally discards `because` (web/index.html:16375), so the
+         string below is the verdict CONTRACT for non-banner readers, not banner copy. */
       return { reachable: false, verdict: { state: STATE.NONE, plan: null,
         because: 'a recent check of this computer\'s Claude account found it signed out, so it needs to sign in again' } };
     }
@@ -552,7 +555,11 @@ function computeMachine(accts) {
   const base = check();
   const defaultAcct = (accts || []).find((a) => a && a.isDefault && typeof a.dir === 'string' && a.dir);
   const baseRes = observedReachable(base, defaultAcct ? defaultAcct.dir : null);
-  if (baseRes.reachable) return base;
+  /* Return baseRes.verdict, not `base`: they are identical whenever reachable is true
+     (only the fresh-rejected branch substitutes a verdict, and it forces
+     reachable=false), so this changes nothing today but keeps the two return paths
+     the same value even if observedReachable's reachable arm later changes. */
+  if (baseRes.reachable) return baseRes.verdict;
   for (const a of (accts || [])) {
     /* the default is already `base`; scoped-check every OTHER signed-in dir. */
     if (a && a.isDefault) continue;

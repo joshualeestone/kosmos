@@ -164,12 +164,14 @@ function freshMs() {
  * into a confident connected / not-connected. Only a FRESH observation is confident.
  */
 /*
- * The single owner of the fresh/stale DECISION. verdict() below and any other
- * reader (e.g. subscription.machineStatKey's memo key, #1959) MUST call this
- * rather than re-deriving `age >= 0 && age <= limit` -- two copies of one fact
- * drift silently, and a memo key that disagrees with the verdict it tracks would
- * serve a stale verdict indefinitely. Returns true only for a finite, non-future
- * observedAt within the window.
+ * The owner of the fresh/stale DECISION for READ-TIME verdicts. verdict() below and
+ * subscription.machineStatKey's memo key (#1959) both call this rather than
+ * re-deriving `age >= 0 && age <= limit`: a memo key that disagrees with the verdict
+ * it tracks would serve a stale verdict indefinitely, and that pairing is exactly
+ * what this exists to keep in lockstep. New read-time readers should prefer it too.
+ * (status.js's write-time record gates still inline the same test; converting those
+ * is a separate change -- they decide whether to STORE an observation, not how to
+ * read one.) Returns true only for a finite, non-future observedAt within the window.
  */
 function isFresh(observedAt, now, fm) {
   const nowN = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();

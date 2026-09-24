@@ -83,9 +83,14 @@ test('#1959 THE FIX: a FRESH observed rejection on the connected default -> chec
   sub.resetCache();
   observed.sawDir(ANTHROPIC, defaultDir(), REJECTED, Date.now());
   const v = sub.checkMachine();
+  // STATE.NONE is the USER-VISIBLE effect: the banner (renderConnection) shows its
+  // "cannot reach a subscription" headline for NONE and discards `because`
+  // (web/index.html:16375), so this flip is what the operator sees.
   assert.equal(v.state, sub.STATE.NONE,
     'a fresh observed rejection must stop the banner claiming a stale connected: ' + JSON.stringify(v));
-  assert.match(v.because, /sign(ed)? ?in|signed out/i, 'the wording must reflect the signed-out/needs-sign-in state: ' + v.because);
+  // The `because` is the verdict CONTRACT (for non-banner readers), not banner copy;
+  // pin it so a future surface that DOES show it gets an honest signed-out reason.
+  assert.match(v.because, /sign(ed)? ?in|signed out/i, 'the contract because must reflect the signed-out state: ' + v.because);
 });
 
 test('#1959 NON-REGRESSION: connected default with NO observation -> CONNECTED, byte-for-byte the pre-#1959 verdict', () => {

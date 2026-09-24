@@ -38,11 +38,15 @@ REJECTED on a live NONE. So computeMachine (engine) reads the per-dir verdict di
   is the genuinely browser-gated / cross-layer piece. It stays deferred, correctly. This slice
   covers it for free the day a continuous dir-keyed feed lands.
 - Inventing a new STATE. The rejected case maps to the existing STATE.NONE (the machine cannot
-  reach a subscription right now) with a rejection-specific `because`; NONE, not UNKNOWN, because we
-  DID check (a fresh live probe found it signed out), and NONE is what drives the correct
-  "sign in again" action.
-- No web/ change: the banner render already reads checkMachine's output; only the engine verdict
-  changed.
+  reach a subscription right now); NONE, not UNKNOWN, because we DID check (a fresh live probe found
+  it signed out), and NONE is what drives the correct "cannot reach a subscription" banner.
+- No web/ change, and the USER-VISIBLE effect is the STATE flip, not new wording. The banner
+  (renderConnection, web/index.html) shows only its headline "Kosmos cannot reach a Claude
+  subscription on this computer" for STATE.NONE -- it INTENTIONALLY discards the verdict's `because`
+  in the `bad` branch (web/index.html:16375, guarding a documented double-statement bug). So the
+  fresh-rejected `because` this change sets is part of the verdict CONTRACT (and any non-banner
+  reader), not banner copy; the visible improvement is purely that the banner stops falsely reading
+  connected and correctly reads not-connected. This is why no web/ change is needed and none is made.
 
 ## Non-regression
 Absence of any observation -- the common case, an empty dir store -- returns the raw `check()`
