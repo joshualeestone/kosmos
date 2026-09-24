@@ -1239,7 +1239,7 @@ cmd_post() {
   # BEFORE Kosmos ever sees the text).
   # Unlike the Windows CLI there is no quiet-pipe time limit here (same as `feedback write`): an
   # open pipe nobody writes to blocks until the caller closes it.
-  local no_reply=0 in_reply_to="" from_stdin=0 _trimmed _keep
+  local no_reply=0 in_reply_to="" from_stdin=0 _trimmed _keep _orig=""
   while :; do
     case "${1:-}" in
       --no-reply) no_reply=1; shift ;;
@@ -1285,15 +1285,16 @@ cmd_post() {
         rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2
       fi
       rm -f "$_raw"
+      _orig="$text"   # the message as read; a trim step that fails saves this, never a half-processed copy
       # Drop a leading UTF-8 BOM. Not ${text#...}: under bash 3.2 in a UTF-8 locale that
       # expansion is quadratic in the text length (measured, 5.6s on 200 KB).
-      case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; } ;; esac
+      case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" || { say "Nothing was posted: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; } ;; esac
       # Drop the trailing CR/LF run in linear time: map CR to LF so the command substitution strips
       # the whole run, count the bytes left, and cut the original to that length. A ${text%?} loop
       # is quadratic here (a 60 KB message ending in blank CRLF lines ran for over a minute).
-      _trimmed="$(printf '%s' "$text" | LC_ALL=C tr '\r' '\n')" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; }
-      _keep="$(printf '%s' "$_trimmed" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; }
-      if [ "$_keep" -gt 0 ]; then text="$(printf '%s' "$text" | { LC_ALL=C head -c "$_keep"; cat >/dev/null; })" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; }; else text=""; fi   # macOS head refuses -c 0; cat drains the rest so printf never takes SIGPIPE under pipefail
+      _trimmed="$(printf '%s' "$text" | LC_ALL=C tr '\r' '\n')" || { say "Nothing was posted: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }
+      _keep="$(printf '%s' "$_trimmed" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" || { say "Nothing was posted: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }
+      if [ "$_keep" -gt 0 ]; then text="$(printf '%s' "$text" | { LC_ALL=C head -c "$_keep"; cat >/dev/null; })" || { say "Nothing was posted: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }; else text=""; fi   # macOS head refuses -c 0; cat drains the rest so printf never takes SIGPIPE under pipefail
       _trimmed=
       case "$text" in
         *[![:space:]]*) ;;
