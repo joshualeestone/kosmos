@@ -25,18 +25,23 @@ focus tracer. The sequence in the failing flow:
 
 ## Fix (`web/index.html`, the `renderStale`-adjacent panel-paint focus block ~25792)
 
-Three parts, each matching one cause:
+Re-apply focus across the one-paint teardown steal, but BOUND the intent's life so it can never
+yank focus later:
 
-1. Keep the intent LIVE until focus actually lands and holds on `#d-say`, so the button-teardown
-   steal on the paint after the first is recovered (do not consume it on the first paint).
+1. Keep the intent live ONLY while focus is on `<body>` (the transient steal window). On such a
+   paint, enable the composer and focus it; the button-teardown steal on the paint after the first
+   is then recovered.
 2. Decide focusability from the NEXT state (`body.presence`), not the stale `say.disabled`, and
-   enable the composer before focusing (focusing a still-disabled element is a no-op). Line ~25916
-   sets the same value from the same presence; this only pulls that decision earlier for this one
-   paint.
-3. Re-apply focus only while it has fallen to `<body>` (or nothing is focused); never when the
-   user has moved focus to another real control, so a routine poll repaint cannot yank
-   deliberately-placed focus. Clear the intent once focus reaches the composer, or if the agent is
-   off (nothing to answer into).
+   enable the composer before focusing (focusing a still-disabled element is a no-op). Line 25951
+   (`say.disabled = body.presence === 'off'`) re-derives the same value; this only pulls that
+   decision earlier for this one paint.
+3. Consume the intent the moment focus settles anywhere real - the composer we placed it in, OR a
+   control the user moved to - so a routine poll repaint never yanks deliberately-placed focus.
+   Also drop it when the agent is off (nothing to answer into), and when a DIFFERENT agent is
+   opened (the mismatch arm) - without that last drop a pending intent for B would survive a
+   navigation to C and re-fire on a later visit to B where the user never pressed answer (caught in
+   the challenge loop as the "lying in wait to yank focus" hazard the old consume-on-first-paint
+   had prevented).
 
 ## Verification
 
