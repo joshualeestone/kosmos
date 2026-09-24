@@ -128,5 +128,25 @@ else
   fail "the guard reddened on a missing baseline file (should fail-soft clean)"
 fi
 
+# #3605 ORIGIN: the report names the sandbox each leaked plist points into, read from
+# the plist's WorkingDirectory, in the one-line form create.js's plistFor writes it.
+cat > "$D/com.kosmos.agent.origintest.plist" <<'PLIST'
+  <key>Label</key><string>com.kosmos.agent.origintest</string>
+  <key>WorkingDirectory</key><string>/tmp/kosmos-codex-observed-2413-AbC123/workers/origintest</string>
+  <key>StandardOutPath</key><string>/tmp/other/start.log</string>
+PLIST
+got="$(launchagent_leak_origin "$D/com.kosmos.agent.origintest.plist")"
+if [ "$got" = "/tmp/kosmos-codex-observed-2413-AbC123/workers/origintest" ]; then
+  pass "origin: the leaked plist's sandbox is read from its WorkingDirectory"
+else
+  fail "origin: expected the WorkingDirectory sandbox, got [$got]"
+fi
+# Fail-soft: an unreadable path or a plist with no WorkingDirectory prints nothing.
+got="$(launchagent_leak_origin "$D/no-such.plist")"
+[ -z "$got" ] && pass "origin fail-soft: a missing plist prints nothing" || fail "origin printed [$got] for a missing plist"
+printf '<key>Label</key><string>x</string>\n' > "$D/com.kosmos.agent.nowd.plist"
+got="$(launchagent_leak_origin "$D/com.kosmos.agent.nowd.plist")"
+[ -z "$got" ] && pass "origin fail-soft: a plist with no WorkingDirectory prints nothing" || fail "origin printed [$got] with no WorkingDirectory"
+
 [ "$fails" -eq 0 ] && echo "test-launchagent-leak-guard-3011: all PASS" || echo "test-launchagent-leak-guard-3011: FAILURES above"
 exit "$fails"

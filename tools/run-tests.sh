@@ -243,7 +243,10 @@ _la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_
 
 # --- the suite ----------------------------------------------------------------
 # Run the SAME set the coverage assertion counted, so the count and the run cannot drift.
-node --test "${KOSMOS_TEST_FILES[@]}" "$@"
+# #3605: --require preloads a guard into EVERY file's process (node forwards it) that
+# makes any fs write into the real ~/Library/LaunchAgents throw, so an unsandboxed test
+# fails on its own line instead of leaking a job file launchd loads at the next login.
+node --test --require "$REPO/test-support/launch-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 if [ "$NODE_STATUS" -eq 0 ]; then
   yarn -s test:shell
@@ -253,8 +256,15 @@ fi
 # The whole-suite guard for the leak class (a test missing its AGENT_WORKFORCE_LAUNCH
 # sandbox). Runs regardless of the test verdict, so a leak is reported even beside a red.
 if [ -n "$_la_guard_before" ]; then
-  if ! launchagent_leak_check "$_la_guard_dir" "$_la_guard_before"; then
-    echo "run-tests: #3011 LEAK -- the suite created or modified real LaunchAgents (a create/discover test is missing 'process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, \"LaunchAgents\")'). Leaked plists listed above; move them out of ~/Library/LaunchAgents and sandbox that test." >&2
+  if ! _la_leaked="$(launchagent_leak_check "$_la_guard_dir" "$_la_guard_before" 2>&1)"; then
+    # #3605: print each leaked plist WITH the sandbox it points into. The check sees the
+    # shared folder, not this run, so a concurrent suite from another checkout lands here
+    # too; the sandbox path is how you tell (this run's sandboxes are already deleted).
+    printf '%s\n' "$_la_leaked" | while IFS= read -r _la_f; do
+      [ -n "$_la_f" ] || continue
+      echo "  $_la_f  (sandbox: $(launchagent_leak_origin "$_la_f"))" >&2
+    done
+    echo "run-tests: #3011 LEAK -- a real com.kosmos.agent.* plist was created or modified in ~/Library/LaunchAgents while this suite ran (listed above). Move them out (launchctl bootout gui/\$(id -u)/<label> first if loaded). Either a test here is missing 'process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, \"LaunchAgents\")', or ANOTHER checkout that predates #3011/#3605 ran its suite at the same time: this tree's create.js refuses such writes under node --test, so if no test here failed on a #3605 refusal, look for an older worktree. Rerun alone to confirm." >&2
     [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
   fi
   rm -f "$_la_guard_before"
