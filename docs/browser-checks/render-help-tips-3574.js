@@ -472,7 +472,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       if (r.method() === 'PUT' && /"tour"/.test(r.postData() || '') && failed25 === 0) { failed25++; return route.abort(); }
       return route.continue();
     });
-    await page.mouse.click(640, 780);   // outside the card, on the dimmed page
+    // Outside the card, on the dimmed page: near the bottom-left of whatever viewport the check has.
+    const vp = page.viewportSize();
+    await page.mouse.click(Math.round(vp.width * 0.1), vp.height - 20);
     await page.waitForTimeout(600);
     const closed25 = await cardState(page);
     chk(failed25 === 1 && !/ of /.test(closed25.step) && !(await api('GET')).seen.includes('tour'), 'T25 precondition: the tour closed and its save failed', JSON.stringify({ failed25, closed25 }));
