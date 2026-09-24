@@ -25,11 +25,16 @@ guarded it are removed.
   height and the page scroll would be accidental rather than designed.
 
 ## Weakest premise
-That scrolling to the box is acceptable at narrow width. It is the same pattern as every other
-stacked narrow section; the wide layout (where Josh works) is unchanged.
+That the static header is the right trade at narrow width: while typing there, a header notice
+(offline, update) is scrolled off screen; scrolling up shows it. The alternative, a box sized around
+a sticky header of variable height, is not expressible in CSS. The wide layout (where Josh works)
+keeps its sticky header. The page's scroll-padding-top (which cleared the sticky header) is zeroed in
+this view, or focusing the box would push its composer off screen.
 
 ## Verification
 render-talk-fill-2622: A2b (usable, window-fitting height), A2d (scrolled to the box, all of it is
 on screen and below the header) and A2e (same at the end of the page) replace the old A2b lower
 bound and A2c. Control: against origin/main A2b/A2d/A2e red (box 67px, composer below the box and
 the window); against the first sticky-header version A2d red (box top 48 under the header).
+A2f: focusing the box keeps the composer on screen (it landed at 1017 in a 900 window with the
+scroll padding left in place), and the build marker stays clear of the box.
