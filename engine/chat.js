@@ -1066,7 +1066,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
    * `messageProblem` above measured `raw`. A caller that glued its own prefix
    * on first would have spent the person's `MAX_TEXT` budget on Kosmos's own
    * words: a message at exactly the limit would be refused with *"keep it to
-   * 2000 characters or fewer"* — naming a limit the text they typed does not
+   * 10000 characters or fewer"* -- naming a limit the text they typed does not
    * exceed, which is unfalsifiable from where they are standing. The wire may
    * exceed MAX_TEXT; the person's message may not.
    *
