@@ -34,8 +34,8 @@ set -euo pipefail
 # One EXIT trap, registered before anything can create a temp resource: six
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
-TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _menu_table_stderr=""
-trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_menu_table_stderr:-}"' EXIT
+TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _menu_table_stderr=""; _connector_probe_dir=""
+trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"' EXIT
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 OUT="${1:-dist}"
@@ -184,8 +184,10 @@ _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
 # The connector must know every verb the board will ask it for (#718). Phone
 # notifications need `mac-request`: refused when PHONE_APP_CAN_RECEIVE is true
 # and the connector predates it, one quiet line while the gate is still closed.
+# The probe's scratch file lands in a dir on the ONE EXIT trap above.
 . "$REPO/tools/lib/connector-verbs.sh"
-connector_verbs_check "$TUNNEL_BIN" "$REPO/engine/phonenotify.js" || exit 1
+_connector_probe_dir="$(mktemp -d)"
+TMPDIR="$_connector_probe_dir" connector_verbs_check "$TUNNEL_BIN" "$REPO/engine/phonenotify.js" || exit 1
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
 # The bytes STAGED are the bytes the sidecar vouched for: a relay rebuild landing

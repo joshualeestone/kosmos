@@ -31,7 +31,8 @@ connector_gate_value() {
 }
 
 # Runs `<bin> mac-request --help` with a bound of CONNECTOR_PROBE_SECONDS
-# (default 20) and says which of three things happened: "has" (exit 0), "old"
+# (default 20: `--help` answers at once, so the bound exists only to stop a hang,
+# and 20 leaves room for a first launch's signature check) and says which of three things happened: "has" (exit 0), "old"
 # (exit 2 with clap's "unrecognized subcommand"), or "unknown: <why>" for
 # anything else. Only "old" is evidence the connector predates the verb; a file
 # that is missing, is not executable, is killed by Gatekeeper, crashes or hangs
