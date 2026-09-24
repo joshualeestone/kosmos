@@ -38,8 +38,10 @@ connector_gate_value() {
 # different problem with a different fix.
 connector_mac_request_probe() {
   local bin="$1" err rc
+  if [ ! -e "$bin" ]; then echo "unknown: there is no file at $bin"; return; fi
   if [ ! -x "$bin" ]; then echo "unknown: $bin is not executable"; return; fi
-  err="$(perl -e 'alarm shift; exec @ARGV or exit 127' "${CONNECTOR_PROBE_SECONDS:-20}" "$bin" mac-request --help 2>&1 >/dev/null)"; rc=$?
+  # Inside an `if`, so a failing probe never trips a caller's `set -e`.
+  if err="$(perl -e 'alarm shift; exec @ARGV or exit 127' "${CONNECTOR_PROBE_SECONDS:-20}" "$bin" mac-request --help 2>&1 >/dev/null)"; then rc=0; else rc=$?; fi
   if [ "$rc" = 0 ]; then echo has; return; fi
   if [ "$rc" = 2 ] && printf '%s' "$err" | grep -q "unrecognized subcommand"; then echo old; return; fi
   echo "unknown: running it exited $rc${err:+ ($(printf '%s' "$err" | head -1))}"

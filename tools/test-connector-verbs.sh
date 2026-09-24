@@ -50,6 +50,12 @@ g="$(connector_gate_value engine/phonenotify.js)"
 # The build's calling convention: a direct call under set -euo pipefail, its || branch taken on refusal.
 if bash -c 'set -euo pipefail; . tools/lib/connector-verbs.sh; connector_verbs_check "$1" "$2" || exit 7; echo REACHED' _ "$OLD" "$OPEN" >"$T/out" 2>/dev/null; then bad "the build's convention went on past a refusal"; else [ "$?" = 7 ] && ! grep -q REACHED "$T/out" && ok "under errexit, a refusal takes the caller's || branch" || bad "the build's convention did not stop at the refusal"; fi
 
+# The probe called directly as a bare statement under set -e: a failing connector must still
+# print its verdict and let the caller go on. (Through connector_verbs_check the probe runs
+# inside $( ), where bash suspends errexit, so only a direct call can show this.)
+if bash -c 'set -euo pipefail; . tools/lib/connector-verbs.sh; connector_mac_request_probe "$1"; echo REACHED' _ "$OLD" >"$T/out" 2>/dev/null && grep -qx old "$T/out" && grep -q REACHED "$T/out"; then ok "the probe called bare under set -e reports 'old' and the caller goes on"; else bad "the probe aborted a bare set -e caller: $(cat "$T/out")"; fi
+connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing connector was accepted" || { grep -q "there is no file at" "$T/err" && ok "a missing connector is named as missing, not as not executable" || bad "wrong reason for a missing connector: $(cat "$T/err")"; }
+
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
 if [ -x "$R" ]; then
