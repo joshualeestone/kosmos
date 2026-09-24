@@ -60,13 +60,30 @@ an alias or a renamed variable all read a kill as a number and match none of the
 So the guard now REQUIRES the good form: every callback `execFile(` in a cli.* test
 must check `x.code !== 'number'` and go straight into `reject` or `throw` (a reversed
 ternary has the same text and still falls back, so the check alone is not enough).
-An unsafe spelling fails by what it lacks. execFileSync throws and promisify(execFile)
+An ordinary unsafe spelling fails by what it lacks. execFileSync throws and promisify(execFile)
 rejects on any error, so they are not call sites; a site that does not read the exit
 code at all carries the marker "exit code not read (#3628)" with its reason (one:
 cli.presents-board-token-1968, which asserts what the stub received). The spelling
 rules stay as a cheap second layer (now including `?.code`). Floor: 19 callback sites
 in 17 files, measured. Perturbations: `err?.code ?? 0` without the check reds both
 layers; a null check to a named constant reds the positive rule alone.
+
+### Where the guard stops, decided (review pass 5)
+Pass 5 found text shapes that get past the positive rule. Closed: a commented-out check
+(comments are blanked before matching), a second call inside a checked call's window
+(each site's window now ends at the next site), and spawn/spawnSync/exec as call sites
+(none exist in cli.* today; spawnSync accepts a `.status` number check). Not chased:
+shapes written to defeat a text check (resolve before the check, `if (false && ...)`, a
+throw swallowed by try/catch). No source regex can see order or reachability, and each
+round of review was finding new text shapes rather than defects in the harnesses, which
+have been correct since pass 2. The header and the rule's comment now say this plainly
+instead of claiming the class is guarded.
+Weakest premise: that a future harness author writes the ordinary shape, not an evasive
+one. What would change my mind: a real harness in the repo that reads a kill as a pass
+while passing this guard; then the guard should become an AST check.
+Also out of scope: spawnSync `notEqual(r.status, 0)` checks in tools.* and engine/*
+tests. A killed spawnSync gives status null, which passes that assert; a reviewer found
+none that also set a timeout, but this change does not guard them.
 
 ## Found along the way (not a code defect)
 The CLI tests first failed at exactly 20s on every case. That was the agent1 syspolicyd
