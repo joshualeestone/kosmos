@@ -23000,7 +23000,7 @@ async function frApikeyOpen(which) {
   const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
   const same = FR_APIKEY_WHICH === which && !flow.hidden;
   document.getElementById('fr-apikey-go').disabled = false;   // an Add left pending by a switch must not stay dead
-  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null); return; }   // a second press closes it
+  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null); msg.textContent = ''; return; }   // a second press closes it
   flow.hidden = true;
   frApikeyExpanded(null);
   msg.textContent = 'Checking ' + p.name + ' on this computer…';
@@ -23015,8 +23015,8 @@ async function frApikeyOpen(which) {
   if (mine !== FR_APIKEY_GEN) return;
   if (missing) {
     FR_APIKEY_WHICH = null;
-    msg.textContent = p.name + ' runs on its own command-line tool, `' + FR_APIKEY_TOOL[which]
-      + '`, and it is not installed on this computer yet. Kosmos cannot install it for you yet; once it is installed, press Connect again.';
+    msg.textContent = p.name + ' runs on its own command-line tool, "' + FR_APIKEY_TOOL[which]
+      + '", and it is not installed on this computer yet. Kosmos cannot install it for you yet; once it is installed, press Connect again.';
     return;
   }
   msg.textContent = '';
@@ -23039,6 +23039,10 @@ async function frApikeyOpen(which) {
    known answer or from /api/accounts, the way frPaintOpenai does for GPT. A read that
    fails or cannot tell leaves the row as it was. */
 async function frPaintKeyed(known) {
+  /* A read can take seconds (live checks), so an older one landing after a newer paint
+     must not win: same token as frPaintOpenai. */
+  frPaintKeyed.seq = (frPaintKeyed.seq || 0) + 1;
+  const seq = frPaintKeyed.seq;
   let list = known;
   if (!list) {
     try {
@@ -23046,22 +23050,36 @@ async function frPaintKeyed(known) {
       if (!res.ok) return;
       list = ((await res.json()) || {}).accounts || [];
     } catch { return; }
+    if (seq !== frPaintKeyed.seq) return;
   }
   for (const [id, provider] of [['fr-gemini-connect', 'google'], ['fr-grok-connect', 'xai']]) {
     const b = document.getElementById(id);
     if (!b) continue;
-    const a = list.find((x) => acctProvider(x) === provider && x.connection && x.connection.state === 'connected');
-    const connected = !!a;
-    b.innerHTML = connected ? '<span aria-hidden="true">✓</span> Connected' : 'Connect';
-    b.disabled = connected;
+    const mine = list.filter((x) => acctProvider(x) === provider);
+    const connected = mine.some((x) => x.connection && x.connection.state === 'connected');
+    /* A key saved but not yet confirmed (the provider did not answer) is not "Connected",
+       and must not offer Connect again either: a second paste would make a second account. */
+    const saved = !connected && mine.some((x) => x.connection && x.connection.state === 'unknown');
+    const name = provider === 'google' ? 'Gemini' : 'Grok';
+    b.innerHTML = connected ? '<span aria-hidden="true">✓</span> Connected' : saved ? 'Key saved' : 'Connect';
+    b.disabled = connected || saved;
     b.classList.toggle('is-connected', connected);
-    b.setAttribute('aria-disabled', String(connected));
+    b.setAttribute('aria-disabled', String(connected || saved));
+    b.setAttribute('aria-label', connected ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
   }
 }
 for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
   const b = document.getElementById(id);
   if (b) b.addEventListener('click', () => frApikeyOpen(b.dataset.keyed));
 }
+/* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-
+   continue must not carry the person past a key they have not added. */
+document.getElementById('fr-apikey-key').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('fr-apikey-go').click();
+});
 document.getElementById('fr-apikey-go').addEventListener('click', async () => {
   const which = FR_APIKEY_WHICH;
   const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
@@ -23088,13 +23106,13 @@ document.getElementById('fr-apikey-go').addEventListener('click', async () => {
         document.getElementById('fr-apikey-flow').hidden = true;
         FR_APIKEY_WHICH = null;
         frApikeyExpanded(null);
-        msg.textContent = p.name + ' is connected.';
       }
+      if (FR_APIKEY_WHICH === null) msg.textContent = p.name + ' is connected.';   // never leave "Checking..." behind
       frPaintKeyed();
       return;
     }
     if (!res.ok) {
-      if (out && out.needsRunner) throw new Error('The ' + p.name + ' runner is not installed on this computer yet, so there is nothing to connect it to. You can carry on and connect ' + p.name + ' later in Settings, AI Models.');
+      if (out && out.needsRunner) throw new Error(p.name + ' runs on its own command-line tool, "' + FR_APIKEY_TOOL[which] + '", and it is not installed on this computer yet.');
       throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
     }
     keyField.value = '';
