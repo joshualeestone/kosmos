@@ -36,6 +36,14 @@ Josh, 2026-09-24 12:27, #admin: reactions "in both their conversations and proje
   The note itself also says "it needs no reply", for agents that have not refreshed.
 - MAC AND WINDOWS: all of this is server.js + engine + web, which both boards run.
 
+- LIMITS (review pass 1): no note on a numbered menu answer, checked on `chose` AND on
+  a bare-digit text (`chose` is dropped when no menu shows, and a digit is what a menu
+  takes), so a note can never spill into the next prompt. At most 20 reactions per
+  message. The note names at most the five newest messages and counts the rest. The
+  quoted start is cut by code point so an emoji is never split. The page closes a
+  DM-opened picker before a repaint that rewrites the thread (as the room does), and a
+  pick lands only in a DM that is still on screen.
+
 ## Rejected
 - Pushing each reaction to the pane as it happens: wakes the agent for feedback that
   needs no reply, and contradicts the doctrine it is meant to follow.
@@ -51,13 +59,14 @@ reaction alone to reach the agent, which would need a quiet channel that does no
 start a turn.
 
 ## Verification
-- engine/chat.dm-reactions-3650.test.js (8): toggle, only agent rows, ambiguity
+- engine/chat.dm-reactions-3650.test.js (11, incl. the cap, the bounded note and the code-point cut): toggle, only agent rows, ambiguity
   refused, survives appends, told once then silent, taken-back never told, one-line
   note with quoting, stray values skipped. Perturbations: accepting any row, and a
   no-op told-marker, each red their arm.
-- server.test.js #3650: the route, pills on the GET, the note typed after the
-  person's words, and not typed again. Perturbations: no note, and no told-marking,
-  each red it.
+- server.test.js #3650: the route, pills on the GET, an undelivered send leaving the
+  note pending, no note on a menu answer, the note typed after the person's words,
+  and not typed again. Perturbations: no note, told-marking regardless of delivery,
+  no told-marking, and no digit guard each red it.
 - docs/browser-checks/render-dm-reactions-3650.js (9): rows on agent messages only,
   a pressed pill, quick-bar POST + repaint, shared picker routed to the DM route and
   closed. Perturbations: picker DM branch off, and no DM row, each red. The room's

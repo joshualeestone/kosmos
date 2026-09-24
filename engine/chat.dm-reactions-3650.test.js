@@ -120,3 +120,40 @@ test('#3650: a stray non-array or non-emoji value in the file is skipped, not tr
   assert.deepEqual(chat.dmReactions(read(agent)[2]), ['👍']);
   assert.equal(chat.reactDirect(agent, at(2), '👍').ok, true);
 });
+
+test('#3650: a message holds at most 20 reactions; removing one still works at the cap', () => {
+  const { agent, at } = thread();
+  const EMOJI = ['😀', '😁', '😂', '🤣', '😃', '😄', '😅', '😆', '😉', '😊', '😋', '😎', '😍', '😘', '🥰', '😗', '😙', '😚', '🙂', '🤗', '🤩'];
+  for (const e of EMOJI.slice(0, 20)) assert.equal(chat.reactDirect(agent, at(2), e).ok, true, e);
+  const over = chat.reactDirect(agent, at(2), EMOJI[20]);
+  assert.equal(over.ok, false);
+  assert.match(over.because, /as many reactions as it can hold/);
+  assert.equal(chat.reactDirect(agent, at(2), EMOJI[0]).op, 'remove', 'taking one back is not blocked by the cap');
+  assert.equal(read(agent)[1].reactions.length, 19);
+});
+
+test('#3650: the note names at most five messages and counts the rest', () => {
+  const agent = 'rxmany';
+  const ats = [];
+  for (let i = 0; i < 7; i++) {
+    const at = new Date(Date.UTC(2026, 8, 24, 13, 0, i)).toISOString();
+    ats.push(at);
+    chat.appendMessage(chat.DIRECT, agent, { text: 'message number ' + i, from: agent, at });
+    chat.reactDirect(agent, at, '👍');
+  }
+  const note = chat.dmReactionNote(agent);
+  assert.ok(note.includes('reactions on 2 earlier messages; '), note);
+  assert.equal(note.includes('"message number 1"'), false, 'the oldest are counted, not quoted');
+  for (let i = 2; i < 7; i++) assert.ok(note.includes('"message number ' + i + '"'), 'newest five are named: ' + i);
+});
+
+test('#3650: the quoted start never splits an emoji in half', () => {
+  const agent = 'rxsplit';
+  const at = '2026-09-24T14:00:00.000Z';
+  chat.appendMessage(chat.DIRECT, agent, { text: 'a'.repeat(47) + '😀😀 and more text after', from: agent, at });
+  chat.reactDirect(agent, at, '👍');
+  const note = chat.dmReactionNote(agent);
+  assert.equal(note.includes('�'), false);
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(note), false, 'no lone high surrogate');
+  assert.ok(note.includes('a'.repeat(47) + '😀…"'), note);
+});

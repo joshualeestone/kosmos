@@ -2760,6 +2760,9 @@ function reactDirect(agent, at, emoji) {
       const m = thread.messages[hits[0]];
       const cur = dmReactions(m);
       const op = cur.includes(e) ? 'remove' : 'add';
+      if (op === 'add' && cur.length >= DM_REACTIONS_PER_MESSAGE) {
+        return { ok: false, because: 'that message already has as many reactions as it can hold' };
+      }
       const next = op === 'add' ? [...cur, e] : cur.filter((x) => x !== e);
       const messages = thread.messages.slice();
       messages[hits[0]] = { ...m, reactions: next };
@@ -2785,6 +2788,8 @@ function reactDirect(agent, at, emoji) {
    start of each message so the agent can tell which one is meant. '' when there is
    nothing new. One line, no control characters: it is typed into a pane. */
 const DM_REACTION_SNIPPET = 48;
+const DM_REACTION_NOTE_MESSAGES = 5;
+const DM_REACTIONS_PER_MESSAGE = 20;
 function dmReactionNote(agent) {
   let thread;
   try { thread = readThread(DIRECT, String(agent)); } catch { return ''; }
@@ -2795,11 +2800,18 @@ function dmReactionNote(agent) {
     const fresh = dmReactions(m).filter((e) => !told.has(e));
     if (!fresh.length) continue;
     const words = String(m.text || '').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
-    const snippet = words.length > DM_REACTION_SNIPPET ? words.slice(0, DM_REACTION_SNIPPET).trimEnd() + '…' : words;
+    // By code point, so an emoji at the cut is never split into half a surrogate pair.
+    const chars = Array.from(words);
+    const snippet = chars.length > DM_REACTION_SNIPPET ? chars.slice(0, DM_REACTION_SNIPPET).join('').trimEnd() + '…' : words;
     parts.push(fresh.join(' ') + ' on your message "' + snippet.replace(/"/g, '\'') + '"');
   }
   if (!parts.length) return '';
-  return ' [kosmos] reactions from the person since your last message here: ' + parts.join('; ')
+  /* Bounded: at most DM_REACTION_NOTE_MESSAGES messages named, the rest counted, so a
+     backlog of reactions cannot turn one message into a wall of text in the pane. */
+  const shown = parts.slice(-DM_REACTION_NOTE_MESSAGES);
+  const more = parts.length - shown.length;
+  return ' [kosmos] reactions from the person since your last message here: '
+    + (more ? 'reactions on ' + more + ' earlier message' + (more === 1 ? '' : 's') + '; ' : '') + shown.join('; ')
     + '. A reaction is feedback, not a message: it needs no reply.';
 }
 

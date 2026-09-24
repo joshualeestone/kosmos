@@ -26281,7 +26281,13 @@ function paintTalkThread(body, name) {
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
-    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), threadKey);
+    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
+    /* #3650: a repaint that rewrites the thread replaces the smiley a DM-opened reaction
+       picker is anchored to, so close it first, as the room does (paintThreadInto). A quiet
+       poll that changes nothing leaves it open. */
+    const rxnPk = document.getElementById('rxn-picker');
+    if (rxnPk && !rxnPk.hidden && rxnPk.getAttribute('data-at') !== null && thread && thread.__lastThread !== dmHtml) rxnCloseAllPickers();
+    setThread(thread, dmHtml, threadKey);
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -43907,7 +43913,9 @@ function rxnPickerEl() {
       document.querySelectorAll('#d-dmthread .rxns').forEach((r) => {
         if (r.getAttribute('data-at') === dmAt) box = r;
       });
-      if (box && CURRENT) await dmRxnToggle(CURRENT.sessionName, box, b.getAttribute('data-emoji'));
+      // Only into a DM that is still on screen: a picker left open across a view switch
+      // must not react in a thread the person is no longer looking at.
+      if (box && CURRENT && box.offsetParent !== null) await dmRxnToggle(CURRENT.sessionName, box, b.getAttribute('data-emoji'));
       rxnCloseAllPickers();
       return;
     }

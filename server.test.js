@@ -14634,6 +14634,15 @@ test('#3650: a DM reaction is stored, shown, and told to the agent once with the
     assert.ok(row, 'the reacted message is not in the thread');
     assert.deepEqual(row.reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
 
+    const say = (text, extra) => req('/api/agent/lena/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, ...(extra || {}) }),
+    });
+    /* A send that never reaches the pane (dry run, the default here) must leave the
+       reaction untold, so it rides the next message instead. */
+    const failed = await say('are you there?');
+    assert.ok([200, 202].includes(failed.status), failed.body);
+    assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'an undelivered note was marked told');
+
     const sends = [];
     chatEngine.setRunner((args) => {
       sends.push(args);
@@ -14641,9 +14650,14 @@ test('#3650: a DM reaction is stored, shown, and told to the agent once with the
       return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
     });
     chatEngine.setDryRun(false);
-    const say = (text) => req('/api/agent/lena/thread', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
-    });
+
+    /* A numbered menu answer (`chose`) is a bare digit in the pane; the note must not
+       ride it, and must still be pending afterwards. */
+    const answered = await say('1', { chose: 'Yes, go ahead' });
+    assert.ok([200, 202, 409].includes(answered.status), answered.body);
+    assert.equal(pastedChunks(sends).join('').includes('[kosmos] reactions'), false, 'the note rode a menu answer');
+    assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'a menu answer marked the note told');
+    sends.length = 0;
 
     const first = await say('thanks');
     assert.ok([200, 202].includes(first.status), first.body);
