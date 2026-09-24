@@ -411,6 +411,26 @@ async function measure(page) {
       'A1o in Talk the header is padded by the scrollbar width (15px here), and not in Model (the page is left on Talk)', JSON.stringify(pad));
     chk(pad.consTalk === pad.model,
       'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header is not padded', JSON.stringify(pad));
+    // A1q: a measurement that failed leaves no data-scrollbar-measured, and then Talk keeps the #1309
+    // gutter and the header is not padded, so the header cannot move. Control: the same reads with
+    // the attribute present drop the gutter and pad the header.
+    const unmeasured = await page.evaluate(() => {
+      const root = document.documentElement;
+      const bootWidth = root.style.getPropertyValue('--scrollbar-width');
+      root.style.setProperty('--scrollbar-width', '15px');
+      const read = () => ({ gutter: getComputedStyle(root).scrollbarGutter,
+        pad: getComputedStyle(document.querySelector('.apphead')).paddingRight });
+      const measured = read();
+      root.removeAttribute('data-scrollbar-measured');
+      const failed = read();
+      root.setAttribute('data-scrollbar-measured', '');
+      if (bootWidth) root.style.setProperty('--scrollbar-width', bootWidth);
+      else root.style.removeProperty('--scrollbar-width');
+      return { measured, failed };
+    });
+    chk(unmeasured.measured.gutter === 'auto' && unmeasured.failed.gutter === 'stable'
+      && parseFloat(unmeasured.measured.pad) - parseFloat(unmeasured.failed.pad) === 15,
+      'A1q with no successful measurement, the Talk view keeps the gutter and the header is not padded (control: measured drops it and pads 15px)', JSON.stringify(unmeasured));
     // A1p: the width is re-measured, not fixed at load. It proves the measurer RUNS on these
     // triggers; headless hides scrollbars, so the value it reads is 0 and the Windows 10px width
     // itself is not verified here. A resize (which a zoom or a display move

@@ -2464,9 +2464,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      measured at load) so the header does not move when an agent opens or closes, which is the
      shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
      (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
-     nothing to drop or pad for. */
-  html:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
-  html:not([data-layout="consolidated"]) > body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead {
+     nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width
+     cannot be measured the gutter stays (A1q). */
+  html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
+  html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead {
     padding-right: calc(var(--space-8) + var(--scrollbar-width, 0px)); }
   /* The build marker moves to the bottom-left corner, over the side column, so it does not sit
      inside the box under Post. */
@@ -8497,7 +8498,8 @@ window.kosmosMeasureScrollbarWidth = function () {
     d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow-y:scroll';
     document.documentElement.appendChild(d);
     document.documentElement.style.setProperty('--scrollbar-width', (d.offsetWidth - d.clientWidth) + 'px');
-  } catch (e) { /* no measurement: the header falls back to its unpadded 24px */ }
+    document.documentElement.setAttribute('data-scrollbar-measured', '');
+  } catch (e) { /* no measurement: see data-scrollbar-measured in the #3497 CSS */ }
   finally { if (d && d.parentNode) d.remove(); }
 };
 window.kosmosMeasureScrollbarWidth();
@@ -8509,10 +8511,13 @@ window.kosmosMeasureScrollbarWidth();
     queued = true;
     requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
   });
+  /* The fewest ms between two pointer-press re-measures. Each probe forces a layout, and a Mac's
+     scrollbar mode changes when a mouse is plugged in, not between two clicks. */
+  var SCROLLBAR_REMEASURE_MIN_MS = 1000;
   var lastPress = 0;
   window.addEventListener('pointerdown', function () {
     var now = Date.now();
-    if (now - lastPress < 1000) return; /* at most once a second: the check only needs to be fresh, and each probe forces a layout */
+    if (now - lastPress < SCROLLBAR_REMEASURE_MIN_MS) return;
     lastPress = now;
     window.kosmosMeasureScrollbarWidth();
   }, { capture: true, passive: true });
