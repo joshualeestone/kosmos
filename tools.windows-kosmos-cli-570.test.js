@@ -200,6 +200,7 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   const refusedSaved = refused.err.match(/saved at (\S+)/);
   assert.ok(refusedSaved, 'a board refusal after the read keeps the piped message too');
   assert.equal(fs.readFileSync(refusedSaved[1], 'utf8'), 'keep me');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(refusedSaved[1]).mode & 0o777, 0o600, 'the saved copy is private');
   fs.rmSync(path.dirname(refusedSaved[1]), { recursive: true });
   const declined = await run(['post', '--stdin', 'proj-1'], () => ({ body: { delivery: { state: 'could_not', because: 'there is no project by that name.' } } }), undefined, async () => ({ text: 'declined body', ended: true }));
   assert.equal(declined.code, 1);

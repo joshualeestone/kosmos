@@ -314,6 +314,24 @@ test('#2909: the dropped control-character range is one fact in both bash copies
   assert.ok(win.includes('/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g'), 'the Windows CLI drops the same range (plus NUL, which bash $() drops on its own)');
 });
 
+test('#2909: an argument made only of control characters is refused, not posted empty', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const out = await runCli(['post', 'proj', '\u001b\u0007'], env);
+  assert.equal(out.code, 2, out.stdout + out.stderr);
+  assert.match(out.stdout, /empty once control characters are removed/);
+  assert.equal(seen.length, 0);
+}));
+
+test('#2909: a piped message with many embedded newlines is escaped quickly', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const body = 'line\n'.repeat(300000) + 'end';
+  const t0 = Date.now();
+  const out = await runCli(['post', '--stdin', 'proj'], env, body);
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen[0].text, body, 'every embedded newline survives the escaper');
+  assert.ok(Date.now() - t0 < 15000, 'the newline join is linear on 300k lines');
+}));
+
 test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'plain', 'words'], env, 'this must not be read');

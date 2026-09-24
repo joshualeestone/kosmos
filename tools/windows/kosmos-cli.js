@@ -331,13 +331,17 @@ async function verbPost(ctx, args) {
      private file and names the path. A no-op without --stdin. */
   const keepPiped = () => {
     if (!fromStdin) return;
+    const fs = require('fs'); const os = require('os'); const path = require('path');
+    let dir = '';
     try {
-      const fs = require('fs'); const os = require('os'); const path = require('path');
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-post-unsent-'));
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-post-unsent-'));
       const file = path.join(dir, 'message.txt');
       fs.writeFileSync(file, text, { mode: 0o600 });
       ctx.err('The piped message was not sent; it is saved at ' + file);
-    } catch (e) { ctx.err('The piped message was not sent, and we could not save a copy of it.'); }
+    } catch (e) {
+      if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ } }
+      ctx.err('The piped message was not sent, and we could not save a copy of it.');
+    }
   };
   /* The board drops a request body over its limit, which would read as unreachable; measured on the
      encoded body, as install/kosmos does. */

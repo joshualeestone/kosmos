@@ -1333,6 +1333,12 @@ cmd_post() {
   # through --stdin carries ESC).
   local _tab=$'\t' _cr=$'\r'
   esc_text=$(printf '%s' "$text" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed "s/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g; s/${_tab}/\\\\t/g; s/${_cr}/\\\\r/g" | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g') || { say "Nothing was posted: the message could not be prepared for sending."; _keep_piped; exit 2; }
+  # #2909: an argument made only of dropped control characters escapes to nothing; refuse it rather
+  # than post an empty message and report success. (--stdin input was blank-checked after its drop.)
+  if [ -z "$esc_text" ]; then
+    say "Nothing was posted: the message is empty once control characters are removed."
+    exit 2
+  fi
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # -m 120, not msg's 15: delivery fans out SERIALLY and a wedged tmux
   # can stall ~15s per recipient, so a room-sized timeout has to cover
