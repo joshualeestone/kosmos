@@ -32,10 +32,12 @@ So the premise was false: a self-heal on connection_lost would have restarted ag
 
 ## Weakest premise
 One Claude Code version, one error (ECONNREFUSED). DNS or timeout errors are assumed to draw the
-same retry suffix, which has not been captured. A UI change would reopen this. A retry line that a
-narrow pane splits across two rows is glued back (tested); one split across three or more rows is
-not, and would read connection_lost for as long as it stays on screen. The self-heal's
-unchanged-tail bound is what keeps that from causing a restart.
+same retry suffix, which has not been captured. A UI change would reopen this. At 80 columns
+(measured, with and without -J) Claude Code truncates the retry line's error text with "…" and
+keeps the suffix, so the line does not wrap; row-gluing was tried and removed as unreachable.
+For PR 2b: the final "⏺ API Error: …" line is agent output, which does wrap, so on a narrow pane
+CONNECTION_LOST_MESSAGE's phrase can split across rows and the wedged pane read idle. That
+needs measuring before the self-heal relies on connection_lost.
 
 ## Next (PR 2b, separate)
 The self-heal sweep: restart on connection_lost only when it persists across sweeps with an

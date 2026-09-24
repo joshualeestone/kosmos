@@ -2067,23 +2067,6 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
    line end, so a quote followed by more text on the same row does not match. */
 const RETRYING_LINE = /^\s*[·✢✳✶✻✽] .*·\s+Retrying in\s+\d+s\s+·\s+attempt\s+\d+\/\d+\s*$/u;
 
-/* The retry line, with a narrow pane's hard wrap undone: a row is tried alone, then glued
-   to the row below it (the auth rule's wrapJoined approach). The line is ~110 columns, so
-   a narrower pane splits it, and the first fragment alone still matches
-   CONNECTION_LOST_MESSAGE. Returns the glyph-stripped line, or null. */
-function retryingLineIn(tail) {
-  const rows = String(tail == null ? '' : tail).split('\n');
-  for (let i = 0; i < rows.length; i += 1) {
-    const candidates = [rows[i]];
-    if (i + 1 < rows.length) candidates.push(rows[i].replace(/\s+$/, '') + ' ' + rows[i + 1].trim());
-    for (const c of candidates) {
-      if (!RETRYING_LINE.test(c)) continue;
-      const line = c.replace(/^[\s>│├└─*❯›·✢✳✶✻✽]+/, '').replace(/\s+/g, ' ').trim();
-      return line.length > 240 ? line.slice(0, 240) + '…' : line;
-    }
-  }
-  return null;
-}
 
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
@@ -3888,11 +3871,13 @@ function classify(pane, paneText) {
      "✻ Connection refused — … (ECONNREFUSED) · Retrying in 5s · attempt 4/10", which
      has no ellipsis and no "(Ns" timer, so WORKING_LINE never matched and every one of
      those frames read connection_lost. Only after attempt 10/10 did the line become
-     "⏺ API Error: …" with no retry suffix. An agent that is retrying is mid-turn, so it
+     "⏺ API Error: …" with no retry suffix. On a narrow pane (80 columns, measured) Claude Code
+     truncates the error text with "…" and keeps the suffix on the same row, so the line
+     never wraps. An agent that is retrying is mid-turn, so it
      reads WORKING, which the #3410 self-heal does not act on. Keyed on the retry suffix,
      not the error wording, so any error Claude Code retries this way matches (the
      evidence line names the actual error). */
-  const retryLine = retryingLineIn(tail);
+  const retryLine = matchedLine(tail, [RETRYING_LINE]);
   if (retryLine !== null) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED,
              because: 'it is retrying a failed request to the API', evidence: retryLine };
