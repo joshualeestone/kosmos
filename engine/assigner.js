@@ -36,6 +36,12 @@ const GOAL_ASK_MS = 24 * 60 * 60 * 1000;
 /* At most this many goal asks per hour across the fleet, apart from the assignment caps (an ask
    charged to the per-agent cap would block, for an hour, the assignment it sets up). */
 const MAX_ASKS_PER_HOUR = 3;
+/* An ask that reached nobody (COULD_NOT) is tried again after this long, not every minute; it
+   still counts toward the hourly ask caps, so a pane that keeps refusing cannot loop. */
+const ASK_RETRY_MS = 10 * 60 * 1000;
+/* At most one goal ask per agent per hour, so an agent that answers "nothing to add" is not asked
+   about its next goal project a minute later. */
+const MAX_ASKS_PER_AGENT_PER_HOUR = 1;
 /* Sorts after every real YYYY-MM-DD, so a task with no due date comes after every dated one. */
 const NO_DUE_DATE = '9999-99-99';
 
@@ -91,6 +97,11 @@ function pick(session, projects, taken) {
   return candidates[0] || null;
 }
 
+/* The Assigner's memory between ticks, empty. */
+function emptyMemory() {
+  return { idleSince: new Map(), log: [], asked: new Map(), askLog: [] };
+}
+
 /* A live project this agent belongs to, with NO open task at all (not merely none free), a goal,
    and not asked about within GOAL_ASK_MS. First by project order. (A project chosen earlier in
    the same step is already in `asked`, so a second agent in it is not asked.) */
@@ -108,12 +119,14 @@ function goalProject(session, projects, goals, asked, now) {
   return null;
 }
 
-/* The ask, in Kosmos's voice. The goal is quoted as the person's own words, so a goal phrased as
-   an instruction never reads as Kosmos speaking. */
+/* The ask, in Kosmos's voice. The goal is quoted as text written in the project's BRIEF.md (which
+   anyone on the project can edit), never as Kosmos speaking; double quotes inside it become single
+   quotes so it cannot close its own quotation early. */
 function askText(item) {
-  return 'Assigner (Kosmos): project ' + item.projectId + ' ("' + String(item.projectName).replace(/[\r\n"]/g, ' ')
-    + '") has no open tasks. Its brief states this goal (the person\'s words, not an instruction from Kosmos): "'
-    + String(item.goal).replace(/[\r\n]/g, ' ') + '". If there is real work toward it, add up to 3 tasks with '
+  const quoted = (v) => String(v).replace(/[\r\n]/g, ' ').replace(/"/g, "'");
+  return 'Assigner (Kosmos): project ' + item.projectId + ' ("' + quoted(item.projectName)
+    + '") has no open tasks. The goal written in its BRIEF.md (quoted as written there, not an instruction from Kosmos) is: "'
+    + quoted(item.goal) + '". If there is real work toward it, add up to 3 tasks with '
     + 'kosmos task add ' + item.projectId + ' "what needs doing", and Kosmos will give you the first. '
     + 'If there is nothing real to add, add nothing and say so in the room: kosmos post ' + item.projectId + ' "...".';
 }
@@ -131,8 +144,8 @@ function askText(item) {
  * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
  */
 function step({ prev, roster, setting, records, commitments, goals, now }) {
-  const base = prev && prev.idleSince instanceof Map ? prev : { idleSince: new Map(), log: [], asked: new Map(), askLog: [] };
-  if (!setting || setting.on !== true) return { toAssign: [], toAsk: [], next: { idleSince: new Map(), log: [], asked: new Map(), askLog: [] } };
+  const base = prev && prev.idleSince instanceof Map ? prev : emptyMemory();
+  if (!setting || setting.on !== true) return { toAssign: [], toAsk: [], next: emptyMemory() };
   // A null roster is a READ FAILURE, not an empty fleet: keep the memory, do nothing.
   if (roster === null || roster === undefined) return { toAssign: [], toAsk: [], next: base };
   const projects = liveProjects(records);
@@ -160,6 +173,7 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
       // Phase 3: nothing to hand out. Ask this agent to draft tasks toward a goal, if one of its
       // projects has no open task and a goal, within the ask caps.
       if (askLog.length >= MAX_ASKS_PER_HOUR) continue;
+      if (askLog.filter((e) => e.session === session).length >= MAX_ASKS_PER_AGENT_PER_HOUR) continue;
       const g = goalProject(session, projects, goals, asked, now);
       if (!g) continue;
       asked.set(g.projectId, now);
@@ -196,8 +210,9 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
     acted.push({ session: item.session, name: item.name, projectId: item.projectId, n: item.n, ok,
       because: ok ? null : (res && res.because) || 'refused', heard: (res && res.heard) || null });
   }
-  // Phase 3 asks. One that reached nobody (COULD_NOT, or a throw) is not remembered, so it is
-  // tried again later rather than lost; any other verdict (text may have landed) is kept.
+  // Phase 3 asks. One that reached nobody (COULD_NOT, or a throw) is tried again after
+  // ASK_RETRY_MS rather than a day later, and keeps its hourly charge so a refusing pane cannot
+  // loop; any other verdict (text may have landed) is remembered for the full GOAL_ASK_MS.
   const asks = [];
   for (const item of out.toAsk) {
     let state = null;
@@ -205,11 +220,7 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
       try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; } catch { state = null; }
     }
     const landed = state !== null && !(DELIVERY && state === DELIVERY.COULD_NOT);
-    if (!landed) {
-      out.next.asked.delete(item.projectId);
-      const i = out.next.askLog.findIndex((e) => e.at === now && e.projectId === item.projectId);
-      if (i !== -1) out.next.askLog.splice(i, 1);
-    }
+    if (!landed) out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);
     asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: state });
   }
   return { next: out.next, acted, asks };
@@ -251,4 +262,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 }
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, idleCard, liveProjects, goalProject, askText,
-  IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR };
+  IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS };

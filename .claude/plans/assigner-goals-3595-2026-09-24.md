@@ -23,17 +23,21 @@ so phase 2 gives it the first one on a later tick. No goal means no ask: Kosmos 
 - **The ask has its own memory and caps, separate from assignments.** Charging it to the
   1-per-agent-per-hour assignment cap would block the very assignment it sets up for an hour.
   Instead: at most once per project per 24 hours (`GOAL_ASK_MS`), and at most 3 asks per hour
-  across the fleet (`MAX_ASKS_PER_HOUR`). Two idle agents in one project: only one is asked.
+  across the fleet (`MAX_ASKS_PER_HOUR`), and at most 1 per agent per hour. Two idle agents in one
+  project: only one is asked.
 - **"No open tasks" is its own check**, not "pick found nothing": a project whose open tasks are
   all taken already has work, and is not asked about.
-- **The line is marked as Kosmos's and quotes the goal as the person's words**, so a goal written
-  as an instruction never reads as Kosmos speaking.
+- **The line is marked as Kosmos's and quotes the goal as text written in BRIEF.md**, not as the
+  person's words: anyone on the project, agents included, can edit the brief, so it is given no
+  more authority than that. Double quotes in the goal become single quotes, so it cannot close its
+  own quotation and continue in Kosmos's voice.
 - **It says Kosmos will give the first task**, rather than "take the first": there is no CLI verb
   for an agent to assign itself, and phase 2 does it on the next tick.
 - **Same switch as phase 2** (the Assigner). The label "Turn your goals into assigned work" is now
   true; the hint gains one sentence for this behaviour.
-- **An ask that reaches nobody (COULD_NOT) is not remembered**, so it is tried again later rather
-  than lost; UNCONFIRMED is remembered (a re-send could duplicate it).
+- **An ask that reaches nobody (COULD_NOT) is tried again after 10 minutes**, not a day later and
+  not every minute, and it keeps its hourly charge so a refusing pane cannot loop; UNCONFIRMED is
+  remembered for the full day (a re-send could duplicate it).
 - Weakest premise: that a goal written in BRIEF.md is specific enough for an agent to draft useful
   tasks. The agent's standing rule (defaults.js: never invent work) still applies, so a vague goal
   should produce "nothing to add", not busywork.
