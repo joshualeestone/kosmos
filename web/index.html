@@ -52739,6 +52739,7 @@ const TIPS_CHECK_MS = 1200;
 let TIP_PLACES = [];            // the tour's steps whose place is on screen
 let TIP_STEP = 0;               // the tour step showing
 let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
+let TIP_TOUR_MET = false;       // the tour showed by itself this session (a new board)
 
 /* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
    takeover (.upd-back) is added while it is up. */
@@ -52820,6 +52821,14 @@ function tipsCheck() {
     return;
   }
   if (!TIPS_STATE || !TIPS_STATE.ok || TIPS_STATE.off) return;
+  /* The tour showed by itself and the person has since made an agent: its job is done, so it counts
+     as seen and the screen tips can follow. Without this, a tour that went because its screen went
+     (keyboard, Back, a link: unrecorded, above) left a board with agents and no tour seen, which is
+     the upgrader's state, so no tip would ever show by itself again. */
+  if (TIP_TOUR_MET && !TIPS_STATE.seen.includes('tour') && Array.isArray(LAST) && LAST.length > 0) {
+    TIPS_STATE = { ...TIPS_STATE, seen: [...TIPS_STATE.seen, 'tour'] };
+    tipsSave({ seen: ['tour'] });
+  }
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return;
   if (tipModalOpen()) return;
@@ -52848,6 +52857,7 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
     /* The tour dims the page and ends on a click outside, so it takes focus even when it opened by
        itself, and hands it back when it ends. */
     if (auto) TIP_RETURN = document.activeElement !== document.body ? document.activeElement : null;
+    if (auto) TIP_TOUR_MET = true;
     TIP_PLACES = t.steps.map((st) => ({ ...st, sel: st.at.find((sel) => tipVisible(sel)) })).filter((st) => st.sel);
     /* Asked for from the ? on a screen that shows none of the four places: walk them anyway, centred
        and unringed, rather than a menu item that does nothing. */

@@ -6,7 +6,7 @@ see how they look". Build the mock as drawn: chaoskosmos-site `design/first-run-
 style much better", with the mock's B screenshot); A (all four at once) was built first and replaced.
 
 ## Finished looks like
-The first time the board opens with this build (a fresh install after setup, and an existing install once after it updates: the tour has not been seen there either, and existing users have not had it), the tour walks the four places one at a time
+The first time a NEW board opens (the board has answered and has no agents; changed 2026-09-24 18:02 from "every install once, upgraders included": the auto tour covered the agent card render-url-state clicks, and its step 1 "Make your first agent" is wrong on a board that has agents), the tour walks the four places one at a time
 (New agent, Agents, Projects, your name: "N of 4", the place ringed, the rest dimmed, dots, Skip and
 Next, Got it on the last) and ends with Got it, Skip, the x, Escape or a click outside. It
 never returns on its own. A ? button beside the user's name reopens this screen's tip, the welcome
@@ -44,8 +44,10 @@ No em dashes.
 
 ## Weakest premise
 That "the first time the dashboard opens after setup" can be detected reliably from the existing
-first-run completion signal (revealBoot after the first-run gate resolves). If it cannot, the
-fallback is "no `tour` id in seen", which also shows it to existing users once.
+first-run completion signal (revealBoot after the first-run gate resolves). Replaced 18:02: the
+gate is "no agents on the board and no `tour` in seen"; first-visit screen tips show by themselves
+only after the tour is seen. New weakest premise: an upgrader with agents never sees the tour or
+the first-visit tips unless they press the ?.
 
 ## Verification
 A browser check: fresh sandbox shows the tour once; Got it records it and a reload does not show it;

@@ -425,6 +425,28 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const tourBack = await cardState(page);
     chk((await api('GET')).seen.includes('tour') && !/ of /.test(tourBack.step), 'T22 the tour replaced from the ? is recorded and does not come back', JSON.stringify(tourBack));
 
+    // T24: the tour showed by itself, then its screen went without a pointer (keyboard, Back, a link:
+    // unrecorded), then the first agent arrived. The tour's job is done, so it counts as seen and the
+    // screen tips follow. Before the fix this board looked like an upgrade (agents, tour unseen) and
+    // no tip ever showed by itself again (control: T23, an upgrade, shows nothing).
+    resetStore({ seen: [], off: false });
+    noAgents();
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    chk(await waitTitle(page, TOUR, 4000), 'T24 precondition: the tour shows by itself');
+    await page.evaluate(() => document.querySelector('#tabs [data-tab="projects"]').click());   // no pointerdown
+    await page.waitForTimeout(1500);
+    const gone24 = await cardState(page);
+    chk(!/ of /.test(gone24.step) && !(await api('GET')).seen.includes('tour'), 'T24 precondition: the tour went with its screen, unrecorded', JSON.stringify(gone24));
+    withAgent();
+    // The agent is made away from the board (as from New agent's own page); the board learns of it
+    // on its next status answer, before the person comes back.
+    chk(await page.waitForFunction(() => Array.isArray(LAST) && LAST.length > 0, null, { timeout: 8000 }).then(() => true, () => false), 'T24 precondition: the board has heard of the first agent');
+    await page.evaluate(() => document.querySelector('#tabs [data-tab="agents"]').click());
+    chk(await waitTitle(page, 'The ring is your agent\'s memory', 8000), 'T24 after the first agent, the screen tips follow a tour that went unrecorded');
+    chk((await api('GET')).seen.includes('tour'), 'T24 and the tour is now recorded as seen');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
     // that let tips through would show the tour here (control: T1 and T6, the same empty state).
     resetStore({ seen: [], off: false });
