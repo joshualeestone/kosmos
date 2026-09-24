@@ -162,9 +162,10 @@ function makeTick(deps) {
     let roster;
     try { roster = deps.roster(); } catch { return null; }
     if (!Array.isArray(roster)) return null;
+    const now = deps.now ? deps.now() : Date.now(); // before busy, so a throw here cannot wedge it
     busy = true;
     return sweepOnce({
-      roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
+      roster, book: deps.book, now,
       probe: deps.probe, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
     }).catch((err) => { if (deps.log) { try { deps.log({ name: '-', session: '-', act: 'sweep-error', because: String((err && err.message) || err) }); } catch { /* never breaks */ } } return null; })
       .finally(() => { busy = false; });

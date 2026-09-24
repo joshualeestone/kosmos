@@ -83,3 +83,21 @@ test('#3410: a retry after the error (even a shape RETRYING_LINES misses) supers
   const pane = WEDGED.replace('✻ Cogitated for 3m 6s · done 5:17 PM', '✻ Connection refused · Retrying in 4m · attempt 9/10');
   assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
 });
+
+test('#3410: a person pressing Esc after a nudge supersedes the error (no second nudge)', () => {
+  const pane = ['❯ reply with exactly the word PINEAPPLE', ERR, '✻ Cogitated for 3m 6s · done 5:17 PM', RULE,
+    '❯ Your connection to the API is back. Please retry what you were doing.',
+    '  ⎿  Interrupted · What should Claude do instead?', ...CHROME].join('\n');
+  assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});
+
+test('#3410: a submitted command with no agent output after the error supersedes it', () => {
+  const pane = ['❯ reply with exactly the word PINEAPPLE', ERR, '✻ Cogitated for 3m 6s · done 5:17 PM', RULE,
+    '❯ /model', '  ⎿  Set model to Opus', ...CHROME].join('\n');
+  assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});
+
+test('#3410: text in the input box itself (a draft or placeholder) does not supersede the error', () => {
+  const pane = WEDGED.replace('❯ \n', '❯ half-typed dra\n');
+  assert.equal(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});

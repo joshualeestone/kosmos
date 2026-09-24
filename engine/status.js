@@ -2033,8 +2033,8 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * apostrophe in the pattern would silently miss a curly one the bundle might render
  * -- the identical fragility the em-dash avoidance guards against, and one a test
  * using the same author-typed apostrophe could not catch. Matched as a SUBSTRING per
- * row (like AUTH_FRIENDLY_MESSAGE) so the "API Error:" prefix / `●` bullet the TUI
- * wraps around it does not matter.
+ * row. Since #3410 PR 2b the row must be Claude Code's own column-0 "API Error:" row (see
+ * connectionLostAtTail below), so the `●`/`⏺` bullet does not matter but the prefix does.
  *
  * 🛑 THE SSL/CERT CLASS IS DELIBERATELY EXCLUDED. Its lines are
  * `Unable to connect to API: SSL certificate …` (a COLON after "API"), which is
@@ -2044,13 +2044,15 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * form ("… API (CODE)"), never the colon form -- so an SSL error never reads
  * connection_lost and never triggers the self-heal nudge (#3410 PR 2b).
  *
- * ⚠️ ONE RESIDUAL, the same one AUTH_FRIENDLY_MESSAGE pins and accepts: a card or
- * message quoting one of these lines verbatim reads connection_lost. It is rare,
- * and it is not silent: reconcileReport's connection-lost half (rule 3b, #3410)
- * makes the scraped connection_lost stand over the agent's report WITH a conflict
- * note, so a self-reporting agent shows the state plus "its reports cannot know
- * about" rather than being masked back to working/idle. A missed wedged agent is
- * worse than a rare false pause -- this file's oldest trade.
+ * ⚠️ THE TRADE MOVED IN #3410 PR 2b, knowingly. Before it, any row containing the phrase
+ * counted, so a message quoting it read connection_lost (a rare false pause, accepted as
+ * better than a missed wedged agent). PR 2b's sweep TYPES into panes that read
+ * connection_lost, so a false read now costs a message typed into a healthy agent. So only
+ * Claude Code's own column-0 "API Error:" row counts, and only while nothing newer follows
+ * it. The new residual runs the other way: an error drawn indented (for example under a
+ * tool's `⎿`, which some older Claude Code builds may have done; every 2.1.281 capture
+ * draws it at column 0) reads "Can't tell" instead of connection_lost. That fails safe for
+ * the nudge, and reconcileReport's rule 3b still applies to what does match.
  *
  * 📌 SCOPE: CLAUDE CODE ONLY, DELIBERATELY. These are Claude Code's formatter
  * strings and the classify() rule that uses them lives in the Claude branch, so a
@@ -2101,8 +2103,16 @@ function connectionLostAtTail(tail) {
   // bare), which means the current error is a different one.
   // A retry line after it (any shape, including ones RETRYING_LINES does not match, such as a
   // minutes countdown) also supersedes it: Claude Code is working on a newer attempt.
+  // A person's input also supersedes it: a submitted prompt, which Claude Code echoes as a
+  // "❯ text" row above the input box. That covers a person pressing Esc on the retry a nudge
+  // started (the nudge's own echo is above the "Interrupted" row), so they are not nudged again.
+  // The input box's own prompt row is the LAST prompt row, and text there is a draft or a
+  // placeholder, not a submission.
+  let lastPrompt = -1;
+  for (let i = rows.length - 1; i > at; i -= 1) if (/^\s*[❯›>]\s/.test(rows[i]) || /^\s*[❯›>]\s*$/.test(rows[i])) { lastPrompt = i; break; }
   for (let i = at + 1; i < rows.length; i += 1) {
     if (/^\s*[⏺●]\s/.test(rows[i]) || API_ERROR_ROW.test(rows[i]) || /Retrying in\s+\d/.test(rows[i])) return null;
+    if (i !== lastPrompt && /^\s*[❯›>]\s+\S/.test(rows[i])) return null;
   }
   // Evidence without the ⏺/● bullet, so the same error reads the same however it was drawn.
   // The whole message, continuation rows included, so the evidence shows what the screen says.

@@ -33,19 +33,27 @@ Claude Code's own column-0 "API Error:" row.
 ## Loop guard (review finding, fixed)
 A nudge makes Claude Code retry, and the retry reads WORKING. So the history (nudges, escalation) is
 kept while the agent is briefly not lost, and dropped only after 10 minutes not lost. Escalation is
-sticky until then. A test interleaves lost, lost, working for an hour and asserts exactly 3 nudges.
+sticky until then. A test interleaves lost, lost, working for 36 minutes (past the 30-minute window) and asserts exactly 3 nudges.
 
 ## Also fixed in review
+- A person's input after the error supersedes it: a submitted prompt echo ("❯ text" above the input
+  box). The nudge's own echo is one, so a person who presses Esc on the retry it started is not
+  nudged again. Text in the input box
+  itself (the last prompt row) does not count, since it is a draft or a placeholder.
 - An unreadable roster (a failed snapshot) no longer prunes the book, so it cannot reset the loop guard.
 - The server's per-tick gating is `makeTick` and is tested: live-execution gate, brake, no overlap.
 - Claude Code breaking its own error text onto continuation rows is matched (error row + up to 4
   indented rows).
 
 ## Limits, stated rather than fixed
+- **An error drawn indented** (for example under a tool's `⎿`) no longer counts: the card reads "Can't
+  tell" rather than "Connection lost" for it. Every 2.1.281 capture draws the error at column 0; the
+  trade is deliberate because the sweep now types into panes that read connection_lost.
 - **A person half-way through typing** in the agent's prompt: the pane still reads connection_lost,
-  and the nudge is pasted after their draft and submitted with it. A roster card does not carry the
-  prompt row, so the sweep cannot see a draft today. Follow-up: expose whether the prompt row is empty
-  or a known placeholder ("❯ Try \"…\"") and refuse to nudge otherwise (fails safe: a missed nudge).
+  and the nudge is pasted after their draft and submitted with it. The prompt row is in the captured
+  text, but captured text cannot tell dim placeholder ("ghost") text from a real draft, so the sweep
+  cannot safely tell a draft apart. Follow-up: capture with styling (capture-pane -e) and refuse to
+  nudge when the input box holds non-dim text (fails safe: a missed nudge).
 - **The probe dials api.anthropic.com:443 directly.** It ignores the agent's ANTHROPIC_BASE_URL and
   any HTTPS_PROXY: behind a proxy that blocks direct TCP it never nudges, and with a custom endpoint
   down but the public host up it nudges in vain (the loop guard then escalates).

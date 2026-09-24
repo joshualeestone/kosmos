@@ -92,7 +92,7 @@ test('#3410: a new loss after a SHORT recovery needs two unchanged sweeps again 
 
 test('#3410: the nudge-triggered retry (reads WORKING) does not reset the loop guard', async () => {
   // Found in review: a nudge makes Claude Code retry, the retry reads WORKING, and wiping the
-  // history then allowed unbounded nudges. Interleave lost, lost, working... for an hour.
+  // history then allowed unbounded nudges. Interleave lost, lost, working for 36 minutes (past the 30-minute window).
   const h = harness();
   let t = 1000;
   for (let round = 0; round < 12; round += 1) {
@@ -109,7 +109,9 @@ test('#3410: history is dropped only after a sustained recovery', async () => {
   await sweep(h, lost(), 61000); // nudge 1
   assert.equal(h.sent.length, 1);
   let t = 121000;
-  for (let i = 0; i < 12; i += 1) { await sweep(h, rosterFor(fleet.SCREEN.idle, 'idle'), t); t += 60000; }
+  for (let i = 0; i < 5; i += 1) { await sweep(h, rosterFor(fleet.SCREEN.idle, 'idle'), t); t += 60000; }
+  assert.equal(h.book.size, 1, 'five idle minutes is not yet a recovery: the history is kept');
+  for (let i = 0; i < 7; i += 1) { await sweep(h, rosterFor(fleet.SCREEN.idle, 'idle'), t); t += 60000; }
   assert.equal(h.book.size, 0, 'a sustained recovery must clear the history');
 });
 
@@ -168,11 +170,17 @@ test('#3410 makeTick: inert unless allowed, braked by env, never overlapping, sk
   assert.equal(heal.makeTick(deps({ env: { AGENT_WORKFORCE_CONNLOST_HEAL_OFF: '1' } }))(), null);
   assert.equal(rosterReads, 0, 'a gated tick must not even read the roster');
   assert.equal(heal.makeTick(deps({ roster: () => { rosterReads += 1; return null; } }))(), null);
+  // One shared book, primed with one lost sweep, so the tick reaches the (slow) probe.
   let release;
+  let probing = false;
   const slow = new Promise((r) => { release = r; });
-  const tick = heal.makeTick(deps({ probe: async () => { await slow; return true; } }));
+  const book = new Map();
+  await heal.sweepOnce({ roster: lost(), book, now: 1000, probe: async () => true, deliver: () => ({ state: DELIVERY.PLACED }), DELIVERY });
+  const tick = heal.makeTick(deps({ book, now: () => 61000, probe: async () => { probing = true; await slow; return true; } }));
   const first = tick();
   assert.ok(first, 'an allowed tick runs');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(probing, true, 'the first tick is blocked on the probe');
   assert.equal(tick(), null, 'a second tick while the first is in flight must not start');
   release();
   await first;
@@ -182,4 +190,12 @@ test('#3410 makeTick: inert unless allowed, braked by env, never overlapping, sk
 test('#3410 makeTick: a throwing gate is a no-op tick, not an uncaught timer error', () => {
   const tick = heal.makeTick({ allowed: () => { throw new Error('boom'); }, env: {}, book: new Map(), roster: () => [] });
   assert.equal(tick(), null);
+});
+
+test('#3410 makeTick: a throwing clock does not leave the tick stuck busy', async () => {
+  let n = 0;
+  const tick = heal.makeTick({ allowed: () => true, env: {}, book: new Map(), roster: () => [],
+    probe: async () => true, deliver: () => ({}), DELIVERY, now: () => { n += 1; if (n === 1) throw new Error('clock'); return 1000; } });
+  assert.equal(tick(), null);
+  assert.ok(tick(), 'the next tick still runs');
 });
