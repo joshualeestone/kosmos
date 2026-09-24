@@ -444,3 +444,17 @@ test('one goal ask per agent per hour: the same agent is not asked about its nex
     assert.equal(hour.calls.asks.length, 1, 'control: the second project was never asked about');
   } finally { w.restore(); }
 });
+
+test('a spent ASSIGNMENT budget never blocks a goal ask (the ask has its own caps)', () => {
+  const w = world([{ name: 'gfull' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const goals = new Map([[w.pid, 'A real goal.']]);
+    const base = { roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states(), goals };
+    const first = a.step({ prev: undefined, ...base, now: T0 });
+    // The fleet's assignment log is full (other agents), and this agent spent its own assignment.
+    const full = Array.from({ length: a.MAX_PER_HOUR }, (_, i) => ({ at: T0, session: i === 0 ? w.key.gfull : 'other' + i }));
+    const out = a.step({ prev: { ...first.next, log: full }, ...base, now: T0 + a.IDLE_MS });
+    assert.equal(out.toAsk.length, 1, 'the assignment caps blocked a goal ask');
+  } finally { w.restore(); }
+});

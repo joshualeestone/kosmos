@@ -31,6 +31,16 @@ so phase 2 gives it the first one on a later tick. No goal means no ask: Kosmos 
   person's words: anyone on the project, agents included, can edit the brief, so it is given no
   more authority than that. Double quotes in the goal become single quotes, so it cannot close its
   own quotation and continue in Kosmos's voice.
+- **Residual, accepted: a goal can still carry natural-language instructions.** Quoting and
+  labelling stop the goal from reading as Kosmos, but an agent reading the whole line could still
+  act on an instruction written inside the goal. Accepted because the stuck agent can already read
+  its own project's BRIEF.md (the brief-pending note tells agents to), so quoting it into the pane
+  adds reach, not capability; the agent's standing limits (money, public posting, deletion) apply
+  to anything it does. What would change it: a brief edited by someone outside the project, which
+  Kosmos does not model today.
+- **Control characters in a goal become spaces**, since the pane refuses them and an undeliverable
+  goal would otherwise be retried for ever.
+- **The assignment caps gate assignments only**; a full assignment log never blocks an ask.
 - **It says Kosmos will give the first task**, rather than "take the first": there is no CLI verb
   for an agent to assign itself, and phase 2 does it on the next tick.
 - **Same switch as phase 2** (the Assigner). The label "Turn your goals into assigned work" is now

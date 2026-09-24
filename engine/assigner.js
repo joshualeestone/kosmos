@@ -166,24 +166,25 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     const since = base.idleSince.has(session) ? base.idleSince.get(session) : now;
     idleSince.set(session, since);
     if (now - since < IDLE_MS) continue;
-    if (log.length >= MAX_PER_HOUR) continue;
-    if (log.filter((e) => e.session === session).length >= MAX_PER_AGENT_PER_HOUR) continue;
     const choice = pick(session, projects, taken);
-    if (!choice) {
-      // Phase 3: nothing to hand out. Ask this agent to draft tasks toward a goal, if one of its
-      // projects has no open task and a goal, within the ask caps.
-      if (askLog.length >= MAX_ASKS_PER_HOUR) continue;
-      if (askLog.filter((e) => e.session === session).length >= MAX_ASKS_PER_AGENT_PER_HOUR) continue;
-      const g = goalProject(session, projects, goals, asked, now);
-      if (!g) continue;
-      asked.set(g.projectId, now);
-      askLog.push({ at: now, session, projectId: g.projectId });
-      toAsk.push({ session, name: a.name || session, ...g });
+    if (choice) {
+      // The assignment caps gate assignments only; the ask below has its own.
+      if (log.length >= MAX_PER_HOUR) continue;
+      if (log.filter((e) => e.session === session).length >= MAX_PER_AGENT_PER_HOUR) continue;
+      taken.add(choice.projectId + '#' + choice.n);
+      toAssign.push({ session, name: a.name || session, ...choice });
+      log.push({ at: now, session });
       continue;
     }
-    taken.add(choice.projectId + '#' + choice.n);
-    toAssign.push({ session, name: a.name || session, ...choice });
-    log.push({ at: now, session });
+    // Phase 3: nothing to hand out. Ask this agent to draft tasks toward a goal, if one of its
+    // projects has no open task and a goal, within the ask caps.
+    if (askLog.length >= MAX_ASKS_PER_HOUR) continue;
+    if (askLog.filter((e) => e.session === session).length >= MAX_ASKS_PER_AGENT_PER_HOUR) continue;
+    const g = goalProject(session, projects, goals, asked, now);
+    if (!g) continue;
+    asked.set(g.projectId, now);
+    askLog.push({ at: now, session, projectId: g.projectId });
+    toAsk.push({ session, name: a.name || session, ...g });
   }
   return { toAssign, toAsk, next: { idleSince, log, asked, askLog } };
 }
