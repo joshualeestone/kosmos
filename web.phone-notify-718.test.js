@@ -24,7 +24,6 @@ const BLOCK = PAGE.slice(bodyStart, PAGE.indexOf('</script>', bodyStart));
 assert.ok(/window\.kosmosPhoneNotifyToggle/.test(BLOCK), 'the extracted block is not the phone-notify client');
 
 const flush = () => new Promise((r) => setTimeout(r, 5));
-const SIGNIN = 'https://login.example.test/signin';
 
 function load(opts) {
   opts = opts || {};
@@ -35,9 +34,8 @@ function load(opts) {
       addEventListener(ev, cb) { if (ev === 'click') this._click = cb; } }),
     'phone-notify-msg': mk(),
     'phone-notify-step': mk(),
-    'phone-notify-link': mk(),
   };
-  let state = Object.assign({ on: false, connected: true, signinUrl: SIGNIN }, opts.state);
+  let state = Object.assign({ on: false, connected: true }, opts.state);
   const navigator = opts.noSW ? {} : { serviceWorker: { register() { calls.registered = true; return Promise.resolve({}); } } };
   const win = { console: { warn() {} } };
   const domHandlers = {};
@@ -59,7 +57,7 @@ function load(opts) {
   // eslint-disable-next-line no-new-func
   new Function('navigator', 'window', 'document', 'fetch', BLOCK)(navigator, win, document, fetchStub);
   const e = elements;
-  return { win, calls, domHandlers, btn: e['phone-notify-toggle'], msg: e['phone-notify-msg'], step: e['phone-notify-step'], link: e['phone-notify-link'] };
+  return { win, calls, domHandlers, btn: e['phone-notify-toggle'], msg: e['phone-notify-msg'], step: e['phone-notify-step'] };
 }
 
 test('load, off and connected: Turn on, no phone step shown, worker registered', async () => {
@@ -81,7 +79,7 @@ test('not connected to Kosmos+: the button stays disabled and says why', async (
   assert.equal(h.calls.fetch.filter((c) => c.method === 'PUT').length, 0, 'a PUT went out for a Mac that is not connected');
 });
 
-test('turning on PUTs on:true, then shows Turn off and the phone step with the sign-in link', async () => {
+test('turning on PUTs on:true, then shows Turn off and the phone-app step', async () => {
   const h = load();
   h.domHandlers.DOMContentLoaded(); await flush();
   h.btn._click(); await flush();
@@ -89,8 +87,6 @@ test('turning on PUTs on:true, then shows Turn off and the phone step with the s
   assert.deepEqual(put.body, { on: true });
   assert.equal(h.btn.textContent, 'Turn off');
   assert.equal(h.step.hidden, false);
-  assert.equal(h.link.href, SIGNIN);
-  assert.equal(h.link.textContent, SIGNIN);
 });
 
 test('turning off from on PUTs on:false and hides the phone step', async () => {

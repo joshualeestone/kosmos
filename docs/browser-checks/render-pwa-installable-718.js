@@ -35,11 +35,11 @@
  *      scope "/" and controls the page (navigator.serviceWorker.controller is
  *      non-null). Web push cannot be received without it; there is no SW in web/
  *      today, so this cannot be asserted yet.
- *  (3) [SUPERSEDED on #3510, option C] A phone subscribes on the Kosmos+
- *      sign-in page ("Notify me on this phone"), not on the board, so there is
- *      no board-origin subscribe to check here. The board side is the Phone
- *      notifications setting (engine/phonenotify.js). A board-origin subscribe
- *      was removed from #3520's client; bringing it back is option A on #3510.
+ *  (3) [SUPERSEDED on #3510] Josh, 2026-09-24: phone notifications come through
+ *      the Kosmos phone apps, not browser web push, so there is no board-origin
+ *      subscribe to check here. The board side is the Phone notifications
+ *      setting (engine/phonenotify.js). #3520's board-origin subscribe was
+ *      removed; restore it from #3520 if an app needs an in-origin subscribe.
  *  (4) [GATED: push send path, kosmos-relay -- Raiden] Trigger a send; the
  *      service worker's push handler fires and a notification is shown. Assert
  *      via the SW's notification bookkeeping, not a screenshot (a picture cannot

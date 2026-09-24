@@ -2,8 +2,8 @@
 /**
  * Phone notifications (#718). When the person has turned them on, the board
  * tells the Kosmos+ coordinator that an agent needs them or answered them, and
- * the coordinator pushes it to the phones they subscribed on its sign-in page
- * ("Notify me on this phone"). Josh, 2026-09-24: "100% the main reason we want
+ * the coordinator pushes it to their phones through the Kosmos phone app (Josh,
+ * 2026-09-24: apps only). Josh, 2026-09-24: "100% the main reason we want
  * mobile apps is for push notifications."
  *
  * OFF UNTIL THE PERSON TURNS IT ON. Nothing is sent while off, and an
@@ -82,11 +82,7 @@ function writeState(next) {
 /** What the Settings screen shows. Never the token. */
 function status() {
   const s = readState();
-  return { on: s.on, connected: remote.enrolled(), signinUrl: signinUrl() };
-}
-
-function signinUrl() {
-  try { return coordinatorUrl('/signin'); } catch { return null; }
+  return { on: s.on, connected: remote.enrolled() };
 }
 
 /** Turn phone notifications on: mint a fresh notify token (minting replaces

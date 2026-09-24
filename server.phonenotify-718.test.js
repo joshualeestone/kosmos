@@ -140,7 +140,7 @@ test('turning on mints through mac-request, body on stdin, token never returned'
   assert.equal(on.code, 200, on.text);
   assert.equal(on.json.on, true);
   assert.doesNotMatch(on.text, /knt1_/, 'the token leaked into the response');
-  assert.equal(on.json.signinUrl, 'https://coord.example.test/kosmos/signin', 'the sign-in link dropped the self-hosted prefix');
+  assert.deepEqual(Object.keys(on.json).sort(), ['connected', 'on'], 'the setting answer carries more than on/connected');
   const log = fs.readFileSync(TUNNEL_LOG, 'utf8');
   assert.match(log, /ARGV: mac-request --coordinator https:\/\/coord\.example\.test\/kosmos --state-dir \S+ --method POST --path \/v1\/mac\/notify-credential\n/);
   const stdin = JSON.parse(log.split('STDIN:')[1]);
