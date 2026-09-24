@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: render-thread-3552
-diff_hash: b960a1d6eb4a4f55b1a717d47cf2589bd7f54bfea778d503eb218c58ead45974
+diff_hash: b91bc66d3a0b99e9e0e56e255292e7c3361d34c1ad1ee40ff148996fd988f924
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-24T11:24:10Z
-iterations: 2
+iterations: 3
 converged: true
 ---
 
@@ -53,6 +53,22 @@ comment/plan-only edit (no behaviour change; re-verified the check still exits 0
 comment-wording correction on an already-verified functional change has no defect surface, so a
 third blind pass would review only prose. The finding was resolved against its cited source
 (engine/chat.js), not merely asserted.
+
+### Iteration 3 (opus) - render-push-718 folded in
+Splinter (2026-09-24) added render-push-718 to this branch (do not wait for 09:00; the Mortals
+hand-off never sent). Its "delivered coordinator push produced the mapped notification" assertion
+is red because #3510 (webpush thin coordinator proxies) is OPEN - the coordinator->headline
+mapping is unwired. Marked that ONE assertion pending on #3510 (logged SKIP), same pattern as the
+render-thread focus SKIP.
+- Blind pass verdict: SHIP. Verified by running: 16/16 pass, exit 0, mapped-notification logs
+  SKIP; the push-delivered assertion (line 165) still PASSES independently, so the SKIP does not
+  mask a delivery failure; the SKIP is a bare log (not pushed to results), so 16/16 is honest;
+  #3510 confirmed OPEN with a matching title.
+- [WARNING] the `hit` variable was left dangling after the SKIP referenced `shown`. FIXED: folded
+  `hit` into the SKIP detail (derived-match=...), so it stays used and signals the restorer.
+- [NIT] SKIP format differed from render-thread's. FIXED: aligned to process.stdout.write + the
+  two-space indent.
+- Re-verified 16/16, exit 0 after the cleanup.
 
 ### Outstanding questions (ASKED)
 None.
