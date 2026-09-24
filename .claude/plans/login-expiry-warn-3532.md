@@ -48,9 +48,19 @@ CCD instead:
 - The pane->claude-pid link: pane_pid is the shell; the claude process is its child. Resolve once per tick.
 
 ### 3. Surface (server + web) - board advisory
-- Server: expose per-account advisories in the snapshot payload.
-- Web: an advisory pill/banner "Login for <account> expires in N days" listing affected agents, escalating by
-  severity (notice/warn/urgent), and an "expired" state. Overlay, does not replace working/idle chrome.
+- Server: DONE, no change needed. `/api/status` (server.js:3634) builds the body as
+  `JSON.stringify({ ...snap, ... })`; the `...snap` spread already carries the new `loginAdvisories` field to
+  the client (not overwritten by any explicit key). Verified by reading the handler.
+- Web: TODO (NEXT). An advisory pill/banner "Login for <account> expires in N days" listing affected agents,
+  escalating by severity (notice/warn/urgent) + an "expired" state, read from `data.loginAdvisories` on the 5s
+  /api/status poll. Overlay, does not replace working/idle chrome. Frontend -> needs a browser-check (FOUR
+  indices) + a screenshot for Josh.
+
+STATUS 2026-09-23 night: steps 1 (detector), 2 (snapshot wiring), and the server half of 3 are DONE, committed +
+pushed on login-expiry-warn-3532, and verified END TO END on the live fleet (18 agents grouped into 4
+credentials with correct expiries; the 7 explicit-CCD ~/.claude bots resolve to the SUFFIXED 2a1a4199, proving
+the #2129 fix). status.test.js 193/193, loginexpiry.test.js 22/22. NEXT: the web pill (3), then the re-login
+action (4), then browser-check + challenge-loop + PR.
 
 ### 4. Action: one-click "Sign in again" (server + engine) - pane-gated
 - Button -> server primitive that runs the account's login without a terminal. #3532 notes `claude auth login`
