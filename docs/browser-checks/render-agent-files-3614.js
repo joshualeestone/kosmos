@@ -96,7 +96,7 @@ function chk(ok, label, extra) {
       chk(a.visible && a.finder, `${tag} the Files block and its Finder button are on screen`, JSON.stringify(a));
       chk(a.below && a.overlap, `${tag} the Files block sits directly under the four-pack, in its column`, JSON.stringify({ below: a.below, overlap: a.overlap }));
       chk(JSON.stringify(a.rows.map((r) => r.name)) === JSON.stringify(['report.pdf', 'older-notes.md']), `${tag} April's files are listed newest first`, JSON.stringify(a.rows));
-      chk(a.rows.length > 0 && /·/.test(a.rows[0].meta) && /KB|B/.test(a.rows[0].meta), `${tag} a row shows a date and a size`, JSON.stringify(a.rows[0]));
+      chk(a.rows.length > 0 && /·/.test(a.rows[0].meta) && /\d+(\.\d+)?\s?(B|KB|MB)$/.test(a.rows[0].meta), `${tag} a row shows a date and a size`, JSON.stringify(a.rows[0]));
       if (theme === 'light' && width === 1400) {
         const before = opened.length;
         await page.click('#d-files-list .pj-doc[data-doc="report.pdf"]');

@@ -26863,8 +26863,10 @@ async function paintAgentFiles(sessionName) {
   }
   if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
   const ok = Boolean(body && body.ok === true);
-  const stamp = ok ? String(body.stamp || '') : null;
-  if (ok && stamp && stamp === AGENT_FILES_STAMP) return;
+  // A refusal gets a stamp of its own, so an unchanged refusal is not rewritten into the status
+  // region every 5 seconds (a screen reader may re-announce it each time).
+  const stamp = ok ? String(body.stamp || '') : 'refused:' + status + ':' + String((body && body.because) || '');
+  if (stamp && stamp === AGENT_FILES_STAMP) return;
   AGENT_FILES_STAMP = stamp;
   list.textContent = '';
   if (more) more.hidden = true;
@@ -26960,6 +26962,16 @@ function openDetail(sessionName, section, fromProject) {
   CURRENT = a;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
   AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
+  {
+    // Clear the previous agent's rows now, not when the fetch returns: a click in between would
+    // send that agent's filename to this one.
+    const fl = document.getElementById('d-files-list');
+    const fm = document.getElementById('d-files-msg');
+    const fo = document.getElementById('d-files-more');
+    if (fl) fl.textContent = '';
+    if (fm) fm.textContent = '';
+    if (fo) fo.hidden = true;
+  }
   paintAgentFiles(a.sessionName);
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,

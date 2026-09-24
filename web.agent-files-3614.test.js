@@ -144,3 +144,27 @@ test('the click handlers: agent re-checked after the await, success clears, a fa
   assert.match(revealSrc, /if \(failed\) \{ if \(msg\) msg\.textContent = failed; return; \}/, 'a failed reveal is repainted over');
   assert.ok(revealSrc.indexOf('if (failed)') < revealSrc.indexOf('paintAgentFiles(who)'), 'the repaint runs before the failure is handled');
 });
+
+test('an unchanged refusal is not rewritten into the status region on the next tick; a changed one is', async () => {
+  let because = 'this is a file, not a folder';
+  const h = harness(() => ({ ok: false, because, files: [] }));
+  await h.api.paintAgentFiles('ana');
+  const msg = h.el['d-files-msg'];
+  let writes = 0;
+  const real = Object.getOwnPropertyDescriptor(msg, 'textContent');
+  Object.defineProperty(msg, 'textContent', { get: real.get, set(v) { writes++; real.set.call(this, v); } });
+  await h.api.paintAgentFiles('ana');
+  assert.equal(writes, 0, 'the same refusal was written into the live region again');
+  because = 'we could not read this folder';
+  await h.api.paintAgentFiles('ana');
+  assert.ok(writes > 0, 'a changed refusal was not shown');
+  assert.match(msg.textContent, /We could not read this folder/);
+});
+
+test('opening an agent clears the previous agent\'s Files rows before its own arrive', () => {
+  const at = SCRIPT.indexOf('function openDetail(sessionName, section, fromProject) {');
+  const body = SCRIPT.slice(at, SCRIPT.indexOf('paintAgentFiles(a.sessionName);', at));
+  assert.match(body, /fl\.textContent = ''/, 'the old rows stay on screen under the new agent');
+  assert.match(body, /fm\.textContent = ''/);
+  assert.match(body, /fo\.hidden = true/);
+});
