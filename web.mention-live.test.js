@@ -166,3 +166,17 @@ test('the attach-only filename auto-fill repaints the mirror (no stale/blank mir
   assert.match(PAGE.slice(at, posting), /pjGrowComposer\(input\)/,
     'the attach-only fill must be followed, before the send begins, by pjGrowComposer(input) to repaint the mirror');
 });
+
+test('pjMentionPaint is hidden-safe: it bails when the composer is not laid out (offsetWidth 0)', () => {
+  // A project opened from the list restores its room draft into #pj-post BEFORE pjView un-hides the
+  // room. Painting then would size the mirror to 0 while .mention-live keeps the text transparent, so
+  // the draft looks empty until the first keystroke. The guard must not engage the mirror when hidden.
+  const start = PAGE.indexOf('function pjMentionPaint');
+  assert.ok(start > 0, 'pjMentionPaint must exist');
+  const body = PAGE.slice(start, PAGE.indexOf('\nfunction ', start + 1));
+  assert.match(body, /if \(!val \|\| !input\.offsetWidth\)/,
+    'pjMentionPaint must bail (no .mention-live) when #pj-post is hidden (offsetWidth 0)');
+  // openProject must re-engage the mirror once the room is shown.
+  const op = PAGE.indexOf("pjView('one');\n  /* #2922: the room is now un-hidden");
+  assert.ok(op > 0, "openProject must call pjMentionPaint() right after pjView('one') to re-engage the mirror on show");
+});

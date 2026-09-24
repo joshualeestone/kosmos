@@ -42811,6 +42811,11 @@ function openProject(id) {
   pjCloseConfirm();
   paintOneProject();
   pjView('one');
+  /* #2922: the room is now un-hidden, so re-engage the live-mention mirror for any restored draft.
+     The draft was set into #pj-post above while the room was still hidden (offsetWidth 0), where
+     pjMentionPaint deliberately no-ops; this repaint runs it once the composer is laid out so a
+     restored draft with @mentions shows highlighted instead of waiting for the first keystroke. */
+  pjMentionPaint();
   refreshEngMode();
   loadThread();
   loadRoom();
@@ -43885,7 +43890,12 @@ function pjMentionPaint() {
   const inner = mirror.firstElementChild;
   if (!inner) return;
   const val = input.value;
-  if (!val) { input.classList.remove('mention-live'); inner.innerHTML = ''; return; }
+  /* Bail (and un-transparent the textarea) when the box is empty OR not laid out. offsetWidth 0
+     means the composer is hidden, e.g. a project opened from the list restores its room draft BEFORE
+     pjView un-hides the room. Painting then would size the mirror to 0 while .mention-live kept the
+     textarea text transparent, so the draft would look empty until the first keystroke. Falling back
+     to the textarea's own opaque text is the safe state; the room-shown repaint re-engages the mirror. */
+  if (!val || !input.offsetWidth) { input.classList.remove('mention-live'); inner.innerHTML = ''; return; }
   input.classList.add('mention-live');
   inner.innerHTML = pjMentionHighlightHTML(val, pjMentionKeys(pjById(PJ_CURRENT)));
   mirror.style.left = input.offsetLeft + 'px';

@@ -195,6 +195,21 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
           liveCaret = getComputedStyle(post).caretColor;
           post.classList.remove('mention-live');
         }
+        // Hidden-safe: on this bare file:// load #pj-post is hidden (offsetWidth 0). pjMentionPaint
+        // must NOT engage the mirror (add .mention-live) when the composer is not laid out, or a
+        // draft restored before the room is shown would look empty (transparent text over a 0-size
+        // mirror). Restore state after so no other arm is disturbed.
+        let hiddenSafe = null;
+        if (post && typeof pjMentionPaint === 'function') {
+          const prev = post.value;
+          post.value = 'draft @mona';
+          post.classList.remove('mention-live');
+          pjMentionPaint();
+          hiddenSafe = { offsetW: post.offsetWidth, mentionLive: post.classList.contains('mention-live') };
+          post.value = prev;
+          post.classList.remove('mention-live');
+          if (inner) inner.innerHTML = '';
+        }
         return {
           valid: H('hi @mona'), partial: H('hi @mon'), hyphen: H('@mona-'),
           under: H('_@mona_'), esc: H('<b>@mona</b>'), twoLine: H('a\n@mona\n'),
@@ -203,7 +218,7 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
           postLineHeight: post && cs(post, 'line-height'), innerLineHeight: inner && cs(inner, 'line-height'),
           postPadTop: post && cs(post, 'padding-top'), innerPadTop: inner && cs(inner, 'padding-top'),
           postPadLeft: post && cs(post, 'padding-left'), innerPadLeft: inner && cs(inner, 'padding-left'),
-          liveWeight, normalWeight, plainColor, liveColor, liveCaret,
+          liveWeight, normalWeight, plainColor, liveColor, liveCaret, hiddenSafe,
         };
       });
 
@@ -240,6 +255,12 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         live.liveColor === 'rgba(0, 0, 0, 0)', live.liveColor);
       check(`${tag} live: #pj-post.mention-live keeps an inked caret (not transparent)`,
         live.liveCaret && live.liveCaret !== 'rgba(0, 0, 0, 0)' && live.liveCaret !== 'transparent', live.liveCaret);
+      // Non-vacuous: requires offsetW === 0 (the composer really is hidden on this load) AND that
+      // pjMentionPaint did NOT add .mention-live there -- so a draft restored before the room is
+      // shown is not made invisible.
+      check(`${tag} live: pjMentionPaint is hidden-safe (offsetWidth 0 -> no .mention-live)`,
+        live.hiddenSafe && live.hiddenSafe.offsetW === 0 && live.hiddenSafe.mentionLive === false,
+        JSON.stringify(live.hiddenSafe));
 
       await browser.close();
     }
