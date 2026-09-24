@@ -148,7 +148,7 @@ function chk(ok, label, extra) {
               scrollW: m.scrollWidth, clientW: m.clientWidth,
               oneLine: Math.abs(mh - ih) <= 2, noOverflow: m.scrollWidth <= m.clientWidth };
           });
-          chk(fit.oneLine && fit.noOverflow, `[${theme}] #3045 the active (bold) "Model and Memory" pill is one line and not overflowing the column`, JSON.stringify(fit));
+          chk(fit.oneLine && fit.noOverflow, `[${theme}] #3045 the active (bold) "AI Settings" pill is one line and not overflowing the column`, JSON.stringify(fit));
         }
         await page.screenshot({ path: path.join(OUT, `${theme}-${k}.png`), fullPage: false });
       }

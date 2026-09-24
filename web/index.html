@@ -2468,8 +2468,6 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .snav button.on { background: var(--gold); border-color: var(--gold); color: #14161a; font-weight: 600; }
 .snav button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .snav .sep { height: 1px; background: var(--k-rule); margin: 8px 14px; }
-.snav button.danger { color: var(--warn-ink); }
-.snav button.danger.on { color: #14161a; }
 /* 🔑 A DOT IS A SHAPE, which is why it is allowed to carry a signal: a pill
    with a dot differs from one without whether or not its colour is seen. It only
    exists while the button says data-dot, and the "(needs you)" beside it is
@@ -2482,7 +2480,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #3500 (Josh, 2026-09-23): the agent-view nav as icon+label rounded boxes. Scoped to #d-nav
    (an id, so it beats the shared `.snav button` rules by specificity) so the Settings nav #s-nav
    keeps its own styling, exactly as #3505 scoped its pill work to #s-nav. Direct Message is the
-   large default box; the four-pack (.dnav-pack) is a 2x2 grid of smaller boxes. */
+   large default box; the four-pack (.dnav-pack) is a single column of smaller boxes (see the
+   .dnav-pack rule below for why a 2x2 grid was rejected). */
 #d-nav.dnav-boxed { gap: 10px; }
 #d-nav.dnav-boxed button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   padding: 12px 14px; border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
