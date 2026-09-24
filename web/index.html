@@ -26111,10 +26111,14 @@ async function paintTalk(sessionName, agentName) {
      `say.disabled` (the authoritative `say.disabled = body.presence === 'off'`
      write is later in this same paintTalk, so at the TOP of a paint it still holds
      the PREVIOUS paint's value).
-     Net effect in the detail->back->answer flow: focus ends on <body> and a
-     keyboard user must re-traverse the whole document. In the CLEAN flow
-     (straight to the agent) there is no torn-down button, so the first focus
-     sticks and this never bit.
+     Net effect (measured via the render-thread fixture) in the detail->back->answer
+     flow: paint 1 focuses the composer, the button teardown blurs it to <body>,
+     and the recovery paint reads a STALE `say.disabled === true` (left by the prior
+     off/unknown agent, rook) and skips -- so focus ends on <body> and a keyboard
+     user must re-traverse the whole document. The CLEAN flow (straight to the
+     agent) was reported not to bite; this fix enables the composer from the live
+     `presence` before focusing, so it recovers regardless of what the stale
+     `say.disabled` happened to hold, covering both flows.
 
      Fix: re-apply focus across the one-paint teardown steal, but bound the
      intent's life BY TIME so it can never yank focus later. Within a short window
@@ -26572,6 +26576,18 @@ function openDetail(sessionName, section, fromProject) {
   DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
+  /* #3557: any agent open clears a pending answer-focus intent. Only pjAnswerFrom
+     re-arms it, immediately AFTER this openDetail returns, so a plain card-click
+     open -- or a reopen of the SAME agent -- can never inherit a stale intent and
+     auto-focus the composer on a visit where the user did not press answer. This
+     bounds the intent's life to "the panel pjAnswerFrom just opened", which is the
+     bound the time window alone cannot supply: if a persistent thread-fetch
+     failure keeps any paint from ever stamping the clock (it stays at the
+     not-observed sentinel) and the user then leaves, only the next open can
+     disarm it -- and this is that disarm. openDetail runs on a real open, never on
+     the poll, so it cannot clear a live intent mid-recovery. */
+  ANSWER_WANTS_FOCUS = null;
+  ANSWER_WANTS_FOCUS_AT = 0;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
