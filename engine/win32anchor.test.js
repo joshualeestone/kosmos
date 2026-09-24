@@ -361,7 +361,17 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
   const src = path.join(dir, 'src-node.exe');
   fs.writeFileSync(src, 'a different Node version, stood in for by a different size', 'utf8');
 
-  const running = cp.spawn(nodeAt, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  /* 🛑 #3634: run the COPY only on Windows. On macOS, exec'ing a freshly copied Mach-O
+     makes syspolicyd assess it, and ensureAnchored below then overwrites that same path
+     with a text stand-in while the assessment can still be reading it. syspolicyd
+     segfaults in Security::Universal::architecture() on the half-swapped file, and until
+     launchd respawns it every `#!` exec on the Mac hangs. Measured 2026-09-24: each
+     retained crash log shows this arm's `kosmos-anchor-XXXXXX/Kosmos/runtime/node.exe` exec in
+     the same second. The lock this arm exists to exercise is Windows-only (the control
+     above is win32-gated), so elsewhere the process runs on the ORIGINAL interpreter and
+     the copy is never executed. */
+  const runOn = process.platform === 'win32' ? nodeAt : process.execPath;
+  const running = cp.spawn(runOn, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   const stillRunning = () => running.exitCode === null && running.signalCode === null;
   try {
     await new Promise((resolve, reject) => { running.once('spawn', resolve); running.once('error', reject); });
@@ -398,4 +408,17 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
     if (retiredFiles(runtime).length > 0) await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.deepEqual(sideFiles(runtime), [], 'once nothing runs on it, the retired interpreter is removed');
+});
+
+test('#3634 no arm here EXECUTES the anchored copy off Windows (it crashed syspolicyd)', () => {
+  /* Source pin for the fix above: running the copied interpreter and then overwriting it
+     is what segfaulted syspolicyd on the Mac. The only spawn of the anchored path must stay
+     behind the win32 gate. A pin, because the failure is machine-wide and must never be
+     reproduced to prove a test. */
+  const src = fs.readFileSync(__filename, 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.equal(/spawn(?:Sync)?\(\s*nodeAt\b/.test(code), false,
+    'an arm spawns nodeAt directly; off Windows that execs a binary it then overwrites (#3634)');
+  assert.ok(/process\.platform === 'win32' \? nodeAt : process\.execPath/.test(code),
+    'the running-interpreter arm must run the copy only on Windows (#3634)');
 });
