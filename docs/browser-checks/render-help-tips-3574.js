@@ -246,6 +246,34 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.waitForTimeout(200);
     chk(!(await cardState(page)).shown, 'T17 control: with no dialog, the same Escape closes the tip');
 
+    // T18: every way out of the tour and the tips works. Skip ends the tour; the x closes a screen tip;
+    // a click outside ends the tour. A click on a dialog that opened over the tour does NOT end it:
+    // the tour steps aside and comes back when the dialog closes.
+    // On the board, so the tour starts at its first step (a step whose place is off screen is left out).
+    await page.click('#tabs [data-tab="agents"]');
+    await page.waitForTimeout(300);
+    const openTour = async () => { await page.click('#helpq-btn'); await page.click('#helpq-menu [data-help="tour"]'); await page.waitForTimeout(150); };
+    await openTour();
+    await page.click('#tipcard .tip-skip');
+    chk(!(await cardState(page)).shown, 'T18 Skip ends the tour');
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.click('#tipcard .tip-x');
+    chk(!(await cardState(page)).shown, 'T18 the x closes a screen tip');
+    await openTour();
+    await page.mouse.click(700, 600);
+    await page.waitForTimeout(150);
+    chk(!(await cardState(page)).shown, 'T18 a click outside ends the tour');
+    await openTour();
+    await page.evaluate(() => { const d = document.createElement('div'); d.className = 'rm-back'; document.body.appendChild(d); window.__tipsStandIn = d; });
+    await page.waitForTimeout(1500);
+    await page.mouse.click(700, 600);   // lands on the stand-in dialog
+    await page.evaluate(() => { window.__tipsStandIn.remove(); delete window.__tipsStandIn; });
+    const back = await waitTitle(page, TOUR, 3000);
+    chk(back, 'T18 a click on a dialog over the tour does not end it; the tour returns when the dialog closes');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+
     // T14: the card follows its target when the page scrolls.
     await page.setViewportSize({ width: 1280, height: 480 });
     await page.click('#userpop-btn');

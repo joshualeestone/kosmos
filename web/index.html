@@ -1444,11 +1444,10 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-bands span { display: flex; align-items: center; gap: 8px; }
 .tipcard .tip-bands svg { flex: none; display: block; }
 .tipcard .tip-acts { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
-.tipcard .tip-off { border: 0; background: none; padding: 0; cursor: pointer; font: .75rem var(--font-ui);
+.tipcard .tip-off, .tipcard .tip-skip { border: 0; background: none; padding: 0; cursor: pointer; font: .75rem var(--font-ui);
   color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 2px; }
-.tipcard .tip-foot { font-size: .75rem; color: var(--k-ink-2); }
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
-.tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
   box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
@@ -52690,7 +52689,7 @@ function tipTourRender(card, auto) {
     + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><p>' + esc(st.body) + '</p>'
     + '<div class="tip-acts"><span class="tip-dots" aria-hidden="true">'
     + TIP_PLACES.map((_, i) => '<i' + (i === TIP_STEP ? ' class="on"' : '') + '></i>').join('') + '</span>'
-    + '<span class="tip-btns">' + (last ? '' : '<button class="tip-off tip-skip" type="button">Skip</button>')
+    + '<span class="tip-btns">' + (last ? '' : '<button class="tip-skip" type="button">Skip</button>')
     + '<button class="tip-go" type="button">' + (last ? 'Got it' : 'Next') + '</button></span></div>';
   card.hidden = false;
   card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
@@ -52813,6 +52812,8 @@ document.addEventListener('keydown', (e) => {
 }, true);
 document.addEventListener('pointerdown', (e) => {
   if (!TIP_OPEN || !TIP_OPEN.tour) return;
+  /* A click meant for a dialog that opened over the tour is not a click outside the tour. */
+  if (tipModalOpen() || document.getElementById('tipcard')?.hidden) return;
   if (e.target.closest('#tipcard') || e.target.closest('#helpq')) return;
   tipClose({ record: true });
 }, true);
