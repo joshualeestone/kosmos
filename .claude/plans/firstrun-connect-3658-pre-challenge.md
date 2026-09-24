@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: firstrun-connect-3658
-diff_hash: b5cc431605207c4331cb008a9a8694a54bb171142b7c2b4065c3ecf9d26278af
+diff_hash: a13b7bfb1a46e37e398674ec5ca583bec2cf85615a22f43617004ea19570ee74
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-24T23:41:06Z
+timestamp: 2026-09-24T23:50:46Z
 iterations: 4
 converged: true
 ---
@@ -18,11 +18,12 @@ converged: true
 
 ### Validation
 
-Full suite on the rebased head 9a503f2a, hash b5cc43160520: 8690 pass, 0 fail, validation log
-clean (2026-09-24T23:41:06Z). The earlier run on b2b6672a had 0 test fails but the #2518
-surface gate refused: render-agentdm-3414 ('msg') and render-gemini-logo-3422 (the Gemini
-pmark). Both were run on this head and pass unchanged (40 and 14 PASS), so 9a503f2a carries
-two per-check Browser-check-surface trailers; the gate alone then returns 0.
+Full suite on head 95459087 (rebased twice; the second rebase took in #3661, the Grok
+subscription engine, which touched web/index.html and server.provider-accounts-3296.test.js),
+hash a13b7bfb1a46: 8760 pass, 0 fail, validation log clean (2026-09-24T23:50:46Z). The earlier run on b2b6672a
+had 0 test fails but the #2518 surface gate refused: render-agentdm-3414 ('msg') and
+render-gemini-logo-3422 (the Gemini pmark). Both were run and pass unchanged (40 and 14
+PASS), so the branch carries two per-check Browser-check-surface trailers; the gate alone then returns 0.
 render-firstrun-keyed-connect-3658.js 20/20; each fix below was perturbed and went red, with
 the perturbation asserted applied.
 
