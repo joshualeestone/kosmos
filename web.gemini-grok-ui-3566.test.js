@@ -136,8 +136,9 @@ test('#3566: the key step posts to the engine route for the picked provider, and
   assert.match(body, /fetch\('\/api\/accounts\/' \+ p\.route \+ '\/apikey'/, 'the Add button no longer posts to the per-provider route');
   assert.match(body, /JSON\.stringify\(\{ key: key\.trim\(\), name: /, 'the body must carry the key and the display name');
   assert.doesNotMatch(body, /label:/, 'a label would be validated as a slug and refuse a person\'s words');
-  assert.match(PAGE, /google: \{ route: 'gemini'/);
-  assert.match(PAGE, /xai: \{ route: 'grok'/);
+  // The Add step's routes are read from the one route table, not restated.
+  assert.match(PAGE, /google: \{ route: ACCT_KEYED_ROUTE\.google,/);
+  assert.match(PAGE, /xai: \{ route: ACCT_KEYED_ROUTE\.xai,/);
 });
 
 test('#3566: a Gemini agent is offered only Gemini accounts to move to (never Claude ones the engine refuses)', () => {

@@ -302,6 +302,21 @@ function check(name, pass, detail) {
     check(`[${engine}] Gemini and Grok are offered exactly when an account of theirs is connected`,
       seen.keyedSeen.google === seen.keyedExpect.google && seen.keyedSeen.xai === seen.keyedExpect.xai,
       JSON.stringify({ seen: seen.keyedSeen, expect: seen.keyedExpect }));
+    /* The sandbox board has no Gemini/Grok account, so the check above sees only the OFF side,
+       and a gate that never turned them on would pass it. Drive the ON side through the page's
+       own gate with one usable Gemini row, then hand the menu back to the page's real state. */
+    const keyedOn = await page.evaluate(() => {
+      const sel = document.getElementById('create-provider');
+      const opt = (v) => sel.querySelector('option[value="' + v + '"]');
+      paintKeyedProviderOptions(sel, [{ provider: 'google', dir: '/tmp/.gemini-browsercheck', connection: { state: 'connected' } }], true, '', false);
+      const on = { google: !opt('google').disabled, xai: !opt('xai').disabled };
+      fillCreateAccounts();
+      return { on, back: { google: !opt('google').disabled, xai: !opt('xai').disabled } };
+    });
+    check(`[${engine}] a usable Gemini account turns Gemini ON (and not Grok), and the menu returns to the page's state`,
+      keyedOn.on.google === true && keyedOn.on.xai === false
+        && keyedOn.back.google === seen.keyedExpect.google && keyedOn.back.xai === seen.keyedExpect.xai,
+      JSON.stringify(keyedOn));
     /* #245: choosing OpenAI disables the model control WITH WORDS, and
        choosing Anthropic back re-enables it. Driven, not read from source:
        the disabling is a live listener. #540 moved the ACCOUNT menu out of

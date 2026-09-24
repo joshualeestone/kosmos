@@ -1707,7 +1707,10 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
       let claimed = null;
       // Only an ABSENT label takes a slot; a whitespace-only label is still refused by dirForLabel.
       if (body.label === undefined || body.label === null || body.label === '') {
-        /* 🛑 CLAIM THE SLOT, do not just pick it. The live key check below awaits the network,
+        /* ⚠️ Both claim paths are SYNCHRONOUS on purpose: the stale-claim stat-then-unlink and
+           the 'wx' create are atomic only because no await runs between them in this one
+           process. Do not add an await inside them.
+           🛑 CLAIM THE SLOT, do not just pick it. The live key check below awaits the network,
            so two label-less adds racing (two tabs, an API caller) would otherwise both pick
            work1 and the second storeKey would overwrite the first account's key. The claim is
            a file created with 'wx' (exclusive) inside the slot: exactly one request creates it,
@@ -1752,11 +1755,18 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
           let isLink = false;
           try { isLink = fs.lstatSync(named.dir).isSymbolicLink(); } catch { /* absent: fine */ }
           if (isLink) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; }
+          // An existing account is refused before anything is written into its folder.
+          if (mod.identityOf(named.dir)) {
+            sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+            return;
+          }
           const claimFile = path.join(named.dir, CLAIM_FILE);
           try {
             fs.mkdirSync(named.dir, { recursive: true, mode: 0o700 });
             try { if (Date.now() - fs.statSync(claimFile).mtimeMs > CLAIM_STALE_MS) fs.unlinkSync(claimFile); } catch { /* none, or gone */ }
             fs.closeSync(fs.openSync(claimFile, 'wx', 0o600));
+            // Same as the unnamed path: a reused keyless folder must not hand over an old name.
+            try { fs.unlinkSync(path.join(named.dir, '.kosmos-name')); } catch { /* none */ }
             claimed = named.dir;
           } catch (err) {
             sendJson(res, 400, { error: err && err.code === 'EEXIST'

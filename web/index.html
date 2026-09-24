@@ -22493,8 +22493,8 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
    would be the only place the two could drift. `route` is the engine's word, `name`
    the screen's word, `hint` the shape the provider's own site hands out. */
 const ACCT_APIKEY_PROVIDERS = {
-  google: { route: 'gemini', name: 'Gemini', vendor: 'Google', hint: 'AIza…' },
-  xai: { route: 'grok', name: 'Grok', vendor: 'xAI', hint: 'xai-…' },
+  google: { route: ACCT_KEYED_ROUTE.google, name: 'Gemini', vendor: 'Google', hint: 'AIza…' },
+  xai: { route: ACCT_KEYED_ROUTE.xai, name: 'Grok', vendor: 'xAI', hint: 'xai-…' },
 };
 let ACCT_APIKEY_WHICH = null;
 /* Bumped on every show/close, so an Add answer that returns after the step was left (a
@@ -22576,6 +22576,8 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
         : 'This computer is signed in with an API key.' });
     msg.textContent = 'Checking the connection…';
     await paintAccounts();
+    // The repaint checks every account live, so the step may have been left meanwhile.
+    if (!stillHere()) return;
     msg.textContent = '';
     acctShowSuccess(entered || 'your ' + p.name + ' account', goldBox);
   } catch (err) {
@@ -36185,7 +36187,7 @@ function resetCreateProvider() {
      not-yet-loaded case (CREATE_ACCOUNTS empty), so this never starts on a
      provider the machine cannot use. */
   const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
-  const hasOpenai = CREATE_ACCOUNTS.some((x) => x && x.provider === 'openai');
+  const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
   prov.value = (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
   applyCreateProviderUI();
   CREATE_PROVIDER_TOUCHED = false; // an auto-default is not a deliberate choice
@@ -37867,7 +37869,7 @@ async function loadCreateExtras() {
     const prov = document.getElementById('create-provider');
     if (prov && !CREATE_PROVIDER_TOUCHED) {
       const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
-      const hasOpenai = CREATE_ACCOUNTS.some((x) => x && x.provider === 'openai');
+      const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
       /* #3081: prefer the last-selected provider/account/model, each applied only while still
          usable. This runs in the SAME untouched-auto-default gate as the openai upgrade below
          (CREATE_PROVIDER_TOUCHED false is exactly "the operator has not deliberately picked
