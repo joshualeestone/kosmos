@@ -264,6 +264,15 @@ function main(argv, deps) {
      it gets its own per-turn loop. The claude path is UNCHANGED and remains the
      default; the codex path reuses the same channel, host-watch and stop wiring
      below because its handle exposes the same `send`/`stop`/`sessionId` surface. */
+  /* 🔑 THE AGENT'S OWN BROWSER (engine/agentbrowser.js), wired HERE and nowhere
+     else, the way the state publisher below is: main() is the one production
+     launch, so no suite that drives the loops directly grows a flag. A function,
+     asked at every (re)launch, so an install that finishes while this agent runs
+     reaches it on its next restart. Claude only for now; codex is a follow-up. */
+  if (spec.runner !== 'codex') {
+    const browser = d.agentBrowser || (() => require('./agentbrowser').launchConfig());
+    spec.mcpConfig = () => browser();
+  }
   const superviseFor = spec.runner === 'codex'
     ? (sp, op) => require('./win32codexsup').superviseCodexStreaming(sp, op)
     : superviseStreaming;
@@ -772,6 +781,8 @@ function superviseStreaming(spec, opts) {
     const r = launcher({
       name: s.name, runner: s.runner, cwd: s.cwd, claudeBin: s.claudeBin,
       configDir: s.configDir, model: s.model, platform: s.platform || 'win32',
+      /* The agent's own browser: main() sets it, as a function asked per launch. */
+      mcpConfig: s.mcpConfig,
       /* 🔑 THE RETURN, NOT A BIRTH. Once we know the id, every later start is a
          resume: same conversation, same id, and NOTHING new recorded. A start
          that minted a fresh id each time would file a second ownership row per

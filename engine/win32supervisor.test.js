@@ -1083,6 +1083,7 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
     watchHost: (opts) => { const w = { opts, stopped: false, stop() { this.stopped = true; } }; watches.push(w); return w; },
     exitLater: (ms) => exits.push(ms),
     hostAlive: () => { hostChecks += 1; return true; },
+    agentBrowser: () => 'browser-config.json',
   });
   /* 🛑 CLEANUP RUNS HOWEVER THE ASSERTIONS GO. main() opens the agent's pipe
      server, and a failed assertion that skipped handle.stop() left it listening,
@@ -1098,6 +1099,9 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
     assert.equal(spawned.length, 1, 'main() started exactly one agent');
     assert.ok(spawned[0].argv.includes('--input-format'), 'and it is a STREAMING session');
     assert.ok(spawned[0].argv.includes('stream-json'));
+    /* The agent's own browser (engine/agentbrowser.js) is wired in main() and only there. */
+    assert.equal(spawned[0].argv[spawned[0].argv.indexOf('--mcp-config') + 1], 'browser-config.json',
+      'main() hands a claude agent its browser config');
     assert.equal(typeof handle.send, 'function', 'so the supervisor can be told things');
     /* ⚠️ THE LOAD-BEARING NEGATIVE. The detached launch goes through `cmd /c start`;
        if main() ever goes back to it, this is the line that says so. */

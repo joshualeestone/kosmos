@@ -506,3 +506,42 @@ test('#3380 the claude path is byte-identical: no execution-policy variable is a
   /* And it never clobbers a value the base env already carried for a non-codex runner. */
   assert.equal(launcher.childEnv({ PSExecutionPolicyPreference: 'RemoteSigned' }, 't', null, null, 'claude').PSExecutionPolicyPreference, 'RemoteSigned');
 });
+
+/* ── the agent's own browser (engine/agentbrowser.js) ─────────────────────── */
+
+test('the browser config rides as --mcp-config, before launchArgs, never with --strict-mcp-config', () => {
+  /* ⚠️ --mcp-config is VARIADIC (measured: a word after it was read as a second
+     config file and claude refused to start), so it must be followed by a flag. */
+  const argv = launcher.argvFor({ launchArgs: ['--session-id', 'zz'] },
+    { runner: 'claude', model: 'haiku', mcpConfig: 'C:/R/mcp-config.json' });
+  assert.deepEqual(argv, ['--dangerously-skip-permissions', '--model', 'haiku',
+    '--mcp-config', 'C:/R/mcp-config.json', '--session-id', 'zz']);
+  assert.ok(!argv.includes('--strict-mcp-config'), 'the person\'s own connectors must stay');
+
+  const stream = launcher.streamArgvFor({ launchArgs: [] },
+    { runner: 'claude', mcpConfig: 'C:/R/mcp-config.json', resumeSessionId: 'id-1' });
+  assert.ok(stream.indexOf('--mcp-config') < stream.indexOf('-p'), 'a flag follows it: ' + stream.join(' '));
+});
+
+test('no browser path, or a codex agent, means the argv it always had', () => {
+  assert.deepEqual(launcher.argvFor({ launchArgs: ['--session-id', 'a'] }, { runner: 'claude', mcpConfig: null }),
+    ['--dangerously-skip-permissions', '--session-id', 'a']);
+  assert.deepEqual(launcher.argvFor({ launchArgs: [] }, { runner: 'codex', mcpConfig: 'C:/R/x.json' }),
+    ['--dangerously-bypass-approvals-and-sandbox'], 'codex is a follow-up, not a claude flag it would refuse');
+});
+
+test('a streaming launch asks for the browser at EVERY launch, and a failing answer never costs the start', () => {
+  const calls = [];
+  launcher.setSpawn((cmd, argv, opts) => { calls.push({ cmd, argv, opts }); return { pid: 556, stdin: {}, unref() {} }; });
+  let asked = 0;
+  const r1 = launcher.launchStreaming({ name: 'browse-1', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+    mcpConfig: () => { asked += 1; return 'C:/R/mcp-config.json'; } });
+  assert.equal(r1.ok, true, r1.because);
+  assert.equal(asked, 1);
+  assert.equal(calls[0].argv[calls[0].argv.indexOf('--mcp-config') + 1], 'C:/R/mcp-config.json');
+
+  const r2 = launcher.launchStreaming({ name: 'browse-2', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+    mcpConfig: () => { throw new Error('install exploded'); } });
+  assert.equal(r2.ok, true, 'the agent still starts: ' + r2.because);
+  assert.ok(!calls[1].argv.includes('--mcp-config'), 'just without a browser');
+});

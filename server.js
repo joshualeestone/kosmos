@@ -15022,6 +15022,11 @@ if (require.main === module) {
        reconcileReport, which outranks this. Platform-agnostic, unit-tested with
        injected inputs. */
     require('./engine/status').setPaneCapture(require('./engine/win32capture').make());
+    /* The agents' own private browser (engine/agentbrowser.js): a one-time
+       install of the pinned server, started at boot in the background so it is
+       in place before the first agent launches. Never fatal and never awaited --
+       an agent launched before it lands simply starts without a browser. */
+    try { require('./engine/agentbrowser').kickInstall(); } catch { /* agents start without a browser */ }
   } else {
     /* #1078: on the non-win32 (Mac, and any other launchd-shaped) path, wire the
        created-never-run roster source. An agent Kosmos created but has never run
