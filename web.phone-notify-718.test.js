@@ -76,7 +76,7 @@ test('not connected to Kosmos+: the button stays disabled and says why', async (
   const h = load({ state: { connected: false } });
   h.domHandlers.DOMContentLoaded(); await flush();
   assert.equal(h.btn.disabled, true);
-  assert.match(h.msg.textContent, /Connect this Mac to Kosmos\+ first/);
+  assert.match(h.msg.textContent, /Connect this computer to Kosmos\+ first/);
   assert.equal(await h.win.kosmosPhoneNotifyToggle(), false);
   assert.equal(h.calls.fetch.filter((c) => c.method === 'PUT').length, 0, 'a PUT went out for a Mac that is not connected');
 });

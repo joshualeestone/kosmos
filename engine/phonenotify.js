@@ -82,7 +82,7 @@ function signinUrl() {
     Kosmos+ or the mint fails. */
 async function turnOn() {
   if (!remote.enrolled()) {
-    return { ok: false, because: 'connect this Mac to Kosmos+ first, then turn phone notifications on' };
+    return { ok: false, because: 'connect this computer to Kosmos+ first, then turn phone notifications on' };
   }
   const s = readState();
   const notifyId = s.notifyId || crypto.randomUUID();
