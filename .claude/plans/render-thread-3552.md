@@ -19,15 +19,18 @@ CHECK to the shipped behaviour. Placed rows are silent.
 
 - Drop the "waiting on an answer when this was sent" verdict assertion (never shipped).
 - Drop the says-line size assertion (a placed row's says-line is empty by design, so no size).
-- Keep the focus-to-composer assertion but SKIP it, explicitly co-land-gated on #3455 (the
-  answer-in-composer engine seam), reason logged; NOT deleted - restore once #3455 co-lands.
+- Keep the focus-to-composer assertion but SKIP it (logged, NOT deleted). NOTE: the
+  original co-land-on-#3455 reason was WRONG - a blind review proved #3455 (f6105c40f) is
+  already merged (the question-bubble arm passes) and the focus red is a real flow-dependent
+  regression (detail -> back -> answer loses focus to <body>). Filed as #3557; the SKIP now
+  cites #3557. Restore the check() when #3557 is fixed. Retired the stale co-land comment.
 - Keep the ABSENCE checks (row must not say "Placed into" nor claim "answered"); a silent
   row satisfies both and they still catch a wrong-speak regression.
 
 ## Verification
 
 Ran render-thread headless via pw-runtime + the thread-server fixture: all checks pass,
-exit 0, the focus assertion logs as SKIP with its #3455 co-land reason.
+exit 0, the focus assertion logs as SKIP citing the real regression #3557.
 
 ## Scope
 
