@@ -2062,6 +2062,24 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  */
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
+/* #3410 PR 2b: the connection error only counts while nothing newer follows it. Measured
+   2026-09-24 (2.1.281): an agent nudged after the API came back answered at once ("⏺ PINEAPPLE"),
+   but its old "⏺ API Error: …" line stayed on screen above the new turn, and the pane kept
+   reading connection_lost (this rule sits above the idle footer rule), so a sweep would nudge an
+   agent that had already recovered. So: take the LAST matching row, and if any agent-output row
+   ("⏺ " or "● ", the bullets Claude Code puts on what the agent writes) comes after it, the line
+   is stale and the rule does not fire. Prompt rows, footers and the status bar are not agent
+   output, so a wedged pane (error, footer, empty prompt, status bar) still matches, whatever
+   placeholder its prompt shows. Returns the evidence line, or null. */
+function connectionLostAtTail(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n');
+  let at = -1;
+  for (let i = 0; i < rows.length; i += 1) if (CONNECTION_LOST_MESSAGE.test(rows[i])) at = i;
+  if (at === -1) return null;
+  for (let i = at + 1; i < rows.length; i += 1) if (/^\s*[⏺●]\s/.test(rows[i])) return null;
+  return matchedLine(rows[at], [CONNECTION_LOST_MESSAGE]);
+}
+
 /* #3410: Claude Code's live retry line, anchored at both ends:
    "✻ <error> · Retrying in 5s · attempt 4/10". Measured 2026-09-24 (2.1.281) in all 152
    retrying frames: always the ✻ glyph, always at column 0 (the glyph did not animate).
@@ -3891,7 +3909,7 @@ function classify(pane, paneText) {
   /* The shared matchedLine helper (as rate_limited uses it): first row matching
      CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
      one derivation of "find the evidence line", not a private copy. */
-  const connLine = matchedLine(tail, [CONNECTION_LOST_MESSAGE]);
+  const connLine = connectionLostAtTail(tail);
   if (connLine !== null) {
     return {
       state: STATE.CONNECTION_LOST,
