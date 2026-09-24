@@ -47,10 +47,22 @@ function boot(sandbox, extraEnv) {
   return new Promise((resolve) => {
     let out = '';
     let err = '';
-    const done = () => { try { child.kill(); } catch { /* already gone */ } resolve({ out, err }); };
+    let stopping = false;
+    /* #3607: resolve on the child's EXIT, not on the kill. The callers delete the
+       sandbox next, and a board still shutting down writes into it, so under load
+       rmSync failed with ENOTEMPTY. */
+    const exited = new Promise((r) => child.once('exit', r));
+    const done = () => {
+      if (stopping) return;
+      stopping = true;
+      clearTimeout(timer);
+      try { child.kill(); } catch { /* already gone */ }
+      const hard = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } }, 5000);
+      exited.then(() => { clearTimeout(hard); resolve({ out, err }); });
+    };
     child.stdout.on('data', (b) => { out += b; if (/Kosmos on http/.test(out)) done(); });
     child.stderr.on('data', (b) => { err += b; });
-    setTimeout(done, 8000);
+    const timer = setTimeout(done, 8000);
   });
 }
 
