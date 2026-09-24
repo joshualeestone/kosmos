@@ -5103,7 +5103,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    name is a bold heading at the TOP; the timestamp is a small muted line at the
    bottom-RIGHT under the body. Scoped to .msg-bd so the .msg-valve inline timestamp
    (a different, Kosmos-band surface) keeps its own inline style. */
-.msg-nm { display: block; font-size: .9375rem; font-weight: 700; line-height: 1.2; margin-bottom: 3px; }
+/* #3498 (Josh, 2026-09-23): the per-post sender name was a couple points above body copy
+   (.9375rem/15px) and stood out too much. Match it to body copy size (.8125rem/13px, the
+   --text-body 13px the .msg-bd body inherits); bold kept. One class covers all three surfaces
+   Josh named -- consolidated project dialog, tab-view dialog, and individual agent messaging --
+   because pjRoomRow (room posts) and dmRow (DM) both emit the name as <b class="msg-nm">. */
+.msg-nm { display: block; font-size: .8125rem; font-weight: 700; line-height: 1.2; margin-bottom: 3px; }
 .msg-bd .msg-t { display: block; text-align: right; margin-top: 2px; }
 /* #3134-followup (Josh 6.72): the agent name and the agent avatar are ACTIVE -- click
    either to go straight to that agent. No underline, no link look (Josh's rule), just
