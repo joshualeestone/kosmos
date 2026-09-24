@@ -529,7 +529,9 @@ function installWithRetry(opts) {
     if (!p) return;
     p.then((r) => {
       if (stopped) return;
-      if (r && r.ok) { if (retried) log('agent browser: installed'); return; }
+      /* Logged whenever an install actually happened (first try or after retries), so
+         the board log shows the browser landed; an already-present one stays quiet. */
+      if (r && r.ok) { if (!r.already || retried) log('agent browser: installed'); return; }
       if (/no pinned browser/.test((r && r.because) || '')) {
         log('agent browser: ' + r.because + '; not trying again');
         return;

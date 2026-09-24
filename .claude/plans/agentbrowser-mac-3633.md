@@ -87,11 +87,14 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 32 pass (26 of them new for the Mac), and all 32 pass run one at a time (measured); `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 33 pass (27 of them new for the Mac), and each passes run one at a time; `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
   across five arms (installed, not installed, env opt-out, file opt-out, installed with a
   model); with the model line's flag removed, only the model arm fails.
 
 ## Known and left
+- One install lock for the whole managed folder, not one per CPU: two boards of different
+  CPUs sharing one folder would install one after the other. Deliberate (one install at a
+  time); the cost is a delayed retry.
 - Nothing in the app writes the opt-out file yet: an operator creates it by hand. A Settings
   switch is a follow-up.
 - Pruning keeps the pinned version and one other, so an agent whose browser runs from a

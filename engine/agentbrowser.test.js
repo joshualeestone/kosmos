@@ -497,3 +497,12 @@ test('the board stops after its attempt ceiling for this run, whatever the cause
   assert.equal(calls, 4);
   assert.match(lines[lines.length - 1], /4 attempts this run/);
 });
+
+test('a first-try install is logged; an install that was already there is not', async () => {
+  const fresh = []; const already = [];
+  ab.installWithRetry({ env: {}, log: (l) => fresh.push(l), kick: () => Promise.resolve({ ok: true }) });
+  ab.installWithRetry({ env: {}, log: (l) => already.push(l), kick: () => Promise.resolve({ ok: true, already: true }) });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(fresh, ['agent browser: installed']);
+  assert.deepEqual(already, []);
+});
