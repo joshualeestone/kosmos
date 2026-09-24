@@ -5807,6 +5807,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   scrollbar-width: none; -ms-overflow-style: none; }
 .cinput::-webkit-scrollbar { display: none; }
 .cinput:focus { outline: none; }
+/* #3403: the soft near-limit counter under a composer. It is a BLOCK sibling placed AFTER the
+   .composerbox (like the .dhint / .fmsg lines), NOT a child of it: .composerbox is display:flex
+   with no wrap, so a full-width child would be squished into the input row instead of sitting on
+   its own line. As a block after the box it right-aligns on its own line below the input. [hidden]
+   keeps it out until near the cap; .near turns it amber in the last stretch. Quiet by design -- it
+   appears only when the person is close to the cap. */
+.cpost-count { text-align: right; padding: 2px 8px 0; font: var(--text-caption) var(--font-ui); color: var(--label-2); }
+.cpost-count.near { color: var(--warn-ink); }
 .cinput::placeholder { color: var(--k-ink-2); }
 /* #2922 part 2 (Josh 6.59): the LIVE @-mention highlight in the project-room
    composer. A native <textarea> cannot colour one word, so #pj-post is backed by
@@ -9010,10 +9018,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            and an unnamed text input is a WCAG 4.1.2 failure on the one control
            this box exists for. The room's own box carries a static label for
            the same reason. -->
-      <textarea class="cinput" id="d-say" rows="1" maxlength="2000"
+      <textarea class="cinput" id="d-say" rows="1" maxlength="10000"
              aria-label="Type a message for this agent" placeholder="Write something&hellip;"></textarea>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
     </div>
+    <!-- #3403 (Josh: cut off mid-message with no warning): a SOFT near-limit counter that appears
+         only in the last stretch before the 10000 cap, so the cap is never a silent cutoff. A block
+         sibling AFTER the composerbox (not a flex child of it) so it sits on its own line under the
+         input; hidden until near the limit; aria-live so it is announced. -->
+    <div class="cpost-count" id="d-say-count" aria-live="polite" hidden></div>
     <!-- The attached-but-unsent files (#358, Josh 1:59 PM: "it just instantly
          uploads it... I don't get to write a caption", then "multiple pictures
          or files... and then add copy in with it"). Picking or dropping files
@@ -12266,7 +12279,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                (Josh, 2026-08-23 13:59). -->
           <button class="attachbtn" id="pj-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
           <input id="pj-attach-file" type="file" multiple hidden>
-          <textarea class="cinput" id="pj-post" rows="1" maxlength="2000"
+          <textarea class="cinput" id="pj-post" rows="1" maxlength="10000"
                     placeholder="Write something or @name to message someone&hellip;"
                     aria-label="Post to everyone on this project"></textarea>
           <!-- #2922 part 2: the live @-mention highlight. A mirror of #pj-post that
@@ -12293,6 +12306,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                     <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
+        <!-- #3403: soft near-limit counter (see pjComposerCount). Block sibling after the box;
+             pj-post rides pjGrowComposer (type, draft-restore, and send-reset all call it), so
+             the counter updates on every path with no extra wiring. -->
+        <div class="cpost-count" id="pj-post-count" aria-live="polite" hidden></div>
         <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
              up a list as I type to give me a clickable choice". The stronger
              reason is correctness: @ changes what a message IS (a request to
@@ -44259,11 +44276,52 @@ function pjGrowComposer(el) {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
+  // #3403: the near-limit counter rides here (every value change calls pjGrowComposer).
+  // Guarded because web.composer-height-1303c.test.js LIFTS pjGrowComposer on its own and
+  // eval()s it in isolation, where its sibling helper is out of scope; in the page they are
+  // always both defined, and the counter's real behaviour is covered by render-msg-counter-3403.
+  if (typeof pjComposerCount === 'function') pjComposerCount(el);
   /* #2922 part 2: repaint the live @-mention mirror on every programmatic
      value/size change that routes through here (draft restore, @ picker insert,
      emoji insert, reset) as well as auto-grow while typing. Guarded to the room
      post box so no other composer pays for it. */
   if (el.id === 'pj-post') pjMentionPaint();
+}
+
+/**
+ * #3403 (Josh: "it just cut off mid-message with no warning"): a SOFT
+ * near-limit counter. A composer opts in purely by shipping a sibling
+ * `<id>-count` element (see d-say and pj-post, the two multi-line message
+ * composers); a composer without one is a silent no-op, so this is safe to call
+ * for EVERY composer. The cap it counts toward is read from the element's own
+ * `maxlength`, so it needs no per-composer constant and never drifts from it.
+ *
+ * 🔑 It rides pjGrowComposer for the same reason pjComposerReset does: the
+ * counter must reflect any value change, and pjGrowComposer already runs on
+ * every one -- typing, draft restore, mention insert, and reset. Wiring it
+ * here rather than at each call site is what keeps it from drifting out of
+ * sync the way a per-site copy would.
+ *
+ * It stays HIDDEN until the last stretch before the cap, so it is never chrome
+ * in the common case; aria-live on the element announces it when it appears.
+ */
+const SOFT_COUNT_AT = 500;   // show the counter within this many chars of the cap
+const COUNT_NEAR_AT = 100;   // switch to amber within this many chars
+function pjComposerCount(el) {
+  if (!el || !el.id) return;
+  const out = document.getElementById(el.id + '-count');
+  if (!out) return;                                   // composer opted out
+  const max = Number(el.getAttribute('maxlength')) || 0;
+  const rem = max - el.value.length;
+  if (max && rem <= SOFT_COUNT_AT) {
+    const shown = Math.max(0, rem);                   // never render a negative
+    out.hidden = false;
+    out.textContent = shown + (shown === 1 ? ' character left' : ' characters left');
+    out.classList.toggle('near', rem <= COUNT_NEAR_AT);
+  } else {
+    out.hidden = true;
+    out.classList.remove('near');
+  }
 }
 
 /**

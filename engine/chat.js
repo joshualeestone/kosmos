@@ -124,7 +124,19 @@ const DELIVERY = {
  * refused, so the person's paragraph arrives as a paragraph-shaped sentence
  * rather than an error.
  */
-const MAX_TEXT = 2000;
+// #3403: 10000, not 2000. Josh hit the old 2000 cap writing a message to an agent and was cut
+// off mid-message with no warning; 2000 chars is short for actually instructing an agent. This is
+// a PRODUCT choice, not a transport limit: the #3419 paste transport (pasteWire) delivers the body
+// in 256B (PASTE_CHUNK_BYTES) sub-threshold chunks with a size-adaptive wait, so a longer body is
+// delivered without the busy-pane head-truncation a single send-keys burst had -- the chunking
+// already scales to any size. The two MULTI-LINE agent-message composers (#d-say, #pj-post) carry
+// maxlength=10000 to match this cap -- render-msg-counter-3403 asserts that cap, and the soft
+// near-limit counter (which reads each composer's own maxlength) warns before it so the cut is
+// never silent. A UI maxlength BELOW this cap is the #3403 cutoff itself (input just stops, no
+// warning); one ABOVE it would let the caller type past what the engine keeps. The two single-line
+// quick inputs (#pj-say, #d-term-say) stay at 2000 for now, a documented plan follow-on: they are
+// quick-say inputs, not the long-message composers Josh hit.
+const MAX_TEXT = 10000;
 
 /**
  * Ceiling on how many of the person's messages one thread keeps.
@@ -1058,7 +1070,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
    * `messageProblem` above measured `raw`. A caller that glued its own prefix
    * on first would have spent the person's `MAX_TEXT` budget on Kosmos's own
    * words: a message at exactly the limit would be refused with *"keep it to
-   * 2000 characters or fewer"* — naming a limit the text they typed does not
+   * 10000 characters or fewer"* -- naming a limit the text they typed does not
    * exceed, which is unfalsifiable from where they are standing. The wire may
    * exceed MAX_TEXT; the person's message may not.
    *
