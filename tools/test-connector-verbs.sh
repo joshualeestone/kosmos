@@ -40,6 +40,13 @@ connector_verbs_check "$EXIT2" "$OPEN" 2>"$T/err" && bad "an exit 2 without unre
 HANG="$T/hang-tunnel"; printf '#!/bin/sh\nexec sleep 60\n' > "$HANG"; chmod +x "$HANG"
 start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$HANG" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
 [ "$took" -lt 10 ] && grep -q "could not check" "$T/err" && ok "a hanging connector is cut off by the bound (${took}s) and refused as unrunnable" || bad "a hang was not bounded (${took}s): $(cat "$T/err")"
+# A bound of 0 or junk must not switch the bound off (perl's alarm 0 means "no alarm").
+for v in 0 00 -3 abc 2.5 ""; do [ "$(CONNECTOR_PROBE_SECONDS="$v" connector_probe_seconds)" = 20 ] || bad "CONNECTOR_PROBE_SECONDS='$v' was not replaced by 20"; done
+[ "$(CONNECTOR_PROBE_SECONDS=7 connector_probe_seconds)" = 7 ] && [ "$(unset CONNECTOR_PROBE_SECONDS; connector_probe_seconds)" = 20 ] && ok "the bound: 0, 00, negative, junk and empty fall back to 20; a positive whole number is kept" || bad "the bound sanitiser is wrong"
+# A connector that exits 142 by itself is not reported as a timeout.
+E142="$T/exit142-tunnel"; printf '#!/bin/sh\nexit 142\n' > "$E142"; chmod +x "$E142"
+case "$(connector_mac_request_probe "$E142")" in *"exited 142"*) ok "a connector's own exit 142 is not read as a timeout" ;; *) bad "exit 142 misread: $(connector_mac_request_probe "$E142")" ;; esac
+
 # A connector whose CHILD hangs (no exec): the bound must kill the whole group, not only the shell.
 KID="$T/child-hang-tunnel"; printf '#!/bin/sh\nsleep 60 &\necho $! > "%s"\nwait\n' "$T/kid.pid" > "$KID"; chmod +x "$KID"
 start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$KID" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))

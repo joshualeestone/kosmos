@@ -30,20 +30,29 @@ connector_gate_value() {
   esac
 }
 
-# Runs `<bin> mac-request --help` with a bound of CONNECTOR_PROBE_SECONDS
-# (default 20: `--help` answers at once, so the bound exists only to stop a hang,
-# and 20 leaves room for a first launch's signature check) and says which of three things happened: "has" (exit 0), "old"
+# Runs `<bin> mac-request --help` with a time bound and says which of three
+# things happened: "has" (exit 0), "old"
 # (exit 2 with clap's "unrecognized subcommand"), or "unknown: <why>" for
 # anything else. Only "old" is evidence the connector predates the verb; a file
 # that is missing, is not executable, is killed by Gatekeeper, crashes or hangs
 # is a different problem with a different fix.
 #
+# The bound is CONNECTOR_PROBE_SECONDS, default 20: `--help` answers at once, so
+# the bound exists only to stop a hang, and 20 leaves room for a first launch's
+# signature check. Anything but a positive whole number falls back to 20, because
+# perl's `alarm 0` would switch the bound off.
+#
 # The bound: perl (macOS has no `timeout`) starts the connector in its own
 # process group and kills the whole group when time runs out, so a connector
 # that starts a child cannot outlive it. Its stderr goes to a file, not a pipe,
 # because a pipe capture waits for every process still holding the pipe.
+connector_probe_seconds() {
+  case "${CONNECTOR_PROBE_SECONDS:-}" in ''|*[!0-9]*) echo 20 ;; *) [ "$CONNECTOR_PROBE_SECONDS" -gt 0 ] && echo "$CONNECTOR_PROBE_SECONDS" || echo 20 ;; esac
+}
+
 connector_mac_request_probe() {
-  local bin="$1" errf err rc
+  local bin="$1" errf err rc secs
+  secs="$(connector_probe_seconds)"
   if [ ! -e "$bin" ]; then echo "unknown: there is no file at $bin"; return; fi
   if [ ! -x "$bin" ]; then echo "unknown: $bin is not executable"; return; fi
   if ! command -v perl >/dev/null 2>&1; then echo "unknown: perl is not installed, so the connector could not be run under a time limit"; return; fi
@@ -54,17 +63,23 @@ connector_mac_request_probe() {
       my $pid = fork();
       die "fork failed\n" unless defined $pid;
       if ($pid == 0) { setpgrp(0, 0); exec @ARGV or exit 127; }
-      local $SIG{ALRM} = sub { kill "KILL", -$pid; waitpid($pid, 0); exit 142; };
+      # Set the group from the parent too, so a timeout that fires before the
+      # child has run setpgrp still has a group to kill.
+      setpgrp($pid, $pid);
+      local $SIG{ALRM} = sub {
+        print STDERR "connector-probe: timed out\n";
+        kill "KILL", -$pid; kill "KILL", $pid; waitpid($pid, 0); exit 142;
+      };
       alarm $secs;
       waitpid($pid, 0);
       my $st = $?;
       exit(($st & 127) ? 128 + ($st & 127) : ($st >> 8));
-    ' "${CONNECTOR_PROBE_SECONDS:-20}" "$bin" mac-request --help >/dev/null 2>"$errf"; then rc=0; else rc=$?; fi
+    ' "$secs" "$bin" mac-request --help >/dev/null 2>"$errf"; then rc=0; else rc=$?; fi
   err="$(head -1 "$errf" 2>/dev/null)" || true
+  if [ "$rc" = 142 ] && grep -q "^connector-probe: timed out$" "$errf" 2>/dev/null; then rm -f "$errf"; echo "unknown: it did not answer within $secs seconds"; return; fi
   if [ "$rc" = 2 ] && grep -q "unrecognized subcommand" "$errf" 2>/dev/null; then rm -f "$errf"; echo old; return; fi
   rm -f "$errf"
   if [ "$rc" = 0 ]; then echo has; return; fi
-  if [ "$rc" = 142 ]; then echo "unknown: it did not answer within ${CONNECTOR_PROBE_SECONDS:-20} seconds"; return; fi
   echo "unknown: running it exited $rc${err:+ ($err)}"
 }
 
