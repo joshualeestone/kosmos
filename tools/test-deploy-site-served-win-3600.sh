@@ -26,6 +26,11 @@
 #   A9  CONTROL for A7: a NEWER staging pointer absent from R2 -> refuse (not skipped)
 #   A10 the served pointer names a path, not a bare file name -> refuse
 #   A11 the served pointer carries no sha256 -> refuse
+#   A12 CONTROL for A7: superseded staged build, but the served staging pointer is NOT the committed
+#       one -> refuse (the skip covers only the zip and sidecar, never the pointer check)
+#   A13 the redirect probe answers 500 -> a NOTE, and the fallback verifies the committed name
+#   A14 the served pointer names something that is not kosmos-<version>-win-x64.zip -> refuse
+#   A15 redirected, and the served pointer names the SAME zip as the committed one -> rc 0, no NOTE
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -72,6 +77,10 @@ case "$url" in
   *)
     rel="${url#"$HOST_URL"/}"
     served_file="$LIVE_DIR/$rel"
+    if [ "$rel" = dist/latest-win.json ] && [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-status" ]; then
+      [ -n "$wfmt" ] && printf '%s ' "$(cat "$LIVE_DIR/.probe-status")"
+      exit 0
+    fi
     if [ -f "$LIVE_DIR/.redirects" ]; then
       while IFS= read -r g; do
         [ -n "$g" ] || continue
@@ -122,6 +131,10 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   static-nozip     - no redirect, and the committed zip is missing from what is served
 #   redirect-badname - as redirect, but R2's pointer names a path rather than a bare file name
 #   redirect-nosha   - as redirect, but R2's pointer carries no sha256
+#   redirect-probe500 - as redirect, but the un-followed probe of latest-win.json answers 500
+#   redirect-badshape - as redirect, but R2's pointer names evil.zip
+#   redirect-same     - as redirect, but R2 serves the committed build (pointer names WZ_OLD)
+#   redirect-stagedrift - as redirect, and latest-win-staging.json is served from R2 with other bytes
 # $2 (optional) staged: "" none | old (0.6.45, absent from R2) | new (0.6.55, in R2) | new-missing
 make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   local mode="$1" staged="${2:-}" s live r2 realsha oldsha newsha sv sz
@@ -181,6 +194,16 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
       [ "$mode" = redirect-nozip ] && rm -f "$r2/$WZ_NEW"
       [ "$mode" = redirect-badname ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW/../x" "$newsha"
       [ "$mode" = redirect-nosha ] && printf '{"version":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$WV_NEW" "$WZ_NEW" > "$r2/latest-win.json"
+      [ "$mode" = redirect-probe500 ] && printf '500' > "$live/.probe-status"
+      [ "$mode" = redirect-badshape ] && printf '{"version":"x","sha256":"%s","versioned":"evil.zip"}\n' "$newsha" > "$r2/latest-win.json"
+      if [ "$mode" = redirect-same ]; then
+        cp "$s/dist/$WZ_OLD" "$s/dist/$WZ_OLD.sha256" "$r2/"
+        write_win_ptr "$r2/latest-win.json" "$WV_OLD" "$oldsha"
+      fi
+      if [ "$mode" = redirect-stagedrift ]; then
+        printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
+        write_win_ptr "$r2/latest-win-staging.json" 0.6.44 "$newsha"
+      fi
       [ "$mode" = redirect-badsum ] && printf '%s  %s\n' 1111111111111111111111111111111111111111111111111111111111111111 "$WZ_NEW" > "$r2/$WZ_NEW.sha256"
       ;;
     static-nozip)
@@ -260,7 +283,7 @@ fi
 # A7) a superseded staging pointer (older than the served prod build, absent from R2) is skipped.
 read -r S L R <<<"$(make_scenario redirect old)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "published and verified" && has "$out" "kosmos-0.6.45-win-x64.zip (0.6.45), which is not newer than the prod Windows build $WV_NEW"; then
+if [ "$RC" = 0 ] && has "$out" "published and verified" && has "$out" "kosmos-0.6.45-win-x64.zip (0.6.45), which is not newer than the prod Windows build $WV_NEW" && has "$out" "(the staging pointer still is)"; then
   pass "A7: a superseded staged build (0.6.45 < prod $WV_NEW) is warned about and skipped, rc=0"
 else
   bad "A7: a superseded staged build was not skipped with the warning (rc=$RC); out=$out"
@@ -303,5 +326,42 @@ else
   bad "A11: a served pointer with no sha256 did not refuse (rc=$RC); out=$out"
 fi
 
+# A12) CONTROL for A7: the superseded skip must not skip the staging POINTER check.
+read -r S L R <<<"$(make_scenario redirect-stagedrift old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the served latest-win-staging.json is not the committed one"; then
+  pass "A12-CONTROL: superseded staged build + a served staging pointer that is not the committed one refuses (rc=$RC)"
+else
+  bad "A12-CONTROL: a drifted served staging pointer was not caught when the staged build is superseded (rc=$RC); out=$out"
+fi
+
+# A13) the probe answers neither a redirect nor 200: a NOTE, and the fallback verifies the committed
+# name (which R2 lacks here, so it refuses: the fallback is the old, strict check, never a skip).
+read -r S L R <<<"$(make_scenario redirect-probe500)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "answered 500 (neither a redirect nor 200)" && has "$out" "$WZ_OLD is NOT served"; then
+  pass "A13: a 500 from the probe is named, and the fallback verifies the committed $WZ_OLD (refuses, rc=$RC)"
+else
+  bad "A13: a 500 probe was not named or did not fall back to the committed name (rc=$RC); out=$out"
+fi
+
+# A14) the served pointer names something that is not a kosmos-<version>-win-x64.zip.
+read -r S L R <<<"$(make_scenario redirect-badshape)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "names 'evil.zip', not a kosmos-<version>-win-x64.zip"; then
+  pass "A14: a served pointer naming evil.zip refuses on the shape guard (rc=$RC)"
+else
+  bad "A14: a wrong-shaped served name did not refuse on the shape guard (rc=$RC); out=$out"
+fi
+
+# A15) redirected, same build as committed: verified, and no stale-pointer NOTE.
+read -r S L R <<<"$(make_scenario redirect-same)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "published and verified" && ! has "$out" "is stale"; then
+  pass "A15: redirected to the same build as committed -> rc=0, no stale NOTE"
+else
+  bad "A15: a redirected pointer naming the committed build did not verify cleanly (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 11 arms passed"
+echo "test-deploy-site-served-win-3600: all 15 arms passed"

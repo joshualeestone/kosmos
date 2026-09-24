@@ -41,7 +41,8 @@ a refusal, not a false green.
 The zip wildcard redirect also sends the STAGED zip to R2. Live on 2026-09-24: the committed
 `latest-win-staging.json` names 0.6.81, prod serves 0.6.89, and 0.6.81 404s through R2, so the staged
 block would have kept every Mac deploy red after the prod fix. Call: a staging pointer whose version
-is not newer than the prod Windows build users get is superseded. Warn and skip its served-verify.
+is not newer than the prod Windows build users get is superseded. Warn and skip its zip and sidecar served-verify; the staging pointer is still
+checked against the committed one (A12).
 A newer staged build is still verified in full (the Windows box verifies it from the served copies).
 Rejected: dropping the staged block (loses the real check for a pending staged build).
 
@@ -52,15 +53,18 @@ The pre-deploy committed-pointer vs committed-bytes agreement (#2571) still runs
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Eleven arms with a redirect-aware
+`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Fifteen arms with a redirect-aware
 curl stub: the card's shape (A1) with a control pinning the old semantics (A2), an unserved served
 zip (A3), a pointer/sidecar disagreement (A4), the static path unchanged (A5) and its control (A6),
 a superseded staged build skipped (A7), a newer served staged build verified (A8) and its control
-(A9), a path-shaped served name (A10), and a served pointer with no sha256 (A11).
+(A9), a path-shaped served name (A10), a served pointer with no sha256 (A11), the staging-pointer
+check kept for a superseded build (A12), a 500 probe falling back to the strict check (A13), a
+wrong-shaped served name (A14), and a redirect naming the committed build (A15).
 Red-capability: against origin/main's deploy-site.sh, A1 fails with the exact prod message.
 
 ## Status
 
 - [x] fix + test, red-capability shown
-- [ ] full `yarn test`
+- [x] full `yarn test` green at e4fd818d (8671 tests, 0 failed); later commits re-validated at the
+  loop's final gate
 - [ ] challenge-loop, PR, merge

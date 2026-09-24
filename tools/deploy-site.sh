@@ -516,7 +516,7 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
         kosmos-*-win-x64.zip) : ;;
         *) echo "deploy-site: the served (redirected) latest-win.json names '${_swv:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate (#3600)."; exit 1 ;;
       esac
-      case "$_swv" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served latest-win.json names '$_swv', which is not a bare file name -- investigate (#3600)."; exit 1 ;; esac
+      case "$_swv" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served latest-win.json names '$_swv', which is not a bare file name -- the deploy already ran, investigate (#3600)."; exit 1 ;; esac
       [ -n "$WIN_SERVED_SHA" ] || { echo "deploy-site: the served (redirected) latest-win.json names $_swv but no sha256 -- investigate (#3600)."; exit 1; }
       WIN_VERIFY=$_swv
       WIN_PROD_VERSION=$(ptr_version "$_swj")
@@ -548,8 +548,8 @@ served_verify_asset_ok "$HOST/dist/$WIN_VERIFY.sha256" "the Windows zip checksum
 # that disagree is a broken update even though both return 200.
 if [ -n "$WIN_SERVED_SHA" ]; then
   _wsc=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$WIN_VERIFY.sha256") || { echo "deploy-site: could not re-read the served $WIN_VERIFY.sha256 -- the deploy already ran, investigate (#3600)."; exit 1; }
-  _wsc=$(printf '%s' "$_wsc" | awk '{print $1; exit}')
-  [ "$_wsc" = "$WIN_SERVED_SHA" ] || { echo "deploy-site: the served latest-win.json advertises sha $WIN_SERVED_SHA for $WIN_VERIFY but its served .sha256 says '${_wsc:-nothing}' -- the Windows updater would refuse this update. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
+  _wsc=$(printf '%s' "$_wsc" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]')
+  [ "$_wsc" = "$(printf '%s' "$WIN_SERVED_SHA" | tr '[:upper:]' '[:lower:]')" ] || { echo "deploy-site: the served latest-win.json advertises sha $WIN_SERVED_SHA for $WIN_VERIFY but its served .sha256 says '${_wsc:-nothing}' -- the Windows updater would refuse this update. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
 fi
 # The STAGED Windows build, served whole: the Windows box verifies it from these served copies
 # before any promote. The pointer is also compared BY CONTENT with the committed one, so a served
@@ -557,18 +557,22 @@ fi
 # #3600: a staging pointer whose version is NOT newer than the prod Windows build users get names a
 # superseded build. The zip wildcard redirects it to R2, where an old staged build is often absent
 # (2026-09-24: staging said 0.6.81, prod 0.6.89, 0.6.81 404'd), so verifying it would exit red on
-# every Mac deploy for a build nobody will promote. Warn and skip it. A NEWER staged build is still
-# verified in full, because the Windows box verifies that one from these served copies.
+# every Mac deploy for a build nobody will promote. Warn and skip ITS ZIP AND SIDECAR; the staging
+# pointer itself is served statically and is still checked against the committed one. A NEWER staged
+# build is verified in full, because the Windows box verifies that one from these served copies.
+WIN_STAGED_SUPERSEDED=0
 WIN_STAGED_VERSION=""
 [ -z "$WIN_STAGED" ] || WIN_STAGED_VERSION=$(ptr_version "$(git -C "$SITE" show "$H:dist/latest-win-staging.json" 2>/dev/null)")
 if [ -n "$WIN_STAGED" ] && [ -n "$WIN_STAGED_VERSION" ] && [ -n "$WIN_PROD_VERSION" ] \
    && [ "$(printf '%s\n%s\n' "$WIN_STAGED_VERSION" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$WIN_PROD_VERSION" ]; then
-  echo "deploy-site: WARNING (#3600): the committed latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $WIN_PROD_VERSION. It is superseded, so it is not served-verified. The next Windows staging publish replaces it." >&2
-  WIN_STAGED=""
+  echo "deploy-site: WARNING (#3600): the committed latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $WIN_PROD_VERSION. It is superseded, so its zip and checksum are not served-verified (the staging pointer still is). The next Windows staging publish replaces it." >&2
+  WIN_STAGED_SUPERSEDED=1
 fi
 if [ -n "$WIN_STAGED" ]; then
-  served_verify_asset_ok "$HOST/dist/$WIN_STAGED" "the staged Windows zip $WIN_STAGED" || { echo "deploy-site: the staged Windows zip $WIN_STAGED failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
-  served_verify_asset_ok "$HOST/dist/$WIN_STAGED.sha256" "the staged Windows zip checksum $WIN_STAGED.sha256" || { echo "deploy-site: the staged Windows zip checksum $WIN_STAGED.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+  if [ "$WIN_STAGED_SUPERSEDED" = 0 ]; then
+    served_verify_asset_ok "$HOST/dist/$WIN_STAGED" "the staged Windows zip $WIN_STAGED" || { echo "deploy-site: the staged Windows zip $WIN_STAGED failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+    served_verify_asset_ok "$HOST/dist/$WIN_STAGED.sha256" "the staged Windows zip checksum $WIN_STAGED.sha256" || { echo "deploy-site: the staged Windows zip checksum $WIN_STAGED.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+  fi
   served_verify_asset_ok "$HOST/dist/latest-win-staging.json" "the Windows staging pointer" || { echo "deploy-site: latest-win-staging.json failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
   _served_win_staging=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest-win-staging.json") || { echo "deploy-site: could not re-read the served latest-win-staging.json after deploy -- investigate."; exit 1; }
   [ "$_served_win_staging" = "$(git -C "$SITE" show "$H:dist/latest-win-staging.json" 2>/dev/null)" ] || { echo "deploy-site: the served latest-win-staging.json is not the committed one (which names $WIN_STAGED) -- investigate."; exit 1; }
