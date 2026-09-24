@@ -2072,6 +2072,10 @@ const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewa
    output, so a wedged pane (error, footer, empty prompt, status bar) still matches, whatever
    placeholder its prompt shows. Returns the evidence line, or null. */
 const API_ERROR_ROW = /^\s*(?:[⏺●]\s+)?API Error:/u;
+// How many indented continuation rows under an "API Error:" row are read as part of it. Claude Code
+// breaks its own long message text; the longest network message (~140 characters, the proxy
+// tunnel one) can take three rows on a narrow pane, so allow four.
+const API_ERROR_CONTINUATION_ROWS = 4;
 function connectionLostAtTail(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
   let at = -1;
@@ -2080,17 +2084,19 @@ function connectionLostAtTail(tail) {
   // and PR 2b's sweep types into panes that read connection_lost.
   // Claude Code breaks its own long error text onto indented continuation rows (not tmux soft
   // wraps, so capture-pane -J does not rejoin them), so the phrase is looked for on the error row
-  // joined with the up-to-2 continuation rows under it.
+  // joined with the continuation rows under it.
   for (let i = 0; i < rows.length; i += 1) {
     if (!API_ERROR_ROW.test(rows[i])) continue;
     let joined = rows[i];
-    for (let k = 1; k <= 2 && i + k < rows.length && /^\s{2,}\S/.test(rows[i + k]) && !/^\s*[⏺●❯›]/.test(rows[i + k]); k += 1) {
+    for (let k = 1; k <= API_ERROR_CONTINUATION_ROWS && i + k < rows.length && /^\s{2,}\S/.test(rows[i + k]) && !/^\s*[⏺●❯›]/.test(rows[i + k]); k += 1) {
       joined += ' ' + rows[i + k].trim();
     }
     if (CONNECTION_LOST_MESSAGE.test(joined)) at = i;
   }
   if (at === -1) return null;
-  for (let i = at + 1; i < rows.length; i += 1) if (/^\s*[⏺●]\s/.test(rows[i])) return null;
+  // Newer content supersedes it: agent output, or any later Claude Code error row (bulleted or
+  // bare), which means the current error is a different one.
+  for (let i = at + 1; i < rows.length; i += 1) if (/^\s*[⏺●]\s/.test(rows[i]) || API_ERROR_ROW.test(rows[i])) return null;
   return matchedLine(rows[at], [API_ERROR_ROW]);
 }
 

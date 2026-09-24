@@ -57,3 +57,13 @@ test('#3410: Claude Code breaking its error text onto a continuation row still r
   assert.equal(r.state, status.STATE.CONNECTION_LOST);
   assert.match(r.evidence, /API Error: Connection refused/);
 });
+
+test('#3410: the long proxy message broken over three continuation rows still reads connection_lost', () => {
+  const pane = WEDGED.replace(ERR, "⏺ API Error: Couldn't connect through your\n  proxy (ERR_PROXY_TUNNEL) — the proxy refused\n  the tunnel: check its credentials and that it\n  allows this host");
+  assert.equal(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});
+
+test('#3410: a later, different bare API Error row supersedes the old connection error', () => {
+  const pane = WEDGED.replace(ERR, ERR + '\nAPI Error: 500 Internal server error');
+  assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});
