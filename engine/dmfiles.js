@@ -39,11 +39,28 @@ const FOLDER = 'Files';
 /* Why this module writes an agent's file, for the stale marker (#323). */
 const WROTE_WHY = 'Kosmos told it where to save the files it makes for you';
 
-/** The agent's Files folder, or null when the agent has no usable folder. */
+/**
+ * The agent's Files folder, or null when the agent has no usable folder.
+ *
+ * 🔑 BESIDE THE FILE THIS BLOCK IS WRITTEN INTO, by construction: the folder of
+ * `instructions.fileFor(name)`, which keys the name through `store.safeKey` and follows
+ * a recorded folder through `create.workerDir`. Deriving it from the raw name instead
+ * named a different folder for any name safeKey changes (`orch.main`, `has space`,
+ * `Writer` on a case-sensitive disk), so the agent was told a folder next to its own.
+ *
+ * April's agent-page list (#3614 items 1, 2, 4) reads this function and FOLDER, so
+ * both keep their names and signatures: tell her before changing either.
+ */
 function filesDir(sessionName) {
-  let dir = null;
-  try { dir = require('./create').workerDir(sessionName); } catch { dir = null; }
-  return typeof dir === 'string' && dir ? path.join(dir, FOLDER) : null;
+  let file = null;
+  try { file = instructions.fileFor(sessionName); } catch { file = null; }
+  if (typeof file !== 'string' || !file) return null;
+  const dir = path.join(path.dirname(file), FOLDER);
+  /* A path the block cannot state safely is no path: NUL (create.workerDir's sentinel for
+     an unusable name), or a line break or backtick that would break out of the code span
+     and write lines of its own into the agent's instructions (a recorded folder is only
+     checked for being an absolute, real, non-link directory). */
+  return /[\u0000\r\n`]/.test(dir) ? null : dir;
 }
 
 /**

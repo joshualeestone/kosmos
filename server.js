@@ -12412,6 +12412,9 @@ const server = http.createServer((req, res) => {
              📌 Shapes are identical across the three modules (same guard, same
              `isNamedOurs` filter, same `{ agent, ...tellAgent() }`), so this
              merges on `agent` without a mapping step. Measured, not assumed.
+             📌 #3614 added a fourth module (dmfiles, below) with the same shape and the same
+             `isNamedOurs` filter, so the merge takes it unchanged; the "three" above is the
+             count when #1684 was written.
              📌 A `null` agent is the whole-roster verdict those modules return
              when the roster is unreadable, so it downgrades EVERY row. */
           const sideWork = [

@@ -92,3 +92,35 @@ test('#3614: the marker pair is in the registry (so every neutraliser guards it)
   const all = projects.ALL_MARKERS();
   assert.ok(all.includes(dmfiles.START) && all.includes(dmfiles.END));
 });
+
+test('#3614: for a name store.safeKey changes, the Files folder sits BESIDE the instructions file the block is written into', () => {
+  const instructions = require('./instructions');
+  for (const name of ['orch.main', 'Writer', 'has space']) {
+    const file = instructions.fileFor(name);
+    assert.ok(file, `CONTROL: ${name} has an instructions file path`);
+    assert.equal(dmfiles.filesDir(name), path.join(path.dirname(file), 'Files'), `${name}: Files is not beside its own instructions`);
+  }
+  // And end to end: the block written into orch.main's own file names that file's folder.
+  const f = instructions.fileFor('orch.main');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, '# Orch\n');
+  const r = dmfiles.tellAgent('orch.main', [tied('orch.main')]);
+  assert.equal(r.state, projects.TOLD.TOLD, r.because || '');
+  assert.ok(fs.readFileSync(f, 'utf8').includes('`' + path.join(path.dirname(f), 'Files') + '`'), 'the named folder is the one beside this file');
+});
+
+test('#3614: a folder the block cannot state safely is no folder (NUL sentinel, line break, backtick)', () => {
+  const create = require('./create');
+  const real = create.workerDir;
+  try {
+    for (const bad of ['/tmp/x\u0000-invalid', '/tmp/two\nlines', '/tmp/tick`y']) {
+      create.workerDir = () => bad;
+      assert.equal(dmfiles.filesDir('whoever'), null, `${JSON.stringify(bad)} was accepted`);
+      assert.equal(dmfiles.bodyFor('whoever'), null);
+    }
+    create.workerDir = () => '/tmp/fine';
+    assert.equal(dmfiles.filesDir('whoever'), path.join('/tmp/fine', 'Files'), 'CONTROL: an ordinary folder is accepted');
+  } finally {
+    create.workerDir = real;
+  }
+});
