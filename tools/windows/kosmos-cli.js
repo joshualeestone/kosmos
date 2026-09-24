@@ -250,7 +250,7 @@ async function readPipedMessage(ctx, verb, usage) {
   }
   /* Same guard as feedback write: a pipe that went quiet without ending may be cut short, and a
      partial message is worse than none (it cannot be taken back once it is delivered). */
-  if (!piped.ended) { ctx.err('Nothing was ' + verb + ': the piped message stopped arriving for ' + (CARDS_STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save the output to a file first, then pipe the file in.'); return { code: 2 }; }
+  if (!piped.ended) { ctx.err('Nothing was ' + verb + ': the piped message stopped arriving for ' + (CARDS_STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save the output to a file first, then: ' + usage.replace(', with the message piped in.', ' < file')); return { code: 2 }; }
   return { text };
 }
 
@@ -260,7 +260,7 @@ function keepPipedCopy(ctx, text) {
   const os = require('os');
   let dir = '';
   try {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-post-unsent-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-unsent-'));
     const file = path.join(dir, 'message.txt');
     fs.writeFileSync(file, text, { mode: 0o600 });
     ctx.err('The piped message was not sent; it is saved at ' + file);

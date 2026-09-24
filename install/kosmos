@@ -510,24 +510,24 @@ keep_in_outbox() {
   local _node _bf _said _rc=0
   _node="$(kosmos_engine_node)" || {
     say "Your Kosmos is not the one open right now, and we could not find node to keep this for later, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a cmd_post --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
     exit 1
   }
   _bf="$(mktemp "${TMPDIR:-/tmp}/kosmos-outbox.XXXXXX")" || {
     say "Your Kosmos is not the one open right now, and we could not make a file to keep this in, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a cmd_post --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
     exit 1
   }
   if ! { chmod 600 "$_bf" && printf '%s' "$2" > "$_bf"; }; then
     rm -f "$_bf"
     say "Your Kosmos is not the one open right now, and we could not write this down to keep it, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a cmd_post --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
     exit 1
   fi
   _said="$("$_node" "$(kosmos_engine_module outbox).js" keep "$1" "$_bf" 2>&1)" || _rc=$?
   rm -f "$_bf"
   say "${_said:-Your Kosmos is not the one open right now, and keeping this for later said nothing, so it may not have been kept.}"
-  [ "$_rc" -eq 0 ] || _keep_piped   # #2909: the outbox refused it (e.g. too long); keep a piped message
+  [ "$_rc" -eq 0 ] || _keep_piped   # #2909: the outbox refused it (e.g. too long); keep a piped post/msg message
   exit "$_rc"
 }
 
@@ -1022,6 +1022,9 @@ cmd_msg() {
     fi
     [ -n "$to" ] && _read_piped_message sent "kosmos msg --stdin <agent> < message.md"
   else
+    # A --stdin AFTER the agent would send the literal word and silently drop the pipe, so it is
+    # refused. Tradeoff, same as cmd_post's --file scan: a standalone unquoted `--stdin` word in a
+    # typed message is refused too; recoverable by quoting the message as one argument.
     for _a in "$@"; do
       if [ "$_a" = "--stdin" ]; then
         say "--stdin must come before the agent name: kosmos msg --stdin <agent> < message.md"
@@ -1091,13 +1094,20 @@ cmd_msg() {
     _keep_piped
     exit 2
   fi
+  # rc via `|| rc=$?` (as cmd_post): a curl timeout (28) may come AFTER the board delivered, so it
+  # is a "maybe" (exit 3, do not re-send, nothing saved), not "could not reach".
+  local rc=0
   body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
-    --data-binary @- 2>/dev/null) || {
+    --data-binary @- 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 28 ]; then
+    say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again."
+    exit 3
+  elif [ "$rc" -ne 0 ]; then
     say "We could not reach Kosmos to send that. Is it running at $URL?"
     _keep_piped
     exit 1
-  }
+  fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
   case "$body" in '{"wrongWorld":true'*) keep_in_outbox msg "$_data" ;; esac
   case "$body" in
@@ -1214,12 +1224,12 @@ require_valid_project_id() {
 }
 
 # #2909: a piped message may have no other copy (gh ... | kosmos post --stdin), so every
-# cmd_post failure after the read keeps it in a private file and names the path. Reads
-# cmd_post's from_stdin and text (bash dynamic scope); a no-op without --stdin.
+# cmd_post / cmd_msg failure after the read keeps it in a private file and names the path. Reads
+# the caller's from_stdin and text (bash dynamic scope); a no-op without --stdin.
 _keep_piped() {
   [ "${from_stdin:-0}" = 1 ] || return 0
   local _f
-  if _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f"; then
+  if _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f"; then
     say "The piped message was not sent; it is saved at $_f"
   else
     [ -n "${_f:-}" ] && rm -f "$_f"
@@ -1243,7 +1253,7 @@ _read_piped_message() {
   # pipe is never held whole, and the size is judged on the bytes as sent, before anything is
   # dropped, so an over-limit message is refused rather than truncated and posted.
   local _raw _rawn
-  _raw="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-read.XXXXXX")" && chmod 600 "$_raw" || { [ -n "${_raw:-}" ] && rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2; }
+  _raw="$(mktemp "${TMPDIR:-/tmp}/kosmos-stdin-read.XXXXXX")" && chmod 600 "$_raw" || { [ -n "${_raw:-}" ] && rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2; }
   trap 'rm -f "$_raw"' INT TERM   # a Ctrl-C while waiting on an open pipe must not leave the copy behind
   if ! LC_ALL=C head -c "$((POST_BODY_MAX_BYTES + 1))" > "$_raw"; then
     trap - INT TERM; rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2

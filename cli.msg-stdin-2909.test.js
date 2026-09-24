@@ -16,16 +16,16 @@ const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
-function runCli(args, env, input) {
+function runCli(args, env, input, timeoutMs) {
   return new Promise((resolve) => {
-    const child = execFile(CLI, args, { env, timeout: 20000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const child = execFile(CLI, args, { env, timeout: timeoutMs || 20000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({ code: err && typeof err.code === 'number' ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
     child.stdin.end(input === undefined ? '' : input);
   });
 }
 
-function withStubBoard(fn, reply) {
+function withStubBoard(fn, reply, stallMs) {
   const seen = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url.startsWith('/api/msg')) {
@@ -36,8 +36,11 @@ function withStubBoard(fn, reply) {
         let body = null;
         try { body = JSON.parse(raw); } catch { body = { _unparsable: raw }; }
         seen.push(body);
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(reply || '{"delivery":{"state":"placed"}}');
+        const answer = () => {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(reply || '{"delivery":{"state":"placed"}}');
+        };
+        if (stallMs) setTimeout(answer, stallMs); else answer();
       });
       return;
     }
@@ -107,7 +110,8 @@ test('#2909: with Kosmos not running, a piped msg is read and kept, not lost', a
 });
 
 test('#2909: a piped msg with bytes that are not UTF-8 is sent, not aborted', () => withStubBoard(async (port, seen) => {
-  const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), Buffer.from([0x63, 0x61, 0x66, 0xe9]));
+  // Pinned to a UTF-8 locale: that is where BSD sed/tr abort on a stray byte, so this test can fail.
+  const out = await runCli(['msg', '--stdin', 'mara'], { ...envFor(port), LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' }, Buffer.from([0x63, 0x61, 0x66, 0xe9]));
   assert.equal(out.code, 0, 'a Latin-1 byte must not kill the msg escaper: ' + out.stdout + out.stderr);
   assert.equal(seen[0]._unparsable, undefined);
   assert.equal(seen[0].text, 'caf�');
@@ -125,3 +129,26 @@ test('#2909: the msg usage line is the same sentence in install/kosmos and the W
   assert.ok(bash, 'install/kosmos must carry the msg usage line');
   assert.equal(bash[1].replace(/\\\$/g, '$'), require('./tools/windows/kosmos-cli').USAGE.msg);
 });
+
+test('#2909: a msg that times out is a "maybe": exit 3, do not re-send, and no copy is saved', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), 'SLOW-BODY', 45000);
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /may have been delivered/);
+  assert.doesNotMatch(out.stdout, /saved at/, 'a message that may have landed is not offered for re-sending');
+  assert.equal(seen.length, 1, 'the board did receive it');
+}, null, 17000));
+
+test('#2909: a piped msg the board refuses, or one too large to send, is kept', () => withStubBoard(async (port) => {
+  const refused = await runCli(['msg', '--stdin', 'mara'], envFor(port), 'REFUSED-BODY');
+  assert.equal(refused.code, 1, refused.stdout + refused.stderr);
+  assert.match(refused.stdout, /refused that request: no such agent/);
+  const saved = refused.stdout.match(/saved at (\S+)/);
+  assert.ok(saved, refused.stdout);
+  try { assert.equal(fs.readFileSync(saved[1], 'utf8'), 'REFUSED-BODY'); } finally { fs.rmSync(saved[1], { force: true }); }
+  const quotes = await runCli(['msg', '--stdin', 'mara'], envFor(port), '"'.repeat(3.5 * 1024 * 1024));
+  assert.equal(quotes.code, 2);
+  assert.match(quotes.stdout, /too large to send to the board/);
+  const big = quotes.stdout.match(/saved at (\S+)/);
+  assert.ok(big, quotes.stdout.slice(0, 300));
+  fs.rmSync(big[1], { force: true });
+}, '{"error":"no such agent"}'));

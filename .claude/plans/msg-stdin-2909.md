@@ -17,8 +17,11 @@ except that its escaper now runs under LC_ALL=C and a failure there is reported 
   example. Post's existing tests cover the refactor unchanged except the control-range pin, which now
   looks in the shared function.
 - msg's escaper keeps flattening tab/CR to spaces (its existing behavior); only LC_ALL=C and a guard
-  were added. The guard is `if ! esc_text=...; then`, not a trailing `|| {}`, because
-  tools/test-msg-newlines-1927.sh extracts the first `esc_text=$(printf` line and strips a trailing `)`.
+  (`if ! esc_text=...; then`) were added. tools/test-msg-newlines-1927.sh's extractor now accepts that
+  form, so the #1927 test still runs cmd_msg's own pipeline (the first site), not reply's copy.
+- A msg timeout (curl 28) is a "maybe", as on Windows: exit 3, do not re-send, no copy saved.
+- Temp files are named kosmos-stdin-read / kosmos-unsent now that post and msg share them.
+- Tradeoff, documented at cmd_msg: a standalone unquoted `--stdin` word in a typed msg is refused.
 - msg's body goes to curl on stdin with the same encoded-size check as post.
 
 ## Weakest premise
