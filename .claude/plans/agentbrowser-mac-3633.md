@@ -76,16 +76,20 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 25 pass (19 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 10 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 27 pass (21 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 10 checks
   across four arms (installed, not installed, env opt-out, file opt-out).
 
 ## Known and left
 - Nothing in the app writes the opt-out file yet: an operator creates it by hand. A Settings
   switch is a follow-up.
-- Pruning keeps the pinned version and one other, so an agent whose browser was launched from
-  a version two or more releases old loses that folder at the next install. A running browser
-  keeps working (an open file survives its unlink); a new launch from the old path would fail
-  until the agent restarts and gets the current config.
+- Pruning keeps the pinned version and one other, so an agent whose browser runs from a
+  version two or more releases old loses that folder at the next install, and with it its
+  browsing (Chromium starts helper processes from its own folder), until the agent restarts
+  and gets the current config.
+- A future `SHELL.version` bump: an agent relaunched before the new download lands gets no
+  browser, although the previous version's shell is still on disk, and gets it back only at its
+  next relaunch after the download. Nothing is affected today (this is the first pinned version);
+  a fallback to the highest installed proven version belongs with the first bump.
 - The lock's heartbeat (the owner touching the lock every minute) has no test of its own; the
   takeover rules around it do (live pid refused, dead pid taken, stale heartbeat taken, a lock
   with no readable pid yet treated as live).

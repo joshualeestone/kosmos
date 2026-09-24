@@ -404,3 +404,24 @@ test('the board stops for good when this Mac CPU has no pinned browser', async (
   assert.equal(lines.length, 1);
   assert.match(lines[0], /not trying again/);
 });
+
+test('the retry delay doubles from the first delay and stops at the maximum', async () => {
+  const delays = [];
+  let calls = 0;
+  await new Promise((resolve) => {
+    ab.installWithRetry({
+      env: {}, firstDelayMs: 100, maxDelayMs: 350, log: () => {},
+      schedule: (fn, ms) => { delays.push(ms); setImmediate(fn); return null; },
+      kick: () => { calls += 1; if (calls === 5) setImmediate(resolve); return Promise.resolve(calls === 5 ? { ok: true } : { ok: false, because: 'no network' }); },
+    });
+  });
+  assert.deepEqual(delays, [100, 200, 350, 350]);
+});
+
+test('an opted-out board says so in its log', () => {
+  const lines = [];
+  fs.writeFileSync(ab.optOutPath(), '');
+  try { ab.installWithRetry({ env: {}, log: (l) => lines.push(l), kick: () => Promise.resolve({ ok: true }) }); }
+  finally { fs.rmSync(ab.optOutPath(), { force: true }); }
+  assert.match(lines.join('\n'), /off \(opt-out\)/);
+});

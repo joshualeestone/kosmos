@@ -337,7 +337,12 @@ function takeLock() {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const fd = fs.openSync(lockPath(), 'wx');
-      fs.writeSync(fd, String(process.pid));
+      try { fs.writeSync(fd, String(process.pid)); } catch (w) {
+        try { fs.closeSync(fd); } catch { /* already closed */ }
+        try { fs.rmSync(lockPath(), { force: true }); } catch { /* best effort */ }
+        lockError = String((w && w.message) || w);
+        return false;
+      }
       fs.closeSync(fd);
       beat = setInterval(() => { try { const t = new Date(); fs.utimesSync(lockPath(), t, t); } catch { /* gone */ } }, LOCK_BEAT_MS);
       if (beat.unref) beat.unref();
@@ -436,7 +441,8 @@ async function ensureShell(opts) {
        download), retried as one; only the right size with the wrong hash is a
        checksum mismatch. */
     const size = fs.statSync(zip).size;
-    if (size !== (o.expectBytes || build.bytes)) throw new Error('the browser download was ' + size + ' bytes, not the ' + build.bytes + ' expected; it was not used');
+    const want = o.expectBytes || build.bytes;   // expectBytes: a test seam; production uses the pin
+    if (size !== want) throw new Error('the browser download was ' + size + ' bytes, not the ' + want + ' expected; it was not used');
     if ((await hashOf(zip)) !== build.sha256) throw new Error('the browser download did not match its pinned checksum, so it was not used');
     const tree = path.join(staging, 'tree');
     fs.mkdirSync(tree, { recursive: true });
@@ -479,10 +485,13 @@ function installWithRetry(opts) {
   const kick = o.kick || kickInstall;
   let delay = o.firstDelayMs || RETRY_FIRST_MS;
   let timer = null; let stopped = false; let badChecksums = 0;
+  const schedule = o.schedule || ((fn, ms) => { const t = setTimeout(fn, ms); if (t.unref) t.unref(); return t; });
   const attempt = () => {
+    if (stopped) return;
+    if (disabled(o.env)) { log('agent browser: off (opt-out); not installing'); return; }
     /* A sandboxed board (the browser-check harness sets AGENT_WORKFORCE_DRY_RUN=1)
        must not download a browser into the real runners folder. */
-    if (stopped || disabled(o.env) || (o.env || process.env).AGENT_WORKFORCE_DRY_RUN === '1') return;
+    if ((o.env || process.env).AGENT_WORKFORCE_DRY_RUN === '1') return;
     const p = kick({ platform: o.platform, arch: o.arch });
     if (!p) return;
     p.then((r) => {
@@ -496,10 +505,10 @@ function installWithRetry(opts) {
         log('agent browser: the download failed its pinned checksum ' + badChecksums + ' times in a row; not trying again until the board restarts');
         return;
       }
-      log('agent browser: install did not finish (' + ((r && r.because) || 'unknown') + '); trying again in ' + Math.round(delay / 1000) + 's');
-      timer = setTimeout(attempt, delay);
-      if (timer.unref) timer.unref();
+      const wait = delay;
       delay = Math.min(delay * 2, o.maxDelayMs || RETRY_MAX_MS);
+      timer = schedule(attempt, wait);   // scheduled before the log, so a throwing log cannot end the retries
+      log('agent browser: install did not finish (' + ((r && r.because) || 'unknown') + '); trying again in ' + Math.round(wait / 1000) + 's');
     }).catch(() => { /* a throwing log must not become an unhandled rejection */ });
   };
   attempt();

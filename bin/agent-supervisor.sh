@@ -753,7 +753,9 @@ if [ -z "$adopt" ]; then
     MCP_ARGS=()
     if [ -n "${_eng:-}" ] && [ -f "$_eng/agent-browser-config.js" ] && [ -n "${NODE_BIN:-}" ]; then
       _mcp="$("$NODE_BIN" "$_eng/agent-browser-config.js" 2>/dev/null || true)"
-      if [ -n "$_mcp" ] && [ -f "$_mcp" ]; then MCP_ARGS=(--mcp-config "$_mcp"); fi
+      # Absolute only: claude runs from $WORKDIR, where a relative path would not resolve.
+      case "$_mcp" in /*) if [ -f "$_mcp" ]; then MCP_ARGS=(--mcp-config "$_mcp"); fi ;; esac
+      unset _mcp
     fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
