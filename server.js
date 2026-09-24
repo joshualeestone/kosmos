@@ -12957,7 +12957,16 @@ const server = http.createServer((req, res) => {
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
-          return [line, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
+          /* #3570: the post's reactions, on a `[kosmos]` line under it, so an
+             agent reading `kosmos room` learns a person reacted to its post.
+             Before this only the web board drew them. The operator reactor
+             ('you' in reactionsFor) is named 'operator', as the post line
+             names them. Absent when the post has no live reaction. */
+          const reacted = Array.isArray(m.reactions) && m.reactions.length
+            ? [when + '  [kosmos] reactions on [' + m.id + ']: '
+              + m.reactions.map((r) => r.emoji + ' ' + r.who.map((w) => (w === 'you' ? 'operator' : w)).join(', ')).join('; ')]
+            : [];
+          return [line, ...reacted, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
