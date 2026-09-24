@@ -27,7 +27,8 @@ Seen state survives a reload and a board restart. Light and dark both correct. B
 4. The ? button in `.headright` before `#userpop`, with a small popover reusing the userpop
    mechanics: Show tips for this screen / Take the welcome tour again / What does the ring mean?
 5. First-visit tips: New agent, the ring (first time a ring is shown), Agents (first time there is
-   one), Projects, inside a project (four-numbers layout). The agent-page tip per the mock's table.
+   one), Projects, inside a project (four-numbers layout). The agent-page and Settings tips per the
+   mock's table (Settings says tips turn back on there).
 6. Settings switch: "Show tips" on/off, writing `off`.
 
 ## Copy

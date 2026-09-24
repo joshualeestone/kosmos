@@ -117,6 +117,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-btn');
     const menus = await page.evaluate(() => ({ help: !document.getElementById('helpq-menu').hidden, user: !document.getElementById('userpop-menu').hidden }));
     chk(menus.help && !menus.user, 'T5 opening the ? closes the user menu', JSON.stringify(menus));
+    // And the other way: the name button closes an open ? menu.
+    await page.click('#userpop-btn');
+    const menus2 = await page.evaluate(() => ({ help: !document.getElementById('helpq-menu').hidden, user: !document.getElementById('userpop-menu').hidden }));
+    chk(!menus2.help && menus2.user, 'T5 opening the user menu closes the ?', JSON.stringify(menus2));
+    await page.click('#helpq-btn');
     await page.click('#helpq-menu [data-help="tour"]');
     const again = await cardState(page);
     chk(again.shown && again.title === TOUR, 'T5 Take the welcome tour again shows the tour', JSON.stringify(again));
@@ -195,6 +200,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-menu [data-help="ring"]');
     // A stand-in dialog: the app's dialogs are .rm-back overlays. Held by reference, not by an id.
     await page.evaluate(() => { const d = document.createElement('div'); d.className = 'rm-back'; document.body.appendChild(d); window.__tipsStandIn = d; });
+    // At once, before any poll: the dialog covers the card (the card is layered below every backdrop).
+    const coveredAtOnce = await page.evaluate(() => { const r = document.getElementById('tipcard').getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && !hit.closest('#tipcard'); });
+    chk(coveredAtOnce, 'T13 a dialog covers the tip the moment it opens');
     await page.waitForTimeout(1600);
     const underDialog = (await cardState(page)).shown;
     await page.evaluate(() => { window.__tipsStandIn.remove(); delete window.__tipsStandIn; });

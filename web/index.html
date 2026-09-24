@@ -1411,14 +1411,16 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* #3574 (Josh, 2026-09-24, for 0.6.93): first-run help. ONE card is the welcome tour and every
    first-visit tip: a small gold label, a title, a few short sentences, one button. The ? beside the
    user's name brings any of it back. Only the tour dims the screen; a screen tip floats beside the
-   thing and the page stays usable. No solid left bars (Josh, the same day). */
+   thing and the page stays usable. No solid left bars (Josh, the same day). Layered above the header
+   menus (40) and below every dialog backdrop (.rm-back 50, .fr-back and .upd-back 60), so a dialog
+   covers a tip the moment it opens (T13). */
 .helpq { position: relative; display: inline-flex; }
 .helpq-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--k-rule); background: var(--k-surface);
   display: inline-grid; place-items: center; cursor: pointer; font: 700 var(--text-callout) var(--font-ui); color: var(--k-ink-2); padding: 0; }
 .helpq-btn:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 .helpq-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .helpq .userpop-menu { min-width: 236px; }
-.tipcard { position: fixed; z-index: 60; width: 300px; max-width: calc(100vw - 24px); background: var(--bg-elevated); color: var(--k-ink);
+.tipcard { position: fixed; z-index: 46; width: 300px; max-width: calc(100vw - 24px); background: var(--bg-elevated); color: var(--k-ink);
   border: 1px solid var(--gold-edge); border-radius: 14px; padding: 14px 16px 12px; box-shadow: 0 12px 32px rgba(20,22,26,.22); }
 .tipcard[hidden] { display: none; }
 .tipcard .tip-arrow { position: absolute; width: 14px; height: 14px; background: var(--bg-elevated);
@@ -1447,9 +1449,9 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-foot { font-size: .75rem; color: var(--k-ink-2); }
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
 .tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.tipdim { position: fixed; inset: 0; z-index: 55; background: rgba(20,22,26,.28); }
+.tipdim { position: fixed; inset: 0; z-index: 44; background: rgba(20,22,26,.28); }
 .tipdim[hidden] { display: none; }
-.tippin { position: fixed; z-index: 58; width: 24px; height: 24px; font-size: .8125rem; line-height: 24px; margin: 0; box-shadow: 0 2px 6px rgba(0,0,0,.25); pointer-events: none; }
+.tippin { position: fixed; z-index: 45; width: 24px; height: 24px; font-size: .8125rem; line-height: 24px; margin: 0; box-shadow: 0 2px 6px rgba(0,0,0,.25); pointer-events: none; }
 @media (max-width: 40rem) {
   .tipcard { left: 12px !important; right: 12px; width: auto; }
   .tipcard .tip-arrow { display: none; }
@@ -52598,6 +52600,8 @@ function tipLayerEnsure() {
   const layer = document.createElement('div');
   layer.id = 'tiplayer';
   layer.innerHTML = '<div class="tipdim" id="tipdim" hidden></div><div id="tippins"></div>'
+    /* No aria-modal: a role="dialog" is non-modal by default, which this card is, and the modal
+       sweep (web.modal-way-out-1316) counts anything carrying aria-modal as a modal. */
     + '<div class="tipcard" id="tipcard" role="dialog" aria-labelledby="tipcard-title" hidden></div>'
     + '<span class="vh" id="tip-live" aria-live="polite"></span>';
   document.body.appendChild(layer);
