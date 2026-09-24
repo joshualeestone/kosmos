@@ -3092,6 +3092,12 @@ function installJob(name, opts) {
   if (!NAME_RE.test(clean)) {
     return { ok: false, because: 'that is not a name this product can build a job from' };
   }
+  /* The platform is decided ONCE and reused for every win32 branch in this function
+     (the unknown-presence guard, the #3296/#3391 gemini/grok refusal, and the win32
+     launch arm below), rather than re-deriving `(opts.platform || process.platform)`
+     at each -- Repo Convention #5, one derivation of one fact. Injected, not read, so a
+     Mac can drive the win32 arm; defaults to the real platform. */
+  const jobPlatform = (opts && opts.platform) || process.platform;
   /* 🛑 THE NEVER-OVERWRITE GUARD, AND IT DID NOT FIRE ON WINDOWS (#570). This
      stat-ed the plist, so on win32 it answered "no job here" for an agent whose
      Scheduled Task was registered and whose supervisor was running -- and the
@@ -3108,11 +3114,11 @@ function installJob(name, opts) {
      `win32job.install` overwrites with `/F` -- so proceeding on a look that
      failed is how two agents end up editing one folder. A refusal is
      recoverable in one click; a duplicate agent is not. */
-  const already = jobPresence(clean, opts && opts.platform);
+  const already = jobPresence(clean, jobPlatform);
   if (already === 'yes') {
     return { ok: false, already: true, because: 'it already has one' };
   }
-  if (already === 'unknown' && (opts && opts.platform || process.platform) === 'win32') {
+  if (already === 'unknown' && jobPlatform === 'win32') {
     return { ok: false, because: 'we could not check whether it already starts on its own, so nothing was changed' };
   }
   if (!fs.existsSync(workerDir(clean))) {
@@ -3133,10 +3139,9 @@ function installJob(name, opts) {
      reaches win32StartViaJob with gemini/grok. Create is unaffected: it never calls
      installJob. */
   const wantRunner = (opts && opts.runner) || recordedRunner(clean);
-  if ((wantRunner === 'gemini' || wantRunner === 'grok')
-      && ((opts && opts.platform) || process.platform) === 'win32') {
+  if ((wantRunner === 'gemini' || wantRunner === 'grok') && jobPlatform === 'win32') {
     const label = wantRunner === 'gemini' ? 'Gemini' : 'Grok';
-    return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a launch job for on Windows yet -- it can be created fresh, but not backfilled, repaired, or imported here` };
+    return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a Windows launch job for yet -- it can be created fresh, but not backfilled, repaired, or imported on Windows` };
   }
   const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin } = binPaths(opts);
   /* 🛑 THE RUNNER IS DECIDED BEFORE THE BINARY IS CHECKED (#1159). This checked
@@ -3200,8 +3205,9 @@ function installJob(name, opts) {
      which is precisely how every defect in this lane survived -- the win32 arm
      stays unexercised and a green suite says nothing about it. `opts.platform`
      defaults to the real one, so production is unchanged and a Mac can still
-     drive both sides. Same shape as store.dataRootFor and platform.isSupported. */
-  const jobPlatform = (opts && opts.platform) || process.platform;
+     drive both sides. Same shape as store.dataRootFor and platform.isSupported.
+     `jobPlatform` is computed once at the top of installJob (see there); this arm
+     reuses it rather than re-deriving the expression a third time. */
   if (jobPlatform === 'win32') {
     if (DRY_RUN) {
       return { ok: true, started: true, model: modelArgWin,
