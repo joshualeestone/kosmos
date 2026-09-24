@@ -52,14 +52,16 @@ async function hit(p, { method = 'GET', headers = {} } = {}) {
   return res.status;
 }
 
-// ── Positive: the public READ routes are served on an enforcing board WITHOUT a token.
-test('#3485: GET /api/community/feed is PUBLIC (served without a board token)', async () => {
-  assert.notEqual(await hit('/api/community/feed'), 403,
+// ── Positive: the public READ routes are served on an enforcing board WITHOUT a
+//    token. Assert a full 200 (not merely != 403), so a latent 500 on the public
+//    path is caught here too rather than passing as "not gated".
+test('#3485: GET /api/community/feed is PUBLIC (served 200 without a board token)', async () => {
+  assert.equal(await hit('/api/community/feed'), 200,
     'the community feed must be browsable with no account (open/public per #3485)');
 });
 
-test('#3485: GET /api/community/comments is PUBLIC (served without a board token)', async () => {
-  assert.notEqual(await hit('/api/community/comments?postId=none'), 403,
+test('#3485: GET /api/community/comments is PUBLIC (served 200 without a board token)', async () => {
+  assert.equal(await hit('/api/community/comments?postId=none'), 200,
     'reading a post comment thread must not require an account');
 });
 
