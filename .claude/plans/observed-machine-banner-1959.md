@@ -28,6 +28,9 @@ REJECTED on a live NONE. So computeMachine (engine) reads the per-dir verdict di
   the 5s memo key, so a Check-now rejection -- which changes no config file -- invalidates the memo,
   and a fresh->stale transition flips it back. Freshness in the key means it invalidates exactly when
   the verdict would change, adding no spurious recompute.
+- `observed.isFresh`: extracted as the SINGLE owner of the fresh/stale rule. `verdict()` and the memo
+  key both call it rather than each hand-rolling `age >= 0 && age <= limit`, so the key cannot drift
+  out of sync with the verdict it tracks (the two-copies-of-one-fact hazard).
 
 ## What I rejected / did NOT do
 - The CONTINUOUS agent-name-keyed feed (status.js) reaching computeMachine. That still needs the

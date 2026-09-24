@@ -34,6 +34,17 @@ const accounts = require('./accounts');
 const { ANTHROPIC } = observed.PROVIDER;
 const { OK, REJECTED } = observed.OUTCOME;
 
+test('#1959 observed.isFresh is the single owner of the fresh/stale rule the memo key reuses', () => {
+  const now = 1_000_000;
+  const win = 5000;
+  assert.equal(observed.isFresh(now - 1, now, win), true, 'a just-recorded observation is fresh');
+  assert.equal(observed.isFresh(now - win, now, win), true, 'the window boundary is inclusive (age == limit)');
+  assert.equal(observed.isFresh(now - win - 1, now, win), false, 'one ms past the window is stale');
+  assert.equal(observed.isFresh(now + 1000, now, win), false, 'a future observation is not fresh (the >= 0 guard)');
+  assert.equal(observed.isFresh(undefined, now, win), false, 'a missing timestamp is not fresh');
+  assert.equal(observed.isFresh(NaN, now, win), false, 'a NaN timestamp is not fresh');
+});
+
 function writeJSON(file, obj) {
   fs.mkdirSync(nodePath.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(obj, null, 2), 'utf8');

@@ -527,7 +527,6 @@ let machineCached = null;   // { key, verdict } for checkMachine()
  * surface, which differs from the raw only in the fresh-rejected case.
  */
 function observedReachable(raw, dir) {
-  let obs = null;
   try {
     const observed = require('./observed');
     const o = dir ? observed.readDir(observed.PROVIDER.ANTHROPIC, dir) : null;
@@ -543,7 +542,6 @@ function observedReachable(raw, dir) {
       return { reachable: false, verdict: { state: STATE.NONE, plan: null,
         because: 'a recent check of this computer\'s Claude account found it signed out, so it needs to sign in again' } };
     }
-    obs = badge;
   } catch { /* observed unavailable: fall through to the raw credential-exists signal */ }
   /* working | signed_in_unverified | (no observed module): reachable iff a credential
      exists. signed_out | unchecked: not reachable; the raw verdict already says so. */
@@ -593,7 +591,6 @@ function machineStatKey(accts) {
    * Include the DEFAULT dir too (its observation is the main case). */
   try {
     const observed = require('./observed');
-    const limit = observed.freshMs();
     const now = Date.now();
     const seen = new Set();
     for (const a of (accts || [])) {
@@ -605,8 +602,10 @@ function machineStatKey(accts) {
        * (otherwise a rejection that has since expired would keep being served from the
        * memo). outcome:fresh is stable while a same-outcome observation stays fresh --
        * which is precisely when the verdict is stable -- so this adds no spurious
-       * recompute; it changes only on a new outcome or a freshness transition. */
-      const fresh = o && Number.isFinite(o.at) && now - o.at >= 0 && now - o.at <= limit;
+       * recompute; it changes only on a new outcome or a freshness transition.
+       * observed.isFresh is the SINGLE owner of the fresh/stale rule (#1959): reusing
+       * it here keeps this key from drifting out of sync with the verdict it tracks. */
+      const fresh = o && observed.isFresh(o.at, now);
       parts.push(`obs:${a.dir}:${o ? `${o.outcome}:${fresh ? 'fresh' : 'stale'}` : 'none'}`);
     }
   } catch { /* observed unavailable: the file-stat key alone still invalidates on sign-in */ }
