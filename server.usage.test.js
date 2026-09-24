@@ -96,7 +96,21 @@ test('#2617: a roster that cannot be read says so, and a failing split leaves th
   const knownWas = register.known;
   const splitWas = usage.byAgent;
   try {
-    register.known = () => ({ ok: false, names: [] });
+    // Its own agent and transcript, so this does not lean on another test's data.
+    const today = new Date().toISOString().slice(0, 10);
+    const cleoDir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cleo');
+    fs.mkdirSync(cleoDir, { recursive: true });
+    register.known = knownWas;
+    require('./engine/store').writeProfile('cleo', { displayName: 'Cleo' });
+    const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'proj-cleo');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'cleo.jsonl'), JSON.stringify({ timestamp: `${today}T09:00:00.000Z`, cwd: cleoDir, sessionId: 's',
+      message: { id: 'cleo-1', model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: 6, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }) + '\n', 'utf8');
+    // Control: with the roster read, Cleo is credited.
+    const control = await (await fetch(base + '/api/usage?days=1')).json();
+    assert.ok(control.byAgent.agents.some((a) => a.name === 'cleo'), 'the control did not credit cleo, so the check below means nothing');
+    // Names alongside ok:false: an unread roster's names must not be used.
+    register.known = () => ({ ok: false, names: ['cleo'] });
     let body = await (await fetch(base + '/api/usage?days=1')).json();
     assert.equal(body.byAgent.rosterRead, false, 'an unread roster was not stated');
     assert.deepEqual(body.byAgent.agents, []);
