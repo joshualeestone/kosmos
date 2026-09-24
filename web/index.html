@@ -2461,7 +2461,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   /* The page does not scroll in this view (the body is a 100vh flex column; A1d), so the #1309 scrollbar gutter (reserved on html so long
      pages do not shift) would only hold an empty strip down the right edge on a Mac that shows
      scrollbars. It is dropped here, and the header is padded by the scrollbar's width (--scrollbar-width,
-     measured at load) so the header does not move when an agent opens or closes, which is the
+     from the #3497 head script) so the header does not move when an agent opens or closes, which is the
      shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
      (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
      nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width

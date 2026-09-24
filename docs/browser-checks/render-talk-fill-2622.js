@@ -114,7 +114,7 @@ async function measure(page) {
     await page.goto(URL, { waitUntil: 'networkidle' });
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
     await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
-    // Header positions on the board, before opening the agent (A1n compares Talk and Model to it).
+    // Header positions and gutter on the board, before opening the agent (A1m compares Model to it).
     const headPos = () => page.evaluate(() => {
       const r = document.querySelector('.apphead .headright').getBoundingClientRect();
       const t = document.getElementById('tabs').getBoundingClientRect();
@@ -342,7 +342,8 @@ async function measure(page) {
       thread.scrollTop = thread.scrollHeight;         // scroll the thread to its foot
       const br = box.getBoundingClientRect();
       const cr = composer.getBoundingClientRect();
-      return { threadOverflows, threadOverflowY: getComputedStyle(thread).overflowY, composerWithinBox: cr.bottom <= br.bottom + 4 };
+      return { threadOverflows, threadOverflowY: getComputedStyle(thread).overflowY, composerWithinBox: cr.bottom <= br.bottom + 4,
+        docScrollH: document.documentElement.scrollHeight, innerHeight: window.innerHeight };
     });
     console.log('MEASURE thread-short(1400x440): ' + JSON.stringify(qask));
     chk(qask.threadOverflows === true,
@@ -351,6 +352,10 @@ async function measure(page) {
     chk(qask.threadOverflowY === 'auto' && qask.composerWithinBox,
       'A9b the thread scrolls internally so the composer stays reachable when it overflows',
       'threadOverflowY=' + qask.threadOverflowY + ' composerWithinBox=' + qask.composerWithinBox);
+    // A9c: the wide Talk view drops the scrollbar gutter because the page never scrolls there
+    // (A1m); a 440-tall window with an overflowing thread must still not scroll the page.
+    chk(qask.docScrollH <= qask.innerHeight + 1,
+      'A9c the wide Talk page does not scroll in a 440-tall window either', 'docScrollH=' + qask.docScrollH + ' innerHeight=' + qask.innerHeight);
 
     // Repaint the thread so the scoping guard below sees a normal talk section
     // (the injected rows are inert markup the next real poll would replace anyway).
@@ -371,21 +376,11 @@ async function measure(page) {
         identFromHead: f ? Math.round(f.getBoundingClientRect().top - head) : null };
     });
     console.log('MEASURE model section: ' + JSON.stringify(model));
-    // A1m scope + A1n: every other view keeps the #1309 gutter, and the header does not move
-    // between the board, Talk and Model (--scrollbar-width pads the header by the dropped gutter's width).
+    // A1m scope: every other view keeps the #1309 gutter.
     const modelHead = await headPos();
     chk(modelHead.gutter === 'stable' && boardHead.gutter === 'stable',
       'A1m scope: the board and the Model section keep the scrollbar gutter', JSON.stringify({ boardHead, modelHead }));
-    // A1n measures the real thing, but only where this runner's scrollbars take width (--scrollbar-width > 0);
-    // with overlay scrollbars there is no gutter to drop, so a pass would prove nothing: SKIP, loudly.
-    if (boardHead.sbw && boardHead.sbw !== '0px') {
-      chk(boardHead.headRight === talkHead.headRight && talkHead.headRight === modelHead.headRight
-        && boardHead.tabsLeft === talkHead.tabsLeft && talkHead.tabsLeft === modelHead.tabsLeft,
-        'A1n the header controls and tabs do not move between the board, Talk and Model',
-        JSON.stringify({ boardHead, talkHead, modelHead }));
-    } else {
-      console.log('SKIP  A1n (overlay scrollbars on this runner, --scrollbar-width=' + boardHead.sbw + '; headless always hides them, run HEADED on a Mac that shows scrollbars); A1o covers the mechanism');
-    }
+    // A1n (the header does not move, measured with real scrollbars) runs in its own browser below.
     // A1o, the mechanism in any scrollbar mode: with a 15px scrollbar the Talk header gains exactly
     // 15px of right padding, and the other views do not.
     const pad = await page.evaluate(async () => {
@@ -473,6 +468,50 @@ async function measure(page) {
       'secBottom=' + model.secBottom + ' innerHeight=' + model.innerHeight);
 
     chk(errs.length === 0, 'A7 no page errors', errs.join(' | '));
+
+    // A1n: the same promises measured with scrollbars that take width, as on a Mac that shows them.
+    // Headless Chromium hides every scrollbar (--hide-scrollbars, a default flag), so this launches
+    // its own browser without it, as render-win32-board-copy does, and forces a 15px classic bar so
+    // a Mac with overlay scrollbars reserves a real gutter too. At Josh's 1000x660: the box reaches
+    // the window edge (control: before #3497's gutter fix it stopped at 985), and the header
+    // controls and tabs sit at the same x on the board, Talk and Model.
+    const sbBrowser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
+    try {
+      const sp = await sbBrowser.newPage({ viewport: { width: 1000, height: 660 } });
+      const sErrs = [];
+      sp.on('pageerror', (e) => sErrs.push(e.message));
+      await sp.goto(URL, { waitUntil: 'networkidle' });
+      if (await sp.$('#firstrun:not([hidden])')) { await sp.keyboard.press('Escape'); await sp.waitForTimeout(400); }
+      await sp.addStyleTag({ content: '::-webkit-scrollbar { width: 15px; height: 15px; }' });
+      await sp.evaluate(() => window.kosmosMeasureScrollbarWidth());
+      await sp.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
+      const sHead = () => sp.evaluate(() => {
+        const r = document.querySelector('.apphead .headright').getBoundingClientRect();
+        const t = document.getElementById('tabs').getBoundingClientRect();
+        return { headRight: Math.round(r.right), tabsLeft: Math.round(t.left),
+          gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+          sbw: getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim() };
+      });
+      const sBoard = await sHead();
+      await sp.click('[data-agent="beatrix"]');
+      await sp.waitForSelector('#panel-detail:not([hidden])');
+      await sp.waitForTimeout(300);
+      const sTalk = await sHead();
+      const sBox = await measure(sp);
+      await sp.click('#panel-detail .snav button[data-go="model"]');
+      await sp.waitForTimeout(300);
+      const sModel = await sHead();
+      chk(sBoard.sbw === '15px' && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
+        'A1n precondition: scrollbars take 15px here and the board reserves the gutter (so the arms below are not vacuous)', JSON.stringify({ sBoard, sTalk }));
+      chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
+        'A1n the Talk box reaches the window edge with real scrollbars at 1000x660', 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
+      chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight
+        && sBoard.tabsLeft === sTalk.tabsLeft && sTalk.tabsLeft === sModel.tabsLeft,
+        'A1n the header controls and tabs do not move between the board, Talk and Model', JSON.stringify({ sBoard, sTalk, sModel }));
+      chk(sErrs.length === 0, 'A1n no page errors', sErrs.join(' | '));
+    } finally {
+      await sbBrowser.close();
+    }
   } finally {
     await browser.close();
     server.close();
