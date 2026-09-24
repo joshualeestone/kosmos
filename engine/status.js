@@ -4936,13 +4936,21 @@ function readGeminiContext(agentName, sess) {
   return measuredResult(tokens, sess.contextWindow, false);
 }
 
-/* #2413-analog NOTE: the completion-time helper (geminiCompletionAt, the sibling of
-   codexCompletionAt) belongs with the launcher slice, NOT here. It is only meaningful
-   alongside the GOOGLE-provider account-badge observation arm that consumes it, and an
-   exported-but-wired-nowhere helper is the #265 dead-code signature engine.reachable
-   guards against. sess.contextUsedAt is already returned by geminisession.read, so the
-   launcher adds geminiCompletionAt + wires it into the snapshot observation arm + the
-   badge together, reachable from the start. */
+/* #3296 observability follow-on: the completion-time helpers, the siblings of
+   codexCompletionAt / codexLastCompletionAt (4854/4861). A witnessed Gemini turn completion
+   is `sess.contextUsedAt` (geminisession.read sets it from the newest token-reporting turn),
+   the same signal codex keys on. snapshot()'s GOOGLE observation arm consumes the pure
+   `geminiCompletionAt` (session passed in, read once per tick); `geminiLastCompletionAt` is
+   the read-and-derive convenience for a direct caller/test, exported below and reached by
+   the gemini-observed test (its export is what the #265 dead-code guard checks -- same
+   test-only status as codexLastCompletionAt). Best-effort: null on a missing/unread session
+   keeps the badge grey, the safe direction. */
+function geminiCompletionAt(sess) {
+  return sess && sess.found && typeof sess.contextUsedAt === 'number' ? sess.contextUsedAt : null;
+}
+function geminiLastCompletionAt(agentName) {
+  return geminiCompletionAt(readGeminiSession(agentName));
+}
 
 /* ------------------------------------------------------------------------- *
  * #3391: the GROK (xAI) context ring, the exact sibling of the Gemini arm
@@ -6812,6 +6820,22 @@ function snapshot() {
         if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()) {
           observed.saw(observed.PROVIDER.OPENAI, pane.name, observed.OUTCOME.OK, at);
         }
+      } else if (isNamedOurs(pane) && isGeminiPane) {
+        /* #3296 observability follow-on -- the GOOGLE/Gemini arm, the exact sibling of the
+           codex arm above and positive-only for the same reason. A gemini pane also scrapes
+           WORKING during a dead-credential reconnect, so WORKING is not an auth-success
+           signal; the signal that GUARANTEES a turn authenticated is a WITNESSED SESSION
+           COMPLETION (`sess.contextUsedAt`, set from the newest token-reporting turn -- the
+           analog of codex's rollout token_count). geminiCompletionAt returns when it
+           happened; recording `ok` stamped at that time, freshness-gated, greens a live
+           sign-in from real traffic and greys again on its own. POSITIVE-ONLY: no
+           rejected/red until an observed on-pane gemini auth-failure signal exists, so the
+           overlay can never produce a false "not connected". The `!isGeminiPane` guard on
+           the Claude arm above keeps this pane out of a false ANTHROPIC ok. */
+        const at = geminiCompletionAt(geminiSess);
+        if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()) {
+          observed.saw(observed.PROVIDER.GOOGLE, pane.name, observed.OUTCOME.OK, at);
+        }
       }
     } catch { /* observation is best-effort; never sink the snapshot */ }
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
@@ -7249,6 +7273,9 @@ module.exports = {
   countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   codexLastCompletionAt,
+  // #3296 observability follow-on: the Gemini completion-time helper (wired into
+  // snapshot's GOOGLE observation arm; exported for the direct-caller/test path).
+  geminiLastCompletionAt,
   // #3296: the Gemini context-ring reader (wired into snapshot's context ring).
   readGeminiContext,
   // #3391: the Grok context-ring reader (wired into snapshot's context ring).

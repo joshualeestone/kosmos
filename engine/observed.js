@@ -44,7 +44,7 @@ const OUTCOME = Object.freeze({ OK: 'ok', REJECTED: '401' });
  * and a Claude observation ONLY from the Claude one -- the isolation the two-derivations
  * habit this codebase warns about would otherwise break.
  */
-const PROVIDER = Object.freeze({ ANTHROPIC: 'anthropic', OPENAI: 'openai' });
+const PROVIDER = Object.freeze({ ANTHROPIC: 'anthropic', OPENAI: 'openai', GOOGLE: 'google' });
 // The CLOSED set the injective-join claim above rests on. saw() enforces membership so
 // the isolation is structural (a property of this module) rather than a convention the
 // callers happen to keep -- a third caller passing an unrecognised or empty provider
@@ -57,7 +57,7 @@ const PROVIDER_VALUES = new Set(Object.values(PROVIDER));
 // pairs ever seen this process (not a per-tick leak: saw() overwrites in place), and
 // freshness gating means a stale entry for a removed agent never affects a verdict --
 // so a periodic sweep is not needed for correctness. The join is INJECTIVE: `provider`
-// is a closed, space-free enum ('anthropic'/'openai', neither a prefix of the other),
+// is a closed, space-free enum ('anthropic'/'openai'/'google', no one a prefix of another),
 // so the text before the first space names the provider unambiguously and the rest is
 // the agent -- an agent name may contain spaces (e.g. "Sonya Blade") without colliding.
 const store = new Map();
@@ -82,10 +82,10 @@ function keyOfDir(provider, dir) { return provider + ' ' + dir; }
 
 /*
  * Record an observed outcome for an agent on a provider. `provider` must be one of the
- * closed PROVIDER set (PROVIDER.ANTHROPIC / PROVIDER.OPENAI) -- membership is ENFORCED
- * here, not merely asserted by the header comment, because this key is the sole
- * mechanism keeping an OpenAI observation from resolving against a Claude account (and
- * vice versa); a caller passing an unrecognised or empty provider must not land a
+ * closed PROVIDER set (PROVIDER.ANTHROPIC / PROVIDER.OPENAI / PROVIDER.GOOGLE) -- membership
+ * is ENFORCED here, not merely asserted by the header comment, because this key is the sole
+ * mechanism keeping one provider's observation from resolving against another's account;
+ * a caller passing an unrecognised or empty provider must not land a
  * record a later read could mis-join. `outcome` must be OUTCOME.OK or OUTCOME.REJECTED;
  * anything else (including the null status.js passes for idle / needs-you / unknown
  * states) is IGNORED, so a prior real observation SURVIVES an idle tick rather than

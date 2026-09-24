@@ -6637,14 +6637,53 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return base;
           return { ...base, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
-        /* #3296/#3391 accounts slice: gemini/grok rows carry provider/providerName +
-           a live-checked `connection` from their own listLive already. They get NO
-           observed-overlay badge here (the passive/witnessed-badge join is the
-           observability follow-on, OUT of this slice) -- a row with no `badge` renders
-           from `connection.state`, the pre-#1921 behaviour, which is honest. Only
-           credentialed NAMED accounts appear (the default machine-global-key door is
-           the connect-UI follow-on's concern, agreed with Splinter 2026-09-23). */
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...geminiRows, ...grokRows] });
+        /* #3296 observability follow-on: the GOOGLE/Gemini observed-overlay badge, the
+           exact sibling of the OpenAI overlay above and positive-only for the same reason
+           (a gemini row already carries a live-checked `connection` from geminiAccounts.
+           listLive(), so applying the full anthropic verdict would downgrade a live key).
+           Only a FRESH observed `ok` -- a witnessed session completion recorded by
+           status.js's GOOGLE arm -- greens the row; otherwise the row is returned
+           untouched and renders from `connection.state`, the pre-#1921 honest default.
+           The `if (o.provider !== GOOGLE) continue;` filter is the join-isolation guard:
+           a GOOGLE ok can never resolve against a claude/openai row, nor they against a
+           gemini one. GROK is the same slice one provider over, still a follow-on (#3391),
+           so grokRows is left un-overlaid here.
+
+           🔑 SCOPE BOUNDARY, deliberate: this badges NAMED gemini accounts only. A
+           DEFAULT-account gemini agent (configDir null, e.g. the launcher's default agent)
+           records a GOOGLE observation in status.js, but geminiAccounts.listLive() emits
+           only credentialed NAMED accounts here (no default row -- the default-key door is
+           the connect-UI follow-on, agreed with Splinter 2026-09-23), so there is no row
+           for that observation to badge and accountForAgent's dir-less arm drops it. That
+           is honest, not a leak: a default agent's observation never greens a NAMED row
+           (accountForAgent(name, geminiRows) returns null for a null-configDir agent) and
+           never crashes. The recording is left in place deliberately -- it is
+           forward-compatible, so the badge lights up for default agents for free once the
+           default row lands. WHEN that door lands, accountForAgent's dir-less match
+           (`isOpenaiRow`, server.js ~1475) must be generalized to the searched list's own
+           provider, or a default gemini/grok agent will still fail to join its default row. */
+        const obsByGeminiDir = new Map();
+        for (const o of observed.all()) {
+          if (o.provider !== observed.PROVIDER.GOOGLE) continue;
+          const acct = accountForAgent(o.agent, geminiRows);
+          if (!acct || !acct.dir) continue;
+          const prev = obsByGeminiDir.get(acct.dir);
+          if (!prev || o.at > prev.at) obsByGeminiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
+        }
+        const gemini = geminiRows.map((a) => {
+          const obs = a.dir ? obsByGeminiDir.get(a.dir) : null;
+          if (!obs) return a;
+          const v = observed.verdict({
+            checkLiveState: a.connection && a.connection.state,
+            observedOutcome: obs.outcome,
+            observedAt: obs.at,
+            now: nowMs,
+            freshMs: freshWindow,
+          });
+          if (v.badge !== 'working') return a;
+          return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+        });
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grokRows] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
