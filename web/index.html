@@ -26853,8 +26853,10 @@ async function paintAgentFiles(sessionName) {
   if (!list || !msg) return;
   const epoch = (AGENT_FILES_EPOCH += 1);
   let body;
+  let status = 0;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files');
+    status = res.status;
     body = await res.json();
   } catch {
     if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
@@ -26872,7 +26874,10 @@ async function paintAgentFiles(sessionName) {
   list.textContent = '';
   if (more) more.hidden = true;
   if (!ok) {
-    msg.textContent = (body && body.because) || 'We could not read this agent\u2019s files just now.';
+    // A 404 means this agent has no folder of its own here: say that, not the route's "no agent".
+    msg.textContent = status === 404
+      ? 'This agent has no folder of its own on this computer, so there is no Files list.'
+      : asSentence((body && body.because) || 'We could not read this agent\u2019s files just now.');
     return;
   }
   const files = Array.isArray(body.files) ? body.files : [];
@@ -26907,29 +26912,35 @@ async function paintAgentFiles(sessionName) {
 document.getElementById('d-files-list') && document.getElementById('d-files-list').addEventListener('click', async (e) => {
   const row = e.target.closest('.pj-doc');
   if (!row || !CURRENT) return;
+  const who = CURRENT.sessionName;
   const msg = document.getElementById('d-files-msg');
+  let say;
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/files/open', {
+    const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/open', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }),
     });
     const b = await res.json().catch(() => ({}));
-    if (res.ok && b.revealedInstead && msg) msg.textContent = b.say || '';
-    else if (!res.ok && msg) msg.textContent = asSentence(b.because || 'That file did not open.');
+    say = res.ok ? (b.revealedInstead ? (b.say || '') : '') : asSentence(b.because || 'That file did not open.');
   } catch {
-    if (msg) msg.textContent = 'We could not reach Kosmos to open that file.';
+    say = 'We could not reach Kosmos to open that file.';
   }
+  // Only on the agent it was for: the person may have switched agents while this was in flight.
+  if (msg && CURRENT && CURRENT.sessionName === who) msg.textContent = say;
 });
 document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
   if (!CURRENT) return;
   const who = CURRENT.sessionName;
   const msg = document.getElementById('d-files-msg');
+  let failed = null;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     const b = await res.json().catch(() => ({}));
-    if (!res.ok && msg) msg.textContent = asSentence(b.because || 'The folder did not open.');
+    if (!res.ok) failed = asSentence(b.because || 'The folder did not open.');
   } catch {
-    if (msg) msg.textContent = 'We could not reach Kosmos to open the folder.';
+    failed = 'We could not reach Kosmos to open the folder.';
   }
+  if (!CURRENT || CURRENT.sessionName !== who) return;
+  if (failed) { if (msg) msg.textContent = failed; return; } // keep the reason on screen: no repaint over it
   AGENT_FILES_STAMP = null;
   paintAgentFiles(who);
 });

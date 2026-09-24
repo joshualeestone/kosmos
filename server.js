@@ -4635,7 +4635,7 @@ const server = http.createServer((req, res) => {
           try { named = JSON.parse(buf.toString('utf8') || '{}').name; }
           catch { sendJson(res, 400, { ok: false, because: 'we could not read that' }); return; }
           // Every gate lives in projects.openFile (as the project open-file route): no second copy.
-          const opened = projects.openFile(folder, named);
+          const opened = projects.openFile(folder, named, 'this agent\u2019s Files folder');
           if (opened.ok) { sendJson(res, 200, opened.revealedInstead ? { ok: true, revealedInstead: true, say: opened.say } : { ok: true }); return; }
           sendJson(res, 409, { ok: false, because: opened.because });
         })
@@ -4649,7 +4649,12 @@ const server = http.createServer((req, res) => {
         let st = null;
         try { st = fs.lstatSync(folder); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
         if (st && !st.isDirectory()) { sendJson(res, 409, { ok: false, because: 'there is a file called Files in this agent\u2019s folder, so we will not make a folder there' }); return; }
-        if (!st) fs.mkdirSync(folder);
+        if (!st) {
+          try { fs.mkdirSync(folder); } catch (e) {
+            // The agent made it between the lstat and here: fine if it is now a real folder.
+            if (!e || e.code !== 'EEXIST' || !fs.lstatSync(folder).isDirectory()) throw e;
+          }
+        }
       } catch {
         sendJson(res, 409, { ok: false, because: 'we could not make this agent\u2019s Files folder' });
         return;
