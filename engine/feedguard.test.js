@@ -254,16 +254,20 @@ test('a huge body is held (oversize) and does not hang the content scan', () => 
 });
 
 /* #3608: the email pattern used to be quadratic on a long run of local-part
-   characters with no "@", about 2 s per scan-capped haystack, which is what
-   made the test above fail on a busy Mac. 16384 is SCAN_CAP, the longest
-   haystack any pattern sees. The unanchored form takes 0.9 to 2 s on these
-   inputs and the anchored one well under 1 ms, so a 200 ms bound separates
-   them by a wide margin in both directions. */
+   characters with no "@", which is what made the test above fail on a busy
+   Mac. The inputs here are 65536 characters, four times SCAN_CAP, because
+   this tests the regex itself and a quadratic cost is sixteen times larger
+   there: measured on this fleet's Mac at load 7 to 14, the unanchored form
+   took 2.2 to 3.8 s on each of the first three inputs and the anchored one at
+   most 1 ms, so a 200 ms bound is over ten times away from both. The fourth
+   input exercises the domain half after "@"; it is fast for both forms. */
 const EMAIL = fg.PATTERNS.find((p) => p.cls === 'email').re;
+// A deliberate copy of the pre-#3608 form. A later change to the email pattern
+// that is meant to change what it matches must update this copy too.
 const EMAIL_UNANCHORED = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 
-test('#3608: the email pattern is linear on a scan-capped run with no match', () => {
-  const inputs = ['x'.repeat(16384), 'a.'.repeat(8192), 'a@' + 'a-'.repeat(8191), 'a@'.repeat(8192)];
+test('#3608: the email pattern is linear on a long run with no match', () => {
+  const inputs = ['x'.repeat(65536), 'a.'.repeat(32768), 'a@' + 'a-'.repeat(32767), 'a@'.repeat(32768)];
   for (const s of inputs) {
     const start = Date.now();
     const hit = EMAIL.test(s);
