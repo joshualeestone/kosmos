@@ -1274,6 +1274,14 @@ cmd_post() {
       esac
     fi
   else
+    # #2909: a --stdin AFTER the project would post the literal word and silently drop the
+    # piped message; refuse it, the same recoverable tradeoff as the --file scan above.
+    for _a in "$@"; do
+      if [ "$_a" = "--stdin" ]; then
+        say "--stdin must come before the project id: kosmos post --stdin <project-id> < message.md"
+        exit 2
+      fi
+    done
     text="$*"
   fi
   if [ -z "$project" ] || [ -z "$text" ]; then
@@ -1323,8 +1331,18 @@ cmd_post() {
   local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field}"
   # #2909: the board drops a request body over its limit, which would read below as "could not
   # reach Kosmos". Measured on the escaped body, since escaping grows quotes, newlines and tabs.
+  # #2909: a piped message may have no other copy (gh ... | kosmos post --stdin), so every failure
+  # after the read keeps it in a private file and names the path. A no-op without --stdin.
+  _keep_piped() {
+    [ "$from_stdin" = 1 ] || return 0
+    local _f
+    _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f" \
+      && say "The piped message was not sent; it is saved at $_f" \
+      || say "The piped message was not sent, and we could not save a copy of it."
+  }
   if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
     say "Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it."
+    _keep_piped
     exit 2
   fi
   # #2909: the body goes to curl on stdin (printf is a builtin, so no argv limit applies), not
@@ -1337,6 +1355,7 @@ cmd_post() {
     exit 3
   elif [ "$rc" -ne 0 ]; then
     say "We could not reach Kosmos to post that. Is it running at $URL?"
+    _keep_piped
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
@@ -1349,6 +1368,7 @@ cmd_post() {
     '{"error":'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
       say "Kosmos refused that request: ${because:-it did not say why}."
+      _keep_piped
       exit 1
       ;;
   esac

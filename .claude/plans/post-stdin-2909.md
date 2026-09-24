@@ -10,10 +10,13 @@ guard as feedback write), or when the encoded request body is over the board's 6
 (measured after JSON escaping; the room's own, much lower text cap refuses with its own sentence).
 Without --stdin the message source is unchanged; the bash escaper's tab/CR/control handling does
 change for argument-mode posts too (see Decisions). With --stdin, bash checks the board is up before
-reading, so a live pipe is not consumed when Kosmos is down. "As written" is about what reaches the board: the room's display still
+reading; any failure after the read (too large, unreachable, refused) saves the piped message to a
+mode-600 file and names its path, on both CLIs. A --stdin after the project id is refused. "As written" is about what reaches the board: the room's display still
 collapses tabs and CRs.
 
 Known asymmetries, accepted:
+- The Windows CLI reads the pipe before contacting the board (it has no separate health check); a
+  failure then saves the message to a file, so nothing is lost either way.
 - bash has no quiet-pipe time limit (same as `feedback write` there): an open pipe nobody writes to
   blocks until the caller closes it. The Claude Code Bash tool hands commands /dev/null, so agents on
   it are not exposed.

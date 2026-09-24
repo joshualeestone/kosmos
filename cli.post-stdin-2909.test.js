@@ -151,6 +151,12 @@ test('#2909: control-only input and a body over the board limit are refused and 
   const quotes = await runCli(['post', '--stdin', 'proj'], env, '"'.repeat(3.5 * 1024 * 1024));
   assert.equal(quotes.code, 2, '3.5 MB of quotes escapes to about 7 MB, over the board limit, and is refused with the real reason');
   assert.match(quotes.stdout + quotes.stderr, /too large to send to the board/);
+  const saved = (quotes.stdout + quotes.stderr).match(/saved at (\S+)/);
+  assert.ok(saved, 'a refused piped message must be kept in a file: ' + quotes.stdout.slice(0, 300));
+  const fs = require('node:fs');
+  assert.equal(fs.readFileSync(saved[1], 'utf8'), '"'.repeat(3.5 * 1024 * 1024), 'the saved copy is the whole piped message');
+  assert.equal(fs.statSync(saved[1]).mode & 0o777, 0o600, 'the saved copy is private');
+  fs.rmSync(saved[1]);
   assert.equal(seen.length, 0);
 }));
 
@@ -226,7 +232,7 @@ test('#2909: --stdin at a terminal is refused at once instead of waiting on a si
   });
 })));
 
-test('#2909: with Kosmos not running, --stdin says so WITHOUT reading the pipe', async () => {
+test('#2909: with Kosmos not running, --stdin refuses before the read and says the message was not read', async () => {
   const env = { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'a message that must not be consumed');
   assert.equal(out.code, 1, out.stdout + out.stderr);
@@ -247,6 +253,14 @@ test('#2909: --stdin combines with --in-reply-to (#3224), in either order', () =
   assert.equal(a.code, 0, a.stdout + a.stderr);
   assert.equal(b.code, 0, b.stdout + b.stderr);
   assert.deepEqual(seen.map((s) => [s.project, s.text, s.in_reply_to]), [['proj', 'the `answer`', 'm9'], ['proj', 'another $one', 'm10']]);
+}));
+
+test('#2909: a --stdin after the project is refused instead of posting the word and dropping the pipe', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const out = await runCli(['post', 'proj', '--stdin'], env, 'the real message');
+  assert.equal(out.code, 2, out.stdout + out.stderr);
+  assert.match(out.stdout + out.stderr, /--stdin must come before the project id/);
+  assert.equal(seen.length, 0);
 }));
 
 test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', () => withStubBoard(async (port, seen) => {

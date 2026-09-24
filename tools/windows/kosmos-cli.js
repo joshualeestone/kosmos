@@ -290,6 +290,8 @@ async function verbPost(ctx, args) {
   }
   const project = args.shift();
   let text = args.join(' ');
+  /* #2909: a --stdin after the project would post the literal word and drop the piped message. */
+  if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come before the project id: kosmos post --stdin <project-id>, with the message piped in.'); return 2; }
   if (fromStdin) {
     if (!project) { ctx.err(USAGE.post); return 2; }
     if (args.length) { ctx.err('Give the message on stdin OR as arguments, not both: kosmos post --stdin <project-id>, with the message piped in.'); return 2; }
@@ -316,11 +318,28 @@ async function verbPost(ctx, args) {
   if (inReplyTo) body.in_reply_to = inReplyTo;
   /* The board drops a request body over its limit, which would read as unreachable; measured on the
      encoded body, as install/kosmos does. */
-  if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it.'); return 2; }
+  /* #2909: a piped message may have no other copy, so a failure after the read keeps it in a
+     private file and names the path. A no-op without --stdin. */
+  const keepPiped = () => {
+    if (!fromStdin) return;
+    try {
+      const fs = require('fs'); const os = require('os'); const path = require('path');
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-post-unsent-'));
+      const file = path.join(dir, 'message.txt');
+      fs.writeFileSync(file, text, { mode: 0o600 });
+      ctx.err('The piped message was not sent; it is saved at ' + file);
+    } catch (e) { ctx.err('The piped message was not sent, and we could not save a copy of it.'); }
+  };
+  if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
-  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.') : ctx.unreachable('post that');
+  if (!r.reached) {
+    if (r.timedOut) return maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.');
+    const code = ctx.unreachable('post that');
+    keepPiped();
+    return code;
+  }
   if (ctx.wrongWorld(r)) return ctx.keepForLater('post', body);
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
   if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
