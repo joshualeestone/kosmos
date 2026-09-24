@@ -193,7 +193,9 @@ test('the supervisor shim prints the path once installed, prints nothing otherwi
   const childEnv = { ...process.env };
   delete childEnv.NODE_TEST_CONTEXT;
   delete childEnv.KOSMOS_AGENT_BROWSER;                           // an operator's own opt-out must not decide this test
-  const run = (env) => spawnSync(process.execPath, [shim], { env: { ...childEnv, ...env }, encoding: 'utf8' });
+  /* A timeout, so a regressed shim that starts a real download shows up red rather
+     than waiting on the network. */
+  const run = (env) => spawnSync(process.execPath, [shim], { env: { ...childEnv, ...env }, encoding: 'utf8', timeout: 20000 });
   const empty = fs.mkdtempSync(path.join(SANDBOX, 'empty-'));
   const none = run({ AGENT_WORKFORCE_RUNNERS_DIR: empty });
   assert.equal(none.status, 0);
@@ -255,7 +257,7 @@ test('one Mac browser install at a time: a live owner\'s lock refuses, a dead ow
   assert.deepEqual(r, { ok: true }, 'a lock that stopped beating is taken over even though its pid is alive');
 });
 
-test('an install sweeps what interrupted ones left: dead owners\' staging and old versions, never a live owner\'s', async () => {
+test('an install sweeps what interrupted ones left: dead owners\' staging and old versions, never a live owner\'s', { skip: process.platform !== 'darwin' ? 'uses 999999 and 999998 as pids that cannot exist, true only on macOS' : false }, async () => {
   fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   const home = ab.homeDir();
   const dead = path.join(home, '.shell-staging-999999-1');
@@ -359,17 +361,17 @@ test('an install never replaces a proven one that appeared while it was download
   assert.equal(fs.readFileSync(ab.shellExe('arm64'), 'utf8'), 'the other install', 'its binary was not replaced');
 });
 
-test('the board stops retrying after three checksum failures in a row, and says so', async () => {
+test('the board stops retrying after three failures in a row past a complete download, and says so', async () => {
   const lines = [];
   let calls = 0;
   await new Promise((resolve) => {
     ab.installWithRetry({
       env: {}, firstDelayMs: 5, maxDelayMs: 10, log: (l) => { lines.push(l); if (/not trying again/.test(l)) setTimeout(resolve, 40); },
-      kick: () => { calls += 1; return Promise.resolve({ ok: false, because: 'the browser download did not match its pinned checksum, so it was not used' }); },
+      kick: () => { calls += 1; return Promise.resolve({ ok: false, afterDownload: true, because: 'the browser did not answer with its version' }); },
     });
   });
   assert.equal(calls, 3);
-  assert.match(lines[lines.length - 1], /checksum 3 times in a row/);
+  assert.match(lines[lines.length - 1], /3 times in a row \(the browser did not answer/);
 });
 
 test('a download of the wrong size (a captive portal\'s page) is a network problem, not a checksum mismatch', async () => {
@@ -445,4 +447,25 @@ test('the CPU default has one source: every shell path defaults to hostArch()', 
   const code = fs.readFileSync(path.join(__dirname, 'agentbrowser.js'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');   // comments do not read anything
   assert.equal((code.match(/process\.arch/g) || []).length, 1, 'process.arch is read in exactly one place (hostArch)');
+});
+
+test('which step failed decides whether it counts toward giving up', async () => {
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
+  const cut = await ab.ensureShell(shellSeams('arm64', { download: async (u, f) => fs.writeFileSync(f, 'x') }));
+  assert.equal(cut.afterDownload, false, 'a cut download is a network problem');
+  const hash = await ab.ensureShell(shellSeams('arm64', { sha256Of: async () => '0'.repeat(64) }));
+  assert.equal(hash.afterDownload, true);
+  const unzip = await ab.ensureShell(shellSeams('arm64', { unzip: async () => { throw new Error('ENOSPC'); } }));
+  assert.equal(unzip.afterDownload, true);
+  const prove = await ab.ensureShell(shellSeams('arm64', { proveShell: async () => 'nope' }));
+  assert.equal(prove.afterDownload, true);
+});
+
+test('a lock or staging folder carrying our own pid, not held by us, is a leftover from before a restart', async () => {
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
+  fs.writeFileSync(ab.lockPath(), String(process.pid));
+  const mine = path.join(ab.homeDir(), '.shell-staging-' + process.pid + '-1');
+  fs.mkdirSync(mine, { recursive: true });
+  assert.deepEqual(await ab.ensureShell(shellSeams('arm64')), { ok: true });
+  assert.equal(fs.existsSync(mine), false);
 });

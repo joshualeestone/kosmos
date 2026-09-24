@@ -58,10 +58,13 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   (staging folders whose owner pid is gone) and prunes other shell versions to the single
   highest one, by version order and only among version-named folders (a whole version folder,
   every CPU in it), which a still-running agent from the previous release may name.
-- The board's retry gives up after 3 checksum failures in a row and logs it: a mismatch does
-  not fix itself, and each try downloads about 100 MB. A body of the wrong size (a captive
-  portal's page, a cut download) is reported as that, not as a checksum failure, and keeps
-  retrying. A Mac CPU with no pinned build stops at once: it cannot change.
+- The board's retry gives up after 3 failures in a row that happened after a complete download
+  (the checksum, the unpack, or the shell not answering its version), and logs why: those do
+  not fix themselves, and each try downloads about 100 MB. A body of the wrong size (a cut
+  download) counts as a network problem and keeps retrying. A Mac CPU with no pinned build
+  stops at once: it cannot change.
+- A lock or staging folder carrying the board's own pid that it does not hold is a leftover
+  from before a restart (launchd can reuse a pid), and is cleared.
 
 ## Evidence
 - Real install in a sandbox: `ensureShell` downloaded, matched the pinned sha256, unpacked and
@@ -76,7 +79,7 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 28 pass (22 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 30 pass (24 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
   across five arms (installed, not installed, env opt-out, file opt-out, installed with a
   model); with the model line's flag removed, only the model arm fails.
 

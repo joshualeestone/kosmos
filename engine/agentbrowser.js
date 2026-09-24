@@ -173,8 +173,8 @@ function disabled(env) {
 function configFor(o) {
   const x = o || {};
   /* The Mac drives Playwright's own shell by path (`--browser chromium` alone would
-     ask for the full "Chrome for Testing", which is not installed). A Mac config
-     with no path is refused rather than quietly becoming an Edge config. */
+     ask for the full "Chrome for Testing", which is not installed). Asked for a Mac
+     config (platform 'darwin') with no path, it throws. */
   const mac = x.platform === 'darwin';
   if (mac && !x.executablePath) throw new Error('a Mac browser config needs the shell\'s path');
   const browser = mac
@@ -358,7 +358,9 @@ function takeLock() {
       /* A pid that cannot be read (a lock created a moment ago, before its owner
          wrote the pid) counts as alive: only a valid pid that is gone, or a stale
          heartbeat, frees the lock. */
-      const ownerAlive = owner > 0 ? pidAlive(owner) : true;
+      /* Our own pid on a lock we do not hold is a leftover from before a restart
+         (launchd can hand a new board its old pid). */
+      const ownerAlive = owner === process.pid ? !!beat : (owner > 0 ? pidAlive(owner) : true);
       if (ownerAlive && quiet < LOCK_STALE_MS) { lockError = 'another browser install is already running'; return false; }
       /* Move a stale lock aside, then try to create ours again. */
       const mine = lockPath() + '.stale-' + process.pid;
@@ -384,7 +386,9 @@ function sweepLeftovers() {
   try { names = fs.readdirSync(home); } catch { return; }
   for (const n of names) {
     const m = /^\.(?:shell-)?staging-(\d+)-\d+$/.exec(n);
-    if (m && Number(m[1]) !== process.pid && !pidAlive(Number(m[1]))) {
+    /* Our own pid counts as gone here: this runs before this install makes its
+       staging folder, so one with our pid is from before a restart. */
+    if (m && (Number(m[1]) === process.pid || !pidAlive(Number(m[1])))) {
       try { fs.rmSync(path.join(home, n), { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }
@@ -436,22 +440,27 @@ async function ensureShell(opts) {
   const prove = o.proveShell || ((exe) => execP(exe, ['--version'], { timeout: 60000 }));
 
   const staging = path.join(homeDir(), '.shell-staging-' + process.pid + '-' + Date.now());
+  /* Which step failed: anything after 'download' happened to bytes that arrived
+     whole, so it will not fix itself by downloading again. */
+  let stage = 'download';
   try {
     sweepLeftovers();
     fs.mkdirSync(staging, { recursive: true });
     const zip = path.join(staging, build.url.split('/').pop());
     await doDownload(build.url, zip);
-    /* A body of the wrong size is a network problem (a captive portal's page, a cut
-       download), retried as one; only the right size with the wrong hash is a
-       checksum mismatch. */
+    /* A body of the wrong size (a cut download) is a network problem, retried as
+       one; only the right size with the wrong hash is a checksum mismatch. */
     const size = fs.statSync(zip).size;
     const want = o.expectBytes || build.bytes;   // expectBytes: a test seam; production uses the pin
     if (size !== want) throw new Error('the browser download was ' + size + ' bytes, not the ' + want + ' expected; it was not used');
+    stage = 'verify';
     if ((await hashOf(zip)) !== build.sha256) throw new Error('the browser download did not match its pinned checksum, so it was not used');
+    stage = 'unpack';
     const tree = path.join(staging, 'tree');
     fs.mkdirSync(tree, { recursive: true });
     await unzip(zip, tree);
     fs.rmSync(zip, { force: true });
+    stage = 'prove';
     const said = await prove(path.join(tree, build.folder, 'chrome-headless-shell'));
     if (!said.includes(SHELL.version)) throw new Error('the browser did not answer with its version');
     fs.writeFileSync(path.join(tree, '.verified'), shellStamp(arch) + '\n');
@@ -463,7 +472,7 @@ async function ensureShell(opts) {
     return { ok: shellInstalled(arch) };
   } catch (e) {
     if (shellInstalled(arch)) return { ok: true, already: true };
-    return { ok: false, because: String((e && e.message) || e) };
+    return { ok: false, because: String((e && e.message) || e), afterDownload: stage !== 'download' };
   } finally {
     try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* best effort */ }
     dropLock();
@@ -480,15 +489,16 @@ async function ensureShell(opts) {
  */
 const RETRY_FIRST_MS = 60 * 1000;
 const RETRY_MAX_MS = 60 * 60 * 1000;
-/* A download that keeps failing its pinned checksum will not fix itself, and each
-   try costs about 100 MB, so give up after this many in a row and say so. */
-const CHECKSUM_GIVE_UP = 3;
+/* A failure after the bytes arrived whole (the checksum, the unpack, the shell not
+   answering its version) will not fix itself, and each try downloads about 100 MB
+   again, so give up after this many in a row and say so. */
+const STUCK_GIVE_UP = 3;
 function installWithRetry(opts) {
   const o = opts || {};
   const log = o.log || ((line) => console.log(line));
   const kick = o.kick || kickInstall;
   let delay = o.firstDelayMs || RETRY_FIRST_MS;
-  let timer = null; let stopped = false; let badChecksums = 0; let retried = false;
+  let timer = null; let stopped = false; let stuck = 0; let retried = false;
   const schedule = o.schedule || ((fn, ms) => { const t = setTimeout(fn, ms); if (t.unref) t.unref(); return t; });
   const attempt = () => {
     if (stopped) return;
@@ -505,9 +515,9 @@ function installWithRetry(opts) {
         log('agent browser: ' + r.because + '; not trying again');
         return;
       }
-      badChecksums = /checksum/.test((r && r.because) || '') ? badChecksums + 1 : 0;
-      if (badChecksums >= CHECKSUM_GIVE_UP) {
-        log('agent browser: the download failed its pinned checksum ' + badChecksums + ' times in a row; not trying again until the board restarts');
+      stuck = r && r.afterDownload ? stuck + 1 : 0;
+      if (stuck >= STUCK_GIVE_UP) {
+        log('agent browser: the install failed after a complete download ' + stuck + ' times in a row (' + r.because + '); not trying again until the board restarts');
         return;
       }
       const wait = delay;
