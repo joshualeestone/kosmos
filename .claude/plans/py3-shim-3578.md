@@ -36,4 +36,7 @@ one `re`-based extraction, and plain stdlib heredocs, which every python3 carrie
 ## Tests
 Both arms per script, on agent1: normal PATH -> rc=0; PATH with a `python3` symlinked to the
 `/usr/bin` shim first -> rc=1 with the license text (the control reproduces the original failure).
-Then the full `tools/run-tests.sh` on the committed tree.
+Full `tools/run-tests.sh` on agent1 (committed tree, 2026-09-24): node suite 8612 tests / 0 fail;
+test-served-verify.sh now passes ("local server listening"); the suite still exits 69 at
+tools/test-floor-gate-tree.sh, whose swiftc is the same unaccepted-license shim (#3592, out of scope
+here). CI on macos-latest is the authoritative full run.
