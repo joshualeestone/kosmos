@@ -19,6 +19,11 @@ const MAX_BYTES = 64 * 1024;
 const GOAL_MAX = 500;
 
 const HEADING = /^##\s+goals?\s*:?\s*$/i;
+/* Undefined on win32 (#1732 fs-const-platform-flag): captured here and ORed in undefined-safe. The
+   lstat check above the open refuses a symlink on every platform; the kernel flag is a second
+   guard where it exists. */
+const NOFOLLOW = fs.constants.O_NOFOLLOW;
+const NONBLOCK = fs.constants.O_NONBLOCK;
 const NEXT_SECTION = /^#{1,2}\s/;
 
 /**
@@ -37,7 +42,9 @@ function goalFrom(text) {
     if (NEXT_SECTION.test(l)) break;
     body.push(l);
   }
-  const goal = body.join('\n').replace(/<!--[\s\S]*?-->/g, '').trim().replace(/\s+/g, ' ');
+  // Control characters become spaces: the pane refuses them, and a goal that can never be delivered
+  // would be retried for ever.
+  const goal = body.join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().replace(/\s+/g, ' ');
   if (!goal || goal === projects.BRIEF_GOAL_PLACEHOLDER || goal.includes(projects.BRIEF_GOAL_PLACEHOLDER)) return null;
   const chars = Array.from(goal); // by code point, so a trim never splits an emoji
   return chars.length > GOAL_MAX ? chars.slice(0, GOAL_MAX - 1).join('').trimEnd() + '…' : goal;
@@ -56,7 +63,7 @@ function readGoal(folder) {
   try {
     const st = fs.lstatSync(file);
     if (!st.isFile() || st.size > MAX_BYTES) return null;
-    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0));
     const fst = fs.fstatSync(fd);
     if (!fst.isFile() || fst.size > MAX_BYTES) return null;
     const buf = Buffer.alloc(fst.size);

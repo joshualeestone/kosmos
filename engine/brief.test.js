@@ -33,6 +33,7 @@ test('the Goal section ends at the next heading; blank, missing and comment-only
   assert.equal(brief.goalFrom('# P\n\n## Done looks like\n\nx\n'), null, 'a brief with no Goal heading produced one');
   assert.equal(brief.goalFrom('# P\n\n## Goal\n\n<!-- write it here -->\n'), null);
   assert.equal(brief.goalFrom('## Goals:\n\nOne clear aim\n'), 'One clear aim', 'the plural/colon heading was missed');
+  assert.equal(brief.goalFrom('## Goal\n\nShip\u001b[31m it\u0007 now\n'), 'Ship [31m it now', 'a control character survived into the goal');
   assert.equal(brief.goalFrom(''), null);
   assert.equal(brief.goalFrom(null), null);
 });
