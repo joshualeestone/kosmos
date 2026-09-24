@@ -27,7 +27,7 @@ focus tracer. The sequence in the failing flow:
 
 Re-apply focus across the one-paint teardown steal, but BOUND the intent's life BY TIME so it can
 never yank focus later. The intent (`ANSWER_WANTS_FOCUS`) is time-bounded by `ANSWER_WANTS_FOCUS_AT`
-(a monotonic `performance.now()` stamp) and `ANSWER_FOCUS_WINDOW_MS` (2000ms):
+(a monotonic `performance.now()` stamp) and `ANSWER_FOCUS_WINDOW_MS` (750ms):
 
 1. The clock is stamped on the FIRST PAINT THAT OBSERVES the intent, NOT at the press. The press
    only starts an async thread fetch (`openDetail`); anchoring to the press would fold that variable
@@ -53,8 +53,11 @@ since `#detail-back` does not reset `CURRENT`) and re-firing where the user neve
 and a 5s poll re-grabbing focus a user had deliberately parked on `<body>`. Both were caught in the
 challenge loop. A `<body>` from the teardown and a `<body>` from a deliberate blur are
 indistinguishable by state; only their TIMING separates them, which is what the window uses: it
-outlives the ~few-ms steal (from first observation) but is far shorter than the 5s poll or any
-navigation.
+outlives the ~45ms steal (measured, from first observation) but is kept short (750ms) so it stays
+far below both the 5s poll's cadence and a human blur reaction. The residual (a deliberate blur to
+`<body>` AND a poll tick BOTH landing within 750ms of the press) is negligible and fails toward one
+extra focus of the composer the person just chose to answer in; an earlier 2000ms window was
+shrunk after the challenge loop noted its ~40% overlap with the poll.
 
 ### Clean-flow coverage (known gap, low risk)
 
