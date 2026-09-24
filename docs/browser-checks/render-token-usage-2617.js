@@ -11,6 +11,11 @@
  * served board with /api/usage MOCKED to a fixed two-day response, so the rendered
  * facts are deterministic regardless of what transcripts the board holds.
  *
+ * #2617 adds the By agent block: the fixture carries byAgent, and the check
+ * asserts the rendered rows, the note, both tables' fit at 390 wide and when the
+ * model table sits beside the donut, the note-only state, and a same-page
+ * repaint to a response with no byAgent (the hide path).
+ *
  * It asserts the DETERMINISTIC, headless-safe structure + numbers; the pixel match
  * to the mockup belongs to the headed pass.
  *
@@ -259,6 +264,22 @@ function readUsage(page) {
     ok(narrow.barHidden === true, 'at 390 wide the share bar column gives way to the name');
     ok(narrow.mutedWhole === true, 'at 390 wide the non-agent row label still reads in full');
     ok(narrow.nameShare >= 0.35, `at 390 wide the name cell takes at least a third of the row (got ${Math.round(narrow.nameShare * 100)}%)`);
+    // #2617: a wide section puts the model table beside the donut at half width.
+    // The narrow rule keys on each table's own width, so it must fire there too.
+    const sideBySide = await p.evaluate(() => {
+      const sec = document.getElementById('s-sec-usage');
+      const was = sec.style.maxWidth + '|' + sec.style.width;
+      sec.style.maxWidth = 'none'; sec.style.width = '700px';
+      const wtr = document.getElementById('usage-wtr');
+      const cols = (getComputedStyle(wtr).gridTemplateColumns || '').split(' ').filter(Boolean).length;
+      const m = document.getElementById('usage-mtable');
+      const bar = document.querySelector('#usage-mtable .tv-mbar');
+      const out = { cols, fits: m.scrollWidth <= m.clientWidth + 1, barHidden: bar ? getComputedStyle(bar).display === 'none' : null };
+      const [mw, w] = was.split('|'); sec.style.maxWidth = mw; sec.style.width = w;
+      return out;
+    });
+    ok(sideBySide.cols === 2 && sideBySide.fits && sideBySide.barHidden === true,
+      `beside the donut at half width the model table takes the narrow layout and fits (got ${JSON.stringify(sideBySide)})`);
     await p.setViewportSize({ width: 1280, height: 1100 });
     // the replaced elements are gone
     ok(v.noCards, 'the old full-number cards are removed (replaced by the approved design)');

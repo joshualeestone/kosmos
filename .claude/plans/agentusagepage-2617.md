@@ -39,9 +39,11 @@ longer than model ids; an agent name truncates with an ellipsis and carries a
 title, as model names do. The two non-agent labels are sentences, so they wrap
 instead (Mona's review of #3603).
 
-## Phone width
-Below a 420px container the shared table grid drops the share-bar column and the
-name takes the width. Before this, both the per-model and per-agent tables
+## Narrow tables
+Each share table is its own size container, and below 420px the shared grid
+drops the share-bar column and the name takes the width. Keyed on the table,
+not the section, so it fires on a phone and also when a wide section puts the
+model table beside the donut at half width. Before this, both the per-model and per-agent tables
 overflowed at 390 wide (names cut to "A..", "% total" clipped), the defect the
 0.6.90 closeout recorded on this card for the model table. The % column carries
 the same fact as the bar, so nothing is lost.
@@ -52,7 +54,8 @@ the same fact as the bar, so nothing is lost.
   the grand total, muted color, title, escaping, the note, paintUsage wiring.
 - docs/browser-checks/render-token-usage-2617.js asserts the rendered block
   (rows, header, bars paint, no overflow, note, placement), the 390-wide fit of
-  both tables, that the non-agent label reads in full at 1280 and 390, and
+  both tables, the model table's narrow layout beside the donut, that the
+  non-agent label reads in full at 1280 and 390, and
   that the block stays hidden without byAgent. Run in full with
   no board process, through a session-local preload (not checked in) that gave
   each browser context routing to serve web/index.html, because starting a
