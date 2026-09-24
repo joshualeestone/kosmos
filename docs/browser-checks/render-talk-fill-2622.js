@@ -177,6 +177,9 @@ async function measure(page) {
       const box = document.getElementById('d-talk-box');
       return {
         snavHeight: snav ? Math.round(snav.getBoundingClientRect().height) : null,
+        // The content height. If the collapsed grid STRETCHED the snav to fill a tall row, the
+        // rendered height would exceed this; equal means content-height (the failure this arm guards).
+        snavScrollH: snav ? snav.scrollHeight : null,
         boxHeight: box ? Math.round(box.getBoundingClientRect().height) : null,
       };
     });
@@ -184,9 +187,14 @@ async function measure(page) {
     chk(narrow.boxBottom > narrow.innerHeight - TOL,
       'A2b narrow width: the Talk box still fills to near the viewport bottom',
       'boxBottom=' + narrow.boxBottom + ' innerHeight=' + narrow.innerHeight + ' gap=' + narrow.gapBelowBox);
-    chk(narrowNav.snavHeight !== null && narrowNav.boxHeight !== null && narrowNav.snavHeight < narrowNav.boxHeight,
-      'A2c narrow width: the wrapped snav row stays content-height (not ballooned to rival the talk box)',
-      'snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
+    // #3547/#3500: the agent nav is now a stack of icon+label boxes (DM box, the four-pack, the AI
+    // Settings/model pill, Advanced), so at narrow width it is legitimately TALLER than the talk box
+    // (measured 268 vs 209). The old assertion `snavHeight < boxHeight` predated the boxed redesign.
+    // What this arm actually guards is the snav being STRETCHED by the collapsed single-column grid;
+    // that is content-height == rendered-height, which stays true no matter how tall the content is.
+    chk(narrowNav.snavHeight !== null && narrowNav.snavScrollH !== null && narrowNav.snavHeight === narrowNav.snavScrollH,
+      'A2c narrow width: the snav is content-height, not stretched/ballooned by the collapsed grid',
+      'snavHeight=' + narrowNav.snavHeight + ' snavScrollH=' + narrowNav.snavScrollH + ' boxHeight=' + narrowNav.boxHeight);
 
     // --- A long THREAD in a SHORT window: the composer must stay reachable. This
     // guards a failure mode the FILL ITSELF introduces, NOT a pre-change control
