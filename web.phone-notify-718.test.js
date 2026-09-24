@@ -34,8 +34,9 @@ function load(opts) {
       addEventListener(ev, cb) { if (ev === 'click') this._click = cb; } }),
     'phone-notify-msg': mk(),
     'phone-notify-step': mk(),
+    'phone-notify': mk({ hidden: true }),
   };
-  let state = Object.assign({ on: false, connected: true }, opts.state);
+  let state = Object.assign({ available: true, on: false, connected: true }, opts.state);
   const navigator = opts.noSW ? {} : { serviceWorker: { register() { calls.registered = true; return Promise.resolve({}); } } };
   const win = { console: { warn() {} } };
   const domHandlers = {};
@@ -57,7 +58,7 @@ function load(opts) {
   // eslint-disable-next-line no-new-func
   new Function('navigator', 'window', 'document', 'fetch', BLOCK)(navigator, win, document, fetchStub);
   const e = elements;
-  return { win, calls, domHandlers, btn: e['phone-notify-toggle'], msg: e['phone-notify-msg'], step: e['phone-notify-step'] };
+  return { win, calls, domHandlers, section: e['phone-notify'], btn: e['phone-notify-toggle'], msg: e['phone-notify-msg'], step: e['phone-notify-step'] };
 }
 
 test('load, off and connected: Turn on, no phone step shown, worker registered', async () => {
@@ -132,4 +133,22 @@ test('on but no longer connected: says nothing is sent, and can still be turned 
   assert.match(h.msg.textContent, /not connected to Kosmos\+, so nothing is sent/);
   await h.win.kosmosPhoneNotifyToggle();
   assert.deepEqual(h.calls.fetch.find((c) => c.method === 'PUT').body, { on: false });
+});
+
+test('ship gate closed: the section stays hidden and nothing can be turned on', async () => {
+  const h = load({ state: { available: false } });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(h.section.hidden, true, 'the section showed while phone notifications are not available');
+  assert.equal(await h.win.kosmosPhoneNotifyToggle(), false);
+  assert.equal(h.calls.fetch.filter((c) => c.method === 'PUT').length, 0);
+});
+
+test('ship gate open: the section shows (the control for the closed arm)', async () => {
+  const h = load();
+  h.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(h.section.hidden, false);
+});
+
+test('the section is hidden in the page markup, before any script runs', () => {
+  assert.match(PAGE, /<section class="dbox" id="phone-notify" hidden>/);
 });

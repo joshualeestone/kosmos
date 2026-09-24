@@ -13774,7 +13774,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          it. Turning it on lets the board tell Kosmos+ when an agent needs the
          person or answers them; the phone receives them through the Kosmos phone
          app (Josh, 2026-09-24: apps only). -->
-    <section class="dbox" id="phone-notify">
+    <section class="dbox" id="phone-notify" hidden>
       <h3 class="dlab">Phone notifications</h3>
       <div class="setrow" id="phone-notify-row" style="margin-top:14px;">
         <div><b>Buzz my phone when an agent needs me</b>
@@ -52575,6 +52575,11 @@ setInterval(ageCheckedStamp, 1000);
   var current = null;
   function paint(st) {
     current = st;
+    // Shown only when the board says phone notifications are available (the
+    // ship gate in engine/phonenotify.js); hidden otherwise, including when the
+    // setting could not be read.
+    var section = el('phone-notify');
+    if (section) section.hidden = !(st && st.available);
     var btn = el('phone-notify-toggle');
     var step = el('phone-notify-step');
     if (!btn) return;
@@ -52604,7 +52609,7 @@ setInterval(ageCheckedStamp, 1000);
 
   var busy = false;
   function toggle() {
-    if (busy || !current || (!current.connected && !current.on)) return Promise.resolve(false);
+    if (busy || !current || !current.available || (!current.connected && !current.on)) return Promise.resolve(false);
     busy = true;
     var want = !current.on;
     var btn = el('phone-notify-toggle');
