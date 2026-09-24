@@ -839,7 +839,11 @@ if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page g
 # `if` so set -e never aborts the common no-accept run.
 _bc_accepted=0
 if grep -q 'ACCEPTED KNOWN-FAILING' "$_page_log" 2>/dev/null; then _bc_accepted=1; fi
-kosmos_release_accept_known_gate "$_page_log" "$CUT_CHANNEL" "$V" "$KOSMOS_ENTRY_FILE" || exit 1
+# The `:-` defaults keep this set -u-safe when the 3b region is run in ISOLATION by
+# tools/test-cut-parallel-region.sh (which extracts the region without the outer-scope
+# CUT_CHANNEL / V / KOSMOS_ENTRY_FILE). In that harness no accept ever happened, so the
+# gate no-ops; at a real cut these are always set (lines 33 / 18 / 525).
+kosmos_release_accept_known_gate "$_page_log" "${CUT_CHANNEL:-}" "${V:-}" "${KOSMOS_ENTRY_FILE:-}" || exit 1
 rm -f "$_page_log"
 # <<< #2760-P1 gated-steps region END <<<
 

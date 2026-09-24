@@ -18,6 +18,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/.." && pwd)"
 GUARD="$REPO_ROOT/tools/lib/cut-load-guard.sh"
+LIB_BC="$REPO_ROOT/tools/lib/bc-accept-known.sh"
 RELEASE="$REPO_ROOT/tools/release.sh"
 
 fails=0
@@ -87,6 +88,11 @@ run() {
   out="$(cd "$repo" && env PATH="$bin:$PATH" HOME="$fhome" REPO="$repo" V="9.9.9" $extraenv bash -c '
     set -euo pipefail
     . "'"$GUARD"'"
+    # The region calls kosmos_release_accept_known_gate (release.sh sources this lib
+    # at real runtime); source it here too so the extracted region resolves it. With
+    # KOSMOS_BC_ACCEPT_KNOWN unset -- which it is in every arm -- the gate returns 0
+    # immediately, so it does not alter any of the abort/complete assertions below.
+    . "'"$LIB_BC"'"
     step(){ echo "STEP: $1" >&2; }
     kosmos_isolation_rerun_verdict(){ return "${RERUN_RC:-0}"; }
     source "'"$REGION"'"
