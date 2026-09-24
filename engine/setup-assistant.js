@@ -59,7 +59,7 @@ const SETUP_ROLE_KEY = 'setup';
    GUIDE_TAG is for every surface that shows the guide's name, so the label
    travels with it; the role's label says the same. */
 const GUIDE_NAME = 'Josh';
-const GUIDE_TAG = "Josh's AI";
+const GUIDE_TAG = require('./roles').GUIDE_TAG;
 /* Tried only when GUIDE_NAME is taken (Josh running his own build most likely has an
    agent called Josh already): the seed runs once, so a refused name would otherwise mean
    no guide ever, with nothing saying why. */

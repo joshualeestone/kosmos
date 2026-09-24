@@ -7,8 +7,8 @@
  * injected `createAgent` (so no real agent is launched) and an injected
  * `hasConnectedAccount` (so the account gate is exercised without real config).
  * The load-bearing controls are the DANGEROUS answers: it must NOT seed when
- * there is no connected account (a live agent would churn under KeepAlive), no
- * the runner refuses, or it was already seeded -- and it must NOT throw or
+ * there is no connected account (a live agent would churn under KeepAlive),
+ * when the runner refuses, or when it was already seeded -- and it must NOT throw or
  * double-create. The positive case proves it DOES create, as Josh (#3034, his
  * 2026-09-24 ruling: his name and picture, labelled as his AI), in the `setup`
  * role, with the bundled picture when one ships and never the user's.
@@ -20,9 +20,17 @@ const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// A dedicated data sandbox, set before the modules resolve store.ROOT.
+// A dedicated sandbox for EVERY root, set before the modules resolve them. The
+// workers root and HOME too: this file resolves instructions.fileFor('Josh') and
+// deletes that folder in a finally, and an unset workers root falls back to the real
+// ~/work/workers (review round 2 BLOCKER: it would have deleted a real agent "josh").
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-setup-3034-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const test = require('node:test');
@@ -187,12 +195,13 @@ test('NAME: when "Josh" is taken, the seed falls back to "Josh AI"; any other re
   const other = [];
   const r2 = setupAssistant.seedSetupAssistant({ createAgent: refused(other, 'we could not find Claude Code on this computer'), hasConnectedAccount: CONNECTED });
   assert.equal(r2.seeded, false);
-  assert.equal(other.length, 1, 'a non-name refusal was retried under the fallback name');
+  assert.equal(other.length, 1, 'a non-name refusal must stop at the first try, not retry under the fallback name');
 });
 
 test('MARKER: the seed marks the guide\'s own folder, and only that folder counts as the guide', () => {
   const instructions = require('./engine/instructions');
   const dir = path.dirname(instructions.fileFor('Josh'));
+  assert.ok(dir.startsWith(SANDBOX + path.sep), `the guide folder resolved OUTSIDE the sandbox: ${dir}`);
   fs.mkdirSync(dir, { recursive: true });
   try {
     assert.equal(setupAssistant.isGuideFolder('Josh'), false, 'CONTROL: an unmarked folder is not the guide');
