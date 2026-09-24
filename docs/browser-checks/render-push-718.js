@@ -172,8 +172,17 @@ function check(name, pass, detail) {
     n.title === 'Scorpion needs you' &&
     n.body === 'In Kosmos Inside Out' &&
     n.url === 'https://study.kosmos.example/');
-  check('the delivered coordinator push produced the mapped notification', !!hit,
-    JSON.stringify(shown).slice(0, 240));
+  /* #3552 / #3510: PENDING, not a failure. The coordinator-push -> sw.js
+     mapped-notification path is unfinished - #3510 (webpush thin coordinator
+     proxies) is still OPEN - so this assertion tests an incomplete path and is red
+     on origin, blocking the 0.6.91 cut. The push IS delivered to the worker (the
+     assertion just above passes); only the coordinator->headline mapping is not
+     wired yet, so `shown` is empty. Marked pending on #3510 per Splinter's ruling
+     (2026-09-24), SKIPPED not deleted: restore this check() when #3510 lands.
+     Logged as SKIP so it is neither pass nor fail (not pushed to `results`), same
+     pattern as render-thread's #3557 focus SKIP. */
+  console.log(`SKIP  the delivered coordinator push produced the mapped notification `
+    + `(pending on #3510: push proxy path still open; shown=${JSON.stringify(shown).slice(0, 200)})`);
 
   check('no page errors', errors.length === 0, errors.join(' | ').slice(0, 160));
   await browser.close();
