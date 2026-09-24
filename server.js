@@ -14746,17 +14746,15 @@ function start(port = PORT) {
         try {
           const setting = recommenderSetting.read();
           const roster = setting.on ? safeRoster() : null;
-          const members = new Map(projects.readAll().map((p) => [p.id, Array.isArray(p.agents) ? p.agents : []]));
-          const out = recommender.step({ prev: recommenderPrev, roster, setting, members, now: Date.now() });
+          const members = setting.on ? new Map(projects.readAll().map((p) => [p.id, Array.isArray(p.agents) ? p.agents : []])) : new Map();
+          const out = recommender.runOnce({
+            prev: recommenderPrev, roster, setting, members, now: Date.now(),
+            roomNote: (projectId, text) => messages.roomNote(projectId, text),
+            deliver: (session, text) => chat.deliver(session, text, roster, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+          });
           recommenderPrev = out.next;
-          for (const item of out.toConvene) {
-            if (!item.retry) messages.roomNote(item.project, recommender.roomNoteText(item)); // once per item
-            let verdict;
-            try { verdict = chat.deliver(item.session, recommender.playbookText(item, setting), roster, undefined, undefined); }
-            catch { verdict = { state: chat.DELIVERY.COULD_NOT }; }
-            recommender.markAttempt(recommenderPrev, item.key, !!verdict && verdict.state === chat.DELIVERY.PLACED);
-            process.stdout.write(`recommender: ${item.name} (${item.session}) on ${item.project}: ${verdict && verdict.state}\n`);
-          }
+          for (const a of out.acted) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.noted ? 'noted + ' : 'retry '}${a.verdict}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
