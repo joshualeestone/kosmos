@@ -270,9 +270,25 @@ async function measure(page) {
       };
     });
     console.log('MEASURE narrow(500x900): ' + JSON.stringify(narrow) + ' nav=' + JSON.stringify(narrowNav));
-    chk(narrow.boxBottom > narrow.innerHeight - TOL,
-      'A2b narrow width: the Talk box still fills to near the viewport bottom',
-      'boxBottom=' + narrow.boxBottom + ' innerHeight=' + narrow.innerHeight + ' gap=' + narrow.gapBelowBox);
+    // A2b/A2d narrow width: the identity block and nav stack above the box, so the page scrolls and
+    // the box is its own window-tall block. Scrolled to, it fits the window and the composer sits
+    // inside it on screen. Control: with a window-tall PANEL the box got the ~70px left under the nav
+    // and the composer fell below the window (box 775-842, composer 853-907 at 800x900).
+    const narrowScrolled = await page.evaluate(() => {
+      const box = document.getElementById('d-talk-box');
+      box.scrollIntoView({ block: 'end' });
+      const b = box.getBoundingClientRect();
+      const c = document.querySelector('#d-talk-box .dmbar.composerbox').getBoundingClientRect();
+      const out = { boxHeight: Math.round(b.height), boxTop: Math.round(b.top), boxBottom: Math.round(b.bottom),
+        composerTop: Math.round(c.top), composerBottom: Math.round(c.bottom), innerHeight: window.innerHeight };
+      window.scrollTo(0, 0);
+      return out;
+    });
+    chk(narrowScrolled.boxHeight >= 320 && narrowScrolled.boxHeight <= narrowScrolled.innerHeight,
+      'A2b narrow width: the Talk box is a usable, window-fitting height', JSON.stringify(narrowScrolled));
+    chk(narrowScrolled.composerTop >= narrowScrolled.boxTop && narrowScrolled.composerBottom <= narrowScrolled.boxBottom
+      && narrowScrolled.composerBottom <= narrowScrolled.innerHeight,
+      'A2d narrow width: scrolled to, the composer is inside the box and on screen', JSON.stringify(narrowScrolled));
     // #3547/#3500: the agent nav is now a vertical stack of icon+label boxes, so at narrow width it is
     // legitimately TALLER than the talk box (268 vs 209). The old `snavHeight < boxHeight` predated the
     // boxed redesign and false-failed. This arm now guards the nav's .dleft row staying content-height
