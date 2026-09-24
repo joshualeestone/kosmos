@@ -1,4 +1,4 @@
-// Browser-check-surface: tipcard tippins tiphalo tip-eb tip-x tip-go tip-off tip-skip tip-dots tip-arrow tip-bands helpq helpq-btn helpq-menu data-help tips-toggle tips-box
+// Browser-check-surface: tipcard tippins tiphalo tip-live tips-row tip-eb tip-x tip-go tip-off tip-skip tip-dots tip-arrow tip-bands helpq helpq-btn helpq-menu data-help tips-toggle tips-box
 'use strict';
 
 /**
@@ -110,6 +110,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       strokes: [...document.querySelectorAll('#tipcard .tip-bands .gf')].map((c) => getComputedStyle(c).stroke) }));
     chk(!ring.dim && ring.strokes.length === 3 && new Set(ring.strokes).size === 3, 'T3 it is a screen tip, with no dim, and three distinct gauge colours', JSON.stringify(ring));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-light.png') });
+    // A tip that shows by itself does not take focus, so the live region is how a screen reader hears it.
+    const live = await page.evaluate(() => { const l = document.getElementById('tip-live'); return l ? { text: l.textContent, polite: l.getAttribute('aria-live') } : null; });
+    chk(!!live && live.polite === 'polite' && live.text === 'Tip: The ring is your agent\'s memory', 'T3 the tip is announced politely by its title', JSON.stringify(live));
     // T16: leaving the screen closes a tip that showed by itself, without recording it, and the next
     // screen's tip can show; coming back shows it again.
     await page.click('#tabs [data-tab="projects"]');
