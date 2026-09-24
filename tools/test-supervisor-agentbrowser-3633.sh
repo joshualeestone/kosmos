@@ -10,11 +10,13 @@
 #   - installed  -> `--mcp-config <existing file>` right before --dangerously-skip-permissions
 #   - not installed -> no --mcp-config at all (a flag naming a missing file stops claude)
 #   - KOSMOS_AGENT_BROWSER=off -> no --mcp-config
+#   - the opt-out FILE (the Mac's real path: launchd does not pass the operator's
+#     env to the supervisor) -> no --mcp-config
 # The "installed" state is made by the real ensureInstalled/ensureShell with their
 # download/unpack/prove seams stubbed, so the markers are exactly what the code
 # checks, and no browser is downloaded.
 AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
-trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB1:-}" "${SB2:-}" "${SB3:-}"' EXIT
+trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB1:-}" "${SB2:-}" "${SB3:-}" "${SB4:-}"' EXIT
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -90,7 +92,9 @@ run_claude "$SB2"
 A="$SB2/new-session.args"
 if [ -s "$A" ]; then ok "not installed: the supervisor still launched the agent"; else bad "not installed: new-session never reached: $(tail -3 "$SB2/out.log")"; fi
 if grep -qx -- '--mcp-config' "$A"; then bad "not installed: --mcp-config was passed anyway: $(tr '\n' ' ' < "$A")"; else ok "not installed: no --mcp-config"; fi
-if [ -d "$SB2/runners/playwright-mcp/0.0.82" ]; then bad "not installed: the launch path started an install"; else ok "not installed: the launch path did not start an install"; fi
+# A started install creates its staging folder under runners/playwright-mcp before
+# its first await, so any folder there means the launch path asked for one.
+if [ -e "$SB2/runners/playwright-mcp" ]; then bad "not installed: the launch path started an install: $(ls -A "$SB2/runners/playwright-mcp")"; else ok "not installed: the launch path did not start an install"; fi
 
 # --- Arm 3: installed but opted out -> no flag ---------------------------------
 SB3="$(mktemp -d)"; make_sandbox "$SB3"
@@ -98,6 +102,14 @@ fake_install "$SB3" || bad "arm 3: the fake install failed"
 run_claude "$SB3" KOSMOS_AGENT_BROWSER=off
 A="$SB3/new-session.args"
 if [ -s "$A" ] && ! grep -qx -- '--mcp-config' "$A"; then ok "KOSMOS_AGENT_BROWSER=off: launched with no --mcp-config"; else bad "opt-out: $(tr '\n' ' ' < "$A" 2>/dev/null)"; fi
+
+# --- Arm 4: installed, opted out by the file -> no flag -------------------------
+SB4="$(mktemp -d)"; make_sandbox "$SB4"
+fake_install "$SB4" || bad "arm 4: the fake install failed"
+: > "$SB4/runners/playwright-mcp/off"
+run_claude "$SB4"
+A="$SB4/new-session.args"
+if [ -s "$A" ] && ! grep -qx -- '--mcp-config' "$A"; then ok "opt-out file: launched with no --mcp-config"; else bad "opt-out file: $(tr '\n' ' ' < "$A" 2>/dev/null)"; fi
 
 echo
 if [ "$FAILS" -eq 0 ]; then echo "all passed"; exit 0; fi

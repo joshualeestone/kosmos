@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Every Windows agent's own private web browser.
+ * Every agent's own private web browser (Windows #3629, Mac #3633).
  *
  * 🛑 WHY THIS EXISTS. People asked agents to look things up on sites that draw
  * their content with JavaScript -- Google Flights, Kayak, most shops -- and the
@@ -11,11 +11,10 @@
  *
  * 🔑 THE AGENT GETS ITS OWN BROWSER, NEVER THE PERSON'S. The operator's ruling:
  * not Claude in Chrome, not the person's Chrome with their sign-ins. So this is
- * Microsoft's Playwright MCP server driving the Microsoft Edge every Windows 11
- * already ships (`--browser msedge`: nothing to download), `--headless` so no
- * window appears, and `--isolated` so the profile lives in memory and dies with
- * the run -- it never opens, reads or writes the person's own Edge profile,
- * cookies or logins.
+ * Microsoft's Playwright MCP server, `--headless` so no window appears, and
+ * `--isolated` so the profile lives in memory and dies with the run. On Windows
+ * it drives the Edge that Windows 11 ships (`--browser msedge`); on a Mac, see
+ * the Mac half below.
  *
  * 📌 INSTALLED ONCE, NEVER FETCHED AT LAUNCH. The server is three pinned npm
  * tarballs, fetched straight from the registry with no npm client (the Windows
@@ -145,10 +144,15 @@ function shellInstalled(arch) {
   } catch { return false; }
 }
 
-/* The opt-out, for an operator who does not want agents browsing at all. */
+/* The opt-out, for an operator who does not want agents browsing at all: the
+   environment variable, or a file named `off` in the managed folder. The file is
+   the one a Mac can use, because a launchd-started supervisor does not inherit
+   the operator's shell environment. */
+function optOutPath() { return path.join(homeDir(), 'off'); }
 function disabled(env) {
   const v = String((env || process.env).KOSMOS_AGENT_BROWSER || '').toLowerCase();
-  return v === 'off' || v === '0' || v === 'false';
+  if (v === 'off' || v === '0' || v === 'false') return true;
+  try { return fs.existsSync(optOutPath()); } catch { return false; }
 }
 
 /**
@@ -299,6 +303,58 @@ async function ensureInstalled(opts) {
   }
 }
 
+/* One Mac browser install at a time, across processes: a lock file holding the
+   owner's pid. A lock whose owner is gone, or that is older than LOCK_STALE_MS,
+   is taken over. */
+const LOCK_STALE_MS = 30 * 60 * 1000;
+function lockPath() { return path.join(homeDir(), '.shell-install.lock'); }
+function pidAlive(pid) {
+  if (!(pid > 0)) return false;
+  try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
+}
+function takeLock() {
+  fs.mkdirSync(homeDir(), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = fs.openSync(lockPath(), 'wx');
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      return true;
+    } catch (e) {
+      if (!e || e.code !== 'EEXIST') return false;
+      let owner = 0; let age = 0;
+      try { owner = parseInt(fs.readFileSync(lockPath(), 'utf8'), 10); age = Date.now() - fs.statSync(lockPath()).mtimeMs; } catch { /* raced away */ }
+      if (pidAlive(owner) && age < LOCK_STALE_MS) return false;
+      try { fs.rmSync(lockPath(), { force: true }); } catch { return false; }
+    }
+  }
+  return false;
+}
+function dropLock() {
+  try { if (parseInt(fs.readFileSync(lockPath(), 'utf8'), 10) === process.pid) fs.rmSync(lockPath(), { force: true }); } catch { /* not ours or gone */ }
+}
+
+/* Remove what an interrupted install left: staging folders whose owner pid is
+   gone (named `.staging-<pid>-<ms>` and `.shell-staging-<pid>-<ms>`), and shell
+   folders for versions other than the pinned one. */
+function sweepLeftovers() {
+  const home = homeDir();
+  let names = [];
+  try { names = fs.readdirSync(home); } catch { return; }
+  for (const n of names) {
+    const m = /^\.(?:shell-)?staging-(\d+)-\d+$/.exec(n);
+    if (m && Number(m[1]) !== process.pid && !pidAlive(Number(m[1]))) {
+      try { fs.rmSync(path.join(home, n), { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }
+  const shells = path.join(home, 'chrome-headless-shell');
+  try {
+    for (const v of fs.readdirSync(shells)) {
+      if (v !== SHELL.version) { try { fs.rmSync(path.join(shells, v), { recursive: true, force: true }); } catch { /* best effort */ } }
+    }
+  } catch { /* none yet */ }
+}
+
 const sha256Of = (file) => new Promise((resolve, reject) => {
   const h = require('node:crypto').createHash('sha256');
   fs.createReadStream(file).on('data', (c) => h.update(c)).on('end', () => resolve(h.digest('hex'))).on('error', reject);
@@ -317,6 +373,8 @@ async function ensureShell(opts) {
   const build = shellBuild(arch);
   if (!build) return { ok: false, because: 'no pinned browser for this Mac CPU (' + arch + ')' };
   if (shellInstalled(arch)) return { ok: true, already: true };
+  if (!takeLock()) return { ok: false, because: 'another browser install is already running' };
+  sweepLeftovers();
   const doDownload = o.download || ((url, file) => runners.download(url, file, { receivedBytes: 0 }));
   const hashOf = o.sha256Of || sha256Of;
   const unzip = o.unzip || ((zip, dest) => execP('/usr/bin/ditto', ['-x', '-k', zip, dest], { timeout: 300000 }));
@@ -335,9 +393,10 @@ async function ensureShell(opts) {
     const said = await prove(path.join(tree, build.folder, 'chrome-headless-shell'));
     if (!said.includes(SHELL.version)) throw new Error('the browser did not answer with its version');
     fs.writeFileSync(path.join(tree, '.verified'), shellStamp(arch) + '\n');
-    if (shellInstalled(arch)) return { ok: true, already: true };   // another process won
     fs.mkdirSync(path.dirname(shellDir()), { recursive: true });
-    fs.rmSync(shellDir(), { recursive: true, force: true });       // an unproven leftover, never a live tree
+    /* Under the lock no other install is running, so anything at shellDir() now
+       is a leftover that never got its marker. */
+    fs.rmSync(shellDir(), { recursive: true, force: true });
     fs.renameSync(tree, shellDir());
     return { ok: shellInstalled(arch) };
   } catch (e) {
@@ -345,10 +404,43 @@ async function ensureShell(opts) {
     return { ok: false, because: String((e && e.message) || e) };
   } finally {
     try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* best effort */ }
+    dropLock();
   }
+}
+
+/**
+ * The board's Mac install: kick it, and if it fails, say why and try again later,
+ * backing off from RETRY_FIRST_MS to RETRY_MAX_MS, until it is installed or the
+ * operator opts out. A login-time download that meets no network would otherwise
+ * leave every agent without a browser until the next board start. Timers are
+ * unref'd, so this never keeps a process alive. Returns a stop function.
+ */
+const RETRY_FIRST_MS = 60 * 1000;
+const RETRY_MAX_MS = 60 * 60 * 1000;
+function installWithRetry(opts) {
+  const o = opts || {};
+  const log = o.log || ((line) => console.log(line));
+  const kick = o.kick || kickInstall;
+  let delay = o.firstDelayMs || RETRY_FIRST_MS;
+  let timer = null; let stopped = false;
+  const attempt = () => {
+    if (stopped || disabled(o.env)) return;
+    const p = kick({ platform: o.platform, arch: o.arch });
+    if (!p) return;
+    p.then((r) => {
+      if (stopped || (r && r.ok)) return;
+      log('agent browser: install did not finish (' + ((r && r.because) || 'unknown') + '); trying again in ' + Math.round(delay / 1000) + 's');
+      timer = setTimeout(attempt, delay);
+      if (timer.unref) timer.unref();
+      delay = Math.min(delay * 2, o.maxDelayMs || RETRY_MAX_MS);
+    });
+  };
+  attempt();
+  return () => { stopped = true; if (timer) clearTimeout(timer); };
 }
 
 module.exports = {
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, disabled,
+  installWithRetry, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir,
+  optOutPath, lockPath, disabled,
 };

@@ -174,7 +174,12 @@ test('a proven shell, then a Mac launch gets a flag for a file naming exactly th
 test('the supervisor shim prints the path once installed, prints nothing otherwise, and always exits 0', async () => {
   const { spawnSync } = require('node:child_process');
   const shim = path.join(__dirname, 'agent-browser-config.js');
-  const run = (env) => spawnSync(process.execPath, [shim], { env: { ...process.env, ...env }, encoding: 'utf8' });
+  /* Without NODE_TEST_CONTEXT, which would stop kickInstall on its own and hide a
+     shim that asked for an install: a started install creates its staging folder
+     before its first await, so an empty folder here is a real observation. */
+  const childEnv = { ...process.env };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const run = (env) => spawnSync(process.execPath, [shim], { env: { ...childEnv, ...env }, encoding: 'utf8' });
   const empty = fs.mkdtempSync(path.join(SANDBOX, 'empty-'));
   const none = run({ AGENT_WORKFORCE_RUNNERS_DIR: empty });
   assert.equal(none.status, 0);
@@ -190,4 +195,64 @@ test('the supervisor shim prints the path once installed, prints nothing otherwi
     assert.equal(printed, ab.configPath());
     assert.ok(fs.existsSync(printed), 'the path names a file that exists');
   }
+});
+
+test('the opt-out file turns the browser off on a Mac, where the supervisor never sees the operator\'s env', () => {
+  assert.equal(ab.shellInstalled('arm64'), true);
+  assert.ok(ab.launchConfig({ platform: 'darwin', arch: 'arm64', install: false, env: {} }), 'on before the file');
+  fs.writeFileSync(ab.optOutPath(), '');
+  try {
+    assert.equal(ab.disabled({}), true);
+    assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'arm64', install: false, env: {} }), null);
+    let kicked = 0;
+    ab.installWithRetry({ env: {}, kick: () => { kicked += 1; return Promise.resolve({ ok: true }); } })();
+    assert.equal(kicked, 0, 'an opted-out board does not download anything');
+  } finally { fs.rmSync(ab.optOutPath(), { force: true }); }
+});
+
+test('one Mac browser install at a time: a live owner\'s lock refuses, a dead owner\'s lock is taken over', async () => {
+  fs.rmSync(ab.shellDir(), { recursive: true, force: true });
+  fs.writeFileSync(ab.lockPath(), String(process.ppid));          // alive: the test runner
+  let r = await ab.ensureShell(shellSeams('arm64'));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /another browser install/);
+  assert.equal(fs.readFileSync(ab.lockPath(), 'utf8'), String(process.ppid), 'a live owner\'s lock is left alone');
+
+  fs.writeFileSync(ab.lockPath(), '999999');                      // no such process
+  r = await ab.ensureShell(shellSeams('arm64'));
+  assert.deepEqual(r, { ok: true });
+  assert.equal(fs.existsSync(ab.lockPath()), false, 'the lock is released after the install');
+});
+
+test('an install sweeps what interrupted ones left: dead owners\' staging and old versions, never a live owner\'s', async () => {
+  fs.rmSync(ab.shellDir(), { recursive: true, force: true });
+  const home = ab.homeDir();
+  const dead = path.join(home, '.shell-staging-999999-1');
+  const deadTree = path.join(home, '.staging-999998-1');
+  const live = path.join(home, '.shell-staging-' + process.ppid + '-1');
+  const old = path.join(home, 'chrome-headless-shell', '1.0.0');
+  for (const d of [dead, deadTree, live, old]) fs.mkdirSync(d, { recursive: true });
+  assert.deepEqual(await ab.ensureShell(shellSeams('arm64')), { ok: true });
+  assert.equal(fs.existsSync(dead), false);
+  assert.equal(fs.existsSync(deadTree), false);
+  assert.equal(fs.existsSync(old), false);
+  assert.equal(fs.existsSync(live), true, 'a staging folder whose owner is running is not touched');
+  fs.rmSync(live, { recursive: true, force: true });
+});
+
+test('the board retries a failed install with backoff, says why each time, and stops at success', async () => {
+  const lines = [];
+  const results = [{ ok: false, because: 'no network' }, { ok: false, because: 'still no network' }, { ok: true }];
+  let calls = 0;
+  const done = new Promise((resolve) => {
+    ab.installWithRetry({
+      env: {}, firstDelayMs: 5, maxDelayMs: 20, log: (l) => lines.push(l),
+      kick: () => { const r = results[calls]; calls += 1; if (calls === results.length) setTimeout(resolve, 30); return Promise.resolve(r); },
+    });
+  });
+  await done;
+  assert.equal(calls, 3, 'tried until it succeeded, then stopped');
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /no network/);
+  assert.match(lines[1], /still no network/);
 });

@@ -27,7 +27,17 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 - bin/agent-supervisor.sh, Claude arm: runs the shim with Kosmos's node and adds
   `--mcp-config <path>` only for a path to an existing file, before
   `--dangerously-skip-permissions`.
-- server.js: the boot-time `kickInstall` on darwin too, never fatal, never awaited.
+- server.js: on darwin the board calls `installWithRetry`: it kicks the install at boot and,
+  if the install fails (no network at login, a stall, a bad checksum), logs why and retries
+  with backoff (1 minute doubling to an hour) until it succeeds or the operator opts out.
+  Never fatal, never awaited, timers unref'd.
+- Opt-out: `KOSMOS_AGENT_BROWSER=off`, or a file named `off` in the managed
+  `playwright-mcp` folder. The file is the Mac's real path: a launchd-started supervisor
+  does not inherit the operator's shell env. The boot install honours it too.
+- One install at a time: `ensureShell` takes a lock file holding its pid; a live owner's lock
+  refuses, a dead or 30-minute-old one is taken over. Under the lock it sweeps what
+  interrupted installs left (staging folders whose owner pid is gone, shell folders for other
+  versions), so a quit mid-download does not leave 100 to 200 MB behind each time.
 
 ## Evidence
 - Real install in a sandbox: `ensureShell` downloaded, matched the pinned sha256, unpacked and
@@ -39,6 +49,17 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 - tools/test-supervisor-agentbrowser-3633.sh: 9 checks pass on this branch; against
   origin/main's supervisor, the three installed-arm checks fail (the control).
 - engine/agentbrowser.test.js: 13 pass (7 new Mac tests).
+
+- The "launch never installs" checks can fail: with the shim switched to `install: true`, the
+  unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 17 pass. Shell test: 10 checks
+  across four arms (installed, not installed, env opt-out, file opt-out).
+
+## Known and left
+- The shim and the board each pick the Mac CPU from their own node's `process.arch`. In the
+  installed layout both run the bundled node, so they agree; a source checkout whose PATH node
+  is a different CPU than the board's would get no browser (no flag, never a broken start).
+- `outputDir()` is one temp folder shared by every agent's browser output, as on Windows.
 
 ## Weakest premise
 That about 100 MB, downloaded once in the background at board start with no prompt, is
