@@ -57,8 +57,9 @@ test('the config: Edge, headless, isolated profile, output kept out of the agent
   }
 });
 
-test('launchConfig is Windows-only, honours the opt-out, and is null until installed', () => {
-  assert.equal(ab.launchConfig({ platform: 'darwin' }), null, 'a Mac launch is untouched');
+test('launchConfig is Windows and Mac only, honours the opt-out, and is null until installed', () => {
+  assert.equal(ab.launchConfig({ platform: 'linux', install: false }), null, 'any other platform is untouched');
+  assert.equal(ab.launchConfig({ platform: 'darwin', install: false }), null, 'a Mac with nothing installed gets no flag');
   assert.equal(ab.launchConfig({ platform: 'win32', env: { KOSMOS_AGENT_BROWSER: 'off' } }), null);
   assert.equal(ab.isInstalled(), false);
   assert.equal(ab.launchConfig({ platform: 'win32', install: false }), null,
@@ -97,4 +98,96 @@ test('a proven install, then every launch gets a flag for a file holding exactly
   fs.writeFileSync(p, '{ not json');
   assert.equal(ab.launchConfig({ platform: 'win32', node: 'C:\\K\\node.exe' }), p);
   assert.deepEqual(JSON.parse(fs.readFileSync(p, 'utf8')), written);
+});
+
+/* ── the Mac half (#3633) ───────────────────────────────────────────────── */
+
+const shellSeams = (arch, over) => Object.assign({
+  arch,
+  download: async (url, file) => fs.writeFileSync(file, url),
+  sha256Of: async () => ab.SHELL.builds[arch].sha256,
+  unzip: async (zip, dest) => {
+    const d = path.join(dest, ab.SHELL.builds[arch].folder);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'chrome-headless-shell'), '');
+  },
+  proveShell: async () => 'Google Chrome for Testing ' + ab.SHELL.version + '\n',
+}, over || {});
+
+test('the Mac pin: one sha256-pinned headless shell per Mac CPU, at the version the pinned Playwright asks for', () => {
+  assert.equal(ab.SHELL.version, '154.0.8037.0');
+  for (const arch of ['arm64', 'x64']) {
+    const b = ab.SHELL.builds[arch];
+    assert.equal(b.url, 'https://cdn.playwright.dev/builds/cft/' + ab.SHELL.version + '/mac-' + arch + '/chrome-headless-shell-mac-' + arch + '.zip');
+    assert.match(b.sha256, /^[0-9a-f]{64}$/);
+  }
+  assert.ok(Object.isFrozen(ab.SHELL) && Object.isFrozen(ab.SHELL.builds.arm64), 'the trust anchors cannot be repointed in-process');
+});
+
+test('the Mac config: the pinned shell by path, headless, isolated, and nothing that reaches the person\'s browser', () => {
+  const cfg = ab.configFor({ node: '/K/node', cli: '/R/cli.js', outputDir: '/T/out', executablePath: '/R/shell' });
+  assert.deepEqual(cfg.mcpServers['kosmos-browser'].args,
+    ['/R/cli.js', '--browser', 'chromium', '--executable-path', '/R/shell', '--headless', '--isolated', '--output-dir', '/T/out']);
+  const args = cfg.mcpServers['kosmos-browser'].args;
+  for (const never of ['--extension', '--user-data-dir', '--cdp-endpoint', '--profile-dir-name', 'chrome', 'msedge']) {
+    assert.ok(!args.includes(never), never + ' would reach an installed browser or a profile');
+  }
+});
+
+test('a Mac CPU with no pinned build installs nothing and says so', async () => {
+  const r = await ab.ensureShell({ arch: 'ppc' });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /no pinned browser/);
+});
+
+test('a shell checksum mismatch installs nothing', async () => {
+  const r = await ab.ensureShell(shellSeams('arm64', { sha256Of: async () => '0'.repeat(64) }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /checksum/);
+  assert.equal(ab.shellInstalled('arm64'), false);
+  assert.deepEqual(fs.readdirSync(ab.homeDir()).filter((f) => f.startsWith('.shell-staging')), [], 'staging cleaned up');
+});
+
+test('a shell that does not answer with its version installs nothing', async () => {
+  const r = await ab.ensureShell(shellSeams('arm64', { proveShell: async () => 'something else' }));
+  assert.equal(r.ok, false);
+  assert.equal(ab.shellInstalled('arm64'), false);
+});
+
+test('a proven shell, then a Mac launch gets a flag for a file naming exactly that shell', async () => {
+  assert.equal(ab.isInstalled(), true, 'the server tree from the Windows arm above is in place');
+  assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'arm64', install: false }), null,
+    'the server alone is not enough on a Mac: no shell, no flag');
+  assert.deepEqual(await ab.ensureShell(shellSeams('arm64')), { ok: true });
+  assert.equal(ab.shellInstalled('arm64'), true);
+  assert.equal(ab.shellInstalled('x64'), false, 'a marker for one CPU never vouches for the other');
+  assert.deepEqual(await ab.ensureShell(shellSeams('arm64', { download: async () => { throw new Error('must not download again'); } })),
+    { ok: true, already: true });
+
+  const p = ab.launchConfig({ platform: 'darwin', arch: 'arm64', node: '/K/node', install: false });
+  assert.equal(p, ab.configPath());
+  assert.deepEqual(JSON.parse(fs.readFileSync(p, 'utf8')),
+    ab.configFor({ node: '/K/node', cli: ab.cliPath(), outputDir: ab.outputDir(), executablePath: ab.shellExe('arm64') }));
+  assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'x64', install: false }), null, 'the other CPU is not installed');
+});
+
+test('the supervisor shim prints the path once installed, prints nothing otherwise, and always exits 0', async () => {
+  const { spawnSync } = require('node:child_process');
+  const shim = path.join(__dirname, 'agent-browser-config.js');
+  const run = (env) => spawnSync(process.execPath, [shim], { env: { ...process.env, ...env }, encoding: 'utf8' });
+  const empty = fs.mkdtempSync(path.join(SANDBOX, 'empty-'));
+  const none = run({ AGENT_WORKFORCE_RUNNERS_DIR: empty });
+  assert.equal(none.status, 0);
+  assert.equal(none.stdout, '', 'nothing installed: no path');
+  assert.deepEqual(fs.readdirSync(empty), [], 'and the shim never starts an install');
+  /* The installed arm needs this host to be a Mac with a pinned build: the shim asks
+     for this host's platform and CPU, as the real supervisor does. */
+  if (process.platform === 'darwin' && ab.SHELL.builds[process.arch]) {
+    assert.equal((await ab.ensureShell(shellSeams(process.arch))).ok, true);
+    const got = run({ AGENT_WORKFORCE_RUNNERS_DIR: process.env.AGENT_WORKFORCE_RUNNERS_DIR });
+    assert.equal(got.status, 0);
+    const printed = got.stdout.trim();
+    assert.equal(printed, ab.configPath());
+    assert.ok(fs.existsSync(printed), 'the path names a file that exists');
+  }
 });

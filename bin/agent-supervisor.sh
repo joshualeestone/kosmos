@@ -744,12 +744,23 @@ if [ -z "$adopt" ]; then
       # is launched with (the -e above), so the write and the read agree by construction.
       "$NODE_BIN" "$_eng/ensure-launch-trust.js" "$WORKDIR" "${EFFECTIVE_CCD:-}" >/dev/null 2>&1 || true
     fi
+    # #3633: the agent's own private browser (engine/agentbrowser.js). The shim prints
+    # a config path once the pinned browser is installed, and nothing otherwise, so
+    # an agent started before the install landed simply has no browser this launch.
+    # Only a path to an existing file is passed on: a missing --mcp-config file stops
+    # claude from starting. `--mcp-config` takes several values, so it goes before
+    # --dangerously-skip-permissions, a flag, which ends its list.
+    MCP_ARGS=()
+    if [ -n "${_eng:-}" ] && [ -f "$_eng/agent-browser-config.js" ] && [ -n "${NODE_BIN:-}" ]; then
+      _mcp="$("$NODE_BIN" "$_eng/agent-browser-config.js" 2>/dev/null || true)"
+      if [ -n "$_mcp" ] && [ -f "$_mcp" ]; then MCP_ARGS=(--mcp-config "$_mcp"); fi
+    fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-skip-permissions --model "$MODEL" || exit 1
+        "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-skip-permissions || exit 1
+        "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions || exit 1
     fi
   fi
 fi

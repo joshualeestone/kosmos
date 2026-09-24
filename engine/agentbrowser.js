@@ -32,8 +32,12 @@
  * exactly the JSON it should. No browser is an agent without a browser, never an
  * agent that does not start.
  *
- * 📌 WINDOWS ONLY, for now. The Mac fleet ports it; until then nothing here runs
- * on a Mac and Mac argv is byte-identical.
+ * 🍎 THE MAC HALF (#3633). A Mac has no Edge, and Playwright cannot drive Safari,
+ * so on a Mac the same pinned server drives Playwright's own
+ * `chrome-headless-shell`, which Kosmos downloads once into this same managed
+ * folder and checks against a sha256 pinned below. It never uses the person's
+ * installed Chrome. The download is about 100 MB, so it is a separate step from
+ * the 4 MB server tree: `ensureShell`, started by `kickInstall` after the tree.
  */
 
 const fs = require('node:fs');
@@ -73,6 +77,28 @@ const PIN = Object.freeze({
   ]),
 });
 
+/**
+ * The Mac browser pin: the `chrome-headless-shell` build the pinned playwright-core
+ * asks for (its `install --dry-run` names 154.0.8037.0), one zip per Mac CPU. The
+ * sha256 values were measured on 2026-09-24 by downloading each zip. PINNED for the
+ * same reason as the server: the bytes must not change because a release happened.
+ */
+const SHELL = Object.freeze({
+  version: '154.0.8037.0',
+  builds: Object.freeze({
+    arm64: Object.freeze({
+      url: 'https://cdn.playwright.dev/builds/cft/154.0.8037.0/mac-arm64/chrome-headless-shell-mac-arm64.zip',
+      sha256: '9d4790010e56a034593b77c9e5994353885bc2dff688fe88ca71aced9b288bd7',
+      folder: 'chrome-headless-shell-mac-arm64',
+    }),
+    x64: Object.freeze({
+      url: 'https://cdn.playwright.dev/builds/cft/154.0.8037.0/mac-x64/chrome-headless-shell-mac-x64.zip',
+      sha256: 'b59c4af2ee92b5cea39b0cad62e40d52ce03465a5f55922b55a8a5737f3f5387',
+      folder: 'chrome-headless-shell-mac-x64',
+    }),
+  }),
+});
+
 /* The server's name as the agent sees it: its tools arrive as
    `mcp__kosmos-browser__browser_navigate` and so on. Prefixed so it cannot
    collide with a `browser` server the person configured themselves -- their
@@ -90,6 +116,15 @@ function configPath() { return path.join(homeDir(), 'mcp-config.json'); }
    default is `.playwright-mcp` inside the agent's working folder, which on this
    platform can be a person's own project folder -- so they go to temp instead. */
 function outputDir() { return path.join(os.tmpdir(), 'kosmos-agent-browser'); }
+/* The Mac browser, per CPU, beside the server tree. */
+function shellBuild(arch) { return SHELL.builds[arch || process.arch] || null; }
+function shellDir() { return path.join(homeDir(), 'chrome-headless-shell', SHELL.version); }
+function shellExe(arch) {
+  const b = shellBuild(arch);
+  return b ? path.join(shellDir(), b.folder, 'chrome-headless-shell') : null;
+}
+function shellMarkerPath() { return path.join(shellDir(), '.verified'); }
+const shellStamp = (arch) => SHELL.version + ' ' + (arch || process.arch) + ' ' + (shellBuild(arch) || {}).sha256;
 
 /* What the marker vouches for: every package at its pinned version, so a marker
    left by another pin can never vouch for this tree. */
@@ -99,6 +134,14 @@ const stamp = () => PIN.packages.map((p) => p.name + '@' + p.url.split('/').pop(
 function isInstalled() {
   try {
     return fs.readFileSync(markerPath(), 'utf8').trim() === stamp() && fs.existsSync(cliPath());
+  } catch { return false; }
+}
+
+/** True when this CPU's shell is unpacked AND answered `--version`. */
+function shellInstalled(arch) {
+  try {
+    const exe = shellExe(arch);
+    return !!exe && fs.readFileSync(shellMarkerPath(), 'utf8').trim() === shellStamp(arch) && fs.existsSync(exe);
   } catch { return false; }
 }
 
@@ -115,12 +158,17 @@ function disabled(env) {
  */
 function configFor(o) {
   const x = o || {};
+  /* With an executablePath (the Mac): Playwright's own shell. `--browser chromium`
+     alone would ask for the full "Chrome for Testing", which is not installed. */
+  const browser = x.executablePath
+    ? ['--browser', 'chromium', '--executable-path', String(x.executablePath)]
+    : ['--browser', 'msedge'];
   return {
     mcpServers: {
       [SERVER_NAME]: {
         type: 'stdio',
         command: String(x.node),
-        args: [String(x.cli), '--browser', 'msedge', '--headless', '--isolated', '--output-dir', String(x.outputDir)],
+        args: [String(x.cli), ...browser, '--headless', '--isolated', '--output-dir', String(x.outputDir)],
       },
     },
   };
@@ -163,13 +211,18 @@ function writeConfigIfNeeded(file, text) {
 function launchConfig(opts) {
   const o = opts || {};
   try {
-    if ((o.platform || process.platform) !== 'win32') return null;
+    const platform = o.platform || process.platform;
+    if (platform !== 'win32' && platform !== 'darwin') return null;
     if (disabled(o.env)) return null;
-    if (!isInstalled()) {
-      if (o.install !== false) kickInstall();
+    const mac = platform === 'darwin';
+    if (!isInstalled() || (mac && !shellInstalled(o.arch))) {
+      if (o.install !== false) kickInstall({ platform, arch: o.arch });
       return null;
     }
-    const text = JSON.stringify(configFor({ node: o.node || process.execPath, cli: cliPath(), outputDir: outputDir() }), null, 2) + '\n';
+    const text = JSON.stringify(configFor({
+      node: o.node || process.execPath, cli: cliPath(), outputDir: outputDir(),
+      executablePath: mac ? shellExe(o.arch) : undefined,
+    }), null, 2) + '\n';
     return writeConfigIfNeeded(configPath(), text) ? configPath() : null;
   } catch { return null; }
 }
@@ -180,7 +233,11 @@ let inflight = null;
 function kickInstall(opts) {
   if (process.env.NODE_TEST_CONTEXT && !(opts && opts.force)) return null;
   if (!inflight) {
-    inflight = ensureInstalled(opts).catch((e) => ({ ok: false, because: String((e && e.message) || e) }))
+    const o = opts || {};
+    const mac = (o.platform || process.platform) === 'darwin';
+    inflight = ensureInstalled(o)
+      .then((r) => (mac && r.ok ? ensureShell(o) : r))
+      .catch((e) => ({ ok: false, because: String((e && e.message) || e) }))
       .finally(() => { inflight = null; });
   }
   return inflight;
@@ -242,7 +299,56 @@ async function ensureInstalled(opts) {
   }
 }
 
+const sha256Of = (file) => new Promise((resolve, reject) => {
+  const h = require('node:crypto').createHash('sha256');
+  fs.createReadStream(file).on('data', (c) => h.update(c)).on('end', () => resolve(h.digest('hex'))).on('error', reject);
+});
+
+/**
+ * Install this Mac's pinned `chrome-headless-shell` once. Resolves { ok, already?,
+ * because? }; never throws. The same order as ensureInstalled: download -> check
+ * the pinned sha256 -> unpack into private staging (`ditto`, which keeps the
+ * bundle's symlinks and modes) -> PROVE (the shell answers `--version` with the
+ * pinned version) -> marker -> swap in whole.
+ */
+async function ensureShell(opts) {
+  const o = opts || {};
+  const arch = o.arch || process.arch;
+  const build = shellBuild(arch);
+  if (!build) return { ok: false, because: 'no pinned browser for this Mac CPU (' + arch + ')' };
+  if (shellInstalled(arch)) return { ok: true, already: true };
+  const doDownload = o.download || ((url, file) => runners.download(url, file, { receivedBytes: 0 }));
+  const hashOf = o.sha256Of || sha256Of;
+  const unzip = o.unzip || ((zip, dest) => execP('/usr/bin/ditto', ['-x', '-k', zip, dest], { timeout: 300000 }));
+  const prove = o.proveShell || ((exe) => execP(exe, ['--version'], { timeout: 60000 }));
+
+  const staging = path.join(homeDir(), '.shell-staging-' + process.pid + '-' + Date.now());
+  try {
+    fs.mkdirSync(staging, { recursive: true });
+    const zip = path.join(staging, build.url.split('/').pop());
+    await doDownload(build.url, zip);
+    if ((await hashOf(zip)) !== build.sha256) throw new Error('the browser download did not match its pinned checksum, so it was not used');
+    const tree = path.join(staging, 'tree');
+    fs.mkdirSync(tree, { recursive: true });
+    await unzip(zip, tree);
+    fs.rmSync(zip, { force: true });
+    const said = await prove(path.join(tree, build.folder, 'chrome-headless-shell'));
+    if (!said.includes(SHELL.version)) throw new Error('the browser did not answer with its version');
+    fs.writeFileSync(path.join(tree, '.verified'), shellStamp(arch) + '\n');
+    if (shellInstalled(arch)) return { ok: true, already: true };   // another process won
+    fs.mkdirSync(path.dirname(shellDir()), { recursive: true });
+    fs.rmSync(shellDir(), { recursive: true, force: true });       // an unproven leftover, never a live tree
+    fs.renameSync(tree, shellDir());
+    return { ok: shellInstalled(arch) };
+  } catch (e) {
+    if (shellInstalled(arch)) return { ok: true, already: true };
+    return { ok: false, because: String((e && e.message) || e) };
+  } finally {
+    try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
+
 module.exports = {
-  PIN, SERVER_NAME, configFor, launchConfig, ensureInstalled, kickInstall, isInstalled,
-  homeDir, treeDir, cliPath, configPath, outputDir, disabled,
+  PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
+  shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir, disabled,
 };
