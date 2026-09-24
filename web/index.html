@@ -19139,6 +19139,13 @@ function recToggleClick() {
 document.getElementById('rec-toggle').addEventListener('click', recToggleClick);
 for (const k of Object.keys(REC_GUARD_IDS)) {
   document.getElementById(REC_GUARD_IDS[k]).addEventListener('change', (e) => {
+    // Same load-gate as recToggleClick: the checkboxes ship with the static
+    // `checked` default, so a change fired before the first GET resolves would
+    // PUT that stale default rather than the person's real intent. The toggle's
+    // aria-checked appears only once the GET has painted; until then, re-paint
+    // (which resets this checkbox to the server truth) and send nothing.
+    const tog = document.getElementById('rec-toggle');
+    if (!tog.hasAttribute('aria-checked')) { paintRecommender(); return; }
     saveRecommender({ guard: k, value: e.target.checked === true });
   });
 }
