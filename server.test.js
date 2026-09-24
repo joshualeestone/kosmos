@@ -5664,32 +5664,17 @@ test('no subscription state renders a verdict about the person\'s Claude account
     'even the verified-connected state renders no row, so the assertions above pass on an empty page and prove nothing');
 });
 
-test('#3326 fix: reauthDecision forces the login ONLY on a positively-dead credential (the 0.6.84 strand regression)', () => {
-  /* #3326 made sign-up force a real `claude auth login` on EVERY start (reauth:true always).
-     The 0.6.84 regression: it re-logs-in a LIVE, signed-in user, and a forced re-login they do
-     not complete leaves them (and their spawned agent) at the login screen -- Josh's exact
-     symptom, both providers having worked until this release. reauthDecision fixes it: force
-     the login ONLY when a REAL liveness probe says the credential is POSITIVELY dead; a live or
-     unprobable credential is left untouched (no forced login, no strand) and marked verified-live
-     so the client accepts the resulting short-circuit as a completed login. This is a REAL test
-     of the decision (the source-level "forwards reauth" guard it replaces could not see the
-     over-forcing). */
-  const { reauthDecision } = require('./server.js');
-  const STATE = require('./engine/subscription').STATE;
-
-  // reauth not requested -> never forces, never claims verified.
-  assert.deepEqual(reauthDecision(false, true, STATE.CONNECTED, STATE), { effectiveReauth: false, liveVerified: false });
-  // reauth requested but the FILE is not connected -> passthrough: connect.start runs the login
-  // regardless, so there is nothing to gate.
-  assert.deepEqual(reauthDecision(true, false, null, STATE), { effectiveReauth: true, liveVerified: false });
-  // 🛑 THE REGRESSION: file connected + a genuinely LIVE credential must NOT be force-re-logged-in
-  // (that is the strand), and the short-circuit is marked verified-live for the client.
-  assert.deepEqual(reauthDecision(true, true, STATE.CONNECTED, STATE), { effectiveReauth: false, liveVerified: true });
-  // file connected + probe CANNOT tell (UNKNOWN) -> fail open: do NOT force, accept it
-  // (agent-creation's live gate is the backstop for a truly-dead one). No strand on a network blip.
-  assert.deepEqual(reauthDecision(true, true, STATE.UNKNOWN, STATE), { effectiveReauth: false, liveVerified: true });
-  // file connected + POSITIVELY dead -> force the login (the stale-Connected case #3326 needed).
-  assert.deepEqual(reauthDecision(true, true, STATE.NONE, STATE), { effectiveReauth: true, liveVerified: false });
+test('#3326: the default sign-up start ALWAYS forwards reauth (Josh, 2026-09-24: force a fresh login every time)', () => {
+  /* Josh ruled 2026-09-24 14:38 CDT: "i want to force a fresh login everytime. I have seen the
+     other way fail multiple times". #3367 had gated the forced login on a liveness probe; that
+     gate is removed, and the strand it worked around is fixed in connect.js (loginLanded, tested
+     in engine/connect.login-landed-3326.test.js). This pins the route: the default start hands
+     the requested reauth to connect.start as-is, and no liveness probe decides it. */
+  const src = require('fs').readFileSync(require('path').join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /return connect\.start\(\{ requireInstallConfirm: true, installConfirmed, reauth \}\);/,
+    'the default sign-up start must forward reauth unconditionally');
+  assert.doesNotMatch(src, /reauthDecision|liveVerified/,
+    'a probe-gated reauth (#3367) is back: Josh ruled sign-up always forces a fresh login');
 });
 
 test('the way back is on the last step, on every ending a person can get', () => {

@@ -49524,13 +49524,10 @@ async function frConnectStartConfirmed(installConfirmed, opener) {
     // the flow is newer than anything requested before it.
     FR_CONN_SEQ += 1;
     if (st.phase === 'connected') {
-      /* #3326 fix (0.6.84 regression): a short-circuit straight to 'connected' now means the
-         server's REAL liveness probe verified the default credential (st.liveVerified) instead
-         of #3326 force-re-logging-in a live user. frConnWatch -- the ONLY place
-         FR_SUB_LOGIN_VERIFIED is set -- does NOT run for a short-circuit, so accept the server's
-         real-liveness proof as the login-success signal here. Without liveVerified a 'connected'
-         short-circuit stays unverified (the shallow-file case #3326 guarded), unchanged. */
-      if (st.liveVerified) FR_SUB_LOGIN_VERIFIED = true;
+      /* #3326: sign-up always forces a fresh login (reauth), and a reauth never short-circuits
+         to 'connected', so a 'connected' here was not a login this click ran: it stays
+         unverified (the shallow-file case #3326 guarded). FR_SUB_LOGIN_VERIFIED is set only by
+         frConnWatch on a login it watched complete. */
       if (sub) sub.innerHTML = ''; frConnSettle(); return;
     }
     FR_CONN_LAST = null;

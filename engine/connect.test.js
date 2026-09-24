@@ -2126,6 +2126,56 @@ driverTest('#1922: a re-auth on a still-live credential does NOT finish on a cap
   } finally { subscription.setRunner(null); }
 });
 
+// #3326: sign-up now ALWAYS forces a fresh login (Josh, 2026-09-24), so the still-live case
+// above is the common path, and going STUCK there is the 0.6.84 strand. The proof that the new
+// login landed when the "Login successful" screen was missed: the credential's
+// refreshTokenExpiresAt moves forward. The reader is asked about the SAME CLAUDE_CONFIG_DIR the
+// launch sets (unset when there is no launch dir), which is the #2129 set-vs-unset class.
+function reauthOnLiveWithExpiry(expiryAfterLogin) {
+  return async () => {
+    const term = fakeTerminal();
+    let failCaptures = false;
+    const base = term.runner.bind(term);
+    connect.setRunner((file, args) => {
+      if (args[0] === 'capture-pane' && failCaptures) {
+        return { ok: false, stdout: '', stderr: "can't find pane: =kosmos-connect:" };
+      }
+      return base(file, args);
+    });
+    connect.setDryRun(false);
+    writeClaudeConfig(CONNECTED_CONFIG);
+    subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+    const BEFORE = 1790000000000;
+    let expiry = BEFORE;
+    const asked = [];
+    connect.setRefreshExpiryReader((ccd) => { asked.push(ccd); return expiry; });
+    try {
+      await connect.start({ reauth: true });
+      await until(() => String(connect.state().phase).startsWith('signin'), 5000);
+      expiry = expiryAfterLogin(BEFORE);   // the login writes the credential (or does not)...
+      failCaptures = true;                 // ...and exits, closing the pane before login-done is seen
+      await until(() => connect.state().phase === connect.PHASE.CONNECTED
+        || connect.state().phase === connect.PHASE.STUCK, 15000);
+      const expectCcd = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR || undefined;
+      assert.ok(asked.length >= 2 && asked.every((c) => c === expectCcd),
+        `the expiry reader must read the entry the launch writes (${expectCcd}); asked ${JSON.stringify(asked)}`);
+      return connect.state();
+    } finally { subscription.setRunner(null); connect.setRefreshExpiryReader(null); }
+  };
+}
+
+driverTest('#3326: a forced re-login of a LIVE credential whose pane closed finishes when the refresh expiry moved forward', async () => {
+  const st = await reauthOnLiveWithExpiry((before) => before + 30 * 86400000)();
+  assert.equal(st.phase, connect.PHASE.CONNECTED,
+    'the new login landed (refreshTokenExpiresAt jumped ~30 days) but the flow did not finish: ' + st.because);
+});
+
+driverTest('#3326 CONTROL: an unchanged refresh expiry is not proof, so it still goes STUCK (no false connected)', async () => {
+  const st = await reauthOnLiveWithExpiry((before) => before)();
+  assert.equal(st.phase, connect.PHASE.STUCK,
+    'an unchanged credential must not read as a completed login: ' + st.because);
+});
+
 // #1922 (reauth-on-DEAD, the complement of the still-live test above): a RE-AUTH of a
 // credential that is DEAD at flow start (checkLive NONE) is the same dead->live proof case as a
 // present-but-dead first-run. start()'s deadCredential detection is gated `!reauth`, so the reauth
