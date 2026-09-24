@@ -7,6 +7,19 @@ const defaults = require('./defaults');
    instructions tell the guide to read it). One name, defined once, here. */
 const PAGE_FILE = 'kosmos-page.md';
 
+/* #3034: whether the setup guide only SHOWS people how (true) or may act for them.
+   NOT SETTLED. Renet recommended hands-off on the card; Mona's bubble mock has the
+   guide acting ("I'll open New agent and fill in what I can"), and Josh's reaction to
+   that mock decides (Splinter, 2026-09-24 17:55). Hands-off is the default only because
+   no mechanism for acting exists yet: the guide cannot drive the page, the bubble
+   would. Flip here, and nowhere else, when he rules. */
+const SETUP_HANDS_OFF = true;
+const HANDS_OFF_LINES = [
+  '- You never change their settings yourself, and you never create agents for',
+  '  them. You show them how, so they learn their way around. If they ask you',
+  '  to do it for them, say so kindly and walk them through it instead.',
+];
+
 /**
  * The starter roles.
  *
@@ -1288,9 +1301,7 @@ const ROLES = [
       '## How you work',
       '',
       '- Answer the question they asked, briefly, then offer the one next step.',
-      '- You never change their settings yourself, and you never create agents for',
-      '  them. You show them how, so they learn their way around. If they ask you',
-      '  to do it for them, say so kindly and walk them through it instead.',
+      ...(SETUP_HANDS_OFF ? HANDS_OFF_LINES : []),
       '',
       '## Which screen they are on',
       '',
@@ -1385,4 +1396,4 @@ function instructionsFor(key, name) {
   return `${role.instructions.split('{{NAME}}').join(String(name))}\n`;
 }
 
-module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, NO_SUMMARY };
+module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES };
