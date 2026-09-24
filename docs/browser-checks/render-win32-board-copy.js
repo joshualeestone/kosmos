@@ -264,12 +264,15 @@ async function readConnectCard(browser) {
   }
 
   /* #3443: the win32 scrollbar restyle, measured rather than asserted from source. A scrollable
-     element's (offsetWidth - clientWidth) is the width the scrollbar takes in layout: under win32
-     the ::-webkit-scrollbar width:10px classic bar takes 10px, and on a Mac (unstamped) the native
-     overlay takes 0. This needs the real scrollbar rendered, so it launches its OWN chromium with
-     --hide-scrollbars turned OFF (the default headless flag would hide every bar and read 0 for
-     both arms, a vacuous pass). The Mac arm is the control: if the win32 rule were absent, the
-     win32 arm would read 0 too (Mac overlay), so 10-vs-0 proves the rule applies AND is win32-only. */
+     element's (offsetWidth - clientWidth) is the width the scrollbar takes in layout. Under win32
+     the explicit ::-webkit-scrollbar width:10px rule forces a custom classic bar at exactly 10px,
+     in any Chromium on any OS (robust). Unstamped, the width is the RUNNER's native default, which
+     is an environment value not a code one (0 for a macOS overlay bar, ~15 for a classic bar on a
+     Linux CI runner or a Mac set to "always show") - so the control asserts only that it DIFFERS
+     from the win32 10px, never a specific number, or it would false-red on CI. This needs the real
+     scrollbar rendered, so it launches its OWN chromium with --hide-scrollbars OFF (the default
+     headless flag hides every bar and reads 0 for both arms, a vacuous pass). If the win32 rule
+     were removed, the win32 arm would drop to the same native default (!= 10) and fail. */
   {
     const sbBrowser = await playwright.chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
     try {
@@ -293,7 +296,7 @@ async function readConnectCard(browser) {
       const winSb = await measure(true);
       const macSb = await measure(false);
       check('win32 scrollable panes get the thin 10px bar (#3443)', winSb === 10, `win32 scrollbar = ${winSb}px`);
-      check('CONTROL a Mac keeps its native overlay scrollbar, so the bar is win32-only (#3443)', macSb === 0, `mac scrollbar = ${macSb}px`);
+      check('CONTROL an unstamped page uses the runner native width, distinct from the win32 10px, so the bar is win32-only (#3443)', macSb !== 10, `unstamped scrollbar = ${macSb}px (win32 = ${winSb}px)`);
     } finally {
       await sbBrowser.close();
     }

@@ -27,9 +27,12 @@ macOS keeps its native overlay scrollbars unchanged.
 ## Verification
 - render-win32-board-copy.js (the surface-gate covering check for data-kosmos-platform) gains a
   measured arm: a scrollable element's (offsetWidth - clientWidth) is the scrollbar's layout width.
-  Under win32 it is 10px (the rule); on a Mac (unstamped) it is 0 (native overlay). It launches its
-  own chromium with --hide-scrollbars OFF, or every arm would read 0 vacuously.
-- Positive control: setting the rule's width to 0 reds the win32 arm (0px); 10px passes.
+  Under win32 it is exactly 10px (the explicit rule forces a custom bar at 10 in any Chromium).
+  Unstamped, the width is the runner's native default (0 for a macOS overlay, ~15 for a classic bar
+  on a Linux CI runner), so the control asserts only that it DIFFERS from 10, never a fixed number -
+  else it would false-red on CI. It launches its own chromium with --hide-scrollbars OFF, or every
+  arm would read 0 vacuously.
+- Positive control: setting the rule's width to 0 reds the win32 arm; 10px passes.
 - All 88 assertions in that check pass (existing board-copy behavior unaffected).
 - The actual Windows appearance is verified on the Windows box (per the card's split); this change
   is verifiable on my side only for the win32 SCOPING and the layout width, which is what it asserts.
