@@ -27309,15 +27309,16 @@ function usageAgentRows(byAgent) {
   return rows;
 }
 /* #2617: the per-agent table, drawn by the same usageShareTableHtml as the
-   model table. Agents take USAGE_MODEL_COLORS by rank, the seventh and later
-   sharing the sixth; the muted "Other" color is kept for the non-agent rows so
-   they never read as an agent. "% total" is of the page's grand total, as in
+   model table. The palette's last color is the muted "Other", kept for the
+   non-agent rows so they never read as an agent; agents take the others by
+   rank, those past them sharing the last agent color. "% total" is of the page's grand total, as in
    the model table, so tokens the note reports as unmatched leave the rows short
    of 100%. Pure. */
 function usageAgentTableHtml(rows, grandTotal) {
+  const other = USAGE_MODEL_COLORS.length - 1;
   let rank = 0;
   return usageShareTableHtml('Agent', rows, grandTotal,
-    (x) => (x.muted ? USAGE_MODEL_COLORS[6] : USAGE_MODEL_COLORS[Math.min(rank++, 5)]));
+    (x) => (x.muted ? USAGE_MODEL_COLORS[other] : USAGE_MODEL_COLORS[Math.min(rank++, other - 1)]));
 }
 /* #2617: the sentence under the per-agent table. Says what the table cannot
    show rather than letting a gap read as zero: an unreadable roster, tokens in
