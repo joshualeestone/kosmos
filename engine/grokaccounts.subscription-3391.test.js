@@ -140,7 +140,8 @@ fs.writeFileSync(FAKE, [
   'esac',
 ].join('\n') + '\n', { mode: 0o755 });
 
-function waitFor(pred, ms = 5000) {
+// 15s, not 5s: these spawn real child processes, and a loaded shared box can be slow to schedule them.
+function waitFor(pred, ms = 15000) {
   const until = Date.now() + ms;
   return new Promise((resolve, reject) => {
     const tick = () => {

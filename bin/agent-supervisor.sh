@@ -665,10 +665,9 @@ if [ -z "$adopt" ]; then
     # defaultAgentCodexHome() (in production both tiers are unset and it is $HOME/.grok).
     # WHAT KIND, the same rules as grokaccounts.identityOf: a key file that is there but
     # unreadable describes nothing (no strip); a key file with any non-blank character is
-    # an api-key account (no strip); otherwise it is a subscription only if auth.json holds
-    # exactly ONE https://auth.x.ai:: entry (identityOf also requires it to parse, which a
-    # grep cannot check; a file with one entry that does not parse is the one case where
-    # the two can still disagree).
+    # an api-key account (no strip); otherwise it is a subscription only if auth.json PARSES
+    # as JSON (/usr/bin/plutil; with no plutil the key is kept) and holds exactly ONE
+    # https://auth.x.ai:: entry, as readAuth requires.
     _GROK_PREFIX=()
     _GROK_LEADER=()
     _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
@@ -678,7 +677,8 @@ if [ -z "$adopt" ]; then
       _GROK_SUB=0
     elif [ -r "$_GROK_KEYF" ] && grep -q '[^[:space:]]' "$_GROK_KEYF" 2>/dev/null; then
       _GROK_SUB=0
-    elif [ -r "${_GROK_ACCT}/auth.json" ]; then
+    elif [ -r "${_GROK_ACCT}/auth.json" ] && [ -x /usr/bin/plutil ] \
+      && /usr/bin/plutil -convert json -o /dev/null -- "${_GROK_ACCT}/auth.json" >/dev/null 2>&1; then
       _entries="$(grep -o '"https://auth\.x\.ai::' "${_GROK_ACCT}/auth.json" 2>/dev/null | wc -l | tr -d ' ')"
       [ "$_entries" = 1 ] && _GROK_SUB=1
       unset _entries

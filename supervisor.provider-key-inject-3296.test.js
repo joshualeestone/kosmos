@@ -252,6 +252,7 @@ test('grok: an auth.json that is not ONE auth.x.ai entry is not a subscription, 
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: '{}' })), 'an empty {} keeps the key');
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': {}, 'https://auth.x.ai::b': {} }) })), 'two entries keep the key');
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://other.example::a': {} }) })), 'another issuer keeps the key');
+  assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: '{"https://auth.x.ai::a":{"email":' })), 'ONE entry in a file that does not parse keeps the key (readAuth would not describe it)');
   // CONTROL: exactly one entry strips, through the same fixture path.
   assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e' } }) })));
 });

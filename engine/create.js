@@ -3587,24 +3587,25 @@ async function accountConnectable({ provider, accountDir } = {}) {
      launch environment, the same fail-open createAgentInner documents for it. An unknown
      dir is createAgentInner's to refuse. */
   if (prov === 'google' || prov === 'xai') {
+    const failOpenK = (where, err) => {
+      console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);
+      return { ok: true };
+    };
     /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
        board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
     if (!dir && prov === 'xai') {
-      let def = null;
-      try { def = require('./grokaccounts').list().find((a) => a.isDefault && a.authMode === 'subscription') || null; } catch { def = null; }
+      const grok = require('./grokaccounts');
+      let def;
+      try { def = grok.list().find((a) => a.isDefault && a.authMode === 'subscription') || null; } catch (err) { return failOpenK('Grok.list (default)', err); }
       if (!def) return { ok: true };
-      let dlive = null;
-      try { dlive = await require('./grokaccounts').checkLive(def.dir); } catch { return { ok: true }; }
-      if (dlive && dlive.state === 'none') {
+      let dlive;
+      try { dlive = await grok.checkLive(def.dir); } catch (err) { return failOpenK('Grok.checkLive (default)', err); }
+      if (dlive && dlive.state === NONE) {
         return { ok: false, because: 'That Grok sign-in has expired, so an agent created on it could not run. Sign in again in Settings, AI Models.' };
       }
       return { ok: true };
     }
     if (!dir) return { ok: true };
-    const failOpenK = (where, err) => {
-      console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);
-      return { ok: true };
-    };
     const mod = require(prov === 'google' ? './geminiaccounts' : './grokaccounts');
     const word = prov === 'google' ? 'Gemini' : 'Grok';
     const vendor = prov === 'google' ? 'Google' : 'xAI';
