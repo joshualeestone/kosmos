@@ -68,7 +68,7 @@ async function cli(port, args) {
     const { stdout } = await run(CLI, args, { env, timeout: 15000 });
     return { stdout, code: 0 };
   } catch (e) {
-    if (!e || typeof e.code !== 'number') throw new Error('the CLI gave no exit code (' + ((e && (e.signal || e.code)) || 'unknown') + '): killed by the harness timeout or never started.');
+    if (!e || typeof e.code !== 'number') throw new Error('the CLI gave no exit code (' + ((e && (e.signal || e.code)) || 'unknown') + '): killed by the harness timeout, over the output buffer, or never started.');
     return { stdout: e.stdout || '', code: e.code };
   }
 }

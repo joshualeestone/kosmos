@@ -28,7 +28,7 @@ const { execFile } = require('node:child_process');
 function harness(file, args, opts) {
   return new Promise((resolve, reject) => {
     execFile(file, args, opts, (err, stdout, stderr) => {
-      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '' });
     });
   });
@@ -59,14 +59,20 @@ test('#3628 CONTRAST: why the harness rejects rather than returning a sentinel',
   assert.notEqual(sentinel, 0, 'a sentinel still satisfies "it failed" assertions, so it is not enough');
 });
 
-test('#3628: no test file defaults a missing exit code to a number', () => {
+test('#3628: no test file reads a missing exit code as a number or null (the spellings below)', () => {
   // Any numeric fallback for a missing code (0, 1, -1, ...): `typeof x.code === 'number'
   // ? x.code : 0`, `x.code ?? 1`, `x.code || -1` (x = err, e or error). Every sentinel
   // has the notEqual(code, 0) flaw, so none is allowed.
   const UNSAFE = /typeof (err|e|error)\.code === 'number'\s*\)?\s*\?\s*\1\.code\s*:\s*-?\d+\b|\b(?:err|e|error)\.code\s*(?:\?\?|\|\|)\s*-?\d+\b/;
-  // `err ? err.code : 0` is safe ONLY after the reject line: alone, a kill gives null,
-  // which passes notEqual(code, 0) just like a sentinel would.
-  const BARE = /\berr \? err\.code : 0\b/;
+  // An exit code taken bare from an exec error (`code: err ? err.code ...`, `code: e && e.code`,
+  // `const code = err ? err.code ...`) is safe ONLY right after a check that it is a
+  // number: alone, a kill gives null, which passes notEqual(code, 0) just like a sentinel
+  // would. Checked per call site, not per file. Scoped to a `code` key or variable and the
+  // exec-error names, so typed-error checks (`e && e.code === 'ENOENT'`) and HTTP results
+  // (`code: last && last.code`) are not exit codes and are not flagged.
+  const BARE = /\bcode\s*[:=]\s*\(?\s*(err|e|error)\s*(?:\?|&&)\s*\1\.code\b/g;
+  const bareUnchecked = (src) => [...src.matchAll(BARE)].filter((m) =>
+    !src.slice(Math.max(0, m.index - 400), m.index).includes('typeof ' + m[1] + ".code !== 'number'"));
   const REJECTS = 'the CLI gave no exit code (';
   // Positive controls: the pattern matches every spelling it guards against.
   const Z = '0', O = '1';
@@ -79,6 +85,15 @@ test('#3628: no test file defaults a missing exit code to a number', () => {
   ]) assert.match(sample, UNSAFE, sample);
   // Negative control: the guarded harness form is not flagged by UNSAFE.
   assert.doesNotMatch('resolve({ code: err ? err.code : ' + Z + ', stdout });', UNSAFE);
+  // Per-site controls: each unguarded spelling is flagged, the guarded form is not, and a
+  // guarded site does not vouch for a second unguarded one in the same file.
+  for (const sample of ['code: err ? err.code : ' + Z, 'code: e ? e.code : ' + Z, 'code: err ? err.code : ' + O, 'code: err && err.code,'])
+    assert.equal(bareUnchecked(sample).length, 1, sample);
+  const guardedSite = "if (err && typeof err.code !== 'number') { reject(e); return; }\n      resolve({ code: err ? err.code : " + Z + ' });';
+  assert.equal(bareUnchecked(guardedSite).length, 0);
+  assert.equal(bareUnchecked(guardedSite + '\n' + 'x'.repeat(500) + '\nresolve({ code: err ? err.code : ' + Z + ' });').length, 1);
+  for (const notExit of ["(e) => e && e.code === 'ENOENT'", 'code: last && last.code', "(e && e.code || 'read error')"])
+    assert.equal(bareUnchecked(notExit).length, 0, notExit);
   const dirs = [__dirname, path.join(__dirname, 'engine')];
   const files = [];
   for (const d of dirs) for (const f of fs.readdirSync(d)) if (f.endsWith('.test.js')) files.push(path.join(d, f));
@@ -89,7 +104,8 @@ test('#3628: no test file defaults a missing exit code to a number', () => {
     if (f === self) continue;
     const src = fs.readFileSync(f, 'utf8');
     if (UNSAFE.test(src)) bad.push(path.relative(__dirname, f));
-    if (BARE.test(src) && !src.includes(REJECTS)) bad.push(path.relative(__dirname, f) + ' (err.code without the reject line)');
+    const unchecked = bareUnchecked(src);
+    if (unchecked.length) bad.push(path.relative(__dirname, f) + ' (' + unchecked.length + ' unchecked x.code)');
     if (src.includes(REJECTS)) guarded++;
   }
   assert.deepEqual(bad, [], 'these files default a missing exit code to a number');

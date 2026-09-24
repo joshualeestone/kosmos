@@ -52,7 +52,7 @@ function stubOpen(exitCode) {
 function runOpen(env) {
   return new Promise((resolve, reject) => {
     execFile('bash', [CLI, 'open'], { env, timeout: 20000 }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, out: stdout, err: stderr });
     });
   });

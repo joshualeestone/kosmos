@@ -46,7 +46,7 @@ function runAgents(tmuxBin) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, AGENT_WORKFORCE_TMUX_BIN: tmuxBin };
     execFile(CLI, ['agents'], { env, timeout: 15000 }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
   });
