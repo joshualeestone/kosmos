@@ -10,10 +10,10 @@ Josh, 16:04-16:06 CDT (#admin, relayed on #3034):
    get set up"), says plainly it is an AI version of Josh and never claims to be him or promises he will read
    anything; hands-off (shows, never changes settings or creates agents); the ring in the tips' exact words; the
    start order from the #3034 draft; and the context-aware section replacing "you cannot see their screen".
-   **Hands-off is a SWITCH, not a settled rule** (`roles.SETUP_HANDS_OFF`, default true): Mona's bubble mock has the guide
-   acting for the person, and Josh's reaction to the mock decides (Splinter, 17:55). The test pins only that the switch
-   alone decides whether the line is there. Default hands-off because no mechanism for acting exists yet; acting would be
-   the bubble's, not the guide's.
+   **Hands-off is a SWITCH, not a settled rule** (`roles.SETUP_HANDS_OFF`, true for now): Josh said "I love it" (18:02) about
+   Mona's mock, which shows the guide acting; Splinter's call is hands-on approved in direction, built once the bubble can
+   really act. Until then the switch stays on, because nothing can act yet. The test pins only that the switch alone decides
+   whether the line is there.
    The label that renders with the name is "Josh's AI, Kosmos setup guide"; the opening line says "this is Josh's AI".
 2. **No summary files for `setup`** (`roles.NO_SUMMARY`): it answers questions and has no queue to summarise.
 3. **Seed as Josh, not the user** (`engine/setup-assistant.js`): `GUIDE_NAME = 'Josh'`, `GUIDE_TAG = "Josh's AI"`,

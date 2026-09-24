@@ -8,11 +8,13 @@ const defaults = require('./defaults');
 const PAGE_FILE = 'kosmos-page.md';
 
 /* #3034: whether the setup guide only SHOWS people how (true) or may act for them.
-   NOT SETTLED. Renet recommended hands-off on the card; Mona's bubble mock has the
-   guide acting ("I'll open New agent and fill in what I can"), and Josh's reaction to
-   that mock decides (Splinter, 2026-09-24 17:55). Hands-off is the default only because
-   no mechanism for acting exists yet: the guide cannot drive the page, the bubble
-   would. Flip here, and nowhere else, when he rules. */
+   Josh, 2026-09-24 18:02, on Mona's bubble mock, which shows the guide acting ("I'll
+   open New agent and fill in what I can"): "I love it." Splinter's call on the card:
+   hands-on is approved in DIRECTION, built once the bubble can really do those
+   actions; until then this stays true and the guide shows how, because nothing can
+   act yet (the guide cannot drive the page, the bubble would). Flip here, and nowhere
+   else, in the change that gives the bubble its actions. Weakest premise (Splinter's):
+   "I love it" may have been about the look, not the behaviour. */
 const SETUP_HANDS_OFF = true;
 const HANDS_OFF_LINES = [
   '- You never change their settings yourself, and you never create agents for',
