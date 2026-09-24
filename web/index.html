@@ -43641,16 +43641,15 @@ async function pjPostSend(attachment) {
   /* Files with no words go as their names (the card hides the duplicate).
      The text is read AFTER that, or an empty body goes out under a box that
      visibly holds the names. */
-  if (!input.value.trim() && pendingIds.length) {
-    input.value = attachList(ATTACH_ROOM).map((r) => r.name).join(', ');
-    /* #2922: this sets #pj-post.value directly, so route it through pjGrowComposer like every other
-       programmatic value-set -- it grows the box to the filenames AND repaints the live-mention
-       mirror. Without it the mirror is left stale (blank) under the injected names while
-       .mention-live keeps the textarea text transparent, so the composer would look empty while
-       holding real text about to post. */
-    pjGrowComposer(input);
-  }
+  if (!input.value.trim() && pendingIds.length) input.value = attachList(ATTACH_ROOM).map((r) => r.name).join(', ');
   const text = input.value;
+  /* #2922: the attach-only fill above sets #pj-post.value directly with no input event, so repaint
+     the live-mention mirror or it is left stale (blank) under the injected filenames while
+     .mention-live keeps the textarea text transparent -- the composer would look empty while holding
+     real text about to post. pjGrowComposer grows the box AND repaints; cheap and idempotent, and the
+     guard keeps it to attach sends. Placed AFTER `text` is read so the fill stays adjacent to its
+     capture (the room reads its text after the names are substituted in). */
+  if (pendingIds.length) pjGrowComposer(input);
   if (!text.trim()) { msg.textContent = 'Say something first.'; pjRoomAnnounce('Say something first.'); return; }
   /* The flight can outlive the page state (a fan-out is seconds of tmux
      per recipient), so the sibling composer's discipline applies whole:

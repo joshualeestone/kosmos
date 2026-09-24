@@ -159,6 +159,10 @@ test('the attach-only filename auto-fill repaints the mirror (no stale/blank mir
   // while holding the filenames it is about to post.
   const at = PAGE.indexOf('input.value = attachList(ATTACH_ROOM).map((r) => r.name)');
   assert.ok(at > 0, 'the attach-only filename fill must exist in pjPostSend');
-  assert.match(PAGE.slice(at, at + 700), /pjGrowComposer\(input\)/,
-    'the attach-only filename fill must be followed by pjGrowComposer(input) to repaint the mirror');
+  // Bound the search from the fill to the start of the send (PJ_POSTING = true), so the check is
+  // robust to comment length rather than a fixed char window.
+  const posting = PAGE.indexOf('PJ_POSTING = true;', at);
+  assert.ok(posting > at, 'PJ_POSTING = true must follow the fill in pjPostSend');
+  assert.match(PAGE.slice(at, posting), /pjGrowComposer\(input\)/,
+    'the attach-only fill must be followed, before the send begins, by pjGrowComposer(input) to repaint the mirror');
 });
