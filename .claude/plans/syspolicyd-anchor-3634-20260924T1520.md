@@ -19,9 +19,12 @@ hangs (the Agent1s stalls, #3582).
 Off Windows the arm never creates the binary: the anchored file is a text stand-in, and the process
 runs on the original `process.execPath`. The lock this arm exercises is Windows-only (its control is
 win32-gated), so no Mac coverage is lost; the swap path still runs. With no Mach-O in the anchor the
-crash is impossible by construction, whatever later edits exec. The arm asserts, before its
-spawn, that off Windows the anchored file is not a Mach-O (thin or fat magic): a behavioural guard,
-not a source-text pin (an earlier same-line pin false-positived on safe refactors). Scope: this arm
+crash cannot happen. Two assertions guard it, before the spawn: off Windows the spawned path is not
+the anchored path (the exec half, the real invariant), and the anchored file is not a Mach-O (the
+stand-in half, which catches an edit inside that branch). They replace an earlier same-line source
+pin, which false-positived on safe refactors. Rollout: the hazard lives in every worktree behind
+this merge (the log showed six anchor execs from other checkouts at 15:34 to 15:37), so merge fast
+and tell the fleet. Scope: this arm
 only. The repo's other `copyFileSync(process.execPath` tests are safe because each is skipped off
 Windows, not because of this guard. The
 "old process keeps running" assertion is now Windows-only (off Windows it could not fail).

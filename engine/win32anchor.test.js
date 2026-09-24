@@ -59,7 +59,7 @@ test('#570 the anchor FOLLOWS store.js for the app directory name', () => {
     'the anchor must use store.js\'s name for the app directory, not a copy of it');
 });
 
-/* Every sandbox is removed after the run, pass or fail: the running-interpreter
+/* Every sandbox is removed after the run, pass or fail: on Windows the running-interpreter
    arm puts a real 92 MB node.exe in one. */
 const sandboxes = [];
 function tmp() {
@@ -369,12 +369,11 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
     fs.copyFileSync(process.execPath, nodeAt);
   } else {
     fs.writeFileSync(nodeAt, 'the running interpreter, stood in for off Windows', 'utf8');
-    /* The guard for the above, by behaviour rather than by source text: off Windows the anchor
-       must hold no Mach-O (thin 0xfeedfacf/0xcffaedfe or fat 0xcafebabe), so nothing here can
-       exec a binary that the swap then replaces (#3634). Checked before the spawn below. */
+    /* Guard the stand-in against an edit inside this branch: off Windows the anchor must hold no
+       Mach-O (thin or fat, 32 or 64 bit). The exec half is guarded at the spawn below (#3634). */
     const magic = fs.readFileSync(nodeAt).subarray(0, 4).toString('hex');
-    assert.ok(!['cffaedfe', 'feedfacf', 'cafebabe', 'bebafeca', 'cefaedfe', 'feedface'].includes(magic),
-      'off Windows the anchored interpreter must not be a real binary (#3634), got magic ' + magic);
+    assert.ok(!['cffaedfe', 'feedfacf', 'cefaedfe', 'feedface', 'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca'].includes(magic),
+      'off Windows the anchored interpreter must not be a Mach-O (#3634), got magic ' + magic);
   }
   const src = path.join(dir, 'src-node.exe');
   fs.writeFileSync(src, 'a different Node version, stood in for by a different size', 'utf8');
@@ -382,6 +381,8 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
   /* On Windows the process runs ON the anchored copy, so its lock is real. Elsewhere it runs on
      the original interpreter: the anchored path holds only a text stand-in (#3634). */
   const runOn = process.platform === 'win32' ? nodeAt : process.execPath;
+  /* THE invariant that removes the #3634 hazard: off Windows nothing execs the anchored path. */
+  if (process.platform !== 'win32') assert.notEqual(runOn, nodeAt, 'off Windows the arm must not exec the anchored interpreter (#3634)');
   const running = cp.spawn(runOn, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   const stillRunning = () => running.exitCode === null && running.signalCode === null;
   try {
@@ -401,8 +402,6 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
     if (process.platform === 'win32') {
       /* Only meaningful where the process runs ON the anchored file (#3634). */
       assert.ok(stillRunning(), 'a process running on the old interpreter keeps running');
-    }
-    if (process.platform === 'win32') {
       assert.equal(retiredFiles(runtime).length, 1,
         'while a process runs on it, the old interpreter waits beside the new one: ' + sideFiles(runtime));
     }
