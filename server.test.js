@@ -14605,3 +14605,60 @@ test('#2811: a LIVE pane marker beats the record on the board row, so a mid-swit
     try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
   }
 });
+
+/**
+ * #3650: the person reacts to an agent's message in a Direct Message. The react route
+ * toggles it on the message, the thread read carries the pills, and the person's NEXT
+ * message tells the agent once, as a `[kosmos]` note typed after their words.
+ */
+test('#3650: a DM reaction is stored, shown, and told to the agent once with the next message', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('lena', { state: 'idle', displayName: 'Lena' })]);
+  const AT = '2026-09-24T21:00:00.000Z';
+  try {
+    chatEngine.appendMessage(chatEngine.DIRECT, 'lena', { text: 'Done with the login fix', from: 'lena', at: AT });
+    const react = (body) => req('/api/agent/lena/thread/react', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    const on = await react({ at: AT, emoji: '👍' });
+    assert.equal(on.status, 200, on.body);
+    assert.deepEqual(JSON.parse(on.body).reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
+    const missing = await react({ at: '2026-01-01T00:00:00.000Z', emoji: '👍' });
+    assert.equal(missing.status, 400, 'a reaction to no message must be refused');
+    const junk = await react({ at: AT, emoji: 'ok' });
+    assert.equal(junk.status, 400, 'a non-emoji must be refused');
+
+    const read = JSON.parse((await req('/api/agent/lena/thread')).body);
+    const row = (read.messages || []).find((m) => m.at === AT);
+    assert.ok(row, 'the reacted message is not in the thread');
+    assert.deepEqual(row.reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
+
+    const sends = [];
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+    const say = (text) => req('/api/agent/lena/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+
+    const first = await say('thanks');
+    assert.ok([200, 202].includes(first.status), first.body);
+    const typed1 = pastedChunks(sends).join('');
+    assert.ok(typed1.includes('thanks [kosmos] reactions from the person since your last message here: 👍 on your message "Done with the login fix"'),
+      'the note did not ride the message: ' + typed1);
+
+    sends.length = 0;
+    const second = await say('one more thing');
+    assert.ok([200, 202].includes(second.status), second.body);
+    const typed2 = pastedChunks(sends).join('');
+    assert.ok(typed2.includes('one more thing'), 'the second message was not typed: ' + typed2);
+    assert.equal(typed2.includes('[kosmos] reactions'), false, 'a reaction was told twice: ' + typed2);
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
