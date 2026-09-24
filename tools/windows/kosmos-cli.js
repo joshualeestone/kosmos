@@ -79,7 +79,7 @@ const WRONG_WORLD_STATUS = 421;
 const USAGE = {
   msg: 'Usage: kosmos msg <agent> <what you want to tell them>',
   reply: 'Usage: kosmos reply <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated)',
-  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)',
+  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955)',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
@@ -174,7 +174,7 @@ const STDIN_QUIET_LIMIT_MS = 3000;
  *   writes to can never hang the command.
  * `stream` and `quietMs` are also the seams a test drives.
  */
-function readStandardInput(stream, quietMs) {
+function readStandardInput(stream, quietMs, maxBytes) {
   const input = stream || process.stdin;
   if (input.isTTY) return Promise.resolve({ text: '', ended: false });
   const limit = quietMs || STDIN_QUIET_LIMIT_MS;
@@ -182,6 +182,8 @@ function readStandardInput(stream, quietMs) {
     const chunks = [];
     let timer = null;
     let done = false;
+    let total = 0;
+    let overflow = false;
     const finish = (ended) => {
       if (done) return;
       done = true;
@@ -190,10 +192,18 @@ function readStandardInput(stream, quietMs) {
       /* Let go of the pipe: a read still pending on it keeps this process alive. */
       input.pause();
       if (typeof input.destroy === 'function') input.destroy();
+      if (overflow) { resolve({ text: '', ended: false, overflow: true }); return; }
       resolve({ text: Buffer.concat(chunks).toString('utf8').replace(BYTE_ORDER_MARK_AT_START, ''), ended });
     };
     const restartQuietTimer = () => { clearTimeout(timer); timer = setTimeout(() => finish(false), limit); };
-    function onData(chunk) { chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))); restartQuietTimer(); }
+    function onData(chunk) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      total += buf.length;
+      /* #2909: an optional cap, so a caller with a hard limit never holds an accidental huge pipe. */
+      if (maxBytes && total > maxBytes) { overflow = true; chunks.length = 0; finish(false); return; }
+      chunks.push(buf);
+      restartQuietTimer();
+    }
     input.on('data', onData);
     input.once('end', () => finish(true));
     input.once('error', () => finish(false));
@@ -211,11 +221,12 @@ const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text
    up to two minutes of silence: long past a slow listing, and still a sentence
    rather than a hang when the pipe never closes. The usage text states it (the
    parity test pins the number there). */
-const CARDS_STDIN_QUIET_LIMIT_MS = 120000;
+const CARDS_STDIN_QUIET_LIMIT_MS = 120000;   /* also post --stdin's limit (#2909): both read piped commands that can be slow to start */
 
 /* A report that arrived and then stopped without the input ending may be a slow
    writer cut short, so it is refused whole rather than saved in part (review round 2). */
 const FEEDBACK_WRITE_NOT_ENDED = 'Nothing was saved: the piped report stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass the report as an argument instead: kosmos feedback write "<the report>"';
+const POST_BODY_MAX_BYTES = 6 * 1024 * 1024; /* #2909: the board's request-READ limit (server.js MAX_UPLOAD); the room's text cap is lower and refuses with its own reason */
 
 // ── the verbs ───────────────────────────────────────────────────────────────
 // Each handler is (ctx, args) -> exit code. `ctx` is built once per run in main.
@@ -256,15 +267,19 @@ async function verbPost(ctx, args) {
     ctx.err('Text only for now: kosmos post <project-id> <text>');
     return 2;
   }
-  // #2908 --no-reply and #3224 --in-reply-to are LEADING flags in any order, matching
+  // #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags in any order, matching
   // install/kosmos (the parity this second CLI must keep). --no-reply marks a post an
   // acknowledgement (reply_expected:false); --in-reply-to <id> binds the answer to the
   // room the cited message came from, so the server refuses if the target project
-  // differs (the misroute #3224 catches). Each sent only when present.
+  // differs (the misroute #3224 catches). Each sent only when present. --stdin reads the
+  // message from standard input, so backticks and $ arrive as written instead of being
+  // interpreted by the shell first.
   let noReply = false;
   let inReplyTo = '';
+  let fromStdin = false;
   for (;;) {
     if (args[0] === '--no-reply') { noReply = true; args.shift(); continue; }
+    if (args[0] === '--stdin') { fromStdin = true; args.shift(); continue; }
     if (args[0] === '--in-reply-to') {
       args.shift();
       inReplyTo = args.shift() || '';
@@ -284,19 +299,72 @@ async function verbPost(ctx, args) {
     break;
   }
   const project = args.shift();
-  const text = args.join(' ');
+  let text = args.join(' ');
+  /* #2909: a --stdin after the project would post the literal word and drop the piped message. */
+  if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come before the project id: kosmos post --stdin <project-id>, with the message piped in.'); return 2; }
+  if (fromStdin) {
+    if (!project) { ctx.err(USAGE.post); return 2; }
+    if (args.length) { ctx.err('Give the message on stdin OR as arguments, not both: kosmos post --stdin <project-id>, with the message piped in.'); return 2; }
+    /* The long limit feedback triage uses: a command piped in (gh, git log) can be slow to start. */
+    const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
+    if (piped.overflow) { ctx.err('Nothing was posted: the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Post a summary, or split it.'); return 2; }
+    /* Drop C0 controls other than tab/LF/CR, and DEL, as install/kosmos does (colored tool
+       output carries ESC); then the trailing CR/LF run. */
+    text = String(piped.text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+    let end = text.length;
+    while (end > 0 && (text[end - 1] === '\n' || text[end - 1] === '\r')) end--;
+    text = text.slice(0, end);
+    if (!text.trim()) {
+      ctx.err('--stdin reads the message from a pipe or file, and nothing was piped in: kosmos post --stdin <project-id>, with the message piped in.');
+      ctx.err(POWERSHELL_PIPE_NOTE);
+      return 2;
+    }
+    /* Same guard as feedback write: a pipe that went quiet without ending may be cut short, and a
+       partial post is worse than none (it cannot be taken back once the room has it). */
+    if (!piped.ended) { ctx.err('Nothing was posted: the piped message stopped arriving for ' + (CARDS_STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save the output to a file first, then: kosmos post --stdin <project-id> < file'); return 2; }
+  }
   if (!project || !text) { ctx.err(USAGE.post); return 2; }
   const body = { project, text, from_pane: '' };
   if (noReply) body.reply_expected = false;
   if (inReplyTo) body.in_reply_to = inReplyTo;
+  /* #2909: a piped message may have no other copy, so a failure after the read keeps it in a
+     private file and names the path. A no-op without --stdin. */
+  const keepPiped = () => {
+    if (!fromStdin) return;
+    const fs = require('fs'); const os = require('os'); const path = require('path');
+    let dir = '';
+    try {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-post-unsent-'));
+      const file = path.join(dir, 'message.txt');
+      fs.writeFileSync(file, text, { mode: 0o600 });
+      ctx.err('The piped message was not sent; it is saved at ' + file);
+    } catch (e) {
+      if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ } }
+      ctx.err('The piped message was not sent, and we could not save a copy of it.');
+    }
+  };
+  /* The board drops a request body over its limit, which would read as unreachable; measured on the
+     encoded body, as install/kosmos does. */
+  if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
-  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.') : ctx.unreachable('post that');
-  if (ctx.wrongWorld(r)) return ctx.keepForLater('post', body);
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (!r.reached) {
+    if (r.timedOut) return maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.');
+    const code = ctx.unreachable('post that');
+    keepPiped();
+    return code;
+  }
+  if (ctx.wrongWorld(r)) {
+    let kept = 1;
+    try { kept = ctx.keepForLater('post', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
+    if (kept !== 0) keepPiped();   /* #2909: the outbox refused it (e.g. too long); keep a piped message */
+    return kept;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
   if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
   ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
+  keepPiped();
   return 1;
 }
 
@@ -674,7 +742,7 @@ async function main(argv, io) {
     err,
     call,
     outbox,
-    readStdin: o.readStdin || ((quietMs) => readStandardInput(undefined, quietMs)),
+    readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
