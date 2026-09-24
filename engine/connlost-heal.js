@@ -18,7 +18,7 @@
  *    error row is the latest thing on screen; any later retry row or output supersedes it);
  *  - a connectivity probe succeeds (the caller's `probe`), so a nudge is not wasted while the
  *    network is still down;
- *  - fewer than MAX_NUDGES nudges inside WINDOW_MS. Past that it ESCALATES: no more nudges, a log
+ *  - fewer than MAX_NUDGES nudges in this outage. Past that it ESCALATES: no more nudges, a log
  *    line, and the card stays connection_lost, which heartbeat already surfaces to a person.
  *
  * The planner is PURE and the executor is injected, so tests drive both without touching a real
@@ -27,9 +27,12 @@
 
 const MIN_SWEEPS = 2;
 const MAX_NUDGES = 3;
+// The budget is MAX_NUDGES per OUTAGE, not per rolling window: a retry cycle that reads WORKING
+// for longer than a window would otherwise earn a fresh nudge every cycle, forever. An outage
+// ends (the history is dropped) only when the agent has not been lost for RECOVERED_MS AND the
+// newest nudge is at least WINDOW_MS old. A nudge makes Claude Code retry, and a retry reads
+// WORKING, so a short spell of not-lost is not a recovery.
 const WINDOW_MS = 30 * 60 * 1000;
-// A nudge makes Claude Code retry, and a retry reads WORKING, so a short spell of not-lost is
-// not a recovery. History (nudges, escalation) is dropped only after this much time not lost.
 const RECOVERED_MS = 10 * 60 * 1000;
 const NUDGE_TEXT = 'Your connection to the API is back. Please retry what you were doing.';
 
@@ -40,16 +43,12 @@ const NUDGE_TEXT = 'Your connection to the API is back. Please retry what you we
  */
 function planHeal(entry, now, probeOk) {
   if (!entry || entry.evidence == null) return { act: 'none', because: 'not connection_lost' };
-  // Escalation is sticky until a sustained recovery clears the entry: a window rolling over
-  // must not restart the nudges on an agent that three nudges did not fix.
+  // Escalation is sticky until the outage ends and the entry is cleared (see WINDOW_MS).
   if (entry.escalated) return { act: 'escalate', because: 'already escalated; waiting for a person or a real recovery' };
-  const nudges = Array.isArray(entry.nudges) ? entry.nudges : null;
-  const nowBad = !Number.isFinite(now);
   // Corrupt history counts as fully used, so it escalates rather than nudging again.
-  const recent = nudges === null ? MAX_NUDGES
-    : nudges.filter((t) => nowBad || !Number.isFinite(t) || (now - t) < WINDOW_MS).length;
-  if (recent >= MAX_NUDGES) {
-    return { act: 'escalate', because: `nudged ${recent} time(s) within ${WINDOW_MS}ms and it is still connection_lost` };
+  const used = Array.isArray(entry.nudges) ? entry.nudges.length : MAX_NUDGES;
+  if (used >= MAX_NUDGES) {
+    return { act: 'escalate', because: `nudged ${used} time(s) in this outage and it is still connection_lost` };
   }
   if (!(Number.isInteger(entry.sweeps) && entry.sweeps >= MIN_SWEEPS)) {
     return { act: 'wait', because: `connection_lost on ${entry.sweeps} sweep(s); waiting for ${MIN_SWEEPS} with the same error line` };
@@ -95,9 +94,11 @@ async function sweepOnce(o) {
       const prev = book.get(session);
       if (!prev) continue;
       // Not lost right now. Keep the history (a nudge's own retry reads WORKING) and drop it only
-      // after RECOVERED_MS of not being lost.
+      // when the outage has ended (see WINDOW_MS).
       const okSince = Number.isFinite(prev.okSince) ? prev.okSince : now;
-      if (now - okSince >= RECOVERED_MS) { book.delete(session); continue; }
+      const nudges = Array.isArray(prev.nudges) ? prev.nudges : [];
+      const lastNudge = nudges.reduce((m, t) => (Number.isFinite(t) && t > m ? t : m), -Infinity);
+      if (now - okSince >= RECOVERED_MS && now - lastNudge >= WINDOW_MS) { book.delete(session); continue; }
       book.set(session, { ...prev, evidence: null, sweeps: 0, okSince });
       continue;
     }
@@ -125,7 +126,7 @@ async function sweepOnce(o) {
     catch (err) { state = 'threw: ' + String((err && err.message) || err); }
     const delivered = !!(o.DELIVERY && state === o.DELIVERY.PLACED); // unconfirmed/could_not are not claimed as delivered
     results.push({ session, name: display, act: 'nudge', delivered, because: plan.because, delivery: state });
-    if (log) { try { log({ name: display, session, act: 'nudge', delivered, because: plan.because }); } catch { /* never breaks a sweep */ } }
+    if (log) { try { log({ name: display, session, act: 'nudge', delivered, delivery: state, because: plan.because }); } catch { /* never breaks a sweep */ } }
   }
   for (const key of [...book.keys()]) if (!seen.has(key)) book.delete(key); // left the roster
   return { results };

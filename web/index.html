@@ -15237,9 +15237,9 @@ const STATE_COPY = {
   auth_failed:  { label: "Sign-in isn't working", attn: true  },
   /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
      connection to the API, distinct from auth_failed (the account is fine).
-     An attention state, but a RECOVERABLE one: it is the kind of thing a restart
-     fixes once connectivity returns (the #3410 self-heal that will auto-restart
-     it is a follow-on PR, not built here -- this PR surfaces the state). Named its
+     An attention state, but a RECOVERABLE one: it is the kind of thing a retry
+     fixes once connectivity returns (the #3410 self-heal, engine/connlost-heal.js,
+     types a retry nudge into the agent when the network is back). Named its
      own label rather than folded into "Can't tell": the whole point of #3410 is to
      replace that opaque UNKNOWN with a state that says what happened. */
   connection_lost: { label: 'Connection lost', attn: true },
@@ -15298,8 +15298,8 @@ const CARD_ST = {
   /* #3410: wears the same quiet "paused" pack shape as auth_failed -- work is
      stopped by something the agent cannot get past on its own, but the process
      is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
-     red because it is recoverable (a restart on connectivity return will heal it;
-     that self-heal is a #3410 follow-on PR, not built here); a louder treatment,
+     red because it is recoverable (the #3410 self-heal, engine/connlost-heal.js,
+     nudges it to retry when the network is back); a louder treatment,
      if wanted, is a design call for whoever owns the pack, not decided here. */
   connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
@@ -25076,8 +25076,8 @@ let START_FLIGHT = null;
    that it exists (#3410), deliberately does NOT fall under this gate: it ships
    pres:'on' because the Claude PROCESS is still up (it just cannot reach the
    API), and pres:'off' is reserved for 'stopped' (it gates plannedModelName).
-   Recovery for connection_lost is the #3410 self-heal (auto-restart on
-   connectivity return, a follow-on PR), not this Start button; a manual
+   Recovery for connection_lost is the #3410 self-heal (engine/connlost-heal.js
+   nudges the agent to retry on connectivity return), not this Start button; a manual
    "Reconnect" affordance, if ever wanted, would need its own gate rather than
    pres:'off'. */
 function refreshStartAffordance(a) {

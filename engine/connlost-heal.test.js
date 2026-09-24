@@ -29,7 +29,7 @@ const WEDGED = ['❯ reply with exactly the word PINEAPPLE',
   '✻ Cogitated for 3m 6s · done 5:17 PM', RULE, '❯ ', RULE, '  work · Opus 5.5'].join('\n');
 const rosterFor = (screen, state) => fleet.install([fleet.agent('mara', { screen, state })]).agents;
 const lost = () => rosterFor(WEDGED, 'connection_lost');
-const other = (n) => rosterFor(WEDGED.replace('ECONNREFUSED', 'ECONNREFUSED ' + n), 'connection_lost');
+const other = (n) => rosterFor(WEDGED.replace('ECONNREFUSED', 'ECONNREFUSED_' + n), 'connection_lost');
 const working = () => rosterFor(fleet.SCREEN.working, 'working');
 
 test('#3410 fixture: the captured wedged screen yields a real connection_lost card with evidence', () => {
@@ -111,7 +111,9 @@ test('#3410: history is dropped only after a sustained recovery', async () => {
   let t = 121000;
   for (let i = 0; i < 5; i += 1) { await sweep(h, rosterFor(fleet.SCREEN.idle, 'idle'), t); t += 60000; }
   assert.equal(h.book.size, 1, 'five idle minutes is not yet a recovery: the history is kept');
-  for (let i = 0; i < 7; i += 1) { await sweep(h, rosterFor(fleet.SCREEN.idle, 'idle'), t); t += 60000; }
+  for (let i = 0; i < 20; i += 1) { await sweep(h, rosterFor(fleet.SCREEN.idle, 'idle'), t); t += 60000; }
+  assert.equal(h.book.size, 1, 'kept until the last nudge is WINDOW_MS old, even after RECOVERED_MS idle');
+  for (let i = 0; i < 6; i += 1) { await sweep(h, rosterFor(fleet.SCREEN.idle, 'idle'), t); t += 60000; }
   assert.equal(h.book.size, 0, 'a sustained recovery must clear the history');
 });
 
@@ -198,4 +200,20 @@ test('#3410 makeTick: a throwing clock does not leave the tick stuck busy', asyn
     probe: async () => true, deliver: () => ({}), DELIVERY, now: () => { n += 1; if (n === 1) throw new Error('clock'); return 1000; } });
   assert.equal(tick(), null);
   assert.ok(tick(), 'the next tick still runs');
+});
+
+test('#3410: a retry cycle longer than RECOVERED_MS does not reset the nudge budget', async () => {
+  // Each nudge starts an 11-minute retry that reads WORKING and then fails again; without a
+  // nudge the pane stays wedged. Over three hours: exactly MAX_NUDGES nudges, then escalation.
+  const h = harness();
+  let t = 1000;
+  let retrying = 0;
+  for (let i = 0; i < 195; i += 1) {
+    const before = h.sent.length;
+    await sweep(h, retrying > 0 ? working() : lost(), t); t += 60000;
+    if (retrying > 0) retrying -= 1;
+    if (h.sent.length > before) retrying = 11;
+  }
+  assert.equal(h.sent.length, heal.MAX_NUDGES, `nudged ${h.sent.length} times across long retry cycles`);
+  assert.equal(h.book.get(lost()[0].sessionName).escalated, true);
 });

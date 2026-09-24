@@ -101,3 +101,16 @@ test('#3410: text in the input box itself (a draft or placeholder) does not supe
   const pane = WEDGED.replace('❯ \n', '❯ half-typed dra\n');
   assert.equal(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
 });
+
+test('#3410: an agent reply that starts with "API Error:" and goes on in prose is not Claude Code\'s error', () => {
+  const pane = ['❯ why did the deploy script fail?',
+    '⏺ API Error: Unable to connect to API (ECONNREFUSED) is what the deploy script printed; the',
+    '  staging proxy was down. I restarted it and the deploy now succeeds.',
+    '✻ Worked for 12s · done 5:20 PM', ...CHROME].join('\n');
+  assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});
+
+test('#3410: a tool-output row under the error is not joined into it', () => {
+  const pane = WEDGED.replace(ERR, '⏺ API Error: 529 Overloaded\n  ⎿  a firewall or proxy may be blocking it (ECONNREFUSED)');
+  assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});

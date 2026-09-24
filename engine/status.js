@@ -2082,12 +2082,18 @@ const API_ERROR_ROW = /^(?:[⏺●]\s+)?API Error:/u;
 // breaks its own long message text; the longest network message (~140 characters, the proxy
 // tunnel one) can take three rows on a narrow pane, so allow four.
 const API_ERROR_CONTINUATION_ROWS = 4;
+// How Claude Code's network messages END: an error code in parentheses, "Check your internet
+// connection" (optionally "and proxy settings"), or the proxy-tunnel message's "allows this host".
+// The joined error must end there. An agent's own reply that happens to start with "API Error:"
+// is drawn the same way ("⏺ " at column 0) but goes on with prose, so it does not end on one of
+// these. Residual: prose that itself ends on "(CODE)" still counts.
+const API_ERROR_MESSAGE_END = /(?:\([A-Z][A-Z0-9_]*\)|internet connection(?: and proxy settings)?|allows this host)\.?$/;
 function connectionLostAtTail(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
   let at = -1;
   let atJoined = '';
-  // Only Claude Code's own error row counts ("⏺ API Error: …", or bare "API Error: …"), never the
-  // agent's prose quoting the same words: that would read connection_lost on a healthy agent,
+  // Only Claude Code's own error row counts ("⏺ API Error: …", or bare "API Error: …", at column 0
+  // and ending the way its messages end), never the agent's prose quoting the same words: that would read connection_lost on a healthy agent,
   // and PR 2b's sweep types into panes that read connection_lost.
   // Claude Code breaks its own long error text onto indented continuation rows (not tmux soft
   // wraps, so capture-pane -J does not rejoin them), so the phrase is looked for on the error row
@@ -2095,10 +2101,10 @@ function connectionLostAtTail(tail) {
   for (let i = 0; i < rows.length; i += 1) {
     if (!API_ERROR_ROW.test(rows[i])) continue;
     let joined = rows[i];
-    for (let k = 1; k <= API_ERROR_CONTINUATION_ROWS && i + k < rows.length && /^\s{2,}\S/.test(rows[i + k]) && !/^\s*[⏺●❯›]/.test(rows[i + k]); k += 1) {
+    for (let k = 1; k <= API_ERROR_CONTINUATION_ROWS && i + k < rows.length && /^\s{2,}\S/.test(rows[i + k]) && !/^\s*[⏺●❯›⎿✻]/.test(rows[i + k]); k += 1) {
       joined += ' ' + rows[i + k].trim();
     }
-    if (CONNECTION_LOST_MESSAGE.test(joined)) { at = i; atJoined = joined; }
+    if (CONNECTION_LOST_MESSAGE.test(joined) && API_ERROR_MESSAGE_END.test(joined.trim())) { at = i; atJoined = joined; }
   }
   if (at === -1) return null;
   // Newer content supersedes it: agent output, or any later Claude Code error row (bulleted or
