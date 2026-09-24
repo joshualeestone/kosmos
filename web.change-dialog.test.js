@@ -135,12 +135,13 @@ test('#2716: both switch dialogs wire autoHelloOnSwitchRestart on a real restart
      cannot catch a regression that deletes or misorders the wiring at either call site.
      This pins it from source: both changeModelNow and changeProviderNow must call
      autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual) inside their
-     `if (restarted)` branch. `lift` captures each full body (verified: it reaches the call).
+     `if (restarted)` branch (`if (restarted && say)` in changeModelNow). `lift` captures each full body (verified: it reaches the call).
      A deleted or argument-swapped call reds here. The runtime guard/race behaviour of the
      helper itself is covered by docs/browser-checks/render-autohello-switch-2716.js. */
   for (const fn of ['changeModelNow', 'changeProviderNow']) {
     const body = lift(page.scriptOf(CURRENT_PAGE), 'async function ' + fn + '(');
-    assert.match(body, /if \(restarted\) autoHelloOnSwitchRestart\(forAgent, switchShown, provName, switchManual\);/,
+    // changeModelNow also requires `say` (with no dialog there is no line to confirm).
+    assert.match(body, /if \(restarted(?: && say)?\) autoHelloOnSwitchRestart\(forAgent, switchShown, provName, switchManual\);/,
       fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual) on a real restart');
     /* And the manual line the helper's content check compares against is the SAME string
        passed to say/tell -- built once as switchManual and handed to both -- so a reword

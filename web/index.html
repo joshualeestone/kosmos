@@ -36657,7 +36657,7 @@ async function changeModelNow(say) {
     const switchShown = agentShown();
     const switchManual = 'Say hello to ' + switchShown + ' to reactivate them on ' + provName + '.';
     if (say) say(restarted ? switchManual : (out.because || 'Changed.'), restarted);
-    if (restarted) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual);
+    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual);
     sel.value = '';
     await tick();
     /**
@@ -38870,17 +38870,26 @@ async function autoHelloAfterRestart(name, report, saidText, manualText, deliver
    lost. So the report now WAITS for the line: it checks every 100ms until the manual
    line appears, the dialog closes, the agent changes, or the hold plus a second has
    passed. This leaves changeDialog and its tuned timing untouched.
-   It cannot land in the wrong dialog: while the restart interstitial is up there is no
-   way out of the modal (keep is hidden, Escape is gated on the disabled button), so the
-   first time the manual line appears it was painted by this restart's own `say`. After
-   that, a reopen resets chg-msg, the content no longer matches, and it stands down. */
+   🛑 THE MATCHING LINE IS NOT PROOF IT IS THIS RESTART'S DIALOG. Switch the same agent
+   twice to the same provider and both dialogs paint the identical manual line, while the
+   first restart's report can still be waiting. Without a check it would write "said
+   hello" into the second dialog, for a hello sent to the session the second switch had
+   just replaced. So the report keeps its restart's token (RESTART_HELLO_SEQ, bumped
+   synchronously when autoHelloAfterRestart starts) and stands down once a newer restart
+   of this agent exists. The newer switch bumps it before or in the same turn as its own
+   paint, so a stale report never sees that paint. After this dialog, a reopen resets
+   chg-msg, the content no longer matches, and it stands down too. */
 const SWITCH_HELLO_RETRY_MS = 100;
 function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine) {
   const saidLine = 'Reactivated on ' + provName + ', and said hello to wake ' + shown + '.';
+  let mine = null;
   autoHelloAfterRestart(forAgent,
     (t) => {
-      const until = Date.now() + RESTART_HOLD_MS + 1000;
+      // The same hold changeDialog was given (the test seam included), plus a second.
+      const hold = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
+      const until = Date.now() + hold + 1000;
       const apply = () => {
+        if (mine !== RESTART_HELLO_SEQ[forAgent]) return;   // a newer restart of this agent
         const m = document.getElementById('chg-msg');
         const back = document.getElementById('chg-modal');
         if (!m || !back || back.hidden || !CURRENT || CURRENT.sessionName !== forAgent) return;
@@ -38890,6 +38899,8 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine) {
       apply();
     },
     saidLine, manualLine);
+  // autoHelloAfterRestart bumps the token before its first await, so this reads its own.
+  mine = RESTART_HELLO_SEQ[forAgent];
 }
 
 /**

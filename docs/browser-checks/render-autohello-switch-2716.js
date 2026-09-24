@@ -49,6 +49,11 @@ function initStub() {
     const method = (opts && opts.method ? String(opts.method) : 'GET').toUpperCase();
     window.__posted.push({ url: u, method, body: (opts && opts.body) || null });
     if (/\/api\/agent\/[^/]+\/thread$/.test(u) && method === 'POST') return enc(window.__threadResp);
+    // The real model-switch flow (arm 11) POSTs here first.
+    if (/\/api\/agent\/[^/]+\/model$/.test(u) && method === 'POST') {
+      window.__statusSinceRestart = 0;
+      return enc({ outcome: 'changed', because: 'Changed and restarting on the new model.' });
+    }
     if (/\/api\/status(\?|$)/.test(u)) {
       window.__statusSinceRestart += 1;
       const ready = window.__statusSinceRestart > window.__readyAfterCalls;
@@ -186,6 +191,72 @@ function initStub() {
     mutate: (ms) => { setTimeout(() => { document.getElementById('chg-msg').textContent = 'Say hello to April to reactivate them on OpenAI.'; }, ms); } });
   check('early report, line never painted within the bound: the wait gives up (bounded, no late write)',
     s9.threadCalls === 1 && s9.msg === MANUAL, 'bound=' + bound + 'ms calls=' + s9.threadCalls + ' msg=' + JSON.stringify(s9.msg));
+
+  // ---- Arm 10: a STALE report from an earlier restart of the same agent ----
+  // Two switches of one agent to the same provider paint the identical manual line. The
+  // first restart's report, still waiting for that line, must not write "said hello" into
+  // the second dialog: its hello went to a session the second switch replaced.
+  const s10 = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const back = document.getElementById('chg-modal');
+    const msg = document.getElementById('chg-msg');
+    const MAN = 'Say hello to April to reactivate them on OpenAI.';
+    window.__posted = [];
+    window.__threadResp = { recorded: true, delivery: { state: 'placed' } };
+    window.__statusSinceRestart = 0;
+    window.__readyAfterCalls = 2;
+    CURRENT = { sessionName: 'april', name: 'April' };
+    back.hidden = false; msg.textContent = 'Restarting April';
+    autoHelloOnSwitchRestart('april', 'April', 'OpenAI', MAN);          // restart A
+    await sleep(400);                                                    // A's hello placed; A waits for the line
+    const aPosted = window.__posted.filter((x) => /\/thread$/.test(x.url)).length;
+    window.__readyAfterCalls = Number.POSITIVE_INFINITY;                 // B never comes back
+    autoHelloOnSwitchRestart('april', 'April', 'OpenAI', MAN);          // restart B, same agent, same line
+    await sleep(200);
+    msg.textContent = MAN;                                               // B's dialog paints the manual line
+    await sleep(1400);                                                   // past B's readiness window
+    return { aPosted, msg: msg.textContent };
+  });
+  check('stale report: an earlier restart\'s confirmation does NOT land in the next dialog for the same agent',
+    s10.aPosted === 1 && s10.msg === MANUAL, 'aPosted=' + s10.aPosted + ' msg=' + JSON.stringify(s10.msg));
+
+  // ---- Arm 11: the REAL model-switch path, with the real hold longer than two polls ----
+  // Arms 7-9 paint the line by hand. This one clicks #d-model-go and lets changeDialog
+  // hold its render (__kosmosRestartHoldMs) past the readiness accept (2 x 60ms poll), the
+  // production relationship (4400ms hold vs 2 x 2000ms), so the report comes first for real.
+  const s11 = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const back = document.getElementById('chg-modal');
+    const msg = document.getElementById('chg-msg');
+    back.hidden = true; msg.textContent = '';
+    window.__posted = [];
+    window.__threadResp = { recorded: true, delivery: { state: 'placed' } };
+    window.__statusSinceRestart = 0;
+    window.__readyAfterCalls = 2;
+    window.__kosmosRestartHoldMs = 600;
+    CURRENT = { sessionName: 'april', name: 'April', displayName: 'April', runner: 'claude', isNamedOurs: true };
+    const sel = document.getElementById('d-model');
+    sel.innerHTML = '<option value="opus5">Claude Opus 5</option>';
+    sel.value = 'opus5';
+    const dgo = document.getElementById('d-model-go');
+    dgo.disabled = false;
+    dgo.click();
+    document.getElementById('chg-go').click();
+    let helloAt = null;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 2500) {
+      if (helloAt === null && window.__posted.some((x) => /\/thread$/.test(x.url))) helloAt = Date.now() - t0;
+      await sleep(20);
+    }
+    const out = { helloAt, msg: msg.textContent, threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length };
+    window.__kosmosRestartHoldMs = undefined;
+    document.getElementById('chg-keep').click();
+    return out;
+  });
+  check('real model switch: the hello is placed BEFORE the held render (the race actually occurs)',
+    s11.helloAt !== null && s11.helloAt < 600, 'helloAt=' + s11.helloAt + 'ms, hold=600ms');
+  check('real model switch: the dialog still ends on the confirmation',
+    s11.threads === 1 && /^Reactivated on Claude, and said hello to wake /.test(s11.msg), 'threads=' + s11.threads + ' msg=' + JSON.stringify(s11.msg));
 
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);
