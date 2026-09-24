@@ -24,7 +24,12 @@ drop the separate `remove` surface. The whole-page SCAN measures the Remove cont
 surface.
 
 ## Verification
-- render-talk-fill-2622.js: A2c PASS (`snavHeight=268 == snavScrollH=268`), all Talk-box fill checks pass.
+- render-talk-fill-2622.js: A2c PASS (`gapBelowLast=0`, `padBottom=0`, so the last nav item ends flush
+  with the snav's bottom = content-height, `snavHeight=268`, in an `auto` grid row). NEGATIVE CONTROL
+  proven (prove-a-new-check-can-fail): temporarily forcing the snav 120px taller than its content
+  opened `gapBelowLast` to 120 and turned A2c red, so the assertion is not vacuous. (An earlier
+  `snavHeight === snavScrollH` form was vacuous -- for an element with no overflow of its own,
+  scrollHeight just echoes an externally-stretched box -- and was replaced.)
 - contrast.js: served against a fully-sandboxed board (all AGENT_WORKFORCE_* + fake tmux, per
   boot_board), both themes PASS, the `term` surface finds 24 texts and all clear AA. No "remove could
   not be reached".

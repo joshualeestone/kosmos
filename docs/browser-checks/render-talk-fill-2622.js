@@ -175,11 +175,19 @@ async function measure(page) {
     const narrowNav = await page.evaluate(() => {
       const snav = document.querySelector('#panel-detail .snav');
       const box = document.getElementById('d-talk-box');
+      const rect = snav ? snav.getBoundingClientRect() : null;
+      const kids = snav ? [...snav.children].filter((c) => c.getBoundingClientRect().height > 0) : [];
+      const last = kids.length ? kids[kids.length - 1].getBoundingClientRect() : null;
+      const cs = snav ? getComputedStyle(snav) : null;
       return {
-        snavHeight: snav ? Math.round(snav.getBoundingClientRect().height) : null,
-        // The content height. If the collapsed grid STRETCHED the snav to fill a tall row, the
-        // rendered height would exceed this; equal means content-height (the failure this arm guards).
-        snavScrollH: snav ? snav.scrollHeight : null,
+        snavHeight: rect ? Math.round(rect.height) : null,
+        // The empty space between the last nav item's bottom and the snav's own bottom edge. A
+        // content-height row ends flush with its last item (gap == its padding-bottom); a row the
+        // collapsed single-column grid STRETCHED to fill a tall track opens this gap wide. This is
+        // measured on the box geometry, not scrollHeight (which just echoes an externally-stretched
+        // box for an element with no overflow of its own, so snavHeight==scrollHeight is vacuous).
+        gapBelowLast: (rect && last) ? Math.round(rect.bottom - last.bottom) : null,
+        padBottom: cs ? Math.round(parseFloat(cs.paddingBottom) || 0) : null,
         boxHeight: box ? Math.round(box.getBoundingClientRect().height) : null,
       };
     });
@@ -187,14 +195,16 @@ async function measure(page) {
     chk(narrow.boxBottom > narrow.innerHeight - TOL,
       'A2b narrow width: the Talk box still fills to near the viewport bottom',
       'boxBottom=' + narrow.boxBottom + ' innerHeight=' + narrow.innerHeight + ' gap=' + narrow.gapBelowBox);
-    // #3547/#3500: the agent nav is now a stack of icon+label boxes (DM box, the four-pack, the AI
-    // Settings/model pill, Advanced), so at narrow width it is legitimately TALLER than the talk box
-    // (measured 268 vs 209). The old assertion `snavHeight < boxHeight` predated the boxed redesign.
-    // What this arm actually guards is the snav being STRETCHED by the collapsed single-column grid;
-    // that is content-height == rendered-height, which stays true no matter how tall the content is.
-    chk(narrowNav.snavHeight !== null && narrowNav.snavScrollH !== null && narrowNav.snavHeight === narrowNav.snavScrollH,
-      'A2c narrow width: the snav is content-height, not stretched/ballooned by the collapsed grid',
-      'snavHeight=' + narrowNav.snavHeight + ' snavScrollH=' + narrowNav.snavScrollH + ' boxHeight=' + narrowNav.boxHeight);
+    // #3547/#3500: the agent nav is now a vertical stack of icon+label boxes, so at narrow width it is
+    // legitimately TALLER than the talk box (268 vs 209). The old `snavHeight < boxHeight` predated the
+    // boxed redesign. What this arm guards is the collapsed single-column grid STRETCHING the nav to
+    // fill a tall track; a stretched row leaves empty space below its last item, a content-height row
+    // ends flush with it. (Measured on box geometry, NOT scrollHeight: for an element with no overflow
+    // of its own scrollHeight just echoes an externally-stretched box, so snavHeight==scrollHeight is
+    // vacuous. Proven able to fail: forcing the snav taller than its content opens gapBelowLast.)
+    chk(narrowNav.gapBelowLast !== null && (narrowNav.gapBelowLast - narrowNav.padBottom) <= 4,
+      'A2c narrow width: the snav is content-height (its last item ends flush with its bottom, not stretched by the collapsed grid)',
+      'gapBelowLast=' + narrowNav.gapBelowLast + ' padBottom=' + narrowNav.padBottom + ' snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
 
     // --- A long THREAD in a SHORT window: the composer must stay reachable. This
     // guards a failure mode the FILL ITSELF introduces, NOT a pre-change control
