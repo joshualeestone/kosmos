@@ -4591,6 +4591,76 @@ const server = http.createServer((req, res) => {
     sendJson(res, gone.ok ? 200 : 400, gone);
     return;
   }
+  /* #3614 items 1, 2, 4: the agent page's Files list, for files an agent makes for the person in a
+     Direct Message. The folder is dmfiles.filesDir(name) (Renet's module, item 3), read through
+     the same engine functions as a project's documents: listFiles (top level, no dotfiles, no
+     symlinks, newest first, a stamp), openFile (bare names only, the target must resolve inside
+     the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
+     exist yet is the EMPTY state, not an error: nothing has been saved there. */
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal))?$/);
+  if (agentFiles) {
+    const name = decodeSegment(agentFiles[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const own = create.workerDir(name);
+    const folder = dmfiles.filesDir(name);
+    let ownIsDir = false;
+    try { ownIsDir = fs.lstatSync(own).isDirectory(); } catch { ownIsDir = false; }
+    if (!folder || !ownIsDir) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    const verb = agentFiles[2] || null;
+    // A Files that is a LINK would list and open whatever it points at (listFiles and openFile
+    // resolve through it), so it is refused for every verb: this list shows the agent's own folder.
+    let isLink = false;
+    try { isLink = fs.lstatSync(folder).isSymbolicLink(); } catch { isLink = false; }
+    if (isLink) {
+      const because = 'this agent\u2019s Files is a link to somewhere else, so Kosmos will not list or open it';
+      if (!verb && (req.method === 'GET' || req.method === 'HEAD')) sendJson(res, 200, { ok: false, because, files: [], folder });
+      else sendJson(res, 409, { ok: false, because });
+      return;
+    }
+    if (!verb && (req.method === 'GET' || req.method === 'HEAD')) {
+      let cap = 20;
+      try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) cap = Math.min(Math.floor(l), 500); } catch { cap = 20; }
+      if (projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, total: 0, files: [], names: [], stamp: 'missing', folder });
+        return;
+      }
+      sendJson(res, 200, { ...projects.listFiles(folder, cap), folder });
+      return;
+    }
+    if (verb === 'open' && req.method === 'POST') {
+      readBody(req)
+        .then((buf) => {
+          let named;
+          try { named = JSON.parse(buf.toString('utf8') || '{}').name; }
+          catch { sendJson(res, 400, { ok: false, because: 'we could not read that' }); return; }
+          // Every gate lives in projects.openFile (as the project open-file route): no second copy.
+          const opened = projects.openFile(folder, named);
+          if (opened.ok) { sendJson(res, 200, opened.revealedInstead ? { ok: true, revealedInstead: true, say: opened.say } : { ok: true }); return; }
+          sendJson(res, 409, { ok: false, because: opened.because });
+        })
+        .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+      return;
+    }
+    if (verb === 'reveal' && req.method === 'POST') {
+      // Created on first use (#3614 item 1): inside the agent's own existing folder, one level,
+      // never following a link. An existing non-folder by that name is refused, not replaced.
+      try {
+        let st = null;
+        try { st = fs.lstatSync(folder); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
+        if (st && !st.isDirectory()) { sendJson(res, 409, { ok: false, because: 'there is a file called Files in this agent\u2019s folder, so we will not make a folder there' }); return; }
+        if (!st) fs.mkdirSync(folder);
+      } catch {
+        sendJson(res, 409, { ok: false, because: 'we could not make this agent\u2019s Files folder' });
+        return;
+      }
+      const shown = projects.revealFolder(folder);
+      if (shown && shown.ok) { sendJson(res, 200, { ok: true }); return; }
+      sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
+      return;
+    }
+    sendJson(res, 405, { ok: false, because: verb ? 'use POST for that' : 'the Files list is read-only; use open or reveal' });
+    return;
+  }
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
   if (agentSkills && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(agentSkills[1]);
