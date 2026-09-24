@@ -1122,6 +1122,13 @@ html { scroll-padding-top: 132px; }
    sentence beneath it. */
 .utoast.stale { --utone: var(--label-2); }
 .utoast.stale .utxt b { color: var(--label); }
+/* #3532: login-expiry advisory tones, escalating with how close the login is to
+   dying. notice (>=5d away) is neutral like .stale -- a fact with a one-click fix,
+   not an alarm; warn (<3d) is amber; urgent (<1d or expired) earns the red. */
+.utoast.login-adv.notice { --utone: var(--label-2); }
+.utoast.login-adv.notice .utxt b { color: var(--label); }
+.utoast.login-adv.warn { --utone: #c77700; }
+.utoast.login-adv.urgent { --utone: #b3261e; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
@@ -8358,6 +8365,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          post-update note and the offline note rather than overwriting either; a
          machine that cannot update is a state worth its own line. -->
     <div id="uabort-slot"></div>
+    <!-- #3532: login-expiry advisory. Warns, per account, before a Claude login
+         expires so agents do not silently die. Its own slot so it co-occurs with
+         the update/offline notices rather than overwriting them; role=status per
+         the pack; renders only when data.loginAdvisories is non-empty. -->
+    <div id="login-adv-slot"></div>
     <div id="unews-slot">
       <div class="utoast stale" id="newsbar" role="status" hidden>
         <span class="udot" aria-hidden="true"></span>
@@ -16364,6 +16376,37 @@ function paintUpdateAbort(ab) {
     + '</div></div>';
 }
 
+/* #3532: paint the per-account login-expiry advisories from the /api/status poll.
+   data.loginAdvisories is an array of { agents, daysLeft, severity, expired } (one per
+   credential near expiry); empty/absent clears the slot. dataset.v is a signature so an
+   unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
+function paintLoginAdvisories(advs) {
+  const slot = document.getElementById('login-adv-slot');
+  if (!slot) return;
+  const list = Array.isArray(advs) ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length) : [];
+  if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
+  const sig = list.map((a) => (a.severity || '') + ':' + a.daysLeft + ':' + a.agents.join(',')).join('|');
+  if (slot.dataset.v === sig) return;
+  slot.dataset.v = sig;
+  slot.innerHTML = list.map((a) => {
+    const sev = (a.severity === 'urgent' || a.severity === 'warn') ? a.severity : 'notice';
+    const n = a.agents.length;
+    const who = a.agents.map(esc).join(', ');
+    const head = a.expired
+      ? (n === 1 ? 'An agent’s login has expired' : n + ' agents’ login has expired')
+      : (a.daysLeft <= 0
+        ? (n === 1 ? 'An agent’s login expires today' : n + ' agents’ login expires today')
+        : ((n === 1 ? 'An agent’s login expires in ' : n + ' agents’ login expires in ') + a.daysLeft + (a.daysLeft === 1 ? ' day' : ' days')));
+    const tail = a.expired
+      ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
+      : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
+    return '<div class="utoast login-adv ' + sev + '" role="status">'
+      + '<span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt"><b>' + esc(head) + '</b><small>' + who + '. ' + esc(tail) + '</small></div>'
+      + '</div>';
+  }).join('');
+}
+
 function renderUpdateToast(u) {
   const slot = document.getElementById('utoast-slot');
   /* 🛑 THE ENGINE STATE OUTRANKS BOTH OTHERS (#338). A server behind the code
@@ -17414,6 +17457,7 @@ async function tick() {
     BOARD_SEEN = true;
     updateRecPill();
     renderUpdateToast(data.update);
+    paintLoginAdvisories(data.loginAdvisories); // #3532: warn before a login expires
     paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
     paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel, data.updateRollback);
     updatedNoteOnce(data.version);
