@@ -138,18 +138,29 @@ test('fetchStanding: a hung tunnel is bounded, resolves null', async () => {
   } finally { delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS; }
 });
 
-test('the SUITE GUARD: under the test runner with NO test tunnel binary, nothing is run -- non-vacuous', async () => {
+test('the SUITE GUARD: under the test runner with NO test tunnel binary, macRequest is never called', async () => {
   // NODE_TEST_CONTEXT is set by node --test. Without a test-supplied tunnel binary the
   // real bundled tunnel would sign with the sandbox key and reach the PAID coordinator.
-  // Non-vacuous: the same call with the seam restored DOES reach the fake (arm above),
-  // so this arm proves the guard and not a broken fake.
+  // Observed at the call itself (a spy on remote.macRequest), NOT at the fake tunnel's
+  // record: with the seam unset nothing would reach the fake anyway, so a record-based
+  // arm stays green with the guard deleted.
   enroll();
   assert.ok(process.env.NODE_TEST_CONTEXT, 'precondition: running under node --test');
+  const real = remote.macRequest;
+  let called = 0;
+  remote.macRequest = async () => { called++; return { ok: true, data: { standing: 'good' } }; };
   const seam = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   delete process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   try {
-    const r = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
-    assert.equal(r.value, null);
-    assert.equal(r.calls.length, 0, 'no tunnel ran');
-  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; }
+    assert.equal(await macStanding.fetchStanding(), null);
+    assert.equal(called, 0, 'the guard must stop the call before macRequest');
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam;
+    assert.equal(await macStanding.fetchStanding(), 'good', 'CONTROL: with the seam set, the same spy IS called');
+    assert.equal(called, 1);
+  } finally { remote.macRequest = real; process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; }
+});
+
+test.after(() => {
+  for (const d of [SANDBOX, STATE]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  fake.cleanup();
 });

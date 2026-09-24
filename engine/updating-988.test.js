@@ -28,7 +28,7 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-updating-988-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 
 /* A state dir shaped exactly as remote.enrolled() requires: mac_id, address,
-   tls.crt, tls.key. Real files, so the certificate read is exercised. */
+   tls.crt, tls.key, because enrolled() checks for all four. */
 const STATE = nodePath.join(SANDBOX, 'enrolled');
 fs.mkdirSync(STATE, { recursive: true });
 fs.writeFileSync(nodePath.join(STATE, 'mac_id'), 'test-mac\n');
@@ -154,6 +154,7 @@ test.afterEach(() => {
    turn a green run red at the very end. */
 test.after(() => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
+  FAKE.cleanup();
 });
 
 /* ---- THE BLOCKER ARM ------------------------------------------------------ */
@@ -234,7 +235,9 @@ test('#3626: a hung tunnel does not hold announce(), which returns before the ch
     assert.equal(updating.announce(900), undefined);
     assert.ok(Date.now() - t0 < 200, 'announce() must return at once; the install path cannot wait on the tunnel');
     await waitForCalls(FAKE, 1);
-    await stderrOf(() => new Promise((r) => setTimeout(r, 600)));
+    const out = await stderrOf(() => new Promise((r) => setTimeout(r, 600)));
+    assert.match(out, /kosmos#3626: \/v1\/mac\/updating failed: .*did not answer in time/,
+      'the bounded tunnel call ends, and its timeout reaches the board log');
   } finally { delete process.env.FAKE_MAC_REQUEST_MODE; delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS; }
 });
 
@@ -261,8 +264,8 @@ test('#988: an ENROLLED mac with Kosmos Plus switched OFF says nothing', () => {
   /* Turning Plus off does NOT unenrol. remote.setOn(false) writes {on:false} and
      calls ensure(); only forget()/retire removes the identity files. So a Mac that
      once paid and then switched off keeps enrolled() === true forever, and a guard
-     that reads only the files would keep POSTing to the PAID coordinator with that
-     Mac's client certificate after the customer turned the feature off.
+     that reads only the files would keep POSTing to the PAID coordinator, signed by
+     that Mac, after the customer turned the feature off.
      This is the arm the guard exists for, and the two assertions below are
      deliberately BOTH present: the first proves the fixture is the dangerous one
      (still enrolled, files intact), so a future change that quietly unenrols here
@@ -292,8 +295,8 @@ test('#988: a DAMAGED settings file fails CLOSED, it does not announce', () => {
   /* read() returns {on:false} on ENOENT, on unreadable, on unparseable and on a
      non-object, and this route is a paid one, so unreadable must mean silent
      rather than "assume the customer is paying". Asserting the direction here
-     because it is the one place where an error path decides whether a client
-     certificate goes on the wire. */
+     because it is the one place where an error path decides whether a signed
+     request goes out. */
   enrol();
   const remote = require('./remote');
   fs.writeFileSync(remote.FILE, '{ this is not json');
@@ -532,7 +535,7 @@ test('#988 WIRING: a child that EXITS ZERO still clears, because the shell masks
 
 test('#988: the first-tick clear happens ONCE, not on every tick forever', async () => {
   /* The arm that only counted ">= 2" could not tell "once more" from "a fresh
-     mTLS connection to the coordinator every 60 seconds from every enrolled
+     signed request to the coordinator every 60 seconds from every enrolled
      Mac". This one can. */
   enrol();
   update.resetCache();
@@ -712,7 +715,7 @@ test('#988: a SUPERSEDED child\'s late exit must NOT clear a live install\'s ban
 test('#988: a board run from a SOURCE CHECKOUT does not announce at all', () => {
   /* No installedRoot() means a dev checkout (node server.js,
      tools/restart-local-board.sh), which is routine on this fleet. Without the
-     gate it makes real mTLS POSTs with the operator's certificate and can CLEAR
+     gate it makes real signed POSTs as the operator's Mac and can CLEAR
      a deadline the INSTALLED board just set. */
   enrol();
   const calls = capture();

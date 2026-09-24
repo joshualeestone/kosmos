@@ -57,7 +57,8 @@ process.stdin.on('end', () => {
   }
   function reset() { try { fs.rmSync(recordFile, { force: true }); } catch { /* nothing to reset */ } }
   function flag(call, name) { const i = call.args.indexOf(name); return i === -1 ? null : call.args[i + 1]; }
-  return { bin, dir, calls, reset, flag };
+  function cleanup() { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  return { bin, dir, calls, reset, flag, cleanup };
 }
 
 /* Wait until `n` calls are recorded (the fire-and-forget announce() does not hand

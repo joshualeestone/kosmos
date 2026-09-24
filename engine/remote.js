@@ -221,21 +221,10 @@ let standingRefreshInFlight = false;
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
 /* The isolated coordinator read: the CURRENT standing string, or null when it could
-   not be determined (offline, auth, or -- today -- the source is not wired yet). A
-   null NEVER changes the cache, so a transient failure keeps the last-known standing
-   (no flicker) and the 403 backstop remains the hard gate.
-   🛑 PENDING ICK's mechanism answer: the board holds NO persistent bearer token (the
-   sign-in session token is spent at register) and keeps crypto in the kosmos-tunnel
-   binary ("NO CRYPTO HERE"), so this must call the binary's account verb via
-   setupRun(['account','me',...]) once ICK confirms it exists (or its exact shape).
-   Until then it returns null -> the refresh is a safe no-op and kosmosPlus() keeps
-   serving the enrolment-time cache exactly as the merged #3353 producer does. */
+   not be determined. A null NEVER changes the cache, so a transient failure keeps the
+   last-known standing (no flicker) and the 403 backstop remains the hard gate. */
 async function fetchStanding() {
-  // The mac-cert GET /v1/mac/standing lives in its own module (engine/mac-standing.js),
-  // NOT here: remote.js keeps the "NO CRYPTO HERE" boundary, exactly as updating.js is a
-  // separate module for its mac-cert POST. Lazy require breaks the remote<->mac-standing
-  // cycle (mac-standing reads remote.stateDir/coordinator/read/enrolled). Best-effort:
-  // any failure -> null -> the refresh keeps the last-known cached value.
+  // Lives in engine/mac-standing.js. Lazy require breaks the remote<->mac-standing cycle.
   try { return await require('./mac-standing').fetchStanding(); } catch { return null; }
 }
 /* Lazily refresh the cached standing when it is older than `ttlMs`. NON-BLOCKING by
