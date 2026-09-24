@@ -84,9 +84,10 @@ const ESCAPES_VIA = {
      checked. The guard doing its job on its own author. */
   'am-modal':      /am-modal'\)\.hidden\) return;/,
   /* #3495: the Kosmos+ gate modal (Join tab / grayed Add-external prompts). Its Escape is a global
-     keydown listener that closes it when it is not hidden, matching the updconfirm shape; it also
-     traps Tab among its two buttons and restores focus to the opener on close. */
-  'plus-gate-modal': /Escape[\s\S]{0,300}plus-gate-modal/,
+     keydown listener that closes it via hidePlusGate when it is not hidden; it also traps Tab among
+     its two buttons and restores focus to the opener on close. The regex pins that exact mechanism,
+     not mere Escape/id co-occurrence. */
+  'plus-gate-modal': /plus-gate-modal'\)\.hidden\) hidePlusGate/,
 };
 
 test('every modal has a named way out with Escape, and the table covers them all', () => {

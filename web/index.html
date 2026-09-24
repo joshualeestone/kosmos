@@ -24287,17 +24287,19 @@ const PLUS_GATE_COPY = {
   join: "It's a Kosmos Plus feature and you must be logged in to access it.",
   connect: 'To connect external people or agents, you must be signed in as a Kosmos Plus user.',
 };
-/* The element that opened the gate, so closing returns the keyboard to it (the Join radio or the
-   grayed Add-external button). aria-modal promises focus is held and comes back on close; a new
-   sibling does not inherit that guard by sitting beside one (see the updconfirm note above). */
+/* The element that opened the gate, so closing returns the keyboard to it. The caller passes it
+   EXPLICITLY: WebKit (the production WKWebView) does not focus a <button> on click, so
+   document.activeElement is <body> for the grayed-button 'connect' case and cannot be trusted;
+   activeElement is only the fallback, which the radio-driven 'join' case does satisfy. A new sibling
+   does not inherit the aria-modal focus guard by sitting beside one (see the updconfirm note). */
 let PLUS_GATE_OPENER = null;
-function showPlusGate(kind) {
+function showPlusGate(kind, opener) {
   const back = document.getElementById('plus-gate-modal');
-  const msg = document.getElementById('plus-gate-msg');
-  if (!back || !msg) return;
-  PLUS_GATE_OPENER = (document.activeElement && document.activeElement !== document.body)
-    ? document.activeElement : null;
-  msg.textContent = PLUS_GATE_COPY[kind] || PLUS_GATE_COPY.join;
+  const msgEl = document.getElementById('plus-gate-msg');
+  if (!back || !msgEl) return;
+  PLUS_GATE_OPENER = opener
+    || ((document.activeElement && document.activeElement !== document.body) ? document.activeElement : null);
+  msgEl.textContent = PLUS_GATE_COPY[kind] || PLUS_GATE_COPY.join;
   back.hidden = false;
   const close = document.getElementById('plus-gate-close');
   if (close) close.focus();
@@ -46249,7 +46251,7 @@ document.getElementById('pj-mode-create').addEventListener('change', () => { if 
    shared modal and snap the toggle back to Create so the gated form is never shown. */
 document.getElementById('pj-mode-join').addEventListener('change', () => {
   if (!document.getElementById('pj-mode-join').checked) return;
-  if (!fedShow()) { showPlusGate('join'); pjSetAddMode('create'); return; }
+  if (!fedShow()) { showPlusGate('join', document.getElementById('pj-mode-join')); pjSetAddMode('create'); return; }
   pjSetAddMode('join');
 });
 // Federation Kosmos+ gate: the sign-up prompt routes into the in-app Kosmos Plus section.
@@ -46283,8 +46285,8 @@ document.addEventListener('keydown', (e) => {
 /* #3495 (Angel): the grayed Add-external buttons stay clickable; a non-Plus/not-live viewer gets
    the shared Plus-gate modal ("must be signed in as a Kosmos Plus user") instead of minting an
    invite. A "show" viewer mints as before. */
-document.getElementById('pj-add-ext-person').addEventListener('click', () => { if (!fedShow()) { showPlusGate('connect'); return; } pjMintInvite('person'); });
-document.getElementById('pj-add-ext-agent').addEventListener('click', () => { if (!fedShow()) { showPlusGate('connect'); return; } pjMintInvite('agent'); });
+document.getElementById('pj-add-ext-person').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('person'); });
+document.getElementById('pj-add-ext-agent').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('agent'); });
 document.getElementById('pj-invite-copy').addEventListener('click', pjCopyInvite);
 document.getElementById('pj-join-verify').addEventListener('click', pjVerifyCode);
 document.getElementById('pj-join-submit').addEventListener('click', pjJoinSubmit);
