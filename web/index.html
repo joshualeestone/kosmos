@@ -12256,7 +12256,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                (Josh, 2026-08-23 13:59). -->
           <button class="attachbtn" id="pj-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
           <input id="pj-attach-file" type="file" multiple hidden>
-          <textarea class="cinput" id="pj-post" rows="1" maxlength="2000"
+          <textarea class="cinput" id="pj-post" rows="1" maxlength="10000"
                     placeholder="Write something or @name to message someone&hellip;"
                     aria-label="Post to everyone on this project"></textarea>
           <!-- ⚠️ QUIET, NOT GOLD, AND THAT IS A RULING RATHER THAN AN
@@ -12277,6 +12277,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                     <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
+        <!-- #3403: soft near-limit counter (see pjComposerCount). Block sibling after the box;
+             pj-post rides pjGrowComposer (type, draft-restore, and send-reset all call it), so
+             the counter updates on every path with no extra wiring. -->
+        <div class="cpost-count" id="pj-post-count" aria-live="polite" hidden></div>
         <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
              up a list as I type to give me a clickable choice". The stronger
              reason is correctness: @ changes what a message IS (a request to
@@ -44089,10 +44093,10 @@ function pjGrowComposer(el) {
 /**
  * #3403 (Josh: "it just cut off mid-message with no warning"): a SOFT
  * near-limit counter. A composer opts in purely by shipping a sibling
- * `<id>-count` element (see d-say / pj-post / pj-say / d-term-say); a composer
- * without one is a silent no-op, so this is safe to call for EVERY composer.
- * The cap it counts toward is read from the element's own `maxlength`, so it
- * needs no per-composer constant and never drifts from the attribute.
+ * `<id>-count` element (see d-say and pj-post, the two multi-line message
+ * composers); a composer without one is a silent no-op, so this is safe to call
+ * for EVERY composer. The cap it counts toward is read from the element's own
+ * `maxlength`, so it needs no per-composer constant and never drifts from it.
  *
  * 🔑 It rides pjGrowComposer for the same reason pjComposerReset does: the
  * counter must reflect any value change, and pjGrowComposer already runs on
