@@ -49,6 +49,13 @@
 #       so the deploy reaches the unpublished WARNING and exits 0 instead of dying on the staged zip
 #   A24 a superseded staged build whose zip is served STATICALLY (no redirect) is still verified: the
 #       skip is only for a staged zip that is itself redirected
+#   A25 #3618: the staging pointer is served by REDIRECT and names a newer R2 build -> that build is
+#       verified (zip, sidecar == pointer sha, bytes), not the stale committed staging copy; rc 0
+#   A26 CONTROL for A25: the redirected staging build's sidecar disagrees with its pointer -> refuse
+#   A27 #3618: a redirected staging pointer naming a build older than prod -> superseded, rc 0, and
+#       no "served is not the committed one" refusal
+#   A28 #3610: the alias sidecar is served STATICALLY and is stale -> a WARNING naming the fix, rc 0
+#   A29 CONTROL for A28: the alias sidecar is served from R2 and disagrees -> refuse
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -135,6 +142,8 @@ cat > "$BIN/vercel" <<'VERCEL'
 mkdir -p "$LIVE_DIR/dist"
 [ -d ./dist ] && cp -R ./dist/. "$LIVE_DIR/dist/" 2>/dev/null
 for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
+# A scenario can make the STATIC staging pointer serve other bytes than were deployed.
+[ -f "$LIVE_DIR/.served-staging" ] && cp "$LIVE_DIR/.served-staging" "$LIVE_DIR/dist/latest-win-staging.json"
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -156,7 +165,12 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-probe500 - as redirect, but the un-followed probe of latest-win.json answers 500
 #   redirect-badshape - as redirect, but R2's pointer names evil.zip
 #   redirect-same     - as redirect, but R2 serves the committed build (pointer names WZ_OLD)
-#   redirect-stagedrift - as redirect, and latest-win-staging.json is served from R2 with other bytes
+#   redirect-stagedrift - as redirect, and the STATIC latest-win-staging.json serves other bytes than deployed
+#   redirect-aliasstatic - as redirect, but the alias .sha256 is served statically (stale site copy)
+#   redirect-aliasbad  - as redirect, and R2's alias .sha256 disagrees with the pointer
+#   redirect-stagedr2  - as redirect, and the staging pointer redirects to R2 naming a newer 0.6.60
+#   redirect-stagedr2-badsum - as stagedr2, but R2's 0.6.60 sidecar disagrees with its pointer
+#   redirect-stagedr2-old - the staging pointer redirects to R2 naming 0.6.46 (< prod 0.6.48)
 #   redirect-behind   - as redirect, but R2 serves an OLDER build (0.6.30) than the committed 0.6.40
 #   redirect-probenone - as redirect, but the un-followed probe fails at transport (curl exit 7)
 #   redirect-badbytes - as redirect, but R2's WZ_NEW bytes change after its sha was published
@@ -236,8 +250,6 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
       ( cd "$r2" && shasum -a 256 "$WZ_NEW" > "$WZ_NEW.sha256" )
       newsha=$(sha_of "$r2/$WZ_NEW")
       write_win_ptr "$r2/latest-win.json" "$WV_NEW" "$newsha"
-      printf 'WINALIAS\n' > "$r2/kosmos-win-x64.zip"
-      ( cd "$r2" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
       # R2 does NOT carry the stale committed build: that is the card.
       [ "$mode" = redirect-nozip ] && rm -f "$r2/$WZ_NEW"
       [ "$mode" = redirect-badname ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW/../x" "$newsha"
@@ -254,9 +266,31 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         cp "$s/dist/$WZ_OLD" "$s/dist/$WZ_OLD.sha256" "$r2/"
         write_win_ptr "$r2/latest-win.json" "$WV_OLD" "$oldsha"
       fi
+      # R2's unversioned alias is the build R2's pointer names, and its sidecar says so.
+      _an=$(sed -n 's/.*"versioned":"\([^"]*\)".*/\1/p' "$r2/latest-win.json")
+      if [ -n "$_an" ] && [ -f "$r2/$_an" ]; then cp "$r2/$_an" "$r2/kosmos-win-x64.zip"; else printf 'WINALIAS\n' > "$r2/kosmos-win-x64.zip"; fi
+      ( cd "$r2" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
       if [ "$mode" = redirect-stagedrift ]; then
+        # The STATIC staging pointer serves other bytes than the committed one (deploy drift).
+        write_win_ptr "$live/.served-staging" 0.6.44 "$newsha"
+      fi
+      if [ "$mode" = redirect-aliasstatic ]; then
+        # Today's prod: the alias sidecar is NOT redirected, so the stale site copy is served.
+        printf '%s\n' 'dist/latest-win.json' 'dist/kosmos-*win-x64.zip' 'dist/kosmos-[0-9]*-win-x64.zip.sha256' > "$live/.redirects"
+      fi
+      [ "$mode" = redirect-aliasbad ] && printf '%s  kosmos-win-x64.zip\n' 2222222222222222222222222222222222222222222222222222222222222222 > "$r2/kosmos-win-x64.zip.sha256"
+      if [ "$mode" = redirect-stagedr2 ] || [ "$mode" = redirect-stagedr2-badsum ]; then
+        # R2 keeps its own staging channel: the staging pointer redirects and names a NEWER build.
         printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
-        write_win_ptr "$r2/latest-win-staging.json" 0.6.44 "$newsha"
+        printf 'STAGED-R2-0.6.60\n' > "$r2/kosmos-0.6.60-win-x64.zip"
+        ( cd "$r2" && shasum -a 256 kosmos-0.6.60-win-x64.zip > kosmos-0.6.60-win-x64.zip.sha256 )
+        write_win_ptr "$r2/latest-win-staging.json" 0.6.60 "$(sha_of "$r2/kosmos-0.6.60-win-x64.zip")"
+        [ "$mode" = redirect-stagedr2-badsum ] && printf '%s  kosmos-0.6.60-win-x64.zip\n' 3333333333333333333333333333333333333333333333333333333333333333 > "$r2/kosmos-0.6.60-win-x64.zip.sha256"
+      fi
+      if [ "$mode" = redirect-stagedr2-old ]; then
+        # R2's staging pointer redirects and names a build OLDER than prod, absent from R2.
+        printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
+        write_win_ptr "$r2/latest-win-staging.json" 0.6.46 "$newsha"
       fi
       [ "$mode" = redirect-badbytes ] && printf 'TRUNCATED\n' > "$r2/$WZ_NEW"
       [ "$mode" = redirect-badsum ] && printf '%s  %s\n' 1111111111111111111111111111111111111111111111111111111111111111 "$WZ_NEW" > "$r2/$WZ_NEW.sha256"
@@ -508,5 +542,50 @@ else
   bad "A24: a statically served superseded staged zip was skipped or failed (rc=$RC); out=$out"
 fi
 
+# A25) #3618: the redirected staging pointer is the truth; its newer R2 build is verified in full.
+read -r S L R <<<"$(make_scenario redirect-stagedr2 old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "prod serves latest-win-staging.json by redirect and it names kosmos-0.6.60-win-x64.zip" && ! has "$out" "not newer than the prod Windows build"; then
+  pass "A25: a redirected staging pointer naming a newer R2 build is verified (not the stale committed copy), rc=0"
+else
+  bad "A25: the redirected staging build was not verified cleanly (rc=$RC); out=$out"
+fi
+
+# A26) CONTROL for A25: the redirected staging build's sidecar disagrees with its pointer.
+read -r S L R <<<"$(make_scenario redirect-stagedr2-badsum old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the served latest-win-staging.json advertises sha"; then
+  pass "A26-CONTROL: a redirected staging build whose sidecar disagrees refuses (rc=$RC)"
+else
+  bad "A26-CONTROL: a redirected staging sidecar mismatch was not caught (rc=$RC); out=$out"
+fi
+
+# A27) a redirected staging pointer naming an older build: superseded, no committed-copy refusal.
+read -r S L R <<<"$(make_scenario redirect-stagedr2-old old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "not newer than the prod Windows build" && ! has "$out" "is not the committed one"; then
+  pass "A27: a redirected, superseded staging pointer is skipped without comparing it to the stale committed copy, rc=0"
+else
+  bad "A27: a redirected superseded staging pointer was refused or not skipped (rc=$RC); out=$out"
+fi
+
+# A28) #3610 today: the alias sidecar is static and stale -> warn, do not red the Mac deploy.
+read -r S L R <<<"$(make_scenario redirect-aliasstatic)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit"; then
+  pass "A28: a stale, statically served alias checksum warns (naming the redirect fix), rc=0"
+else
+  bad "A28: a stale static alias checksum did not warn cleanly (rc=$RC); out=$out"
+fi
+
+# A29) CONTROL for A28: served from R2 and wrong is a real broken checksum.
+read -r S L R <<<"$(make_scenario redirect-aliasbad)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "a broken alias checksum on R2"; then
+  pass "A29-CONTROL: an R2-served alias checksum that disagrees with the pointer refuses (rc=$RC)"
+else
+  bad "A29-CONTROL: a wrong R2 alias checksum was not caught (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 24 arms passed"
+echo "test-deploy-site-served-win-3600: all 29 arms passed"
