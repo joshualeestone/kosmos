@@ -6,6 +6,9 @@ import Foundation
 // Run with ios/LogicTests/run.sh. It prints every case and ends with one
 // verdict line; a missing verdict means the run did not finish.
 
+// Line-buffered, so a crash mid-run still shows every case printed before it.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 var passed = 0
 var failed = 0
 
@@ -121,14 +124,22 @@ check(PushBridge.outcome(status: nil) == .unreachable, "no answer unreachable")
 final class MemoryStore: SessionStore {
     var value: String?
     var failSaves = false
+    var saves = 0
     init(_ value: String? = nil) { self.value = value }
     func load() -> String? { value }
     func save(_ session: String) -> Bool {
+        saves += 1
         if failSaves { return false }
         value = session
         return true
     }
     func delete() { value = nil }
+}
+
+extension Array {
+    // Out-of-range reads return nil, so a missing request fails a check instead of
+    // trapping the whole run.
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
 
 struct Sent {
@@ -139,6 +150,7 @@ struct Sent {
 
 final class Harness {
     let store: MemoryStore
+    let pending: MemoryStore
     var sent: [Sent] = []
     var logs: [String] = []
     // Status to answer each request with, in order; default 200. A pending
@@ -148,13 +160,15 @@ final class Harness {
     var held: [(Int?) -> Void] = []
     var registrar: PushRegistrar!
 
-    init(stored: String? = nil) {
+    init(stored: String? = nil, pendingStored: String? = nil) {
         store = MemoryStore(stored)
+        pending = MemoryStore(pendingStored)
         registrar = PushRegistrar(
             coordinator: coordinator,
             bundleID: "io.kosmos.app",
             environment: .sandbox,
             store: store,
+            pendingStore: pending,
             transport: { [unowned self] req, done in
                 let body = (try? JSONSerialization.jsonObject(with: req.httpBody ?? Data())) as? [String: String] ?? [:]
                 self.sent.append(Sent(path: req.url?.path ?? "", auth: req.value(forHTTPHeaderField: "Authorization") ?? "", body: body))
@@ -197,7 +211,7 @@ do {
 do {
     let h = Harness(stored: "KST1.saved")
     h.registrar.didReceiveDeviceToken(tokA)
-    check(h.paths == [R] && h.sent[0].auth == "Bearer KST1.saved", "relaunch: a stored session registers before the page loads")
+    check(h.paths == [R] && h.sent[safe: 0]?.auth == "Bearer KST1.saved", "relaunch: a stored session registers before the page loads")
 }
 
 section("registrar: repeats (the page re-posts on every signed-in load)")
@@ -210,9 +224,9 @@ do {
     h.registrar.didReceiveDeviceToken(tokA)
     check(h.paths == [R], "same session and token again: no second register")
     h.registrar.didReceive(.signedIn("KST1.two"))
-    check(h.paths == [R, R] && h.sent[1].auth == "Bearer KST1.two", "a different session registers again")
+    check(h.paths == [R, R] && h.sent[safe: 1]?.auth == "Bearer KST1.two", "a different session registers again")
     h.registrar.didReceiveDeviceToken(tokB)
-    check(h.paths == [R, R, R] && h.sent[2].body["token"] == tokB, "a rotated device token registers again")
+    check(h.paths == [R, R, R] && h.sent[safe: 2]?.body["token"] == tokB, "a rotated device token registers again")
 }
 do {
     let h = Harness()
@@ -231,7 +245,7 @@ do {
     h.registrar.didReceive(.signedIn("KST1.one"))
     h.registrar.didReceive(.signedOut)
     check(h.paths == [R, U], "sign-out unregisters")
-    check(h.sent[1].auth == "Bearer KST1.one" && h.sent[1].body == ["token": tokA], "with the OLD session and the token")
+    check(h.sent[safe: 1]?.auth == "Bearer KST1.one" && h.sent[safe: 1]?.body == ["token": tokA], "with the OLD session and the token")
     check(h.store.value == nil && h.registrar.session == nil, "and forgets the session")
     h.registrar.didReceiveDeviceToken(tokA)
     check(h.paths == [R, U], "a later token delivery registers nothing")
@@ -246,7 +260,7 @@ do {
     h.registrar.didReceive(.signedOut)
     check(h.sent.isEmpty, "sign-out before APNs gave a token: nothing to send yet")
     h.registrar.didReceiveDeviceToken(tokA)
-    check(h.paths == [U] && h.sent[0].auth == "Bearer KST1.one", "when the token arrives, unregister with the signed-out session, no register")
+    check(h.paths == [U] && h.sent[safe: 0]?.auth == "Bearer KST1.one", "when the token arrives, unregister with the signed-out session, no register")
 }
 do {
     let h = Harness()
@@ -254,7 +268,70 @@ do {
     h.registrar.didReceive(.signedOut)
     h.registrar.didReceive(.signedIn("KST1.two"))
     h.registrar.didReceiveDeviceToken(tokA)
-    check(h.paths == [R] && h.sent[0].auth == "Bearer KST1.two", "sign-out then a new sign-in before the token: just register the new one")
+    check(h.paths == [R] && h.sent[safe: 0]?.auth == "Bearer KST1.two", "sign-out then a new sign-in before the token: just register the new one")
+}
+
+section("registrar: in-flight races")
+do {
+    let h = Harness()
+    h.holdReplies = true
+    h.registrar.didReceiveDeviceToken(tokA)
+    h.registrar.didReceive(.signedIn("KST1.one"))
+    h.registrar.didReceive(.signedIn("KST1.one"))
+    h.registrar.didReceiveDeviceToken(tokA)
+    check(h.paths == [R], "repeat posts while a register is in flight: still one register")
+    check(h.store.saves == 1, "a repeat post of the same session does not rewrite the Keychain")
+    h.held[safe: 0]?(nil)
+    h.registrar.didReceive(.signedIn("KST1.one"))
+    check(h.paths == [R, R], "once the in-flight one fails, the next post retries")
+}
+do {
+    let h = Harness()
+    h.holdReplies = true
+    h.registrar.didReceiveDeviceToken(tokA)
+    h.registrar.didReceive(.signedIn("KST1.one"))
+    h.registrar.didReceive(.signedOut)
+    check(h.paths == [R, U], "sign-out while the register is in flight unregisters at once")
+    h.held[safe: 1]?(200)
+    h.held[safe: 0]?(200)
+    check(h.paths == [R, U, U], "the register landing after the sign-out is unregistered again")
+    check(h.sent[safe: 2]?.auth == "Bearer KST1.one" && h.sent[safe: 2]?.body == ["token": tokA], "with the signed-out session and the token")
+}
+do {
+    let h = Harness()
+    h.holdReplies = true
+    h.registrar.didReceiveDeviceToken(tokA)
+    h.registrar.didReceive(.signedIn("KST1.one"))
+    h.registrar.didReceive(.signedOut)
+    h.registrar.didReceive(.signedIn("KST1.two"))
+    h.held[safe: 0]?(200)
+    check(!h.paths.dropFirst(2).contains(U), "a late register with a newer session signed in sends no extra unregister")
+    check(h.paths.last == R && h.sent.last?.auth == "Bearer KST1.two", "the newer session registers")
+}
+
+section("registrar: an owed unregister survives a relaunch")
+do {
+    let h = Harness()
+    h.registrar.didReceive(.signedIn("KST1.one"))
+    h.registrar.didReceive(.signedOut)
+    check(h.pending.value == "KST1.one", "sign-out before the token persists the owed unregister")
+    check(h.store.value == nil, "while the live session is gone")
+    // Relaunch: a fresh registrar over the same stores.
+    let h2 = Harness(stored: h.store.value, pendingStored: h.pending.value)
+    h2.replies = [nil]
+    h2.registrar.didReceiveDeviceToken(tokA)
+    check(h2.paths == [U] && h2.sent[safe: 0]?.auth == "Bearer KST1.one", "the relaunch sends the owed unregister, and no register")
+    check(h2.pending.value == "KST1.one", "unreachable: still owed")
+    let h3 = Harness(pendingStored: h2.pending.value)
+    h3.registrar.didReceiveDeviceToken(tokA)
+    check(h3.paths == [U] && h3.pending.value == nil, "answered: no longer owed")
+}
+do {
+    let h = Harness(pendingStored: "KST1.old")
+    h.registrar.didReceive(.signedIn("KST1.new"))
+    check(h.pending.value == nil, "a new sign-in drops the owed unregister")
+    h.registrar.didReceiveDeviceToken(tokA)
+    check(h.paths == [R] && h.sent[safe: 0]?.auth == "Bearer KST1.new", "and only the new session registers")
 }
 
 section("registrar: refusals")
@@ -289,9 +366,9 @@ do {
     h.registrar.didReceive(.signedIn("KST1.old"))
     h.registrar.didReceive(.signedIn("KST1.new"))
     // The old session's register comes back 401 AFTER the new sign-in.
-    h.held[0](401)
+    h.held[safe: 0]?(401)
     check(h.registrar.session == "KST1.new" && h.store.value == "KST1.new", "a stale 401 does not forget a newer session")
-    h.held[1](200)
+    h.held[safe: 1]?(200)
 }
 do {
     let h = Harness()

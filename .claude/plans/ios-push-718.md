@@ -35,12 +35,17 @@ kosmos-relay branch `apns-718`). Assigned by Liu Kang (m433, 2026-09-24). Owner:
   macOS and its tests run with `swiftc` on this box. No simulator runtime exists here, so XCTest
   cannot run; a macOS-built test binary is the strongest proof available until it lands. Rejected:
   an XCTest target now (cannot run, would read as coverage while running nothing).
-- **Keychain, not memory only.** The page posts only at the moment of sign-in; on a later launch it
-  restores its own localStorage session and posts nothing. Memory-only would lose the ability to
-  register (a new APNs token) or unregister after a relaunch. Item class generic password,
+- **Keychain, not memory only.** The page posts the session at sign-in and again on every load
+  of a signed-in page (Kano, m439), but a launch can receive the APNs token before the page has
+  loaded, and an unregister owed by a sign-out must survive a relaunch. Two items: the live
+  session, and a signed-out session still owing an unregister. Generic password,
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (no iCloud/backup migration to another device).
 - **APNs device token in memory only.** iOS re-delivers it every launch after
   `registerForRemoteNotifications()`; it is not a secret, but there is no need to persist it.
+- **Late register after sign-out (challenge-loop iteration 1).** A sign-out while a register is in
+  flight sends its unregister at once, and the coordinator may process it before the register. So
+  a register that lands `ok` after a sign-out, with nobody signed in, is followed by one more
+  unregister. Not when a newer session exists: its own register re-owns the token.
 - **Register when both halves are present**, whichever arrives second. A new session with the same
   token re-registers (the server upsert moves the row to the new session's account).
 - **401 from register or unregister drops the stored session** (it is dead; keeping it would retry
@@ -62,13 +67,15 @@ boundary we chose, not a hole. A token from a lookalike host, a subframe, or pla
 and tested. What would change it: the coordinator serving user content on that origin.
 
 ## Steps
-- [ ] PushBridgeLogic.swift: origin gate, message parse, hex token, environment, request builder,
+- [x] PushBridgeLogic.swift: origin gate, message parse, hex token, environment, request builder,
       response classification.
-- [ ] SessionKeychain.swift: save/load/delete.
-- [ ] PushNotificationManager: state machine (apnsToken, session), register/unregister via URLSession.
-- [ ] ContentView/WebView: install the `kosmosSession` handler through a weak proxy; KosmosApp passes
+- [x] SessionKeychain.swift: save/load/delete.
+- [x] PushNotificationManager: state machine (apnsToken, session), register/unregister via URLSession.
+- [x] ContentView/WebView: install the `kosmosSession` handler through a weak proxy; KosmosApp passes
       the manager in.
-- [ ] Entitlements + CODE_SIGN_ENTITLEMENTS.
-- [ ] ios/LogicTests: macOS test binary incl. a URLProtocol stub for the network arms; run script.
-- [ ] README update; builds green (device + simulator SDK).
-- [ ] Contract confirmed with Kano; challenge-loop; PR (Addresses #718); report to Liu Kang.
+- [x] Entitlements + CODE_SIGN_ENTITLEMENTS.
+- [x] ios/LogicTests: macOS test binary incl. a URLProtocol stub for the network arms; run script.
+- [x] README update; builds green (device + simulator SDK).
+- [x] Contract confirmed with Kano (m439, m444: he pins the exact request in a coordinator test).
+- [ ] ios.yml CI job runs LogicTests + a simulator-SDK build (advisory, like android.yml).
+- [ ] challenge-loop; PR (Addresses #718); report to Liu Kang.
