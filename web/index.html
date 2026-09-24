@@ -32687,6 +32687,8 @@ function applyLayout(layout, apply) {
      aria-expanded and re-apply (or clear) the folded-descendant hiding. Safe
      before the list exists (it no-ops) and cheap (a class/attr pass). */
   if (typeof applyConsFold === 'function') applyConsFold();
+  /* #3497: the measurer skips the consolidated layout, so leaving it re-measures (A1u). */
+  if (was !== want && typeof window !== 'undefined' && typeof window.kosmosMeasureScrollbarWidth === 'function') window.kosmosMeasureScrollbarWidth();
 }
 /* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25
    10:12 CDT: "still some styling changes... moving the title and

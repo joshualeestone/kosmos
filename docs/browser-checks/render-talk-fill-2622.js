@@ -24,7 +24,7 @@
  * right edge, and the composer's bottom margin equals its side margins (A1b-A1g), including
  * when the header grows taller (A1f) and without moving the identity column (A1g).
  *
- * #3497 gutter (0.6.91 QA): A1l-A1q, A1s and A1t cover dropping the #1309 scrollbar gutter in wide Talk and
+ * #3497 gutter (0.6.91 QA): A1l-A1q and A1s-A1u cover dropping the #1309 scrollbar gutter in wide Talk and
  * padding wide headers by the measured scrollbar width. A1n launches its own Chromium (without
  * --hide-scrollbars) and WebKit, so running this by hand needs both Playwright browsers.
  *
@@ -512,6 +512,22 @@ async function measure(page) {
       'A6 scoping: a non-Talk section (Model) stays content-height, NOT stretched to the window',
       'secBottom=' + model.secBottom + ' innerHeight=' + model.innerHeight);
 
+    // A1u: leaving the consolidated layout re-measures (the measurer skips that layout, so a
+    // scrollbar change made there would otherwise stay stale). A planted value must be replaced.
+    const relayout = await page.evaluate(() => {
+      const root = document.documentElement;
+      const prev = root.getAttribute('data-layout');
+      root.setAttribute('data-layout', 'consolidated');
+      root.style.setProperty('--scrollbar-width', '99px');
+      applyLayout('tabs', true);
+      const after = root.style.getPropertyValue('--scrollbar-width');
+      if (prev === null) root.removeAttribute('data-layout'); else root.setAttribute('data-layout', prev);
+      window.kosmosMeasureScrollbarWidth();
+      return { after };
+    });
+    chk(/^\d+px$/.test(relayout.after) && relayout.after !== '99px',
+      'A1u leaving the consolidated layout re-measures the scrollbar width', JSON.stringify(relayout));
+
     chk(errs.length === 0, 'A7 no page errors', errs.join(' | '));
 
     // A1n: the same promises measured with scrollbars that take width, as on a Mac that shows them,
@@ -559,8 +575,10 @@ async function measure(page) {
         const sModel = await sHead();
         // Real scrollbars: Model scrolls and gives up 15px in both engines. The measured reservation of a
         // page that does not scroll is 15px in Chromium and 0 in Playwright's WebKit, which reserves none.
-        chk(sModel.given === 15 && (sBoard.sbw === '0px' || sBoard.sbw === '15px') && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
-          'A1n ' + engine + ' precondition: a scrolling page gives up 15px, the measured reservation is 0 or 15px (Playwright\'s WebKit reserves none on a page that does not scroll), the board\'s computed gutter is stable and Talk\'s auto', JSON.stringify({ sBoard, sTalk, sModel }));
+        chk(sModel.given === 15 && (sBoard.sbw === '0px' || sBoard.sbw === '15px'),
+          'A1n ' + engine + ' precondition: a scrolling page gives up 15px and the measured reservation is 0 or 15px (Playwright\'s WebKit reserves none on a page that does not scroll)', JSON.stringify({ sBoard, sModel }));
+        chk(sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
+          'A1n ' + engine + ': the board keeps the #1309 gutter and Talk drops it', JSON.stringify({ sBoard, sTalk }));
         chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
           'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (engine === 'webkit' ? ' (a guard in WebKit, which reserves no gutter on a page that does not scroll; Chromium is the control)' : ''), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
         chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight
