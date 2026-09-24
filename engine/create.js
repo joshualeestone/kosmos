@@ -762,6 +762,23 @@ function providerRunner(provider) {
   if (provider === 'xai') return 'grok';
   return 'claude';
 }
+/* #3519: the INVERSE of providerRunner -- the ONE runner -> provider map. The
+   adopt path (discover.connect) classifies a runner from the brief file on disk
+   and then has to record the matching provider in the profile, which the board
+   reads back to label the card (server.js derives a card's runner from
+   `profile.provider` when the pane is not the source). Before this, connect wrote a
+   single hand-rolled `runner === 'codex' ? 'openai'` ternary, so a gemini or grok
+   adoption recorded NO provider and the board fell back to claude. This is the same
+   two-copies-of-one-fact hazard providerRunner's header names (Convention #5): a
+   fifth provider added to providerRunner must round-trip here for free. claude and
+   any unknown/absent runner floor at anthropic, the mirror of providerRunner's
+   claude floor. Pure. */
+function runnerProvider(runner) {
+  if (runner === 'codex') return 'openai';
+  if (runner === 'gemini') return 'google';
+  if (runner === 'grok') return 'xai';
+  return 'anthropic';
+}
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
    {codex, gemini, grok}. plistFor (which slots run only for a non-claude runner),
    installJob (which runners it will back-fill a job for) and worldstarts (which imported
@@ -5186,6 +5203,7 @@ module.exports = {
   instructionFile,
   briefFilename,
   providerRunner,
+  runnerProvider,
   providerLabel,
   isNonClaudeRunner,
   recordedRunner,

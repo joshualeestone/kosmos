@@ -1624,27 +1624,59 @@ function connect(dir, opts) {
   try { st = fs.lstatSync(given); } catch { return { ok: false, because: 'that folder is not there any more' }; }
   if (!st.isDirectory()) return { ok: false, because: 'that is not a folder' };
 
-  /* 🛑 EITHER INSTRUCTIONS FILE, BECAUSE DISCOVERY ALREADY ACCEPTS BOTH (#1159).
-     `foundCodex` reads `AGENTS.md`; this read `CLAUDE.md` only. So a Codex agent
-     was LISTED on the setup screen and then REFUSED when somebody clicked it,
-     with "that folder has no instructions in it" -- which was FALSE: it had
-     AGENTS.md. Measured with both arms, and the Claude control got PAST this
-     check and failed later on a missing binary, which is what made it evidence.
+  /* 🛑 ANY OF THE INSTRUCTIONS FILES, BECAUSE DISCOVERY ALREADY ACCEPTS THEM ALL.
+     `foundCodex` reads `AGENTS.md` and `foundGemini` reads `GEMINI.md`; this read
+     `CLAUDE.md` only, then AGENTS.md (#1159). So a Codex agent was LISTED on the
+     setup screen and then REFUSED when somebody clicked it, with "that folder has
+     no instructions in it" -- FALSE: it had AGENTS.md. Measured with both arms, and
+     the Claude control got PAST this check and failed later on a missing binary,
+     which is what made it evidence.
 
-     ⚠️ AND THE FILE DECIDES THE RUNNER. A folder with AGENTS.md is a Codex agent,
-     and adopting it as a Claude one would start the wrong program in somebody's
-     project. CLAUDE.md wins when both exist: a person who has both has a Claude
-     agent that also carries codex notes. */
+     🛑 #3519: THE SAME LIE, ONE PROVIDER OVER. `foundGemini` offers GEMINI.md folders
+     as agents (runner 'gemini'), but this loop did not read GEMINI.md, so clicking
+     one was refused "no instructions in it" (or, with a typed name, downgraded to a
+     nameplate card with no gemini job). GEMINI.md is added here, the disk sibling of
+     CLAUDE.md and AGENTS.md, so an offered gemini folder actually adopts.
+
+     ⚠️ AND THE FILE DECIDES THE RUNNER. A folder with AGENTS.md is a Codex agent, a
+     GEMINI.md one a Gemini agent; adopting either as Claude would start the wrong
+     program in somebody's project. Precedence matches found()'s dedup order --
+     CLAUDE.md > AGENTS.md > GEMINI.md -- so a folder that carries several picks the
+     same runner the board already offered it as.
+
+     🔑 #3519 THE ONE THING DISK CANNOT DECIDE: grok reads AGENTS.md too
+     (create.briefFilename puts codex and grok on the same arm), so an AGENTS.md-only
+     folder is genuinely ambiguous between codex (OpenAI) and grok (xAI) and this loop
+     defaults it to codex, exactly as foundCodex does. It is not guessable from the
+     folder. When the CALLER knows which -- the connect screen or API supplied a
+     provider -- the hint below resolves that one case; absent a hint the codex
+     default stands. (A grok DISCOVERY path -- a foundGrok that would offer grok
+     folders for adoption in the first place -- does not exist yet and is a separate
+     follow-up; see #3519.) */
   let text;
   let runner = null;
   let instructionsFile = null;
-  for (const [file, which] of [['CLAUDE.md', null], ['AGENTS.md', 'codex']]) {
+  for (const [file, which] of [['CLAUDE.md', null], ['AGENTS.md', 'codex'], ['GEMINI.md', 'gemini']]) {
     try {
       text = fs.readFileSync(path.join(given, file), 'utf8').slice(0, 4000);
       runner = which;
       instructionsFile = file;
       break;
     } catch { /* try the next one */ }
+  }
+  /* #3519: an explicit provider from the caller resolves the codex/grok ambiguity
+     AGENTS.md cannot. It is honored ONLY when the runner it names boots from the
+     brief file actually on disk (create.briefFilename agrees), so a hint can correct
+     codex<->grok on an AGENTS.md folder but can never claim a file the folder does
+     not have (a 'google' hint on an AGENTS.md folder is ignored, not obeyed). Runs
+     through the shared provider<->runner maps rather than a fourth hand-written case,
+     so a fifth provider works here for free (Convention #5). claude normalizes back
+     to null, the loop's own claude value. */
+  if (instructionsFile !== null && opts && opts.provider) {
+    const hinted = create.providerRunner(String(opts.provider));
+    if (create.briefFilename(hinted) === instructionsFile) {
+      runner = hinted === 'claude' ? null : hinted;
+    }
   }
   /**
    * 🔑 A FOLDER WITH NO INSTRUCTIONS FILE IS STILL SOMEBODY'S AGENT (#1531).
@@ -1749,8 +1781,16 @@ function connect(dir, opts) {
      ⚠️ AND THAT IS NOT COSMETIC. `chat.js` pauses before Enter ONLY for a card
      whose runner is codex (#571), because codex swallows an Enter that rides the
      paste burst. A codex agent labelled claude would be sent a message that sits
-     in its composer unsent -- which looks exactly like an agent ignoring you. */
-  try { store.writeProfile(name, { dir: given, displayName, ...(runner === 'codex' ? { provider: 'openai' } : {}) }); }
+     in its composer unsent -- which looks exactly like an agent ignoring you.
+
+     🔑 #3519: EVERY non-claude runner records its provider, not just codex. A gemini
+     or grok adoption used to fall through the `codex ? openai` ternary and write no
+     provider at all, so the board labelled it claude -- the same #1159 mislabel this
+     block fixed for codex, now closed for the other two. `create.runnerProvider` is
+     the ONE runner->provider map (Convention #5); a null runner (claude) writes no
+     provider, unchanged, since the board's fallback for an absent provider is
+     already claude. */
+  try { store.writeProfile(name, { dir: given, displayName, ...(runner ? { provider: create.runnerProvider(runner) } : {}) }); }
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
 
   /* The runner rides along, or an adopted Codex agent starts Claude in its own
