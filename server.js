@@ -14732,11 +14732,9 @@ function start(port = PORT) {
       if (class1Sweep && typeof class1Sweep.unref === 'function') class1Sweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
-         stuck on a project past the grace period it convenes help ONCE: a room note in Kosmos's
-         voice asking up to two members for one reply each, then the playbook into the stuck
-         agent's pane. The item is marked convened ONLY on a PLACED pane delivery, so an
-         unconfirmed inject is retried (the auto-save sweep's rule). The pure decision, caps and
-         texts are engine/recommender.js. Gated on live execution exactly like the class-1 sweep:
+         stuck on a project past the grace period it convenes help ONCE: a room note, an ask
+         into up to two members' panes, then the playbook into the stuck agent's pane. The
+         decision, caps, retry rule and texts are engine/recommender.js. Gated on live execution exactly like the class-1 sweep:
          it types into agents' panes, so it is inert under `node --test` and before opt-in.
          safeRoster(), never paneRoster(): it needs stateReportedBy/stateProject and full cards
          for chat.deliver. Own ~1-min timer, unref'd, best-effort. */
@@ -14754,7 +14752,7 @@ function start(port = PORT) {
             DELIVERY: chat.DELIVERY,
           });
           recommenderPrev = out.next;
-          for (const a of out.acted) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.noted ? 'noted + ' : 'retry '}${a.verdict}\n`);
+          for (const a of out.acted) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();

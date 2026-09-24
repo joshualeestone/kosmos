@@ -13920,7 +13920,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <h3 class="dlab">Recommender</h3>
       <div class="setrow" id="rec-row" style="margin-top:14px;">
         <div><b>Let blocked agents recommend and act</b>
-          <p class="dhint" style="margin:2px 0 0;">When your agents get stuck on something, they work together to agree on a recommendation, write down why, and carry it out - within the guards below.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">When an agent reports it needs a decision, Kosmos asks two of its teammates for their view. The agent then decides, writes down why, and carries it out - within the guards below.</p></div>
         <button class="toggle" id="rec-toggle" role="switch" aria-label="Let blocked agents recommend and act" hidden><i></i></button>
       </div>
       <fieldset class="frow" id="rec-guards-row" hidden style="margin-top:12px; border:0; padding:0; display:flex; flex-direction:column; gap:8px;">
@@ -19339,7 +19339,7 @@ setInterval(() => {
 let REC_EPOCH = 0;
 let REC_SAVING = false;
 const REC_GUARDS = ['money', 'public', 'delete'];
-function paintRecommenderFrom(r) {
+function paintRecommenderFrom(r, force) {
   const on = r.on === true;
   paintSwitch('rec-toggle', on);
   const row = document.getElementById('rec-guards-row');
@@ -19350,10 +19350,10 @@ function paintRecommenderFrom(r) {
   for (const k of REC_GUARDS) {
     const cb = document.getElementById('rec-guard-' + k);
     // A missing guard reads ON, the fail-safe direction the store also takes.
-    if (cb && document.activeElement !== cb) cb.checked = g[k] !== false;
+    if (cb && (force || document.activeElement !== cb)) cb.checked = g[k] !== false;
   }
 }
-async function paintRecommender() {
+async function paintRecommender(force) {
   const mine = ++REC_EPOCH;
   const msg = document.getElementById('rec-msg');
   if (!document.getElementById('rec-toggle')) return;
@@ -19363,7 +19363,7 @@ async function paintRecommender() {
     if (!res.ok) throw new Error('not ok');
     const r = await res.json();
     if (mine !== REC_EPOCH) return;
-    paintRecommenderFrom(r);
+    paintRecommenderFrom(r, force);
     if (msg) msg.textContent = '';
   } catch {
     if (mine !== REC_EPOCH) return;
@@ -19375,23 +19375,36 @@ async function paintRecommender() {
     if (msg) msg.textContent = 'We could not read this setting just now.';
   }
 }
+/* A guard checkbox flips before its save lands. When the save is dropped or fails, put the box
+   back to what the store holds (force: even though it has focus), so it never shows a guard as
+   on that the store has off. */
+function recUndoGuard(change) {
+  if (!change || !change.guard) return;
+  const cb = document.getElementById('rec-guard-' + change.guard);
+  if (cb) cb.checked = change.value !== true;
+}
 async function saveRecommender(change) {
-  if (REC_SAVING) return;
+  if (REC_SAVING) { recUndoGuard(change); return; }
   REC_SAVING = true;
   const mine = ++REC_EPOCH;
   const msg = document.getElementById('rec-msg');
+  let failed = false;
   try {
     const res = await fetch('/api/recommender-setting', {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(change),
     });
     const out = await res.json().catch(() => ({}));
     if (mine !== REC_EPOCH) return;
-    if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; paintRecommender(); return; }
+    if (!res.ok) { failed = true; if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintRecommenderFrom(out);
     if (msg) msg.textContent = '';
   } catch {
+    failed = true;
     if (mine === REC_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
-  } finally { REC_SAVING = false; }
+  } finally {
+    REC_SAVING = false;
+    if (failed) { recUndoGuard(change); paintRecommender(true); }
+  }
 }
 function recToggleClick() {
   const tog = document.getElementById('rec-toggle');

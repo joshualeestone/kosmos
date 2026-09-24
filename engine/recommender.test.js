@@ -26,6 +26,7 @@ const fleet = require('../test-support/fleet');
 const status = require('./status');
 const selfreport = require('./selfreport');
 const r = require('./recommender');
+const { DELIVERY } = require('./chat'); // the real verdict states the runner compares against
 
 test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -41,7 +42,9 @@ function stuckBoard(specs) {
   const board = fleet.install(specs.map((s) => fleet.agent(s.name, { state: s.paneState || 'idle', displayName: s.displayName })));
   const key = {};
   for (const s of specs) {
-    const card = board.agents.find((c) => c.sessionName === s.name || (c.sessionName || '').startsWith(s.name));
+    // Exact match first: a prefix match alone lets 'run' resolve to 'rungone'.
+    const card = board.agents.find((c) => c.sessionName === s.name)
+      || board.agents.find((c) => (c.sessionName || '').startsWith(s.name));
     key[s.name] = card ? card.sessionName : s.name;
     if (s.report) {
       const rec = selfreport.record(key[s.name], s.report);
@@ -141,7 +144,7 @@ test('a report naming no project is not convened (there is no room to ask in)', 
   } finally { b.restore(); }
 });
 
-test('an item is convened once: a PLACED delivery ends it; an unplaced one retries the PANE only, capped', () => {
+test('an item is convened once: PLACED or UNCONFIRMED ends it; COULD_NOT retries the playbook only, capped', () => {
   const b = stuckBoard([{ name: 'once', report: STUCK('which of two layouts to ship') }]);
   try {
     const roster = b.cards;
@@ -149,14 +152,14 @@ test('an item is convened once: a PLACED delivery ends it; an unplaced one retri
     const a = afterGrace(roster, members);
     assert.equal(a.toConvene.length, 1);
     assert.equal(a.toConvene[0].retry, false, 'the first convening must post the room note');
-    r.markAttempt(a.next, a.toConvene[0].key, false); // room note out, pane not placed
+    r.markAttempt(a.next, a.toConvene[0].key, DELIVERY.COULD_NOT, DELIVERY, []); // asks out, playbook reached nothing
     let prev = a.next; let now = T0 + r.GRACE_MS;
     for (let i = 1; i < r.MAX_DELIVERY_ATTEMPTS; i++) {
       now += 60000;
       const again = r.step({ prev, roster, setting: ON, members, now });
       assert.equal(again.toConvene.length, 1, 'an unplaced delivery was not retried (attempt ' + i + ')');
       assert.equal(again.toConvene[0].retry, true, 'a retry would post a second room note');
-      r.markAttempt(again.next, again.toConvene[0].key, false);
+      r.markAttempt(again.next, again.toConvene[0].key, DELIVERY.COULD_NOT, DELIVERY);
       prev = again.next;
     }
     const exhausted = r.step({ prev, roster, setting: ON, members, now: now + 60000 });
@@ -169,9 +172,14 @@ test('an item is convened once: a PLACED delivery ends it; an unplaced one retri
     assert.equal(s2.toConvene.filter((c) => !c.retry).length, 1, 'retries spent the per-agent budget');
     // And a PLACED delivery ends the item for good.
     const fresh = afterGrace(roster, members);
-    r.markAttempt(fresh.next, fresh.toConvene[0].key, true);
+    r.markAttempt(fresh.next, fresh.toConvene[0].key, DELIVERY.PLACED, DELIVERY, []);
     const done = r.step({ prev: fresh.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000 });
     assert.equal(done.toConvene.length, 0, 'a convened item fired twice');
+    // UNCONFIRMED ends it too: text may already be in the pane, and a re-send could duplicate it.
+    const unsure = afterGrace(roster, members);
+    r.markAttempt(unsure.next, unsure.toConvene[0].key, DELIVERY.UNCONFIRMED, DELIVERY, []);
+    const after = r.step({ prev: unsure.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000 });
+    assert.equal(after.toConvene.length, 0, 'an UNCONFIRMED playbook was re-sent');
   } finally { b.restore(); }
 });
 
@@ -180,7 +188,7 @@ test('a resolved item is forgotten, so the same words later are a new item', () 
   try {
     const members = new Map();
     const a = afterGrace(b.cards, members);
-    r.markAttempt(a.next, a.toConvene[0].key, true);
+    r.markAttempt(a.next, a.toConvene[0].key, DELIVERY.PLACED, DELIVERY, []);
     const working = b.again('forget', { state: 'working', because: 'building it', project: 'proj-a' });
     const cleared = r.step({ prev: a.next, roster: working, setting: ON, members, now: T0 + r.GRACE_MS + 1 });
     assert.equal(cleared.next.items.size, 0);
@@ -201,7 +209,7 @@ test('caps: at most MAX_PER_AGENT_PER_HOUR per agent and MAX_PER_HOUR overall', 
       const seen = r.step({ prev, roster, setting: ON, members, now });
       now += r.GRACE_MS;
       const out = r.step({ prev: seen.next, roster, setting: ON, members, now });
-      for (const c of out.toConvene) { convened++; r.markAttempt(out.next, c.key, true); }
+      for (const c of out.toConvene) { convened++; r.markAttempt(out.next, c.key, DELIVERY.PLACED, DELIVERY, []); }
       prev = out.next; now += 1000;
     }
     assert.ok(now - T0 < 60 * 60 * 1000, 'test setup: the items did not all fall inside one hour');
@@ -254,8 +262,9 @@ test('a failed roster read (null) keeps the memory and does nothing; the setting
   } finally { b.restore(); }
 });
 
-test('texts: the playbook names only ACTIVE guards; the room note @-mentions the peers', () => {
-  const item = { name: 'April', because: 'x', peers: [{ session: 'pete', name: 'Pete' }] };
+test('texts: the playbook names only ACTIVE guards and only peers actually asked; the asks name the room', () => {
+  const peers = [{ session: 'pete', name: 'Pete' }, { session: 'angel', name: 'Angel' }];
+  const item = { name: 'April', because: 'x', project: 'proj-a', peers, asked: peers };
   const all = r.playbookText(item, ON);
   for (const g of Object.values(r.GUARD_TEXT)) assert.ok(all.includes(g), 'missing guard: ' + g);
   const noMoney = r.playbookText(item, { on: true, guards: { money: false, public: true, delete: true } });
@@ -263,42 +272,70 @@ test('texts: the playbook names only ACTIVE guards; the room note @-mentions the
   assert.ok(noMoney.includes(r.GUARD_TEXT.public));
   const missing = r.playbookText(item, { on: true });
   for (const g of Object.values(r.GUARD_TEXT)) assert.ok(missing.includes(g), 'a missing guard read as off (must fail safe to on)');
-  assert.match(r.roomNoteText(item), /@Pete/);
-  assert.match(r.roomNoteText({ ...item, peers: [] }), /no one else is on this project/);
-  assert.ok(!/—/.test(all + r.roomNoteText(item)), 'em dash in product copy');
+  // Only the peers who were reached are named; none reached says so rather than "wait".
+  assert.match(all, /I asked Pete and Angel/);
+  const onlyPete = r.playbookText({ ...item, asked: [peers[0]] }, ON);
+  assert.match(onlyPete, /I asked Pete for/);
+  assert.ok(!onlyPete.includes('Angel'), 'a peer who was not reached was named');
+  const nobody = r.playbookText({ ...item, asked: [] }, ON);
+  assert.ok(!/I asked/.test(nobody), 'told to wait for replies nobody was asked for');
+  assert.match(nobody, /could not reach the other members/);
+  assert.match(r.playbookText({ ...item, peers: [], asked: [] }, ON), /No one else is on this project/);
+  // The room note records the ask; the peer's ask names the project and how to reply there.
+  assert.match(r.roomNoteText(item), /asking Pete and Angel/);
+  assert.match(r.roomNoteText({ ...item, peers: [] }), /No one else is on this project/);
+  const ask = r.peerAskText(item);
+  assert.match(ask, /April is stuck on a decision in project proj-a/);
+  assert.match(ask, /kosmos post proj-a /);
+  assert.ok(!/\u2014/.test(all + r.roomNoteText(item) + ask + nobody), 'em dash in product copy');
 });
 
-test('runOnce: one room note per item, the playbook delivered, retries never re-post the note', () => {
-  const b = stuckBoard([{ name: 'run', report: STUCK('which of two layouts to ship') }, { name: 'runboom', report: STUCK('other') }]);
+test('runOnce: note and asks once per item, the playbook names who was reached, only COULD_NOT retries', () => {
+  const b = stuckBoard([
+    { name: 'run', report: STUCK('which of two layouts to ship') },
+    { name: 'runpeer', displayName: 'Pete' },
+    { name: 'rungone', displayName: 'Gone' },
+    { name: 'runboom', report: STUCK('other') },
+  ]);
   try {
-    const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+    const k = b.key;
     const notes = []; const sent = [];
-    let verdict = 'unconfirmed';
-    const deps = { roomNote: (pid, t) => notes.push([pid, t]), deliver: (s, t) => { sent.push([s, t]); return { state: verdict }; }, DELIVERY };
-    const members = new Map();
-    const roster = b.cards.filter((c) => c.sessionName === b.key.run);
+    let playbookVerdict = DELIVERY.COULD_NOT;
+    const verdictFor = (s) => (s === k.rungone ? DELIVERY.COULD_NOT : s === k.run ? playbookVerdict : DELIVERY.PLACED);
+    const deps = { roomNote: (pid, t) => { notes.push([pid, t]); return true; }, deliver: (s, t) => { sent.push([s, t]); return { state: verdictFor(s) }; }, DELIVERY };
+    const members = new Map([['proj-a', [k.run, k.runpeer, k.rungone]]]);
+    const roster = b.cards.filter((c) => c.sessionName !== k.runboom);
     const seen = r.runOnce({ prev: undefined, roster, setting: ON, members, now: T0, ...deps });
     assert.equal(notes.length + sent.length, 0, 'acted inside the grace period');
     const first = r.runOnce({ prev: seen.next, roster, setting: ON, members, now: T0 + r.GRACE_MS, ...deps });
     assert.equal(notes.length, 1, 'no room note on first convening');
     assert.equal(notes[0][0], 'proj-a');
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0][0], b.key.run);
-    assert.equal(first.acted[0].noted, true);
+    assert.deepEqual(sent.map((x) => x[0]), [k.runpeer, k.rungone, k.run], 'asks go to both peers, then the playbook');
+    assert.match(sent[0][1], /kosmos post proj-a/);
+    assert.match(sent[2][1], /I asked Pete for one reply/, 'the playbook did not name the reached peer');
+    assert.ok(!sent[2][1].includes('Gone'), 'the playbook named a peer whose ask did not land');
+    assert.deepEqual(first.acted[0].asked, [k.runpeer]);
+    assert.equal(first.acted[0].noteLanded, true);
+    // COULD_NOT on the playbook: retried, playbook only, still naming who was reached.
     const retry = r.runOnce({ prev: first.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000, ...deps });
     assert.equal(notes.length, 1, 'a retry posted a SECOND room note');
-    assert.equal(sent.length, 2, 'an unplaced delivery was not retried');
-    assert.equal(retry.acted[0].noted, false);
-    verdict = 'placed';
-    const placed = r.runOnce({ prev: retry.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 120000, ...deps });
-    assert.equal(sent.length, 3);
-    r.runOnce({ prev: placed.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 180000, ...deps });
-    assert.equal(sent.length, 3, 'delivered again after a PLACED delivery');
-    // A throwing deliver counts as not placed and never crashes the pass.
-    const boom = { ...deps, deliver: () => { throw new Error('x'); } };
-    const boomRoster = b.cards.filter((c) => c.sessionName === b.key.runboom);
-    const b1 = r.runOnce({ prev: undefined, roster: boomRoster, setting: ON, members, now: T0, ...boom });
-    const b2 = r.runOnce({ prev: b1.next, roster: boomRoster, setting: ON, members, now: T0 + r.GRACE_MS, ...boom });
+    assert.equal(sent.length, 4, 'a retry re-asked the peers, or did not retry the playbook');
+    assert.equal(sent[3][0], k.run);
+    assert.match(sent[3][1], /I asked Pete for one reply/, 'the retry forgot who was asked');
+    assert.equal(retry.acted[0].retry, true);
+    playbookVerdict = DELIVERY.UNCONFIRMED;
+    const unsure = r.runOnce({ prev: retry.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 120000, ...deps });
+    assert.equal(sent.length, 5);
+    r.runOnce({ prev: unsure.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 180000, ...deps });
+    assert.equal(sent.length, 5, 'delivered again after an UNCONFIRMED playbook (could duplicate)');
+    // A throwing deliver and a throwing roomNote never crash the pass; a throw counts as COULD_NOT.
+    const boom = { ...deps, roomNote: () => { throw new Error('x'); }, deliver: () => { throw new Error('x'); } };
+    const boomRoster = b.cards.filter((c) => c.sessionName === k.runboom);
+    const b1 = r.runOnce({ prev: undefined, roster: boomRoster, setting: ON, members: new Map(), now: T0, ...boom });
+    const b2 = r.runOnce({ prev: b1.next, roster: boomRoster, setting: ON, members: new Map(), now: T0 + r.GRACE_MS, ...boom });
     assert.equal(b2.acted[0].verdict, null);
+    assert.equal(b2.acted[0].noteLanded, false);
+    const b3 = r.runOnce({ prev: b2.next, roster: boomRoster, setting: ON, members: new Map(), now: T0 + r.GRACE_MS + 60000, ...boom });
+    assert.equal(b3.acted.length, 1, 'a thrown delivery was not retried');
   } finally { b.restore(); }
 });
