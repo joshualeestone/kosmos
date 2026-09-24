@@ -36,7 +36,7 @@ android/
 │                                                        (origin: login.kosmosplus.com)
 └── tools/
     ├── assetlinks.template.json                       host this at the front-door origin
-    └── print-signing-fingerprint.sh                   fills the fingerprint in that file
+    └── print-signing-fingerprint.sh                   prints a keystore's SHA-256 for that file
 ```
 
 ## Build toolchain (already installed on this box)
@@ -201,10 +201,15 @@ status-bar icon (`res/drawable/ic_notification.xml`) and use the app's own
 notification permission on Android 13+. Without them they would show as Chrome
 notifications. Still zero hand-written Java or Kotlin.
 
+**Not yet seen on a device.** What is verified is the build: the release APK's
+manifest carries the service, the activity and the icon. No push has been shown on
+a phone or emulator yet, and delegation cannot work at all until the coordinator
+serves `assetlinks.json` (above).
+
 **Where a tap goes (open, not decided here).** The coordinator's `sw.js` opens
 `https://<mac-name>.kosmosplus.com/` on a tap, the person's own Mac, which is a
 different origin from `login.kosmosplus.com`. Per-Mac origins cannot be listed in
 this app's verified set (one subdomain per user, and Digital Asset Links has no
-wildcards), so that page opens with a URL bar or in a browser tab rather than as
-the bare app. This is the same undecided half of #2854 as how the board is shown
+wildcards), so that page is expected to open with a URL bar or in a browser tab
+rather than as the bare app. Expected, not yet measured on a device. This is the same undecided half of #2854 as how the board is shown
 after sign-in, and it stays with the relay architecture decision.

@@ -20,8 +20,9 @@ android {
 
     defaultConfig {
         // NOTE: applicationId is the permanent Play-store identity. `io.kosmos.app`
-        // is a placeholder that mirrors the intended front-door origin (app.kosmos.io);
-        // confirm before the first Play upload, because it cannot change afterwards.
+        // was picked to mirror the old placeholder origin, not the current one;
+        // confirm it before the first Play upload, because it cannot change afterwards
+        // (android/README.md, "Confirm applicationId before the first Play upload").
         applicationId "io.kosmos.app"
         minSdk 24
         targetSdk 35
