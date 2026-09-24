@@ -26578,18 +26578,6 @@ function openDetail(sessionName, section, fromProject) {
   DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
-  /* #3557: any agent open clears a pending answer-focus intent. Only pjAnswerFrom
-     re-arms it, immediately AFTER this openDetail returns, so a plain card-click
-     open -- or a reopen of the SAME agent -- can never inherit a stale intent and
-     auto-focus the composer on a visit where the user did not press answer. This
-     bounds the intent's life to "the panel pjAnswerFrom just opened", which is the
-     bound the time window alone cannot supply: if a persistent thread-fetch
-     failure keeps any paint from ever stamping the clock (it stays at the
-     not-observed sentinel) and the user then leaves, only the next open can
-     disarm it -- and this is that disarm. openDetail runs on a real open, never on
-     the poll, so it cannot clear a live intent mid-recovery. */
-  ANSWER_WANTS_FOCUS = null;
-  ANSWER_WANTS_FOCUS_AT = 0;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
@@ -26626,6 +26614,18 @@ function openDetail(sessionName, section, fromProject) {
      which is the one sentence naming the saved-but-not-restarted
      window until the restart happens. */
   if (cameFrom !== a.sessionName) { const am = document.getElementById('d-account-msg'); if (am) am.textContent = ''; }
+  /* #3557: any agent open disarms a pending answer-focus intent. Only pjAnswerFrom
+     re-arms it, immediately after this openDetail returns, so a plain card-click
+     open or a reopen of the SAME agent can never inherit a stale intent and
+     auto-focus the composer on a visit where nobody pressed answer. This is the
+     lifecycle bound the time window alone cannot give (a persistent thread-fetch
+     failure can keep any paint from ever stamping the clock; the next open is then
+     the only thing that disarms). Placed AFTER the d-account-msg clear on purpose:
+     server.test.js slices the first 4200 chars of openDetail to pin that clear, so
+     this must not push it out of that window. Full rationale at the
+     ANSWER_WANTS_FOCUS_AT declaration and the paint consumer. */
+  ANSWER_WANTS_FOCUS = null;
+  ANSWER_WANTS_FOCUS_AT = 0;
   TALK_SCROLL = null;
   /* The name for the Reports-to menu's first option. Fire and forget: the poll
      repaints this panel every five seconds, and until it lands the menu says
