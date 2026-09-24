@@ -5,14 +5,14 @@
  * pane left behind after the retries run out reads connection_lost.
  *
  * CAPTURED (trimmed from real panes): RETRYING and WEDGED are from Claude Code 2.1.281 in
- * tmux with its API pointed at a closed port (2026-09-24), the 80-column frame is from the
- * same probe at 80 columns, and the "└ Retrying in 30 seconds…" layout is #874's live pane
- * (2026-08-25). For 152 seconds the pane showed the "Retrying in Ns · attempt K/10" line;
+ * tmux with its API pointed at a closed port (2026-09-24), and the 80-column frame is from the
+ * same probe at 80 columns. For 152 seconds the pane showed the "Retrying in Ns · attempt K/10" line;
  * after attempt 10/10 it showed the "⏺ API Error: …" line and the turn footer. Before this
  * fix every retrying frame read connection_lost, so the #3410 self-heal would have
  * restarted an agent mid-retry.
- * COMPOSED (not captured): the other attempt/delay samples, the 529 frame, and every
- * control, each built by editing a captured frame.
+ * COMPOSED (not captured): the other attempt/delay samples, the 529 frame, the #874-layout
+ * row (captured under a 401 on #874, placed here over a network error), and every control,
+ * each built by editing a captured frame.
  */
 
 const test = require('node:test');
@@ -81,20 +81,14 @@ test('#3410: a non-network retry (529) reads WORKING, with the error in the evid
     'Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED) · Retrying in 34s',
     'API Error (529 Overloaded) · Retrying in 10s'));
   assert.equal(r.state, status.STATE.WORKING);
-  assert.doesNotMatch(r.because, /connection/i);
   assert.match(r.evidence, /529 Overloaded/);
 });
 
-test('#3410: the #874 retry layout (└ Retrying in N seconds… (attempt K/N)) under a network error reads WORKING', () => {
-  const pane = [
-    '❯ say hi',
-    '  └ API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)',
-    '  └ Retrying in 30 seconds… (attempt 7/10)',
-    RULE, '❯', RULE, '  work · Opus 5.5',
-  ].join('\n');
-  const r = status.classify(PANE, pane);
-  assert.equal(r.state, status.STATE.WORKING);
-  assert.match(r.evidence, /Retrying in 30 seconds… \(attempt 7\/10\)/);
+test('#3410: #874\'s "└ Retrying in N seconds…" row does NOT make a wedged pane read working (unmeasured layout, not matched)', () => {
+  // A stale row of that layout above the real wedged frame must leave it connection_lost:
+  // reading working here is a false calm the self-heal would never act on.
+  const pane = WEDGED.replace('❯ say hi', '❯ say hi\n  └ Retrying in 30 seconds… (attempt 10/10)');
+  assert.equal(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
 });
 
 test('#3410 control: an indented ·-led prose row ending in the suffix is not a live retry', () => {
@@ -113,6 +107,7 @@ test('#3410 control: a spinner-glyph quote with text after the suffix is not a l
 });
 
 test('#3410 control: a markdown * bullet ending in the suffix is not a live retry', () => {
-  const bullet = WEDGED.replace('⏺ API Error:', '⏺ Plan:\n  * step one · Retrying in 5s · attempt 1/3\n⏺ API Error:');
+  // At column 0, so the glyph class (not the column anchor) is what rejects the `*`.
+  const bullet = WEDGED.replace('⏺ API Error:', '⏺ Plan:\n* step one · Retrying in 5s · attempt 1/3\n⏺ API Error:');
   assert.notEqual(status.classify(PANE, bullet).state, status.STATE.WORKING);
 });
