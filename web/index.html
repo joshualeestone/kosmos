@@ -52559,6 +52559,9 @@ let TIP_OPEN = null;            // the tip on screen, or null
 let TIP_RETURN = null;          // focus to restore on close
 let TIPS_TIMER = null;
 let TIPS_STARTED = false;
+/* How often the tips look at the screen: under the second or so it takes to read one, and a few
+   querySelector calls each time. */
+const TIPS_CHECK_MS = 1200;
 let TIP_PLACES = [];            // the tour's steps whose place is on screen
 let TIP_STEP = 0;               // the tour step showing
 let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
@@ -52621,7 +52624,7 @@ function tipsStart() {
   tipLayerEnsure();
   if (TIPS_STARTED) return;
   TIPS_STARTED = true;
-  tipsLoad().then(() => { paintTipsToggle(); tipsCheck(); TIPS_TIMER = setInterval(tipsCheck, 1200); });
+  tipsLoad().then(() => { paintTipsToggle(); tipsCheck(); TIPS_TIMER = setInterval(tipsCheck, TIPS_CHECK_MS); });
 }
 
 function tipsCheck() {
