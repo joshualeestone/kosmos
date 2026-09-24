@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: decoord-3555
-diff_hash: 85441f4ee714c1ce450ac8266d3d1ed90656b77cb314113564f134b6eacefc63
+diff_hash: a69dae66b72840255d11eafb9b363244c3d45b221349610c4ca6bfba861893e7
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-24T10:43:09Z
@@ -41,7 +41,7 @@ Model rotation paid off (kosmos#2032): the **opus** pass caught 5 user-visible s
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
 | 1 | 2 | WARNING | engine/remote.js:868… | BRANCH | 5 user-visible sign-in `because:` coordinator strings | FIXED | 507113a2a |
-| 2 | - | CONVENTION | .claude/plans/ | BRANCH | no plan file for branch | DEFERRED | trivial copy-only change; the card (kosmos#3555) is the spec |
+| 2 | - | CONVENTION | .claude/plans/ | BRANCH | no plan file for branch | FIXED | added .claude/plans/decoord-3555.md (plan-file gate is a hard requirement) |
 
 ### What changed (kosmos#3555 deliverable)
 6 user-visible strings in engine/remote.js (all relayed to the UI via server.js `{ error: because }`):
