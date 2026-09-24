@@ -188,6 +188,35 @@ const chk = (ok, label, extra) => {
   chk(back.reopened && back.boxHidden && /Connected/.test(back.btn) && back.msg === 'Gemini is connected.',
     'an Add that lands after switching away and back closes the reopened box and shows Connected', JSON.stringify(back));
 
+  // Enter adds the key and does not bubble; the aria-label follows the state; closing mid-Add clears the message.
+  const more = await q(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.__accounts = window.__accounts.filter((a) => a.provider !== 'google');
+    await frPaintKeyed();
+    const labelBefore = document.getElementById('fr-gemini-connect').getAttribute('aria-label');
+    document.getElementById('fr-gemini-connect').click(); await wait(120);
+    let bubbled = false;
+    const spy = () => { bubbled = true; };
+    document.addEventListener('keydown', spy);
+    let release; window.__hold = new Promise((r) => { release = r; });
+    window.__posts.length = 0;
+    const key = document.getElementById('fr-apikey-key');
+    key.value = 'AIza-enter';
+    key.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await wait(30);
+    document.removeEventListener('keydown', spy);
+    const posted = window.__posts.length;
+    document.getElementById('fr-gemini-connect').click(); await wait(60);   // close while the Add is pending
+    const msgAfterClose = document.getElementById('fr-apikey-msg').textContent;
+    release(); window.__hold = null; await wait(200);
+    return { labelBefore, posted, bubbled, msgAfterClose,
+      msgEnd: document.getElementById('fr-apikey-msg').textContent,
+      labelAfter: document.getElementById('fr-gemini-connect').getAttribute('aria-label') };
+  });
+  chk(more.posted === 1 && more.bubbled === false, 'Enter in the key field adds the key and does not reach the step', JSON.stringify(more));
+  chk(more.msgAfterClose === '' && !/Checking/.test(more.msgEnd), 'closing the box mid-Add clears the message and "Checking..." never comes back', JSON.stringify(more));
+  chk(more.labelBefore === 'Connect Gemini' && more.labelAfter === 'Gemini is connected', 'the button\'s accessible name follows the state', JSON.stringify(more));
+
   // Entering the step paints a row whose account already connected.
   const entry = await q(async () => {
     window.__accounts.push({ provider: 'google', connection: { state: 'connected' } });
