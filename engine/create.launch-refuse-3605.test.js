@@ -94,37 +94,55 @@ test('#3605 (the card\'s ask): the LaunchAgents dir is resolved at CALL time, no
 /* The preload (test-support/launch-guard.js) is what stops the ~sixty tests that write
    job files THEMSELVES. It runs in a fresh child whose fs writers are recorders installed
    BEFORE the guard wraps them, so even a broken guard records a write rather than making one. */
-test('#3605 preload: refuses every writer into the real LaunchAgents, before the write, and passes others through', () => {
+test('#3605 preload: refuses every wrapped writer and deleter into the real LaunchAgents, before the call, and passes others through', () => {
   const { execFileSync } = require('node:child_process');
   const guard = path.join(__dirname, '..', 'test-support', 'launch-guard.js');
   const script = `
-    const fs = require('node:fs'); const path = require('node:path');
+    const fs = require('node:fs'); const path = require('node:path'); const { pathToFileURL } = require('node:url');
     const seen = [];
-    for (const n of ['writeFileSync','appendFileSync','copyFileSync','renameSync'])
-      fs[n] = (...a) => { seen.push(n); };
-    fs.promises.writeFile = async () => { seen.push('promises.writeFile'); };
+    const SYNC = ['writeFileSync','appendFileSync','copyFileSync','renameSync','symlinkSync','linkSync','rmSync','unlinkSync'];
+    const CB = ['writeFile','appendFile','copyFile','rename','rm','unlink'];
+    const PR = ['writeFile','appendFile','copyFile','rename','rm','unlink'];
+    for (const n of SYNC) fs[n] = () => { seen.push(n); };
+    for (const n of CB) fs[n] = (...a) => { seen.push('cb.' + n); };
+    for (const n of PR) fs.promises[n] = async () => { seen.push('p.' + n); };
     require(${JSON.stringify(guard)});
     const REAL = ${JSON.stringify(REAL)}, SAFE = ${JSON.stringify(path.join(SANDBOX, 'LaunchAgents'))};
+    const R = path.join(REAL, 'com.kosmos.agent.p.plist'), S = path.join(SAFE, 'com.kosmos.agent.p.plist');
     const out = {};
     const tryIt = (k, fn) => { try { fn(); out[k] = 'allowed'; } catch (e) { out[k] = /#3605/.test(e.message) ? 'refused' : 'other:' + e.message; } };
-    tryIt('write', () => fs.writeFileSync(path.join(REAL, 'com.kosmos.agent.p.plist'), 'x'));
-    tryIt('append', () => fs.appendFileSync(path.join(REAL, 'com.kosmos.agent.p.plist'), 'x'));
-    tryIt('copyDest', () => fs.copyFileSync('/etc/hosts', path.join(REAL, 'com.kosmos.agent.p.plist')));
-    tryIt('renameDest', () => fs.renameSync('/nope', path.join(REAL, 'p.plist')));
-    tryIt('renameFromReal', () => fs.renameSync(path.join(REAL, 'p.plist'), path.join(SAFE, 'p.plist')));
-    tryIt('sandbox', () => fs.writeFileSync(path.join(SAFE, 'com.kosmos.agent.p.plist'), 'x'));
-    fs.promises.writeFile(path.join(REAL, 'p.plist'), 'x').then(
-      () => { out.promise = 'allowed'; }, (e) => { out.promise = /#3605/.test(e.message) ? 'refused' : 'other'; })
+    // Destination index per method: the real path goes where that method WRITES.
+    const DEST1 = new Set(['copyFileSync','renameSync','symlinkSync','linkSync','copyFile','rename']);
+    for (const n of SYNC) tryIt(n, () => DEST1.has(n) ? fs[n]('/nope', R) : fs[n](R, 'x'));
+    for (const n of CB) tryIt('cb.' + n, () => DEST1.has(n) ? fs[n]('/nope', R, () => {}) : fs[n](R, () => {}));
+    tryIt('caseVariant', () => fs.writeFileSync(path.join(path.dirname(REAL), 'launchagents', 'p.plist'), 'x'));
+    tryIt('fileUrl', () => fs.writeFileSync(pathToFileURL(R), 'x'));
+    tryIt('renameFromReal', () => fs.renameSync(R, S));
+    tryIt('sandbox', () => fs.writeFileSync(S, 'x'));
+    Promise.all(PR.map((n) => (DEST1.has(n) ? fs.promises[n]('/nope', R) : fs.promises[n](R, 'x')).then(
+      () => { out['p.' + n] = 'allowed'; }, (e) => { out['p.' + n] = /#3605/.test(e.message) ? 'refused' : 'other'; })))
       .then(() => process.stdout.write(JSON.stringify({ out, seen })));
   `;
   const env = { ...process.env }; delete env.NODE_OPTIONS;
   const res = JSON.parse(execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
-  assert.deepEqual(res.out, {
-    write: 'refused', append: 'refused', copyDest: 'refused', renameDest: 'refused',
-    renameFromReal: 'allowed', sandbox: 'allowed', promise: 'refused',
-  });
-  // Only the two allowed calls reached a writer: every refusal came BEFORE the write.
-  assert.deepEqual(res.seen, ['renameSync', 'writeFileSync']);
+  const refused = Object.keys(res.out).filter((k) => !['renameFromReal', 'sandbox'].includes(k));
+  if (process.platform !== 'darwin') refused.splice(refused.indexOf('caseVariant'), 1);
+  for (const k of refused) assert.equal(res.out[k], 'refused', `${k} must be refused`);
+  assert.equal(res.out.renameFromReal, 'allowed', 'moving a file OUT of the real folder is not a write into it');
+  assert.equal(res.out.sandbox, 'allowed');
+  // Only the allowed calls reached the underlying function: every refusal came BEFORE the call.
+  const expectSeen = ['renameSync', 'writeFileSync'];
+  if (process.platform !== 'darwin') expectSeen.unshift('writeFileSync');
+  assert.deepEqual(res.seen.sort(), expectSeen.sort());
+});
+
+test('#3605 create.js: the rollback delete is skipped for a real-folder job file under test', () => {
+  assert.equal(create.isRealLaunchTargetUnderTest(path.join(REAL, 'com.kosmos.agent.x.plist'), UNDER_TEST), true);
+  assert.equal(create.isRealLaunchTargetUnderTest(path.join(REAL, 'com.kosmos.agent.x.plist'), {}), false);
+  assert.equal(create.isRealLaunchTargetUnderTest(path.join(SANDBOX, 'LaunchAgents', 'x.plist'), UNDER_TEST), false);
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  assert.match(src, /if \(!isRealLaunchTargetUnderTest\(plistPath\(name\)\)\) \{\s*try \{ fs\.rmSync\(plistPath\(name\), \{ force: true \}\); \}/,
+    'the createAgent rollback must not delete a real-folder job file under test');
 });
 
 test('#3605 preload: tools/run-tests.sh loads it on the node --test line', () => {
