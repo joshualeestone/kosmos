@@ -1355,34 +1355,50 @@ function listFiles(folder, limit) {
   let truncated = false;
   /* BREADTH-FIRST, so shallower files are reached before deeper ones when the budget runs out. */
   const queue = [{ abs: state.real, rel: '', depth: 0 }];
-  while (queue.length) {
-    const { abs, rel, depth } = queue.shift();
-    let ents;
-    try {
-      ents = fs.readdirSync(abs, { withFileTypes: true });
-    } catch (err) {
-      if (depth === 0) return { ok: false, because: 'we could not read what is in that folder', files: [] };
-      continue; // an unreadable subfolder is skipped; the rest of the project still lists
+  const take = (ent, abs, rel, depth) => {
+    if (ent.name.startsWith('.')) return;
+    const relName = rel ? rel + '/' + ent.name : ent.name;
+    // ⚠️ isFile()/isDirectory() on the DIRENT, so a symlink is excluded without a
+    // second stat: withFileTypes reports the link itself, which is what we want here.
+    if (ent.isDirectory()) {
+      if (depth < LIST_MAX_DEPTH && !LIST_SKIP_DIRS.has(ent.name)) queue.push({ abs: path.join(abs, ent.name), rel: relName, depth: depth + 1 });
+      return;
     }
-    for (const ent of ents) {
-      if (depth > 0) {
+    if (!ent.isFile()) return;
+    let st;
+    try { st = fs.statSync(path.join(abs, ent.name)); } catch { return; }
+    files.push({ name: relName, size: st.size, modified: st.mtime.toISOString() });
+  };
+  while (queue.length && !truncated) {
+    const { abs, rel, depth } = queue.shift();
+    if (depth === 0) {
+      let ents;
+      try {
+        ents = fs.readdirSync(abs, { withFileTypes: true });
+      } catch (err) {
+        return { ok: false, because: 'we could not read what is in that folder', files: [] };
+      }
+      for (const ent of ents) take(ent, abs, rel, depth);
+      continue;
+    }
+    /* A subfolder is read ENTRY BY ENTRY (opendir), so the budget also bounds the
+       directory read itself: a subfolder with a million entries costs LIST_MAX_SCAN
+       reads, not a million. */
+    let dir;
+    try { dir = fs.opendirSync(abs); } catch { continue; } // unreadable subfolder: skipped
+    try {
+      for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
         if (scanned >= LIST_MAX_SCAN) { truncated = true; break; }
         scanned += 1;
+        take(ent, abs, rel, depth);
       }
-      if (ent.name.startsWith('.')) continue;
-      const relName = rel ? rel + '/' + ent.name : ent.name;
-      // ⚠️ isFile()/isDirectory() on the DIRENT, so a symlink is excluded without a
-      // second stat: withFileTypes reports the link itself, which is what we want here.
-      if (ent.isDirectory()) {
-        if (depth < LIST_MAX_DEPTH && !LIST_SKIP_DIRS.has(ent.name)) queue.push({ abs: path.join(abs, ent.name), rel: relName, depth: depth + 1 });
-        continue;
-      }
-      if (!ent.isFile()) continue;
-      let st;
-      try { st = fs.statSync(path.join(abs, ent.name)); } catch { continue; }
-      files.push({ name: relName, size: st.size, modified: st.mtime.toISOString() });
+    } catch (err) {
+      // A read error mid-folder keeps what was read; the rest of the project still lists.
+      // A programming error is ours and throws loud, as elsewhere in this module.
+      if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+    } finally {
+      try { dir.closeSync(); } catch { /* already closed */ }
     }
-    if (truncated) break;
   }
   files.sort((a, b) => (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
   /* #761: a stamp that changes whenever the list would, so a page can ask every

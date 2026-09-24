@@ -2310,6 +2310,24 @@ test('listFiles: a huge subfolder cannot push a top-level file off, and the cut 
   assert.ok(out.total <= 2001 && out.total > 1, `total ${out.total} is outside the budget`);
 });
 
+test('listFiles: an unreadable subfolder is skipped and the rest still lists (#2245)', { skip: process.getuid && process.getuid() === 0 }, () => {
+  reset();
+  const dir = folder('docs-locked-sub');
+  fs.writeFileSync(path.join(dir, 'top.txt'), 'x');
+  fs.mkdirSync(path.join(dir, 'open'));
+  fs.writeFileSync(path.join(dir, 'open', 'ok.txt'), 'x');
+  fs.mkdirSync(path.join(dir, 'locked'));
+  fs.writeFileSync(path.join(dir, 'locked', 'hidden.txt'), 'x');
+  fs.chmodSync(path.join(dir, 'locked'), 0o000);
+  try {
+    const out = projects.listFiles(dir, 50);
+    assert.equal(out.ok, true, 'one unreadable subfolder failed the whole list');
+    assert.deepEqual(out.names.slice().sort(), ['open/ok.txt', 'top.txt']);
+  } finally {
+    fs.chmodSync(path.join(dir, 'locked'), 0o755);
+  }
+});
+
 test('listFiles: the stamp changes when only truncated flips, so a polling page repaints the note (#2245)', () => {
   reset();
   const dir = folder('docs-stamp-trunc');
