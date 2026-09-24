@@ -22,7 +22,7 @@
 # is noticed rather than guessed at.
 connector_gate_value() {
   local line
-  line="$(grep -E '^const PHONE_APP_CAN_RECEIVE = (true|false);[[:space:]]*$' "$1" 2>/dev/null | head -1)"
+  line="$(grep -E '^const PHONE_APP_CAN_RECEIVE = (true|false);[[:space:]]*$' "$1" 2>/dev/null | head -1)" || true
   case "$line" in
     *'= true;'*) echo true ;;
     *'= false;'*) echo false ;;
@@ -31,20 +31,40 @@ connector_gate_value() {
 }
 
 # Runs `<bin> mac-request --help` with a bound of CONNECTOR_PROBE_SECONDS
-# (default 20; perl's alarm, since macOS has no `timeout`) and says which of three things happened: "has" (exit 0),
-# "old" (exit 2 with clap's "unrecognized subcommand"), or "unknown: <why>" for
+# (default 20) and says which of three things happened: "has" (exit 0), "old"
+# (exit 2 with clap's "unrecognized subcommand"), or "unknown: <why>" for
 # anything else. Only "old" is evidence the connector predates the verb; a file
-# that is not executable, is killed by Gatekeeper, crashes or hangs is a
-# different problem with a different fix.
+# that is missing, is not executable, is killed by Gatekeeper, crashes or hangs
+# is a different problem with a different fix.
+#
+# The bound: perl (macOS has no `timeout`) starts the connector in its own
+# process group and kills the whole group when time runs out, so a connector
+# that starts a child cannot outlive it. Its stderr goes to a file, not a pipe,
+# because a pipe capture waits for every process still holding the pipe.
 connector_mac_request_probe() {
-  local bin="$1" err rc
+  local bin="$1" errf err rc
   if [ ! -e "$bin" ]; then echo "unknown: there is no file at $bin"; return; fi
   if [ ! -x "$bin" ]; then echo "unknown: $bin is not executable"; return; fi
+  if ! command -v perl >/dev/null 2>&1; then echo "unknown: perl is not installed, so the connector could not be run under a time limit"; return; fi
+  errf="$(mktemp "${TMPDIR:-/tmp}/connector-probe.XXXXXX")" || { echo "unknown: could not make a temp file for the probe"; return; }
   # Inside an `if`, so a failing probe never trips a caller's `set -e`.
-  if err="$(perl -e 'alarm shift; exec @ARGV or exit 127' "${CONNECTOR_PROBE_SECONDS:-20}" "$bin" mac-request --help 2>&1 >/dev/null)"; then rc=0; else rc=$?; fi
+  if perl -e '
+      my $secs = shift;
+      my $pid = fork();
+      die "fork failed\n" unless defined $pid;
+      if ($pid == 0) { setpgrp(0, 0); exec @ARGV or exit 127; }
+      local $SIG{ALRM} = sub { kill "KILL", -$pid; waitpid($pid, 0); exit 142; };
+      alarm $secs;
+      waitpid($pid, 0);
+      my $st = $?;
+      exit(($st & 127) ? 128 + ($st & 127) : ($st >> 8));
+    ' "${CONNECTOR_PROBE_SECONDS:-20}" "$bin" mac-request --help >/dev/null 2>"$errf"; then rc=0; else rc=$?; fi
+  err="$(head -1 "$errf" 2>/dev/null)" || true
+  if [ "$rc" = 2 ] && grep -q "unrecognized subcommand" "$errf" 2>/dev/null; then rm -f "$errf"; echo old; return; fi
+  rm -f "$errf"
   if [ "$rc" = 0 ]; then echo has; return; fi
-  if [ "$rc" = 2 ] && printf '%s' "$err" | grep -q "unrecognized subcommand"; then echo old; return; fi
-  echo "unknown: running it exited $rc${err:+ ($(printf '%s' "$err" | head -1))}"
+  if [ "$rc" = 142 ]; then echo "unknown: it did not answer within ${CONNECTOR_PROBE_SECONDS:-20} seconds"; return; fi
+  echo "unknown: running it exited $rc${err:+ ($err)}"
 }
 
 connector_verbs_check() {
@@ -66,7 +86,7 @@ connector_verbs_check() {
       return 0 ;;
     *)
       if [ "$gate" = true ]; then
-        echo "could not check the Plus connector at $bin for 'mac-request' (${probe#unknown: }), and PHONE_APP_CAN_RECEIVE is true, so refusing. Check the file itself: its exec bit, a quarantine flag, or a crash." >&2
+        echo "could not check the Plus connector at $bin for 'mac-request' (${probe#unknown: }), and PHONE_APP_CAN_RECEIVE is true, so refusing. Check the file itself (its exec bit, a quarantine flag, a crash) or the reason above." >&2
         return 1
       fi
       echo "note: could not check this Plus connector for mac-request (${probe#unknown: }); harmless until PHONE_APP_CAN_RECEIVE opens." >&2
