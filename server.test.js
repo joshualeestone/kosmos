@@ -5826,7 +5826,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
 test('#2497: the fleet step makes no machine-state promise (now the unconditional Giddy Up screen)', () => {
   /**
    * ⚠️ #2497 STRENGTHENS this test's concern by construction: the fleet step (frPaintFleet) now
-   * ALWAYS renders the no-agent "Create your first agent." / Giddy Up screen, whatever the machine
+   * ALWAYS renders the one Giddy Up ending (#3659: SETUP COMPLETE, "You're ready to start using Kosmos."), whatever the machine
    * state, so it can never repeat a check-screen finding NOR promise a working agent. Each case
    * below anchors on that positive render (so the absence assertions are NOT vacuous -- they only
    * pass because the Giddy Up screen genuinely rendered and carries no machine copy), then keeps
@@ -10394,7 +10394,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
    * "look on the disk before saying anybody has nothing" behavior FOR ONBOARDING. That behavior
    * surfaced found agents on the first-run screen; on a developer's box (many tmux Claude Code
    * sessions) it filled the board with garbage throwaway agents. Josh ruled that first run always
-   * lands on the no-agent "Create your first agent." / Giddy Up screen, even when agents ARE found,
+   * lands on the one Giddy Up ending (SETUP COMPLETE since #3659), even when agents ARE found,
    * and that the manual Import Agent (#1652) on the Create Agent screen is the way to pull real
    * ones in later. So none of the disk states (not-looked / found-some / found-none / could-not-
    * look) changes what the first-run screen shows now: it is always the create / Giddy Up screen.

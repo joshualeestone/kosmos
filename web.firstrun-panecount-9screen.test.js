@@ -118,8 +118,9 @@ test('#3659: the final setup page is Josh\'s copy: SETUP COMPLETE, one body line
   const body = PAGE.slice(open, end);
   // Everything below is checked on the REACHABLE code (before the forced Giddy Up return), so a
   // line moved below that return into the kept-but-unreachable arms cannot satisfy it.
-  const reach = body.slice(0, body.indexOf("frActions({ label: 'Giddy Up'"));
-  assert.ok(reach.length > 0 && reach.length < body.length, 'could not find the forced Giddy Up return');
+  const giddy = body.indexOf("frActions({ label: 'Giddy Up'");
+  assert.ok(giddy > 0, 'could not find the forced Giddy Up return');
+  const reach = body.slice(0, giddy);
   assert.match(reach, /Head to your dashboard to create or import agents, set up your projects, /);
   assert.match(reach, /and start building your next big idea\./);
   assert.match(reach, /eyebrow\.textContent = 'Setup complete'/, 'the eyebrow is not set to Setup complete');

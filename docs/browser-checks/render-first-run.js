@@ -87,6 +87,17 @@ const SCAN_SOME = { ok: true, candidates: [
     preview: 'You are **Site Monitor**, a Watcher.\n\nWatch the site.\n' },
 ], bounded: {} };
 
+/* #3659 (Josh's copy): every fleet shot lands on the one ending, so every one asserts it: eyebrow
+   SETUP COMPLETE, the ONE body line, neither old paragraph. The headline alone cannot prove the
+   page script painted: the pre-JS default headline is the same text, so a path that never runs
+   frPaintFleet would still match it. The body line is written only by frPaintFleet. */
+const FLEET_ENDING = {
+  expect: /ready to start using Kosmos/i,
+  expectBody: /^\s*Head to your dashboard to create or import agents, set up your projects, and start building your next big idea\.\s*$/,
+  expectNotBody: /get started|Already have agents/i,
+  expectEyebrow: /^SETUP COMPLETE$/,
+};
+
 const SHOTS = [
   // The pack's order (first-run spec): Success opens the flow and carries
   // the app-location look; the endings close it.
@@ -125,16 +136,14 @@ const SHOTS = [
   // lands on the no-agent Giddy Up screen (#3575 heading "You're ready to start using Kosmos."), so the adopt count,
   // "could not see", and scan-offer endings that used to render here now all show the create
   // heading. Real agents come in later via the manual Import Agent (#1652) on Create Agent.
-  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, scan: SCAN_NONE, expect: /ready to start using Kosmos/i },
-  // #3659 (Josh's copy): the final page is eyebrow SETUP COMPLETE and ONE body line that names
-  // import (it retired the #2497 pointer paragraph). expectBody/expectEyebrow assert both RENDER,
-  // and expectNotBody that neither old paragraph survives (the source-match guard is
-  // web.firstrun-panecount-9screen).
-  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /ready to start using Kosmos/i, expectBody: /^\s*Head to your dashboard to create or import agents, set up your projects, and start building your next big idea\.\s*$/, expectNotBody: /get started|Already have agents/i, expectEyebrow: /^SETUP COMPLETE$/ },
-  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, expect: /ready to start using Kosmos/i },
+  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, scan: SCAN_NONE, ...FLEET_ENDING },
+  // #3659 (Josh's copy): FLEET_ENDING above; his line names import, retiring the #2497 pointer
+  // paragraph (the source-match guard is web.firstrun-panecount-9screen).
+  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, ...FLEET_ENDING },
+  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, ...FLEET_ENDING },
   // #2497: even when the disk scan DID find an agent (SCAN_SOME), first run must NOT show the
   // "we found an agent" offer -- it lands on the Giddy Up heading, proving the offer is suppressed.
-  { name: 'firstrun-fleet-scan-suppressed', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_SOME, expect: /ready to start using Kosmos/i },
+  { name: 'firstrun-fleet-scan-suppressed', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_SOME, ...FLEET_ENDING },
 ];
 
 /**
