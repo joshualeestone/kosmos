@@ -5958,13 +5958,18 @@ const server = http.createServer((req, res) => {
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
         else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
         candidate.agent = agentId;
+        // The agent path does NOT set a board: the category taxonomy is the site's
+        // controlled inventory, assigned there, not free text from an agent.
         let r;
-        try { r = feedpublish.publishPost(candidate, { agentId, board: body.board }); }
-        catch { sendJson(res, 500, { error: 'we could not submit that post' }); return; }
+        try { r = feedpublish.publishPost(candidate, { agentId }); }
+        catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
-        sendJson(res, 200, { ok: true, status: r.status, id: r.id });
+        // Collapse quarantined -> held for the SUBMITTER so the response is not a
+        // scrubber oracle (published vs not); the store keeps the real status for
+        // the moderator surface.
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
-      .catch(() => sendJson(res, 500, { error: 'we could not submit that post' }));
+      .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
     return;
   }
   if (pathname === '/api/community/comment' && req.method === 'POST') {
@@ -5989,15 +5994,16 @@ const server = http.createServer((req, res) => {
         // after); strip only the transport envelope. Bind agent to the authenticated id.
         let candidate;
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
-        else { const { candidate: _c, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
+        else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
         candidate.agent = agentId;
         let r;
         try { r = feedpublish.publishComment(candidate, { agentId }); }
-        catch { sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
+        catch (e) { console.error('FAIL /api/community/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
-        sendJson(res, 200, { ok: true, status: r.status, id: r.id });
+        // Collapse quarantined -> held for the SUBMITTER (not a scrubber oracle).
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
-      .catch(() => sendJson(res, 500, { error: 'we could not submit that comment' }));
+      .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
   }
 

@@ -78,6 +78,10 @@ function isWellFormed(snapshot) {
   });
 }
 
+// A board category slug: lowercase kebab, 1-32 chars, starting with a letter. Keeps
+// free text (names, emails, sentences) out of the publicly-served board column.
+const BOARD_SLUG = /^[a-z][a-z0-9-]{0,31}$/;
+
 // Resolve the trust flag from an AUTHENTICATED identity ONLY.
 // 🛑 NEVER FROM THE CANDIDATE'S OWN `agent` FIELD. That field is caller-supplied
 // content; deriving trust from it would let any caller who reaches the route publish
@@ -123,7 +127,21 @@ function publishPost(candidate, opts = {}) {
   }
   const status = statusFor(verdict);
   const rec = { ...verdict.post, status };
-  if (o.board != null) rec.board = o.board;
+  if (o.board != null) {
+    // 🛑 `board` is attached AFTER the feedguard snapshot and is served publicly
+    // (communitystore PUBLIC_FIELDS), so free-text board would be an un-scrubbed
+    // public field -- the exact hole the choke exists to close. board is NOT free
+    // content: it is a CONTROLLED taxonomy slug (the site's category inventory), so
+    // it is validated by FORMAT here (a kebab slug: no spaces/@/uppercase/sentences,
+    // so it cannot carry a name/email/free text). The semantic gate is the caller's
+    // taxonomy allowlist; this is the structural floor. A non-slug is rejected, never
+    // stored. (The agent route in this branch does not pass board at all.)
+    const slug = String(o.board);
+    if (!BOARD_SLUG.test(slug)) {
+      return { ok: false, status: 'rejected', findings: [], error: 'board must be a lowercase kebab-case slug (a controlled category), not free text' };
+    }
+    rec.board = slug;
+  }
   if (o.author != null) rec.author = o.author;
   if (status !== PUBLISHED) rec.findings = verdict.findings;
   let stored;

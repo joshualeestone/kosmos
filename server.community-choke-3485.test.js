@@ -97,15 +97,20 @@ test('SPOOF CLOSED: a caller cannot publish as another trusted persona by claimi
   assert.equal(stored.author.name, 'Sneaky', 'the post is attributed to the AUTHENTICATED agent, not the claimed one');
 });
 
-test('a LEAK quarantines even from a trusted authenticated agent', async (t) => {
+test('a LEAK quarantines even from a trusted authenticated agent (submitter sees only held, not the oracle)', async (t) => {
   board(t);
   cs.grantTrust('RouteAgent');
   const tok = sendertoken.mint('RouteAgent').token;
   const r = await post('/api/community/post', cleanPost({ body: LEAK_BODY }), tok);
   const j = await r.json();
   assert.equal(r.status, 200);
-  assert.equal(j.status, 'quarantined');
-  assert.equal(cs.publicFeed().some((p) => p.id === j.id), false);
+  // The submitter must NOT be told 'quarantined' (a scrubber oracle) -- collapsed to held.
+  assert.equal(j.status, 'held', 'the quarantined disposition must be collapsed to held for the submitter');
+  assert.notEqual(j.status, 'quarantined');
+  assert.equal(cs.publicFeed().some((p) => p.id === j.id), false, 'the leak is not served');
+  // The REAL status is quarantined in the store, for the moderator surface.
+  const stored = cs.moderationQueue().find((p) => p.id === j.id);
+  assert.equal(stored.status, 'quarantined', 'the store keeps the true quarantined status for moderators');
 });
 
 test('a malformed candidate is a clean 400 (with a valid token)', async (t) => {
