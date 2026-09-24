@@ -45,8 +45,8 @@ const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 // HEADED vs headless is a per-machine choice (see BROWSER_TESTING): a console
 // machine runs headed; a CI/cron/no-console box, and the staging-cut gate, run
 // headless via HEADED=0. It gates the notification-RENDER assertion below:
-// headless Chromium delivers a push to the worker's handler but does not surface
-// the notification to getNotifications(), so that one read is headed-only.
+// headless Chromium keeps notification permission at 'denied', so nothing is
+// shown and that one read is headed-only. The handler call is asserted in both.
 const HEADED = process.env.HEADED !== '0';
 
 const results = [];
@@ -198,6 +198,7 @@ function check(name, pass, detail) {
       if (swWorker) {
         for (let i = 0; i < 25; i++) {
           calls = await swWorker.evaluate(() => self.__kosmos3565 || null).catch((e) => { captureErr = String((e && e.message) || e); return null; });
+          if (calls) captureErr = '';
           if (calls && calls.length && calls[0].settled !== 'pending') break;
           await page.waitForTimeout(200);
         }
@@ -237,10 +238,14 @@ function check(name, pass, detail) {
      notification permission at 'denied' even after grantPermissions (measured
      2026-09-24: page and worker both read 'denied' headless, 'granted' headed), so
      there showNotification REJECTS for permission; that one rejection is accepted
-     only while the page really reads 'denied'. Any other rejection reds. */
+     only while the page really reads 'denied'. Any other rejection reds. The
+     message is matched loosely (/permission/i) so a Chromium rewording does not
+     red the cut gate; the 'denied' reading is what carries the weight.
+     Not covered: whether the call was handed to event.waitUntil. The capture sees
+     the call and its outcome, not which promise the handler kept alive. */
   const perm = await page.evaluate(() => Notification.permission).catch(() => 'unreadable');
   const settledOk = !!call && (call.settled === 'resolved' ||
-    (!HEADED && perm === 'denied' && /No notification permission has been granted/.test(call.settled)));
+    (!HEADED && perm === 'denied' && /^rejected: .*permission/i.test(call.settled)));
   check('the handler\'s showNotification settled as this mode allows (headed: resolved; headless: only the permission denial)',
     settledOk, `mode=${HEADED ? 'headed' : 'headless'} permission=${perm} settled=${call ? call.settled : 'no call'}`);
   /* The notification-RENDER read is HEADED-ONLY. Headless, the handler runs and
