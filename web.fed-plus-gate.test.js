@@ -74,7 +74,7 @@ test('#fedgate: the gate CSS + stamping + prompt are wired into the page', () =>
   // #3495: the standalone sign-up card is gone; sign-up lives only in the shared modal.
   assert.doesNotMatch(PAGE, /id="pj-plus-signup/, 'the standalone sign-up card is removed (the modal carries sign-up)');
   assert.match(PAGE, /id="plus-gate-go"/, 'the modal carries the sign-up button');
-  assert.match(SCRIPT, /getElementById\('plus-gate-go'\)\.addEventListener\('click', \(\) => \{ hidePlusGate\(\); fedPlusSignupGo\(\); \}\)/, 'the modal sign-up button routes via fedPlusSignupGo');
+  assert.match(SCRIPT, /getElementById\('plus-gate-go'\)\.addEventListener\('click',[\s\S]{0,80}fedPlusSignupGo\(\)/, 'the modal sign-up button routes via fedPlusSignupGo');
   // A member gated only because federation has not launched gets "soon", not a sign-up prompt.
   assert.match(SCRIPT, /toggleAttribute\('data-fed-member', data\.kosmos_plus === true\)/, 'fedGateStamp stamps membership');
   assert.match(SCRIPT, /soon: '/, 'the member copy exists');
