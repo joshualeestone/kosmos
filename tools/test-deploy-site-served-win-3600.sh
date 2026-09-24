@@ -70,6 +70,7 @@
 #   A38 today's prod shape (alias zip redirected, its .sha256 static) with a wrong-build alias zip on
 #       R2 -> refuse: the zip is classified on its OWN redirect, not its sidecar's
 #   A39 a redirected pointer whose sha is not 64 hex characters -> refuse on the shape check
+#   A41 a redirected pointer sha that is hex but 63 characters -> refuse on the LENGTH check
 #   A40 CONTROL for A28: a static alias .sha256 that DOES carry the served build's sha -> no #3610
 #       warning, so A28's warning is gated on the mismatch, not on "served statically"
 #
@@ -199,6 +200,7 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-aliasbytes - as redirect, but R2's alias zip is another build than its pointer names
 #   redirect-stagedr2-probefail - as stagedr2, but the un-followed probe of the staging pointer fails
 #   redirect-badshasha - as redirect, but R2's pointer sha is not 64 hex characters
+#   redirect-shortsha - as redirect, but R2's pointer sha is 63 hex characters
 #   redirect-aliasstatic-ok - the alias .sha256 is static but carries the served build's sha
 #   redirect-aliasstatic-badbytes - today's prod shape (alias zip on R2, its .sha256 static) with the
 #                        R2 alias zip being another build
@@ -315,6 +317,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         printf '%s\n' 'dist/latest-win.json' 'dist/kosmos-*win-x64.zip' 'dist/kosmos-[0-9]*-win-x64.zip.sha256' > "$live/.redirects"
         cp "$r2/kosmos-win-x64.zip.sha256" "$live/.alias-sha-override"
       fi
+      [ "$mode" = redirect-shortsha ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW" "$(printf '%s' "$newsha" | cut -c1-63)"
       [ "$mode" = redirect-badshasha ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW" "not-hex-and-too-short"
       [ "$mode" = redirect-aliasstatic-badbytes ] && printf 'SOME-OTHER-BUILD\n' > "$r2/kosmos-win-x64.zip"
       [ "$mode" = redirect-aliasbytes ] && printf 'SOME-OTHER-BUILD\n' > "$r2/kosmos-win-x64.zip"
@@ -672,7 +675,7 @@ fi
 # A34) the alias probe fails: say so, do not claim where it is served from.
 read -r S L R <<<"$(make_scenario redirect-aliasprobefail)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "could not be probed" && ! has "$out" "is served from the site commit"; then
+if [ "$RC" = 0 ] && has "$out" "could not be probed" && has "$out" "BUT (#3610) the Windows alias checksum disagrees" && ! has "$out" "is served from the site commit"; then
   pass "A34: a failed alias probe gives a 'could not be probed' NOTE, not a site-commit claim, rc=0"
 else
   bad "A34: a failed alias probe was misclassified (rc=$RC); out=$out"
@@ -732,5 +735,14 @@ else
   bad "A40-CONTROL: a matching static alias checksum still warned or failed (rc=$RC); out=$out"
 fi
 
+# A41) hex, but 63 characters: refused on the length check, not the hex one.
+read -r S L R <<<"$(make_scenario redirect-shortsha)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "which is not 64 characters"; then
+  pass "A41: a 63-character hex sha refuses on the length check (rc=$RC)"
+else
+  bad "A41: a 63-character served sha was not refused on its length (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 40 arms passed"
+echo "test-deploy-site-served-win-3600: all 41 arms passed"

@@ -40,6 +40,11 @@ R2's staging pointer against the stale committed one and exits red.
 - Once the staging pointer redirects, a TRANSIENT staging-probe failure falls back to comparing the
   committed copy with what is served, which differs (R2's vs the site's), so that run exits red (A37).
   The NOTE names the probe and says to re-run. Accepted: the same fail-closed rule as prod's probe.
+- The ALIAS probes fail OPEN, the staging probe fails closed. If the alias `.sha256` or alias zip
+  probe cannot answer, the run does not refuse: it prints a NOTE and repeats it after the final
+  success line (a "BUT" line), so a run that certified less says so where the operator reads.
+  Chosen because the alias is the static-or-R2 download whose state today is mid-migration (#3610);
+  a transient probe must not red a Mac deploy on it.
 - A redirected alias whose checksum or bytes disagree with the prod pointer refuses (A29, A35).
   That assumes R2's alias is always the PROD build. In this repo a staging publish never touches the
   alias, but the R2 publish lives outside this repo; if it ever writes the alias on a STAGING
@@ -53,8 +58,8 @@ saying the site's `latest-win-staging.json` is still authoritative for his flow.
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, now 40 arms: A25 to A40 are new (staging redirect,
+`tools/test-deploy-site-served-win-3600.sh`, now 41 arms: A25 to A41 are new (staging redirect,
 its sidecar and bytes, no committed staging copy, R2 staging gone, committed staging newer than R2,
-alias checksum static/redirected/unprobeable, alias bytes on R2, A36 proving the no-committed-copy path really verifies, A37 for a failed staging probe, and A38 for a wrong-build alias zip while its sidecar is static, A39 for a malformed served sha, and A40 as the control for the #3610 warning). A12 was rebuilt: the
+alias checksum static/redirected/unprobeable, alias bytes on R2, A36 proving the no-committed-copy path really verifies, A37 for a failed staging probe, and A38 for a wrong-build alias zip while its sidecar is static, A39 for a malformed served sha, A40 as the control for the #3610 warning, and A41 for the sha length check). A12 was rebuilt: the
 static-pointer drift control now uses a post-deploy served copy, because a redirected staging pointer
 is no longer compared with the committed one.

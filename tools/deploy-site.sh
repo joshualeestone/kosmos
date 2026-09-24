@@ -528,8 +528,8 @@ read_served_win_pointer() {  # <pointer file under dist> <redacted redirect targ
   esac
   case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$SWP_NAME', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
   [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- the deploy already ran, investigate ($3)."; exit 1; }
-  case "$SWP_SHA" in *[!0-9a-fA-F]*) echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not hex -- investigate ($3)."; exit 1 ;; esac
-  [ ${#SWP_SHA} -eq 64 ] || { echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not 64 characters -- investigate ($3)."; exit 1; }
+  case "$SWP_SHA" in *[!0-9a-fA-F]*) echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not hex -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
+  [ ${#SWP_SHA} -eq 64 ] || { echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not 64 characters -- the deploy already ran, investigate ($3)."; exit 1; }
 }
 # #3600/#3618: for a zip named by a REDIRECTED pointer, the served .sha256 must describe what the
 # pointer advertises (the Windows updater fetches it FIRST and refuses a mismatch), and the served zip
@@ -623,9 +623,13 @@ if [ -n "$WIN_SERVED_SHA" ]; then
       ;;
     '')
       [ "$_was" = "$_wwant" ] || echo "deploy-site: NOTE (#3610): kosmos-win-x64.zip.sha256 says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA, and whether it is served from R2 or the site commit could not be probed (transport error or timeout). Re-run the check before acting on it." >&2
+      [ "$_was" = "$_wwant" ] || WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias checksum disagrees with the served build and its source could not be probed.
+"
       ;;
     *)
       [ "$_was" = "$_wwant" ] || echo "deploy-site: NOTE (#3610): kosmos-win-x64.zip.sha256 says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA, and whether it is served from R2 or the site commit could not be probed (answer '${_war%% *}'). Re-run the check before acting on it." >&2
+      [ "$_was" = "$_wwant" ] || WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias checksum disagrees with the served build and its source could not be probed.
+"
       ;;
   esac
   # The alias ZIP is classified on its OWN redirect, not its sidecar's: on prod it has redirected to
@@ -641,9 +645,13 @@ if [ -n "$WIN_SERVED_SHA" ]; then
     200) : ;;   # served statically: git archive shipped the committed alias
     '')
       echo "deploy-site: NOTE (#3610): whether kosmos-win-x64.zip is served from R2 could not be probed (transport error or timeout), so its bytes were NOT checked against the served build this run. Re-run the check." >&2
+      WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias zip bytes were NOT checked this run (probe failed).
+"
       ;;
     *)
       echo "deploy-site: NOTE (#3610): whether kosmos-win-x64.zip is served from R2 could not be probed (answer '${_waz%% *}'), so its bytes were NOT checked against the served build this run. Re-run the check." >&2
+      WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias zip bytes were NOT checked this run (probe failed).
+"
       ;;
   esac
 fi
@@ -680,7 +688,7 @@ case "${_wsp%% *}" in
     elif [ "$WIN_STAGED" != "$SWP_NAME" ]; then
       _wscv=$(win_zip_version "$WIN_STAGED"); _wssv=$(win_zip_version "$SWP_NAME"); _wsn=""
       [ -z "$_wscv" ] || [ -z "$_wssv" ] || _wsn=$(printf '%s\n%s\n' "$_wscv" "$_wssv" | sort -V | tail -1)
-      if [ -z "$_wsn" ] || [ "$_wscv" = "$_wssv" ]; then
+      if [ -z "$_wsn" ]; then
         echo "deploy-site: NOTE (#3618): prod serves latest-win-staging.json by redirect and it names $SWP_NAME; the site's committed copy names $WIN_STAGED, and which is newer cannot be told. Verifying the served staging build." >&2
       elif [ "$_wsn" = "$_wscv" ]; then
         # The site's staged build is NEWER than R2's: a staging publish was committed but never
@@ -696,9 +704,13 @@ case "${_wsp%% *}" in
     ;;
   200) : ;;   # served statically: git archive shipped the committed staging pointer
   '')
+    [ -n "$WIN_STAGED" ] || WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3618) the staged Windows build was NOT verified this run (probe failed, none committed).
+"
     echo "deploy-site: NOTE (#3618): could not probe whether latest-win-staging.json is served by redirect (transport error or timeout), so checking the committed ${WIN_STAGED:-staging pointer (none committed: the staged build is NOT verified this run)}. If that is refused while prod redirects it to R2, it is this probe, not the deploy; re-run the check." >&2
     ;;
   *)
+    [ -n "$WIN_STAGED" ] || WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3618) the staged Windows build was NOT verified this run (probe answered ${_wsp%% *}, none committed).
+"
     echo "deploy-site: NOTE (#3618): latest-win-staging.json answered ${_wsp%% *} (neither a redirect nor 200), so checking the committed ${WIN_STAGED:-staging pointer (none committed: the staged build is NOT verified this run)}. The staging pointer route itself may be broken; check it." >&2
     ;;
 esac
