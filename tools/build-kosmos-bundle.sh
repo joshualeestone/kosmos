@@ -181,9 +181,9 @@ esac
 # log the old commit beside the new bytes, the very shape #621 closes.
 _connector_provenance_check "$TUNNEL_BIN" || exit 1
 _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
-# The connector must know every verb the board will ask it for (#718). Phone
-# notifications need `mac-request`: refused when PHONE_APP_CAN_RECEIVE is true
-# and the connector predates it, one quiet line while the gate is still closed.
+# The connector should know `mac-request`, the verb behind the board's
+# Mac-signed calls (#718, #3626). Refused when PHONE_APP_CAN_RECEIVE is true and
+# it does not; one line saying what stays inactive while the gate is closed.
 # The probe's scratch file lands in a dir on the ONE EXIT trap above.
 . "$REPO/tools/lib/connector-verbs.sh"
 _connector_probe_dir="$(mktemp -d)"
