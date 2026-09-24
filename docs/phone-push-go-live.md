@@ -15,8 +15,8 @@ Every step also says how to check it worked and how to undo it. Do the steps in 
 that fails stops the list: undo it, fix the cause, and start that step again.
 
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay
-`main` at 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (#3644
-merged), and the asset-links facts at kosmos-relay `main` 6e2da95. Both repos move on, so treat the file and the name as what to search for,
+`main` at 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde
+(the last commit of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. Both repos move on, so treat the file and the name as what to search for,
 not the commit or the line.
 
 ## Where things stand today
@@ -100,7 +100,9 @@ d05a90b). This step fills them in, and adds `KOSMOS_PUSH=log`.
   `INSTALL_ENV=1` deploy refuse, because that deploy will not drop a var the box has
   (`deploy/deploy-coordinator.sh`).
 
-Add these. Names are from `coordinator/src/apns.rs` and `coordinator/src/main.rs`.
+Fill these in, and add `KOSMOS_PUSH`. Each APNs name becomes a real `NAME=value` line, never a
+`#NAME=` line: the deploy reads `#NAME=` as "deliberately unset" and would drop a value already on
+the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names are from `coordinator/src/apns.rs` and `coordinator/src/main.rs`.
 
 | Variable | Value | What it does |
 |---|---|---|
@@ -252,9 +254,8 @@ Sonya owns these facts (her message of 2026-09-24).
 - Never the debug key.
 - The route is merged (kosmos-relay #109, `coordinator/src/assetlinks.rs`) but not live: production
   answers 404 until the coordinator is next deployed.
-- It does not have to wait for Apple or for step 3. Any coordinator deploy from `main` carries it
-  [Josh, a production change]. A deploy before step 3 has no `KOSMOS_PUSH=log`, so web push stays
-  live exactly as it is today, and step 3's "what this turns off" still applies when step 3 runs.
+- It does not wait on Apple: the next coordinator deploy from `main` carries it [Josh, a production
+  change]. Step 3 lists what a coordinator deploy turns on and off.
 - It serves the upload key only. The fingerprints are a constant in code
   (`CERT_SHA256_FINGERPRINTS`), so adding the Play key after the first upload is a kosmos-relay PR
   and another coordinator deploy [fleet for the PR; Josh for the deploy].
