@@ -7481,6 +7481,25 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 /* win32-board-copy: the platform copy layer's one hiding rule. applyPlatformCopy()
    stamps data-kosmos-platform on <html> only on Windows, so on a Mac nothing matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
+/* #3443 (Josh, Windows QA 2026-09-22, raised several times): Windows renders wide
+   light-gray native scrollbars on scrollable panes (agent nav, conversation, the
+   Members/Files/Tasks panels), which clash with the dark UI. Replace them with a thin,
+   theme-aware bar, Windows ONLY. Scoped to data-kosmos-platform="win32" (applyPlatformCopy
+   stamps it on <html> only on Windows), so macOS keeps its native overlay scrollbars
+   untouched. Colors are the existing theme tokens, so the bar tracks light/dark on its own
+   (a dark thumb on dark, a light thumb on light) instead of the glaring light-gray default.
+   The 2px transparent border with background-clip:content-box insets the thumb so it reads
+   slim with breathing room. True auto-hide overlay is not a pure-CSS affordance on the
+   Windows webview, so this is the card's "thin + dark-themed" remedy; scrolling and the grab
+   affordance are kept. scrollbar-width is deliberately NOT set: on newer Chromium it disables
+   these ::-webkit-scrollbar rules, so the pseudo-element form alone is the version-safe path.
+   Windows appearance is verified on the Windows box; the browser-check here pins the win32
+   scoping (the bar is 10px under win32, and macOS is left at its overlay 0). */
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar { width: 10px; height: 10px; }
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-track { background: transparent; }
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb { background: var(--k-rule); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb:hover { background: var(--k-ink-2); }
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-corner { background: transparent; }
 /* #3330 -> federation Kosmos+ gate (Josh launch spec, 2026-09-21). The #3312 fed
    UI was hidden on prod by a plain sourceChannel gate; it now gates on the mode
    that fedGateStamp() computes into data-fed-ui ('show' / 'signup' / 'hidden')
