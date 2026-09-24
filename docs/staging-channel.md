@@ -327,8 +327,10 @@ Rules the lever enforces, so it can never become a silent green:
   chars, one line). A blank / whitespace / one-character reason is refused.
 - **Staging only.** A non-staging (`prod`) cut that names accepted checks is refused.
 - **Named in the artifact.** The reason must appear in the version's `.release-entry.html`
-  `<p>` (put it in the entry copy before you cut), and the cut re-verifies it just before
-  the entry is inserted. The accept + reason are also written to `~/.claude/logs/cut-suite-runs.log`.
+  (put it in the entry's `<p>` copy before you cut), and the cut re-verifies it just before
+  the entry is inserted. The check is a whole-file substring match, so keep the reason in the
+  visible `<p>` text -- a reason tucked in an HTML comment would satisfy the check but never
+  be served. The accept + reason are also written to `~/.claude/logs/cut-suite-runs.log`.
   So the served versions page names what shipped un-verified; it can never read as a clean pass.
 
 `KOSMOS_IGNORE_MACHINE_CLAIM` and the other browser-check env vars are unaffected. The

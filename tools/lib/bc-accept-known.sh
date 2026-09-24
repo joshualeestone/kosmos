@@ -118,14 +118,17 @@ kosmos_release_accept_known_gate() {
     echo "  This lever is STAGING-ONLY. Re-run with KOSMOS_CUT_CHANNEL=staging; refusing to ship a $_channel build past a known-failing check. Page output: $_pagelog"
     return 1
   fi
-  printf '%s version=%s accepted_known="%s" reason="%s"\n' \
-    "$(date -u +%FT%TZ)" "$_ver" "${KOSMOS_BC_ACCEPT_KNOWN}" "${KOSMOS_BC_ACCEPT_REASON:-}" \
-    >> "$_cutlog" 2>/dev/null || true
+  # Verify the reason reached the served entry BEFORE recording the accept -- a cut
+  # that is refused here must not leave an "accepted_known" line overstating what
+  # shipped. Record only once the accept will actually proceed.
   if ! grep -qF "${KOSMOS_BC_ACCEPT_REASON:-}" "$_entry" 2>/dev/null; then
     echo "accept-known: accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but its reason is not written in the versions entry ($_entry)."
     echo "  Put the accept reason into the entry's <p> so the served versions page names what shipped un-verified, then re-cut. Page output: $_pagelog"
     return 1
   fi
+  printf '%s version=%s accepted_known="%s" reason="%s"\n' \
+    "$(date -u +%FT%TZ)" "$_ver" "${KOSMOS_BC_ACCEPT_KNOWN}" "${KOSMOS_BC_ACCEPT_REASON:-}" \
+    >> "$_cutlog" 2>/dev/null || true
   echo "   #1398b: accepted ${KOSMOS_BC_ACCEPT_KNOWN} (staging); recorded in the cut log and named in the versions entry."
   return 0
 }

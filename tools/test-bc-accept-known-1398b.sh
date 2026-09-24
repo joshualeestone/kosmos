@@ -123,11 +123,13 @@ if [ "$rc" -ne 0 ] && has "$out" "STAGING-ONLY"
 then pass "release gate: an accept on a prod cut is REFUSED (staging-only)"
 else fail "release gate prod refuse (rc=$rc, out='$out')"; fi
 
-# an accept on staging with the reason NOT in the entry is refused
+# an accept on staging with the reason NOT in the entry is refused, and it must NOT
+# have recorded an "accepted_known" line (the record follows the entry check now)
+: > "$GT/cutlog"
 out="$(kosmos_release_accept_known_gate "$GT/log-accept" staging 0.6.91 "$GT/entry-missing" "$GT/cutlog" 2>&1)"; rc=$?
-if [ "$rc" -ne 0 ] && has "$out" "not written in the versions entry"
-then pass "release gate: reason absent from the served entry is REFUSED"
-else fail "release gate entry-missing (rc=$rc)"; fi
+if [ "$rc" -ne 0 ] && has "$out" "not written in the versions entry" && ! has "$(cat "$GT/cutlog" 2>/dev/null)" "accepted_known"
+then pass "release gate: reason absent from the entry is REFUSED and records nothing (no overstated cut-log line)"
+else fail "release gate entry-missing (rc=$rc, cutlog='$(cat "$GT/cutlog" 2>/dev/null)')"; fi
 
 # an accept on staging with the reason IN the entry proceeds and records to the cut log
 : > "$GT/cutlog"
