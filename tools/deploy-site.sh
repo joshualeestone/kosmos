@@ -605,7 +605,8 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   # real broken checksum: refuse. Served statically from the site commit it goes stale on every
   # Windows publish; warn, naming the fix (redirect it to R2), rather than red every Mac deploy.
   _wwant=$(printf '%s' "$WIN_SERVED_SHA" | tr '[:upper:]' '[:lower:]')
-  # Probe FIRST, then read, as every other classification here does, so both reads are of one state.
+  # Probe, then read: separate requests, so a publish landing between them can refuse a good deploy
+  # (re-run once before investigating R2, as for the pointers above).
   _war=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip.sha256" 2>/dev/null) || _war=''
   _was=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/kosmos-win-x64.zip.sha256") || { echo "deploy-site: could not re-read the served kosmos-win-x64.zip.sha256 -- the deploy already ran, investigate (#3610)."; exit 1; }
   _was=$(printf '%s' "$_was" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]')
@@ -619,6 +620,9 @@ if [ -n "$WIN_SERVED_SHA" ]; then
         WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias checksum is served stale from the site commit.
 "
       fi
+      ;;
+    '')
+      [ "$_was" = "$_wwant" ] || echo "deploy-site: NOTE (#3610): kosmos-win-x64.zip.sha256 says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA, and whether it is served from R2 or the site commit could not be probed (transport error or timeout). Re-run the check before acting on it." >&2
       ;;
     *)
       [ "$_was" = "$_wwant" ] || echo "deploy-site: NOTE (#3610): kosmos-win-x64.zip.sha256 says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA, and whether it is served from R2 or the site commit could not be probed (answer '${_war%% *}'). Re-run the check before acting on it." >&2
@@ -635,6 +639,9 @@ if [ -n "$WIN_SERVED_SHA" ]; then
       [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
       ;;
     200) : ;;   # served statically: git archive shipped the committed alias
+    '')
+      echo "deploy-site: NOTE (#3610): whether kosmos-win-x64.zip is served from R2 could not be probed (transport error or timeout), so its bytes were NOT checked against the served build this run. Re-run the check." >&2
+      ;;
     *)
       echo "deploy-site: NOTE (#3610): whether kosmos-win-x64.zip is served from R2 could not be probed (answer '${_waz%% *}'), so its bytes were NOT checked against the served build this run. Re-run the check." >&2
       ;;
@@ -718,7 +725,7 @@ if [ -n "$WIN_STAGED" ]; then
   if [ "$WIN_STAGED_SUPERSEDED" = 0 ]; then
     served_verify_asset_ok "$HOST/dist/$WIN_STAGED" "the staged Windows zip $WIN_STAGED" || { echo "deploy-site: the staged Windows zip $WIN_STAGED failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
     served_verify_asset_ok "$HOST/dist/$WIN_STAGED.sha256" "the staged Windows zip checksum $WIN_STAGED.sha256" || { echo "deploy-site: the staged Windows zip checksum $WIN_STAGED.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
-    [ -z "$WIN_STAGED_SERVED_SHA" ] || check_win_sidecar_and_bytes "$WIN_STAGED" "$WIN_STAGED_SERVED_SHA" latest-win-staging.json "#3618" "the Windows box verifying the staged build"
+    [ -z "$WIN_STAGED_SERVED_SHA" ] || check_win_sidecar_and_bytes "$WIN_STAGED" "$WIN_STAGED_SERVED_SHA" latest-win-staging.json "#3618" "the Windows box's staging verification"
   fi
   served_verify_asset_ok "$HOST/dist/latest-win-staging.json" "the Windows staging pointer" || { echo "deploy-site: latest-win-staging.json failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
   # Served statically, the pointer must be the committed one. Served by redirect it is R2's own
