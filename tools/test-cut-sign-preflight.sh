@@ -68,9 +68,13 @@ out="$(KOSMOS_CODESIGN_BIN="no_such_codesign_$$" kosmos_sign_preflight 2>&1)"; r
 [ "$rc" = 1 ] && ok "no codesign refuses" || bad "no codesign should refuse (rc=$rc)"
 case "$out" in *"no codesign on this machine"*) ok "it says codesign is missing (not another refusal)" ;; *) bad "wrong refusal for no codesign: $out" ;; esac
 
-# --- a real codesign named by absolute path is a real probe, not a stub ---
-out="$(KOSMOS_CODESIGN_BIN=/no/such/dir/codesign kosmos_sign_preflight 2>&1)"
-case "$out" in *"NOT codesign"*) bad "a path ending in codesign was called a stub" ;; *) ok "a path ending in /codesign is treated as codesign" ;; esac
+# --- the REAL-probe success line: `codesign` itself shadowed by a function, seam unset ---
+codesign() { echo ran >> "$WORK/real-cs.ran"; return 0; }
+out="$(unset KOSMOS_CODESIGN_BIN; kosmos_sign_preflight 2>&1)"; rc=$?
+case "$rc:$out" in 0:*"the key is reachable from this session"*) ok "an unseamed pass reports a real test-sign" ;; *) bad "unseamed pass wording/rc wrong (rc=$rc): $out" ;; esac
+case "$out" in *"NOT codesign"*) bad "an unseamed pass was called a stub" ;; *) ok "an unseamed pass is not called a stub" ;; esac
+[ -s "$WORK/real-cs.ran" ] && ok "the unseamed pass called codesign" || bad "the unseamed pass never called codesign"
+unset -f codesign
 
 # --- a seam left set in a real shell must not read as a real probe ---
 out="$(run cs_ok)"
@@ -107,4 +111,4 @@ fi
 [ "$ncalls" = 1 ] && ok "release.sh calls the preflight exactly once" || bad "release.sh calls the preflight $ncalls times"
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 24 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 26 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }

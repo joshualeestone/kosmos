@@ -63,8 +63,6 @@ EOF
       echo "Step 4 would fail the same way AFTER the suite and the page layer. In the SAME session that will run the cut:"
       echo "    security unlock-keychain \"$kc\"          # prompts for the login password"
       echo "then run the cut in that session, not detached (nohup) from it: an unlock in one session did not reach a cut detached into another."
-      echo "If the keychain is already unlocked in this session, the key's partition list may not allow codesign:"
-      echo "    security set-key-partition-list -S apple-tool:,apple:,codesign: -s \"$kc\""
       ;;
     *"ambiguous"*)
       echo "More than one identity matches \"$id\". Set KOSMOS_CODESIGN_ID to the exact one (its SHA-1 from 'security find-identity -v -p codesigning')."

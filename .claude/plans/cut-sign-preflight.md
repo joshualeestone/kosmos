@@ -16,7 +16,7 @@ plain SSH session (Mortals) the login keychain is locked, so codesign fails with
 - `tools.release-gate.test.js`: its sandbox holds no cert, so `run_git` sets
   `KOSMOS_CODESIGN_BIN=true` (the builtin) for the arms that must reach step 2. Control:
   with `false` instead, exactly the 3 reach-step-2 arms go red, so they run through 1c.
-- `tools/test-cut-sign-preflight.sh`: 21 arms with function stubs (no fresh executables,
+- `tools/test-cut-sign-preflight.sh`: arms driven by function stubs (no fresh executables,
   which stall exec on some Macs), an identity drift check and a wiring-order check. Wired
   into `test:shell`.
 - `docs/releasing.md`: step 1c, the unlock commands, and the rule that the unlock must be in
@@ -35,7 +35,9 @@ plain SSH session (Mortals) the login keychain is locked, so codesign fails with
   with no arguments it removes the auto-lock for good, and with `-t` it still leaves a
   lasting posture change on a signing box with nothing to revert it. Mortals reads
   `no-timeout` (measured 09-24 from an unlocked session), so an unlock in the live cut
-  session is enough. The remedy is unlock-only.
+  session is enough. The remedy is unlock-only. The same reasoning drops
+  `set-key-partition-list` (review iteration 5): it permanently rewrites the key's
+  access list.
 
 ## Weakest premise
 That the failure strings (`errSecInternalComponent`, "User interaction is not allowed")
