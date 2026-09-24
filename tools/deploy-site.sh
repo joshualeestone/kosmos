@@ -527,7 +527,7 @@ read_served_win_pointer() {  # <pointer file under dist> <redacted redirect targ
 # #3600/#3618: for a zip named by a REDIRECTED pointer, the served .sha256 must describe what the
 # pointer advertises (the Windows updater fetches it FIRST and refuses a mismatch), and the served zip
 # BYTES must hash to it: an R2 zip is hashed nowhere else (derive_committed_win_versioned hashes only
-# the committed one). About 40 MB, about a second.
+# the committed one). About 38 MB, about a second.
 check_win_sidecar_and_bytes() {  # <zip name> <sha the pointer advertises> <pointer file> <card tag> <who is refused>
   _cwsc=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1.sha256") || { echo "deploy-site: could not re-read the served $1.sha256 -- the deploy already ran, investigate ($4)."; exit 1; }
   _cwsc=$(printf '%s' "$_cwsc" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]' | tr -cd '[:print:]')   # R2 content: printable only
@@ -642,7 +642,7 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   # R2 since 09-22 while its sidecar was still static. From R2, those bytes are the download button's
   # download, so they must be the build the pointer names. Served statically, git archive shipped the
   # committed alias, which is the site's business, not R2's.
-  # A one-byte ranged GET: classifying the redirect must never download the ~40 MB zip when it is
+  # A one-byte ranged GET: classifying the redirect must never download the ~38 MB zip when it is
   # served statically, and unlike HEAD it cannot be refused by a host that disallows HEAD. The
   # answer is used ONLY to tell redirect from not (a 206 says nothing about the file otherwise).
   _waz=$(curl -sS -r 0-0 --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip" 2>/dev/null) || _waz=''
