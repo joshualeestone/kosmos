@@ -513,6 +513,8 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # pointer, so $WINZIP already is what users get and nothing changes. The redirect is MEASURED (no
 # -L), not read from vercel.json, so a probe that cannot tell falls through to the old check, which
 # still fails loudly on a genuinely unserved zip. An explicit KOSMOS_WIN_ZIP still overrides.
+
+# --- #3618: shared helpers for a Windows pointer served by redirect ------------------------------
 # #3618: read a Windows pointer that prod serves by REDIRECT (to R2). Sets SWP_NAME and SWP_SHA, and
 # refuses a name that is not a bare kosmos-<version>-win-x64.zip (it becomes a URL path below) or a
 # pointer with no sha. Call it as a plain statement, never in $(...): it sets globals and may exit.
@@ -598,19 +600,29 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   # so its served .sha256 must carry the pointer's sha. Served by redirect (from R2), a mismatch is a
   # real broken checksum: refuse. Served statically from the site commit it goes stale on every
   # Windows publish; warn, naming the fix (redirect it to R2), rather than red every Mac deploy.
+  _wwant=$(printf '%s' "$WIN_SERVED_SHA" | tr '[:upper:]' '[:lower:]')
   _was=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/kosmos-win-x64.zip.sha256") || { echo "deploy-site: could not re-read the served kosmos-win-x64.zip.sha256 -- the deploy already ran, investigate (#3610)."; exit 1; }
   _was=$(printf '%s' "$_was" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]')
-  if [ "$_was" != "$(printf '%s' "$WIN_SERVED_SHA" | tr '[:upper:]' '[:lower:]')" ]; then
-    _war=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip.sha256" 2>/dev/null) || _war=''
-    case "${_war%% *}" in
-      301|302|303|307|308) echo "deploy-site: the served kosmos-win-x64.zip.sha256 says '${_was:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA for the same build -- a broken alias checksum on R2. The deploy already ran; investigate the R2 publish (#3610)."; exit 1 ;;
-      *) echo "deploy-site: WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit and says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA. Redirect it to R2 in the site's vercel.json so it stops going stale." >&2 ;;
-    esac
-  fi
+  _war=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip.sha256" 2>/dev/null) || _war=''
+  case "${_war%% *}" in
+    301|302|303|307|308)
+      [ "$_was" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip.sha256 says '${_was:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA for the same build -- a broken alias checksum on R2. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
+      # From R2, the alias BYTES are the download users get: they must be that build too.
+      _wag=$(served_sha256 kosmos-win-x64.zip 300) || { echo "deploy-site: could not fetch the served kosmos-win-x64.zip to hash it -- the deploy already ran, investigate (#3610)."; exit 1; }
+      [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
+      ;;
+    200)
+      [ "$_was" = "$_wwant" ] || echo "deploy-site: WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit and says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA. Redirect it to R2 in the site's vercel.json so it stops going stale." >&2
+      ;;
+    *)
+      [ "$_was" = "$_wwant" ] || echo "deploy-site: NOTE (#3610): kosmos-win-x64.zip.sha256 says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA, and whether it is served from R2 or the site commit could not be probed (answer '${_war%% *}'). Re-run the check before acting on it." >&2
+      ;;
+  esac
 fi
 # The STAGED Windows build, served whole: the Windows box verifies it from these served copies
-# before any promote. The pointer is also compared BY CONTENT with the committed one, so a served
-# staging pointer that names some other build fails here rather than misdirecting the verification.
+# before any promote. Served statically, the pointer is also compared BY CONTENT with the committed
+# one, so a served staging pointer that names some other build fails here rather than misdirecting
+# the verification (served by redirect, see #3618 below).
 # #3600: a staging pointer whose version is NOT newer than the prod Windows build users get names a
 # superseded build. The zip wildcard redirects it to R2, where an old staged build is often absent
 # (2026-09-24: staging said 0.6.81, prod 0.6.89, 0.6.81 404'd), so verifying it would exit red on
@@ -619,8 +631,8 @@ fi
 # promote the staging pointer still names the just-promoted build, and if R2 missed it that build is
 # newer than what R2 serves; verifying it would exit red before the unpublished warning ever printed.
 # Equal counts as superseded (staging was promoted), so a same-version rebuild with different bytes is
-# not served-verified. Warn and skip ITS ZIP AND SIDECAR; the staging
-# pointer itself is served statically and is still checked against the committed one. A NEWER staged
+# not served-verified. Warn and skip ITS ZIP AND SIDECAR; the staging pointer itself is still
+# checked (against the committed one when served statically). A NEWER staged
 # build is verified in full, because the Windows box verifies that one from these served copies.
 # #3618: the staging pointer too may be served by REDIRECT (R2 keeps its own staging channel). Then
 # the served pointer is the truth: verify the build IT names, and do not compare it with the site's
@@ -631,8 +643,25 @@ _wsp=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -
 case "${_wsp%% *}" in
   301|302|303|307|308)
     read_served_win_pointer latest-win-staging.json "$(_served_verify_redact_userinfo "${_wsp#* }")"
-    [ -z "$WIN_STAGED" ] || [ "$WIN_STAGED" = "$SWP_NAME" ] || echo "deploy-site: NOTE (#3618): prod serves latest-win-staging.json by redirect and it names $SWP_NAME; the site's committed copy names $WIN_STAGED and is stale. Verifying the served staging build." >&2
+    if [ -n "$WIN_STAGED" ] && [ "$WIN_STAGED" != "$SWP_NAME" ]; then
+      _wscv=$(win_zip_version "$WIN_STAGED"); _wssv=$(win_zip_version "$SWP_NAME"); _wsn=""
+      [ -z "$_wscv" ] || [ -z "$_wssv" ] || _wsn=$(printf '%s\n%s\n' "$_wscv" "$_wssv" | sort -V | tail -1)
+      if [ -n "$_wsn" ] && [ "$_wsn" = "$_wscv" ]; then
+        # The site's staged build is NEWER than R2's: a staging publish was committed but never
+        # reached R2, so the Windows box cannot see it. Not a Mac deploy failure, but loud.
+        echo "deploy-site: WARNING (#3618): the site's committed staging build $WIN_STAGED is NEWER than what prod serves by redirect ($SWP_NAME). R2 was not updated, so it is NOT staged for the Windows box. Verifying what is served ($SWP_NAME); publish the build to R2 to stage it." >&2
+      else
+        echo "deploy-site: NOTE (#3618): prod serves latest-win-staging.json by redirect and it names $SWP_NAME; the site's committed copy names $WIN_STAGED and is stale. Verifying the served staging build." >&2
+      fi
+    fi
     WIN_STAGED=$SWP_NAME; WIN_STAGED_SERVED_SHA=$SWP_SHA
+    ;;
+  200) : ;;   # served statically: git archive shipped the committed staging pointer
+  '')
+    [ -z "$WIN_STAGED" ] || echo "deploy-site: NOTE (#3618): could not probe whether latest-win-staging.json is served by redirect (transport error or timeout), so checking the committed $WIN_STAGED. If that is refused while prod redirects it to R2, it is this probe, not the deploy; re-run the check." >&2
+    ;;
+  *)
+    [ -z "$WIN_STAGED" ] || echo "deploy-site: NOTE (#3618): latest-win-staging.json answered ${_wsp%% *} (neither a redirect nor 200), so checking the committed $WIN_STAGED. The staging pointer route itself may be broken; check it." >&2
     ;;
 esac
 WIN_STAGED_SUPERSEDED=0

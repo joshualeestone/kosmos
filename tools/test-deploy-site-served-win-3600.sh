@@ -56,6 +56,13 @@
 #       no "served is not the committed one" refusal
 #   A28 #3610: the alias sidecar is served STATICALLY and is stale -> a WARNING naming the fix, rc 0
 #   A29 CONTROL for A28: the alias sidecar is served from R2 and disagrees -> refuse
+#   A30 the redirected staging build's zip BYTES do not hash to its pointer's sha -> refuse
+#   A31 no committed staging pointer, and R2's redirected one names a newer build -> verified, rc 0
+#   A32 the staging pointer redirects but R2 has none -> refuse (fail-closed, deliberate)
+#   A33 the site's committed staging build is NEWER than R2's -> a loud "not staged" WARNING, rc 0
+#   A34 the alias-checksum probe fails -> a NOTE that it could not be probed, never the
+#       "served from the site commit" claim; rc 0
+#   A35 the alias zip on R2 is a different build than the pointer (sidecar agrees) -> refuse
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -105,6 +112,10 @@ case "$url" in
     if [ "$rel" = dist/latest-win.json ] && [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-fail" ]; then
       [ -n "$wfmt" ] && printf '000 '
       exit 7   # curl's "failed to connect": the real transport-error shape
+    fi
+    if [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-fail-paths" ] && grep -qx "$rel" "$LIVE_DIR/.probe-fail-paths"; then
+      [ -n "$wfmt" ] && printf '000 '
+      exit 7
     fi
     if [ "$rel" = dist/latest-win.json ] && [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-status" ]; then
       [ -n "$wfmt" ] && printf '%s ' "$(cat "$LIVE_DIR/.probe-status")"
@@ -274,17 +285,24 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         # The STATIC staging pointer serves other bytes than the committed one (deploy drift).
         write_win_ptr "$live/.served-staging" 0.6.44 "$newsha"
       fi
-      if [ "$mode" = redirect-aliasstatic ]; then
+      if [ "$mode" = redirect-aliasstatic ] || [ "$mode" = redirect-aliasprobefail ]; then
         # Today's prod: the alias sidecar is NOT redirected, so the stale site copy is served.
         printf '%s\n' 'dist/latest-win.json' 'dist/kosmos-*win-x64.zip' 'dist/kosmos-[0-9]*-win-x64.zip.sha256' > "$live/.redirects"
       fi
+      [ "$mode" = redirect-aliasprobefail ] && printf '%s\n' 'dist/kosmos-win-x64.zip.sha256' > "$live/.probe-fail-paths"
+      [ "$mode" = redirect-aliasbytes ] && printf 'SOME-OTHER-BUILD\n' > "$r2/kosmos-win-x64.zip"
       [ "$mode" = redirect-aliasbad ] && printf '%s  kosmos-win-x64.zip\n' 2222222222222222222222222222222222222222222222222222222222222222 > "$r2/kosmos-win-x64.zip.sha256"
-      if [ "$mode" = redirect-stagedr2 ] || [ "$mode" = redirect-stagedr2-badsum ]; then
+      if [ "$mode" = redirect-stagedr2-gone ]; then
+        # The staging pointer redirects, but R2 has no staging pointer at all.
+        printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
+      fi
+      if [ "$mode" = redirect-stagedr2 ] || [ "$mode" = redirect-stagedr2-badsum ] || [ "$mode" = redirect-stagedr2-badbytes ]; then
         # R2 keeps its own staging channel: the staging pointer redirects and names a NEWER build.
         printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
         printf 'STAGED-R2-0.6.60\n' > "$r2/kosmos-0.6.60-win-x64.zip"
         ( cd "$r2" && shasum -a 256 kosmos-0.6.60-win-x64.zip > kosmos-0.6.60-win-x64.zip.sha256 )
         write_win_ptr "$r2/latest-win-staging.json" 0.6.60 "$(sha_of "$r2/kosmos-0.6.60-win-x64.zip")"
+        [ "$mode" = redirect-stagedr2-badbytes ] && printf 'TRUNCATED\n' > "$r2/kosmos-0.6.60-win-x64.zip"
         [ "$mode" = redirect-stagedr2-badsum ] && printf '%s  kosmos-0.6.60-win-x64.zip\n' 3333333333333333333333333333333333333333333333333333333333333333 > "$r2/kosmos-0.6.60-win-x64.zip.sha256"
       fi
       if [ "$mode" = redirect-stagedr2-old ]; then
@@ -587,5 +605,59 @@ else
   bad "A29-CONTROL: a wrong R2 alias checksum was not caught (rc=$RC); out=$out"
 fi
 
+# A30) staging bytes: the sidecar agrees with the pointer, the zip bytes do not.
+read -r S L R <<<"$(make_scenario redirect-stagedr2-badbytes old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the served kosmos-0.6.60-win-x64.zip hashes to"; then
+  pass "A30: redirected staging zip bytes that do not match its pointer refuse (rc=$RC)"
+else
+  bad "A30: corrupt redirected staging bytes were not caught (rc=$RC); out=$out"
+fi
+
+# A31) no committed staging pointer at all, R2 redirects a newer one: verified in full.
+read -r S L R <<<"$(make_scenario redirect-stagedr2)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "published and verified" && ! has "$out" "not newer than the prod Windows build"; then
+  pass "A31: with no committed staging pointer, R2's redirected newer staging build is verified, rc=0"
+else
+  bad "A31: a redirected staging pointer with no committed copy did not verify cleanly (rc=$RC); out=$out"
+fi
+
+# A32) the staging pointer redirects to nothing: fail closed.
+read -r S L R <<<"$(make_scenario redirect-stagedr2-gone old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the served latest-win-staging.json redirects"; then
+  pass "A32: a redirected staging pointer R2 cannot serve refuses (rc=$RC)"
+else
+  bad "A32: an unreadable redirected staging pointer did not refuse (rc=$RC); out=$out"
+fi
+
+# A33) the committed staging build (0.6.55) is newer than R2's (0.6.46): loud, not "stale".
+read -r S L R <<<"$(make_scenario redirect-stagedr2-old new)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "committed staging build kosmos-0.6.55-win-x64.zip is NEWER than what prod serves by redirect" && ! has "$out" "committed copy names kosmos-0.6.55-win-x64.zip and is stale"; then
+  pass "A33: a committed staging build newer than R2's gets the 'not staged' WARNING, rc=0"
+else
+  bad "A33: a committed staging build newer than R2 was mislabeled (rc=$RC); out=$out"
+fi
+
+# A34) the alias probe fails: say so, do not claim where it is served from.
+read -r S L R <<<"$(make_scenario redirect-aliasprobefail)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "could not be probed" && ! has "$out" "is served from the site commit"; then
+  pass "A34: a failed alias probe gives a 'could not be probed' NOTE, not a site-commit claim, rc=0"
+else
+  bad "A34: a failed alias probe was misclassified (rc=$RC); out=$out"
+fi
+
+# A35) the alias on R2 is a different build than the pointer names.
+read -r S L R <<<"$(make_scenario redirect-aliasbytes)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the alias on R2 is a different build"; then
+  pass "A35: an R2 alias zip whose bytes are another build refuses (rc=$RC)"
+else
+  bad "A35: a wrong-build alias zip on R2 was not caught (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 29 arms passed"
+echo "test-deploy-site-served-win-3600: all 35 arms passed"
