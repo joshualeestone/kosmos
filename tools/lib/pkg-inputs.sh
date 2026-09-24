@@ -102,7 +102,9 @@ _pkg_stream_file() {
 # hashed; test-cut-sign-preflight refuses one.)
 _pkg_stream_assignments() {
   local f="${1:?}" body
-  body="$(grep -v -E '^[[:space:]]*(#|$)' "$f")"
+  body="$(grep -v -E '^[[:space:]]*(#|$)' "$f" || true)"
+  # All inputs or nothing: a signing identity with no values is a refusal, never a sha over less.
+  [ -n "$body" ] || { echo "pkg_input_sha: $f holds no values" >&2; return 1; }
   printf '%s\n%s\n' "$f" "$(printf '%s' "$body" | wc -c | tr -d ' ')"
   printf '%s' "$body"
 }
