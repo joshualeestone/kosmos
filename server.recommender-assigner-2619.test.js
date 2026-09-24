@@ -42,11 +42,11 @@ const put = async (p, body) => {
 
 /* ---- Recommender ---- */
 
-test('GET recommender defaults: OFF (behaviour pending), all three guards ON, guardKeys published, ok', async () => {
+test('GET recommender defaults: OFF (default off until tool-level guards, #3595), all three guards ON, guardKeys published, ok', async () => {
   const r = await getJson('/api/recommender-setting');
-  assert.equal(r.on, false, 'an unwired automation must not read as on');
+  assert.equal(r.on, false, 'the Recommender ships default OFF (#3595)');
   assert.deepEqual(r.guards, { money: true, public: true, delete: true }, 'a never-configured install is maximally guarded');
-  assert.deepEqual(r.guardKeys, ['money', 'public', 'delete'], 'the route publishes the guard order the engine owns (the behaviour PR live UI renders from it; the current disabled UI does not consume it yet)');
+  assert.deepEqual(r.guardKeys, ['money', 'public', 'delete'], 'the route publishes the guard order the engine owns');
   assert.equal(r.ok, true);
 });
 
@@ -100,7 +100,7 @@ test('PUT with neither {on} nor {guard} is a 400 (nothing to set)', async () => 
 
 test('GET assigner defaults: OFF (behaviour pending), ok', async () => {
   const r = await getJson('/api/assigner-setting');
-  assert.equal(r.on, false, 'an unwired automation must not read as on');
+  assert.equal(r.on, false, 'the Recommender ships default OFF (#3595)');
   assert.equal(r.ok, true);
 });
 
