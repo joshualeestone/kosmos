@@ -96,7 +96,9 @@ function luhn(digits) {
    - With decimals, the digits before the whitespace are the whole fraction, so
      the '.' sits just before that digit run and the grouped part ends there.
    The regions looked at before two different currency words cannot overlap
-   (a currency word is letters), so the whole scan is linear. */
+   (a currency word is letters), so the whole scan is linear. Keep every word
+   in the alternation letters only: a word with a digit, '$' or a space in it
+   would break both the linear bound and the equivalence argument above. */
 function spelledGroupedCurrency(s) {
   const isDigit = (i) => i >= 0 && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57;
   const groupedEndsAt = (f) => isDigit(f - 5) && s[f - 4] === ',' && isDigit(f - 3) && isDigit(f - 2) && isDigit(f - 1);

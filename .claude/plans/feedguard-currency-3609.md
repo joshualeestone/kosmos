@@ -37,15 +37,16 @@ handles `fn` entries (contentFindings and the positive-control test).
 
 ## Tests
 - Linear: five 64 KB inputs (the chain that was quadratic, the chain followed by
-  USD, 64 KB of whitespace before USD, 6554 non-matching currency words, a long
-  fraction-shaped run), each under 200 ms and each with its expected answer.
+  USD, 64 KB of whitespace before USD, 7000 currency words each looked back from
+  and rejected, a long fraction-shaped run), each under 200 ms and each with its expected answer.
   Red with the old regex wrapped as the fn: 1395 ms on the chain.
 - Equivalence: fixed edge cases plus 50000 structured generated strings (noise,
   a digit-and-separator core, optional fraction, whitespace, a currency-like
   word, a suffix) against a copy of the old regex. Floors: more than 1000 match,
   and more than 200 depend on the fraction arm, so a version without that arm
-  cannot pass. Red with the fraction arm removed, and red with the whitespace
-  skip removed.
+  cannot pass. The whitespace picks include U+00A0, U+FEFF and U+2028 (and
+  fixed cases pin them), so a skip that only knows ASCII space fails. Red with
+  the fraction arm removed, and red with the skip reduced to ASCII space.
 - The generator: the #3608 test's LCG multiplied as floats; past 2^53 the low
   bits were lost and it cycled after 11,000 to 16,000 values in 50,000 draws.
   Both tests now share `seeded()`, which uses Math.imul, and a test asserts
