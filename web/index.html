@@ -2249,11 +2249,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .usage-agents { margin: 24px 0 0; }
 .usage-agents h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 6px; }
 .usage-agents .tv-mtable { margin-top: 10px; }
-.usage-agents .tv-mrow.muted .tv-mnl { color: var(--k-ink-2); font-weight: 500; }
 /* The two non-agent labels are fixed sentences, not names, and read wrong cut
    short ("Sessions outside a..."), so they wrap instead (Mona's review of #3603).
+   This beats the base .tv-mrow .tv-mnl nowrap on specificity, not on order.
    Agent names keep the ellipsis and carry a title. */
-.usage-agents .tv-mrow.muted .tv-mnl { white-space: normal; overflow: visible; text-overflow: clip; }
+.usage-agents .tv-mrow.muted .tv-mnl { color: var(--k-ink-2); font-weight: 500; white-space: normal; overflow: visible; text-overflow: clip; }
 #usage-history { margin-top: 12px; border: 1px solid var(--k-rule); border-radius: 12px; max-height: 520px; overflow-y: auto; }
 .uhrow { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr 1fr; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--k-rule); font-size: .84rem; }
 .uhrow:first-child { border-top: none; }
@@ -27701,7 +27701,9 @@ function usageShareTableHtml(label, rows, grandTotal, colorFor) {
    left out. Pure. */
 function usageAgentRows(byAgent) {
   if (!byAgent || typeof byAgent !== 'object') return [];
-  const listed = (Array.isArray(byAgent.agents) ? byAgent.agents : []).filter((a) => a && typeof a === 'object');
+  // Only agents that did work get a row, so only they can collide on a name.
+  const listed = (Array.isArray(byAgent.agents) ? byAgent.agents : [])
+    .filter((a) => a && typeof a === 'object' && String(a.shown || a.name || '') && usageRowTokenTotal(a) > 0);
   // Two agents can share a display name; name them apart by their own name.
   const seen = {};
   for (const a of listed) { const k = String(a.shown || a.name || ''); seen[k] = (seen[k] || 0) + 1; }

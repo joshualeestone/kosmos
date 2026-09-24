@@ -439,4 +439,8 @@ test('#2617: two agents with the same display name are named apart', () => {
   const rows = U.usageAgentRows({ ...BY_AGENT, elsewhere: Z,
     agents: [{ name: 'pm-a', shown: 'PM', ...B(9, 0) }, { name: 'pm-b', shown: 'PM', ...B(5, 0) }, { name: 'solo', shown: 'Solo', ...B(1, 0) }] });
   assert.deepEqual(rows.map((r) => r.name), ['PM (pm-a)', 'PM (pm-b)', 'Solo'], 'identical display names were left indistinguishable');
+  // A namesake that did no work has no row, so the one shown needs no suffix.
+  const one = U.usageAgentRows({ ...BY_AGENT, elsewhere: Z,
+    agents: [{ name: 'pm-a', shown: 'PM', ...B(9, 0) }, { name: 'pm-b', shown: 'PM', ...Z }] });
+  assert.deepEqual(one.map((r) => r.name), ['PM'], 'a zero-token namesake still forced a suffix');
 });
