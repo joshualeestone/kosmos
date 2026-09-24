@@ -2249,11 +2249,11 @@ test('listFiles: a file in a subfolder is listed by its relative path (#2245)', 
   assert.equal(out.truncated, undefined, 'a small folder must not claim to be truncated');
 });
 
-test('listFiles: dependency/cache trees, hidden folders and too-deep folders are not walked (#2245)', () => {
+test('listFiles: dependency/cache/build-output trees, hidden folders and too-deep folders are not walked (#2245)', () => {
   reset();
   const dir = folder('docs-noise');
   fs.writeFileSync(path.join(dir, 'real.md'), 'a');
-  for (const noise of ['node_modules/pkg', '__pycache__', 'venv/lib', 'Pods', 'DerivedData', '.git', '.venv']) {
+  for (const noise of ['node_modules/pkg', '__pycache__', 'venv/lib', 'env/lib', 'dist', 'build', 'target/debug', 'Pods', 'DerivedData', '.git', '.venv']) {
     fs.mkdirSync(path.join(dir, noise), { recursive: true });
     fs.writeFileSync(path.join(dir, noise, 'junk.js'), 'x');
   }
@@ -2261,10 +2261,8 @@ test('listFiles: dependency/cache trees, hidden folders and too-deep folders are
   fs.mkdirSync(path.join(dir, 'a', 'b', 'c', 'd'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'a', 'b', 'c', 'at-depth-3.txt'), 'x');
   fs.writeFileSync(path.join(dir, 'a', 'b', 'c', 'd', 'at-depth-4.txt'), 'x');
-  fs.mkdirSync(path.join(dir, 'build'));
-  fs.writeFileSync(path.join(dir, 'build', 'deliverable.pdf'), 'x'); // a real-output name IS walked
   const names = projects.listFiles(dir, 500).files.map((f) => f.name).sort();
-  assert.deepEqual(names, ['a/b/c/at-depth-3.txt', 'build/deliverable.pdf', 'real.md'], `unexpected list: ${JSON.stringify(names)}`);
+  assert.deepEqual(names, ['a/b/c/at-depth-3.txt', 'real.md'], `unexpected list: ${JSON.stringify(names)}`);
 });
 
 test('listFiles: a symlinked FOLDER is neither listed nor entered, so it cannot lead out (#2245)', () => {

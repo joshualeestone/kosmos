@@ -39950,6 +39950,7 @@ function pjById(id) { return PROJECTS.find((p) => p.id === id) || null; }
    this one does not have. */
 let PJ_DOC_NAMES = null;
 /* #2245: shown by both document views when the folder walk stopped short. */
+let PJ_DOCS_VIEW_PARTIAL = false; // #2245: the open View All list was cut short
 const PJ_DOCS_PARTIAL = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
 let TK_OPEN = null;        // the task number the task page is showing
 
@@ -41746,7 +41747,8 @@ async function openDocsView() {
     if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs') return;
     if (body.ok === false) { msg.textContent = pjSentence(body.because || 'we cannot read that folder right now'); return; }
     const files = Array.isArray(body.files) ? body.files : [];
-    if (!files.length) { msg.textContent = 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
+    PJ_DOCS_VIEW_PARTIAL = body.truncated === true;
+    if (!files.length) { msg.textContent = PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
     msg.textContent = '';
     /* Paginated (#535, Josh: 'a paginated list of project files'). Fifty a
        page: enough to scan, never a wall. The floor sentence survives at the
@@ -41781,7 +41783,7 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
     if (!res.ok) { const b = await res.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that file'); }
     /* win32-board-copy: Windows shows a file that can run a program instead of opening it, and the engine says so. */
     /* The sentence is cleared on every other open (review round 2), so it never sits under the next document. */
-    else { const b = await res.json().catch(() => null); msg.textContent = (b && b.revealedInstead && b.say) || ''; }
+    else { const b = await res.json().catch(() => null); msg.textContent = (b && b.revealedInstead && b.say) || (PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : ''); }
   } catch { msg.textContent = 'We could not reach Kosmos to open that file.'; }
 });
 
@@ -41895,7 +41897,7 @@ async function pjLoadDocs(id) {
   if (roomBox) { roomBox.__lastRoom = undefined; if (roomBox.__lastBody) paintRoom(roomBox.__lastBody); }
   const files = Array.isArray(body.files) ? body.files : [];
   if (!files.length) {
-    msg.textContent = 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
+    msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
     all.hidden = true;
     return;
   }
@@ -41940,7 +41942,14 @@ function pjCiteKey(core, names) {
     const key = segs.slice(i).join('/');
     if (key && names.has(key)) return key;
   }
-  return null;
+  /* A BARE name (no folder written) that is not at the top level chips to the one listed
+     subfolder file with that name; two or more is ambiguous and gets no chip. */
+  if (segs.length !== 1 || !core) return null;
+  let only = null;
+  for (const n of names) {
+    if (n.endsWith('/' + core)) { if (only !== null) return null; only = n; }
+  }
+  return only;
 }
 
 /**

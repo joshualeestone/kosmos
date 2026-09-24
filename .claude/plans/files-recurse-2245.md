@@ -17,8 +17,8 @@ Rejected:
 
 ## What changes
 1. listFiles walks subfolders breadth-first: depth <= 3 below the project, skips dot-entries
-   and folders that are never output (node_modules, venv, __pycache__, Pods, DerivedData;
-   build/dist/target/env ARE walked because people save real output there). The top level
+   and dependency, cache and build-output folders (node_modules, venv, env, __pycache__,
+   dist, build, target, Pods, DerivedData). The top level
    is read in full as before; at most 2000 entries below it are read, and truncated:true is
    set if the walk stopped early. Subfolder files are named by their RELATIVE path with `/`
    (Windows too). Symlinked folders are never entered (dirent reports the link), so no loop
@@ -28,11 +28,13 @@ Rejected:
    with `.` (covers `.`, `..`, hidden). Gate 3 (resolved target inside resolved folder) is
    unchanged and is what stops an escape through a link.
 3. Page (web/index.html):
-   - Both document views (the rail and View All) show a note when truncated is true.
+   - Both document views (the rail and View All) show a note when truncated is true, also
+     when the cut-short walk found no files, and View All keeps it after a file is opened.
    - Citation chips: pjCiteKey matches a cited path on its LONGEST trailing run of segments
      that is in the list, and the chip opens that listed name. Used by pjLinkPaths and the
      room's pjRichSpans. Before, both matched the basename only, so a cite of
-     sub/report.pdf opened a top-level report.pdf.
+     sub/report.pdf opened a top-level report.pdf. A BARE name with no top-level file
+     chips to the one nested file of that name, and to nothing when two share it.
 4. Doc comments updated where they described top-level only / bare filename only.
 
 Known residual: a cited file that is NOT listed (deeper than the walk, or skipped) but whose
@@ -53,6 +55,13 @@ docs/browser-checks/render-docs-subfolders-2245.js: the real page, 14 assertions
 against origin/main's page.
 Mutations run: dropping the dot-segment rule, counting the top level against the budget, and
 a basename-only pjCiteKey each turn the matching test red.
+
+## Trade: build-output folders are skipped
+Two reviewers disagreed. Walking build/, dist/, target/, env/ shows a file a person saved there
+on purpose; skipping them keeps a fresh build's artefacts from filling a newest-first list and
+setting the partial note on every code project. Skipped, because an agent's project folder is
+often a code project and a deliverable saved into build/ is the rarer case. If that is wrong,
+it is one line in LIST_SKIP_DIRS.
 
 ## Weakest premise
 That relative paths in a flat list read well enough. Deep paths are long in a narrow rail. If Josh

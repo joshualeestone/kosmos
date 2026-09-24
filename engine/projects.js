@@ -1305,12 +1305,13 @@ function revealFolder(folder) {
   }
 }
 
-/* #2245: the bounds on the documents walk. See listFiles. LIST_SKIP_DIRS holds only
-   folders that are never somebody's deliverable (dependency and cache trees); names a
-   person or agent also uses for real output (build, dist, target, env) are walked. */
+/* #2245: the bounds on the documents walk. See listFiles. LIST_SKIP_DIRS is dependency,
+   cache and BUILD-OUTPUT trees: a list sorted newest first would otherwise fill with a
+   fresh build's artefacts. The cost is that a file a person saved into a folder named
+   build/ or dist/ is not listed; the plan records that trade. */
 const LIST_MAX_DEPTH = 3;
 const LIST_MAX_SCAN = 2000;
-const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', '__pycache__', 'Pods', 'DerivedData']);
+const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'dist', 'build', 'target', 'Pods', 'DerivedData']);
 
 /**
  * The files in a project's folder, newest first.
@@ -1319,7 +1320,7 @@ const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', '__pycache__', 'Pods', '
  * until then, which hid the agent work #2245 was filed about). A project folder is
  * a place a person and their agents both write into, so an UNBOUNDED walk would
  * turn "the last ten documents" into a crawl of somebody's whole working tree: the
- * walk is capped in depth and in entries read, and skips dependency and cache trees.
+ * walk is capped in depth and in entries read, and skips dependency, cache and build-output trees.
  * Directories, dotfiles and anything that is not a regular file are left out — a
  * symlink (file or folder) is not listed or entered, because the thing it points at
  * is what would open and this list would be naming the wrong file.
@@ -1341,8 +1342,8 @@ function listFiles(folder, limit) {
      `/` as the separator (on Windows too), and openFile accepts exactly that shape.
      Bounded three ways, because this runs on every panel poll:
        - depth: LIST_MAX_DEPTH folders below the project folder;
-       - noise: dot-entries and LIST_SKIP_DIRS (dependency and cache trees an agent's
-         tooling makes; a thousand node_modules files are not "files in this project");
+       - noise: dot-entries and LIST_SKIP_DIRS (dependency, cache and build-output trees an
+         agent's tooling makes; a thousand node_modules files are not "files in this project");
        - cost: at most LIST_MAX_SCAN entries read BELOW the top level. The top level is
          read in full and does not count, as it always was. Past the budget the walk stops
          and `truncated: true` says the list is partial rather than complete.

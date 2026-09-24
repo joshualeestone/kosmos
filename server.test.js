@@ -9514,6 +9514,17 @@ test('#2245: a cited subfolder file chips to its own relative path, never a same
   assert.match(link('see weather/forecast.pdf', new Set(['weather/forecast.pdf'])), /data-ref="weather\/forecast\.pdf"/);
 });
 
+test('#2245: a BARE name chips to the one nested file with that name, and to none when two share it', () => {
+  const link = pageFunction('pjLinkPaths', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n');
+  assert.match(link('saved forecast.pdf', new Set(['weather-forecast-test/forecast.pdf', 'notes.md'])),
+    /data-ref="weather-forecast-test\/forecast\.pdf"/, 'a bare cite of a nested-only file got no chip');
+  const two = link('saved forecast.pdf', new Set(['a/forecast.pdf', 'b/forecast.pdf']));
+  assert.ok(!two.includes('refgo'), 'an ambiguous bare name was chipped to one of two files: ' + two);
+  // CONTROL: a cite WITH a folder that is not listed does not fall back to a basename guess.
+  assert.ok(!link('saved other/forecast.pdf', new Set(['weather-forecast-test/forecast.pdf'])).includes('refgo'),
+    'a cite naming a different folder was chipped to a same-named file');
+});
+
 test('#2245: the room renderer matches citations the same way', () => {
   const rich = pageFunction('pjRichSpans', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n'
     + pageFnSource('pjLinkPaths') + '\n');
