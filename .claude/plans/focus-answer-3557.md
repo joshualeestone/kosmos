@@ -25,23 +25,29 @@ focus tracer. The sequence in the failing flow:
 
 ## Fix (`web/index.html`, the `renderStale`-adjacent panel-paint focus block ~25792)
 
-Re-apply focus across the one-paint teardown steal, but BOUND the intent's life so it can never
-yank focus later:
+Re-apply focus across the one-paint teardown steal, but BOUND the intent's life BY TIME so it can
+never yank focus later. The intent (`ANSWER_WANTS_FOCUS`) is stamped with a timestamp
+(`ANSWER_WANTS_FOCUS_AT`) when "answer" is pressed; the paint consumer only acts within
+`ANSWER_FOCUS_WINDOW_MS` (2000ms):
 
-1. Keep the intent live ONLY while focus is on `<body>` (the transient steal window). On such a
-   paint, enable the composer and focus it; the button-teardown steal on the paint after the first
-   is then recovered.
+1. Within the window, on the intent's agent, composer open, and focus on `<body>`: enable the
+   composer and focus it (recovers the first paint AND the teardown steal on the paint right after).
 2. Decide focusability from the NEXT state (`body.presence`), not the stale `say.disabled`, and
    enable the composer before focusing (focusing a still-disabled element is a no-op). Line 25951
    (`say.disabled = body.presence === 'off'`) re-derives the same value; this only pulls that
    decision earlier for this one paint.
-3. Consume the intent the moment focus settles anywhere real - the composer we placed it in, OR a
-   control the user moved to - so a routine poll repaint never yanks deliberately-placed focus.
-   Also drop it when the agent is off (nothing to answer into), and when a DIFFERENT agent is
-   opened (the mismatch arm) - without that last drop a pending intent for B would survive a
-   navigation to C and re-fire on a later visit to B where the user never pressed answer (caught in
-   the challenge loop as the "lying in wait to yank focus" hazard the old consume-on-first-paint
-   had prevented).
+3. Drop the intent when the window has passed, when a DIFFERENT agent is open, or when the agent is
+   off. Never re-grab focus that is already on a real element (only a `<body>` steal is recovered).
+
+Why time and not "consume once focus settles": the teardown steal lands AFTER the first paint that
+focuses the composer, so consuming on that paint loses focus to the steal (the original bug). An
+intermediate fix that kept the intent until focus settled re-introduced a "lying in wait to yank
+focus on a later visit" hazard - a pending intent surviving a leave/return (even to the SAME agent,
+since `#detail-back` does not reset `CURRENT`) and re-firing where the user never pressed answer,
+and a 5s poll re-grabbing focus a user had deliberately parked on `<body>`. Both were caught in the
+challenge loop. A `<body>` from the teardown and a `<body>` from a deliberate blur are
+indistinguishable by state; only their TIMING separates them, which is what the window uses: it
+outlives the ~few-ms steal but is far shorter than the 5s poll or any navigation.
 
 ## Verification
 
