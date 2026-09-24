@@ -17,8 +17,8 @@ so it would be Claude/OpenAI/Gemini/Grok."
 - `PROVIDER_ORDER` (frozen): anthropic, openai, google, xai, then the coming-soon
   providers meta, alibaba, moonshot, mistral. `claude` aliases anthropic (the
   Add-a-provider picker's value). `providerRank()` reads it.
-- `orderProviderOptions(id)` sorts a select's options by it (placeholder first, unknown
-  values keep their place, selection kept). Run on all three pickers at startup, before
+- `orderProviderOptions(id)` sorts a select's options by it (placeholder first; values the
+  order does not know go after the known ones, in their original relative order; selection kept). Run on all three pickers at startup, before
   `enhanceProviderSelect` builds their logo comboboxes, so the widget reads the order too.
 - `accountGroupsHtml` sorts its provider boxes by it.
 - The static HTML of the three selects is reordered to match, so the source reads the

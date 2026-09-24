@@ -19798,7 +19798,6 @@ const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
 function keyOnlyProvider(p) {
   return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
 }
-/* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic'. */
 /* #3651 (Josh, 2026-09-24 17:05, #admin): "i want to put Grok right under Gemini in all
    lists, so it would be Claude/OpenAI/Gemini/Grok." THE ONE provider order. Every provider
    picker is sorted by it at startup (orderProviderOptions, before its logo combobox is
@@ -19826,6 +19825,7 @@ function orderProviderOptions(selectId) {
   sorted.forEach((o) => sel.appendChild(o));
   sel.value = chosen;
 }
+/* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic'. */
 function acctProvider(a) {
   const p = a && typeof a.provider === 'string' ? a.provider.toLowerCase() : '';
   return Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p) ? p : 'anthropic';
