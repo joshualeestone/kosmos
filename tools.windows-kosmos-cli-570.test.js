@@ -149,6 +149,9 @@ test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (fla
   const emptySpace = await run(['post', '--in-reply-to', '', 'proj-1', 'answer'], ok);
   assert.equal(emptySpace.code, 2, 'an empty --in-reply-to "" (space form) must error too, not silently post unbound (parity with install/kosmos)');
   assert.equal(emptySpace.calls.length, 0, 'nothing must be posted when the citation id is empty');
+  const flagAsId = await run(['post', '--in-reply-to', '--no-reply', 'proj-1', 'answer'], ok);
+  assert.equal(flagAsId.code, 2, '--in-reply-to --no-reply (id missing) must error, not swallow --no-reply as the citation (parity with install/kosmos)');
+  assert.equal(flagAsId.calls.length, 0, 'nothing must be posted when the citation id is a flag token');
   // ENVELOPE ROUND-TRIP (parity with install/kosmos): the emitted order (flag BEFORE project) binds;
   // the trailing order `post <project> --in-reply-to <id>` must NOT bind (leading-only) -- the seam a
   // flag-after-project envelope would silently post unbound through.

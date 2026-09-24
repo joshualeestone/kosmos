@@ -59,13 +59,19 @@ that remains the harness-level forcing-fix residual documented in the closed #18
 turn / fail a turn that answers without sending), out of Kosmos-fleet build scope. Josh can override
 the refuse-vs-derive call.
 
-Residual id-enumeration tell (iter2, accepted): with the answered project's NAME removed from the
-refusal, a caller can still observe that a mismatched-vs-matched/absent `in_reply_to` behaves
-differently (a weak existence/location tell), but learns no project name. This is bounded by the
-loopback/single-user threat model (the board-token gate blocks /api/post entirely when enforcement is
-on) and is a large reduction from the pre-fix name disclosure. Fully closing it would require gating
-the guard on membership of the answered project; not done, because a legitimate reply implies that
-membership and the nameless residual is loopback-only.
+Residual id-enumeration tell (iter2, accepted; scope widened iter4): with the answered project's
+NAME removed from the refusal, a caller can still observe that a mismatched-vs-matched/absent
+`in_reply_to` behaves differently (a weak existence/location tell), but learns no project name.
+The residual is wider than "membership of the answered project", and the guard-site code comment
+states the full shape: the guard also runs BEFORE the caller's membership of the TARGET project is
+checked (membership is enforced later, in messages.sendPost), so even a non-member of the target
+room can distinguish "this id belongs to some other room" (the new "different room" refusal) from
+"unknown / belongs to no room" (falls through, then a differently-worded membership refusal from
+sendPost). No project name leaks either way. This is bounded by the loopback/single-user threat
+model (the board-token gate blocks /api/post entirely when enforcement is on) and is a large
+reduction from the pre-fix name disclosure. Fully closing it would require gating the guard on
+membership of BOTH the answered and the target project; not done, because a legitimate reply
+implies both memberships and the nameless residual is loopback-only.
 
 ## Tests
 (Counts current as of the challenge-loop hardening; the original brief listed 4/5/5 before the

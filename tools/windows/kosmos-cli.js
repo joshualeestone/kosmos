@@ -268,7 +268,10 @@ async function verbPost(ctx, args) {
     if (args[0] === '--in-reply-to') {
       args.shift();
       inReplyTo = args.shift() || '';
-      if (!inReplyTo) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
+      // Reject an empty OR flag-shaped id: `--in-reply-to --no-reply` must NOT swallow the
+      // next flag as the citation (it would drop --no-reply and post a bogus, unresolvable
+      // binding). No real message id starts with '--'. Parity with install/kosmos.
+      if (!inReplyTo || inReplyTo.startsWith('--')) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
       continue;
     }
     const eq = /^--in-reply-to=(.*)$/.exec(args[0] || '');

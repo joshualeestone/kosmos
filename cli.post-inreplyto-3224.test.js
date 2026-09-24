@@ -111,6 +111,14 @@ test('#3224: --in-reply-to "" (empty SPACE value) is REFUSED too -- the space fo
   assert.match(out.stdout + out.stderr, /in-reply-to needs a message id/, 'the error must say what is missing');
 }));
 
+test('#3224: --in-reply-to followed by another FLAG (id missing) is REFUSED, not swallowed -- `--in-reply-to --no-reply` must not eat --no-reply as the citation', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const out = await runCli(['post', '--in-reply-to', '--no-reply', 'beta', 'answer'], env);
+  assert.equal(out.code, 2, 'a flag-shaped citation means the id was omitted: error, do NOT swallow --no-reply as the id (which would drop --no-reply and post a bogus binding)');
+  assert.equal(seen.length, 0, 'nothing must be posted when the citation id is missing');
+  assert.match(out.stdout + out.stderr, /in-reply-to needs a message id/, 'the error must say what is missing');
+}));
+
 test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documented tradeoff)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'beta', 'please --in-reply-to that thread'], env);
