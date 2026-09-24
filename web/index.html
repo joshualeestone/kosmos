@@ -38462,7 +38462,7 @@ function pjView(which) {
   /* #2922: when the room (View D) becomes visible, re-engage the live-mention mirror. pjMentionPaint
      is hidden-safe (a no-op while #pj-post is hidden), so it is safe to call on every 'one'
      navigation. Centralised HERE so every path that shows the room -- openProject, showTab's
-     consolidated toggle, leaving the task/docs detail, docs-back -- re-engages, not only openProject;
+     consolidated toggle, leaving the task or documents detail, the documents back button -- re-engages;
      otherwise a mirror the hidden-state guard stripped on a resize-while-away would stay disengaged
      (plain text, no blue) until the next keystroke. */
   if (which === 'one') pjMentionPaint();
