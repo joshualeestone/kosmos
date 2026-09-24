@@ -355,6 +355,10 @@ test('#3609: the spelled grouped-currency check is linear on long inputs', () =>
     [' '.repeat(65536) + 'USD', false],      // a long look back over whitespace
     ['1,23 USD '.repeat(7000), false],       // thousands of words, each looked back from and rejected
     ['1.'.repeat(32768) + 'USD', false],     // a long look back over a fraction
+    // Real amounts with a long gap: a cap on either backward walk (a plausible
+    // future "optimization") would miss these, so they must stay true.
+    ['249,000' + ' '.repeat(65536) + 'USD', true],
+    ['1,234.' + '5'.repeat(65536) + ' USD', true],
   ];
   for (const [s, want] of inputs) {
     const start = Date.now();
@@ -372,6 +376,7 @@ test('#3609: the spelled grouped-currency check finds exactly what the old regex
     '1,234\u00a0GBP', '1,234\n\tpounds', '12,34 USD', '1,234. USD', '.1,234 usd', '1,234.USD',
     '9,999,999,999 EUR!', 'USD', '', '1,234', ',234 USD', '1,234 US dollars',
     '1,234\ufeffUSD', '1,234\u2028usd', '1,234.5\u00a0\u00a0euros',
+    '249,000' + ' '.repeat(60) + 'USD', '1,234.' + '5'.repeat(30) + ' USD',
   ];
   for (const s of fixed) assert.equal(SPELLED(s), SPELLED_REGEX.test(s), JSON.stringify(s));
   // Structured strings: noise, a digit-and-separator core, an optional
