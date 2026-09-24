@@ -1219,7 +1219,7 @@ cmd_post() {
   while :; do
     case "${1:-}" in
       --no-reply) no_reply=1; shift ;;
-      --in-reply-to) in_reply_to="${2:-}"; shift 2 2>/dev/null || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; } ;;
+      --in-reply-to) in_reply_to="${2:-}"; shift 2 2>/dev/null || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; [ -n "$in_reply_to" ] || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; } ;;
       --in-reply-to=*) in_reply_to="${1#--in-reply-to=}"; [ -n "$in_reply_to" ] || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; shift ;;
       *) break ;;
     esac
