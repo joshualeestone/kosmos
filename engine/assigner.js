@@ -20,10 +20,18 @@
 
 const tasks = require('./tasks');
 
+/* How long an agent must have had no work, continuously, before it is given some: long enough
+   that an agent pausing between steps of its own work is not handed a new task (the plan's
+   hysteresis), short enough that a genuinely idle agent does not sit for most of an hour. */
 const IDLE_MS = 20 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
+/* At most this many assignments per hour across the whole fleet (the plan's hard limit), so a
+   backlog of unassigned tasks cannot be poured into every idle pane at once. */
 const MAX_PER_HOUR = 10;
+/* At most one assignment per agent per hour: an agent works one given task at a time. */
 const MAX_PER_AGENT_PER_HOUR = 1;
+/* Sorts after every real YYYY-MM-DD, so a task with no due date comes after every dated one. */
+const NO_DUE_DATE = '9999-99-99';
 
 /* A card the Assigner may consider at all: ours, and idle by the board's own reading. */
 function idleCard(a) {
@@ -35,7 +43,8 @@ function liveProjects(records) {
   return (Array.isArray(records) ? records : []).filter((p) => p && typeof p.id === 'string' && p.archived !== true);
 }
 
-/* Does this agent have an open part of any task, in any live project? */
+/* Does this agent have an open part of any task, in ANY project, archived included: open work
+   in an archived project still means the agent is not free. (Picking stays live-only.) */
 function hasOpenWork(session, projects) {
   for (const p of projects) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
@@ -49,7 +58,7 @@ function hasOpenWork(session, projects) {
 
 /* Sort key: a real due date sorts before none, earlier first; then the older task. */
 function dueKey(t) {
-  return typeof t.dueDate === 'string' && t.dueDate ? t.dueDate : '9999-99-99';
+  return typeof t.dueDate === 'string' && t.dueDate ? t.dueDate : NO_DUE_DATE;
 }
 function ageKey(t) {
   const at = Date.parse(t && t.createdAt);
@@ -93,6 +102,7 @@ function step({ prev, roster, setting, records, commitments, now }) {
   // A null roster is a READ FAILURE, not an empty fleet: keep the memory, do nothing.
   if (roster === null || roster === undefined) return { toAssign: [], next: base };
   const projects = liveProjects(records);
+  const allProjects = (Array.isArray(records) ? records : []).filter((p) => p && typeof p.id === 'string');
   const log = (Array.isArray(base.log) ? base.log : []).filter((e) => e && now - e.at < HOUR_MS);
   const idleSince = new Map();
   const toAssign = [];
@@ -102,7 +112,7 @@ function step({ prev, roster, setting, records, commitments, now }) {
     const session = a.sessionName;
     const state = commitments instanceof Map ? commitments.get(session) : undefined;
     if (state !== 'clear') continue;
-    if (hasOpenWork(session, projects)) continue;
+    if (hasOpenWork(session, allProjects)) continue;
     const since = base.idleSince.has(session) ? base.idleSince.get(session) : now;
     idleSince.set(session, since);
     if (now - since < IDLE_MS) continue;
