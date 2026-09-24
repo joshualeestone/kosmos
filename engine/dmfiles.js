@@ -78,11 +78,12 @@ function blockBody(dir) {
     '',
     '`' + where + '`',
     '',
-    /* Only what is true today. The Files list on the agent page is April's half of
-       #3614 and ships separately; this block must not promise it before it exists. */
+    /* The Files list on the agent page (April's half of #3614) ships in the same change as
+       this sentence, so the promise and the page land together. */
     'Create the folder if it is not there yet. Keeping everything you make for the',
-    'person in one place means they always know where to find it. Inside a project,',
-    'keep using the project\'s own folder.',
+    'person in one place means they always know where to find it: Kosmos lists what',
+    'is in it on your page, where they can open it. Inside a project, keep using the',
+    'project\'s own folder.',
   ].join('\n');
 }
 
