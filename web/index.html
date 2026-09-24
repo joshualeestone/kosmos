@@ -13907,31 +13907,31 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
       <p class="dhint" id="feedback-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
-    <!-- #2619: Recommender automation. When on, blocked agents work to a consensus
-         recommendation, document it, and implement it - bounded by three guards.
-         NOT ACTIVE YET (Splinter, 2026-09-24): the consensus-and-implement
-         behaviour is a separate build, so we do NOT present a switch a person can
-         turn on that does nothing. The control renders DISABLED with a "not active
-         yet" note; the persistence (engine/recommender-setting.js + the routes) is
-         in place behind the scenes as the contract that behaviour will read. The
-         guards render in their safe default (all on) but disabled, so the person
-         can SEE the irreversible-consequence carve-outs that will apply. The
-         behaviour PR enables the controls, wires the paint/save JS, and flips the
-         default in one honest change. -->
+    <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
+         on a project gets help: Kosmos asks up to two members in the room for one reply each,
+         and the stuck agent decides, writes down why, and carries it out, within the guards.
+         LIVE since #3595 (engine/recommender.js + the runner in server.js). DEFAULT OFF until
+         tool-level guards land (Splinter, 2026-09-24): the guards below are INSTRUCTIONS the
+         agents are given, and agents run with bypass permissions, so the hint says plainly
+         that Kosmos cannot yet block these actions itself. Status-control contract: the
+         toggle stays hidden until the server read lands; a failed read hides it and says
+         so, never a false Off; the guards row hides while the automation is off. -->
     <section class="dbox">
       <h3 class="dlab">Recommender</h3>
       <div class="setrow" id="rec-row" style="margin-top:14px;">
         <div><b>Let blocked agents recommend and act</b>
           <p class="dhint" style="margin:2px 0 0;">When your agents get stuck on something, they work together to agree on a recommendation, write down why, and carry it out - within the guards below.</p></div>
-        <button class="toggle" id="rec-toggle" role="switch" aria-label="Let blocked agents recommend and act" aria-checked="false" aria-disabled="true" disabled><i></i></button>
+        <button class="toggle" id="rec-toggle" role="switch" aria-label="Let blocked agents recommend and act" hidden><i></i></button>
       </div>
-      <fieldset class="frow" id="rec-guards-row" style="margin-top:12px; border:0; padding:0; display:flex; flex-direction:column; gap:8px;">
+      <fieldset class="frow" id="rec-guards-row" hidden style="margin-top:12px; border:0; padding:0; display:flex; flex-direction:column; gap:8px;">
         <legend class="dhint" style="margin:0 0 2px;">Never let a recommendation:</legend>
-        <label class="dhint" for="rec-guard-money" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-money" checked disabled> <span>Act on anything that spends money</span></label>
-        <label class="dhint" for="rec-guard-public" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-public" checked disabled> <span>Post anything publicly under my name</span></label>
-        <label class="dhint" for="rec-guard-delete" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-delete" checked disabled> <span>Delete anything that has no other copy</span></label>
+        <label class="dhint" for="rec-guard-money" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-money" data-guard="money" checked> <span>Act on anything that spends money</span></label>
+        <label class="dhint" for="rec-guard-public" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-public" data-guard="public" checked> <span>Post anything publicly under my name</span></label>
+        <label class="dhint" for="rec-guard-delete" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-delete" data-guard="delete" checked> <span>Delete anything that has no other copy</span></label>
+        <p class="dhint" style="margin:2px 0 0;">Your agents are given these as instructions. Kosmos cannot yet stop these actions on its own.</p>
       </fieldset>
-      <p class="dhint" id="rec-msg" style="margin:8px 0 0;">Not active yet. This automation is coming soon; the guards above are the safe defaults that will apply once it is turned on.</p>
+      <p class="dhint" id="rec-off-note" hidden style="margin:8px 0 0;">Off by default. Your agents will still tell you when they are stuck; they just will not act on it themselves.</p>
+      <p class="dhint" id="rec-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
     <!-- #2619: Assigner automation. When on, it turns your goals into assigned
          work - mapping top goals to prioritized tasks and giving idle agents some.
@@ -19330,24 +19330,94 @@ setInterval(() => {
   const panel = document.getElementById('panel-settings');
   if (!document.hidden && panel && panel.offsetParent !== null) paintPrompterNudges();
 }, 15000);
-/* #2619: the Recommender and Assigner automation controls render DISABLED with a
-   "not active yet" note (Splinter, 2026-09-24: do not ship a switch a person can
-   turn on that does nothing). The behaviour (consensus-recommend-implement;
-   goal-to-task / idle-assign) is a separate build; until it lands there is nothing
-   to drive, so there is deliberately NO interactive paint/save JS here - a disabled
-   control cannot be clicked, so the paint-from-server / save-on-change wiring would
-   be dead code. The persistence contract (engine/recommender-setting.js +
-   engine/assigner-setting.js and their GET/PUT routes) stays in place behind the
-   scenes; the behaviour PR re-enables the controls, adds the paint/save wiring, and
-   flips the default in one honest change. The disabled state is static markup:
-   aria-checked="false" + disabled on the toggles, checked + disabled on the guards. */
+/* #3595: the Recommender control is LIVE (engine/recommender.js acts on it). The STATUS
+   contract, as the Prompter above: the toggle stays hidden until the server read lands, a failed
+   read hides it and says so (never a false Off), and the guards row hides while it is off.
+   Each click commits ONE change (the toggle, or one guard); the route merges a single guard so
+   the other two are never reset. The Assigner control stays disabled static markup until its
+   behaviour lands (#3595 phase 2). */
+let REC_EPOCH = 0;
+let REC_SAVING = false;
+const REC_GUARDS = ['money', 'public', 'delete'];
+function paintRecommenderFrom(r) {
+  const on = r.on === true;
+  paintSwitch('rec-toggle', on);
+  const row = document.getElementById('rec-guards-row');
+  const off = document.getElementById('rec-off-note');
+  if (row) row.hidden = !on;
+  if (off) off.hidden = on;
+  const g = r.guards || {};
+  for (const k of REC_GUARDS) {
+    const cb = document.getElementById('rec-guard-' + k);
+    // A missing guard reads ON, the fail-safe direction the store also takes.
+    if (cb && document.activeElement !== cb) cb.checked = g[k] !== false;
+  }
+}
+async function paintRecommender() {
+  const mine = ++REC_EPOCH;
+  const msg = document.getElementById('rec-msg');
+  if (!document.getElementById('rec-toggle')) return;
+  try {
+    const res = await fetch('/api/recommender-setting', { cache: 'no-store' });
+    if (mine !== REC_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== REC_EPOCH) return;
+    paintRecommenderFrom(r);
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine !== REC_EPOCH) return;
+    paintSwitch('rec-toggle', null);
+    const row = document.getElementById('rec-guards-row');
+    const off = document.getElementById('rec-off-note');
+    if (row) row.hidden = true;
+    if (off) off.hidden = true;
+    if (msg) msg.textContent = 'We could not read this setting just now.';
+  }
+}
+async function saveRecommender(change) {
+  if (REC_SAVING) return;
+  REC_SAVING = true;
+  const mine = ++REC_EPOCH;
+  const msg = document.getElementById('rec-msg');
+  try {
+    const res = await fetch('/api/recommender-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(change),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (mine !== REC_EPOCH) return;
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; paintRecommender(); return; }
+    paintRecommenderFrom(out);
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine === REC_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally { REC_SAVING = false; }
+}
+function recToggleClick() {
+  const tog = document.getElementById('rec-toggle');
+  if (!tog.hasAttribute('aria-checked')) { paintRecommender(); return; } // not loaded: never write over a stored value
+  saveRecommender({ on: tog.getAttribute('aria-checked') !== 'true' });
+}
+function recGuardChange(e) {
+  const cb = e.target;
+  const tog = document.getElementById('rec-toggle');
+  if (!cb || !cb.dataset || !cb.dataset.guard) return;
+  if (!tog || !tog.hasAttribute('aria-checked')) { paintRecommender(); return; }
+  saveRecommender({ guard: cb.dataset.guard, value: cb.checked === true });
+}
+document.getElementById('rec-toggle') && document.getElementById('rec-toggle').addEventListener('click', recToggleClick);
+for (const k of REC_GUARDS) {
+  const cb = document.getElementById('rec-guard-' + k);
+  if (cb) cb.addEventListener('change', recGuardChange);
+}
 
 async function paintSettings() {
   paintYouName();
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
-  /* #2619: no paintRecommender/paintAssigner - those controls are disabled
+  paintRecommender(); // #3595: live. The Assigner stays disabled static markup until phase 2.
+  /* #2619: no paintAssigner - that control is disabled
      ("not active yet") until the behaviour lands, so there is nothing to paint. */
   paintPrompterNudges();
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
