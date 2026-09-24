@@ -1,0 +1,44 @@
+# mention-live-2922 — live @-mention highlight in the project-room composer (#2922 part 2)
+
+## Goal
+Part 1 (#2954) blued recognized `@agent` mentions in the **posted** message. This builds the other
+half Josh asked for in the 6.59 QA notes: the name turns **bright blue live in the input** (`#pj-post`)
+as it becomes a recognized agent on the project, so the person sees it will flag that agent before
+they post. Josh: *"if I @ and type a name and it recognizes that it is an agent name mention,
+highlight it blue so I know it is going to be a flag to that agent."*
+
+## Design
+A native `<textarea>` cannot colour a substring, so `#pj-post` is backed by a mirror div
+(`#pj-post-mirror` → `.pj-mirror-in`) that renders the same text with recognized `@mentions` in the
+shared `--pj-mention` blue. The textarea's own text goes transparent (`#pj-post.mention-live`) while
+the caret stays inked, so only the mirror shows.
+
+- **Same recognized-name rule as the message.** `pjMentionHighlightHTML(text, keys)` mirrors the
+  posted-message tokenizer and `engine/messages.js` exactly: a partial/unknown `@name` stays plain;
+  it turns blue only when the word is a project key, or the word with a trailing `._-` run stripped
+  is (so `@mona-` flags `mona`); leading `_` is not peeled, `*~(` are. Keys come from
+  `mentionCandidates` — the exact set the `@` picker offers. Input and message never disagree.
+- **Colour-only, not bold.** The posted chip is `font-weight: 600`, but bolding in the input would
+  widen glyphs and drift the mirror off the caret, so `.pj-live-mention` changes colour only.
+- **Aligned by construction.** The mirror carries `#pj-post`'s exact metrics (font, line-height,
+  padding, wrap) and is sized/positioned to its offset box on every paint, synced on input, scroll,
+  resize and every programmatic value set (draft restore, `@`-picker insert, emoji insert, reset)
+  via `pjGrowComposer`. `position: relative` is scoped to the room composerbox; the `@` picker and
+  emoji panel are siblings outside it, so their positioning is unchanged.
+
+## Scope
+- `web/index.html`: the mirror markup, the CSS (mirror + `.pj-live-mention` + `.mention-live` +
+  scoped `position: relative`), and the JS (`pjMentionHighlightHTML`, `pjMentionKeys`,
+  `pjMentionPaint`, the input/scroll/resize wiring, the `pjGrowComposer` hook).
+- `docs/browser-checks/render-mention-blue-2922.js`: extended with live-input arms.
+- `web.mention-live.test.js`: new unit coverage for the rule + markup/CSS/wiring.
+
+## Verification
+- render-mention-blue-2922.js: 116/116 (chromium+webkit, light+dark) incl. mirror-metrics-parity,
+  colour-only-400, transparent-text/inked-caret.
+- web.mention-live.test.js: 16/16.
+- Overlay measured in a laid-out composer, both themes: mirror rect == textarea rect (dx=dy=dw=0).
+- Full suite green.
+
+## Not in scope / deferred to Josh
+The exact blue and the behaviour are Josh's to swap later (built on the night shift).
