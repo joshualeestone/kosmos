@@ -507,8 +507,9 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # pointer with no sha. Call it as a plain statement, never in $(...): it sets globals and may exit.
 # Each call overwrites SWP_NAME/SWP_SHA, so copy them out before the next call.
 read_served_win_pointer() {  # <pointer file under dist> <redacted redirect target> <card tag, e.g. #3600>
+  set -- "$1" "$(printf '%s' "$2" | tr -cd '[:print:]')" "$3"   # the Location target is outside content too
   _rswj=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1") || { echo "deploy-site: the served $1 redirects ($2) but could not be read through the redirect -- the deploy already ran, investigate ($3)."; exit 1; }
-  SWP_NAME=$(ptr_versioned "$_rswj"); SWP_SHA=$(ptr_sha "$_rswj")
+  SWP_NAME=$(ptr_versioned "$_rswj"); SWP_SHA=$(ptr_sha "$_rswj"); SWP_ARTIFACT=$(ptr_artifact "$_rswj")
   # Printable-only copies for messages: the values come from outside this repo (R2).
   _swpn=$(printf '%s' "$SWP_NAME" | tr -cd '[:print:]'); _swps=$(printf '%s' "$SWP_SHA" | tr -cd '[:print:]')
   case "$SWP_NAME" in
@@ -516,7 +517,9 @@ read_served_win_pointer() {  # <pointer file under dist> <redacted redirect targ
     *) echo "deploy-site: the served (redirected) $1 names '${_swpn:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate ($3)."; exit 1 ;;
   esac
   # Second check, not redundant: the glob's * above also matches '/' and '..'.
-  case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$_swpn', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
+  case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served (redirected) $1 names '$_swpn', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
+  # The alias checks below assume the pointer's download IS the unversioned alias; enforce it.
+  [ -z "$SWP_ARTIFACT" ] || [ "$SWP_ARTIFACT" = kosmos-win-x64.zip ] || { echo "deploy-site: the served (redirected) $1 names its download as '$(printf '%s' "$SWP_ARTIFACT" | tr -cd '[:print:]')', not kosmos-win-x64.zip -- the deploy already ran, investigate ($3)."; exit 1; }
   [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- the deploy already ran, investigate ($3)."; exit 1; }
   case "$SWP_SHA" in *[!0-9a-fA-F]*) echo "deploy-site: the served (redirected) $1 advertises sha '$_swps', which is not hex -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
   [ ${#SWP_SHA} -eq 64 ] || { echo "deploy-site: the served (redirected) $1 advertises sha '$_swps', which is not 64 characters -- the deploy already ran, investigate ($3)."; exit 1; }
@@ -615,7 +618,7 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   _was=$(printf '%s' "$_was" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]' | tr -cd '[:print:]')   # R2/site content: printable only
   case "${_war%% *}" in
     301|302|303|307|308)
-      [ "$_was" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip.sha256 says '${_was:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA for the same build -- a broken alias checksum on R2. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
+      [ "$_was" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip.sha256 says '${_was:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA for the same build -- a broken alias checksum on R2, or an R2 publish caught mid-write. The deploy already ran; re-run once, then investigate the R2 publish (#3610)."; exit 1; }
       ;;
     200)
       if [ "$_was" != "$_wwant" ]; then
@@ -646,7 +649,7 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   case "${_waz%% *}" in
     301|302|303|307|308)
       _wag=$(served_sha256 kosmos-win-x64.zip 300) || { echo "deploy-site: could not fetch the served kosmos-win-x64.zip to hash it -- the deploy already ran, investigate (#3610)."; exit 1; }
-      [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
+      [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build, or an R2 publish caught mid-write. The deploy already ran; re-run once, then investigate the R2 publish (#3610)."; exit 1; }
       ;;
     200|206) : ;;   # served statically: git archive shipped the committed alias
     '')

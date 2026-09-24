@@ -82,6 +82,8 @@
 #   A44 no committed staging pointer and its route 404s -> nothing staged: no BUT line, rc 0
 #   A45 no committed staging pointer and its probe answers 500 -> a BUT line that it was not verified
 #   A46 a COMMITTED staging pointer whose route 404s -> refused by the strict served-verify
+#   A47 a redirected pointer whose `artifact` is not kosmos-win-x64.zip -> refuse (the alias checks
+#       assume the pointer's download is the alias)
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -339,6 +341,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         cp "$r2/kosmos-win-x64.zip.sha256" "$live/.alias-sha-override"
       fi
       [ "$mode" = redirect-shortsha ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW" "$(printf '%s' "$newsha" | cut -c1-63)"
+      [ "$mode" = redirect-otherartifact ] && printf '{"version":"%s","sha256":"%s","artifact":"something-else.zip","versioned":"%s","arch":"x64"}\n' "$WV_NEW" "$newsha" "$WZ_NEW" > "$r2/latest-win.json"
       [ "$mode" = redirect-badshasha ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW" "not-hex-and-too-short"
       [ "$mode" = redirect-aliasstatic-badbytes ] && printf 'SOME-OTHER-BUILD\n' > "$r2/kosmos-win-x64.zip"
       [ "$mode" = redirect-aliasbytes ] && printf 'SOME-OTHER-BUILD\n' > "$r2/kosmos-win-x64.zip"
@@ -811,5 +814,14 @@ else
   bad "A46: a 404ing committed staging pointer was not refused (rc=$RC); out=$out"
 fi
 
+# A47) the served pointer names another download than the alias: refused.
+read -r S L R <<<"$(make_scenario redirect-otherartifact)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "names its download as 'something-else.zip'"; then
+  pass "A47: a redirected pointer whose artifact is not the alias refuses (rc=$RC)"
+else
+  bad "A47: a pointer naming another artifact was not refused (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 46 arms passed"
+echo "test-deploy-site-served-win-3600: all 47 arms passed"
