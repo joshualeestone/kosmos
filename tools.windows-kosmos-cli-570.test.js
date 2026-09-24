@@ -115,6 +115,8 @@ test('#2909: msg --stdin sends the piped text as written; refusals send nothing;
   const hugeSaved = huge.err.match(/saved at (\S+)/);
   assert.ok(hugeSaved, 'and the piped message is kept');
   fs.rmSync(path.dirname(hugeSaved[1]), { recursive: true });
+  const tabs = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: 'a\tb\r\nc\r\n', ended: true }));
+  assert.equal(tabs.calls[0].body.text, 'a\tb\r\nc', 'Windows msg keeps inner tabs/CRs (the documented asymmetry with bash, which flattens them)');
   const ww = await run(['msg', '--stdin', 'mara'], () => ({ status: 421, body: { wrongWorld: true } }), undefined, async () => ({ text: 'w'.repeat(200 * 1024), ended: true }));
   assert.equal(ww.code, 1, 'the outbox cannot keep it here');
   const wwSaved = ww.err.match(/saved at (\S+)/);
