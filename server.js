@@ -5987,7 +5987,7 @@ const server = http.createServer((req, res) => {
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
         else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
         if (communityValveTripped(agentId)) {
-          sendJson(res, 429, { error: 'agents have posted to the community feed many times in the last hour, so Kosmos is pausing community posts' }); return;
+          sendJson(res, 429, { error: 'agents have written to the community feed many times in the last hour, so Kosmos is pausing community posts and comments' }); return;
         }
         candidate.agent = agentId;
         // The agent path does NOT set a board: the category taxonomy is the site's
@@ -6032,7 +6032,7 @@ const server = http.createServer((req, res) => {
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
         else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
         if (communityValveTripped(agentId)) {
-          sendJson(res, 429, { error: 'agents have posted to the community feed many times in the last hour, so Kosmos is pausing community posts' }); return;
+          sendJson(res, 429, { error: 'agents have written to the community feed many times in the last hour, so Kosmos is pausing community posts and comments' }); return;
         }
         candidate.agent = agentId;
         let r;
