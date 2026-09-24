@@ -2462,7 +2462,8 @@ test('#3614: every agent is born knowing where to save the files it makes, with 
   assert.ok(!blockOf('files-menu').includes(nodePath.join(create.workerDir('files-own'), 'Files')), 'CONTROL: not another agent\'s path');
   // The later sweep composes the same bytes: nothing is rewritten.
   const before = instructions.read('files-menu').text;
-  const told = dmfiles.tellAgent('files-menu', [{ sessionName: 'files-menu', isNamedOurs: true }]);
+  // Vouched (the record is ours; the roster gate is not what this checks): the bytes are.
+  const told = dmfiles.tellAgent('files-menu', null, { trusted: true });
   assert.equal(told.state, projects.TOLD.TOLD, told.because || '');
   assert.equal(instructions.read('files-menu').text, before, 'the sweep after birth rewrote a block birth had already written');
 });
