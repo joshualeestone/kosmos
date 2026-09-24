@@ -245,6 +245,44 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
     }
   }
 
+  // DIFFERENTIAL (kosmos#2922 part 2, repo Convention #5): the recognized-name ALGORITHM is
+  // reproduced in two places -- pjMentionHighlightHTML (the live input) and pjRichSpans (the posted
+  // message). They must classify @mentions IDENTICALLY, or the input and the message disagree about
+  // what is a real mention. Rather than trust that two independently-typed regex chains stay equal,
+  // run the SAME fixtures through both and assert the highlighted @keys match. A future edit to one
+  // (e.g. widening the punctuation class) then fails here instead of shipping a silent desync. Pure
+  // JS, so one engine/theme is enough.
+  {
+    const browser = await playwright.chromium.launch({ headless: process.env.HEADED === '0' });
+    const page = await browser.newPage();
+    await page.goto('file://' + PAGE);
+    const rows = await page.evaluate(() => {
+      const set = new Set(['mona', 'renet-tilley', 'ice-cream-kitty']);
+      const fixtures = [
+        'hi @mona', '@mon', '@mona-', 'cc @mona.', '_@mona_', '(@mona)', '**@mona**', '~@mona~',
+        '@renet-tilley, @mona!', '@Mona', 'email a@mona', '@mona_bar', '@ice-cream-kitty done',
+        'plain, no mention', '@nobody here', 'two @mona and @renet-tilley', '@mona_', '@mona.-',
+      ];
+      const keysFrom = (html, cls) => {
+        const re = new RegExp('class="' + cls + '">@([^<]+)<', 'g');
+        const out = []; let m;
+        while ((m = re.exec(html)) !== null) out.push(m[1]);
+        return out;
+      };
+      return fixtures.map((s) => {
+        const live = keysFrom(pjMentionHighlightHTML(s, set), 'pj-live-mention');
+        // pjRichSpans on the room path (agentNames supplied) is the posted-message highlighter.
+        const posted = keysFrom(pjRichSpans(s, null, set), 'pjmention');
+        return { s, live, posted, ok: JSON.stringify(live) === JSON.stringify(posted) };
+      });
+    });
+    for (const r of rows) {
+      check(`[differential] live == posted mention classification for ${JSON.stringify(r.s)}`,
+        r.ok, `live=${JSON.stringify(r.live)} posted=${JSON.stringify(r.posted)}`);
+    }
+    await browser.close();
+  }
+
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   process.exit(failed.length ? 1 : 0);
