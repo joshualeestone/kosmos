@@ -683,9 +683,12 @@ if [ -z "$adopt" ]; then
           try {
             const w = require(process.argv[1]).identityOf(process.argv[2]);
             if (w) process.stdout.write(String(w.authMode));
-          } catch (e) { /* an unreadable answer keeps the key */ }
+          } catch (e) {
+            // The key stays, and the log says why: a silent keep would read as "not a subscription".
+            process.stderr.write("grok: could not read what kind of account " + process.argv[2] + " is (" + ((e && e.message) || e) + "), so this agent keeps any XAI_API_KEY\n");
+          }
         })();
-      ' "$_eng/grokaccounts.js" "$_GROK_ACCT" 2>/dev/null || true)"
+      ' "$_eng/grokaccounts.js" "$_GROK_ACCT" || true)"
     elif [ -e "${_GROK_ACCT}/auth.json" ]; then
       echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
     fi

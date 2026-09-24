@@ -179,7 +179,7 @@ test('real tmux resolves a repeated -e to the LAST value (the precedence the per
    (auth.json, no key file) must reach grok with NO XAI_API_KEY at all, or grok runs on the
    key instead of the sign-in. An EMPTY value still counts as set to grok (measured), so the
    supervisor drops every door pair and runs grok through `env -u XAI_API_KEY`. */
-function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome, noEngine, withStderr }) {
+function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome, noEngine, brokenEngine, withStderr }) {
   const tree = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-grok-sub-'));
   fs.mkdirSync(nodePath.join(tree, 'bin'), { recursive: true });
   fs.mkdirSync(nodePath.join(tree, 'secrets', 'env'), { recursive: true });
@@ -190,7 +190,12 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
   // The supervisor asks engine/grokaccounts.identityOf what kind of account this is, so the
   // tree carries the real engine (a symlink). The token mint that an engine also enables is
   // kept in the sandbox by AGENT_WORKFORCE_DATA below, never the real store.
-  if (!noEngine) fs.symlinkSync(nodePath.join(__dirname, 'engine'), nodePath.join(tree, 'engine'));
+  if (brokenEngine) {
+    // An engine whose grokaccounts.js throws on load (sendertoken.js exists so the supervisor finds the engine).
+    fs.mkdirSync(nodePath.join(tree, 'engine'), { recursive: true });
+    fs.writeFileSync(nodePath.join(tree, 'engine', 'sendertoken.js'), 'module.exports = { mint: () => ({ ok: false }) };\n');
+    fs.writeFileSync(nodePath.join(tree, 'engine', 'grokaccounts.js'), "throw new Error('broken on purpose');\n");
+  } else if (!noEngine) fs.symlinkSync(nodePath.join(__dirname, 'engine'), nodePath.join(tree, 'engine'));
   if (door) fs.writeFileSync(nodePath.join(tree, 'secrets', 'env', 'XAI_API_KEY'), door);
   if (keyFile !== undefined) fs.writeFileSync(nodePath.join(acct, '.kosmos-grok-apikey'), keyFile, { mode: 0o600 });
   if (authJson) fs.writeFileSync(nodePath.join(acct, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::abc': { email: 'x@example.com', refresh_token: 'r' } }), { mode: 0o600 });
@@ -322,4 +327,10 @@ test('grok: no launch carries a --leader-socket (this PR does not change how gro
     assert.ok(rec.includes('new-session'), 'CONTROL: it launched');
     assert.ok(!/--leader-socket/.test(rec), 'a launch carried --leader-socket: ' + JSON.stringify(opts));
   }
+});
+
+test('grok: an engine that THROWS while classifying keeps the key and SAYS so (never a silent keep)', () => {
+  const r = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, brokenEngine: true, withStderr: true });
+  assert.ok(kept(r.rec), 'the key is kept when the account kind cannot be read');
+  assert.match(r.stderr, /could not read what kind of account \S+ is \(broken on purpose\), so this agent keeps any XAI_API_KEY/);
 });
