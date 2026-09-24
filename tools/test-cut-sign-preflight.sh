@@ -37,6 +37,7 @@ sm_none()  { return 1; }
 sec_hashonly() { echo "  1) 0123ABCDEF (identity listed by hash only)"; }
 sm_badpath() { echo "$WORK/no-such-notary.p8"; }
 export KOSMOS_SECURITY_BIN=sec_ok KOSMOS_SECRETS_MAP_BIN=sm_ok
+unset KOSMOS_INSTALLER_CERT KOSMOS_CODESIGN_ID   # an operator's exported override must not change what these arms test
 run() { KOSMOS_CODESIGN_BIN="$1" kosmos_sign_preflight 2>&1; }
 
 # --- signs: passes, and the stub was actually invoked ---
@@ -155,7 +156,7 @@ case "$rc:$out" in 1:*"Developer ID Installer identity"*"NOT in this session"*) 
 out="$(KOSMOS_SECRETS_MAP_BIN=sm_none run cs_ok)"; rc=$?
 case "$rc:$out" in 1:*"notary key"*"does not resolve"*) ok "#3647: a box without the notary key refuses at 1c" ;; *) bad "#3647: a missing notary key did not refuse (rc=$rc): $out" ;; esac
 out="$(run cs_ok)"; rc=$?
-case "$rc:$out" in 0:*"Installer identity"*"is in this session"*"notary key"*"resolves"*) ok "#3647 CONTROL: with both present the preflight passes and says so" ;; *) bad "#3647 control: both present did not pass cleanly (rc=$rc): $out" ;; esac
+case "$rc:$out" in 0:*"Installer identity PASSED THROUGH KOSMOS_SECURITY_BIN"*"not probed"*"notary key PASSED THROUGH KOSMOS_SECRETS_MAP_BIN"*"not probed"*) ok "#3647 CONTROL: with both present it passes, and says the seams did NOT probe anything real" ;; *) bad "#3647 control: both present did not pass with the not-probed wording (rc=$rc): $out" ;; esac
 # The override is what is probed: with the identity listed by HASH ONLY (no name), the matching
 # SHA-1 passes and a wrong one refuses, so neither result can come from the default name.
 out="$(KOSMOS_SECURITY_BIN=sec_hashonly KOSMOS_INSTALLER_CERT=0123ABCDEF run cs_ok)"; rc=$?

@@ -36,7 +36,9 @@ kosmos_sign_preflight_installer_and_notary() {
   local ids key kerr
   ids="$("$sec" find-identity -v 2>/dev/null || true)"
   case "$ids" in
-    *"$inst"*) echo "signing preflight: the Installer identity \"$inst\" is in this session's keychains" ;;
+    *"$inst"*)
+      if [ -n "${KOSMOS_SECURITY_BIN:-}" ]; then echo "signing preflight: Installer identity PASSED THROUGH KOSMOS_SECURITY_BIN=$sec, NOT security: not probed. Unset it for a real cut."
+      else echo "signing preflight: the Installer identity \"$inst\" is in this session's keychains"; fi ;;
     *) echo "signing preflight: the Developer ID Installer identity \"$inst\" is NOT in this session's keychains. Step 3c signs the installer with it whenever the pkg's inputs changed. Cut on the Mac that holds it (Mortals), or set KOSMOS_INSTALLER_CERT."
        return 1 ;;
   esac
@@ -44,7 +46,8 @@ kosmos_sign_preflight_installer_and_notary() {
   key="$("$sm" path "$KOSMOS_NOTARY_SECRET_TARGET" 2>"$kerr" || true)"
   if [ -n "$key" ] && [ -r "$key" ]; then
     [ "$kerr" = /dev/null ] || rm -f "$kerr"
-    echo "signing preflight: the notary key ($KOSMOS_NOTARY_SECRET_TARGET) resolves to a readable file"
+    if [ -n "${KOSMOS_SECRETS_MAP_BIN:-}" ]; then echo "signing preflight: notary key PASSED THROUGH KOSMOS_SECRETS_MAP_BIN=$sm, NOT secrets-map.sh: not probed. Unset it for a real cut."
+    else echo "signing preflight: the notary key ($KOSMOS_NOTARY_SECRET_TARGET) resolves to a readable file"; fi
   else
     echo "signing preflight: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm on this machine (got '${key:-nothing}'). Step 3c notarises the installer with it. File it with /add-secret, or cut on Mortals."
     [ "$kerr" = /dev/null ] || { [ -s "$kerr" ] && sed 's/^/    /' "$kerr"; rm -f "$kerr"; }
