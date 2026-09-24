@@ -32794,9 +32794,8 @@ function paintPjNone(which) {
   const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen;
   el.hidden = !show;
   if (!show) return;
-  /* "No projects" is a claim: only after a read that succeeded and came back
-     empty. A failed read leaves the rail saying it cannot look, and this
-     sentence must not contradict it. */
+  /* A failed read leaves the rail saying it cannot look, and this sentence
+     must not contradict it. */
   let say;
   /* #3126 (Josh, 6.68): the projects column is no longer collapsible, so the
      two folded-projects copy branches were removed - fold-p can never be set. */

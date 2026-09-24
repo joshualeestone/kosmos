@@ -141,8 +141,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // with projects present but none open -- the state where paintPjNone shows the hint
     // ("Open or create a project to get started.", #3597). #pj-none is a #panel-projects display-column
     // child too, so it must be hidden while settings shows -- AND stay hidden when the 5s poll
-    // re-invokes paintPjNone. (The zero-projects case is not a conflict: paintPjNone renders an
-    // empty string there, so the hint is already hidden.) ----
+    // re-invokes paintPjNone. ----
     const listState = await page.evaluate(() => {
       const res = {};
       const none = document.getElementById('pj-none');
@@ -211,18 +210,20 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // opening one scrolls it into view inside #panel-settings, and that scroll went past the
     // panel's top padding. The fixture's panel grows with its content, so it is given a fixed
     // height here to make it the scroll container a person's board has, and each section is
-    // made to overflow; then the same scrollIntoView runs and the box's inset is measured. The
+    // made to overflow; then its pill is clicked and the box's inset is measured. The
     // CONTROL runs it with scroll-margin-top switched off, where the box must land on the edge.
     const tops = await page.evaluate(() => {
       const panel = document.getElementById('panel-settings');
       const oldH = panel.style.height;
       panel.style.height = '320px';
       const measure = (sec, noMargin) => {
-        document.querySelector('#s-nav button[data-go="' + sec + '"]').click();
         const el = document.getElementById('s-sec-' + sec);
         const spacer = document.createElement('div'); spacer.style.height = '2000px'; el.appendChild(spacer);
         if (noMargin) el.style.scrollMarginTop = '0px';
-        panel.scrollTop = 0; el.scrollIntoView({ block: 'start' });
+        // The pill click a person makes: settingsGo shows the section and focuses it, and
+        // that focus is the scroll under test.
+        panel.scrollTop = 0;
+        document.querySelector('#s-nav button[data-go="' + sec + '"]').click();
         const box = [...el.children].find((k) => k.offsetParent !== null);
         const r = { inset: Math.round(box.getBoundingClientRect().top - panel.getBoundingClientRect().top), scrolled: panel.scrollTop };
         spacer.remove(); el.style.scrollMarginTop = ''; panel.scrollTop = 0;
