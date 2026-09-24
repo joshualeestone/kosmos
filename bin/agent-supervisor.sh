@@ -666,9 +666,9 @@ if [ -z "$adopt" ]; then
     # WHICH DIR: GROK_HOME for a per-account agent; for a default one, the three tiers of
     # engine/grokaccounts.js defaultDir(), EXPORTED into the pane as GROK_HOME the way the
     # codex arm exports EFFECTIVE_CODEX_HOME, so the dir judged here is the dir grok reads.
-    # (An ambient GROK_HOME cannot reach a default agent here: launchd starts this script
-    # with exactly the plist's EnvironmentVariables, which carry GROK_HOME only for a
-    # per-account agent; see create.js plistFor.)
+    # (The plist carries GROK_HOME only for a per-account agent; see create.js plistFor. A
+    # machine-wide `launchctl setenv GROK_HOME` would still reach a default agent, and then
+    # this names that dir; nothing in Kosmos sets one.)
     # WHAT KIND: grokaccounts.identityOf ITSELF, asked through node, so there is one copy
     # of the rule. With no engine or no node the key is kept, and the log says so.
     _GROK_PREFIX=()

@@ -51,7 +51,9 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
 - No live network check for a subscription. The one candidate (`grok models`) does not prove a
   sign-in works: with an EMPTY key it still listed models. Refreshing a live token from a probe is
   exactly what must not happen. Weakest premise: a refresh_token present does not prove it still works.
-  The observed badge covers that.
+  The observed badge does NOT cover that today: for xAI only a success is ever recorded
+  (engine/status.js), so a dead refresh token reads a muted "Signed in" until someone signs in again. Never a false
+  green, but there is no red path for Grok yet (parity with Gemini; FOLLOW-UP: record a positive grok auth failure).
 - The DEFAULT account (~/.grok) follows the same rule (changed in challenge iteration 2). Its row now
   shows the subscription when ~/.grok holds a sign-in, so a default agent must run on that sign-in, or
   the row, the "runs on" attribution and the observed badge would all describe a subscription the agent
@@ -98,3 +100,9 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
   present.
 - End to end with a real subscription needs a person to confirm the device code. That one step is
   needs-operator; everything else is proven here.
+
+## Follow-ups named in challenge round 16 (not this PR)
+- A lapsed DEFAULT subscription has no in-product fix: forget/remove refuse ~/.grok and the sign-in never targets
+  it. Until part 2 adds a way, the create refusal points at an API key, and `grok login` in a terminal is the
+  only other way back. Part 2 must include signing in again as the default account.
+- No red for a revoked Grok sign-in (see above).
