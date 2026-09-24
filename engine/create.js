@@ -762,6 +762,17 @@ function providerRunner(provider) {
   if (provider === 'xai') return 'grok';
   return 'claude';
 }
+/* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
+   {codex, gemini, grok}. plistFor (which slots run only for a non-claude runner),
+   installJob (which runners it will back-fill a job for) and worldstarts (which imported
+   runners it passes through) each hand-enumerated this set; a copy in each drifts when a
+   fifth runner lands (Repo Convention #5). Claude and any unknown value are false. Pure.
+   (The separate runner->binary ladder -- codex/gemini/grok/claude -> which bin -- is NOT
+   folded in here: it also lives in setProvider and createAgentInner, so collapsing it is a
+   cross-cutting follow-up rather than this backfill card's scope.) */
+function isNonClaudeRunner(runner) {
+  return runner === 'codex' || runner === 'gemini' || runner === 'grok';
+}
 /* #3296/#3391: the ONE provider -> vendor label. The switch's "already runs on X"
    refusal and the /provider route's "X it is" sentence both name the vendor, and a
    copy in each drifts (Convention #5). `anthropic` is the one value the two callers
@@ -2661,9 +2672,9 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      the exact 'grok' string round-trips it, which the status ring's readGrokSession
      gate (job.runner === 'grok') depends on. Its GROK_HOME account line is written by
      the same accountEnvVar-driven configLine below (see the #3296 note). */
-  const isNonClaudeRunner = runner === 'codex' || runner === 'gemini' || runner === 'grok';
-  const modelLine = (modelArg || isNonClaudeRunner) ? `\n    <string>${xml(modelArg || '')}</string>` : '';
-  const runnerLine = isNonClaudeRunner ? `\n    <string>${xml(runner)}</string>` : '';
+  const nonClaudeRunner = isNonClaudeRunner(runner);
+  const modelLine = (modelArg || nonClaudeRunner) ? `\n    <string>${xml(modelArg || '')}</string>` : '';
+  const runnerLine = nonClaudeRunner ? `\n    <string>${xml(runner)}</string>` : '';
   /* 🔑 WHICH CLAUDE ACCOUNT THIS AGENT RUNS ON, and it is one environment
      variable because that is genuinely all it is: `CLAUDE_CONFIG_DIR` selects
      the config directory, and everything a Claude Code process knows lives in
@@ -3151,7 +3162,7 @@ function installJob(name, opts) {
      even said so, about a program that agent does not use. #3296/#3391: the same
      reasoning now covers gemini/grok -- decide the runner from wantRunner, then
      check that runner's own binary. */
-  const runner = (wantRunner === 'codex' || wantRunner === 'gemini' || wantRunner === 'grok') ? wantRunner : null;
+  const runner = isNonClaudeRunner(wantRunner) ? wantRunner : null;
   const runnerBin = runner === 'codex' ? codexBin
     : runner === 'gemini' ? geminiBin
       : runner === 'grok' ? grokBin
@@ -5176,6 +5187,7 @@ module.exports = {
   briefFilename,
   providerRunner,
   providerLabel,
+  isNonClaudeRunner,
   recordedRunner,
   plistPath,
   plannedModelArg,

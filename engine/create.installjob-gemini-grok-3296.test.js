@@ -119,6 +119,18 @@ test('#3296: the never-overwrite guard still fires for a gemini agent that alrea
   assert.equal(second.already, true, 'the refusal must be the never-overwrite guard');
 });
 
+test('#3296/#3391: isNonClaudeRunner is the ONE recognized-runner-set predicate, total over the runner set', () => {
+  // The set {codex, gemini, grok} shared by plistFor, installJob and worldstarts, so a
+  // fifth runner reaches all three at once (Repo Convention #5). Pinned here.
+  assert.equal(create.isNonClaudeRunner('codex'), true);
+  assert.equal(create.isNonClaudeRunner('gemini'), true);
+  assert.equal(create.isNonClaudeRunner('grok'), true);
+  assert.equal(create.isNonClaudeRunner('claude'), false, 'claude is the default runner, not a non-claude one');
+  assert.equal(create.isNonClaudeRunner('anthropic'), false, 'anthropic is a provider, not a runner');
+  assert.equal(create.isNonClaudeRunner(undefined), false);
+  assert.equal(create.isNonClaudeRunner(''), false);
+});
+
 test('#3296/#3391: register.repair backfills a google agent as GEMINI and an xai agent as GROK', () => {
   bornMissingJob('rep-gemini', 'google');
   bornMissingJob('rep-grok', 'xai');

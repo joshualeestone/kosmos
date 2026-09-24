@@ -517,7 +517,7 @@ function firstStartOfImport(entry, platform) {
      a claude job -- the mis-launch installJob's old root refusal guarded against.
      A recognised runner (codex/gemini/grok) is passed to installJob explicitly;
      anything else floors at claude, the historical default. */
-  const runner = (entry.runner === 'codex' || entry.runner === 'gemini' || entry.runner === 'grok') ? entry.runner : 'claude';
+  const runner = create.isNonClaudeRunner(entry.runner) ? entry.runner : 'claude';
   const configDir = typeof entry.configDir === 'string' && entry.configDir ? entry.configDir : null;
   /* The folder-trust pre-answer is a CLAUDE `.claude.json` concept, so it runs for
      claude only. codex was already excluded; gemini/grok are excluded for the same
