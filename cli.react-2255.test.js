@@ -70,9 +70,10 @@ function withStub(reply, fn) {
 }
 
 function runCli(args, env) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     execFile(CLI, args, { env, timeout: 15000 }, (err, stdout, stderr) => {
-      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0, stdout: stdout || '', stderr: stderr || '' });
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
   });
 }

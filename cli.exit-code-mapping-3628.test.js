@@ -1,20 +1,20 @@
 'use strict';
 /**
- * kosmos#3628: the CLI test harnesses turned a killed or unspawnable CLI into exit 0.
+ * kosmos#3628: the CLI test harnesses turned a killed or unspawnable CLI into an exit code.
  *
- * They mapped execFile's callback error to an exit code with (spelled here with <0> so
- * the guard at the bottom does not match this comment)
- *   err && typeof err.code === 'number' ? err.code : <0>
- * When execFile's `timeout` fires it kills the child and reports err.code = null with
- * err.signal = 'SIGTERM', so a timed-out run read as exit 0: a PASS for any test that
- * expects success. A spawn failure (err.code = 'ENOENT', a string) read as 0 the same way.
- * Twelve copies in eleven cli.*.test.js files carried it.
+ * Ten cli.*.test.js files mapped execFile's error with a numeric-or-<0> fallback, and five
+ * more (plus cli.project-create-3388's catch) with a <1> fallback. When execFile's `timeout`
+ * fires it kills the child and reports err.code = null, err.signal = 'SIGTERM'; a spawn
+ * failure reports err.code = 'ENOENT', a string. So a timed-out run read as 0 (a PASS for a
+ * test expecting success) or as 1 (a PASS for a test expecting failure).
  *
- * The harnesses now use
- *   err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0
- * which can never equal a numeric expected code. This file proves that on a real killed
- * process and a real spawn failure (with the old form as the contrast, so the tests can
- * tell the two apart), and guards the class: no test file may bring the old form back.
+ * Mapping the missing code to some other value does not work: a labelled string passes
+ * `assert.notEqual(code, 0)`, so a killed CLI would still satisfy "it failed" (shown below).
+ * So every harness now REJECTS when there is no numeric exit code, and the test fails with
+ * "the CLI gave no exit code (SIGTERM)", whatever it asserts.
+ *
+ * This file proves that shape on a real killed process, a real spawn failure and real exit
+ * codes, and guards the class: no test file may default a missing exit code to a number.
  */
 
 const test = require('node:test');
@@ -23,50 +23,73 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 
-const ZERO = 0; // keeps the old form below from matching the guard's own pattern
-const oldMap = (err) => (err && typeof err.code === 'number' ? err.code : ZERO);
-const newMap = (err) => (err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0);
+// The harness shape every cli.*.test.js now uses, reduced to its exit-code handling.
+function harness(file, args, opts) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, opts, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      resolve({ code: err ? err.code : 0, stdout: stdout || '' });
+    });
+  });
+}
 
-const run = (file, args, opts) => new Promise((resolve) => {
-  execFile(file, args, opts, (err) => resolve(err));
+test('#3628: a CLI killed by the harness timeout fails the test instead of returning a code', async () => {
+  await assert.rejects(harness('/bin/sh', ['-c', 'sleep 5'], { timeout: 200 }), /no exit code \(SIGTERM\)/);
 });
 
-test('#3628: a CLI killed by the harness timeout does not read as exit 0', async () => {
-  const err = await run('/bin/sh', ['-c', 'sleep 5'], { timeout: 200 });
-  assert.ok(err, 'the stub was not killed; the control did not exercise a timeout');
+test('#3628: a CLI that cannot be spawned fails the test instead of returning a code', async () => {
+  await assert.rejects(harness(path.join(__dirname, 'no-such-cli-3628'), [], {}), /no exit code \(ENOENT\)/);
+});
+
+test('#3628: real exit codes and success still come through', async () => {
+  assert.equal((await harness('/bin/sh', ['-c', 'exit 3'], {})).code, 3);
+  assert.equal((await harness('/bin/sh', ['-c', 'echo hi; exit 0'], {})).code, 0);
+});
+
+test('#3628 CONTRAST: why the harness rejects rather than returning a sentinel', async () => {
+  const err = await new Promise((r) => execFile('/bin/sh', ['-c', 'sleep 5'], { timeout: 200 }, (e) => r(e)));
   assert.equal(err.code, null);
-  assert.equal(err.signal, 'SIGTERM');
-  assert.equal(oldMap(err), 0, 'contrast: the old mapping should read the kill as 0');
-  assert.notEqual(newMap(err), 0);
-  assert.equal(newMap(err), 'no exit code (SIGTERM)');
+  const ZERO = 0, ONE = 1;
+  const oldZero = err && typeof err.code === 'number' ? err.code : ZERO;
+  const oldOne = err ? (err.code ?? ONE) : ZERO;
+  const sentinel = 'no exit code (' + err.signal + ')';
+  assert.equal(oldZero, 0, 'a kill read as success');
+  assert.equal(oldOne, 1, 'a kill read as a clean failure');
+  assert.notEqual(sentinel, 0, 'a sentinel still satisfies "it failed" assertions, so it is not enough');
 });
 
-test('#3628: a CLI that cannot be spawned does not read as exit 0', async () => {
-  const err = await run(path.join(__dirname, 'no-such-cli-3628'), [], {});
-  assert.ok(err);
-  assert.equal(err.code, 'ENOENT');
-  assert.equal(oldMap(err), 0, 'contrast: the old mapping should read ENOENT as 0');
-  assert.equal(newMap(err), 'no exit code (ENOENT)');
-});
-
-test('#3628: real exit codes and success still map as before', async () => {
-  assert.equal(newMap(await run('/bin/sh', ['-c', 'exit 3'], {})), 3);
-  assert.equal(newMap(await run('/bin/sh', ['-c', 'exit 0'], {})), 0);
-});
-
-test('#3628: no test file maps a missing exit code to 0', () => {
-  const UNSAFE = /typeof err\.code === 'number' \? err\.code : 0\b/;
-  // Positive control: the pattern matches the form it is guarding against.
-  assert.match("resolve({ code: err && typeof err.code === 'number' ? err.code : " + '0, stdout });', UNSAFE);
-  const files = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js'));
-  let safe = 0;
+test('#3628: no test file defaults a missing exit code to a number', () => {
+  // A 0 or 1 fallback for a missing code: `typeof x.code === 'number' ? x.code : 0`,
+  // `x.code ?? 1`, `x.code || 0` (x = err, e or error).
+  const UNSAFE = /typeof (err|e|error)\.code === 'number'\s*\)?\s*\?\s*\1\.code\s*:\s*[01]\b|\b(?:err|e|error)\.code\s*(?:\?\?|\|\|)\s*[01]\b/;
+  // `err ? err.code : 0` is safe ONLY after the reject line: alone, a kill gives null,
+  // which passes notEqual(code, 0) just like a sentinel would.
+  const BARE = /\berr \? err\.code : 0\b/;
+  const REJECTS = 'the CLI gave no exit code (';
+  // Positive controls: the pattern matches every spelling it guards against.
+  const Z = '0', O = '1';
+  for (const sample of [
+    "err && typeof err.code === 'number' ? err.code : " + Z,
+    'err ? (err.code ?? ' + O + ') : 0',
+    "(e && typeof e.code === 'number') ? e.code : " + O,
+    'error.code || ' + Z,
+  ]) assert.match(sample, UNSAFE, sample);
+  // Negative control: the guarded harness form is not flagged by UNSAFE.
+  assert.doesNotMatch('resolve({ code: err ? err.code : ' + Z + ', stdout });', UNSAFE);
+  const dirs = [__dirname, path.join(__dirname, 'engine')];
+  const files = [];
+  for (const d of dirs) for (const f of fs.readdirSync(d)) if (f.endsWith('.test.js')) files.push(path.join(d, f));
+  const self = path.join(__dirname, 'cli.exit-code-mapping-3628.test.js');
+  let guarded = 0;
   const bad = [];
   for (const f of files) {
-    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
-    if (UNSAFE.test(src)) bad.push(f);
-    if (src.includes("'no exit code (' + (err.signal || err.code) + ')'")) safe++;
+    if (f === self) continue;
+    const src = fs.readFileSync(f, 'utf8');
+    if (UNSAFE.test(src)) bad.push(path.relative(__dirname, f));
+    if (BARE.test(src) && !src.includes(REJECTS)) bad.push(path.relative(__dirname, f) + ' (err.code without the reject line)');
+    if (src.includes(REJECTS)) guarded++;
   }
-  assert.deepEqual(bad, [], 'these files read a killed or unspawnable CLI as exit 0');
-  // The scan must actually have reached the harnesses it protects.
-  assert.ok(safe >= 10, 'only ' + safe + ' test files use the safe mapping; the scan may be looking in the wrong place');
+  assert.deepEqual(bad, [], 'these files default a missing exit code to a number');
+  // The scan must actually reach the harnesses it protects (16 at the time of writing).
+  assert.ok(guarded >= 16, 'only ' + guarded + ' test files reject a missing exit code; the scan may be looking in the wrong place');
 });
