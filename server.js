@@ -1722,7 +1722,10 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
           if (!spot) break;
           const claimFile = path.join(spot.dir, CLAIM_FILE);
           try {
-            if (fs.existsSync(spot.dir) && fs.lstatSync(spot.dir).isSymbolicLink()) { exclude.add(spot.dir); continue; }
+            // lstat, not existsSync: a dangling symlink must read as a link, not as absent.
+            let isLink = false;
+            try { isLink = fs.lstatSync(spot.dir).isSymbolicLink(); } catch { /* absent: a fresh slot */ }
+            if (isLink) { exclude.add(spot.dir); continue; }
             fs.mkdirSync(spot.dir, { recursive: true, mode: 0o700 });
             /* A claim older than CLAIM_STALE_MS was left by a process that died mid-add;
                drop it so the slot is not skipped forever. A live add finishes in seconds. */

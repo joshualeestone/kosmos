@@ -273,3 +273,14 @@ test('#3566: modelLine, run, never prefixes Claude to a Gemini or Grok model', (
   assert.equal(modelLine({ runner: 'grok' }), 'Grok');
   assert.equal(modelLine({ runner: 'claude', modelName: 'Opus 5' }), 'Claude Opus 5', 'CONTROL: a Claude model keeps its prefix');
 });
+
+test('#3566: a row both pickers would not both offer does not turn its provider on (one rule for "usable")', () => {
+  const sel = menu();
+  // A fresh "working" badge satisfies the create list's rule, but the switch list drops a live
+  // check of 'none'; offering Gemini here would post a switch with no account.
+  api.paintKeyedProviderOptions(sel, [{ provider: 'google', dir: '/h/.gemini-work1', connection: { state: 'none', badge: 'working' } }], true, 'anthropic');
+  assert.equal(opt(sel, 'google').disabled, true, 'Gemini offered on a row the switch list would drop');
+  const sel2 = menu();
+  api.paintKeyedProviderOptions(sel2, [{ provider: 'google', dir: '/h/.gemini-work1', offerable: false, connection: { state: 'connected' } }], true, 'anthropic');
+  assert.equal(opt(sel2, 'google').disabled, true, 'Gemini offered on a row marked unofferable');
+});
