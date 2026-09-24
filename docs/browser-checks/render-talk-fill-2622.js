@@ -404,13 +404,13 @@ async function measure(page) {
       const prevLayout = document.documentElement.getAttribute('data-layout');
       document.documentElement.setAttribute('data-layout', 'consolidated');
       const consTalk = read().pad;
-      // The unpadded base (the --space-8 token), read rather than written down: an unmeasured page
-      // carries no #3497 padding at all.
+      if (prevLayout === null) document.documentElement.removeAttribute('data-layout');
+      else document.documentElement.setAttribute('data-layout', prevLayout);
+      // The unpadded base (the --space-8 token), read rather than written down, in the normal
+      // layout: an unmeasured page carries no #3497 padding at all.
       root.removeAttribute('data-scrollbar-measured');
       const base = read().pad;
       root.setAttribute('data-scrollbar-measured', '');
-      if (prevLayout === null) document.documentElement.removeAttribute('data-layout');
-      else document.documentElement.setAttribute('data-layout', prevLayout);
       if (bootWidth) document.documentElement.style.setProperty('--scrollbar-width', bootWidth);
       else document.documentElement.style.removeProperty('--scrollbar-width');
       return { model, talk, consTalk, base };
@@ -509,48 +509,48 @@ async function measure(page) {
       ['chromium', () => chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] })],
       ['webkit', () => webkit.launch({ headless: process.env.HEADED === '0' })],
     ]) {
-    const sbBrowser = await launch();
-    try {
-      const sp = await sbBrowser.newPage({ viewport: { width: 1000, height: 660 } });
-      const sErrs = [];
-      sp.on('pageerror', (e) => sErrs.push(e.message));
-      await sp.goto(URL, { waitUntil: 'networkidle' });
-      if (await sp.$('#firstrun:not([hidden])')) { await sp.keyboard.press('Escape'); await sp.waitForTimeout(400); }
-      await sp.addStyleTag({ content: '::-webkit-scrollbar { width: 15px; height: 15px; }' });
-      await sp.evaluate(() => window.kosmosMeasureScrollbarWidth());
-      // WebKit does not re-lay out the root's gutter for a scrollbar style added after load until
-      // the viewport changes; a real Mac has its scrollbars from the first paint.
-      await sp.setViewportSize({ width: 1000, height: 661 });
-      await sp.setViewportSize({ width: 1000, height: 660 });
-      await sp.waitForTimeout(100);
-      await sp.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
-      const sHead = () => sp.evaluate(() => {
-        const r = document.querySelector('.apphead .headright').getBoundingClientRect();
-        const t = document.getElementById('tabs').getBoundingClientRect();
-        return { headRight: Math.round(r.right), tabsLeft: Math.round(t.left),
-          gutter: getComputedStyle(document.documentElement).scrollbarGutter,
-          sbw: getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim() };
-      });
-      const sBoard = await sHead();
-      await sp.click('[data-agent="beatrix"]');
-      await sp.waitForSelector('#panel-detail:not([hidden])');
-      await sp.waitForTimeout(300);
-      const sTalk = await sHead();
-      const sBox = await measure(sp);
-      await sp.click('#panel-detail .snav button[data-go="model"]');
-      await sp.waitForTimeout(300);
-      const sModel = await sHead();
-      chk(sBoard.sbw === '15px' && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
-        'A1n ' + engine + ' precondition: scrollbars take 15px here and the board\'s computed gutter is stable, Talk\'s auto', JSON.stringify({ sBoard, sTalk }));
-      chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
-        'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (engine === 'webkit' ? ' (a guard in WebKit, which reserves no gutter on a page that does not scroll; Chromium is the control)' : ''), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
-      chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight
-        && sBoard.tabsLeft === sTalk.tabsLeft && sTalk.tabsLeft === sModel.tabsLeft,
-        'A1n ' + engine + ': the header controls and tabs do not move between the board, Talk and Model', JSON.stringify({ sBoard, sTalk, sModel }));
-      chk(sErrs.length === 0, 'A1n ' + engine + ': no page errors', sErrs.join(' | '));
-    } finally {
-      await sbBrowser.close();
-    }
+      const sbBrowser = await launch();
+      try {
+        const sp = await sbBrowser.newPage({ viewport: { width: 1000, height: 660 } });
+        const sErrs = [];
+        sp.on('pageerror', (e) => sErrs.push(e.message));
+        await sp.goto(URL, { waitUntil: 'networkidle' });
+        if (await sp.$('#firstrun:not([hidden])')) { await sp.keyboard.press('Escape'); await sp.waitForTimeout(400); }
+        await sp.addStyleTag({ content: '::-webkit-scrollbar { width: 15px; height: 15px; }' });
+        await sp.evaluate(() => window.kosmosMeasureScrollbarWidth());
+        // WebKit does not re-lay out the root's gutter for a scrollbar style added after load until
+        // the viewport changes; a real Mac has its scrollbars from the first paint.
+        await sp.setViewportSize({ width: 1000, height: 661 });
+        await sp.setViewportSize({ width: 1000, height: 660 });
+        await sp.waitForTimeout(100);
+        await sp.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
+        const sHead = () => sp.evaluate(() => {
+          const r = document.querySelector('.apphead .headright').getBoundingClientRect();
+          const t = document.getElementById('tabs').getBoundingClientRect();
+          return { headRight: Math.round(r.right), tabsLeft: Math.round(t.left),
+            gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+            sbw: getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim() };
+        });
+        const sBoard = await sHead();
+        await sp.click('[data-agent="beatrix"]');
+        await sp.waitForSelector('#panel-detail:not([hidden])');
+        await sp.waitForTimeout(300);
+        const sTalk = await sHead();
+        const sBox = await measure(sp);
+        await sp.click('#panel-detail .snav button[data-go="model"]');
+        await sp.waitForTimeout(300);
+        const sModel = await sHead();
+        chk(sBoard.sbw === '15px' && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
+          'A1n ' + engine + ' precondition: scrollbars take 15px here and the board\'s computed gutter is stable, Talk\'s auto', JSON.stringify({ sBoard, sTalk }));
+        chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
+          'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (engine === 'webkit' ? ' (a guard in WebKit, which reserves no gutter on a page that does not scroll; Chromium is the control)' : ''), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
+        chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight
+          && sBoard.tabsLeft === sTalk.tabsLeft && sTalk.tabsLeft === sModel.tabsLeft,
+          'A1n ' + engine + ': the header controls and tabs do not move between the board, Talk and Model', JSON.stringify({ sBoard, sTalk, sModel }));
+        chk(sErrs.length === 0, 'A1n ' + engine + ': no page errors', sErrs.join(' | '));
+      } finally {
+        await sbBrowser.close();
+      }
     }
   } finally {
     await browser.close();
