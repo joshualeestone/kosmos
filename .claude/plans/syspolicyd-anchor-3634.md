@@ -16,9 +16,12 @@ text underneath it and null-derefs. While launchd throttles the respawn, every `
 hangs (the Agent1s stalls, #3582).
 
 ## Call
-Run the COPY only on Windows. The lock this arm exercises is Windows-only (its control is
-win32-gated), so elsewhere the process runs on the original `process.execPath` and the copy is never
-exec'd. A source-level pin (new test) keeps a bare `spawn(nodeAt` from coming back.
+Off Windows the arm never creates the binary: the anchored file is a text stand-in, and the process
+runs on the original `process.execPath`. The lock this arm exercises is Windows-only (its control is
+win32-gated), so no Mac coverage is lost; the swap path still runs. With no Mach-O in the anchor the
+crash is impossible by construction, whatever later edits exec. A source pin keeps every
+`copyFileSync(process.execPath` in this file gated on win32 on the same line. The
+"old process keeps running" assertion is now Windows-only (off Windows it could not fail).
 
 ## Rejected
 - Waiting for the spawned process to report "ready" before overwriting. It narrows the race but still

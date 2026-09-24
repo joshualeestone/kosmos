@@ -351,25 +351,26 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
   /* 🛑 Run for real: the anchored node.exe is what the task board and every
      supervisor run on, and Windows refuses to overwrite a running executable.
      Before this, a zip with a new Node version failed ensureAnchored, and with it
-     the launcher's hand-off. A real copy of this interpreter is started FROM the
-     anchor so the lock is the operating system's, not a stand-in's. */
+     the launcher's hand-off. On Windows a real copy of this interpreter is started FROM
+     the anchor so the lock is the operating system's, not a stand-in's. */
   const dir = tmp();
   const runtime = anchor.anchorDir(process.platform, os.homedir(), { AGENT_WORKFORCE_DATA: dir });
   fs.mkdirSync(runtime, { recursive: true });
   const nodeAt = path.join(runtime, anchor.NODE_NAME);
-  fs.copyFileSync(process.execPath, nodeAt);
+  /* 🛑 #3634: the real interpreter is copied ONLY on Windows. On macOS, exec'ing a freshly
+     copied Mach-O makes syspolicyd assess it, and the swap below renames a text stand-in over
+     that same path while the assessment can still be reading it. syspolicyd segfaults in
+     Security::Universal::architecture() on the half-swapped file, and until launchd respawns
+     it every `#!` exec on the Mac hangs. Measured 2026-09-24: each retained crash log shows
+     this arm's anchored node.exe being exec'd in the same second. The lock this arm exercises
+     is Windows-only (the control below is win32-gated), so elsewhere the anchored file is a
+     text stand-in: there is no binary to exec, and the swap path is exercised all the same. */
+  if (process.platform === 'win32') fs.copyFileSync(process.execPath, nodeAt); else fs.writeFileSync(nodeAt, 'the running interpreter, stood in for off Windows', 'utf8');
   const src = path.join(dir, 'src-node.exe');
   fs.writeFileSync(src, 'a different Node version, stood in for by a different size', 'utf8');
 
-  /* 🛑 #3634: run the COPY only on Windows. On macOS, exec'ing a freshly copied Mach-O
-     makes syspolicyd assess it, and ensureAnchored below then overwrites that same path
-     with a text stand-in while the assessment can still be reading it. syspolicyd
-     segfaults in Security::Universal::architecture() on the half-swapped file, and until
-     launchd respawns it every `#!` exec on the Mac hangs. Measured 2026-09-24: each
-     retained crash log shows this arm's `kosmos-anchor-XXXXXX/Kosmos/runtime/node.exe` exec in
-     the same second. The lock this arm exists to exercise is Windows-only (the control
-     above is win32-gated), so elsewhere the process runs on the ORIGINAL interpreter and
-     the copy is never executed. */
+  /* On Windows the process runs ON the anchored copy, so its lock is real. Elsewhere it runs on
+     the original interpreter: the anchored path holds only a text stand-in (#3634). */
   const runOn = process.platform === 'win32' ? nodeAt : process.execPath;
   const running = cp.spawn(runOn, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   const stillRunning = () => running.exitCode === null && running.signalCode === null;
@@ -387,7 +388,10 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
     assert.equal(r.node, nodeAt);
     assert.equal(fs.readFileSync(nodeAt, 'utf8'), 'a different Node version, stood in for by a different size',
       'the new interpreter takes the anchored name');
-    assert.ok(stillRunning(), 'a process running on the old interpreter keeps running');
+    if (process.platform === 'win32') {
+      /* Only meaningful where the process runs ON the anchored file (#3634). */
+      assert.ok(stillRunning(), 'a process running on the old interpreter keeps running');
+    }
     if (process.platform === 'win32') {
       assert.equal(retiredFiles(runtime).length, 1,
         'while a process runs on it, the old interpreter waits beside the new one: ' + sideFiles(runtime));
@@ -410,15 +414,19 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
   assert.deepEqual(sideFiles(runtime), [], 'once nothing runs on it, the retired interpreter is removed');
 });
 
-test('#3634 no arm here EXECUTES the anchored copy off Windows (it crashed syspolicyd)', () => {
-  /* Source pin for the fix above: running the copied interpreter and then overwriting it
-     is what segfaulted syspolicyd on the Mac. The only spawn of the anchored path must stay
-     behind the win32 gate. A pin, because the failure is machine-wide and must never be
-     reproduced to prove a test. */
-  const src = fs.readFileSync(__filename, 'utf8');
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.equal(/spawn(?:Sync)?\(\s*nodeAt\b/.test(code), false,
-    'an arm spawns nodeAt directly; off Windows that execs a binary it then overwrites (#3634)');
-  assert.ok(/process\.platform === 'win32' \? nodeAt : process\.execPath/.test(code),
-    'the running-interpreter arm must run the copy only on Windows (#3634)');
+test('#3634 off Windows, no REAL interpreter is ever copied into an anchor (it crashed syspolicyd)', () => {
+  /* Source pin for the fix above. What crashed syspolicyd was a real Mach-O copied into an
+     anchor, exec'd, then swapped. Off Windows the arm now never creates that binary, which makes
+     the crash impossible by construction whatever later edits exec. This pins the construction:
+     every line that copies process.execPath must carry the win32 gate on the same line. A pin,
+     because the failure is machine-wide and must never be reproduced to prove a test. */
+  const code = fs.readFileSync(__filename, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !/^\s*\/\//.test(l));
+  const copies = code.filter((l) => /copyFileSync\(\s*process\.execPath/.test(l));
+  assert.ok(copies.length > 0, 'control: the running-interpreter arm still copies the interpreter on Windows');
+  for (const line of copies) {
+    assert.ok(/process\.platform === 'win32'/.test(line),
+      'a real interpreter is copied without the win32 gate on the same line; off Windows that is the binary that crashed syspolicyd (#3634): ' + line.trim());
+  }
 });
