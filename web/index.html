@@ -2456,14 +2456,19 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    The identity column stays where it was: .back comes out of the flow and .dleft is padded
    by what the back row used to occupy. Pinned by docs/browser-checks/render-talk-fill-2622.js. */
 @media (min-width: 56.01rem) {
-  body:has(#panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { padding-bottom: 0; }
+  /* The body becomes a viewport-tall flex column and the panel takes what is left under the
+     header, so a taller header (a wrapped notice, other fonts) shrinks the box instead of
+     pushing it past the bottom. */
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
+    display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; padding-bottom: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
-    position: relative;
+    position: relative; flex: 1 1 auto; min-height: 0; height: auto;
     margin-top: calc(-1 * var(--space-6));
-    margin-right: calc(-1 * var(--space-8));
-    height: calc(100vh - var(--talk-fill-top-wide, 77px)); }
+    margin-right: calc(-1 * var(--space-8)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
     position: absolute; top: var(--space-6); left: 0; margin: 0; z-index: 1; }
+  /* 53px = the back row's space (16 offset + its 15px line + the 16 gap .back keeps below it)
+     plus the 6px ring room .dleft already carries. render-talk-fill-2622 A1g pins the result. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { padding-top: 53px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { padding-top: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { padding-bottom: var(--space-8); }

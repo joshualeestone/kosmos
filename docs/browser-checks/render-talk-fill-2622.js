@@ -21,6 +21,10 @@
  * its bottom sat far above the viewport bottom (the "big empty gap"). "bottom
  * within TOL of the viewport bottom, at TWO window heights" is the control.
  *
+ * #3497 (Josh 2026-09-23): in the wide layout the box also meets the header rule and the
+ * right edge, and the composer's bottom margin equals its side margins (A1b-A1g), including
+ * when the header grows taller (A1f) and without moving the identity column (A1g).
+ *
  * Scoping guard (A6): a non-Talk section (Model) must NOT be forced tall -- the
  * fill is :has()-gated to the Talk section only.
  *
@@ -82,6 +86,8 @@ async function measure(page) {
       viewW: document.documentElement.clientWidth,
       headBottom: Math.round(document.querySelector('.apphead').getBoundingClientRect().bottom),
       backRight: back ? Math.round(back.getBoundingClientRect().right) : null,
+      backBottom: back ? Math.round(back.getBoundingClientRect().bottom) : null,
+      identTop: (() => { const d = document.querySelector('#panel-detail .dleft'); const f = d && d.firstElementChild; return f ? Math.round(f.getBoundingClientRect().top) : null; })(),
       composerLeft: cr ? Math.round(cr.left) : null,
       composerRight: cr ? Math.round(cr.right) : null,
       boxBottom: Math.round(br.bottom),
@@ -150,6 +156,20 @@ async function measure(page) {
         'A1e ' + tag + ': the back link stays in the left column, clear of the box', 'backRight=' + m.backRight + ' boxLeft=' + m.boxLeft);
     };
     edges(tall, 'tall window');
+    // A1g: the identity column did not move. Pre-#3497 the first .dleft child sat 22px below the
+    // back link (back bottom 108, column content 130 at this size); the fill must keep that gap.
+    chk(tall.identTop !== null && tall.backBottom !== null && Math.abs((tall.identTop - tall.backBottom) - 22) <= 3,
+      'A1g the identity column sits where it did, below the back link',
+      'identTop=' + tall.identTop + ' backBottom=' + tall.backBottom);
+    // A1f: a TALLER header (a wrapped update notice, other fonts) must shrink the box, not push it
+    // past the bottom. Control: a fixed-offset height would leave boxTop at the header but boxBottom
+    // past innerHeight by the added 60px, and the page would scroll.
+    await page.evaluate(() => { const h = document.querySelector('.apphead'); const x = document.createElement('div'); x.id = 'tf-tall-notice'; x.style.height = '60px'; h.appendChild(x); });
+    await page.waitForTimeout(150);
+    const taller = await measure(page);
+    edges(taller, 'taller header');
+    await page.evaluate(() => { const x = document.getElementById('tf-tall-notice'); if (x) x.remove(); });
+    await page.waitForTimeout(100);
     chk(tall.boxBottom < tall.innerHeight + 40,
       'A3 tall window: the box does not massively overshoot the viewport',
       'boxBottom=' + tall.boxBottom + ' innerHeight=' + tall.innerHeight);
