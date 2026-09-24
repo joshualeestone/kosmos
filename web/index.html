@@ -2461,9 +2461,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      pages do not shift) would only hold an empty strip down the right edge on a Mac that shows
      scrollbars. It is dropped here, and the header is padded by the scrollbar's width (--sbw,
      measured at load) so the header does not move when an agent opens or closes, which is the
-     shift #1309 exists to prevent. */
-  html:has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
-  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead {
+     shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
+     (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
+     nothing to drop or pad for. */
+  html:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
+  html:not([data-layout="consolidated"]) > body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead {
     padding-right: calc(var(--space-8) + var(--sbw, 0px)); }
   /* The build marker moves to the bottom-left corner, over the side column, so it does not sit
      inside the box under Post. */

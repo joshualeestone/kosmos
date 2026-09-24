@@ -395,10 +395,20 @@ async function measure(page) {
       document.querySelector('#panel-detail .snav button[data-go="talk"]').click();
       await new Promise((r) => setTimeout(r, 150));
       const talk = read();
-      return { model, talk };
+      // The consolidated layout preference keeps data-layout on html even on an agent's page, and
+      // reserves no gutter anywhere, so the Talk header must NOT gain the padding there.
+      const prevLayout = document.documentElement.getAttribute('data-layout');
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      const consTalk = read();
+      if (prevLayout === null) document.documentElement.removeAttribute('data-layout');
+      else document.documentElement.setAttribute('data-layout', prevLayout);
+      document.documentElement.style.removeProperty('--sbw');
+      return { model, talk, consTalk };
     });
     chk(parseFloat(pad.talk) - parseFloat(pad.model) === 15,
       'A1o in Talk the header is padded by the scrollbar width (15px here), and not in other views', JSON.stringify(pad));
+    chk(pad.consTalk === pad.model,
+      'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header is not padded', JSON.stringify(pad));
     chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,
       'A1g the identity block stays where it was (within 1px of Model; the 1px is the pre-existing Talk/Model line-box difference)',
       'talk=' + talkIdentFromHead + ' model=' + model.identFromHead);
