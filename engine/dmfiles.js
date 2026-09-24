@@ -83,8 +83,9 @@ function blockBody(dir) {
        this sentence, so the promise and the page land together. */
     'Create the folder if it is not there yet. Keeping everything you make for the',
     'person in one place means they always know where to find it: Kosmos lists what',
-    'is in it on your page, where they can open it. Inside a project, keep using the',
-    'project\'s own folder.',
+    'is in it on your page, where they can open it. Save files directly in it, not in',
+    'subfolders: the page lists only what sits at the top of the folder. Inside a',
+    'project, keep using the project\'s own folder.',
   ].join('\n');
 }
 
