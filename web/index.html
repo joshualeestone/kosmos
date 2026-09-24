@@ -52551,9 +52551,10 @@ let TIPS_TIMER = null;
 let TIPS_STARTED = false;
 let TIP_PLACES = [];            // the tour's places as numbered when it opened
 
-/* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden]. */
+/* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
+   takeover (.upd-back) is added while it is up. */
 function tipModalOpen() {
-  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), dialog[open]');
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .upd-back, dialog[open]');
 }
 
 /* The tour's title counts what it numbers: "Four places to know" when all four are on screen. */
@@ -52665,7 +52666,7 @@ function tipLayout(t, card, places) {
       pins.appendChild(pin);
     });
     card.className = 'tipcard flat';
-    card.style.left = Math.round((window.innerWidth - card.offsetWidth) / 2) + 'px';
+    card.style.left = Math.round((document.documentElement.getBoundingClientRect().width - card.offsetWidth) / 2) + 'px';
     card.style.top = Math.round(Math.max(80, (window.innerHeight - card.offsetHeight) / 2)) + 'px';
   } else {
     tipPlace(card, t.at, t.side);
@@ -52680,7 +52681,7 @@ function tipPlace(card, sel, side = false) {
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
     card.className = 'tipcard flat';
-    card.style.left = Math.round((window.innerWidth - w) / 2) + 'px';
+    card.style.left = Math.round((pageW - w) / 2) + 'px';
     card.style.top = Math.round(Math.max(80, (window.innerHeight - h) / 2)) + 'px';
     return;
   }
@@ -52889,7 +52890,7 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
    ready), so a hung check must reveal the board rather than blank the app. This
    is the concern the comment above records, now that the board starts hidden.
    Idempotent with firstRunBoot's finally: whichever fires first wins. */
-setTimeout(revealBoot, 3000);
+setTimeout(() => { revealBoot(); tipsStart(); }, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
 /* #2066: the corner marker paints before the first poll too -- a built board shows

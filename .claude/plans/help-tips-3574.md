@@ -21,7 +21,8 @@ Seen state survives a reload and a board restart. Light and dark both correct. B
    "Stop showing tips", x). Arrow pointing up/down/left at its target; never covers the target; not
    modal (the page stays usable); on narrow windows it sits in the page with no arrow.
    Tokens only, no solid left bars (Josh 2026-09-24).
-3. Welcome tour (A): numbered markers 1-4 on New agent, Agents tab, Projects tab, the user button,
+3. Welcome tour (A), whose footer is "Tips come back from the ? button" rather than "Stop showing
+   tips" (the mock's; the tour shows once, and the off switch belongs to the screen tips): numbered markers 1-4 on New agent, Agents tab, Projects tab, the user button,
    and one card listing the four. Shown once after first run completes and the board is revealed.
 4. The ? button in `.headright` before `#userpop`, with a small popover reusing the userpop
    mechanics: Show tips for this screen / Take the welcome tour again / What does the ring mean?
