@@ -126,6 +126,25 @@ test('#2908: post --no-reply sends reply_expected:false; without it no field; a 
   assert.match(mid.calls[0].body.text, /--no-reply/, 'the token stays in the text when not leading');
 });
 
+test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (flag pair, = form, both orders, leading-only)', async () => {
+  const ok = () => ({ body: { delivery: { state: 'placed' } } });
+  const a = await run(['post', '--in-reply-to', 'm12', 'proj-1', 'the answer'], ok);
+  assert.equal(a.code, 0);
+  assert.deepEqual(a.calls[0].body, { project: 'proj-1', text: 'the answer', from_pane: '', in_reply_to: 'm12' },
+    '--in-reply-to must consume the flag pair and put in_reply_to on the body (the parity the Windows CLI must keep)');
+  const eq = await run(['post', '--in-reply-to=m7', 'proj-1', 'hi'], ok);
+  assert.equal(eq.calls[0].body.in_reply_to, 'm7', 'the = form must set in_reply_to');
+  const both = await run(['post', '--in-reply-to', 'm3', '--no-reply', 'proj-1', 'ack'], ok);
+  assert.equal(both.calls[0].body.in_reply_to, 'm3', 'both leading flags must combine in either order');
+  assert.equal(both.calls[0].body.reply_expected, false, '--no-reply must still take effect alongside --in-reply-to');
+  const none = await run(['post', 'proj-1', 'a plain post'], ok);
+  assert.equal(Object.prototype.hasOwnProperty.call(none.calls[0].body, 'in_reply_to'), false,
+    'an ordinary post must omit in_reply_to entirely');
+  const mid = await run(['post', 'proj-1', 'please --in-reply-to that thread'], ok);
+  assert.equal(Object.prototype.hasOwnProperty.call(mid.calls[0].body, 'in_reply_to'), false,
+    'a non-leading --in-reply-to is message text, not the flag (parity with install/kosmos)');
+});
+
 test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {
   const r = await run(['react', 'proj-1', 'm3', '🔥'], () => ({ body: { ok: true, op: 'add' } }));
   assert.equal(r.code, 0);

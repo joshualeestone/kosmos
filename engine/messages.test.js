@@ -1894,7 +1894,8 @@ test('#185: the nudge fires once per message, is recorded, and never repeats', (
       assert.deepEqual(first.nudged.map((n) => n.to), ['mara'], 'the one addressed agent was not nudged exactly once');
       const typedNudges = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
       assert.equal(typedNudges.length, 1, 'the nudge line did not reach the pane exactly once');
-      assert.match(typedNudges[0], /to answer, run: kosmos post henderson-lease/);
+      assert.match(typedNudges[0], /to answer, run: kosmos post henderson-lease --in-reply-to m\d+/,
+        'the nudge must carry the #3224 --in-reply-to binding, not just the bare post command');
       /* The receipt is in the store; the second sweep is a no-op. */
       assert.equal(messages.record().rows.filter((m) => m.kind === 'nudge').length, 1);
       const second = messages.sweepUnanswered(board.agents);

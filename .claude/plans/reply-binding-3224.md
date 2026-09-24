@@ -25,7 +25,10 @@ ANSWERED, a fact recorded when that message was posted, independent of the reply
   matches, or `in_reply_to` is absent, behave exactly as today.
 - If `in_reply_to` is given but does not resolve (a citation aged out of the record): treat as
   absent and proceed with the explicit project -- never block a legitimate reply over a stale id.
-- CLI `kosmos post` gains `--in-reply-to <id>` (a leading flag, like `--no-reply`).
+- BOTH CLIs gain `--in-reply-to <id>` (a leading flag, like `--no-reply`): the bash
+  `install/kosmos` AND the parallel Windows/non-Claude runner `tools/windows/kosmos-cli.js`.
+  Keeping the second in parity is load-bearing: the envelope now emits the flag, so a Windows-runner
+  agent copying the command would otherwise read `--in-reply-to` as the project id and misroute.
 - The room-arrival envelope's answer command becomes `kosmos post <projectId> --in-reply-to <id>`
   (the id already appears in the envelope), so an addressed reply carries the binding by
   construction and a wrong project id is caught. The nudge line carries it too.
