@@ -25789,9 +25789,46 @@ async function paintTalk(sessionName, agentName) {
      bubble now (#3419), and it is answered in the composer -- so focus lands on
      the composer, which is where the person acts, rather than on the old (now
      removed) question box. #3419: re-pointed from qtext to the composer. */
+  /* #3557: the answer button lives INSIDE a card that is torn down when the
+     panel opens, so activating it removes the focused button from the DOM and
+     focus falls to <body> -- AFTER this paint has focused the composer. The
+     intent was consumed on that first paint, so nothing re-applied it, and the
+     recovery paint additionally skipped because it read the STALE `say.disabled`
+     (that flag is written ~120 lines below from the same `presence`, so at the
+     TOP of a paint it still holds the PREVIOUS paint's value). Net effect in the
+     detail->back->answer flow: focus ends on <body> and a keyboard user must
+     re-traverse the whole document. In the CLEAN flow (straight to the agent)
+     there is no torn-down button, so the first focus sticks and this never bit.
+
+     Fix, three parts, each matching one cause above:
+       1. Keep the intent LIVE until focus actually lands and holds on #d-say, so
+          the button-teardown steal on the paint after the first is recovered.
+       2. Decide focusability from the NEXT state (`presence`), not the stale
+          `say.disabled`, and enable the composer before focusing (focusing a
+          still-disabled element is a no-op). Line ~25916 sets the same value from
+          the same presence, so this only pulls that one decision earlier.
+       3. Re-apply only while focus has fallen to <body> (or nothing is focused);
+          never when the user has moved focus to another real control, so a poll
+          repaint cannot yank focus a person placed deliberately. */
   if (ANSWER_WANTS_FOCUS && CURRENT && ANSWER_WANTS_FOCUS === CURRENT.sessionName) {
-    ANSWER_WANTS_FOCUS = null;
-    if (!say.disabled) say.focus();
+    if (body.presence === 'off') {
+      // The agent is off; the composer will be disabled and there is nothing to
+      // answer into. Drop the intent rather than fight a box that cannot open.
+      ANSWER_WANTS_FOCUS = null;
+    } else if (document.activeElement === say) {
+      // Focus has landed on the composer and survived into a later paint: the
+      // intent is satisfied, so consume it (a routine poll must not re-grab).
+      ANSWER_WANTS_FOCUS = null;
+    } else if (!document.activeElement || document.activeElement === document.body) {
+      // First paint, or the button teardown stole focus back to <body>. Enable
+      // the composer (its disabled flag below is set from this same presence) and
+      // focus it. Keep the intent: the steal can happen AFTER this paint, and the
+      // next paint must be able to re-apply.
+      say.disabled = false;
+      say.focus();
+    }
+    // else: focus is on some other real control -- the user moved it. Leave the
+    // intent live but do not yank focus; it clears once focus reaches the composer.
   }
   /**
    * ⚠️ THE BUTTONS DIE WITH THE COMPOSER (Mona Lisa, state 6). A live option
