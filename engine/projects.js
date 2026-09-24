@@ -1308,38 +1308,76 @@ function revealFolder(folder) {
 /**
  * The files in a project's folder, newest first.
  *
- * ⚠️ TOP LEVEL ONLY, AND FILES ONLY. A project folder is a place a person and
- * their agents both write into, so it will contain subfolders, and walking them
- * would turn "the last ten documents" into a crawl of somebody's whole working
- * tree. Directories, dotfiles and anything that is not a regular file are left
- * out — a symlink is not listed, because the thing it points at is what would
- * open and this list would be naming the wrong file.
+ * ⚠️ FILES ONLY, AND SUBFOLDERS WALKED WITH BOUNDS (#2245; this was top-level only
+ * until then, which hid the agent work #2245 was filed about). A project folder is
+ * a place a person and their agents both write into, so an UNBOUNDED walk would
+ * turn "the last ten documents" into a crawl of somebody's whole working tree: the
+ * walk is capped in depth and in entries read, and skips dependency/build trees.
+ * Directories, dotfiles and anything that is not a regular file are left out — a
+ * symlink (file or folder) is not listed or entered, because the thing it points at
+ * is what would open and this list would be naming the wrong file.
  *
  * Returns a REASON rather than an empty array when it cannot read, because
  * "this project has no documents" and "we could not look" are different
  * sentences and only one of them is about the project.
  */
+/* #2245: the bounds on the documents walk. See listFiles. */
+const LIST_MAX_DEPTH = 3;
+const LIST_MAX_SCAN = 2000;
+const LIST_SKIP_DIRS = new Set(['node_modules', 'venv', 'env', '__pycache__', 'dist', 'build', 'target', 'Pods', 'DerivedData']);
+
 function listFiles(folder, limit) {
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
     return { ok: false, because: (state && state.because) || 'we cannot read that folder right now', files: [] };
   }
   const cap = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
-  let names;
+  /* #2245: SUBFOLDERS ARE LISTED, BOUNDED. Josh's goal is to SEE what agents made, and
+     agents do not reliably save at the top level (the report that opened #2245 had a
+     forecast PDF under weather-forecast-test/, which a top-level-only list never showed).
+     A subfolder file's `name` is its path RELATIVE to the project folder, always with
+     `/` as the separator (on Windows too), and openFile accepts exactly that shape.
+     Bounded three ways, because this runs on every panel poll:
+       - depth: LIST_MAX_DEPTH folders below the project folder;
+       - noise: dot-entries and LIST_SKIP_DIRS (dependency/build/cache trees an agent's
+         tooling makes; a thousand node_modules files are not "files in this project");
+       - cost: at most LIST_MAX_SCAN directory entries read in total. Past that the walk
+         stops and `truncated: true` says the list is partial rather than complete.
+     🛑 A SYMLINKED FOLDER IS NEVER ENTERED. The dirent reports the link itself
+     (isDirectory() is false for a link), so a link cannot loop the walk or lead it out
+     of the project -- the same rule that already keeps a symlinked FILE off the list. */
+  const files = [];
+  let scanned = 0;
+  let truncated = false;
+  const walk = (abs, rel, depth) => {
+    let ents;
+    try {
+      ents = fs.readdirSync(abs, { withFileTypes: true });
+    } catch (err) {
+      if (depth === 0) throw err;
+      return; // an unreadable subfolder is skipped; the rest of the project still lists
+    }
+    for (const ent of ents) {
+      if (scanned >= LIST_MAX_SCAN) { truncated = true; return; }
+      scanned += 1;
+      if (ent.name.startsWith('.')) continue;
+      const relName = rel ? rel + '/' + ent.name : ent.name;
+      // ⚠️ isFile()/isDirectory() on the DIRENT, so a symlink is excluded without a
+      // second stat: withFileTypes reports the link itself, which is what we want here.
+      if (ent.isDirectory()) {
+        if (depth < LIST_MAX_DEPTH && !LIST_SKIP_DIRS.has(ent.name)) walk(path.join(abs, ent.name), relName, depth + 1);
+        continue;
+      }
+      if (!ent.isFile()) continue;
+      let st;
+      try { st = fs.statSync(path.join(abs, ent.name)); } catch { continue; }
+      files.push({ name: relName, size: st.size, modified: st.mtime.toISOString() });
+    }
+  };
   try {
-    names = fs.readdirSync(state.real, { withFileTypes: true });
+    walk(state.real, '', 0);
   } catch (err) {
     return { ok: false, because: 'we could not read what is in that folder', files: [] };
-  }
-  const files = [];
-  for (const ent of names) {
-    if (ent.name.startsWith('.')) continue;
-    // ⚠️ isFile() on the DIRENT, so a symlink is excluded without a second
-    // stat: withFileTypes reports the link itself, which is what we want here.
-    if (!ent.isFile()) continue;
-    let st;
-    try { st = fs.statSync(path.join(state.real, ent.name)); } catch { continue; }
-    files.push({ name: ent.name, size: st.size, modified: st.mtime.toISOString() });
   }
   files.sort((a, b) => (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
   /* #761: a stamp that changes whenever the list would, so a page can ask every
@@ -1360,7 +1398,9 @@ function listFiles(folder, limit) {
      decided by sort order. It carries no sizes or times: the matcher needs
      identity, and shipping more than that would invite a second, divergent
      documents list built off the wrong field. */
-  return { ok: true, total: files.length, files: files.slice(0, cap), names: files.map((f) => f.name), stamp };
+  const out = { ok: true, total: files.length, files: files.slice(0, cap), names: files.map((f) => f.name), stamp };
+  if (truncated) out.truncated = true;
+  return out;
 }
 
 /**
@@ -1374,9 +1414,12 @@ function listFiles(folder, limit) {
  *
  * Three independent gates, and the third is the one a name check cannot do:
  *
- *   1. The name must be a BARE FILENAME. Any separator, any `..`, any absolute
- *      path is refused outright rather than trimmed. The documents list is flat,
- *      so a bare name is all a caller ever legitimately has.
+ *   1. The name must have the SHAPE listFiles produces: a bare filename, or (#2245)
+ *      a RELATIVE path of plain segments joined by `/`. Refused outright rather than
+ *      trimmed: an absolute path, a backslash, an empty segment (`a//b`, a leading or
+ *      trailing `/`), a `.` or `..` segment, and any segment starting with `.` (the
+ *      list never shows a hidden entry, so a caller never legitimately has one).
+ *      This gate only narrows the string. It is NOT what stops an escape: gate 3 is.
  *   2. The project's folder must be READABLE, by the same folderState every
  *      other folder-touching route already goes through.
  *   3. The RESOLVED target must still sit inside the RESOLVED folder, and must
@@ -1388,8 +1431,9 @@ function listFiles(folder, limit) {
 function openFile(folder, name) {
   const given = String(name == null ? '' : name);
   if (!given) return { ok: false, because: 'no file was named' };
-  if (given.includes('/') || given.includes('\\') || given === '.' || given === '..'
-      || path.isAbsolute(given) || path.basename(given) !== given) {
+  const segs = given.split('/');
+  if (given.includes('\\') || path.isAbsolute(given) || path.win32.isAbsolute(given)
+      || segs.some((s) => s === '' || s.startsWith('.'))) {
     return { ok: false, because: 'that is not a file in this project' };
   }
   const state = folderState(folder);
