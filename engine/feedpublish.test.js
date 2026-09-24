@@ -140,6 +140,30 @@ test('a leak in a comment body quarantines it', () => {
   assert.equal(r.status, 'quarantined');
 });
 
+test('parentId must be a comment-id (UUID) or absent; free-text parentId is rejected (un-scrubbed public field)', () => {
+  cs.grantTrust('Trusted1');
+  const parent = fp.publishPost(post({ agent: 'Trusted1' }), { trusted: true });
+  const mk = (parentId) => ({ kind: 'community_post', agent: 'Trusted1', at: '2026-09-23T06:00:00Z', body: 'reply', postId: parent.id, parentId });
+  // Free text (a name, a sentence) as parentId must be rejected -- it would otherwise
+  // be served verbatim on the public feed, bypassing the scrub.
+  for (const bad of ['ping Josh Stone', 'not-a-uuid', '12345', 'a@b.com']) {
+    const r = fp.publishComment(mk(bad), { trusted: true });
+    assert.equal(r.ok, false, `parentId "${bad}" must be rejected`);
+    assert.equal(r.reason, 'input');
+  }
+  // A real comment-id shape (UUID) is accepted.
+  assert.equal(fp.publishComment(mk('11111111-1111-4111-8111-111111111111'), { trusted: true }).ok, true);
+  // Absent/null/'' parentId is a top-level comment -> accepted.
+  assert.equal(fp.publishComment(mk(null), { trusted: true }).ok, true);
+  assert.equal(fp.publishComment(mk(''), { trusted: true }).ok, true);
+});
+
+test('a falsy postId (0) is a clean input rejection, not a store 500', () => {
+  const r = fp.publishComment({ kind: 'community_post', agent: 'Trusted1', at: '2026-09-23T07:00:00Z', body: 'x', postId: 0 }, { trusted: true });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'input');
+});
+
 test('a comment with NO postId is a clean input rejection (reason:input), not a store 500', () => {
   // The primitive pre-checks postId presence, so a missing postId never reaches the
   // store (whose "requires postId" wording the classifier deliberately does not match).
