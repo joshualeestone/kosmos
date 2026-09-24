@@ -201,6 +201,20 @@ class PrepareRefusal extends Error {
 }
 function refuse(because) { throw new PrepareRefusal(because); }
 
+/**
+ * The host answered, in so many words, that a file is not there: an HTTP 404. #3525: this is the
+ * ONE condition the download falls back on (the versioned name missing from a misconfigured edge),
+ * and it is deliberately NOT a PrepareRefusal, so it can only be acted on by a caller that opted in
+ * (open()'s `allowNotFound`) and never leaks out as a silent refusal. A transient failure -- the
+ * host unreachable, a timeout, a dropped connection -- throws a PrepareRefusal in open() instead and
+ * so never reaches the fallback: a flaky edge fails the update rather than silently downgrading it.
+ */
+class HostNotFound extends Error {
+  constructor(what, url) { super(`the release host does not have ${what} (${url})`); this.name = 'HostNotFound'; this.what = what; this.url = url; }
+}
+/** The only HTTP status the download treats as "the file is not there" and falls back on. */
+const NOT_FOUND_STATUS = 404;
+
 function sizeInWords(bytes) {
   return bytes < MEGABYTE ? `${bytes} bytes` : `${Math.round(bytes / MEGABYTE)} MB`;
 }
@@ -930,7 +944,7 @@ function releaseLock(lockPath, text, log, reading) {
  * timer and must be called once the body has been read. Refuses with a sentence on no answer or
  * a non-2xx answer, and logs the URL and the status.
  */
-async function open(doFetch, url, what, deadlineAt, log) {
+async function open(doFetch, url, what, deadlineAt, log, opts) {
   log(`GET ${url}`);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), Math.max(0, deadlineAt - Date.now()));
@@ -939,6 +953,8 @@ async function open(doFetch, url, what, deadlineAt, log) {
   try {
     res = await doFetch(url, { signal: ctl.signal, cache: 'no-store' });
   } catch (e) {
+    /* No HTTP answer at all: unreachable host, a timeout (the abort above), a dropped connection.
+       This is transient, so it always refuses and NEVER becomes a HostNotFound fallback. */
     done();
     log(`GET failed url=${url} error=${firstLine(e)}`);
     refuse(`we could not reach the release host for ${what} (${firstLine(e)})`);
@@ -947,6 +963,10 @@ async function open(doFetch, url, what, deadlineAt, log) {
     done();
     const status = res ? res.status : 'no answer';
     log(`GET failed url=${url} status=${status}`);
+    /* A 404 is the host saying the file is not there -- the missing versioned name in the
+       2026-09-23 incident. Only when the caller opted in (allowNotFound) does that let it try
+       another name; every other status (a 5xx, a 403, no answer) is a real failure and refuses. */
+    if (opts && opts.allowNotFound && res && status === NOT_FOUND_STATUS) throw new HostNotFound(what, url);
     refuse(`the release host answered ${status} for ${what}`);
   }
   return { res, done };
@@ -985,10 +1005,10 @@ async function readBody(res, { what, maxBytes, startedAt, deadlineAt, onChunk })
   return total;
 }
 
-async function fetchSmallText(doFetch, url, what, limits, log) {
+async function fetchSmallText(doFetch, url, what, limits, log, opts) {
   const startedAt = Date.now();
   const deadlineAt = startedAt + limits.maxSmallFetchMs;
-  const { res, done } = await open(doFetch, url, what, deadlineAt, log);
+  const { res, done } = await open(doFetch, url, what, deadlineAt, log, opts);
   const chunks = [];
   try {
     await readBody(res, { what, maxBytes: limits.maxSmallFetchBytes, startedAt, deadlineAt, onChunk: (c) => chunks.push(Buffer.from(c)) });
@@ -1028,21 +1048,33 @@ async function readOffer(ctx) {
 /* ─── B2 ─────────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * Returns `{ sha256, bytes }`: the download's hash and the very bytes that were hashed, which B3
- * unpacks. The copy in WORK\download.part is written alongside, and never read back, so nothing
- * can change the bytes between the hash and the unpack.
+ * Fetch the checksum sidecar for `name` at `url`, confirm it names `name` (sidecarSha) and that the
+ * sha it publishes is exactly `expectedSha` (the manifest/pointer sha, from readOffer). A sidecar
+ * that pins a DIFFERENT sha is refused: on the versioned path that is a site whose sidecar and
+ * pointer disagree; on the generic fallback it is the generic alias having moved to another build
+ * mid-flight, and refusing keeps the exact-version guarantee. With `allowNotFound`, a genuine 404
+ * throws HostNotFound so the caller can try the generic name instead.
  */
-async function download(ctx, latest) {
-  const sidecarUrl = `${ctx.base}/${latest.versioned}.sha256`;
-  const published = sidecarSha(await fetchSmallText(ctx.fetch, sidecarUrl, 'the update checksum', ctx.limits, ctx.log), latest.versioned);
-  if (published !== latest.sha256) {
-    refuse(`the site's checksum file and its update pointer disagree about ${latest.versioned}, so neither can be trusted`);
+async function fetchSidecar(ctx, url, name, expectedSha, allowNotFound) {
+  const published = sidecarSha(await fetchSmallText(ctx.fetch, url, 'the update checksum', ctx.limits, ctx.log, { allowNotFound }), name);
+  if (published !== expectedSha) {
+    refuse(`the site's checksum file and its update pointer disagree about ${name}, so neither can be trusted`);
   }
+}
 
-  const zipUrl = `${ctx.base}/${latest.versioned}?v=${encodeURIComponent(latest.version)}`;
+/**
+ * Download the zip at `url`, hashing as it streams into WORK\download.part under the size, time and
+ * disk caps. Returns `{ sha256, bytes }`: the hash and the very bytes that were hashed, which B3
+ * unpacks. The copy in WORK\download.part is written alongside, and never read back, so nothing can
+ * change the bytes between the hash and the unpack. The bytes are refused unless they hash to
+ * `expectedSha` (the manifest sha), so WHATEVER name served them, only the exact expected build is
+ * accepted. With `allowNotFound`, a genuine 404 throws HostNotFound (open()) before the part file is
+ * created, so the caller can try the generic name.
+ */
+async function downloadZip(ctx, url, name, expectedSha, allowNotFound) {
   const startedAt = Date.now();
   const deadlineAt = startedAt + ctx.limits.maxDownloadMs;
-  const { res, done } = await open(ctx.fetch, zipUrl, 'the update', deadlineAt, ctx.log);
+  const { res, done } = await open(ctx.fetch, url, 'the update', deadlineAt, ctx.log, { allowNotFound });
   const hash = crypto.createHash('sha256');
   const chunks = [];
   let received = 0;
@@ -1078,11 +1110,40 @@ async function download(ctx, latest) {
     refuse(`the release host sent ${received} bytes after announcing ${declared}, so the download is not the file it described`);
   }
   const computed = hash.digest('hex');
-  if (computed !== latest.sha256) {
+  if (computed !== expectedSha) {
     refuse('the downloaded update does not match the checksum the site published for it, so it was damaged on the way or is not the build the site names');
   }
-  ctx.log(`downloaded ${latest.versioned}: ${received} bytes, sha256 ${computed}`);
+  ctx.log(`downloaded ${name}: ${received} bytes, sha256 ${computed}`);
   return { sha256: computed, bytes: Buffer.concat(chunks, received) };
+}
+
+/**
+ * Returns `{ sha256, bytes }`: the download's hash and the very bytes that were hashed, which B3
+ * unpacks.
+ *
+ * #3525 DEFENSE IN DEPTH. The VERSIONED name is the primary path, unchanged. But the /dist edge
+ * only reliably serves the GENERIC name (`kosmos-win-<arch>.zip`[.sha256]); the versioned name
+ * depends on a redirect that, when missing, 404s and silently breaks every client's auto-update.
+ * So if the versioned sidecar OR the versioned zip returns a 404 (a HostNotFound, never a transient
+ * error), fall back to the generic name. Both paths verify the downloaded bytes against the manifest
+ * sha (`latest.sha256`), which PINS the exact expected build: if the generic alias has moved to a
+ * different version mid-flight, the hash check refuses (safe), preserving the exact-version
+ * guarantee. A 404 on the GENERIC name is a real failure and is not caught, so it refuses.
+ */
+async function download(ctx, latest) {
+  const versioned = latest.versioned;
+  const versionedZipUrl = `${ctx.base}/${versioned}?v=${encodeURIComponent(latest.version)}`;
+  try {
+    await fetchSidecar(ctx, `${ctx.base}/${versioned}.sha256`, versioned, latest.sha256, true);
+    return await downloadZip(ctx, versionedZipUrl, versioned, latest.sha256, true);
+  } catch (e) {
+    if (!(e instanceof HostNotFound)) throw e;
+    ctx.log(`the versioned name is not on the release host (${e.url}); falling back to the generic name`);
+  }
+  const generic = update.windowsGenericName(ctx.arch);
+  await fetchSidecar(ctx, `${ctx.base}/${generic}.sha256`, generic, latest.sha256, false);
+  const genericZipUrl = `${ctx.base}/${generic}?v=${encodeURIComponent(latest.version)}`;
+  return await downloadZip(ctx, genericZipUrl, generic, latest.sha256, false);
 }
 
 /* ─── B3 ─────────────────────────────────────────────────────────────────────────────────── */

@@ -79,7 +79,7 @@ const WRONG_WORLD_STATUS = 421;
 const USAGE = {
   msg: 'Usage: kosmos msg <agent> <what you want to tell them>',
   reply: 'Usage: kosmos reply <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated)',
-  post: 'Usage: kosmos post [--no-reply] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)',
+  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
@@ -256,16 +256,39 @@ async function verbPost(ctx, args) {
     ctx.err('Text only for now: kosmos post <project-id> <text>');
     return 2;
   }
-  // #2908: --no-reply (leading flag) marks the post an acknowledgement (reply_expected:false),
-  // so a mentioned recipient reads it in the foreground but is not told to answer -- breaking
-  // the ack-of-an-ack loop. Matches install/kosmos: leading flag, sent only when present.
+  // #2908 --no-reply and #3224 --in-reply-to are LEADING flags in any order, matching
+  // install/kosmos (the parity this second CLI must keep). --no-reply marks a post an
+  // acknowledgement (reply_expected:false); --in-reply-to <id> binds the answer to the
+  // room the cited message came from, so the server refuses if the target project
+  // differs (the misroute #3224 catches). Each sent only when present.
   let noReply = false;
-  if (args[0] === '--no-reply') { noReply = true; args.shift(); }
+  let inReplyTo = '';
+  for (;;) {
+    if (args[0] === '--no-reply') { noReply = true; args.shift(); continue; }
+    if (args[0] === '--in-reply-to') {
+      args.shift();
+      inReplyTo = args.shift() || '';
+      // Reject an empty OR flag-shaped id: `--in-reply-to --no-reply` must NOT swallow the
+      // next flag as the citation (it would drop --no-reply and post a bogus, unresolvable
+      // binding). No real message id starts with '--'. Parity with install/kosmos.
+      if (!inReplyTo || inReplyTo.startsWith('--')) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
+      continue;
+    }
+    const eq = /^--in-reply-to=(.*)$/.exec(args[0] || '');
+    if (eq) {
+      inReplyTo = eq[1];
+      args.shift();
+      if (!inReplyTo) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
+      continue;
+    }
+    break;
+  }
   const project = args.shift();
   const text = args.join(' ');
   if (!project || !text) { ctx.err(USAGE.post); return 2; }
   const body = { project, text, from_pane: '' };
   if (noReply) body.reply_expected = false;
+  if (inReplyTo) body.in_reply_to = inReplyTo;
   const r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.') : ctx.unreachable('post that');
   if (ctx.wrongWorld(r)) return ctx.keepForLater('post', body);

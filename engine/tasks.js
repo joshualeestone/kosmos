@@ -34,13 +34,15 @@ const taskchat = require('./taskchat');
 
 const SENTENCE_MAX = 200;
 const DETAIL_MAX = 2000;
-// #768: the cap on a task-conversation message. 2000 matches the project room's
-// composer (#d-say maxlength) and DETAIL_MAX, and sits under taskchat's generic
-// FIELD_MAX (4000) so a valid message is never silently truncated on the way to
-// disk. say() REFUSES over-length input rather than leaning on that truncation --
-// the same lesson as the older maxlength-vs-engine mismatch: the client limit and
-// the engine limit must agree, or a caller past the client one saves less than it
-// thinks it did.
+// #768: the cap on a task-conversation message. 2000 matches the TASK composer
+// (#tk-say maxlength) and DETAIL_MAX, and sits under taskchat's generic FIELD_MAX
+// (4000) so a valid message is never silently truncated on the way to disk. say()
+// REFUSES over-length input rather than leaning on that truncation -- the same
+// lesson as the older maxlength-vs-engine mismatch: the client limit and the engine
+// limit must agree, or a caller past the client one saves less than it thinks it did.
+// (#3403 raised the AGENT-message cap -- chat.MAX_TEXT and the #d-say / #pj-post
+// composers -- to 10000; task messages are a separate engine path and stay at 2000
+// pending their own review, so this deliberately no longer matches those composers.)
 const MESSAGE_MAX = 2000;
 
 const WHO_MAX = 80;

@@ -896,7 +896,7 @@ test('a post fans out to every member, mentioned as a request and the rest MARKE
     // body text rides in both envelopes, so it selects nothing.
     const toMara = typed.find((t) => t.startsWith('[message from your colleague'));
     const toApril = typed.find((t) => t.startsWith('[background from your colleague'));
-    assert.match(toMara, /^\[message from your colleague leo · m\d+ · project henderson-lease · to answer, run: kosmos post henderson-lease\] /,
+    assert.match(toMara, /^\[message from your colleague leo · m\d+ · project henderson-lease · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /,
       'the mentioned member did not receive the addressed marker');
     assert.match(toApril, /^\[background from your colleague leo · m\d+ · project henderson-lease · not addressed to you\] /,
       'the unmentioned member arrived without the background marking -- the one thing that must not happen');
@@ -938,7 +938,7 @@ test('#2908: omitted reply_expected keeps the answer clause (default is reply-re
     const tmux = arm([]);
     messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'have a look @mara' }, board.agents, MEMBERS);
     const toMara = addressedTo(tmux, '[message from your colleague');
-    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /, 'an ordinary mention must still carry the answer clause');
+    assert.match(toMara, / · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /, 'an ordinary mention must still carry the answer clause');
     assert.ok(!/no reply requested/.test(toMara), 'no no-reply note should appear when the flag is absent');
   });
 });
@@ -949,7 +949,7 @@ test('#2908: reply_expected:true keeps the answer clause (explicit true == defau
     const tmux = arm([]);
     messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'have a look @mara', replyExpected: true }, board.agents, MEMBERS);
     const toMara = addressedTo(tmux, '[message from your colleague');
-    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /, 'explicit reply_expected:true must behave like the default');
+    assert.match(toMara, / · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /, 'explicit reply_expected:true must behave like the default');
   });
 });
 
@@ -986,7 +986,7 @@ test('#2908: no-reply is NEVER inferred from prose - "no reply needed" in the te
     // The exact failure the card names: adding "no reply needed" to the body does NOT stop the loop.
     messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'no reply needed @mara, just an ack' }, board.agents, MEMBERS);
     const toMara = addressedTo(tmux, '[message from your colleague');
-    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /,
+    assert.match(toMara, / · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /,
       'prose must not be read as reply-intent - only the explicit flag suppresses the answer clause');
     assert.ok(!/no reply requested/.test(toMara), 'the no-reply note must come from the flag, never from matching prose');
   });
@@ -1469,7 +1469,7 @@ test('an operator post fans to every member with the operator markers, flagged o
     assert.equal(addressed.length, 1);
     assert.ok(addressed[0].target.startsWith('=leo-discord:'), 'the request went to someone other than the mentioned member');
     assert.equal(roomwide.length, 2, 'a member received an operator post without the room-wide marking');
-    assert.match(roomwide[0].text, /for the whole room · to answer, run: kosmos post henderson-lease\] /);
+    assert.match(roomwide[0].text, /for the whole room · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /);
     const row = messages.record().rows.find((m) => m.kind === 'post');
     assert.equal(row.operator, true, 'the row does not carry the operator flag the screens key on');
     assert.equal(row.from, 'you');
@@ -1894,7 +1894,8 @@ test('#185: the nudge fires once per message, is recorded, and never repeats', (
       assert.deepEqual(first.nudged.map((n) => n.to), ['mara'], 'the one addressed agent was not nudged exactly once');
       const typedNudges = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
       assert.equal(typedNudges.length, 1, 'the nudge line did not reach the pane exactly once');
-      assert.match(typedNudges[0], /to answer, run: kosmos post henderson-lease/);
+      assert.match(typedNudges[0], /to answer, run: kosmos post --in-reply-to m\d+ henderson-lease/,
+        'the nudge must carry the #3224 --in-reply-to binding, not just the bare post command');
       /* The receipt is in the store; the second sweep is a no-op. */
       assert.equal(messages.record().rows.filter((m) => m.kind === 'nudge').length, 1);
       const second = messages.sweepUnanswered(board.agents);

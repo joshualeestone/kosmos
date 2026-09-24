@@ -6548,10 +6548,10 @@ test('the post route resolves the project, derives the member list, and fans out
        now sit adjacent, which is the only place in the app that says they are
        one project. What is still forbidden is the slug LOOSE in the sentence,
        and that is what this asserts. */
-    assert.doesNotMatch(addressed.replace(/ · to answer, run: kosmos post routeroom/g, ''), /routeroom/,
+    assert.doesNotMatch(addressed.replace(/ · to answer, run: kosmos post --in-reply-to m\d+ routeroom/g, ''), /routeroom/,
       'the slug reached the sentence an agent reads');
-    assert.match(addressed, /· to answer, run: kosmos post routeroom\]/,
-      'the envelope must carry the command WITH THE SLUG: the name is not a project kosmos post can resolve');
+    assert.match(addressed, /· to answer, run: kosmos post --in-reply-to m\d+ routeroom\]/,
+      'the envelope must carry the command WITH THE SLUG (and #3224 --in-reply-to): the name is not a project kosmos post can resolve');
     const rec = messagesEngine.record().rows.filter((m) => m.kind === 'post');
     assert.equal(rec.length, 1);
     assert.equal(rec[0].project, 'routeroom');
@@ -6622,10 +6622,10 @@ test('the room routes: the operator flag is minted only here, and the thread fil
       'an operator arrival did not carry the operator marker');
     // The same split as the addressed case above: name in the sentence, id in
     // the record (asserted at `row.project` a few lines up).
-    assert.doesNotMatch(opEnv.replace(/ · to answer, run: kosmos post opsroom/g, ''), /opsroom/,
+    assert.doesNotMatch(opEnv.replace(/ · to answer, run: kosmos post --in-reply-to m\d+ opsroom/g, ''), /opsroom/,
       'the slug reached the sentence an agent reads');
-    assert.match(opEnv, /· to answer, run: kosmos post opsroom\]/,
-      'an operator arrival must say how to answer it, which is the whole of kosmos#185');
+    assert.match(opEnv, /· to answer, run: kosmos post --in-reply-to m\d+ opsroom\]/,
+      'an operator arrival must say how to answer it (with the #3224 --in-reply-to binding), which is the whole of kosmos#185');
 
     // The THREAD, filtered by project alone: a foreign project's post and
     // a room valve row seeded straight into the record.
@@ -9899,8 +9899,8 @@ test('the operator envelope does not spend the person’s character budget', asy
   /**
    * 🛑 THE REGRESSION A PREPENDING CALLER WOULD HAVE SHIPPED. `messageProblem`
    * measures what it is handed, so gluing the envelope on before the check
-   * would refuse a message at exactly MAX_TEXT with *"keep it to 2000
-   * characters or fewer"* — naming a limit the text the person typed does not
+   * would refuse a message at exactly MAX_TEXT with *"keep it to 10000
+   * characters or fewer"* -- naming a limit the text the person typed does not
    * exceed, which is unfalsifiable from where they are standing. That is why
    * the envelope is a parameter of `deliver` rather than a concatenation.
    */
@@ -10749,7 +10749,7 @@ test('attachments: a file is uploaded to an agent, rides the message, reaches th
   assert.equal(fs.readdirSync(ownerDir).length, before, 'a file past the cap was kept');
 
   // A message at the cap still sends with an attachment: the path rides
-  // outside the person's 2000 characters, and a name with two spaces reaches
+  // outside the person's 10000 characters, and a name with two spaces reaches
   // the pane uncollapsed.
   const spaced = await fetch(base + '/api/agent/' + name + '/attachment', {
     method: 'PUT', headers: { 'content-type': 'text/plain', 'x-attachment-name': encodeURIComponent('Q3  report.txt') }, body: 'q3',

@@ -337,8 +337,8 @@ test('#570 headless: a pipe that never frees is given up on, and SAID', async ()
 
 test('#570 7c-3 more than a message is refused rather than buffered', async () => {
   /* An unauthenticated connection must not be able to grow the supervisor's heap.
-     chat.js caps a person's text at 2000 characters, so anything near this bound is
-     not a message somebody typed. */
+     chat.js caps a person's text at 10000 characters (well under MAX_REQUEST_BYTES,
+     128 KiB), so anything near this bound is not a message somebody typed. */
   const said = [];
   const s = serving('bounded', { onSay: (t, done) => { said.push(t); done({ ok: true }); } });
 
