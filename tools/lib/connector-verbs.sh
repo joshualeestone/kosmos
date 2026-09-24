@@ -30,20 +30,44 @@ connector_gate_value() {
   esac
 }
 
+# Runs `<bin> mac-request --help` with a bound of CONNECTOR_PROBE_SECONDS
+# (default 20; perl's alarm, since macOS has no `timeout`) and says which of three things happened: "has" (exit 0),
+# "old" (exit 2 with clap's "unrecognized subcommand"), or "unknown: <why>" for
+# anything else. Only "old" is evidence the connector predates the verb; a file
+# that is not executable, is killed by Gatekeeper, crashes or hangs is a
+# different problem with a different fix.
+connector_mac_request_probe() {
+  local bin="$1" err rc
+  if [ ! -x "$bin" ]; then echo "unknown: $bin is not executable"; return; fi
+  err="$(perl -e 'alarm shift; exec @ARGV or exit 127' "${CONNECTOR_PROBE_SECONDS:-20}" "$bin" mac-request --help 2>&1 >/dev/null)"; rc=$?
+  if [ "$rc" = 0 ]; then echo has; return; fi
+  if [ "$rc" = 2 ] && printf '%s' "$err" | grep -q "unrecognized subcommand"; then echo old; return; fi
+  echo "unknown: running it exited $rc${err:+ ($(printf '%s' "$err" | head -1))}"
+}
+
 connector_verbs_check() {
-  local bin="$1" gate_file="$2" gate
+  local bin="$1" gate_file="$2" gate probe
   gate="$(connector_gate_value "$gate_file")"
   if [ -z "$gate" ]; then
     echo "cannot read the phone-notifications ship gate in $gate_file (expected the line 'const PHONE_APP_CAN_RECEIVE = true;' or '= false;'); refusing rather than guessing" >&2
     return 1
   fi
-  if "$bin" mac-request --help >/dev/null 2>&1; then
-    return 0
-  fi
-  if [ "$gate" = true ]; then
-    echo "the Plus connector at $bin does not know 'mac-request', and PHONE_APP_CAN_RECEIVE is true, so this bundle would ship a phone-notifications switch that cannot turn on. Rebuild it with kosmos-relay tools/build-tunnel-release.sh (#103 or later), or set KOSMOS_TUNNEL_BIN to one that does." >&2
-    return 1
-  fi
-  echo "note: this Plus connector predates mac-request; harmless until PHONE_APP_CAN_RECEIVE opens (docs/phone-push-go-live.md, step 6)." >&2
-  return 0
+  probe="$(connector_mac_request_probe "$bin")"
+  case "$probe" in
+    has) return 0 ;;
+    old)
+      if [ "$gate" = true ]; then
+        echo "the Plus connector at $bin does not know 'mac-request', and PHONE_APP_CAN_RECEIVE is true, so this bundle would ship a phone-notifications switch that cannot turn on. Rebuild it with kosmos-relay tools/build-tunnel-release.sh (#103 or later), or set KOSMOS_TUNNEL_BIN to one that does." >&2
+        return 1
+      fi
+      echo "note: this Plus connector predates mac-request; harmless until PHONE_APP_CAN_RECEIVE opens (docs/phone-push-go-live.md, step 6)." >&2
+      return 0 ;;
+    *)
+      if [ "$gate" = true ]; then
+        echo "could not check the Plus connector at $bin for 'mac-request' (${probe#unknown: }), and PHONE_APP_CAN_RECEIVE is true, so refusing. Check the file itself: its exec bit, a quarantine flag, or a crash." >&2
+        return 1
+      fi
+      echo "note: could not check this Plus connector for mac-request (${probe#unknown: }); harmless until PHONE_APP_CAN_RECEIVE opens." >&2
+      return 0 ;;
+  esac
 }

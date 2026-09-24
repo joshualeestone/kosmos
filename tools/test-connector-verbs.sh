@@ -9,7 +9,7 @@ FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/connector-verbs.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 
 # Stand-in connectors: one that knows mac-request, one that answers like a pre-#103 build.
-NEW="$T/new-tunnel"; printf '#!/bin/sh\n[ "$1" = mac-request ] && exit 0\nexit 2\n' > "$NEW"; chmod +x "$NEW"
+NEW="$T/new-tunnel"; printf '#!/bin/sh\n[ "$1" = mac-request ] && [ "$2" = --help ] && exit 0\nexit 3\n' > "$NEW"; chmod +x "$NEW"
 OLD="$T/old-tunnel"; printf '#!/bin/sh\necho "error: unrecognized subcommand '"'"'$1'"'"'" >&2\nexit 2\n' > "$OLD"; chmod +x "$OLD"
 OPEN="$T/open.js"; printf "const x = 1;\nconst PHONE_APP_CAN_RECEIVE = true;\nlet available = PHONE_APP_CAN_RECEIVE;\n" > "$OPEN"
 SHUT="$T/shut.js"; printf "const PHONE_APP_CAN_RECEIVE = false;\n" > "$SHUT"
@@ -27,7 +27,19 @@ else bad "gate closed with an old connector was refused; it must only note it"; 
 # The gate line must be read exactly; anything else refuses rather than guessing.
 printf "const PHONE_APP_CAN_RECEIVE = process.env.X === '1';\n" > "$T/odd.js"
 connector_verbs_check "$NEW" "$T/odd.js" 2>"$T/err" && bad "an unreadable gate line was accepted" || { grep -q "cannot read the phone-notifications ship gate" "$T/err" && ok "a reworded gate line refuses, naming the line it expects" || bad "wrong reason for an unreadable gate: $(cat "$T/err")"; }
-connector_verbs_check "$NEW" "$T/nowhere.js" 2>"$T/err" && bad "a missing gate file was accepted" || ok "a missing gate file refuses"
+connector_verbs_check "$NEW" "$T/nowhere.js" 2>"$T/err" && bad "a missing gate file was accepted" || { grep -q "cannot read the phone-notifications ship gate" "$T/err" && ok "a missing gate file refuses, for that reason" || bad "wrong reason for a missing gate file: $(cat "$T/err")"; }
+
+# A connector that cannot be run is not evidence it is old: its own reason, never "rebuild the relay".
+NOX="$T/noexec-tunnel"; cp "$NEW" "$NOX"; chmod -x "$NOX"
+connector_verbs_check "$NOX" "$OPEN" 2>"$T/err" && bad "gate open, a non-executable connector was accepted" || { grep -q "could not check" "$T/err" && grep -q "not executable" "$T/err" && ! grep -q "build-tunnel-release" "$T/err" && ok "gate open, a non-executable connector refuses as unrunnable, not as old" || bad "wrong reason for a non-executable connector: $(cat "$T/err")"; }
+CRASH="$T/crash-tunnel"; printf '#!/bin/sh\necho "Segmentation fault" >&2\nexit 139\n' > "$CRASH"; chmod +x "$CRASH"
+connector_verbs_check "$CRASH" "$OPEN" 2>"$T/err" && bad "gate open, a crashing connector was accepted" || { grep -q "exited 139" "$T/err" && ! grep -q "does not know" "$T/err" && ok "gate open, a crash refuses naming its exit, not as old" || bad "wrong reason for a crash: $(cat "$T/err")"; }
+if connector_verbs_check "$CRASH" "$SHUT" 2>"$T/err"; then [ "$(wc -l < "$T/err" | tr -d ' ')" = 1 ] && grep -q "could not check" "$T/err" && grep -q "harmless" "$T/err" && ok "gate closed, a crash is one calm line and the build goes on" || bad "closed-gate crash note wrong: $(cat "$T/err")"; else bad "gate closed, a crashing connector was refused"; fi
+EXIT2="$T/other-exit2"; printf '#!/bin/sh\necho "error: the argument --coordinator is required" >&2\nexit 2\n' > "$EXIT2"; chmod +x "$EXIT2"
+connector_verbs_check "$EXIT2" "$OPEN" 2>"$T/err" && bad "an exit 2 without unrecognized subcommand was accepted" || { grep -q "could not check" "$T/err" && ok "exit 2 for another reason is not read as old" || bad "exit 2 misread: $(cat "$T/err")"; }
+HANG="$T/hang-tunnel"; printf '#!/bin/sh\nexec sleep 60\n' > "$HANG"; chmod +x "$HANG"
+start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$HANG" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
+[ "$took" -lt 10 ] && grep -q "could not check" "$T/err" && ok "a hanging connector is cut off by the bound (${took}s) and refused as unrunnable" || bad "a hang was not bounded (${took}s): $(cat "$T/err")"
 printf "// const PHONE_APP_CAN_RECEIVE = true;\nconst PHONE_APP_CAN_RECEIVE = false;\n" > "$T/commented.js"
 [ "$(connector_gate_value "$T/commented.js")" = false ] && ok "a commented-out line is not read as the gate" || bad "a commented-out declaration was read as the gate"
 
