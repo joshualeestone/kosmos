@@ -2193,7 +2193,7 @@ function keepAgentReply(who, text, at) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo }, roster) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -2204,7 +2204,42 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected },
   // its members). If archive ever comes to mean "closed", this is
   // the line that changes.
   const members = (found.agents || []).map((a) => a.sessionName);
+  // Sender validity FIRST, before the #3224 in_reply_to lookup below, so an explicitly
+  // invalid sender is refused uniformly and never reaches the lookup. Note this checks
+  // token/identity validity, NOT project membership (membership is enforced later, in
+  // messages.sendPost). So this does not fully replicate react()'s membership-before-
+  // lookup defense; the residual nameless existence tell is documented and accepted in
+  // the plan (loopback-bounded).
   if (sender && !sender.ok) return { state: 'could_not', because: sender.because };
+  /* #3224: if this post ANSWERS a specific message (in_reply_to), bind it to the
+     room that message came from. The answered post's project is a non-circular
+     oracle (recorded when it was posted, independent of this reply). If the target
+     project differs, this is the misroute Josh reported -- refuse rather than land
+     the answer in the wrong room. A citation that has aged out of the record
+     (projectOfPost null) is treated as absent: never block a legit reply over a stale
+     id. A proactive post (no in_reply_to) is unchanged. */
+  const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
+  if (citedId) {
+    let answeredProject = null;
+    try {
+      answeredProject = messages.projectOfPost(citedId);
+    } catch {
+      /* The record could not be read, so we cannot verify which room the answered
+         message is in. FAIL CLOSED (never post blind into a possibly-wrong room) --
+         retriable, matching the fail-closed sibling gates. A citation that simply is
+         not found returns null (below) and falls through; only an unreadable record
+         throws. */
+      return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
+    }
+    if (answeredProject && answeredProject !== found.id) {
+      /* Do NOT name the answered project here. The answering agent already holds its
+         name + id in the message envelope it is replying to, so naming it adds nothing
+         for the legitimate case -- and disclosing it would leak a project name to a
+         caller who may not be a member of that room (the id-enumeration tell react()
+         avoids). Reference only the cited id the caller already has. */
+      return { state: 'could_not', because: 'that message (' + citedId + ') belongs to a different room than the one you posted into. Answer it in the room it came from (shown in the message you are replying to), or post here without answering it.' };
+    }
+  }
   return messages.sendPost({
     fromPane,
     sender,
@@ -2286,6 +2321,9 @@ function drainOutboxNow(pass) {
         // during a wrongWorld/421 carries reply_expected:false. Forward it on drain, or the
         // replayed post would be reply-required again and reopen the loop for the kept-agent case.
         replyExpected: entry.body.reply_expected,
+        // #3224: the kept body carries in_reply_to too, so a replayed answer binds to
+        // the same room a live one would (and the mismatch guard applies identically).
+        inReplyTo: entry.body.in_reply_to,
       }, now));
     },
     onExpired: (entry, because) => {
@@ -10979,6 +11017,22 @@ const server = http.createServer((req, res) => {
           bad.status = 400;
           throw bad;
         }
+        /* #3224: in_reply_to, when present, must be a string message id -- validated as
+           a request-shape check before any side-effects. An explicit null is tolerated
+           and treated as absent (null is the message-record vocabulary's "no citation",
+           so a client mirroring that shape is not sending a spurious id): this is
+           deliberately MORE lenient than reply_expected above, which refuses null.
+           A non-null non-string is refused rather than String()-coerced into a spurious
+           id. An empty string is likewise treated as absent downstream (citedId is
+           whitespace-trimmed, so "" skips the bind); the CLIs refuse an empty
+           --in-reply-to before it reaches here, so that is a deliberate stricter-at-the-
+           CLI split, not a disagreement. Omitted is the common case (a proactive post).
+           Arms pinned by tests (null -> absent; "" -> absent; a number -> 400). */
+        if ('in_reply_to' in body && body.in_reply_to !== null && typeof body.in_reply_to !== 'string') {
+          const bad = new Error('in_reply_to must be a message id like m12');
+          bad.status = 400;
+          throw bad;
+        }
         const roster = safeRoster();
         if (roster === null) {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was posted' } });
@@ -10995,6 +11049,7 @@ const server = http.createServer((req, res) => {
           project: body.project,
           text: body.text,
           replyExpected: body.reply_expected,
+          inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
         }, roster);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
