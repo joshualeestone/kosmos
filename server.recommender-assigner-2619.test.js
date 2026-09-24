@@ -46,7 +46,7 @@ test('GET recommender defaults: OFF (behaviour pending), all three guards ON, gu
   const r = await getJson('/api/recommender-setting');
   assert.equal(r.on, false, 'an unwired automation must not read as on');
   assert.deepEqual(r.guards, { money: true, public: true, delete: true }, 'a never-configured install is maximally guarded');
-  assert.deepEqual(r.guardKeys, ['money', 'public', 'delete'], 'the UI needs the guard order the engine owns');
+  assert.deepEqual(r.guardKeys, ['money', 'public', 'delete'], 'the route publishes the guard order the engine owns (the behaviour PR live UI renders from it; the current disabled UI does not consume it yet)');
   assert.equal(r.ok, true);
 });
 

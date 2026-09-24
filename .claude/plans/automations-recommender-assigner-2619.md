@@ -24,9 +24,13 @@ contract the behaviour will read when it is built:
   a write failure returns a reason, never throws). Node-tested (17 tests).
 - `GET/PUT /api/recommender-setting` + `/api/assigner-setting`: the STATUS-control
   contract (a read error is 500, never a false position), matching heartbeat-setting.
-- Two Settings UI blocks in #s-sec-automation, following the exact Auto-save/Prompter
-  `.toggle` + paint/save/epoch-guard/could-not-read-hides-the-knob pattern. The
-  Recommender carries its three guard checkboxes.
+- Two Settings UI blocks in #s-sec-automation. **They render DISABLED with a "not
+  active yet" note** (Splinter, 2026-09-24: do not ship a switch a person can turn
+  on that does nothing). The Recommender shows its three guard checkboxes disabled
+  in their safe default (all on) so the person can see the carve-outs that will
+  apply. There is deliberately no interactive paint/save JS - a disabled control
+  cannot be clicked, so that wiring would be dead code; the behaviour PR re-enables
+  the controls, adds the paint/save wiring, and flips the default in one change.
 
 ## Decisions written here
 
@@ -67,10 +71,12 @@ that build has a contract, and shows the guards in Settings so the person can se
 
 ## Weakest premise
 
-That shipping OFF-default settings whose behaviour is not yet wired is the right
+That shipping the settings layer whose behaviour is not yet wired is the right
 increment (vs. holding the whole card until the behaviour exists). The case for
-shipping: the card literally asks to add them to Settings, Josh wants to pre-set the
-guards, and the persistence is the contract the behaviour needs. The risk: a person
-turns one on and nothing happens. Mitigated by OFF-default (they are not on unless
-deliberately turned on) and honest copy; the real fix is landing the behaviour, which
-is the documented follow-up.
+shipping: the card literally asks to add them to Settings, and the persistence is the
+contract the behaviour needs. The original risk - a person turns one on and nothing
+happens - is now removed rather than merely mitigated: Splinter's directive makes the
+controls DISABLED with a "not active yet" note, so there is no actionable control that
+no-ops. The residual is only that the person cannot pre-set the guards through the UI
+yet (the engine supports it; the disabled UI does not expose it); that is resolved
+when the behaviour PR enables the controls, which is where pre-setting becomes useful.
