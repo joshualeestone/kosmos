@@ -16,15 +16,20 @@ A shared helper, `test-support/board-child.js`:
   signal code. It waits on 'exit', not 'close', because a grandchild that inherited the stdio
   pipes holds 'close' open after the board is gone. It returns at once for a child already
   dead, and gives up after GIVE_UP_MS (10s), logging a line, so a child that never reports
-  back cannot hang the suite (node --test has no per-test timeout).
+  back cannot hang the suite (tools/run-tests.sh sets no per-test timeout). An 'error' (a
+  failed signal) does not end the wait.
 - `runUntilBanner(child, { settleMs })` collects output until the banner, then stops the
   board. A board that dies first ends the wait on its 'close' (so its output is complete)
   instead of sitting out the 8s banner timeout.
 
-Callers, each asserting `dead` before its sandbox is deleted:
+Callers, each asserting `dead`:
 server.supervisor-refresh.test.js, server.reports-refresh-1676.test.js,
 server.connections-refresh-1649.test.js (inside `boot()`), server.you-verdicts-1684.test.js
 and server.startup.test.js (after the `finally`; startup keeps its SIGKILL via `signal`).
+The three banner files and you-verdicts assert before the delete, so a live board keeps its
+sandbox. Startup deletes inside its `finally` and asserts after it, so it reports a live board
+rather than preventing the delete; moving the assertion into the `finally` would mask an
+earlier failure in that test.
 Not changed: server.world-boot-sandbox-2628.test.js already waits on 'exit' before its
 `test.after` cleanup; engine/win32apply.test.js polls the pid; tools.win-launcher-native kills
 bare socket listeners that write nothing into the sandbox.

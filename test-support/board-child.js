@@ -15,8 +15,8 @@
    a loaded machine before escalating to SIGKILL. */
 const GRACE_MS = 5000;
 /* Past GRACE_MS plus the time a SIGKILLed process takes to be reaped. Exists at
-   all because node --test has no per-test timeout, so a child that never
-   reports back would otherwise hang the whole suite. */
+   all because tools/run-tests.sh runs node --test with no per-test timeout, so a
+   child that never reports back would otherwise hang the whole suite. */
 const GIVE_UP_MS = 10000;
 /* How long a boot test waits for the "Kosmos on http" banner. */
 const BANNER_TIMEOUT_MS = 8000;
@@ -31,10 +31,10 @@ const BANNER_TIMEOUT_MS = 8000;
 function stopBoard(child, { signal = 'SIGTERM', graceMs = GRACE_MS, giveUpMs = GIVE_UP_MS } = {}) {
   const isDead = () => child.exitCode !== null || child.signalCode !== null;
   if (isDead()) return Promise.resolve(true);
-  const exited = new Promise((r) => {
-    child.once('exit', () => r('exit'));
-    child.once('error', () => r('error'));
-  });
+  /* 'exit' only. A failed signal emits 'error' while the board still runs, and
+     that must not end the wait or skip the SIGKILL. */
+  const exited = new Promise((r) => { child.once('exit', () => r('exit')); });
+  child.on('error', () => { /* a failed signal; the escalation and give-up still apply */ });
   try { child.kill(signal); } catch { /* already gone */ }
   const hard = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } }, graceMs);
   let giveUp;

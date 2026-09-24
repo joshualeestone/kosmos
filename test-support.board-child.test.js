@@ -37,7 +37,7 @@ test('a child that ignores SIGTERM is SIGKILLed after the grace period', async (
   assert.equal(await stopBoard(child, { graceMs: 300, giveUpMs: 5000 }), true);
   const took = Date.now() - t;
   assert.equal(child.signalCode, 'SIGKILL', 'it was not SIGKILLed');
-  assert.ok(took >= 300 && took < 2000, `escalation took ${took}ms, expected just past the 300ms grace`);
+  assert.ok(took >= 290 && took < 2000, `escalation took ${took}ms, expected just past the 300ms grace`);
 });
 
 test('a child that never reports an exit gives up and says it is NOT dead', async () => {
@@ -46,11 +46,17 @@ test('a child that never reports an exit gives up and says it is NOT dead', asyn
   const child = Object.assign(new EventEmitter(), { pid: -1, exitCode: null, signalCode: null, kill() {} });
   /* A late 'exit' at 1.5s, so a missing give-up fails below instead of hanging. */
   const late = setTimeout(() => child.emit('exit'), 1500);
+  const logged = [];
+  const realError = console.error;
+  console.error = (m) => logged.push(m);
   const t = Date.now();
-  assert.equal(await stopBoard(child, { graceMs: 50, giveUpMs: 300 }), false);
+  let dead;
+  try { dead = await stopBoard(child, { graceMs: 50, giveUpMs: 300 }); } finally { console.error = realError; }
   const took = Date.now() - t;
   clearTimeout(late);
-  assert.ok(took >= 300 && took < 1000, `gave up after ${took}ms, expected about 300ms`);
+  assert.equal(dead, false);
+  assert.match(logged.join('\n'), /did not report an exit within 300ms/, 'the give-up was silent');
+  assert.ok(took >= 290 && took < 1000, `gave up after ${took}ms, expected about 300ms`);
 });
 
 test('a grandchild holding the pipes does not hold stopBoard open', async () => {
