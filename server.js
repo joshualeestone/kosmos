@@ -633,6 +633,7 @@ const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
+const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
@@ -14729,6 +14730,36 @@ function start(port = PORT) {
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only
       if (class1Sweep && typeof class1Sweep.unref === 'function') class1Sweep.unref();
+      /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
+         until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
+         stuck on a project past the grace period it convenes help ONCE: a room note in Kosmos's
+         voice asking up to two members for one reply each, then the playbook into the stuck
+         agent's pane. The item is marked convened ONLY on a PLACED pane delivery, so an
+         unconfirmed inject is retried (the auto-save sweep's rule). The pure decision, caps and
+         texts are engine/recommender.js. Gated on live execution exactly like the class-1 sweep:
+         it types into agents' panes, so it is inert under `node --test` and before opt-in.
+         safeRoster(), never paneRoster(): it needs stateReportedBy/stateProject and full cards
+         for chat.deliver. Own ~1-min timer, unref'd, best-effort. */
+      let recommenderPrev;
+      const recommenderSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
+        try {
+          const setting = recommenderSetting.read();
+          const roster = setting.on ? safeRoster() : null;
+          const members = new Map(projects.readAll().map((p) => [p.id, Array.isArray(p.agents) ? p.agents : []]));
+          const out = recommender.step({ prev: recommenderPrev, roster, setting, members, now: Date.now() });
+          recommenderPrev = out.next;
+          for (const item of out.toConvene) {
+            if (!item.retry) messages.roomNote(item.project, recommender.roomNoteText(item)); // once per item
+            let verdict;
+            try { verdict = chat.deliver(item.session, recommender.playbookText(item, setting), roster, undefined, undefined); }
+            catch { verdict = { state: chat.DELIVERY.COULD_NOT }; }
+            recommender.markAttempt(recommenderPrev, item.key, !!verdict && verdict.state === chat.DELIVERY.PLACED);
+            process.stdout.write(`recommender: ${item.name} (${item.session}) on ${item.project}: ${verdict && verdict.state}\n`);
+          }
+        } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
+      if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
       /* #2037 PR-C1: the daily product-feedback send sweep. The long-lived board
          owns the trigger because the short-lived `kosmos feedback` CLI cannot
          fire-and-forget a send (it exits). sendDailyOnce is opt-in-gated (default

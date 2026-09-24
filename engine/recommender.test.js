@@ -57,15 +57,32 @@ test('setting OFF convenes nothing and resets memory; a null roster keeps memory
   assert.equal(blind.next, seen.next, 'a roster read failure dropped the memory');
 });
 
-test('an item is convened once: marked items never fire again; unmarked ones retry', () => {
+test('an item is convened once: a PLACED delivery ends it; an unplaced one retries the PANE only, capped', () => {
   const roster = [agent()];
   const a = afterGrace(roster);
   assert.equal(a.toConvene.length, 1);
-  const retry = r.step({ prev: a.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000 });
-  assert.equal(retry.toConvene.length, 1, 'an undelivered item was not retried');
-  r.markConvened(retry.next, retry.toConvene[0].key);
-  const again = r.step({ prev: retry.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 120000 });
-  assert.equal(again.toConvene.length, 0, 'a convened item fired twice');
+  assert.equal(a.toConvene[0].retry, false, 'the first convening must post the room note');
+  r.markAttempt(a.next, a.toConvene[0].key, false); // room note out, pane not placed
+  let prev = a.next; let now = T0 + r.GRACE_MS;
+  for (let i = 1; i < r.MAX_DELIVERY_ATTEMPTS; i++) {
+    now += 60000;
+    const again = r.step({ prev, roster, setting: ON, members, now });
+    assert.equal(again.toConvene.length, 1, 'an unplaced delivery was not retried (attempt ' + i + ')');
+    assert.equal(again.toConvene[0].retry, true, 'a retry would post a second room note');
+    r.markAttempt(again.next, again.toConvene[0].key, false);
+    prev = again.next;
+  }
+  const exhausted = r.step({ prev, roster, setting: ON, members, now: now + 60000 });
+  assert.equal(exhausted.toConvene.length, 0, 'retries were not capped');
+  // Retries charged no budget: a second item for the same agent still fits the per-agent cap.
+  const two = r.step({ prev: exhausted.next, roster: [agent(), agent({ because: 'another item' })], setting: ON, members, now: now + 60000 + r.GRACE_MS });
+  const three = r.step({ prev: two.next, roster: [agent(), agent({ because: 'another item' })], setting: ON, members, now: now + 60000 + 2 * r.GRACE_MS });
+  assert.equal(three.toConvene.filter((c) => !c.retry).length, 1, 'retries spent the per-agent budget');
+  // And a PLACED delivery ends the item for good.
+  const fresh = afterGrace(roster);
+  r.markAttempt(fresh.next, fresh.toConvene[0].key, true);
+  const done = r.step({ prev: fresh.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000 });
+  assert.equal(done.toConvene.length, 0, 'a convened item fired twice');
 });
 
 test('a resolved item is forgotten, so the same words later are a new item', () => {
