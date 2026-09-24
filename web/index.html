@@ -32624,7 +32624,6 @@ function takeOverDisplayColumn() {
   // paintPjNone keeps #pj-none hidden while an overlay is open (the 5s poll re-runs it); hide it
   // now so it does not flash over the overlay before the next paint.
   { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
-  syncPlusChrome();   // #3599: settings just left the column, so Kosmos+'s blue leaves with it
 }
 /* Open the app settings inside the consolidated display column, staying in the
    consolidated view. Swaps the display column to the settings panel (hiding the
@@ -32735,6 +32734,7 @@ function openConsolidatedCreate() {
   placeCreatePanel(true);
   takeOverDisplayColumn();   // #3053: prepare the column (hides any settings overlay too)
   document.getElementById('panel-create').hidden = false;
+  syncPlusChrome();   // #3599: New Agent replaced Settings in the column, so Kosmos+'s blue leaves with it
 }
 /* #2618: the in-tab layout tiles + Activate (kosmos#1216) lived in the removed
    Settings > Styles tab. The header board-view toggle below (#2154) is now the only
@@ -38747,7 +38747,7 @@ async function watchForAgent(name, result, attempt) {
  * ------------------------------------------------------------------------ */
 
 let PROJECTS = [];
-let PJ_LOADED_ONCE = false;  // #774: the empty-centre sentence may say "No projects yet" only after a read, never before one
+let PJ_LOADED_ONCE = false;  // true once the first projects read has landed (the browser checks seed it); paintPjNone no longer reads it since #3597
 
 /* #2407: a subtle "bubble pop" when a new message lands on a project, so a person
    notices without watching the screen. Josh's pick from the audition page (Option 5),

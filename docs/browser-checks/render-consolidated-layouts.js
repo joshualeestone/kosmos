@@ -136,8 +136,8 @@ const path = require('path');
   // click handler calls -- so it returns to the list view without the hidden click.
   await pg.click('#rail-agents-fold'); await forceNothingOpen(); await pg.waitForTimeout(400);
 
-  // #3126 (Josh, 6.68): a board with no projects: the open rail's own card says it,
-  // so the sentence stays hidden; a failed read never says "no projects". The
+  // #3597 (Josh, 0.6.91 QA): a board with no projects yet shows the centred sentence too
+  // ("when there's no project available"); a failed read stays silent. #3126: the
   // projects column is no longer collapsible, so the folded variants (press + /
   // "folded; press ›") were removed - fold-p can never be set.
   const paintAs = (loaded, failed) => pg.evaluate(([l, f]) => {
@@ -148,7 +148,7 @@ const path = require('path');
     PROJECTS = keep.P; PJ_LOADED_ONCE = keep.L; PJ_READ_FAILED = keep.F; paintPjNone('list');
     return t;
   }, [loaded, failed]);
-  say((await paintAs(true, false)) === null, 'no projects, rail open: the sentence is hidden (the rail card says it)');
+  say(/Open or create a project to get started/.test((await paintAs(true, false)) || ''), 'no projects yet: the centre says to open or create one (#3597)');
   say(/Open or create a project to get started/.test((await paintAs(false, false)) || ''), 'before the first read: never "No projects yet"');
   say((await paintAs(true, true)) === null, 'after a failed read, rail open: silence beside the rail\'s own message');
 

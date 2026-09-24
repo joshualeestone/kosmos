@@ -249,6 +249,13 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const on = blue();
       const bg = /gradient/.test(getComputedStyle(document.body).backgroundImage);
       const tickSees = typeof plusOnScreen === 'function' && plusOnScreen();   // the #743 status tick reads the same predicate
+      // Re-opening Settings while already on Kosmos+ must not tear the canvases down and
+      // remount them (the wordmark's intro would replay for nothing). Count teardowns.
+      let teardowns = 0; const realTeardown = window.plusTeardown;
+      window.plusTeardown = function () { teardowns += 1; return realTeardown.apply(this, arguments); };
+      openConsolidatedSettings();
+      window.plusTeardown = realTeardown;
+      const reopenTeardowns = teardowns;
       document.querySelector('#s-nav button[data-go="you"]').click();
       const offOnSection = !blue();
       toPlus(); pjView('one');                          // project navigation leaves Settings
@@ -256,10 +263,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       toPlus(); openConsolidatedCreate();               // New Agent takes over the column
       const offOnCreate = !blue();
       pjView('list');
-      return { on, bg, tickSees, offOnSection, offOnProject, offOnCreate };
+      return { on, bg, tickSees, reopenTeardowns, offOnSection, offOnProject, offOnCreate };
     });
     ok(t + ' #3599 Kosmos+ in the consolidated view is on the blue ground, and the status tick sees it on screen', plus.on === true && plus.bg === true && plus.tickSees === true, JSON.stringify(plus));
     ok(t + ' #3599 the blue leaves with it: another section, opening a project, or New Agent', plus.offOnSection === true && plus.offOnProject === true && plus.offOnCreate === true, JSON.stringify(plus));
+    ok(t + ' #3599 re-opening Settings while on Kosmos+ keeps the canvases (no teardown)', plus.reopenTeardowns === 0, JSON.stringify(plus));
     // #3597: with nothing open the centre says "Open or create a project to get started." centred
     // both ways in the display column (it sat top-left).
     const none = await page.evaluate(() => {
