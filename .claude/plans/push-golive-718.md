@@ -14,7 +14,7 @@ file, env var, command and log line it names exists at kosmos `main` 8c4ca1d5 / 
 - Code in both repos at origin/main, read by a citation-only search and spot-checked by hand:
   the live coordinator build (`/v1/meta` = 2226c9d, without #103 or #104), the env template's zero
   push vars, the local `dist/kosmos-tunnel` rejecting `mac-request`, the gate test, every named file.
-- Android facts: Sonya (m463, corrected in m464: the AAB is built and verified on her branch).
+- Android facts: Sonya (m463, corrected in m464: the AAB is built and verified on her branch, now PR #3644, m477).
 - Apple: everything (team, App ID, provisioning profile, .p8) comes from the new Apple Developer org
   Kosmos Agent Manager, Inc., pending Apple approval (Liu Kang m471, from Splinter and Josh). An
   earlier draft named the Stone Syndicate team from a fleet memory note; that was replaced.
