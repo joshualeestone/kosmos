@@ -608,7 +608,7 @@ async function forget() {
     address: was.address,
     because: !was.enrolled ? 'this computer was not set up for Plus, so there was nothing to retire'
       : retired ? null
-      : 'this computer is forgotten here, but the coordinator could not be told (' + because + '); its address may still show on your account page until you remove it there',
+      : 'this computer is forgotten here, but your Kosmos+ account could not be updated (' + because + '); its address may still show on your account page until you remove it there',
   };
 }
 
