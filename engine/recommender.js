@@ -12,14 +12,16 @@
  * touches an active guard stays with the person.
  *
  * WHAT IT DELIBERATELY DOES NOT DO.
+ * - It never types into a peer that is not on the board idle or working (see PEER_STATES).
  * - It never acts on `blocked`. That report means waiting on something that is not a decision
  *   (a dependency another party owns), which peer advice cannot unblock, and its card carries
  *   no project and no provenance, so there would be no room to ask in anyway.
  * - It never acts on a report the agent did not make: a by:'auto' report is a hook's (a
  *   permission prompt, a provider outage, an end-of-turn idle) and an operator report is the
  *   person's. Only stateReportedBy === 'agent' is an agent saying "I am stuck on a decision".
- * - It never convenes twice for the same item within one board run (the memory is in
- *   process, so a board restart can convene a still-standing item once more), and it is
+ * - It never convenes twice for the same item within an hour of acting on it, in one board run
+ *   with the setting left on (the memory is in process and turning the setting off clears it,
+ *   so a restart or an off/on can convene a still-standing item once more), and it is
  *   capped per hour overall and per agent, so a flapping report cannot flood a room.
  * - It enforces the three guards at the INSTRUCTION level only (the playbook names the active
  *   ones). Agents run with bypass permissions, so nothing mechanical stops a guarded action;
@@ -72,13 +74,17 @@ function stuckRow(a) {
   };
 }
 
-/* Up to MAX_PEERS other members of the project, preferring members who are not themselves
-   stuck; deterministic (member order) so a retry asks the same people. */
-function peersFor(session, members, stuckSessions, names) {
-  const others = (Array.isArray(members) ? members : []).filter((m) => m && m !== session);
-  const free = others.filter((m) => !stuckSessions.has(m));
-  const busy = others.filter((m) => stuckSessions.has(m));
-  return free.concat(busy).slice(0, MAX_PEERS).map((m) => ({ session: m, name: (names && names.get(m)) || m }));
+/* A peer is asked only if its card is on the board in one of these states. Anything else is
+   skipped: absent or stopped cannot be typed at, and ANY needs_you (a question, or a permission
+   prompt where a typed Enter would pick the highlighted option) must not be typed into. */
+const PEER_STATES = ['idle', 'working'];
+
+/* Up to MAX_PEERS other members of the project who are on the board and idle or working, idle
+   first; deterministic (member order within a state) so the choice is stable. */
+function peersFor(session, members, cards) {
+  const others = (Array.isArray(members) ? members : []).filter((m) => m && m !== session && cards.has(m));
+  const ranked = PEER_STATES.flatMap((st) => others.filter((m) => cards.get(m).state === st));
+  return ranked.slice(0, MAX_PEERS).map((m) => ({ session: m, name: cards.get(m).name || m }));
 }
 
 /**
@@ -98,9 +104,8 @@ function step({ prev, roster, setting, members, now }) {
   // (the Prompter's rule, engine/heartbeat.js step()).
   if (roster === null || roster === undefined) return { toConvene: [], next: base };
   const rows = Array.isArray(roster) ? roster : [];
-  const names = new Map(rows.filter((a) => a && a.sessionName).map((a) => [a.sessionName, a.name || a.sessionName]));
+  const cards = new Map(rows.filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
   const stuck = rows.map(stuckRow).filter(Boolean);
-  const stuckSessions = new Set(stuck.map((s) => s.session));
   const log = (Array.isArray(base.log) ? base.log : []).filter((e) => e && now - e.at < HOUR_MS);
   const items = new Map();
   const toConvene = [];
@@ -120,13 +125,18 @@ function step({ prev, roster, setting, members, now }) {
     if (now - rec.firstSeen < GRACE_MS) continue;
     if (log.length >= MAX_PER_HOUR) continue;
     if (log.filter((e) => e.session === s.session).length >= MAX_PER_AGENT_PER_HOUR) continue;
-    const peers = peersFor(s.session, members && members.get(s.project), stuckSessions, names);
+    const peers = peersFor(s.session, members && members.get(s.project), cards);
     rec.peers = peers;
     toConvene.push({ key, ...s, peers, retry: false });
     // The budget is charged once per item, when it is first convened (its room note).
     log.push({ at: now, session: s.session });
   }
-  // Items no longer stuck are dropped, so a later report of the same text is a new item.
+  // An item no longer stuck is kept for an hour after it was acted on, so a card that flaps
+  // for a tick (or the same question asked again soon) is not convened a second time. After
+  // that, or if it was never acted on, it is dropped and the same words are a new item.
+  for (const [key, rec] of base.items) {
+    if (!items.has(key) && rec && rec.noted && now - rec.notedAt < HOUR_MS) items.set(key, rec);
+  }
   return { toConvene, next: { items, log } };
 }
 
@@ -134,15 +144,15 @@ function step({ prev, roster, setting, members, now }) {
    COULD_NOT ends the item, because UNCONFIRMED means text may already be in the pane and a
    re-send could duplicate it (chat.js DELIVERY). Only COULD_NOT, where nothing reached the
    pane, is retried. `asked` is the peers whose ask was placed, kept for the retry's wording. */
-function markAttempt(next, key, delivered, DELIVERY, asked) {
+function markAttempt(next, key, delivered, DELIVERY, asked, now) {
   const rec = next && next.items && next.items.get(key);
   if (!rec) return;
+  if (!rec.noted) rec.notedAt = now;
   rec.noted = true;
   rec.attempts = (rec.attempts || 0) + 1;
   if (Array.isArray(asked)) rec.asked = asked;
   if (delivered !== DELIVERY.COULD_NOT && delivered !== null && delivered !== undefined) rec.convened = true;
 }
-
 
 function activeGuards(setting) {
   const g = (setting && setting.guards) || {};
@@ -151,11 +161,13 @@ function activeGuards(setting) {
 }
 
 /* The room note, in Kosmos's voice (messages.roomNote). A note is a record in the room; it is
-   not delivered to anyone, which is why the asks go to the peers' panes (peerAskText). */
+   not delivered to anyone, which is why the asks go to the peers' panes (peerAskText). It is
+   written after the asks and names only the peers who were reached. */
 function roomNoteText(item) {
-  const ask = item.peers.length
-    ? 'Kosmos is asking ' + item.peers.map((p) => p.name).join(' and ') + ' for one reply each here, with the call they would make and why.'
-    : 'No one else is on this project, so ' + item.name + ' will decide it and note the reasoning here.';
+  const asked = Array.isArray(item.asked) ? item.asked : [];
+  const ask = asked.length
+    ? 'Kosmos asked ' + asked.map((p) => p.name).join(' and ') + ' for one reply each here, with the call they would make and why.'
+    : item.name + ' will decide it and note the reasoning here.';
   return 'Recommender: ' + item.name + ' is stuck on: "' + item.because + '". ' + ask;
 }
 
@@ -177,7 +189,7 @@ function playbookText(item, setting) {
     peers
       ? 'I asked ' + peers + ' for one reply each in the project room. Give them a few minutes, then decide.'
       : (item.peers.length
-        ? 'I could not reach the other members of this project, so decide it yourself now.'
+        ? 'None of the other members of this project could be reached, so decide it yourself now.'
         : 'No one else is on this project, so decide it yourself now.'),
     'Post your decision in the project room with: the call, what you rejected and why, the weakest premise, and what would change your mind. Then carry it out and clear your report (kosmos report working).',
   ];
@@ -203,11 +215,11 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
     let asked = item.asked || [];
     let noteLanded = null;
     if (!item.retry) {
-      try { noteLanded = roomNote(item.project, roomNoteText(item)) !== false; } catch { noteLanded = false; }
       asked = item.peers.filter((p) => send(p.session, peerAskText(item)) === DELIVERY.PLACED);
+      try { noteLanded = roomNote(item.project, roomNoteText({ ...item, asked })) !== false; } catch { noteLanded = false; }
     }
     const verdict = send(item.session, playbookText({ ...item, asked }, setting));
-    markAttempt(out.next, item.key, verdict, DELIVERY, item.retry ? undefined : asked);
+    markAttempt(out.next, item.key, verdict, DELIVERY, item.retry ? undefined : asked, now);
     acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry,
       noteLanded, asked: asked.map((p) => p.session), verdict });
   }

@@ -6586,6 +6586,11 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* #3595: this setting now drives the Recommender, and its guards are the feature's only
+           protection. An agent (a board-token or tokenless process caller, e.g. the CLI under
+           bypass permissions) must not be able to switch them off, so only the person's screen
+           may change it. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         // One change per PUT (the UI commits each control on flip): either the
         // on/off toggle, or ONE guard. setGuard merges a single guard so the other
         // two are never reset (write({guards}) would refill missing guards to on).
@@ -14744,7 +14749,8 @@ function start(port = PORT) {
         try {
           const setting = recommenderSetting.read();
           const roster = setting.on ? safeRoster() : null;
-          const members = setting.on ? new Map(projects.readAll().map((p) => [p.id, Array.isArray(p.agents) ? p.agents : []])) : new Map();
+          // Archived projects are left out, so their members are never asked.
+          const members = setting.on ? new Map(projects.readAll().filter((p) => p && p.archived !== true).map((p) => [p.id, Array.isArray(p.agents) ? p.agents : []])) : new Map();
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
             roomNote: (projectId, text) => messages.roomNote(projectId, text),

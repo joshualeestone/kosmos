@@ -84,14 +84,16 @@ const readRow = () => {
   try {
     for (const theme of ['light', 'dark']) {
       // Start each theme from the default (nothing stored), so the default-OFF read is real.
-      await (await browser.newPage()).request.put(URL + '/api/recommender-setting', { data: { on: false } }).catch(() => {});
+      // The PUT only accepts a screen caller (#3595), so the reset says it is one.
+      const reset = await (await browser.newPage()).request.put(URL + '/api/recommender-setting', { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
+      chk(reset.status() === 200, `[${theme}] setup: the setting was reset to off`, String(reset.status()));
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: theme });
       await openAutomation(page, URL);
       await page.waitForFunction(() => document.getElementById('rec-toggle').hasAttribute('aria-checked'), null, { timeout: 8000 }).catch(() => {});
       const off = await page.evaluate(readRow);
       chk(off.toggleVisible && off.checked === 'false', `[${theme}] the Recommender toggle is on screen and reads OFF by default`, JSON.stringify(off));
       chk(!off.guardsVisible && off.offNoteVisible, `[${theme}] while off, the guards hide and the off note shows`, JSON.stringify(off));
-      chk(/Kosmos asks two of its teammates/.test(off.hint) && !/agree on a recommendation/.test(off.hint),
+      chk(/Kosmos asks up to two of its teammates/.test(off.hint) && !/agree on a recommendation/.test(off.hint),
         `[${theme}] the hint says what ships`, JSON.stringify(off.hint));
 
       await page.click('#rec-toggle');
