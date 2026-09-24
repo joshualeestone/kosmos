@@ -715,7 +715,8 @@ it before any clean result below is worth reading.
 **`render-updates-stale.js`** writes its screenshots into the directory you pass (argv[2]); `shots/updates-stale.png` and `shots/updates-current.png` are copies of one run, and a rerun does not touch them. Copy over when they are what you want in the PR.
 
 **`click-first-run.js`** clicks the whole thing like a person: every step, Back,
-Skip, Escape, the hand-off into creating an agent, a returning visit, a failing
+Skip, Escape, the Giddy Up landing on the Agents dashboard and creating an agent
+from there, a returning visit, a failing
 `/api/first-run`, a failing `/api/machine`, and a completion flag that will not
 stick. It asserts against the DOM and the real flag file, never against source.
 

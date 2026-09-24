@@ -126,8 +126,8 @@ test('#2497 follow-on: the Giddy Up welcome carries the manual-import POINTER su
   assert.match(body, /Already have agents in Claude Code or Codex on this computer\?/,
     'the #2497 manual-import pointer sub-line is gone from the Giddy Up welcome');
   // #3575: Giddy Up now lands on the dashboard, so Import is not "the next screen" any more; the
-  // pointer names the real path (the empty state's button, then the Import option by its label).
-  assert.match(body, /choose Create your first agent, then pick the Import option\./,
+  // pointer names the real path (New agent, which shows on an empty and a populated board).
+  assert.match(body, /choose New agent, then pick the Import option\./,
     'the #2497 pointer no longer names the manual Import path from the dashboard (#3575)');
   assert.doesNotMatch(body, /On the next screen you can import/,
     '#3575: the pointer still says Import is on the next screen, which is now the dashboard');
