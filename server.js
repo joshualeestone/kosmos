@@ -704,6 +704,7 @@ const createdbeacon = require('./engine/createdbeacon'); // #3038: install + age
 const heartbeat = require('./engine/heartbeat');
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
+const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
@@ -14797,6 +14798,31 @@ function start(port = PORT) {
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only
       if (class1Sweep && typeof class1Sweep.unref === 'function') class1Sweep.unref();
+      /* #3410 PR 2b: recover a network-wedged agent by itself. When an agent's pane has read
+         connection_lost with the same error line on consecutive ticks and the API host is
+         reachable again, type one retry message into it (engine/connlost-heal.js: a nudge keeps the
+         agent's context, where a restart would lose it). At most 3 nudges in 30 minutes, then it
+         stops and the card stays red for a person. Same gating as the class-1 sweep: inert under
+         `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1, own ~1-min timer, unref'd, best-effort. */
+      const connlostBook = new Map();
+      let connlostBusy = false;
+      const connlostSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
+        if (process.env.AGENT_WORKFORCE_CONNLOST_HEAL_OFF === '1') return; // operator brake
+        if (connlostBusy) return; // a slow probe must not overlap the next tick
+        connlostBusy = true;
+        let roster;
+        try { roster = safeRoster(); } catch { connlostBusy = false; return; }
+        connlostHeal.sweepOnce({
+          roster, book: connlostBook, now: Date.now(),
+          probe: () => connlostHeal.probeApi(),
+          deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+          DELIVERY: chat.DELIVERY,
+          log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? (r.delivered ? ' delivered' : ' NOT delivered') : ''} - ${r.because}\n`),
+        }).catch(() => { /* best-effort, like the sweeps above */ }).finally(() => { connlostBusy = false; });
+      }, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
+      if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask
