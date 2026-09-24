@@ -44,6 +44,9 @@
 #   A21 R2's zip bytes do not hash to the sha its pointer and sidecar agree on -> refuse
 #   A22 the committed Windows name has no readable version -> a "cannot be told" NOTE, never the
 #       "committed is older, stale" claim; rc 0
+#   A23 right after a Windows promote R2 missed: committed 0.6.40, R2 0.6.30, and the staging pointer
+#       still names the committed 0.6.40 -> the staged build is superseded (vs the committed build),
+#       so the deploy reaches the unpublished WARNING and exits 0 instead of dying on the staged zip
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -161,6 +164,7 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 # $2 (optional) staged: "" none | old (0.6.45, absent from R2) | new (0.6.55, in R2) | new-missing
 #    | old-withnew (old, and the site ALSO commits WZ_NEW so KOSMOS_WIN_ZIP can name it)
 #    | new-skewed (new-missing, but the staging pointer's version field says 0.6.30)
+#    | committed (the staging pointer names the committed prod build WZ_OLD, as after a promote)
 make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   local mode="$1" staged="${2:-}" s live r2 realsha oldsha newsha sv sz
   s="$(mktemp -d "$T/site.XXXXXX")"; live="$(mktemp -d "$T/live.XXXXXX")"; r2="$(mktemp -d "$T/r2.XXXXXX")"
@@ -202,7 +206,9 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   fi
   printf 'WINALIAS\n' > "$s/dist/kosmos-win-x64.zip"
   ( cd "$s/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
-  if [ -n "$staged" ]; then
+  if [ "$staged" = committed ]; then
+    write_win_ptr "$s/dist/latest-win-staging.json" "$WV_OLD" "$oldsha"
+  elif [ -n "$staged" ]; then
     case "$staged" in old|old-withnew) sv=0.6.45 ;; *) sv=0.6.55 ;; esac
     sz="kosmos-$sv-win-x64.zip"
     printf 'STAGED-%s\n' "$sv" > "$s/dist/$sz"
@@ -482,5 +488,14 @@ else
   bad "A22: an unversioned committed name was mislabeled or failed (rc=$RC); out=$out"
 fi
 
+# A23) the post-promote shape: the staged build equals the committed one, R2 serves an older build.
+read -r S L R <<<"$(make_scenario redirect-behind committed)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "BUT (#3600) the Windows build $WZ_OLD is committed and NOT served" && has "$out" "not newer than the prod Windows build $WV_OLD"; then
+  pass "A23: staged == committed while R2 lags -> staged superseded, the unpublished warning prints, rc=0"
+else
+  bad "A23: the post-promote R2-lag state died on the staged zip or lost the warning (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 22 arms passed"
+echo "test-deploy-site-served-win-3600: all 23 arms passed"

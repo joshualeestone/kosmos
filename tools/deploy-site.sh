@@ -459,7 +459,7 @@ rm -rf "$EXPORT"
 # failed fetch is not hidden by the pipe's status). Returns 1, printing nothing, if the fetch fails.
 served_sha256() {  # <path-under-dist>
   _sst=$(mktemp "${TMPDIR:-/tmp}/deploy-site-served.XXXXXX")
-  curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/$1" -o "$_sst" || { rm -f "$_sst"; return 1; }
+  curl -fsSL --connect-timeout 10 --max-time 300 -H 'Cache-Control: no-cache' "$HOST/dist/$1" -o "$_sst" || { rm -f "$_sst"; return 1; }
   shasum -a 256 < "$_sst" | awk '{print $1}'; rm -f "$_sst"
 }
 served_matches() {  # <path-under-dist> <local-verified-file>
@@ -515,6 +515,7 @@ WIN_UNPUBLISHED=""   # set when the site's Windows build is newer than what R2 s
 # never from a pointer's separate `version` field, which nothing checks against the name. The
 # redirect branch re-reads it from the served name.
 WIN_PROD_VERSION=$(win_zip_version "$WINZIP")
+WIN_COMMITTED_VERSION=$WIN_PROD_VERSION   # kept: the staged block compares against both
 if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   _wr=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$HOST/dist/latest-win.json" 2>/dev/null) || _wr=''
   case "${_wr%% *}" in
@@ -584,17 +585,25 @@ fi
 # #3600: a staging pointer whose version is NOT newer than the prod Windows build users get names a
 # superseded build. The zip wildcard redirects it to R2, where an old staged build is often absent
 # (2026-09-24: staging said 0.6.81, prod 0.6.89, 0.6.81 404'd), so verifying it would exit red on
-# every Mac deploy for a build nobody will promote. (Equal to prod counts as superseded: staging was
-# promoted. A same-version rebuild with different bytes would therefore not be served-verified.) Warn and skip ITS ZIP AND SIDECAR; the staging
+# every Mac deploy for a build nobody will promote.
+# "Not newer" is judged against BOTH the served prod build and the committed one: right after a Windows
+# promote the staging pointer still names the just-promoted build, and if R2 missed it that build is
+# newer than what R2 serves; verifying it would exit red before the unpublished warning ever printed.
+# Equal counts as superseded (staging was promoted), so a same-version rebuild with different bytes is
+# not served-verified. Warn and skip ITS ZIP AND SIDECAR; the staging
 # pointer itself is served statically and is still checked against the committed one. A NEWER staged
 # build is verified in full, because the Windows box verifies that one from these served copies.
 WIN_STAGED_SUPERSEDED=0
 WIN_STAGED_VERSION=""
 # From the sha-verified NAME, like the prod side, not the staging pointer's `version` field.
 [ -z "$WIN_STAGED" ] || WIN_STAGED_VERSION=$(win_zip_version "$WIN_STAGED")
-if [ -n "$WIN_STAGED" ] && [ -n "$WIN_STAGED_VERSION" ] && [ -n "$WIN_PROD_VERSION" ] \
-   && [ "$(printf '%s\n%s\n' "$WIN_STAGED_VERSION" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$WIN_PROD_VERSION" ]; then
-  echo "deploy-site: WARNING (#3600): the committed latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $WIN_PROD_VERSION. It is superseded, so its zip and checksum are not served-verified (the staging pointer still is). The next Windows staging publish replaces it." >&2
+_wsup=""
+for _wref in "$WIN_PROD_VERSION" "$WIN_COMMITTED_VERSION"; do
+  [ -n "$WIN_STAGED" ] && [ -n "$WIN_STAGED_VERSION" ] && [ -n "$_wref" ] || continue
+  [ "$(printf '%s\n%s\n' "$WIN_STAGED_VERSION" "$_wref" | sort -V | tail -1)" = "$_wref" ] && { _wsup=$_wref; break; }
+done
+if [ -n "$_wsup" ]; then
+  echo "deploy-site: WARNING (#3600): the committed latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $_wsup. It is superseded, so its zip and checksum are not served-verified (the staging pointer still is). The next Windows staging publish replaces it." >&2
   WIN_STAGED_SUPERSEDED=1
 fi
 if [ -n "$WIN_STAGED" ]; then

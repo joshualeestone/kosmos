@@ -46,6 +46,13 @@ is not newer than the prod Windows build users get is superseded. Warn and skip 
 checked against the committed one (A12).
 A newer staged build is still verified in full (the Windows box verifies it from the served copies).
 Rejected: dropping the staged block (loses the real check for a pending staged build).
+"Not newer" is judged against both the served and the committed prod build (iteration 11): right
+after a Windows promote the staging pointer names the just-promoted build, and if R2 missed it,
+judging only against R2 would verify it and exit red before the unpublished warning printed.
+Weakest premise: that a NEWER staged build is reachable at all. Since the 09-23 wildcard redirect,
+staged zips route to R2 and nothing in this repo uploads them (#3618), so a pending staged build
+reds every Mac deploy. That predates this branch and is kept deliberately: an undownloadable staged
+build is a real defect. #3618 owns the fix.
 
 ## Committed newer than served (found in challenge iteration 5)
 
@@ -63,7 +70,7 @@ The pre-deploy committed-pointer vs committed-bytes agreement (#2571) still runs
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Twenty-two arms with a redirect-aware
+`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Twenty-three arms with a redirect-aware
 curl stub: the card's shape (A1) with a control pinning the old semantics (A2), an unserved served
 zip (A3), a pointer/sidecar disagreement (A4), the static path unchanged (A5) and its control (A6),
 a superseded staged build skipped (A7), a newer served staged build verified (A8) and its control
@@ -74,7 +81,7 @@ using the KOSMOS_WIN_ZIP override's version (A16), a committed build newer than 
 unpublished (A17), a status-less probe falling back strictly (A18), and the prod version read from the checked
 name rather than a pointer's version field (A19), the same on the staged side (A20), and served
 zip bytes that do not hash to the published sha (A21), and an unversioned committed name that
-must not be called stale (A22).
+must not be called stale (A22), and the post-promote R2-lag state reaching the warning (A23).
 Red-capability: against origin/main's deploy-site.sh, A1 fails with the exact prod message.
 
 ## Status
