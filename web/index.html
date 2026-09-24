@@ -2134,55 +2134,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
                       border: 2px dashed #9aa0a6; }
 /* THE MEMORY WARNING IS A NUMBER, NOT A METAPHOR: it sits on the gauge, the
    instrument it belongs to, not in the status row. */
-/* The unknown-memory caption, ported from the pack (FROZEN-2026-08-19).
-   ⚠️ IT EXISTS BECAUSE THE WORDS WERE ONLY IN AN `aria-label`. The dashed ring
-   distinguishes those cards and nothing on screen said what dashed MEANT, so a
-   screen-reader user had the fact and a sighted person had a shape. The pack's
-   own rule is "shape distinguishes, words identify"; this is the words.
-   ⚠️ IT MUST NOT INHERIT .membadge's RED. Red there is "nearly full", a measured
-   severity. Unknown is not a severity and must never borrow one.
-   ⚠️ It reserves no space, by the pack's reasoning: `.membadge` is absolute, so
-   it takes no layout and cannot make one card taller than its neighbour. */
-.membadge.unk {
-  /* ⚠️ `-15px`, not `-7px`. MEASURED — and REMEASURED, because the number here
-     was wrong: `docs/browser-checks/render-memory-words.js` reports 62px for
-     "Unknown" and 78px for "Not yet read", not the 105px this comment claimed.
-     The reasoning survives the correction: even at 78px the caption is wider
-     than the gap either side of an 82px gauge's dot, so it still crosses the
-     presence dot's x-range, and at -7px its 2px
-     ring painted over the bottom 4px of the dot — a distinct signal (online /
-     not running / could not check) partly obscured on every unknown-memory
-     card. Horizontal separation is not available; vertical is. */
-  top: auto; bottom: -15px; right: auto; left: 50%; transform: translateX(-50%);
-  /* ⚠️ AND THE GAUGE MAKES ROOM FOR IT. Moving the caption clear of the presence
-     dot pushed it into the name below: the badge is absolutely positioned, so it
-     takes no layout and cannot push anything itself. There is no offset that
-     clears BOTH a dot above and a name below within the original spacing —
-     measured -7px collided with the dot, -15px collided with the name — so the
-     card gives it the space instead. `:has` scopes that to the cards that
-     actually carry a caption, leaving every other card's rhythm untouched. */
-  font: 600 .625rem var(--font-ui); letter-spacing: .01em; white-space: nowrap;
-  color: var(--k-ink); background: var(--k-bg);
-  border: 1px solid var(--k-rule); border-radius: 100px;
-  box-shadow: 0 0 0 2px var(--k-surface);
-  padding: .1rem .4rem;
-}
-/* ⚠️ 26px, and the 14px I first wrote was a NO-OP: `.agauge` already carries
-   `margin: 0 auto 14px`, so the rule parsed, applied, and changed nothing —
-   and the measurement afterwards showed the SAME gap, which is what caught it.
-   The badge is 17px tall and hangs 15px below the gauge, so it needs about
-   12px more than the resting rhythm to clear the name. */
-.agauge:has(.membadge.unk) { margin-bottom: 26px; }
-/* ⚠️ AND THE DETAIL HEADER NEEDS THE SAME RESERVATION, which it never had. The
-   rule above is scoped to `.agauge`, so the identical caption on the agent page
-   hung 15px BELOW its header with nothing making room for it — measured by
-   `docs/browser-checks/render-memory-words.js`, which is the only instrument
-   here that can see it. This PREDATES the two-word split: it is the caption's
-   -15px offset, not its width, so it was live for "Unknown" too and no test
-   could have caught it, because the suite reads text.
-   ⚠️ Scoped with `:has` for the same reason as the card's rule — only the
-   headers that actually carry a caption pay the space. */
-.dav-wrap:has(.membadge.unk) { margin-bottom: 26px; }
+/* #3501: the `.membadge.unk` unknown-memory caption (states unknown /
+   not-yet-read / not-set-yet) was removed. Josh flagged it as meaningless to end
+   users, and its bottom-anchored offset was what forced the name-push reservation
+   above. The unknown fact remains on the ring (dashed state + aria-label), the
+   Memory box, and the list row. */
+/* #3501: the two `:has(.membadge.unk) { margin-bottom: 26px }` reservations were
+   removed with the unknown-word badge. They existed only to make room for that
+   caption, and they were what pushed the agent name down. The near-full number
+   badge below is absolutely positioned and needs no such reservation. */
 .membadge { position: absolute; top: 2px; right: -6px;
             font: 700 .6875rem var(--k-mono);
             font-variant-numeric: tabular-nums;
@@ -2201,12 +2161,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    bubble so they stack rather than overlap. The DM bubble keeps the corner
    because "someone is waiting on you" outranks "memory is nearly full". The list
    row has no membadge (it uses a memory bar), so it needs no such rule. */
-/* :not(.unk) is load-bearing: the unknown-memory badge (.membadge.unk) is
-   anchored to the BOTTOM of the gauge (bottom:-15px, top:auto), a different
-   corner entirely, so it never collides with the DM bubble. Only the plain
-   near-full number badge sits top-right where the DM bubble does. Offsetting
-   the .unk one too would give it both a top and a bottom and stretch it tall. */
-.agauge:has(.dmbadge) .membadge:not(.unk) { top: 24px; }
+/* #3501: the `:not(.unk)` qualifier was dropped with the unknown-word badge --
+   only the near-full number badge remains, so the plain `.membadge` selector is
+   exact now. */
+.agauge:has(.dmbadge) .membadge { top: 24px; }
 .ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
          border: 0; background: none;
          /* One padding declaration only: a second one in this same rule was
@@ -2609,6 +2567,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .setrow b { font-size: .9375rem; }
 .setrow.off { opacity: .6; }
 .setrow.off .toggle { pointer-events: none; }
+/* #3508: the Prompter's in-app check-in list. Minimal, in-lane; a fuller placement is
+   Mona's polish. Reuses .dlab/.dhint tokens so it matches the rest of Settings. */
+.hb-nudges { margin-top: 6px; }
+.hb-nudge { padding: 8px 0; border-top: 1px solid var(--k-rule); line-height: 1.5; }
+.hb-nudge:first-of-type { border-top: 0; }
+.hb-nudge b { font-size: .9375rem; }
 .toggle { width: 42px; height: 24px; border-radius: 100px; flex: 0 0 42px;
           background: var(--k-track); position: relative; cursor: pointer; border: 0; padding: 0;
           transition: background .15s ease; }
@@ -4007,6 +3971,25 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      shared docs-view rule above, which Josh did not flag), and matching the
      --space-8 right inset already applied so the view reads evenly boxed. */
   html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-top: var(--space-8); }
+  /* #3502 (Josh, 2026-09-23, consolidated project sub-views): the "Back to <project>"
+     controls are redundant in the consolidated view -- the project is already open and
+     its name is one click away, so remove them from Documents, Tasks and Project Settings.
+     Kept in the tab view (body:not(.consolidated)), where the back control is the way out. */
+  html[data-layout="consolidated"] body.consolidated #docs-back,
+  html[data-layout="consolidated"] body.consolidated #alltasks-back,
+  html[data-layout="consolidated"] body.consolidated #pj-settings-back { display: none; }
+  /* #3502: with the back button gone the heading must not jump against the top rule.
+     alltasks already carries the --space-8 top inset above; give docs and settings the
+     same so "Documents" and "Project settings" keep normal space above them (Josh flagged
+     Settings by name; docs shares the same removed-back top gap). */
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
+  html[data-layout="consolidated"] body.consolidated #pj-settings-view { padding-top: var(--space-8); }
+  /* #3503 (Josh, 2026-09-23): the sub-view content was flush against the left rule while
+     the right already carried the --space-8 inset above. Match it on the left so Documents
+     and Tasks (the "All Tasks" headline, the project name, the count) read evenly boxed.
+     Settings is centered (max-width + margin auto), so it is not included here. */
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
+  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-left: var(--space-8); }
   /* 🔑 AND THE SIZE SITS BESIDE ITS FILE, NOT AT THE FAR RIGHT. Josh: "I'd also
      like to have the file sizes of the files closer to the actual files
      themselves."
@@ -6487,11 +6470,26 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    and bounded in height so a long file scrolls inside the row rather than pushing the
    Add button off the screen. Load-bearing, not decoration: it is how a person answers
    "is this one of mine?" for a folder we cannot name. */
+/* #2690: dressed as a quiet SUNKEN preview well rather than the field-fill +
+   strong border that read as an editable text box. Still the same readonly
+   <textarea> element (its id, readonly, and the render-scan checks are
+   unchanged); only the surface reads differently.
+   🛑 background uses the bg-sunken token rather than the k-sunk one. These rows
+   render in the #firstrun subtree, which re-pins bg-sunken to its light value
+   (#f4f2ee) but does not pin k-sunk, so k-sunk would resolve to its dark value
+   (a ~6% near-white wash) on the forced-white card under OS dark, invisible.
+   bg-sunken is the pinned sunken token, so it reads as a well in both themes.
+   (Token names written without the leading dashes here on purpose: a
+   `token-name:` in a comment is read as a definition by the per-theme token
+   tests, #2947.) */
 .fr-scanpreview { width: 100%; font: var(--text-callout) var(--font-mono);
-  color: var(--label-2); background: var(--field-fill);
-  border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
+  color: var(--label-2); background: var(--bg-sunken);
+  border: 1px solid var(--separator); border-radius: var(--radius-control);
   padding: 10px 12px; box-sizing: border-box;
-  margin-top: var(--space-2); resize: vertical; min-height: 4.5rem; max-height: 16rem;
+  /* #2690: resize OFF. It is readonly, and the drag handle was the last thing
+     making it read as an editable field rather than a preview. Height is bounded
+     and scrolls; a person does not resize a thing they cannot edit. */
+  margin-top: var(--space-2); resize: none; min-height: 4.5rem; max-height: 16rem;
   /* #2025: pre-WRAP, not pre. A scanned CLAUDE.md has long instruction lines;
      `pre` forced a horizontal scrollbar so the person read the file through a
      letterbox and had to scroll sideways to finish a sentence (Josh, 0.6.25
@@ -7276,7 +7274,12 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    does, then where it lives. The folder is shown because it is the answer to
    "is that MY Mike or another one" and it is the only unambiguous thing on the
    row. Quiet, because it is a disambiguator rather than a label. */
-.fr-found { display: grid; gap: var(--space-3); margin: var(--space-5) 0; max-width: 36rem; }
+/* #2690 (Josh 2026-09-10): the cards touched each other and read as system-
+   generated. The gap widens from 6px to 12px so the cards have real breathing
+   room; the lift + softer radius on .fr-foundrow below is the rest of it. Rows
+   stay SHORT (the 2026-08-22 two-column ruling below is kept) -- breathing room
+   is space BETWEEN cards, not a taller card. */
+.fr-found { display: grid; gap: var(--space-5); margin: var(--space-5) 0; max-width: 38rem; }
 /* 🔑 TWO COLUMNS, TEXT LEFT AND CONTROLS HARD RIGHT (Josh, 2026-08-22: "we could
    make the rows shorter too if we put the buttons on the far right"). Stacked,
    the button was a third line under every agent and the list grew by a whole
@@ -7284,9 +7287,21 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    the title were already two lines tall. `min-width: 0` on the text column is
    what stops a long folder path from pushing the controls off the right edge --
    a grid child's default minimum is its content, not zero. */
+/* #2690: lifted off the page (surface fill + soft shadow + the softer card
+   radius) so each one reads as a card rather than a bare bordered row on the
+   ground -- the "system-generated" look Josh flagged. The row stays two-column
+   and short.
+   🛑 The shadow is a HARDCODED light literal, not var(--shadow-card): these rows
+   render only in the #firstrun subtree, which is pinned forced-light in both
+   themes, so a theme-conditional --shadow-card would flip to the heavy dark
+   shadow (0 1px 3px rgba(0,0,0,0.5)) on a forced-white card under OS dark. Same
+   reason #firstrun .fr-box hardcodes its own shadow rather than consuming the
+   token. */
 .fr-foundrow { display: grid; grid-template-columns: minmax(0, 1fr) auto;
   align-items: center; column-gap: var(--space-4); padding: 10px 12px;
-  border: 1px solid var(--separator); border-radius: var(--radius-control); }
+  background: var(--k-surface);
+  box-shadow: 0 1px 2px rgba(20,22,26,.05), 0 1px 6px rgba(20,22,26,.04);
+  border: 1px solid var(--separator); border-radius: var(--radius-card); }
 .fr-foundtext { display: grid; gap: 2px; min-width: 0; }
 .fr-foundact { display: flex; align-items: center; gap: var(--space-2); }
 /* 🛑 THE RECEIPT IS READ, SO IT HAS TO BE READABLE. `.btn:disabled` drops to
@@ -9570,8 +9585,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          dialog because that is where the footer sends people to learn the
          cost. rst-small above stays the per-agent part: what is in flight. -->
     <p class="rm-small" id="rst-cost">They come back with nothing in their memory, and anything they were part way through ends, including anything they agreed to and have not done yet. Their instructions and their files are untouched.</p>
+    <!-- #3492 (Josh, 2026-09-23): the THIRD option. A plain Restart forgets
+         everything the agent was doing; this one asks the agent to write a
+         handoff first, waits for it, then restarts and points the fresh session
+         at that handoff so it picks up cleanly. Placed between "leave it running"
+         and the plain "Restart" so the context-preserving option sits next to
+         the one it improves on. The LABEL is a clear working one, swappable per
+         Mona/Josh (the card leaves wording TBD); styling stays plain `btn` here
+         so the dialog-CSS lane (#3493/#3494) owns the look. -->
     <div class="rm-acts">
       <button class="btn" id="rst-keep" type="button">Leave it running</button>
+      <button class="btn" id="rst-handoff-go" type="button">Write a handoff, then restart</button>
       <button class="btn" id="rst-go" type="button">Restart</button>
     </div>
     <div class="fmsg" id="rst-msg" role="alert" aria-live="assertive"></div>
@@ -10056,6 +10080,52 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     </div>
     <div class="fmsg" id="rm-msg" role="alert" aria-live="assertive"></div>
   </div>
+</div>
+
+<!-- #3486: the add-member modal lives HERE at the top level, beside the other
+     .rm-back modals, NOT inside .pjcard-members. It used to be authored inside
+     that card, and #3305 sets `.pjcard-members { display:none }` in the
+     consolidated view -- display:none on an ancestor suppresses the whole
+     subtree, including a position:fixed descendant, so the modal never rendered
+     when opened from the consolidated rail + (the "Project Members +" did
+     nothing, Josh's live 0.6.89 bug). A full-screen overlay opened from the rail
+     is not part of the card and must not share its display state; every sibling
+     modal is already top-level, so this one joins them. Ids/nesting are
+     unchanged (#pj-one-add-row stays inside), so paintFreeAgentPicker, the go
+     handler and amClose keep working by id from anywhere. -->
+<div class="rm-back" id="am-modal" hidden>
+<div class="rm-box rm-box-form am-box" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
+  <!-- 0.6.45 (Josh): the way out is an X in the corner, not a Cancel button
+       down in the acts row that crowded the dropdown. Reuses the `am-keep`
+       id so amClose (Cancel + backdrop + Escape) stays one function. -->
+  <button class="am-x" id="am-keep" type="button" aria-label="Close">&times;</button>
+  <h2 class="rm-title" id="am-t">Add a member</h2>
+  <p class="rm-small" id="am-in">To <b id="am-project"></b>.</p>
+  <div id="pj-one-add-row" style="margin-top: var(--space-5)">
+    <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
+         from a button, so it arrives on screen with no heading above it and
+         nothing on the row says what the menu is FOR: a sighted person got
+         a dropdown of names and a button, and had to infer. The aria-label
+         served a screen reader and nobody else, which is the shape this
+         file has removed twice before -- an accessible name doing the job
+         of copy.
+         📌 The `for` and the `id` make it the same one control, so clicking
+         the words opens the menu; the aria-label goes, because a labelled
+         control with an aria-label announces only the aria-label and the
+         two would then have to be kept in step forever. -->
+    <label class="flabel" for="pj-one-add">Who should join this project?</label>
+    <div class="frow">
+      <select id="pj-one-add"></select>
+      <button class="btn" id="pj-one-add-go" type="button">Add to project</button>
+    </div>
+  </div>
+  <!-- 0.6.45: the error on a FAILED add lives INSIDE the modal box. It used
+       to sit after #am-modal, in normal page flow BEHIND the fixed .rm-back
+       backdrop, so a reason written here was covered by the overlay. Now that
+       a successful add closes the modal, the only time this shows is a failure
+       with the modal still open, so it has to be on top of the backdrop. -->
+  <p class="fmsg" id="pj-one-msg" aria-live="polite" style="margin-top: var(--space-4)"></p>
+</div>
 </div>
 
 <!-- ⚠️ FIRST RUN. An overlay rather than a tab, and the reasoning is worth
@@ -11867,51 +11937,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            stays uncluttered and the DOOR is what lives here: one quiet link
            to the settings rows where Remove has always been. -->
       <button class="linkish" id="pj-remove-member" type="button" style="margin-top:6px;">Remove a member&hellip;</button>
-      <!-- 🔑 THE PICKER LIVES IN A MODAL (kosmos#1303 H). Josh: "Let's make adding
-           a member to the project spawn a modal just like adding a task to the
-           project." It was an inline row that appeared where the button had been.
-           ⚠️ THE ROW IS WRAPPED, NOT REBUILT. `#pj-one-add`, `#pj-one-add-go` and
-           `#pj-one-add-row` keep their ids and their nesting, so
-           `paintFreeAgentPicker`, the go handler and the navigation reset all keep
-           working against the same elements. A fresh modal with new ids would have
-           been four more things to re-wire and four more to get wrong.
-           📌 It carries `role="dialog"` and `aria-modal`, so it joins the sweep in
-           #1316 and has to satisfy its rule: a way back that is not the action,
-           and Escape. Both are below. -->
-      <div class="rm-back" id="am-modal" hidden>
-      <div class="rm-box rm-box-form am-box" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
-      <!-- 0.6.45 (Josh): the way out is an X in the corner, not a Cancel button
-           down in the acts row that crowded the dropdown. Reuses the `am-keep`
-           id so amClose (Cancel + backdrop + Escape) stays one function. -->
-      <button class="am-x" id="am-keep" type="button" aria-label="Close">&times;</button>
-      <h2 class="rm-title" id="am-t">Add a member</h2>
-      <p class="rm-small" id="am-in">To <b id="am-project"></b>.</p>
-      <div id="pj-one-add-row" style="margin-top: var(--space-5)">
-        <!-- ⚠️ A VISIBLE LABEL, not only an aria one (#109). The picker opens
-             from a button, so it arrives on screen with no heading above it and
-             nothing on the row says what the menu is FOR: a sighted person got
-             a dropdown of names and a button, and had to infer. The aria-label
-             served a screen reader and nobody else, which is the shape this
-             file has removed twice before -- an accessible name doing the job
-             of copy.
-             📌 The `for` and the `id` make it the same one control, so clicking
-             the words opens the menu; the aria-label goes, because a labelled
-             control with an aria-label announces only the aria-label and the
-             two would then have to be kept in step forever. -->
-        <label class="flabel" for="pj-one-add">Who should join this project?</label>
-        <div class="frow">
-          <select id="pj-one-add"></select>
-          <button class="btn" id="pj-one-add-go" type="button">Add to project</button>
-        </div>
-      </div>
-      <!-- 0.6.45: the error on a FAILED add lives INSIDE the modal box. It used
-           to sit after #am-modal, in normal page flow BEHIND the fixed .rm-back
-           backdrop, so a reason written here was covered by the overlay. Now that
-           a successful add closes the modal, the only time this shows is a failure
-           with the modal still open, so it has to be on top of the backdrop. -->
-      <p class="fmsg" id="pj-one-msg" aria-live="polite" style="margin-top: var(--space-4)"></p>
-      </div>
-      </div>
+      <!-- #3486: the add-member modal (#am-modal) was authored HERE, inside
+           .pjcard-members. Because #3305 hides that card with display:none in the
+           consolidated view, the fixed-position modal was suppressed with the card
+           and the consolidated "Project Members +" opened nothing. It now lives at
+           the top level beside the other .rm-back modals (search "id=\"am-modal\"").
+           It is opened by id from both the tab-view "Add member" button and the
+           consolidated rail +, so its DOM home does not matter to the wiring. -->
 
       <!-- ⚠️ PROJECT DOCUMENTS IS NET NEW: the pack's project page has three
            columns (members, conversation, tasks) and no documents section, so
@@ -12367,7 +12399,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
       </div>
-      <button class="linkish" id="docs-finder" type="button" data-win-copy="docsOpenFolder">Open this folder in Finder</button>
+      <!-- #3504 (Josh, 2026-09-23): a plain text link read as passive; make it the gold
+           primary button so "Open this folder in Finder" reads as an easy, obvious action. -->
+      <button class="btn uprime" id="docs-finder" type="button" data-win-copy="docsOpenFolder">Open this folder in Finder</button>
     </div>
     <!-- Two sources, said apart (#131, Josh's 08-20 ruling): files from the
          CONVERSATION live in the attachment store, not the folder, so a
@@ -13447,14 +13481,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            working and was meant to chase anyone that has stopped. The later
            addition the auto-save control above (#1724) reserved a slot for. On
            by default (#2013); the interval is adjustable.
-           ⚠️ #2632: the runner is still live (server.js) and computes which
-           agents stopped, but #2623 removed its ONLY delivery path (the
-           check_in that rode the phone-home notify.happened POST), and no
-           in-app channel exists yet, so the result reaches no one. The copy no
-           longer promises a notification it cannot deliver. Hiding the toggle
-           until an in-app delivery channel is built is the fuller fix and is a
-           paint change (paintHeartbeat), routed to Angel; this change is the
-           in-lane copy honesty half. -->
+           #2632 -> #3508 (DELIVERY RESTORED): #2623 removed the runner's only
+           delivery path (the check_in that rode the phone-home notify.happened
+           POST). For a while the runner still computed which agents stopped but
+           the result reached no one, and the copy said so. #3508 rebuilt the
+           delivery LOCAL: the runner writes each tick's `toAsk` to a 0600 file
+           (engine/prompternudge.js), the server exposes GET /api/prompter-nudges,
+           and the #hb-nudges panel below polls it and renders one check-in per
+           stalled agent. Nothing leaves the Mac, so it is not the telemetry #2623
+           removed. The copy no longer promises an undeliverable nudge because the
+           nudge is now deliverable. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
            "Prompter", so Settings > Automation reads as two named features a
            person can reason about, the Recommender (what to work on next) and
@@ -13470,7 +13506,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <h3 class="dlab">Prompter</h3>
       <div class="setrow" id="hb-row" style="margin-top:14px;">
         <div><b>Check on your agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks which of your agents have stopped. It can't nudge you about them yet. That part is still being built. On by default.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks which of your agents have stopped. When one has, it shows a check-in below so you know to look in on that agent. Everything stays on this computer. On by default.</p></div>
         <button class="toggle" id="hb-toggle" role="switch" aria-label="Check on your agents" hidden><i></i></button>
       </div>
       <!-- #2623: the "notifications are off" hint was removed with the notify
@@ -13480,6 +13516,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <select id="hb-interval" aria-label="How often to check on your agents"></select>
       </div>
       <p class="dhint" id="hb-msg" role="status" style="margin:8px 0 0;"></p>
+      <!-- #3508: the Prompter's IN-APP delivery surface -- the half #2623 removed,
+           rebuilt LOCAL. Polls /api/prompter-nudges and renders one check-in per
+           stalled agent. The store carries only who/from/to; the QUESTION is composed
+           here (never a stored sentence), matching the removed payload's own rule and
+           the heartbeat header. Self-contained (one container + paintPrompterNudges)
+           so a more prominent placement later is a pure move (Mona's polish). Hidden
+           while empty so it costs nothing when nothing is stalled. -->
+      <div id="hb-nudges" class="hb-nudges" role="region" aria-label="Agent check-ins" hidden></div>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own
@@ -15186,11 +15230,12 @@ function memBand(pct) {
    must degrade to the honest unknown, never reach innerHTML raw. Same
    for-the-day-upstream-changes posture as the answer button's tie gate. */
 /* ⚠️ THE ONE PLACE THE TWO UNKNOWN ANSWERS BECOME WORDS, and it is shared for
-   the same reason memBand and pctOf are: this fact has FIVE renderers — the
-   card badge, the ring's aria-label, the list row, the Memory box and the
-   detail header — and this file's own comments record them drifting apart
-   twice, each time because somebody updated the surfaces they could see.
-   A sixth surface added later gets the split for free by calling this.
+   the same reason memBand and pctOf are: several surfaces need this one fact, and
+   this file's own comments record them drifting apart twice, each time because
+   somebody updated the surfaces they could see. web.memory-words.test.js pins the
+   number of CALLERS (not the number of visible surfaces) so a new one must call
+   this rather than hardcode a literal. #3501 removed the card memory badge, one
+   caller.
 
    🔑 The distinction, and why only one of them is safe to claim:
      notYet   NOTHING HAS BEEN RECORDED YET. An admission, and we can see that
@@ -15579,13 +15624,10 @@ function ring(a) {
   /* ⚠️ The pack gauge: gt/gf/gu classes, base stroke-width 4 as an
      ATTRIBUTE so the .warn/.high CSS (5/6) can thicken it -- weight is the
      third cue after arc length and colour. The unknown-memory fact is carried
-     three ways: this ring's aria-label (whichever `memUnknown` sentence applies), the dashed
-     shape the pack pairs with the unknown card, and -- since the caption was
-     restored as `.membadge unk` -- the visible word from `memUnknown` in the same
-     .agauge container. ⚠️ The two strings are deliberately disjoint, so an
-     assertion about one cannot be satisfied by the other; see the badge. ⚠️ This used to say the
-     caption "is gone at Josh's call", which stopped being true when the badge
-     came back and would have read as permission to delete it again. The avatar stays inside the ring (this app's real data;
+     two ways on the board card: this ring's aria-label (whichever `memUnknown`
+     sentence applies) and the dashed shape the pack pairs with the unknown card.
+     (#3501 removed the third, the visible `.membadge unk` caption word; the
+     Memory box on the detail screen states the fact in words there.) The avatar stays inside the ring (this app's real data;
      the pack draws faces in the same slot). */
   const pct = pctOf(ctx);
   if (pct === null) {
@@ -15772,29 +15814,14 @@ function card(a) {
     ? '<div class="note">Not the same as idle. We cannot see this one, so we are not telling you it is fine.</div>'
     : '';
 
-  /* ⚠️ THREE STATES IN ONE SLOT, and the unknown one is the whole point. The
-     board's summary line used to carry "N with unknown memory limits"; Josh cut
-     it, which left the dashed ring as the only sighted signal and the words
-     "Memory unknown" living solely in an `aria-label`. That is the could-not-
-     look versus is-not-there split failing for exactly the people who cannot
-     hear the label. The tally was doing this job by accident, fleet-wide; this
-     does it per card, which is where it belonged.
-     `unk` is checked FIRST: a null percent can never be >= NEARLY_FULL, but
-     ordering it this way means the severity badge cannot be reached by an
-     unknown, whatever pctOf later returns. */
-  const badge = pct === null
-    /* ⚠️ `aria-hidden`: the ring's aria-label already carries the authoritative
-       sentence — the one that says what HAPPENED rather than naming a state.
-       Without this a screen reader says the fact twice per card.
-       ⚠️ It used to QUOTE that sentence as "Memory could not be read.", which
-       stopped being true for half the cards when the engine learned to tell
-       "nothing recorded yet" from "we could not read it". A comment that is the
-       whole justification for hiding something must not quote a string the
-       thing it hides may not have.
-       The gap this badge closes was always the SIGHTED half. (Mona Lisa,
-       2026-08-19; the pack uses this pattern 160 times on .haz/.qmark/.rest.) */
-    ? `<span class="membadge unk" aria-hidden="true">${memUnknown(a.context).word}</span>`
-    : (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
+  /* #3501: the unknown-memory WORD badge (.membadge.unk, states unknown /
+     not-yet-read / not-set-yet) was removed. Josh flagged it as meaningless to
+     end users, and it was the state that pushed the agent name down. The unknown
+     fact still reaches sighted and screen-reader users through the ring's dashed
+     state and aria-label, the Memory box, and the list row. The near-full NUMBER
+     badge below stays: it is a measured reading, absolutely positioned (so it
+     never pushes the name), and guarded by server.test.js. */
+  const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
@@ -15857,7 +15884,8 @@ function lrowRing(a) {
 /* #1915: the same memory ring for the DETAIL avatar, scaled to sit just outside the
    88px avatar. Same reading (pctOf) and band (memBand) as the board rings and the
    MEMORY panel, so all surfaces agree. Unknown (pct null) draws no ring, matching
-   lrowRing; the detail's .membadge (unk) and MEMORY panel carry the unknown case. */
+   lrowRing; on the detail screen the MEMORY panel carries the unknown case (this
+   ring is aria-hidden, and #3501 removed the detail's .membadge unk word). */
 function detailRing(a) {
   const pct = pctOf(a.context);
   if (pct === null) return '';
@@ -18685,6 +18713,56 @@ async function paintHeartbeat() {
   }
   /* #2623: the notify-off hint was removed with the phone-home seam. */
 }
+/* #3508: paint the Prompter's IN-APP check-ins. Reads the LOCAL 0600 nudge store
+   through /api/prompter-nudges (nothing leaves the Mac) and renders one check-in per
+   stalled agent. The store carries only { session, from, to }; the QUESTION is
+   COMPOSED here, matching the removed payload's rule that no sentence is ever stored.
+   Best-effort: any failure hides the panel rather than showing error noise, because
+   the board's own status surfaces still show the truth and a missed nudge is only a
+   missed nudge. Empty -> hidden, so it costs nothing when nothing is stalled. */
+let HB_NUDGE_EPOCH = 0;
+function prompterCheckinQuestion(n) {
+  /* One honest question per the heartbeat header ("mid-something, finished, or
+     stopped?"). auth_failed and connection_lost are the two stalls with a distinct
+     cause worth naming (they are in heartbeat.js's ASK_ON_EXIT_TO for the same
+     reason, #3410): both are "reconnect it" situations, not "it stopped". */
+  const to = n && n.to;
+  if (to === 'auth_failed') return 'needs to sign in again. Reconnect it, or is it done?';
+  if (to === 'connection_lost') return 'lost its connection. Reconnect it, or is it done?';
+  // The catch-all covers stopped/idle/unknown (all in heartbeat's ASK_ON_EXIT_TO),
+  // so "gone quiet" reads honestly for an idle agent, not only a stopped one.
+  return 'seems to have gone quiet. Still mid-something, finished, or stopped?';
+}
+async function paintPrompterNudges() {
+  const box = document.getElementById('hb-nudges');
+  if (!box) return;
+  const mine = ++HB_NUDGE_EPOCH;
+  let data;
+  try {
+    const res = await fetch('/api/prompter-nudges', { cache: 'no-store' });
+    if (mine !== HB_NUDGE_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    data = await res.json();
+    if (mine !== HB_NUDGE_EPOCH) return;
+  } catch {
+    if (mine !== HB_NUDGE_EPOCH) return;
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  const nudges = data && Array.isArray(data.nudges) ? data.nudges : [];
+  if (!nudges.length) { box.hidden = true; box.innerHTML = ''; return; }
+  const rows = nudges.map((n) =>
+    '<div class="hb-nudge" role="listitem">' +
+      '<b>' + esc(n.session) + '</b> ' +
+      '<span class="dhint">' + esc(prompterCheckinQuestion(n)) + '</span>' +
+    '</div>').join('');
+  const html =
+    '<p class="dlab" style="margin:14px 0 6px;">Agents that may need you</p>' +
+    '<div role="list">' + rows + '</div>';
+  if (box.innerHTML !== html) box.innerHTML = html;
+  box.hidden = false;
+}
 /* Save on interact, the lim pattern. Both handlers refuse to write until the setting
    has LOADED -- the toggle ships hidden and is unclickable until paintSwitch gives it
    a position, and the interval list is server-rendered (empty until read). Writing a
@@ -18734,11 +18812,25 @@ function hbIntervalChange() {
 }
 document.getElementById('hb-toggle') && document.getElementById('hb-toggle').addEventListener('click', hbToggleClick);
 document.getElementById('hb-interval') && document.getElementById('hb-interval').addEventListener('change', hbIntervalChange);
+/* #3508: keep the check-ins live while Settings is on screen. The store updates on the
+   Prompter's own (minutes-granularity) tick, so a 15s poll is ample; it is gated on the
+   panel being visible (offsetParent is null when Settings is not the shown view) so it
+   costs nothing on every other screen. */
+setInterval(() => {
+  /* Gate on the SETTINGS panel being on screen (not the nudge box, which is hidden
+     while empty -- gating on the box would stop the poll from ever discovering a new
+     nudge). offsetParent is null when #panel-settings is not the shown view. Also
+     skip while the tab is backgrounded (document.hidden), matching the projects-panel
+     poll's precedent -- no point reading even a local file for a page nobody sees. */
+  const panel = document.getElementById('panel-settings');
+  if (!document.hidden && panel && panel.offsetParent !== null) paintPrompterNudges();
+}, 15000);
 async function paintSettings() {
   paintYouName();
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
+  paintPrompterNudges();
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */
   paintSwitch('snd-toggle', soundMasterOn());
@@ -24093,12 +24185,11 @@ function memoryBox(a) {
       + u.note + '</p>';
   }
   const band = memBand(pct);
-  /* 🛑 THE FOURTH SURFACE, and the comment beside the detail badge records the
-     last time one was left behind: "three surfaces, one fact, and the third
-     left on the old treatment". This box was the fourth, printing the capped
-     figure directly while the other three had moved to `memPrint`. The bar's
-     WIDTH keeps the capped number, which is correct: a bar cannot draw past its
-     own end, and that is the reason the printed figure had to become a word. */
+  /* 🛑 A MEMORY SURFACE THAT WAS LEFT BEHIND ONCE: this box printed the capped
+     figure directly while the other memory surfaces had moved to `memPrint`.
+     The bar's WIDTH keeps the capped number, which is correct: a bar cannot draw
+     past its own end, and that is the reason the printed figure had to become a
+     word. */
   return '<div class="memrow"><span class="bar"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
     + '<span class="pct">' + memPrint(a.context, pct) + '</span></div>'
     + (pct >= NEARLY_FULL
@@ -25917,16 +26008,14 @@ function openDetail(sessionName, section, fromProject) {
   /* The pack's header badge and the two reading boxes, all off the same
      shared derivations the board uses (memBand/pctOf/modelLine). */
   const dpct = pctOf(a.context);
-  /* ⚠️ THE FOURTH SURFACE OF ONE FACT. `card()`, `lrow()` and `memoryBox()` all
-     say the shared unknown word at `pct === null`; this stayed a two-state slot (percent or
-     nothing) while the card's `.membadge` became a three-state one. The fact is
-     still stated on this screen by the Memory box, so it was never an honesty
-     failure — but "three surfaces, one fact, and the third left on the old
-     treatment" was this branch's own note, and this was the fourth. */
+  /* #3501: the unknown-memory WORD state of this header badge (.membadge.unk) was
+     removed with the card's. The badge now shows ONLY the near-full number; the
+     unknown fact is stated on this screen by the Memory box (the detail ring
+     draws nothing and is aria-hidden when unknown). */
   const dbadge = document.getElementById('d-membadge');
-  dbadge.className = 'membadge' + (dpct === null ? ' unk' : '');
+  dbadge.className = 'membadge';
   dbadge.textContent = memPrint(a.context, dpct);
-  dbadge.hidden = !(dpct === null || dpct >= NEARLY_FULL);
+  dbadge.hidden = !(dpct >= NEARLY_FULL);
   document.getElementById('d-ring').innerHTML = detailRing(a);
   document.getElementById('d-memory').innerHTML = memoryBox(a);
   const drun = document.getElementById('d-runson');
@@ -30521,6 +30610,13 @@ function openRestartModal(btn, name, opts) {
   go.hidden = false;
   go.disabled = false;
   go.textContent = 'Restart ' + shown;
+  /* #3492: the third option shares this dialog's lifecycle, so it is un-hidden
+     and re-enabled on every open exactly as rst-go is (a prior handoff-restart
+     run may have disabled it). Its label is static (a phrase, not "Restart
+     <name>"), so it is not rebuilt from `shown` here. */
+  const hgo = document.getElementById('rst-handoff-go');
+  hgo.hidden = false;
+  hgo.disabled = false;
   RST_FOR = btn;
   RST_RETURN = btn;
   document.getElementById('rst-modal').hidden = false;
@@ -30773,15 +30869,23 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   const list = document.getElementById('rst-list');
   const small = document.getElementById('rst-small');
   const cost = document.getElementById('rst-cost');
+  /* #3492: the third button shares this singleton modal, so the plain-restart
+     interstitial must hide AND disable it too. Without this it stays visible and
+     enabled behind the K-loader during a plain Restart, and a click there would
+     launch the handoff flow concurrently with the in-flight restart (both share
+     RST_FOR/RST_BUSY and this one modal). Hidden in showConfirm, disabled on
+     entry, re-enabled in restoreConfirm -- symmetric with rst-go's own go. */
+  const hgo = document.getElementById('rst-handoff-go');
   const listWasHidden = list.hidden;   // the cost-based state to restore on a retry
   const showConfirm = (on) => {
-    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on;
+    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on; hgo.hidden = !on;
     list.hidden = on ? listWasHidden : true;
   };
   const clearLoader = () => { document.getElementById('rst-msg').innerHTML = ''; };
   // Enter the interstitial: hide the confirm content, mount + drive the branded loader.
   // RST_BUSY gates the Escape/backdrop exits (the restart is now committed).
   go.disabled = true;
+  hgo.disabled = true;
   RST_BUSY = true;
   showConfirm(false);
   document.getElementById('rst-msg').innerHTML = RESTART_BUSY_HTML;
@@ -30793,7 +30897,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
      always holds RESTART_HOLD_MS. Same test seam the model/provider interstitial uses. */
   const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
   // The confirm view, restored so the person can retry after a refusal or an error.
-  const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; };
+  const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; hgo.disabled = false; };
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
     const out = await res.json().catch(() => null);
@@ -30887,6 +30991,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
       showConfirm(true);
       go.textContent = wasGo;
       go.disabled = false;
+      hgo.disabled = false;   // #3492: symmetric with go, so it is not briefly visible-but-greyed before close
       closeRestartModal();
     }
     await tick();
@@ -30904,6 +31009,175 @@ document.getElementById('rst-go').addEventListener('click', async () => {
     restoreConfirm();
     document.getElementById('rst-msg').textContent = 'We could not reach Kosmos to restart them.';
   }
+});
+
+/* #3492: how long to wait for the agent to finish writing its handoff before we
+   fall back to asking the person. `let`, not `const`, so a browser-check can
+   shorten them to exercise the timeout arm fast (the same seam
+   RESTART_READY_WINDOW_MS uses). Production: up to two minutes, polled every
+   three seconds -- a handoff is a real piece of writing, not an instant. */
+let HANDOFF_WAIT_MS = 120000;
+let HANDOFF_POLL_MS = 3000;
+
+/* #3492: the "Write a handoff, then restart" flow. It is the plain rst-go flow
+   with TWO phases wrapped around it:
+     BEFORE the restart -- ask the live agent to write a handoff (a PLACED
+       delivery, or we stop and let the person choose), then poll until the
+       handoff file is confirmed (re)written or the wait elapses. A restart NEVER
+       proceeds on a maybe: an unconfirmed ask or an unwritten handoff restores
+       the confirm view so the person can Restart-anyway or leave it running.
+     AFTER the restart -- the SAME post-restart wake path (autoHelloAfterRestart),
+       but delivering the handoff pointer (deliverPickup) instead of 'hello', so
+       the fresh session continues rather than starting cold.
+   The K-loader interstitial plays only during the actual restart (phase 3); the
+   handoff-write wait shows a plain status line, because it can run for a while
+   and a spinning K there would misread as the restart hanging. */
+document.getElementById('rst-handoff-go').addEventListener('click', async () => {
+  const btn = RST_FOR;
+  const name = btn && btn.dataset.restartAgent;
+  if (!name) return;
+  const card = (LAST || []).find((a) => a && a.sessionName === name) || CURRENT;
+  const shown = (card && (card.name || card.displayName)) || name;
+  const go = document.getElementById('rst-go');
+  const hgo = document.getElementById('rst-handoff-go');
+  const keep = document.getElementById('rst-keep');
+  const list = document.getElementById('rst-list');
+  const small = document.getElementById('rst-small');
+  const cost = document.getElementById('rst-cost');
+  const msg = document.getElementById('rst-msg');
+  const listWasHidden = list.hidden;
+  const showConfirm = (on) => {
+    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on; hgo.hidden = !on;
+    list.hidden = on ? listWasHidden : true;
+  };
+  const setStatus = (t) => { msg.textContent = t; };
+  const restoreConfirm = () => {
+    RST_BUSY = false; msg.innerHTML = ''; showConfirm(true);
+    go.disabled = false; hgo.disabled = false;
+  };
+  /* Has this flow been dismissed out from under us? Either the modal was reused
+     for another agent (RST_FOR moved) or it was closed (Escape / backdrop / the
+     "Leave it running" button). Checked at every await boundary in phases 1-2 so
+     an abort during the wait actually stops the flow rather than racing a late
+     fresh handoff into a restart the person just cancelled. */
+  const dismissed = () => RST_FOR !== btn || document.getElementById('rst-modal').hidden;
+  /* 🛑 PHASES 1-2 (ask + wait for the handoff) ARE ABORTABLE, and deliberately so:
+     nothing irreversible has happened yet -- we have only asked the agent to write
+     a handoff; no restart fires until the handoff is confirmed fresh. So RST_BUSY
+     stays FALSE and "Leave it running" stays visible + live through the wait, so
+     the person is never trapped for up to HANDOFF_WAIT_MS with no way out (that
+     no-exit window was the one wart in the first cut). RST_BUSY is set, and keep
+     hidden, only when we COMMIT to the restart in phase 3. */
+  go.disabled = true; hgo.disabled = true;
+  small.hidden = true; cost.hidden = true; go.hidden = true; hgo.hidden = true; list.hidden = true;
+  keep.hidden = false;
+  setStatus('Asking ' + shown + ' to write a handoff…');
+
+  // Phase 1 -- ask the live agent to write its handoff. Only a PLACED delivery
+  // (the prompt actually landed) advances the flow.
+  let ask; let askStatus = 0;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/ask', { method: 'POST' });
+    askStatus = res.status;
+    ask = await res.json().catch(() => null);
+  } catch {
+    if (dismissed()) return;
+    restoreConfirm();
+    setStatus('We could not reach Kosmos to ask ' + shown + ' for a handoff. You can Restart without one, or leave it running.');
+    return;
+  }
+  if (dismissed()) return;   // reused for another agent, or the person aborted mid-request
+  if (!(ask && ask.delivery && ask.delivery.state === 'placed')) {
+    restoreConfirm();
+    const because = ask && ask.delivery && ask.delivery.because ? ' (' + ask.delivery.because + ')' : '';
+    // "Not running" is ONLY the no-session case: a 409 with NO delivery field.
+    // The route also returns 409 for a COULD_NOT delivery (which DOES carry a
+    // delivery field) -- that is a delivery failure, not a stopped agent -- and
+    // 404 (vanished name) / 500 (could-not-reach) are other errors. All of those
+    // get the generic line (with the delivery's own reason when present), so we
+    // never tell the person an agent "is not running" when that is not what
+    // happened.
+    const notRunning = askStatus === 409 && ask && !ask.delivery;
+    setStatus(notRunning
+      ? (shown + ' is not running, so there is no session to write a handoff. You can Restart without one, or leave it running.')
+      : ('We could not ask ' + shown + ' to write a handoff' + because + '. You can Restart without one, or leave it running.'));
+    return;
+  }
+
+  // Phase 2 -- wait for the handoff to be confirmed (re)written.
+  setStatus(shown + ' is writing its handoff…');
+  const baseline = (ask.baseline === undefined || ask.baseline === null) ? '' : String(ask.baseline);
+  const deadline = Date.now() + HANDOFF_WAIT_MS;
+  let wrote = false;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, HANDOFF_POLL_MS));
+    if (dismissed()) return;   // superseded / closed / aborted during the wait
+    let st = null;
+    try {
+      const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/status?baseline=' + encodeURIComponent(baseline), { cache: 'no-store' });
+      st = await res.json().catch(() => null);
+    } catch { /* the next poll can try again */ }
+    if (dismissed()) return;   // aborted while the status request was in flight, before we act on it
+    if (st && st.fresh === true) { wrote = true; break; }
+  }
+  if (dismissed()) return;
+  if (!wrote) {
+    restoreConfirm();
+    setStatus(shown + ' has not finished its handoff yet. Restart anyway (its progress may be lost), or leave it running?');
+    return;
+  }
+
+  // Phase 3 -- the restart itself. We COMMIT here: nothing before this was
+  // irreversible, but the restart is, so from now on RST_BUSY gates Escape/
+  // backdrop and "Leave it running" is hidden, exactly as the plain rst-go path.
+  // The dismissed() check just above and this assignment are adjacent with no
+  // await between them, so an abort cannot slip in after the check.
+  RST_BUSY = true;
+  keep.hidden = true;
+  setStatus('');
+  msg.innerHTML = RESTART_BUSY_HTML;
+  const kcv = msg.querySelector('canvas.chg-restart-k');
+  if (kcv) startKLoader(kcv);
+  const busyStart = Date.now();
+  const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
+  let out = null; let resOk = false;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
+    resOk = res.ok;
+    out = await res.json().catch(() => null);
+  } catch {
+    restoreConfirm();
+    setStatus('The handoff was written, but we could not reach Kosmos to restart ' + shown + '. Try Restart again.');
+    return;
+  }
+  if (!restartTook(resOk, out)) {
+    restoreConfirm();
+    setStatus(restartFailureLine(out));
+    return;
+  }
+  // Hold the loader for the remainder of the floor so the K plays in full.
+  const wait = Math.max(0, holdMs - (Date.now() - busyStart));
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+
+  // Phase 4 -- point the fresh session at its handoff once it is back up. Same
+  // capture-and-recheck receipt guard as rst-go.
+  const note = noteFor(btn);
+  const showNote = (t) => { if (CURRENT && CURRENT.sessionName === name && note && note.isConnected) note.textContent = t; };
+  showNote('Restarted. Pointing the fresh session at its handoff…');
+  const stillMine = (RST_FOR === btn);
+  if (stillMine) {
+    RST_BUSY = false;
+    msg.innerHTML = '';
+    showConfirm(true);
+    go.disabled = false;
+    hgo.disabled = false;
+    closeRestartModal();
+  }
+  await tick();
+  autoHelloAfterRestart(name, showNote,
+    'Restarted, and pointed the fresh session at its handoff to pick up where it left off.',
+    'Restarted. When it is back, tell it to read its handoff at ' + ask.handoffPath + '.',
+    () => deliverPickup(name));
 });
 
 /* #5 insurance (Josh 0.6.44): Trust & Restart. POST /api/agent/<name>/trust-and-restart
@@ -37041,16 +37315,27 @@ async function restartReadyWait(name, mine) {
    that the message reached the agent's session; NOT 'recorded' (only whether it
    was filed in the thread, which can differ). Claim "said hello" only on placed,
    so a person is never falsely told the agent was greeted (worse than manual). */
-async function sendWakeHello(name, token, report, saidText, manualText) {
+/* #3492: `deliver` is an OPTIONAL async function that performs the post-restart
+   send and returns the delivery verdict object ({state}) or null. It defaults to
+   the plain restart's wake 'hello'. The restart-with-handoff flow passes
+   deliverPickup instead, so the fresh session is pointed at its handoff rather
+   than merely greeted -- one function, one 'placed'-only success rule, two
+   messages. Existing callers omit it and get the 'hello' behaviour unchanged. */
+async function sendWakeHello(name, token, report, saidText, manualText, deliver) {
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: 'hello' }),
-    });
-    const out = await res.json().catch(() => null);
+    const delivery = deliver
+      ? await deliver()
+      : await (async () => {
+          const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text: 'hello' }),
+          });
+          const out = await res.json().catch(() => null);
+          return (res.ok && out && out.delivery) ? out.delivery : null;
+        })();
     if (token !== RESTART_HELLO_SEQ[name]) return;
-    const placed = res.ok && out && out.delivery && out.delivery.state === 'placed';
+    const placed = delivery && delivery.state === 'placed';
     report(placed ? saidText : manualText);
   } catch {
     if (token !== RESTART_HELLO_SEQ[name]) return;
@@ -37058,12 +37343,23 @@ async function sendWakeHello(name, token, report, saidText, manualText) {
   }
 }
 
-async function autoHelloAfterRestart(name, report, saidText, manualText) {
+/* #3492: deliver the pickup pointer to a freshly-restarted session. Returns the
+   delivery verdict so sendWakeHello claims success only on 'placed' -- the same
+   proof-not-assumption rule the wake hello uses (a pickup that did not land must
+   not read as "pointed at its handoff"). The message text is the server's
+   (engine/handoff-restart.pickupPrompt), not composed here. */
+async function deliverPickup(name) {
+  const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/pickup', { method: 'POST' });
+  const out = await res.json().catch(() => null);
+  return (res.ok && out && out.delivery) ? out.delivery : null;
+}
+
+async function autoHelloAfterRestart(name, report, saidText, manualText, deliver) {
   const mine = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
   const ready = await restartReadyWait(name, mine);
   if (mine !== RESTART_HELLO_SEQ[name]) return;    // a newer restart of this agent superseded us
   if (!ready) { report(manualText); return; }
-  await sendWakeHello(name, mine, report, saidText, manualText);
+  await sendWakeHello(name, mine, report, saidText, manualText, deliver);
 }
 
 /**
@@ -40157,7 +40453,14 @@ document.getElementById('pj-settings-link').addEventListener('click', () => {
   if (!p) return;
   paintProjectSettings(p);   // #3134: this cancels any pending save auto-advance (see paintProjectSettings)
   pjView('settings');
-  document.getElementById('pj-settings-back').focus();
+  // #3502: the back button is hidden in the consolidated view (removed as redundant), and a
+  // display:none element cannot take focus, so focusing it there would strand keyboard focus on
+  // the cog. Focus the settings heading instead so focus lands inside the view; the tab view
+  // still shows the back button and keeps it as the landing spot.
+  const settingsBack = document.getElementById('pj-settings-back');
+  if (settingsBack && getComputedStyle(settingsBack).display !== 'none') { settingsBack.focus(); return; }
+  const settingsHead = document.querySelector('#pj-settings-view .dname');
+  if (settingsHead) { if (!settingsHead.hasAttribute('tabindex')) settingsHead.setAttribute('tabindex', '-1'); settingsHead.focus(); }
 });
 document.getElementById('pj-remove-member').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
@@ -46231,6 +46534,23 @@ function frGateStart(screenEl) {
 // gated screen is active and cannot outrace a screen change. Returns the poll promise.
 function frRecheckGates() {
   if (!FR_GATE_SCREEN) return Promise.resolve();
+  // #2912: on a fresh install with NO Full Disk Access, /api/a11y-status cannot read the
+  // live TCC row (appGrant needs FDA) and falls back to the native file read(), which the
+  // app rewrites only on a 60s timer -- so "Check again" re-polls the SAME stale verdict and
+  // a just-granted permission is not seen until an app restart (Josh, re-reported live
+  // 2026-09-21). Ask the native app to run an on-demand axcheck (AXIsProcessTrusted, no
+  // prompt, no FDA) that rewrites a11y-status.json AT ONCE, so the poll below and the running
+  // 750ms timer reflect the fresh verdict within a moment. Fire ONLY when the app-
+  // accessibility gate is actually on this screen (never on Windows, where it is hidden), and
+  // never awaited -- the POST only RECORDS the request; the gate poll is what shows the result
+  // (the same "the gate poll takes it from here" contract as frFirePermission). Harmless when
+  // no native app is present (a browser): the route records nothing and the poll is unchanged.
+  const a11yRow = FR_GATE_SCREEN.querySelector('[data-gate="tmux"]');
+  if (a11yRow && !platformHides(a11yRow)) {
+    try {
+      fetch('/api/a11y-recheck', { method: 'POST', headers: { 'content-type': 'application/json' } }).catch(() => {});
+    } catch { /* fire-and-forget: a missing endpoint / network error never blocks the re-poll */ }
+  }
   return frPollGates(FR_GATE_SCREEN, FR_GATE_GEN);
 }
 let FR = null;            // what /api/first-run said

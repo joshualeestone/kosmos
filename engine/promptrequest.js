@@ -56,6 +56,15 @@ const REQUEST_FILE = {
      (The exact osascript payload + which TCC service(s) fire is pinned by a fresh-install
      verify; the native hatch owns that string.) */
   'tmux-a11y': 'tmux-a11y-prompt-request',
+  /* #2912: the on-demand a11y RE-CHECK. Distinct from `a11y` (which fires the axPROMPT to
+     GRANT, then refreshes the verdict). This one asks the native watcher to run ONLY the
+     axcheck (AXIsProcessTrusted, no prompt) and rewrite a11y-status.json AT ONCE, so the
+     "Check again" button forces a fresh verdict on a fresh install with no Full Disk Access
+     -- where /api/a11y-status cannot read the live TCC row (appGrant needs FDA) and falls
+     back to the native file read(), which the app otherwise rewrites only on a 60s timer.
+     A re-check must never re-surface the system prompt, so this fires the CHECK hatch, not
+     the PROMPT hatch. */
+  'a11y-recheck': 'a11y-recheck-request',
 };
 
 /**

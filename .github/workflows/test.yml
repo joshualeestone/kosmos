@@ -1,7 +1,8 @@
 # The first CI this repo has ever had (#835).
 #
 # 🛑 WHAT THIS IS AND IS NOT. It runs the full suite (tools/run-tests.sh) on every
-# push and every PR and reports red or green. It is ADVISORY: nothing here blocks a
+# push to `main` and every PR (#3499 gated push to main; see the `on:` block) and
+# reports red or green. It is ADVISORY: nothing here blocks a
 # merge, because gh pr merge is server-side and no workflow can gate it without
 # branch protection with a required check. Branch protection is a separate decision
 # (#835): it is available on THIS repo (public) but was deliberately not made
@@ -33,7 +34,19 @@ name: test
 
 on:
   push:
-    branches: ["**"]
+    # #3499: gate push to main only (was ["**"]). A same-repo feature-branch PR used
+    # to run this suite TWICE -- once for the branch push, once for the pull_request --
+    # and the two runs contend on the shared macOS runners. The suite has grown to ~14m
+    # (the "~2-3 min" note further down is stale), so under that contention one run
+    # crosses the timeout cap and is CANCELLED, which `gh pr checks` reports as `fail`.
+    # That forced a manual cancel-vs-fail check on every co-land and risked masking a
+    # real failure as "just the cap" (a false-green class). Gating push to main removes
+    # the duplicate: a PR now runs the suite ONCE via pull_request, and main still runs
+    # it on push (the green-main signal the release cut gates on). The prior code kept
+    # push on every branch and called the double-run "harmless"; #3499 is the evidence
+    # it was not. A branch pushed but never PR'd is now untested until its PR opens --
+    # accepted, because such a branch never merges, so its CI would be moot anyway.
+    branches: ["main"]
   pull_request:
 
 # Least privilege: this job only reads the repo and runs the suite; it needs no
@@ -42,14 +55,11 @@ on:
 permissions:
   contents: read
 
-# Cancel a superseded run of the SAME event+ref: a rapid re-push to a branch, or a
+# Cancel a superseded run of the SAME event+ref: a rapid re-push to main, or a
 # successive sync of a PR, cancels its in-flight predecessor instead of queuing a
-# redundant run. It does NOT collapse the push-and-PR pair: on a push github.ref is
-# refs/heads/<branch>, on a pull_request it is refs/pull/<N>/merge, so those land in
-# different groups and a branch with an open PR runs the suite twice. That double-run
-# is accepted as harmless (kosmos is public, so Actions minutes are free); gating
-# push to a subset of branches to avoid it would leave a pushed-but-unPRd branch
-# untested, which is the worse trade.
+# redundant run. With push gated to main (above, #3499), a feature branch no longer
+# runs the suite for BOTH its push and its PR, so there is no push-and-PR pair left to
+# collapse here; this group now only dedupes successive events on the same ref.
 concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
@@ -66,8 +76,11 @@ jobs:
     # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
     runs-on: macos-latest
     # run-tests.sh boots boards and servers; bound a hung run rather than let it
-    # sit on the 360-minute default. The suite is ~2-3 min, so 15 is generous.
-    timeout-minutes: 15
+    # sit on the 360-minute default. The suite now runs ~14m (#3499; it has grown well
+    # past the old "~2-3 min"), so 15 left almost no margin -- a single slow run could
+    # cross it and be CANCELLED (read as `fail`). 30 gives a single run real headroom
+    # while still catching a genuine hang at ~2x the runtime.
+    timeout-minutes: 30
     steps:
       # #1794: fetch-depth 0 (full history). checkout@v4 shallow-clones by
       # default; #1025's "a range is reduced to its base" resolves a git range,

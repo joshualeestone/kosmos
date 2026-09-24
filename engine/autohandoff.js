@@ -51,6 +51,24 @@ function shouldPrompt(enabled, threshold, fill, lastBand) {
 }
 
 /**
+ * The handoff CONTRACT: the contents any handoff prompt asks for, learned from
+ * the handoffs that actually survived tonight. Exported (#3492) so the second
+ * caller -- the restart-with-handoff option -- asks for the SAME contents rather
+ * than keeping a second, drifting copy of this list (the codebase's most-shipped
+ * defect). The OPENING and CLOSING lines differ per caller (a fill-triggered
+ * handoff says "keep working"; a restart-triggered one says the opposite), so
+ * only the middle -- the contract -- is shared. See engine/handoff-restart.js.
+ */
+const HANDOFF_CONTENTS = [
+  '- current branch and sha',
+  '- what is done and verified, versus merely claimed',
+  '- the ordered next steps',
+  '- gaps you decided rather than missed, with the reasons',
+  '- traps a fresh session would otherwise re-derive',
+  '- anything you would disclose against your own work',
+];
+
+/**
  * The prompt injected into the agent's pane. The agent writes the handoff; this
  * names the path (a stable per-agent file it refreshes) and the contents the
  * card requires, learned from the handoffs that actually survived tonight.
@@ -62,12 +80,7 @@ function handoffPrompt(fillPct, path) {
   return [
     'Your context window is ' + Math.round(fillPct) + '% full. Write a handoff now to ' + path
       + ' (refresh it if it already exists), covering:',
-    '- current branch and sha',
-    '- what is done and verified, versus merely claimed',
-    '- the ordered next steps',
-    '- gaps you decided rather than missed, with the reasons',
-    '- traps a fresh session would otherwise re-derive',
-    '- anything you would disclose against your own work',
+    ...HANDOFF_CONTENTS,
     'Write to the path, not into a message (messages truncate). Keep working after this, and'
       + ' refresh the handoff as the work moves.',
   ].join('\n');
@@ -107,6 +120,6 @@ function validSetting(a) {
 }
 
 module.exports = {
-  DEFAULT_THRESHOLD, THRESHOLD_OPTIONS, fillBand, shouldPrompt, handoffPrompt,
-  settingFrom, validSetting,
+  DEFAULT_THRESHOLD, THRESHOLD_OPTIONS, HANDOFF_CONTENTS, fillBand, shouldPrompt,
+  handoffPrompt, settingFrom, validSetting,
 };

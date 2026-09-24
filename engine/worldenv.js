@@ -5,9 +5,10 @@
  * module is required.
  *
  * 🛑 WHY THIS EXISTS, AND WHY IT CANNOT WAIT FOR start().
- * ~26 engine modules capture the data root at REQUIRE time -- `const BASE =
+ * ~27 engine modules capture the data root at REQUIRE time -- `const BASE =
  * store.ROOT` (commitments, you, policy, limits, remote, notify, ping, forget,
- * engmode, heartbeat-setting, autoupdate) and, the shape the first survey missed,
+ * engmode, heartbeat-setting, autoupdate, prompternudge) and, the shape the first
+ * survey missed,
  * `const DIR = path.join(store.ROOT, 'x')` (a11ystatus, activity, liveness,
  * disruption, attachments, messages, usage, firstrun, sendertoken, discover,
  * cloudflare, githubdevice, tokendoor, remove, selfreport). `store.ROOT` is a live
@@ -16,7 +17,7 @@
  *
  * server.js requires all of those at its top level, BEFORE start() runs. slice 2a
  * applied the active world's env INSIDE start() (believing the #1443 invariant --
- * "roots are per-call" -- held fleet-wide; it does not, for these ~26). So on a
+ * "roots are per-call" -- held fleet-wide; it does not, for these ~27). So on a
  * board that boots into a NAMED world, the frozen modules keep serving the DEFAULT
  * world's you.json / policy.json / commitments/ / limits.json / ... while the rest
  * of the board serves the named world: a systemic cross-world data BLEED.

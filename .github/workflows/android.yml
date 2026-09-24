@@ -36,7 +36,13 @@ name: android
 # wedge PRs that never trigger it ("expected but never ran"), but an advisory one cannot.
 on:
   push:
-    branches: ["**"]
+    # #3499: gate push to main only (was ["**"]), same as test.yml. A same-repo
+    # feature-branch PR that touches android/ used to run this build TWICE (branch
+    # push + pull_request); gating push to main leaves a PR running it ONCE via
+    # pull_request, with main still built on push. Lower stakes than test.yml (this
+    # build is a few minutes under a 20m cap, so the timeout-cancel-reads-as-fail
+    # symptom was unlikely here) but the same pattern, fixed for consistency.
+    branches: ["main"]
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
@@ -51,9 +57,11 @@ on:
 permissions:
   contents: read
 
-# Cancel a superseded run of the same event+ref (a rapid re-push / PR sync) instead of
-# queuing a redundant build. Mirrors test.yml; the push/PR pair still lands in separate
-# groups (refs/heads/... vs refs/pull/N/merge), an accepted harmless double-run.
+# Cancel a superseded run of the same event+ref (a rapid re-push to main / PR sync)
+# instead of queuing a redundant build. Same shape as test.yml: with push gated to
+# main (above, #3499), a feature branch no longer builds for both its push and its PR,
+# so there is no push/PR pair left to collapse here; this group only dedupes successive
+# events on the same ref.
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true

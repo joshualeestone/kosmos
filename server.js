@@ -22,7 +22,7 @@ const { pipeline } = require('node:stream');
 const fs = require('node:fs');
 const path = require('node:path');
 /* #1704 slice 2b: apply the ACTIVE world's data-root env BEFORE any engine module
-   is required below. ~26 engine modules freeze store.ROOT at REQUIRE time, so 2a's
+   is required below. ~27 engine modules freeze store.ROOT at REQUIRE time, so 2a's
    apply-inside-start() was too late for them (a named-world boot would leave those
    modules serving the DEFAULT world = cross-world data bleed). Read-only + fail-open;
    a no-op for the default world (every install today). MUST stay ahead of the first
@@ -280,7 +280,7 @@ const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registr
    from the ORIGINAL env BEFORE applyActiveWorldEnv sets any AGENT_WORKFORCE_DATA
    override -- otherwise a request-time baseRoot(process.env) would resolve to the
    active named world's data root, not the world-independent registry location. It is
-   captured at require (not start()) because the ~26 modules that freeze store.ROOT do
+   captured at require (not start()) because the ~27 modules that freeze store.ROOT do
    so at require, so the override must land first. null on a broken env, where the
    /api/worlds routes fall back to the live baseRoot -- correct then because no
    override was set. `worldRegistryBase` is declared at the top of the file. */
@@ -498,6 +498,7 @@ function emitStagingRevertWarning(write = (s) => process.stderr.write(s)) {
 
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
+const handoffRestart = require('./engine/handoff-restart'); // #3492: "write a handoff, then restart" prompts + freshness gate
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
 /* #1946: whether this board enforces the board token, and the token, resolved at
    start() (real boot) rather than at require -- ensureToken() writes a file, and a
@@ -611,6 +612,8 @@ const observed = require('./engine/observed');
 const runningas = require('./engine/runningas');
 const openaiAccounts = require('./engine/openaiaccounts');
 const claudeAccounts = require('./engine/claudeaccounts');
+const geminiAccounts = require('./engine/geminiaccounts'); // #3296 accounts slice
+const grokAccounts = require('./engine/grokaccounts');     // #3391 accounts slice
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -625,6 +628,7 @@ const feedback = require('./engine/feedback');
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const heartbeat = require('./engine/heartbeat');
+const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 const heartbeatSetting = require('./engine/heartbeat-setting');
@@ -1565,6 +1569,162 @@ function safeRoster() {
   }
 }
 
+/* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
+   directory" enumeration, shared by EVERY provider's disconnect/remove route so the
+   safety property lives in ONE place rather than being copied per provider (the
+   "two derivations of the fleet" habit this file's own comments call its worst).
+   Returns { usedBy, complete }:
+     - `usedBy`: the running-or-known agents of runner `runner` whose account home
+       resolves to `dir` (or the default account, when `isDefault` and the agent
+       carries no configDir).
+     - `complete`: FALSE whenever ANYTHING could not be read -- an unreadable roster,
+       a launch file that threw, a non-ENOENT job miss, or a path that would not
+       resolve. A caller MUST refuse the destructive act when `complete` is false:
+       an enumeration that cannot tell "nobody" from "I could not look" is not a
+       safety check (Renet Tilley, reviewing #1447 -- AMBIGUITY WAS SILENTLY NONE).
+   `runner` scopes the walk to ONE provider's agents (a codex account is never held
+   by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
+   that route now calls this so the four providers cannot drift. */
+function enumerateAgentsOnAccount(dir, isDefault, runner) {
+  const roster = safeRoster();
+  let complete = roster !== null;
+  // register.known() separates "nothing was ever written" (ok, empty) from "we
+  // could not look" (not ok) -- an unreadable profiles dir makes this INCOMPLETE
+  // rather than quietly shortening the list. Same fail-closed posture as `complete`.
+  const knownNames = register.known();
+  if (!knownNames || knownNames.ok !== true) complete = false;
+  // The removed-agent filter must apply to the profile names too, or a removed
+  // agent resurfaces into this guard and refuses the account for one the person
+  // was already told was gone.
+  let goneNames = null;
+  try { goneNames = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name)); }
+  catch { complete = false; goneNames = null; }
+  const names = new Set();
+  for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
+  if (goneNames) {
+    for (const n of (knownNames && Array.isArray(knownNames.names) ? knownNames.names : [])) {
+      if (!goneNames.has(n)) names.add(n);
+    }
+  }
+  const usedBy = [];
+  for (const sessionName of names) {
+    let job = null;
+    try { job = create.readJob(sessionName); }
+    catch { complete = false; continue; }
+    // A null job is TWO answers readJob cannot separate: "no launch file" (a real
+    // answer) vs "could not read it" (ignorance). jobMissing splits them -- only
+    // ENOENT is evidence of absence; any other failure makes this incomplete.
+    if (!job) {
+      let absent = true;
+      try { absent = create.jobMissing(sessionName); } catch { absent = false; }
+      if (!absent) complete = false;
+      continue;
+    }
+    if (job.runner !== runner) continue;
+    const home = job.configDir || null;
+    let onIt = false;
+    try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
+    catch { complete = false; continue; }
+    if (onIt) usedBy.push(sessionName);
+  }
+  return { usedBy, complete };
+}
+
+/* #3296/#3391 accounts slice: store a NAMED gemini/grok account from a pasted API
+   key. The gemini/grok CLIs read their key from an ENV VAR (GEMINI_API_KEY /
+   XAI_API_KEY), NOT a file the config-home points at (codex's auth.json) -- so unlike
+   the claude apikey route there is NO settings.json apiKeyHelper to wire; the key is
+   stored in the account dir's mode-600 file and the supervisor injects the env var
+   from it (bin/agent-supervisor.sh). One helper for both providers, parameterized by
+   `mod` (geminiaccounts/grokaccounts), so the two cannot drift. The raw key is never
+   logged or echoed back -- the response carries the label + the live verdict only. */
+function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
+  readBody(req)
+    .then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      // Runner-present first (same ordering as the claude/openai routes): storing a
+      // key for a runner the machine cannot launch answers needsRunner. gemini/grok
+      // have no managed install job, so a plain resolveBin present-check is the whole
+      // check (no midInstall phase to wait out).
+      if (!runners.resolveBin(runner).present) {
+        sendJson(res, 400, { error: `we could not find the ${providerLabel} runner on this computer, so there is nothing to sign in to`, needsRunner: true, provider: runner });
+        return;
+      }
+      const shape = mod.keyProblem(body.key);
+      if (shape) { sendJson(res, 400, { error: shape }); return; }
+      // Taken-label guard BEFORE the live check (so a doomed add does not send the key
+      // to the provider) and BEFORE storeKey (never write a key into an EXISTING account).
+      const named = mod.dirForLabel(body.label);
+      if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
+      if (mod.identityOf(named.dir)) {
+        sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+        return;
+      }
+      // 🛑 A planted symlink account dir (~/.gemini-x -> ~/.gemini) would let storeKey/writeName
+      // write THROUGH it into the real CLI home. Refuse it BEFORE storeKey, so the failed-store
+      // cleanup (forgetKey) never runs through the symlink either. lstat does not follow the link;
+      // an absent path is the normal fresh-account case. storeKey itself also throws on a symlink
+      // (defence in depth for direct callers).
+      try { if (fs.lstatSync(named.dir).isSymbolicLink()) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; } }
+      catch { /* absent = fresh account, fine */ }
+      // #1315 discipline: validate LIVE at add time. Refuse ONLY a positively-rejected
+      // key (STATE.NONE); accept CONNECTED and UNKNOWN (unreachable / a non-attributed
+      // refusal), never blocking a good key on an answer that does not confirm it bad.
+      const live = await mod.validateLive(String(body.key || '').trim());
+      if (live.state === mod.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+      try { mod.storeKey(named.dir, body.key); }
+      catch {
+        try { mod.forgetKey(named.dir); } catch { /* best effort: leave no orphaned key file */ }
+        sendJson(res, 400, { error: 'we could not store that key on this computer' });
+        return;
+      }
+      // #2095 sibling: the optional human-chosen display name, best-effort (a failed
+      // name write never fails the add -- the account is fully usable unnamed).
+      if (body.name) { try { mod.writeName(named.dir, body.name); } catch { /* best effort */ } }
+      sendJson(res, 200, { account: { label: named.label, dir: named.dir, connection: { state: live.state } } });
+    })
+    .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+}
+
+/* #3296/#3391 accounts slice: disconnect (forget) or DELETE (remove) a named
+   gemini/grok account. Mirrors the OpenAI DELETE route's shape -- the SAME
+   fail-closed agent enumeration (enumerateAgentsOnAccount) gates both, so an account
+   with a running agent on it is never renamed/removed out from under it. `remove:true`
+   deletes the credential (irreversible); otherwise the dir is renamed aside
+   (reversible). stopAgents (disconnect-and-stop, #2570) is deferred to the connect-UI
+   follow-on: this slice keeps the safe default, where the engine REFUSES and names the
+   agents, so a caller moves them off the account first. */
+function handleApikeyAccountDelete(req, res, { mod, runner }) {
+  let deleteDoor = false;
+  readBody(req)
+    .then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      const dir = body && typeof body.dir === 'string' ? body.dir : '';
+      if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const remove = !!(body && body.remove === true);
+      deleteDoor = remove;
+      let isDefault = false;
+      try { isDefault = path.resolve(dir) === path.resolve(mod.defaultDir()); } catch { isDefault = false; }
+      const { usedBy, complete } = enumerateAgentsOnAccount(dir, isDefault, runner);
+      if (!complete) {
+        sendJson(res, 400, { error: 'we could not check which agents are on this account, so nothing was changed', usedBy: [] });
+        return;
+      }
+      const result = remove ? mod.removeAccount(dir, usedBy) : mod.forgetAccount(dir, usedBy);
+      if (!result.ok) {
+        sendJson(res, 400, { error: result.because, usedBy: result.usedBy || [] });
+        return;
+      }
+      sendJson(res, 200, remove
+        ? { removed: !!result.removed, wasDefault: !!result.wasDefault }
+        : { forgotten: !!result.forgotten, movedTo: result.movedTo || null, wasDefault: !!result.wasDefault });
+    })
+    .catch(() => sendJson(res, 400, { error: deleteDoor ? 'we could not delete that account' : 'we could not read that request' }));
+}
+
 /* #1279 GLOBAL PER-CREATOR ACTIVE-AGENT CAP.
  *
  * The per-team cap (engine/team.resolveCap) bounds ONE request; this bounds
@@ -1892,6 +2052,26 @@ function knownAgent(name) {
     return Boolean(card) && card.isNamedOurs === true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * #3492: a snapshot of an agent's handoff file, for the "write a handoff, then
+ * restart" flow. The path is the SAME one the auto-handoff sweep writes to
+ * (autohandoffSweep.handoffPathFor), so the two features agree on where an
+ * agent's handoff lives. { exists, mtimeMs } is the shape handoffRestart
+ * .handoffIsFresh compares: a missing file reads as not-existing (statSync
+ * throws on ENOENT), never as a zero mtime. `session` is the real tmux session
+ * (sessionOf), not the display name -- the path is per-session, like the model
+ * and memory-ring readers above.
+ */
+function handoffFileSnap(session) {
+  const p = autohandoffSweep.handoffPathFor(store, session);
+  try {
+    const st = fs.statSync(p);
+    return { path: p, exists: true, mtimeMs: st.mtimeMs };
+  } catch {
+    return { path: p, exists: false, mtimeMs: null };
   }
 }
 
@@ -5210,6 +5390,111 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #3492: the three primitives behind the "Write a handoff, then restart"
+   * option on the restart confirm dialog. The CLIENT orchestrates the phases
+   * (the same shape as the plain restart, which polls /api/status client-side
+   * between /restart and the wake 'hello'); these routes are the primitives.
+   *
+   *   ask    -> deliver the handoff-write prompt to the LIVE agent, and return
+   *             the current handoff-file mtime as the baseline to poll against.
+   *   status -> report whether the handoff has been (re)written since baseline.
+   *   pickup -> after the restart, deliver the pointer to the fresh session.
+   *
+   * 🛑 THE FLOW NEVER RESTARTS ON A MAYBE. The client proceeds to POST /restart
+   * only after `ask` returned a PLACED delivery (the prompt actually landed) AND
+   * `status` returned fresh:true (the handoff was actually written). An
+   * unconfirmed ask or an unwritten handoff surfaces to the person instead --
+   * losing an agent's context to a mistimed restart is worse than making them
+   * choose. The prompts live in engine/handoff-restart.js (pure + tested), not
+   * inline here, so the wording is one source, not the client's guess.
+   */
+  const hrAsk = pathname.match(/^\/api\/agent\/([^/]+)\/handoff-restart\/ask$/);
+  if (hrAsk && req.method === 'POST') {
+    const name = decodeSegment(hrAsk[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    const session = sessionOf(name);
+    // No live session = nobody to write a handoff. The client should fall back
+    // to a plain restart (or not offer this option); 409 is the same "there is
+    // nothing to act on here" the /message send route uses for an absent pane.
+    if (!session) { sendJson(res, 409, { error: 'this agent is not running, so there is no session to write a handoff' }); return; }
+    const snap = handoffFileSnap(session);
+    let delivery;
+    try { delivery = chat.deliver(name, handoffRestart.handoffForRestartPrompt(snap.path), safeRoster(), undefined, undefined); }
+    catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
+    sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, {
+      delivery,
+      handoffPath: snap.path,
+      // The baseline the client passes back to `status`: the mtime if the file
+      // exists now, else empty (no file yet -> any appearance is fresh).
+      baseline: snap.exists ? snap.mtimeMs : '',
+    });
+    return;
+  }
+
+  const hrStatus = pathname.match(/^\/api\/agent\/([^/]+)\/handoff-restart\/status$/);
+  if (hrStatus && (req.method === 'GET' || req.method === 'HEAD')) {
+    const name = decodeSegment(hrStatus[1]);
+    // 400, not 404: an undecodable name segment is a malformed request, and this
+    // matches the feature's two sibling routes (ask/pickup) plus the dominant
+    // file convention (/restart, /compact, /clear all 400 this). (The thread GET
+    // route's 404 is a deliberate "read = no such agent" special case, not the
+    // pattern to follow for a freshness probe.)
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    const session = sessionOf(name);
+    if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
+    let baseline = '';
+    try { baseline = new URL(req.url, ROUTING_BASE).searchParams.get('baseline') || ''; } catch { baseline = ''; }
+    // Reconstruct the BEFORE snapshot from the baseline: empty means the file
+    // did not exist when we asked; a number is its mtime then. The freshness
+    // decision is the engine's, not this route's.
+    // 🛑 VALIDATE the client-supplied baseline before it reaches handoffIsFresh.
+    // A non-numeric baseline would become {exists:true, mtimeMs:NaN}, and the
+    // engine reads an unreadable prior mtime as "written since" -> fresh:true for
+    // any agent whose handoff merely EXISTS, with no new write. That defeats the
+    // "never restart on a maybe" invariant. The UI only ever sends '' or a valid
+    // number, so this is defense against any other caller, and it refuses rather
+    // than silently guessing.
+    let before;
+    if (baseline === '') {
+      before = { exists: false, mtimeMs: null };
+    } else {
+      // 🛑 STRICT numeric shape, not Number.isFinite. `Number(' ')` is 0 and
+      // `Number('-1')` is -1 -- both finite -- so a whitespace or negative
+      // baseline would build {exists:true, mtimeMs:0} and handoffIsFresh would
+      // report fresh:true for ANY pre-existing handoff (mtime > 0), with no new
+      // write. The ask route only ever emits '' or a non-negative mtime, so a
+      // bare digit string (optionally fractional) is the whole legitimate shape;
+      // anything else is refused rather than coerced.
+      if (!/^\d+(\.\d+)?$/.test(baseline)) { sendJson(res, 400, { error: 'baseline must be empty or a non-negative number' }); return; }
+      before = { exists: true, mtimeMs: Number(baseline) };
+    }
+    const after = handoffFileSnap(session);
+    sendJson(res, 200, {
+      fresh: handoffRestart.handoffIsFresh(before, after),
+      exists: after.exists,
+      mtimeMs: after.mtimeMs,
+    });
+    return;
+  }
+
+  const hrPickup = pathname.match(/^\/api\/agent\/([^/]+)\/handoff-restart\/pickup$/);
+  if (hrPickup && req.method === 'POST') {
+    const name = decodeSegment(hrPickup[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { error: 'no agent by that name' }); return; }
+    const session = sessionOf(name);
+    if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
+    const snap = handoffFileSnap(session);
+    let delivery;
+    try { delivery = chat.deliver(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
+    sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
+    return;
+  }
+
+  /**
    * #2129 companion -- open the agent's ACTUAL terminal window.
    *
    * The board reads an agent by CAPTURING its tmux pane; it never attaches. So
@@ -5354,14 +5639,25 @@ const server = http.createServer((req, res) => {
         try { back = removal.restart(name, 'provider'); }
         catch (err) { back = { outcome: 'partial', because: String(err && err.message || err), steps: [] }; }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
-        const label = wrote.provider === 'openai' ? 'OpenAI' : 'Claude';
+        /* #3296/#3391: the vendor word, keyed on the provider the switch landed on.
+           google/xai were previously mislabelled "Claude" here.
+           #3296/#3391: the non-anthropic vendor word comes from create.providerLabel
+           (the ONE map the engine's "already runs on X" refusal also uses), so the two
+           cannot drift. anthropic is the deliberate exception: this route says the
+           PRODUCT word "Claude", while providerLabel returns the COMPANY word
+           "Anthropic", so it is special-cased here rather than shared. */
+        const label = wrote.provider === 'anthropic' ? 'Claude' : create.providerLabel(wrote.provider);
         /* The dropped choices are SAID, not implied: a person who picked a
            model or an account deserves to hear it did not cross, in the
-           sentence that reports the switch, not on a later surprise. */
-        const dropped = wrote.provider === 'openai'
-          ? [wrote.dropped.model ? 'its Claude model choice does not cross (OpenAI picks its own)' : '',
-            wrote.dropped.account ? 'and it leaves its Claude account behind' : '']
-          : ['it starts on your main Claude account and Claude’s own default model until you change them'];
+           sentence that reports the switch, not on a later surprise.
+           #3296/#3391: keyed on whether the TARGET is anthropic, not on == 'openai',
+           so a switch to gemini/grok gets the same "previous choices dropped" sentence
+           (a target provider picks its own model) rather than the claude default line.
+           "previous" rather than "Claude" because the old provider need not be claude. */
+        const dropped = wrote.provider === 'anthropic'
+          ? ['it starts on your main Claude account and Claude’s own default model until you change them']
+          : [wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
+            wrote.dropped.account ? 'and it leaves its previous account behind' : ''];
         const droppedWords = dropped.filter(Boolean).join(' ');
         /* WHICH OpenAI sign-in it landed on (#1211). Josh switched an agent,
            read "API key ending WWUA" elsewhere on the screen, and could not
@@ -5375,7 +5671,17 @@ const server = http.createServer((req, res) => {
            null on a switch back to Claude and under dry-run, and naming an
            account nobody read would be the invention this route already
            refuses elsewhere. */
-        const acct = wrote.openaiAccount;
+        /* #3296/#3391: the account the switch landed on. codex reports it as
+           `openaiAccount`; gemini/grok report the generic `account`. Exactly one is
+           set (null for a switch to claude and under dry-run), so `||` picks it. */
+        const acct = wrote.openaiAccount || wrote.account;
+        /* The account-noun a person reads, keyed on the target provider. gemini/grok
+           rows carry a keyTail (rendered by `whichAcct` as "(API key ending XXXX)")
+           and no email, so "your Gemini account (API key ending XXXX)" reads right. */
+        const acctNoun = wrote.provider === 'openai' ? 'OpenAI sign-in'
+          : wrote.provider === 'google' ? 'Gemini account'
+            : wrote.provider === 'xai' ? 'Grok account'
+              : 'account';
         /* #1373: "you picked this" and "we picked this and are telling you"
            are different promises, so they get different sentences. Saying
            "the one you picked" when nobody picked would be the invention this
@@ -5399,8 +5705,8 @@ const server = http.createServer((req, res) => {
          */
         const runsOn = (tense) => (acct
           ? (acct.chosen
-            ? ` ${tense} the OpenAI sign-in you picked${whichAcct}.`
-            : ` ${tense} your OpenAI sign-in${whichAcct}.`)
+            ? ` ${tense} the ${acctNoun} you picked${whichAcct}.`
+            : ` ${tense} your ${acctNoun}${whichAcct}.`)
           : '');
         const landedOn = runsOn('It runs on');
         /* #2790: an OpenAI account Kosmos cannot live-check is the one that can
@@ -5427,7 +5733,7 @@ const server = http.createServer((req, res) => {
            subscription, not per-token billing), so silently moving it would trade a
            silent failure for a silent bill. It only makes the unverifiability
            visible. An API-key account IS live-checkable, so it gets no note. */
-        const signInNote = (acct && acct.authMode !== 'apikey')
+        const signInNote = (acct && wrote.provider === 'openai' && acct.authMode !== 'apikey')
           ? ' Kosmos cannot live-check an OpenAI sign-in, so its status stays'
             + ' unverified; if it does not respond, switch it to an OpenAI API-key'
             + ' account, which Kosmos can verify.'
@@ -5946,6 +6252,18 @@ const server = http.createServer((req, res) => {
     } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
     return;
   }
+  /* #3508: the Prompter's in-app nudges. The runner writes engine/heartbeat.js's
+     `toAsk` (the agents in an open stall worth a check-in) to a local store each
+     tick; the web UI polls this to render the question. Read-only and local -- the
+     same machine reads its own 0600 file, nothing leaves the Mac. Empty when the
+     Prompter is off (the runner writes an empty set) or nothing is stalled. */
+  if (pathname === '/api/prompter-nudges' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = prompternudge.read();
+      sendJson(res, 200, { at: r.at, nudges: r.nudges, ok: true });
+    } catch { sendJson(res, 500, { error: 'the nudges could not be read' }); }
+    return;
+  }
   if (pathname === '/api/heartbeat-setting' && req.method === 'PUT') {
     readBody(req)
       .then((buf) => {
@@ -6065,8 +6383,8 @@ const server = http.createServer((req, res) => {
        window converts `cannot tell` back into a confident `not connected`, which
        is the one answer this route exists never to give. If this route ever needs
        to be cheaper still, make the sweep cheaper - do not add a window. */
-    Promise.all([accounts.listLive(), openaiAccounts.listLive()])
-      .then(([claudeRows, openaiRows]) => {
+    Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive()])
+      .then(([claudeRows, openaiRows, geminiRows, grokRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
            accountForAgent the status route uses -- NOT a second copy of the
@@ -6185,7 +6503,14 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return base;
           return { ...base, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
-        sendJson(res, 200, { accounts: [...claude, ...openai] });
+        /* #3296/#3391 accounts slice: gemini/grok rows carry provider/providerName +
+           a live-checked `connection` from their own listLive already. They get NO
+           observed-overlay badge here (the passive/witnessed-badge join is the
+           observability follow-on, OUT of this slice) -- a row with no `badge` renders
+           from `connection.state`, the pre-#1921 behaviour, which is honest. Only
+           credentialed NAMED accounts appear (the default machine-global-key door is
+           the connect-UI follow-on's concern, agreed with Splinter 2026-09-23). */
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...geminiRows, ...grokRows] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -6344,6 +6669,28 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { account: { label: prepared.label, connection: { state: live.state } } });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3296 accounts slice: add a NAMED Gemini account from a pasted key. Backend
+     route (the connect-UI is the follow-on); the shared helper carries the flow. */
+  if (pathname === '/api/accounts/gemini/apikey' && req.method === 'POST') {
+    handleApikeyAccountStore(req, res, { mod: geminiAccounts, runner: 'gemini', providerLabel: 'Gemini' });
+    return;
+  }
+  /* #3391 accounts slice: the Grok mirror of the route above. */
+  if (pathname === '/api/accounts/grok/apikey' && req.method === 'POST') {
+    handleApikeyAccountStore(req, res, { mod: grokAccounts, runner: 'grok', providerLabel: 'Grok' });
+    return;
+  }
+  /* #3296/#3391 accounts slice: disconnect (forget) or, with `remove:true`, DELETE a
+     named Gemini/Grok account. Same fail-closed agents guard as the OpenAI DELETE. */
+  if (pathname === '/api/accounts/gemini' && req.method === 'DELETE') {
+    handleApikeyAccountDelete(req, res, { mod: geminiAccounts, runner: 'gemini' });
+    return;
+  }
+  if (pathname === '/api/accounts/grok' && req.method === 'DELETE') {
+    handleApikeyAccountDelete(req, res, { mod: grokAccounts, runner: 'grok' });
     return;
   }
 
@@ -6958,84 +7305,13 @@ const server = http.createServer((req, res) => {
         try { isDefault = path.resolve(dir) === path.resolve(openaiAccounts.defaultDir()); }
         catch { isDefault = false; }
 
-        /* 🛑 THE ENUMERATION FAILS CLOSED, AND THE FIRST VERSION DID NOT
-           (Renet Tilley, reviewing #1447). `safeRoster()` answers NULL when it
-           cannot read the fleet, `|| []` turned that into an empty list, and an
-           empty list means "no agents are on this account" -> PROCEED. So an
-           unreadable roster, or one agent whose launch file threw, silently
-           became permission to rename a directory out from under a running
-           agent.
-           ⭐ His sentence for it: AMBIGUITY WAS SILENTLY NONE. The refusal
-           below exists to make a rename safe, and a safety check that cannot
-           tell "nobody" from "I could not look" is not one.
-           📌 A NULL job is NOT incomplete: `readJob` answers null for an agent
-           Kosmos did not start, which is a real answer meaning "not a codex
-           agent". Only a THROW, or an unreadable roster, is ignorance. */
-        const roster = safeRoster();
-        let complete = roster !== null;
-        /* 🛑 THE ROSTER ALONE CANNOT SEE A STOPPED AGENT, AND THIS GUARD IS WHAT
-           MAKES THE RENAME SAFE (kosmos#1689). `safeRoster()` is
-           `status.snapshot()`, whose `panelessKeys` does
-           `if (liveness.alive(key) !== true) continue;` - so an agent that exists
-           but is not running is invisible here. Its plist still names this
-           account's directory by absolute path, so the rename proceeds and the
-           agent comes back pointed at a path that is not there.
-           ⚠️ THE CHECK BELOW WAS NEVER THE PROBLEM: `readJob` reads the PLIST,
-           which is true whether or not the agent runs. Only the ENUMERATION was
-           liveness-gated, so this unions in the names Kosmos has written a
-           profile for - its own record that an agent exists, independent of any
-           process being up.
-           📌 `known()` separates "nothing has ever been written" (ok, empty) from
-           "we could not look" (not ok), so an unreadable profiles directory makes
-           this INCOMPLETE rather than quietly shortening the list. Same
-           fail-closed posture the `complete` flag already keeps for an unreadable
-           launch file. */
-        const knownNames = register.known();
-        if (!knownNames || knownNames.ok !== true) complete = false;
-        /* 🛑 THE REMOVED-AGENT FILTER HAS TO BE APPLIED TO THESE TOO. `safeRoster`
-           drops agents the person has removed, for the reason its own comment
-           gives, and a profile file outlives that removal. Unioning the profile
-           names in RAW would resurrect a removed agent into this guard and refuse
-           the account because of one the person was already told was gone - the
-           same "two derivations of the fleet" habit that comment calls this
-           codebase's worst, arriving from the side that looks like a fix. */
-        let goneNames = null;
-        try { goneNames = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name)); }
-        catch { complete = false; goneNames = null; }
-        const names = new Set();
-        for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
-        if (goneNames) {
-          for (const n of (knownNames && Array.isArray(knownNames.names) ? knownNames.names : [])) {
-            if (!goneNames.has(n)) names.add(n);
-          }
-        }
-        const usedBy = [];
-        for (const a of Array.from(names).map((sessionName) => ({ sessionName }))) {
-          let job = null;
-          try { job = create.readJob(a.sessionName); }
-          catch { complete = false; continue; }
-          /* 🛑 A NULL JOB IS TWO DIFFERENT ANSWERS AND readJob CANNOT TELL YOU
-             WHICH. It catches its own read error and returns null, so "this
-             agent has no launch file" and "I could not read its launch file"
-             arrive identically. The first is a real answer; the second is
-             ignorance, and treating it as the first is the same fail-open one
-             layer down from the one this review caught.
-             ✅ `jobMissing` is the helper that separates them, and its own
-             docblock says why: "Only ENOENT is evidence of absence; any other
-             failure answers we could not check." */
-          if (!job) {
-            let absent = true;
-            try { absent = create.jobMissing(a.sessionName); } catch { absent = false; }
-            if (!absent) complete = false;
-            continue;
-          }
-          if (job.runner !== 'codex') continue;
-          const home = job.configDir || null;
-          let onIt = false;
-          try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
-          catch { complete = false; continue; }
-          if (onIt) usedBy.push(a.sessionName);
-        }
+        /* #3296 accounts slice: the fail-closed enumeration now lives in ONE shared
+           helper (enumerateAgentsOnAccount) so codex/gemini/grok cannot drift. It
+           keeps every guard this route grew -- the roster/known/removed union, the
+           liveness-blind stopped-agent guard (#1689), and the null-vs-unreadable job
+           split (#1447, Renet Tilley: AMBIGUITY WAS SILENTLY NONE). A false `complete`
+           means we could not look, which MUST refuse the destructive act below. */
+        const { usedBy, complete } = enumerateAgentsOnAccount(dir, isDefault, 'codex');
         if (!complete) {
           sendJson(res, 400, {
             error: 'we could not check which agents are on this account, so nothing was changed',
@@ -8447,6 +8723,21 @@ const server = http.createServer((req, res) => {
     let r;
     try { r = promptrequest.request('a11y'); }
     catch (err) { r = { ok: false, because: 'we could not record the accessibility prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
+    return;
+  }
+  /* #2912: force a fresh native a11y re-measure on demand. "Check again" on the Access
+     ("Kosmos Never Sleeps") screen POSTs this; the native watcher runs AXIsProcessTrusted
+     (no prompt, no FDA) and rewrites a11y-status.json AT ONCE, so the gate poll reflects a
+     just-granted permission immediately instead of waiting on the native 60s timer -- the
+     lag Josh saw on a fresh install with no Full Disk Access, where the live appGrant read
+     is unavailable and /api/a11y-status falls back to that 60s file. Same fire-and-forget
+     {ok, because} contract as /api/a11y-prompt (always 200; the caller reads body.ok, and
+     the poll takes it from here); records nothing when no native app is present. */
+  if (pathname === '/api/a11y-recheck' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('a11y-recheck'); }
+    catch (err) { r = { ok: false, because: 'we could not record the accessibility re-check request (' + String((err && err.message) || err) + ')' }; }
     sendJson(res, 200, r);
     return;
   }
@@ -13760,7 +14051,7 @@ const server = http.createServer((req, res) => {
 function start(port = PORT) {
   /* #1704 slice 2b: the active world's data-root env is applied at the TOP of this
      file (engine/worldenv.js), before any engine module is required -- NOT here.
-     start() runs after every top-level require, which is too late for the ~26 modules
+     start() runs after every top-level require, which is too late for the ~27 modules
      that freeze store.ROOT at require time (2a applied it here and those modules kept
      the default root; see engine/worldenv.js). `worldRegistryBase` is set by that
      top-of-file bootstrap. A no-op for the default world, so existing installs are
@@ -14035,13 +14326,29 @@ function start(port = PORT) {
           const roster = setting.on ? safeRoster() : null;
           const outcome = heartbeat.step(heartbeatPrev, roster, setting.on);
           heartbeatPrev = outcome.next;
-          /* #2623: the heartbeat's check_in nudge was delivered through the phone
-             seam (engine/notify.js), which was deleted as phone-home telemetry
-             (Josh, 2026-09-09, "invasion of privacy"). The runner still tracks
-             stalls in heartbeatPrev, but there is no off-Mac delivery: the seam
-             barely fired anyway (see engine/wouldping.js) and the app has no
-             notification relay yet. A future in-app delivery channel is a
-             separate build. */
+          /* #3508: deliver the check-in nudges IN-APP. #2623 deleted the phone
+             seam (engine/notify.js) as telemetry (Josh, 2026-09-09, "invasion of
+             privacy"); this writes the current pending set to a LOCAL 0600 store
+             the web UI reads through /api/prompter-nudges. Nothing leaves the Mac,
+             so it is not the telemetry Josh removed and needs no opt-out. The
+             store REPLACES the set each tick, so a resolved stall clears itself.
+             Best-effort like the rest of the tick: a missed write is a missed
+             nudge and the board's status surfaces still show the truth.
+             🛑 DO NOT WRITE ON A ROSTER READ FAILURE. heartbeat.step() returns
+             toAsk:[] BOTH when nothing is stalled AND when safeRoster() failed
+             (roster === null while the Prompter is ON -- a transient tmux read
+             failure it deliberately treats as "skip this tick, keep the prev
+             memory", NOT "the fleet emptied"). Replacing the store with [] on that
+             failure would wipe an already-open check-in from the panel for a full
+             interval, the exact "fail toward silence" engine/heartbeat.js forbids.
+             So write only on a real read (roster is an array, even empty = "no
+             agents", which correctly clears the store) or when the Prompter is OFF
+             (roster is null by choice, and [] correctly clears the store). Skip
+             only the on-but-unreadable case -- policy single-sourced + unit-tested
+             in engine/prompternudge.js shouldWrite(). */
+          if (prompternudge.shouldWrite(setting.on, roster)) {
+            try { prompternudge.write(outcome.toAsk); } catch { /* best-effort */ }
+          }
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);
