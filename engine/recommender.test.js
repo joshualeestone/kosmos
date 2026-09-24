@@ -1,124 +1,257 @@
 'use strict';
 /* #3595 phase 1: the Recommender's pure step. Every rule is tested with the arm that must
- * fire AND the arm that must not, so a test that passes cannot be passing vacuously. */
+ * fire AND the arm that must not, so a test that passes cannot be passing vacuously.
+ *
+ * step() consumes board cards (safeRoster()), so these tests feed it cards the REAL
+ * snapshot() pipeline produced from real panes plus real self-reports (test-support/fleet +
+ * selfreport.record), never hand-built literals: fixture-discipline forbids a hand-built
+ * card, because one is free to carry fields the producer never emits. Same pattern as
+ * class1-autohandle-sweep-2808.test.js. */
+
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+
+// Sandbox every root BEFORE requiring status/fleet/selfreport (they resolve roots at require time).
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'recommender-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+const fleet = require('../test-support/fleet');
+const status = require('./status');
+const selfreport = require('./selfreport');
 const r = require('./recommender');
+
+test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const T0 = 1_000_000_000_000;
 const ON = { on: true, guards: { money: true, public: true, delete: true } };
-const members = new Map([['proj-a', ['april', 'mona', 'pete', 'angel']], ['proj-solo', ['solo']]]);
+const STUCK = (because, project = 'proj-a') => ({ state: 'needs_you', because, project });
 
-function agent(over) {
-  return { sessionName: 'april', name: 'April', state: 'blocked', stateReportedBy: 'agent',
-    stateProject: 'proj-a', because: 'which of two layouts to ship', ...over };
+/* Install agents, write their self-reports, return the reconciled cards. Each spec is
+   { name, displayName?, paneState?, report? }. `key[name]` is the sessionName the real card
+   carries (the self-report key); `again(name, report)` records a new report and re-snapshots,
+   so a test can move an agent between states the way the real board would see it. */
+function stuckBoard(specs) {
+  const board = fleet.install(specs.map((s) => fleet.agent(s.name, { state: s.paneState || 'idle', displayName: s.displayName })));
+  const key = {};
+  for (const s of specs) {
+    const card = board.agents.find((c) => c.sessionName === s.name || (c.sessionName || '').startsWith(s.name));
+    key[s.name] = card ? card.sessionName : s.name;
+    if (s.report) {
+      const rec = selfreport.record(key[s.name], s.report);
+      assert.equal(rec.recorded, true, 'fixture: the self-report was refused: ' + JSON.stringify(rec));
+    }
+  }
+  const cards = () => status.snapshot().agents;
+  const again = (name, report) => {
+    const rec = selfreport.record(key[name], report);
+    assert.equal(rec.recorded, true, 'fixture: the self-report was refused: ' + JSON.stringify(rec));
+    return cards();
+  };
+  // Clear every report on the way out, so the next test's agents start with no standing block.
+  const restore = () => {
+    for (const s of specs) { try { selfreport.record(key[s.name], { state: 'working', because: 'test over' }); } catch { /* best effort */ } }
+    board.restore();
+  };
+  return { cards: cards(), key, again, restore };
 }
+
 /* Run step twice: once to be seen, once after the grace period. */
-function afterGrace(roster, setting = ON, extra = {}) {
-  const first = r.step({ prev: undefined, roster, setting, members, now: T0, ...extra });
-  return r.step({ prev: first.next, roster, setting, members, now: T0 + r.GRACE_MS, ...extra });
+function afterGrace(roster, members, setting = ON) {
+  const first = r.step({ prev: undefined, roster, setting, members, now: T0 });
+  return r.step({ prev: first.next, roster, setting, members, now: T0 + r.GRACE_MS });
 }
+
+test('fixture control: a real self-reported block reaches the card with the fields step() reads', () => {
+  const b = stuckBoard([{ name: 'ctl', report: STUCK('which of two layouts to ship') }]);
+  try {
+    const card = b.cards.find((c) => c.sessionName === b.key.ctl);
+    assert.ok(card, 'the agent is on the board');
+    assert.equal(card.state, 'needs_you');
+    assert.equal(card.stateReportedBy, 'agent');
+    assert.equal(card.stateProject, 'proj-a');
+    assert.equal(card.because, 'which of two layouts to ship');
+    assert.ok(r.stuckRow(card), 'a real stuck card was not recognised');
+  } finally { b.restore(); }
+});
 
 test('a reported block past the grace period is convened; inside the grace it is not', () => {
-  const roster = [agent(), agent({ sessionName: 'mona', name: 'Mona', state: 'idle', stateReportedBy: null })];
-  const early = r.step({ prev: undefined, roster, setting: ON, members, now: T0 });
-  assert.equal(early.toConvene.length, 0, 'convened before the grace period');
-  const late = afterGrace(roster);
-  assert.equal(late.toConvene.length, 1, 'not convened after the grace period');
-  assert.equal(late.toConvene[0].session, 'april');
-  assert.equal(late.toConvene[0].project, 'proj-a');
+  const b = stuckBoard([{ name: 'grc', report: STUCK('which of two layouts to ship') }, { name: 'grcpeer' }]);
+  try {
+    const members = new Map([['proj-a', [b.key.grc, b.key.grcpeer]]]);
+    const early = r.step({ prev: undefined, roster: b.cards, setting: ON, members, now: T0 });
+    assert.equal(early.toConvene.length, 0, 'convened before the grace period');
+    const late = afterGrace(b.cards, members);
+    assert.equal(late.toConvene.length, 1, 'not convened after the grace period');
+    assert.equal(late.toConvene[0].session, b.key.grc);
+    assert.equal(late.toConvene[0].project, 'proj-a');
+  } finally { b.restore(); }
 });
 
-test('needs_you reported by the agent triggers too; working/idle do not', () => {
-  assert.equal(afterGrace([agent({ state: 'needs_you' })]).toConvene.length, 1);
-  assert.equal(afterGrace([agent({ state: 'working' })]).toConvene.length, 0);
-  assert.equal(afterGrace([agent({ state: 'idle' })]).toConvene.length, 0);
+test('a real `blocked` report is never convened: its card carries no project and no provenance', () => {
+  // The engine comment's claim, guarded: if status.js ever starts carrying project/by on a
+  // blocked card, this fails and the decision to skip `blocked` should be revisited.
+  const b = stuckBoard([{ name: 'blk', report: { state: 'blocked', because: 'waiting for the API key', on: 'the API key', owner: 'Josh', project: 'proj-a' } }]);
+  try {
+    const card = b.cards.find((c) => c.sessionName === b.key.blk);
+    assert.equal(card.state, 'blocked', 'fixture: the blocked report did not reach the card');
+    assert.equal(card.stateProject, null);
+    assert.equal(card.stateReportedBy, null);
+    assert.equal(r.stuckRow(card), null);
+    assert.equal(afterGrace(b.cards, new Map()).toConvene.length, 0);
+  } finally { b.restore(); }
 });
 
-test('only an AGENT report counts: auto (hooks) and operator reports are never convened', () => {
-  assert.equal(afterGrace([agent({ stateReportedBy: 'agent' })]).toConvene.length, 1, 'control: agent report fires');
-  assert.equal(afterGrace([agent({ stateReportedBy: 'auto' })]).toConvene.length, 0, 'a hook report (permission prompt / provider outage) was convened');
-  assert.equal(afterGrace([agent({ stateReportedBy: 'operator' })]).toConvene.length, 0, 'the person\'s own report was convened');
-  assert.equal(afterGrace([agent({ stateReportedBy: null })]).toConvene.length, 0, 'a screen-scraped state was convened');
+test('needs_you reported by the agent triggers; working/idle do not', () => {
+  const b = stuckBoard([
+    { name: 'nyq', report: { state: 'needs_you', because: 'which venue', project: 'proj-a' } },
+    { name: 'nywork', report: { state: 'working', because: 'building', project: 'proj-a' } },
+    { name: 'nyidle', report: { state: 'idle', because: 'done', project: 'proj-a' } },
+  ]);
+  try {
+    const out = afterGrace(b.cards, new Map());
+    assert.deepEqual(out.toConvene.map((c) => c.session), [b.key.nyq]);
+  } finally { b.restore(); }
 });
 
-test('a report with no project is not convened (there is no room to ask in)', () => {
-  assert.equal(afterGrace([agent({ stateProject: null })]).toConvene.length, 0);
-  assert.equal(afterGrace([agent({ stateProject: 'proj-a' })]).toConvene.length, 1, 'control');
+test('only an AGENT report counts: an auto (hook) needs_you is never convened', () => {
+  const b = stuckBoard([
+    { name: 'byagent', report: { state: 'needs_you', because: 'which venue', project: 'proj-a' } },
+    { name: 'byauto', report: { state: 'needs_you', because: 'asking permission to use Bash', project: 'proj-a', auto: true } },
+  ]);
+  try {
+    const auto = b.cards.find((c) => c.sessionName === b.key.byauto);
+    assert.equal(auto.stateReportedBy, 'auto', 'fixture: the hook report did not reach the card as auto');
+    const out = afterGrace(b.cards, new Map());
+    assert.deepEqual(out.toConvene.map((c) => c.session), [b.key.byagent], 'control fired, or a hook report was convened');
+  } finally { b.restore(); }
 });
 
-test('setting OFF convenes nothing and resets memory; a null roster keeps memory', () => {
-  assert.equal(afterGrace([agent()], { on: false }).toConvene.length, 0);
-  const seen = r.step({ prev: undefined, roster: [agent()], setting: ON, members, now: T0 });
-  const off = r.step({ prev: seen.next, roster: [agent()], setting: { on: false }, members, now: T0 + 1 });
-  assert.equal(off.next.items.size, 0, 'off did not reset memory');
-  const blind = r.step({ prev: seen.next, roster: null, setting: ON, members, now: T0 + r.GRACE_MS });
-  assert.equal(blind.toConvene.length, 0);
-  assert.equal(blind.next, seen.next, 'a roster read failure dropped the memory');
+test('a report naming no project is not convened (there is no room to ask in)', () => {
+  const b = stuckBoard([{ name: 'noproj', report: { state: 'needs_you', because: 'no project named' } }]);
+  try {
+    assert.equal(b.cards.find((c) => c.sessionName === b.key.noproj).stateProject, null);
+    assert.equal(afterGrace(b.cards, new Map()).toConvene.length, 0);
+  } finally { b.restore(); }
 });
 
 test('an item is convened once: a PLACED delivery ends it; an unplaced one retries the PANE only, capped', () => {
-  const roster = [agent()];
-  const a = afterGrace(roster);
-  assert.equal(a.toConvene.length, 1);
-  assert.equal(a.toConvene[0].retry, false, 'the first convening must post the room note');
-  r.markAttempt(a.next, a.toConvene[0].key, false); // room note out, pane not placed
-  let prev = a.next; let now = T0 + r.GRACE_MS;
-  for (let i = 1; i < r.MAX_DELIVERY_ATTEMPTS; i++) {
-    now += 60000;
-    const again = r.step({ prev, roster, setting: ON, members, now });
-    assert.equal(again.toConvene.length, 1, 'an unplaced delivery was not retried (attempt ' + i + ')');
-    assert.equal(again.toConvene[0].retry, true, 'a retry would post a second room note');
-    r.markAttempt(again.next, again.toConvene[0].key, false);
-    prev = again.next;
-  }
-  const exhausted = r.step({ prev, roster, setting: ON, members, now: now + 60000 });
-  assert.equal(exhausted.toConvene.length, 0, 'retries were not capped');
-  // Retries charged no budget: a second item for the same agent still fits the per-agent cap.
-  const two = r.step({ prev: exhausted.next, roster: [agent(), agent({ because: 'another item' })], setting: ON, members, now: now + 60000 + r.GRACE_MS });
-  const three = r.step({ prev: two.next, roster: [agent(), agent({ because: 'another item' })], setting: ON, members, now: now + 60000 + 2 * r.GRACE_MS });
-  assert.equal(three.toConvene.filter((c) => !c.retry).length, 1, 'retries spent the per-agent budget');
-  // And a PLACED delivery ends the item for good.
-  const fresh = afterGrace(roster);
-  r.markAttempt(fresh.next, fresh.toConvene[0].key, true);
-  const done = r.step({ prev: fresh.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000 });
-  assert.equal(done.toConvene.length, 0, 'a convened item fired twice');
+  const b = stuckBoard([{ name: 'once', report: STUCK('which of two layouts to ship') }]);
+  try {
+    const roster = b.cards;
+    const members = new Map();
+    const a = afterGrace(roster, members);
+    assert.equal(a.toConvene.length, 1);
+    assert.equal(a.toConvene[0].retry, false, 'the first convening must post the room note');
+    r.markAttempt(a.next, a.toConvene[0].key, false); // room note out, pane not placed
+    let prev = a.next; let now = T0 + r.GRACE_MS;
+    for (let i = 1; i < r.MAX_DELIVERY_ATTEMPTS; i++) {
+      now += 60000;
+      const again = r.step({ prev, roster, setting: ON, members, now });
+      assert.equal(again.toConvene.length, 1, 'an unplaced delivery was not retried (attempt ' + i + ')');
+      assert.equal(again.toConvene[0].retry, true, 'a retry would post a second room note');
+      r.markAttempt(again.next, again.toConvene[0].key, false);
+      prev = again.next;
+    }
+    const exhausted = r.step({ prev, roster, setting: ON, members, now: now + 60000 });
+    assert.equal(exhausted.toConvene.length, 0, 'retries were not capped');
+    // Retries charged no budget: the same agent's NEXT item still fits the per-agent cap
+    // (one charge so far, cap is 2).
+    const next = b.again('once', STUCK('a second, different item'));
+    const s1 = r.step({ prev: exhausted.next, roster: next, setting: ON, members, now: now + 120000 });
+    const s2 = r.step({ prev: s1.next, roster: next, setting: ON, members, now: now + 120000 + r.GRACE_MS });
+    assert.equal(s2.toConvene.filter((c) => !c.retry).length, 1, 'retries spent the per-agent budget');
+    // And a PLACED delivery ends the item for good.
+    const fresh = afterGrace(roster, members);
+    r.markAttempt(fresh.next, fresh.toConvene[0].key, true);
+    const done = r.step({ prev: fresh.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000 });
+    assert.equal(done.toConvene.length, 0, 'a convened item fired twice');
+  } finally { b.restore(); }
 });
 
 test('a resolved item is forgotten, so the same words later are a new item', () => {
-  const a = afterGrace([agent()]);
-  r.markAttempt(a.next, a.toConvene[0].key, true);
-  const cleared = r.step({ prev: a.next, roster: [agent({ state: 'working', stateReportedBy: 'agent' })], setting: ON, members, now: T0 + r.GRACE_MS + 1 });
-  assert.equal(cleared.next.items.size, 0);
-  const back = r.step({ prev: cleared.next, roster: [agent()], setting: ON, members, now: T0 + r.GRACE_MS + 2 });
-  assert.equal(back.toConvene.length, 0, 'a fresh item skipped its grace period');
+  const b = stuckBoard([{ name: 'forget', report: STUCK('which of two layouts to ship') }]);
+  try {
+    const members = new Map();
+    const a = afterGrace(b.cards, members);
+    r.markAttempt(a.next, a.toConvene[0].key, true);
+    const working = b.again('forget', { state: 'working', because: 'building it', project: 'proj-a' });
+    const cleared = r.step({ prev: a.next, roster: working, setting: ON, members, now: T0 + r.GRACE_MS + 1 });
+    assert.equal(cleared.next.items.size, 0);
+    const stuckAgain = b.again('forget', STUCK('which of two layouts to ship'));
+    const back = r.step({ prev: cleared.next, roster: stuckAgain, setting: ON, members, now: T0 + r.GRACE_MS + 2 });
+    assert.equal(back.toConvene.length, 0, 'a fresh item skipped its grace period');
+  } finally { b.restore(); }
 });
 
 test('caps: at most MAX_PER_AGENT_PER_HOUR per agent and MAX_PER_HOUR overall', () => {
-  // One agent, many distinct items: capped per agent.
-  const many = [1, 2, 3, 4].map((i) => agent({ because: 'item ' + i }));
-  const perAgent = afterGrace(many);
-  assert.equal(perAgent.toConvene.length, r.MAX_PER_AGENT_PER_HOUR);
+  // One agent, successive items (a real agent carries one report at a time): capped per agent.
+  const one = stuckBoard([{ name: 'capone', report: STUCK('item 1') }]);
+  try {
+    const members = new Map();
+    let prev; let now = T0; let convened = 0;
+    for (let i = 1; i <= r.MAX_PER_AGENT_PER_HOUR + 2; i++) {
+      const roster = i === 1 ? one.cards : one.again('capone', STUCK('item ' + i));
+      const seen = r.step({ prev, roster, setting: ON, members, now });
+      now += r.GRACE_MS;
+      const out = r.step({ prev: seen.next, roster, setting: ON, members, now });
+      for (const c of out.toConvene) { convened++; r.markAttempt(out.next, c.key, true); }
+      prev = out.next; now += 1000;
+    }
+    assert.ok(now - T0 < 60 * 60 * 1000, 'test setup: the items did not all fall inside one hour');
+    assert.equal(convened, r.MAX_PER_AGENT_PER_HOUR, 'the per-agent cap did not hold');
+  } finally { one.restore(); }
   // Many agents, one item each: capped overall.
-  const names = ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'];
-  const bigMembers = new Map([['proj-a', names]]);
-  const fleet = names.map((n) => agent({ sessionName: n, name: n }));
-  const overall = afterGrace(fleet, ON, { members: bigMembers });
-  assert.equal(overall.toConvene.length, r.MAX_PER_HOUR);
-  // An hour later the budget is back.
-  const later = r.step({ prev: overall.next, roster: fleet, setting: ON, members: bigMembers, now: T0 + r.GRACE_MS + 61 * 60 * 1000 });
-  assert.ok(later.toConvene.length > 0, 'the hourly budget never recovered');
+  const names = ['cap1', 'cap2', 'cap3', 'cap4', 'cap5', 'cap6', 'cap7', 'cap8'];
+  const many = stuckBoard(names.map((n) => ({ name: n, report: STUCK('item of ' + n) })));
+  try {
+    const members = new Map([['proj-a', names.map((n) => many.key[n])]]);
+    const overall = afterGrace(many.cards, members);
+    assert.equal(overall.toConvene.length, r.MAX_PER_HOUR);
+    // An hour later the budget is back.
+    const later = r.step({ prev: overall.next, roster: many.cards, setting: ON, members, now: T0 + r.GRACE_MS + 61 * 60 * 1000 });
+    assert.ok(later.toConvene.length > 0, 'the hourly budget never recovered');
+  } finally { many.restore(); }
 });
 
 test('peers: up to two OTHER members, unstuck ones first; none on a solo project', () => {
-  const roster = [agent(), agent({ sessionName: 'mona', name: 'Mona', because: 'her own thing' }),
-    agent({ sessionName: 'pete', name: 'Pete', state: 'idle', stateReportedBy: null }),
-    agent({ sessionName: 'angel', name: 'Angel', state: 'working', stateReportedBy: null })];
-  const out = afterGrace(roster);
-  const april = out.toConvene.find((c) => c.session === 'april');
-  assert.deepEqual(april.peers.map((p) => p.session), ['pete', 'angel'], 'stuck Mona was preferred over free members, or self was included');
-  const solo = afterGrace([agent({ sessionName: 'solo', name: 'Solo', stateProject: 'proj-solo' })]);
-  assert.deepEqual(solo.toConvene[0].peers, []);
+  const b = stuckBoard([
+    { name: 'pstuck', report: STUCK('which of two layouts to ship') },
+    { name: 'pmona', displayName: 'Mona', report: STUCK('her own thing') },
+    { name: 'ppete', displayName: 'Pete' },
+    { name: 'pangel', displayName: 'Angel', paneState: 'working' },
+    { name: 'psolo', report: STUCK('solo item', 'proj-solo') },
+  ]);
+  try {
+    const k = b.key;
+    const members = new Map([['proj-a', [k.pstuck, k.pmona, k.ppete, k.pangel]], ['proj-solo', [k.psolo]]]);
+    const out = afterGrace(b.cards, members);
+    const stuck = out.toConvene.find((c) => c.session === k.pstuck);
+    assert.deepEqual(stuck.peers.map((p) => p.session), [k.ppete, k.pangel], 'stuck Mona was preferred over free members, or self was included');
+    assert.deepEqual(stuck.peers.map((p) => p.name), ['Pete', 'Angel'], 'peers are not named by their display names');
+    const solo = out.toConvene.find((c) => c.session === k.psolo);
+    assert.deepEqual(solo.peers, []);
+  } finally { b.restore(); }
+});
+
+test('a failed roster read (null) keeps the memory and does nothing; the setting OFF forgets it', () => {
+  const b = stuckBoard([{ name: 'nullr', report: STUCK('which of two layouts to ship') }]);
+  try {
+    const members = new Map();
+    const seen = r.step({ prev: undefined, roster: b.cards, setting: ON, members, now: T0 });
+    const failed = r.step({ prev: seen.next, roster: null, setting: ON, members, now: T0 + r.GRACE_MS });
+    assert.equal(failed.toConvene.length, 0);
+    assert.equal(failed.next, seen.next, 'a read failure dropped the memory');
+    const off = r.step({ prev: seen.next, roster: b.cards, setting: { on: false }, members, now: T0 + r.GRACE_MS });
+    assert.equal(off.toConvene.length, 0, 'convened while OFF');
+    assert.equal(off.next.items.size, 0);
+  } finally { b.restore(); }
 });
 
 test('texts: the playbook names only ACTIVE guards; the room note @-mentions the peers', () => {
@@ -136,31 +269,36 @@ test('texts: the playbook names only ACTIVE guards; the room note @-mentions the
 });
 
 test('runOnce: one room note per item, the playbook delivered, retries never re-post the note', () => {
-  const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
-  const notes = []; const sent = [];
-  let verdict = 'unconfirmed';
-  const deps = { roomNote: (pid, t) => notes.push([pid, t]), deliver: (s, t) => { sent.push([s, t]); return { state: verdict }; }, DELIVERY };
-  const roster = [agent()];
-  const seen = r.runOnce({ prev: undefined, roster, setting: ON, members, now: T0, ...deps });
-  assert.equal(notes.length + sent.length, 0, 'acted inside the grace period');
-  const first = r.runOnce({ prev: seen.next, roster, setting: ON, members, now: T0 + r.GRACE_MS, ...deps });
-  assert.equal(notes.length, 1, 'no room note on first convening');
-  assert.equal(notes[0][0], 'proj-a');
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0][0], 'april');
-  assert.equal(first.acted[0].noted, true);
-  const retry = r.runOnce({ prev: first.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000, ...deps });
-  assert.equal(notes.length, 1, 'a retry posted a SECOND room note');
-  assert.equal(sent.length, 2, 'an unplaced delivery was not retried');
-  assert.equal(retry.acted[0].noted, false);
-  verdict = 'placed';
-  const placed = r.runOnce({ prev: retry.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 120000, ...deps });
-  assert.equal(sent.length, 3);
-  r.runOnce({ prev: placed.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 180000, ...deps });
-  assert.equal(sent.length, 3, 'delivered again after a PLACED delivery');
-  // A throwing deliver counts as not placed and never crashes the pass.
-  const boom = { ...deps, deliver: () => { throw new Error('x'); } };
-  const b1 = r.runOnce({ prev: undefined, roster: [agent({ because: 'other' })], setting: ON, members, now: T0, ...boom });
-  const b2 = r.runOnce({ prev: b1.next, roster: [agent({ because: 'other' })], setting: ON, members, now: T0 + r.GRACE_MS, ...boom });
-  assert.equal(b2.acted[0].verdict, null);
+  const b = stuckBoard([{ name: 'run', report: STUCK('which of two layouts to ship') }, { name: 'runboom', report: STUCK('other') }]);
+  try {
+    const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+    const notes = []; const sent = [];
+    let verdict = 'unconfirmed';
+    const deps = { roomNote: (pid, t) => notes.push([pid, t]), deliver: (s, t) => { sent.push([s, t]); return { state: verdict }; }, DELIVERY };
+    const members = new Map();
+    const roster = b.cards.filter((c) => c.sessionName === b.key.run);
+    const seen = r.runOnce({ prev: undefined, roster, setting: ON, members, now: T0, ...deps });
+    assert.equal(notes.length + sent.length, 0, 'acted inside the grace period');
+    const first = r.runOnce({ prev: seen.next, roster, setting: ON, members, now: T0 + r.GRACE_MS, ...deps });
+    assert.equal(notes.length, 1, 'no room note on first convening');
+    assert.equal(notes[0][0], 'proj-a');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0][0], b.key.run);
+    assert.equal(first.acted[0].noted, true);
+    const retry = r.runOnce({ prev: first.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000, ...deps });
+    assert.equal(notes.length, 1, 'a retry posted a SECOND room note');
+    assert.equal(sent.length, 2, 'an unplaced delivery was not retried');
+    assert.equal(retry.acted[0].noted, false);
+    verdict = 'placed';
+    const placed = r.runOnce({ prev: retry.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 120000, ...deps });
+    assert.equal(sent.length, 3);
+    r.runOnce({ prev: placed.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 180000, ...deps });
+    assert.equal(sent.length, 3, 'delivered again after a PLACED delivery');
+    // A throwing deliver counts as not placed and never crashes the pass.
+    const boom = { ...deps, deliver: () => { throw new Error('x'); } };
+    const boomRoster = b.cards.filter((c) => c.sessionName === b.key.runboom);
+    const b1 = r.runOnce({ prev: undefined, roster: boomRoster, setting: ON, members, now: T0, ...boom });
+    const b2 = r.runOnce({ prev: b1.next, roster: boomRoster, setting: ON, members, now: T0 + r.GRACE_MS, ...boom });
+    assert.equal(b2.acted[0].verdict, null);
+  } finally { b.restore(); }
 });

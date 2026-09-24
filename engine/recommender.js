@@ -2,8 +2,8 @@
 /* #3595 phase 1: the Recommender's BEHAVIOUR, reading the setting #3549 persisted
  * (engine/recommender-setting.js). Plan: .claude/plans/recommender-assigner-3595-2026-09-24.md.
  *
- * WHAT IT DOES. When an agent has itself reported that it is stuck (`kosmos report blocked`
- * or `needs_you`, naming a project) and is still stuck after a grace period, Kosmos convenes
+ * WHAT IT DOES. When an agent has itself reported that it needs a decision (`kosmos report
+ * needs_you`, naming a project) and is still waiting after a grace period, Kosmos convenes
  * help ONCE for that item: a room note in the project asks up to two other members for one
  * reply each, and the stuck agent is handed a short playbook in its pane: take the replies,
  * decide, write the decision down in the room (the call, what was rejected, the weakest
@@ -11,6 +11,9 @@
  * touches an active guard stays with the person.
  *
  * WHAT IT DELIBERATELY DOES NOT DO.
+ * - It never acts on `blocked`. That report means waiting on something that is not a decision
+ *   (a dependency another party owns), which peer advice cannot unblock, and its card carries
+ *   no project and no provenance, so there would be no room to ask in anyway.
  * - It never acts on a report the agent did not make: a by:'auto' report is a hook's (a
  *   permission prompt, a provider outage, an end-of-turn idle) and an operator report is the
  *   person's. Only stateReportedBy === 'agent' is an agent saying "I am stuck on a decision".
@@ -27,7 +30,7 @@
  * delivery is PLACED, the same deliver-then-advance rule as the auto-save sweep.
  */
 
-const STUCK_STATES = new Set(['blocked', 'needs_you']);
+const STUCK_STATES = new Set(['needs_you']);
 const GRACE_MS = 10 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_HOUR = 6;

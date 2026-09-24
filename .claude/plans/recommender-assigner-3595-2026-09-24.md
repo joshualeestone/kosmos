@@ -33,11 +33,22 @@ Status: DESIGN. No code until this is on the card.
   this repo couples to it. This build does NOT depend on #3014 landing.
 
 ## Recommender design
-**Trigger.** An agent whose roster state is `blocked` or `needs_you`, REPORTED BY THE AGENT
+**Trigger.** An agent whose roster state is `needs_you`, REPORTED BY THE AGENT
 (`stateReportedBy === 'agent'`), with a `stateProject`, sustained past a grace period (default
 10 min, so an agent that unblocks itself is left alone). Excluded: `auto` reports (permission
 prompts; the class-1 handler owns those), `owner` = provider (outages are not decisions), operator
 reports, agents that are held/stopped, and agents with no project (no room to convene in).
+
+**DECIDED during the challenge loop (April, 2026-09-24): `blocked` is NOT a trigger.** Converting the
+tests to real fleet cards (fixture-discipline) showed that status.js's blocked branch carries neither
+`project` nor `by`, so a real `kosmos report blocked` card has `stateProject: null` and
+`stateReportedBy: null`: a `blocked` trigger could never fire, and the hand-built test cards had
+hidden that. Rejected: adding project/by passthrough to the blocked branch (it widens what lights
+project tiles, outside this card). Kept narrow because `blocked` means "waiting on something that is
+not you", a dependency peer advice cannot unblock, while `needs_you` is the decision signal.
+Weakest premise: that agents report decisions as `needs_you` rather than `blocked`. What would change
+it: rooms showing agents reporting decisions as `blocked`; then add the passthrough and re-add the
+state (engine/recommender.test.js pins the current card shape so that change is visible).
 
 **Convene (once per item).** Item key = agent + hash(because|on). For a new item:
 1. A `roomNote` in the project room, in the product's voice: "Recommender: <agent> is stuck on
@@ -134,13 +145,13 @@ touched it.
 1. **RESOLVED by default-OFF (Splinter 11:08):** instruction-level guards are not enough to ship ON.
    A person who turns the Recommender on gets instruction-level guards only; the Settings hint says so
    plainly until the tool-level guards card lands.
-2. That "reported blocked/needs_you with a project, for 10 min" is the right trigger. Agents that
+2. That "reported needs_you with a project, for 10 min" is the right trigger. Agents that
    never report stay invisible to the Recommender (they stay visible to the Prompter).
 3. That commitments `clear` is reliable enough to hand out work; an agent that forgets to assert
    commitments reads `unknown` and is never assigned (the safe direction).
 
 ## Verification (per phase)
 Unit tests on the pure step functions (both arms per rule), route tests, a browser check on the
-enabled controls, and a sandboxed end-to-end run: seed a project with 2 agents, report one blocked,
+enabled controls, and a sandboxed end-to-end run: seed a project with 2 agents, report one needs_you,
 and observe the room note and the delivered playbook; seed an idle agent plus an open task, and
 observe the assignment and the pane message. Then served-build eyes-on after a release.
