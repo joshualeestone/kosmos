@@ -49,8 +49,8 @@ const WROTE_WHY = 'Kosmos told it where to save the files it makes for you';
  * named a different folder for any name safeKey changes (`orch.main`, `has space`,
  * `Writer` on a case-sensitive disk), so the agent was told a folder next to its own.
  *
- * April's agent-page list (#3614 items 1, 2, 4) reads this function and FOLDER, so
- * both keep their names and signatures: tell her before changing either.
+ * April's agent-page list (#3614 items 1, 2, 4, not shipped yet) will read this function and
+ * FOLDER, so both keep their names and signatures: tell her before changing either.
  */
 function filesDir(sessionName) {
   let file = null;

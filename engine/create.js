@@ -4674,6 +4674,8 @@ function createAgentInner(opts) {
         try {
           const dmMod = require('./dmfiles');
           // dmfiles.bodyFor is the ONE derivation of "this agent's Files folder" (the sweep uses it too).
+          // It resolves through instructions.fileFor (workerDir(safeKey(name))) while the file here is written
+          // through workerDir(name): the same folder only because creation names already pass [a-z0-9_-].
           const body = dmMod.bodyFor(name);
           if (!body) throw new Error('no folder to name');
           const spliced = require('./projects').spliceBlock(text, body, dmMod.START, dmMod.END);
