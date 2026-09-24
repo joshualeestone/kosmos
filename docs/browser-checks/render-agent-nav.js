@@ -46,9 +46,11 @@ const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'nav-s
 // #2916: SECTIONS is every MEASURABLE section (skills added, since it now shows alongside instr).
 // PILLS is what the nav actually clicks -- memory folds under the 'model' pill and skills under
 // 'instr', so neither has a pill of its own. GROUP maps a pill to the section(s) it reveals.
+// #3500: Remove folded UNDER the Advanced (term) pill, so 'remove' is no longer a pill of its own;
+// clicking Advanced now reveals both term and remove (as model+memory / instr+skills already did).
 const SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
-const PILLS = ['talk', 'model', 'instr', 'profile', 'term', 'remove'];
-const GROUP = { model: ['model', 'memory'], instr: ['instr', 'skills'] };
+const PILLS = ['talk', 'model', 'instr', 'profile', 'term'];
+const GROUP = { model: ['model', 'memory'], instr: ['instr', 'skills'], term: ['term', 'remove'] };
 const groupOf = (k) => GROUP[k] || [k];
 const fail = [];
 function chk(ok, label, extra) {
@@ -94,13 +96,16 @@ function chk(ok, label, extra) {
         `[${theme}] control: the other seven sections measure zero before any click`,
         JSON.stringify(Object.fromEntries(SECTIONS.map((k) => [k, r[k].h]))));
 
+      // #3500: the DM box is the fixed label "Direct Message" (the agent's name is carried by the
+      // DM header and the identity column); the Remove pill is gone (folded into Advanced), so it no
+      // longer carries the name. The model button (Change & Restart) still names the agent.
       const names = await page.evaluate(() => ({
         talk: document.getElementById('d-nav-talk').textContent,
-        remove: document.getElementById('d-nav-remove').textContent,
+        removePill: !!document.querySelector('#d-nav button[data-go="remove"]'),
         go: document.getElementById('d-model-go').textContent,
       }));
-      chk(names.talk === 'Talk to April', `[${theme}] the Talk pill names the agent`, names.talk);
-      chk(names.remove === 'Remove April', `[${theme}] the Remove pill names the agent`, names.remove);
+      chk(names.talk === 'Direct Message', `[${theme}] the DM box reads "Direct Message"`, names.talk);
+      chk(names.removePill === false, `[${theme}] there is no top-level Remove pill (folded into Advanced)`, String(names.removePill));
       chk(names.go === 'Change & Restart April', `[${theme}] the model button names the agent`, names.go);
 
       // The needs-you dot: April is asking a question, so Talk carries it.
