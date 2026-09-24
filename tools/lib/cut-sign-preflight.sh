@@ -13,7 +13,8 @@
 # is only "can this session use the key", which a timestamp does not change.
 # Scope: this proves the Application key is reachable. Step 3c's productsign uses the
 # Developer ID INSTALLER identity from the same login keychain, so a lock found here
-# covers it too, but a missing or expired Installer cert is NOT probed.
+# covers it too, but a missing or expired Installer cert is NOT probed, and neither is
+# Apple's timestamp server, which step 4 contacts and this probe does not.
 #
 # Sourced by release.sh under `set -euo pipefail`; called as `kosmos_sign_preflight ||
 # exit 1`, bash 3.2.

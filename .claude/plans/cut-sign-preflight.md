@@ -47,6 +47,10 @@ Second: that the signing box's login keychain has no idle timeout. If one is set
 than a cut, the keychain can re-lock mid-cut and step 4 fails the old way; the 1c probe
 passes at the start and cannot see that.
 
+Third: that the signing failures worth catching early are local. The probe uses
+`--timestamp=none`, so an unreachable timestamp server still fails only at step 4
+(review iteration 6).
+
 ## Proof
 - Agent1s (GUI session): real codesign, rc=0.
 - Mortals over SSH: real errSecInternalComponent, the lock message, rc=1.
