@@ -91,11 +91,23 @@ const loginexpiry = require('./loginexpiry');
 let refreshExpiryReader = null;
 /** Tests only: inject the refreshTokenExpiresAt reader (ccd -> number|null). */
 function setRefreshExpiryReader(fn) { refreshExpiryReader = typeof fn === 'function' ? fn : null; }
-function readRefreshExpiry(ccd) {
+/* ASYNC on purpose: loginexpiry's own reader is a synchronous `security` call (5 s bound),
+   fine for its cached advisory but not for a sign-up, where a keychain consent prompt would
+   stall the single-threaded board. The body goes straight into loginexpiry.refreshExpiryFor,
+   which parses it and returns only the timestamp, so the service name, parsing and secret
+   handling stay in one place. */
+function readCredAsync(service) {
+  return new Promise((resolve) => {
+    execFile('security', ['find-generic-password', '-s', service, '-w'],
+      { encoding: 'utf8', timeout: 5000 }, (err, stdout) => resolve(err ? null : stdout));
+  });
+}
+async function readRefreshExpiry(ccd) {
   if (refreshExpiryReader) return refreshExpiryReader(ccd);
   // The keychain is macOS-only, and `node --test` never reads the real one.
   if (process.platform !== 'darwin' || process.env.NODE_TEST_CONTEXT) return null;
-  return loginexpiry.refreshExpiryFor(ccd);
+  const body = await readCredAsync(loginexpiry.serviceNameFor(ccd));
+  return loginexpiry.refreshExpiryFor(ccd, { readCred: () => body });
 }
 /* The expiry proof, used ONLY at the pane-death gate: `claude auth login` exits on success and
    that closes its pane, so the strand (a landed login whose "Login successful" frame was missed)
@@ -107,10 +119,10 @@ function readRefreshExpiry(ccd) {
    the proof for the flow and the gate falls back to its pre-#3326 behaviour (stuck, never a
    false connected). The gate also requires the live check to read CONNECTED, so a concurrent
    login elsewhere on the same entry can at worst finish on a credential that works. */
-function expiryMoved(owner) {
+async function expiryMoved(owner) {
   const w = owner.renewalWatch;
   if (!w || typeof w.baseline !== 'number') return false;
-  const latest = readRefreshExpiry(w.ccd);
+  const latest = await readRefreshExpiry(w.ccd);
   return typeof latest === 'number' && latest > w.baseline;
 }
 
@@ -2666,7 +2678,10 @@ async function launchSignin(owner) {
   const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
   /* #3326: the baseline for expiryMoved, read from the entry this launch will write
      (CLAUDE_CONFIG_DIR is set to launchDir below, or unset when there is none). */
-  if (owner.needsLogin && !owner.deadCredential) owner.renewalWatch = { ccd: launchDir || undefined, baseline: readRefreshExpiry(launchDir || undefined) };
+  if (owner.needsLogin && !owner.deadCredential) {
+    owner.renewalWatch = { ccd: launchDir || undefined, baseline: await readRefreshExpiry(launchDir || undefined) };
+    if (driver !== owner) return;
+  }
   const made = await host.open({ claudeBin: claudeBinPath(), launchDir: launchDir || null, needsLogin: owner.needsLogin });
   if (!made.ok) {
     /* `because` is the Windows host's sentence for a program that did not start; the
@@ -2770,8 +2785,10 @@ async function tickBody(owner) {
          re-auth of a still-live credential can show). With none of the three it falls
          through to becomeStuck rather than finishing off the old credential. A non-needsLogin flow (fresh first-run) has no stale
          credential to mistake, so checkLive CONNECTED is enough. */
-      if (live.state === subscription.STATE.CONNECTED
-          && (!owner.needsLogin || owner.sawLoginDone || owner.deadCredential || expiryMoved(owner))) {
+      const proven = live.state === subscription.STATE.CONNECTED
+          && (!owner.needsLogin || owner.sawLoginDone || owner.deadCredential || await expiryMoved(owner));
+      if (driver !== owner) return;
+      if (proven) {
         await finishConnected(owner, subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined));
         return;
       }
@@ -3493,6 +3510,7 @@ async function cancel() {
 
 /** Tests only: forget everything without touching disk records. */
 function resetForTests() {
+  refreshExpiryReader = null; // #3326: a test's fake keychain reader never leaks into the next
   if (driver && driver.timer) clearInterval(driver.timer);
   driver = null;
   activeRequest = null;
