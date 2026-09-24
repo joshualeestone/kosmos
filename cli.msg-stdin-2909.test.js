@@ -152,3 +152,18 @@ test('#2909: a piped msg the board refuses, or one too large to send, is kept', 
   assert.ok(big, quotes.stdout.slice(0, 300));
   fs.rmSync(big[1], { force: true });
 }, '{"error":"no such agent"}'));
+
+test('#2909: a wrong-world piped msg the outbox cannot keep is saved to a file', () => withStubBoard(async (port) => {
+  const env = { ...envFor(port), KOSMOS_HOME: '/nonexistent-kosmos-home-2909' };
+  const out = await runCli(['msg', '--stdin', 'mara'], env, 'WW-MSG');
+  assert.equal(out.code, 1, 'KOSMOS_HOME points nowhere, so the outbox cannot keep it: ' + out.stdout);
+  const saved = out.stdout.match(/saved at (\S+)/);
+  assert.ok(saved, out.stdout);
+  try { assert.equal(fs.readFileSync(saved[1], 'utf8'), 'WW-MSG'); } finally { fs.rmSync(saved[1], { force: true }); }
+}, '{"wrongWorld":true,"world":"other"}'));
+
+test('#2909: msg keeps its existing tab/CR flattening (#1927), so only backticks and $ are promised verbatim', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), 'a\tb `c` $d\r\ne\r\n');
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen[0].text, 'a b `c` $d \ne');
+}));

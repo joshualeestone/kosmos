@@ -997,7 +997,7 @@ cmd_version() {
   fi
 }
 
-# ---- kosmos msg <agent> <text…> ---------------------------------------------
+# ---- kosmos msg [--stdin] <agent> <text…> ---------------------------------------------
 # An agent messages a colleague. The SENDER IS NOT AN ARGUMENT: the server
 # derives it from the tmux pane this command runs inside ($TMUX_PANE), so an
 # agent cannot mistype itself into being someone else. Everything else about
