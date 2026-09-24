@@ -46,12 +46,17 @@ function harness(respond, current = { sessionName: 'ana' }) {
   };
   const calls = [];
   const env = { CURRENT: current };
-  const make2 = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'env',
+  const make2 = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
     'let AGENT_FILES_EPOCH = 0; let AGENT_FILES_STAMP = null;\n'
     + 'const CURRENT_REF = env; \n'
     + FNS.replace(/\bCURRENT\b/g, 'CURRENT_REF.CURRENT')
     + '\nreturn { paintAgentFiles, resetStamp: () => { AGENT_FILES_STAMP = null; } };');
-  const api = make2(document, async (url) => { calls.push(url); return { ok: true, json: async () => respond(url) }; }, () => '', (n) => n + ' B', env);
+  const api = make2(document, async (url) => {
+    calls.push(url);
+    const out = respond(url);
+    const status = (out && out.__status) || 200;
+    return { ok: status < 400, status, json: async () => out };
+  }, () => '', (n) => n + ' B', (t) => t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.'), env);
   return { el, api, calls, env };
 }
 
@@ -100,4 +105,31 @@ test('a read the server refuses shows its reason; an answer for another agent is
   const other = harness(() => ({ ok: true, total: 1, stamp: 'x', files: [{ name: 'theirs.txt', size: 1 }] }), { sessionName: 'ben' });
   await other.api.paintAgentFiles('ana');
   assert.equal(other.el['d-files-list'].children.length, 0, 'one agent’s files were painted under another agent');
+});
+
+test('a 404 (no folder of its own) says so in agent-page words, not "no agent by that name"; reasons are sentences', async () => {
+  const h = harness(() => ({ __status: 404, ok: false, because: 'there is no agent by that name on this computer' }));
+  await h.api.paintAgentFiles('ana');
+  assert.match(h.el['d-files-msg'].textContent, /This agent has no folder of its own on this computer/);
+  assert.doesNotMatch(h.el['d-files-msg'].textContent, /no agent by that name/, 'the agent page told the person their open agent does not exist');
+  const r = harness(() => ({ ok: false, because: 'this is a file, not a folder' }));
+  await r.api.paintAgentFiles('ana');
+  assert.equal(r.el['d-files-msg'].textContent, 'This is a file, not a folder.', 'a reason was shown unformed');
+});
+
+/* The two click handlers are listeners, not named functions, so they are exercised through the
+   shipped source: each must re-check the agent after its await, clear on a plain success, and
+   the reveal handler must not repaint over its own failure. */
+test('the click handlers: agent re-checked after the await, success clears, a failed reveal keeps its reason', () => {
+  const at = SCRIPT.indexOf("document.getElementById('d-files-list') && document.getElementById('d-files-list').addEventListener('click'");
+  const reveal = SCRIPT.indexOf("document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click'");
+  assert.ok(at > 0 && reveal > at, 'the handlers moved; update this test');
+  const openSrc = SCRIPT.slice(at, reveal);
+  const revealSrc = SCRIPT.slice(reveal, SCRIPT.indexOf('\n});', reveal) + 4); // the handler's own closing line
+  assert.match(openSrc, /const who = CURRENT\.sessionName/);
+  assert.match(openSrc, /CURRENT && CURRENT\.sessionName === who\) msg\.textContent = say/, 'the open handler writes without re-checking the agent');
+  assert.match(openSrc, /res\.ok \? \(b\.revealedInstead \? \(b\.say \|\| ''\) : ''\)/, 'a plain success does not clear an old refusal');
+  assert.match(revealSrc, /if \(!CURRENT \|\| CURRENT\.sessionName !== who\) return;/, 'the reveal handler writes without re-checking the agent');
+  assert.match(revealSrc, /if \(failed\) \{ if \(msg\) msg\.textContent = failed; return; \}/, 'a failed reveal is repainted over');
+  assert.ok(revealSrc.indexOf('if (failed)') < revealSrc.indexOf('paintAgentFiles(who)'), 'the repaint runs before the failure is handled');
 });

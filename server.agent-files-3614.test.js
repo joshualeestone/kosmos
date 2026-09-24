@@ -145,3 +145,24 @@ test('a name store.safeKey changes (Writer) lists the SAME folder dmfiles.filesD
   assert.deepEqual(r.json.files.map((f) => f.name), ['draft.md']);
   assert.equal(r.json.folder, folder, 'the route listed a different folder than the instruction names');
 });
+
+test('limit is clamped; HEAD answers; a Files that is a plain file is a reason, not a crash; refusals name the Files folder', async () => {
+  const d = path.join(agentDir('hal'), 'Files');
+  fs.mkdirSync(d);
+  for (let i = 0; i < 25; i++) fs.writeFileSync(path.join(d, 'f' + i + '.txt'), 'x');
+  assert.equal((await get('/api/agent/hal/files')).json.files.length, 20, 'the default cap is not 20');
+  assert.equal((await get('/api/agent/hal/files?limit=3')).json.files.length, 3);
+  assert.equal((await get('/api/agent/hal/files?limit=0')).json.files.length, 20, 'a zero limit was honoured');
+  assert.equal((await get('/api/agent/hal/files?limit=-4')).json.files.length, 20, 'a negative limit was honoured');
+  assert.equal((await get('/api/agent/hal/files?limit=100000')).json.total, 25);
+  const head = await fetch(base + '/api/agent/hal/files', { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  fs.writeFileSync(path.join(agentDir('ivy'), 'Files'), 'a file, not a folder');
+  const plain = await get('/api/agent/ivy/files');
+  assert.equal(plain.status, 200);
+  assert.equal(plain.json.ok, false, 'a Files that is a plain file listed as a folder');
+  const esc = await post('/api/agent/hal/files/open', { name: '../x' });
+  assert.equal(esc.status, 409);
+  assert.match(esc.json.because, /this agent\u2019s Files folder/, 'the refusal still talks about a project');
+  assert.doesNotMatch(esc.json.because, /project/);
+});
