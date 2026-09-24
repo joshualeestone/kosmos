@@ -83,7 +83,7 @@ function boot(sb) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return runUntilBanner(child, { settleMs: 300 }).then((r) => {
-    assert.equal(r.dead, true, 'the board was still running when the test went on to delete its sandbox');
+    assert.equal(r.dead, true, 'the board was still running, so deleting its sandbox now would race it');
     return r;
   });
 }

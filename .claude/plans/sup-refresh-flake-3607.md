@@ -10,19 +10,24 @@ before the board process had died. Each caller then deletes its sandbox with
 throws ENOTEMPTY.
 
 ## Change
-A shared helper, `test-support/board-child.js`: `stopBoard(child)` sends SIGTERM, sends
-SIGKILL after 5s, and resolves once the child has closed (or errored), returning `dead` from
-the child's own exit or signal code. It returns at once for a child already dead, and gives
-up after 10s so a child that never reports back cannot hang the suite (node --test has no
-per-test timeout). `runUntilBanner(child, { settleMs })` collects output until the banner,
-then stops the board through `stopBoard`.
+A shared helper, `test-support/board-child.js`:
+- `stopBoard(child, { signal })` signals the child (SIGTERM by default), sends SIGKILL after
+  GRACE_MS (5s), and resolves once the child has EXITED, returning `dead` from its own exit or
+  signal code. It waits on 'exit', not 'close', because a grandchild that inherited the stdio
+  pipes holds 'close' open after the board is gone. It returns at once for a child already
+  dead, and gives up after GIVE_UP_MS (10s), logging a line, so a child that never reports
+  back cannot hang the suite (node --test has no per-test timeout).
+- `runUntilBanner(child, { settleMs })` collects output until the banner, then stops the
+  board. A board that dies first ends the wait on its 'close' (so its output is complete)
+  instead of sitting out the 8s banner timeout.
 
-The same kill-then-delete shape was in four files, so all four use the helper:
+Callers, each asserting `dead` before its sandbox is deleted:
 server.supervisor-refresh.test.js, server.reports-refresh-1676.test.js,
-server.connections-refresh-1649.test.js (each `boot()` asserts `dead` before returning), and
-server.you-verdicts-1684.test.js (awaits `stopBoard` in its `finally`, before the rmSync).
-Not changed: engine/win32apply.test.js already waits on the pid; tools.win-launcher-native
-kills bare socket listeners that write nothing into the sandbox.
+server.connections-refresh-1649.test.js (inside `boot()`), server.you-verdicts-1684.test.js
+and server.startup.test.js (after the `finally`; startup keeps its SIGKILL via `signal`).
+Not changed: server.world-boot-sandbox-2628.test.js already waits on 'exit' before its
+`test.after` cleanup; engine/win32apply.test.js polls the pid; tools.win-launcher-native kills
+bare socket listeners that write nothing into the sandbox.
 
 Rejected: `maxRetries` on rmSync. It hides the race instead of removing it.
 
@@ -35,6 +40,12 @@ the three banner files fail on the `dead` assertion, on a quiet machine, so a re
 caught every run rather than only under load. Helper edge paths, run directly: an
 already-exited child resolves dead in 1ms; a child ignoring SIGTERM is SIGKILLed and
 resolves dead at the grace period.
+
+Committed helper test, test-support.board-child.test.js (root, so run-tests.sh globs it,
+#1934): already-dead, SIGTERM honoured, SIGTERM ignored then SIGKILLed, give-up on a child that
+never exits, a grandchild holding the pipes, and death before the banner. Four perturbations
+of the helper (no SIGKILL escalation; no give-up; 'close' instead of 'exit'; no early return on
+death) each fail exactly their own test by name; unperturbed control 6/6.
 
 ## Weakest premise
 That ENOTEMPTY came from the live board rather than something else writing into the sandbox.
