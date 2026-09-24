@@ -8609,7 +8609,14 @@ const server = http.createServer((req, res) => {
          this carries the answer. `connect` trims it and refuses an unusable one; an
          absent field is absent rather than empty, and the folder's own name is still
          the answer when nobody supplies one. */
-      try { out = discover.connect(body.dir, { projects: projectsToJoin, name: body.name }); }
+      /* #3519: `provider` carries the caller's choice through to connect's runner
+         classification. It matters for exactly one case -- an AGENTS.md folder, which
+         codex (openai) and grok (xai) share and disk cannot tell apart -- and connect
+         honors it only when it agrees with the brief file on disk, so a wrong or
+         absent value is a no-op (the file default stands). Absent for every current
+         screen; wired so an API caller or a future grok picker can adopt grok
+         correctly rather than as codex. */
+      try { out = discover.connect(body.dir, { projects: projectsToJoin, name: body.name, provider: body.provider }); }
         catch (err) {
           /* A state question never 500s, the contract every sibling here keeps:
              the screen can render "we could not" and cannot render a stack. */

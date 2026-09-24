@@ -37,13 +37,20 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = path.join(SANDBOX, 'bin', 'claude');
    else runs - which is the contract it states. ⭐ Refusing before any work is
    the improvement; a count of failing tests means work already happened. */
 process.env.AGENT_WORKFORCE_CODEX_BIN = path.join(SANDBOX, 'bin', 'codex');
+/* #3519: the gemini and grok runner binaries need the SAME sandbox seam as codex,
+   or adopting a GEMINI.md folder (or an AGENTS.md folder hinted as grok) would fall
+   through to the operator's real /opt/homebrew/bin/gemini|grok -- the exact
+   machine-dependence the codex seam comment above records. Both are proven inside
+   the sandbox by the module-load guard below. */
+process.env.AGENT_WORKFORCE_GEMINI_BIN = path.join(SANDBOX, 'bin', 'gemini');
+process.env.AGENT_WORKFORCE_GROK_BIN = path.join(SANDBOX, 'bin', 'grok');
 for (const d of ['workers', 'LaunchAgents', 'home/.codex', 'support', 'bin']) {
   fs.mkdirSync(path.join(SANDBOX, d), { recursive: true });
 }
-fs.writeFileSync(path.join(SANDBOX, 'bin', 'claude'), '#!/bin/sh\nexit 0\n');
-fs.chmodSync(path.join(SANDBOX, 'bin', 'claude'), 0o755);
-fs.writeFileSync(path.join(SANDBOX, 'bin', 'codex'), '#!/bin/sh\nexit 0\n');
-fs.chmodSync(path.join(SANDBOX, 'bin', 'codex'), 0o755);
+for (const b of ['claude', 'codex', 'gemini', 'grok']) {
+  fs.writeFileSync(path.join(SANDBOX, 'bin', b), '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(path.join(SANDBOX, 'bin', b), 0o755);
+}
 
 const discover = require('./discover');
 const create = require('./create');
@@ -131,6 +138,9 @@ const outsideSandbox = [
   ['AGENT_WORKFORCE_LAUNCH (engine/create.js)', create.plistPath('sandboxprobe')],
   ['AGENT_WORKFORCE_CODEX_BIN (engine/runners.js)', require('./runners').resolveBin('openai').bin],
   ['AGENT_WORKFORCE_CLAUDE_BIN (engine/runners.js)', require('./runners').resolveBin('claude').bin],
+  // #3519: the gemini and grok runner binaries, same guard as codex above.
+  ['AGENT_WORKFORCE_GEMINI_BIN (engine/runners.js)', require('./runners').resolveBin('gemini').bin],
+  ['AGENT_WORKFORCE_GROK_BIN (engine/runners.js)', require('./runners').resolveBin('grok').bin],
   /* 🛑 THE CODEX HOME, AND ITS ABSENCE LET THIS FILE WRITE TO A REAL ONE. Removing
      the AGENT_WORKFORCE_HOME seam did NOT trip this guard: `codexHomeDir()` reads
      that variable at CALL time, and the CLAUDE_BIN row still resolved inside the
@@ -238,6 +248,89 @@ test('#1159: CLAUDE.md wins when a folder has both', () => {
   const r = discover.connect(dir);
   assert.equal(r.ok, true, r.because);
   assert.doesNotMatch(plistOf('scoutboth'), /<string>codex<\/string>/);
+});
+
+/* #3519: adopting a Gemini agent. foundGemini already OFFERS a GEMINI.md folder as
+   an agent (runner 'gemini'), but connect() read only CLAUDE.md/AGENTS.md, so
+   clicking that offered row was refused "no instructions in it" -- the #1159 lie one
+   provider over. These pin the fix: GEMINI.md is recognised, the job runs the gemini
+   binary, and the profile records provider google (the board reads that back to
+   label the card, so an absent provider mislabels a gemini agent as claude). */
+test('#3519: a GEMINI.md agent is ADOPTED with a gemini job and a google provider', () => {
+  const dir = agentFolder('scoutgemini', 'GEMINI.md', '# You are Scout Gemini\n');
+  const r = discover.connect(dir);
+  assert.equal(r.ok, true, `a Gemini agent was refused: ${r.because}`);
+  const job = create.readJob('scoutgemini');
+  assert.ok(job, 'the adopted gemini agent has no readable launchd job at all');
+  assert.equal(job.runner, 'gemini', 'the adopted agent was not written as a gemini job');
+  assert.equal(job.claude, path.join(SANDBOX, 'bin', 'gemini'),
+    `the job does not point at the sandboxed gemini binary, it points at ${job.claude}`);
+  assert.equal(store.readProfile('scoutgemini').provider, 'google',
+    'the gemini agent was not recorded with provider google, so the board would label it claude');
+});
+
+/* #3519: grok shares AGENTS.md with codex, so the folder alone cannot tell them
+   apart and connect defaults to codex (the codex adopt test above is the control
+   for that default). An explicit provider from the caller resolves the one ambiguous
+   case. This pins that a `xai` hint on an AGENTS.md folder adopts grok, not codex. */
+test('#3519: an AGENTS.md folder with a provider:xai hint is ADOPTED as grok', () => {
+  const dir = agentFolder('scoutgrok', 'AGENTS.md', '# You are Scout Grok\n');
+  const r = discover.connect(dir, { provider: 'xai' });
+  assert.equal(r.ok, true, `a Grok agent was refused: ${r.because}`);
+  const job = create.readJob('scoutgrok');
+  assert.ok(job, 'the adopted grok agent has no readable launchd job at all');
+  assert.equal(job.runner, 'grok', 'the xai hint did not make it a grok job');
+  assert.equal(job.claude, path.join(SANDBOX, 'bin', 'grok'),
+    `the job does not point at the sandboxed grok binary, it points at ${job.claude}`);
+  assert.equal(store.readProfile('scoutgrok').provider, 'xai',
+    'the grok agent was not recorded with provider xai');
+});
+
+/* #3519 CONTROL: the hint is honoured ONLY when it agrees with the brief file on
+   disk. A `google` hint on an AGENTS.md folder (gemini boots from GEMINI.md, which
+   is absent) must be IGNORED, not obeyed -- a hint can correct codex<->grok but can
+   never claim a file the folder does not have. Without this the override would let a
+   caller adopt any folder as any runner regardless of what is on disk. */
+test('#3519 CONTROL: a provider hint that contradicts the brief file is ignored', () => {
+  const dir = agentFolder('scoutbadhint', 'AGENTS.md', '# You are Scout BadHint\n');
+  const r = discover.connect(dir, { provider: 'google' });
+  assert.equal(r.ok, true, r.because);
+  const job = create.readJob('scoutbadhint');
+  assert.equal(job.runner, 'codex',
+    'a google hint on an AGENTS.md folder was obeyed; it must fall back to the codex file default');
+  assert.equal(store.readProfile('scoutbadhint').provider, 'openai',
+    'the contradicted hint changed the recorded provider');
+});
+
+/* #3519 CONTROL: no hint keeps the historical codex default for AGENTS.md, and it
+   records provider openai -- proving the new runnerProvider write did not regress the
+   codex path the #1159 codex adopt test above already covers for the job side. */
+test('#3519 CONTROL: an AGENTS.md folder with no hint stays codex/openai', () => {
+  const dir = agentFolder('scoutnohint', 'AGENTS.md', '# You are Scout NoHint\n');
+  const r = discover.connect(dir);
+  assert.equal(r.ok, true, r.because);
+  assert.equal(create.readJob('scoutnohint').runner, 'codex');
+  assert.equal(store.readProfile('scoutnohint').provider, 'openai',
+    'the codex provider write regressed');
+});
+
+/* #3519 CONTROL: the guard's OTHER dangerous direction. The bad-hint control above pins
+   a hint whose file is ABSENT (google on AGENTS.md, no GEMINI.md). This pins a hint whose
+   file MISMATCHES: a non-claude provider (xai -> grok, brief AGENTS.md) on a CLAUDE.md
+   folder. briefFilename('grok') === 'AGENTS.md' !== 'CLAUDE.md', so the guard must ignore
+   the hint and keep the folder claude -- otherwise a hint could start a codex/grok runner
+   in a Claude agent's own folder. Without this, the guard's CLAUDE.md arm is unexercised. */
+test('#3519 CONTROL: a non-claude provider hint on a CLAUDE.md folder is ignored (stays claude)', () => {
+  const dir = agentFolder('scoutclaudehint', 'CLAUDE.md', '# You are Scout ClaudeHint\n');
+  const r = discover.connect(dir, { provider: 'xai' });
+  assert.equal(r.ok, true, r.because);
+  assert.doesNotMatch(plistOf('scoutclaudehint'), /<string>codex<\/string>/,
+    'a CLAUDE.md folder was hinted into a non-claude runner');
+  assert.equal(create.readJob('scoutclaudehint').claude, path.join(SANDBOX, 'bin', 'claude'),
+    'the claude folder did not get the claude binary');
+  const prof = store.readProfile('scoutclaudehint');
+  assert.ok(!prof || !prof.provider,
+    'a claude adoption must record NO provider, even with a non-claude hint');
 });
 
 test('#1159: an adopted Codex agent gets the same first-run setup as a created one', () => {

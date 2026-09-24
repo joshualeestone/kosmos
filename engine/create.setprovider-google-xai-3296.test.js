@@ -201,3 +201,23 @@ test('#3296/#3391: providerRunner is the ONE map every path resolves through, to
   assert.equal(create.providerRunner(undefined), 'claude');
   assert.equal(create.providerRunner(null), 'claude');
 });
+
+test('#3519: runnerProvider is the exact inverse of providerRunner over the runner set', () => {
+  // The inverse map discover.connect records into the profile after classifying a
+  // runner from the brief file (Convention #5: the provider a card is labelled by
+  // must come from one map, not a hand-rolled ternary per adopt path). Pinned as a
+  // true inverse so the two cannot drift.
+  assert.equal(create.runnerProvider('codex'), 'openai');
+  assert.equal(create.runnerProvider('gemini'), 'google');
+  assert.equal(create.runnerProvider('grok'), 'xai');
+  // claude and any unknown/absent runner floor at anthropic, mirroring
+  // providerRunner's claude floor, so a null runner writes no misleading provider.
+  assert.equal(create.runnerProvider('claude'), 'anthropic');
+  assert.equal(create.runnerProvider('made-up'), 'anthropic');
+  assert.equal(create.runnerProvider(undefined), 'anthropic');
+  assert.equal(create.runnerProvider(null), 'anthropic');
+  // Round-trip: every non-claude provider survives provider -> runner -> provider.
+  for (const p of ['openai', 'google', 'xai']) {
+    assert.equal(create.runnerProvider(create.providerRunner(p)), p, `${p} did not round-trip`);
+  }
+});
