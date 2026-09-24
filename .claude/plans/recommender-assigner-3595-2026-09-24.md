@@ -96,9 +96,15 @@ Each automation's controls are enabled in the SAME PR as its behaviour:
 - Recommender: toggle plus the three guards live, paint/save wired to the existing routes, following
   Mona's spec (STATUS contract, could-not-read hides the knob, guards hide while off).
 - Assigner: toggle live.
-**Default flips to ON** (Mona's spec: "On by default"; the card says flip). The guards stay ON.
-#3549 writes no file until a person changes a setting, so the flip reaches every install that never
-touched it. That is intended, and it is reversible (one default).
+**DECIDED (Splinter, 2026-09-24 11:08 CDT; Josh can override):**
+- **Recommender ships DEFAULT-OFF** until the tool-level guards card lands. Reason: instruction-only
+  guards under bypass permissions cannot stop an irreversible action, and real users exist now.
+  Its controls become LIVE (a person can turn it on, which is honest because the behaviour is real);
+  only the default stays off. The guards stay default ON.
+- **Assigner idle-assign ships DEFAULT-ON** when built (Mona's spec; its hard limits are structural,
+  not instruction-level: it only sets `who` on existing unassigned tasks in existing projects).
+#3549 writes no file until a person changes a setting, so a default reaches every install that never
+touched it.
 
 ## Build order (separate PRs, each shippable alone)
 1. **Recommender**: a pure `recommender.step(prev, roster, setting, now)` returning `{toConvene, next}`,
@@ -122,10 +128,9 @@ touched it. That is intended, and it is reversible (one default).
   the predicate.
 
 ## Weakest premises (name them so they can be overturned in a sentence)
-1. **That instruction-level guards are enough for v1.** Agents run with bypass permissions, so nothing
-   mechanically stops a guarded action; this relies on agents honouring the same three limits they
-   already carry. If that is not acceptable for default-ON, ship the Recommender default-OFF until the
-   hook card lands. Josh's call, and the one question worth putting to him (money/public carve-out).
+1. **RESOLVED by default-OFF (Splinter 11:08):** instruction-level guards are not enough to ship ON.
+   A person who turns the Recommender on gets instruction-level guards only; the Settings hint says so
+   plainly until the tool-level guards card lands.
 2. That "reported blocked/needs_you with a project, for 10 min" is the right trigger. Agents that
    never report stay invisible to the Recommender (they stay visible to the Prompter).
 3. That commitments `clear` is reliable enough to hand out work; an agent that forgets to assert
