@@ -96,16 +96,20 @@ function luhn(digits) {
    - With decimals, the digits before the whitespace are the whole fraction, so
      the '.' sits just before that digit run and the grouped part ends there.
    The regions looked at before two different currency words cannot overlap
-   (a currency word is letters), so the whole scan is linear. Keep every word
-   in the alternation letters only: a word with a digit, '$' or a space in it
-   would break both the linear bound and the equivalence argument above. */
+   (a currency word is letters), so the whole scan is linear. That is why the
+   words are a list the tests can check: every one must stay letters only. A
+   word with a digit, '$' or a space in it would break both the linear bound and
+   the equivalence argument above. */
+const SPELLED_CURRENCY_WORDS = Object.freeze(['USD', 'EUR', 'GBP', 'dollars', 'dollar', 'euros', 'euro', 'pounds', 'pound']);
+const SPELLED_CURRENCY_SOURCE = '(?:' + SPELLED_CURRENCY_WORDS.join('|') + ')\\b';
+const WHITESPACE = /\s/;
 function spelledGroupedCurrency(s) {
   const isDigit = (i) => i >= 0 && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57;
   const groupedEndsAt = (f) => isDigit(f - 5) && s[f - 4] === ',' && isDigit(f - 3) && isDigit(f - 2) && isDigit(f - 1);
-  const word = /(?:USD|EUR|GBP|dollars?|euros?|pounds?)\b/gi;
+  const word = new RegExp(SPELLED_CURRENCY_SOURCE, 'gi'); // per call: a g regex carries lastIndex
   for (let m = word.exec(s); m !== null; m = word.exec(s)) {
     let end = m.index;
-    while (end > 0 && /\s/.test(s[end - 1])) end--;
+    while (end > 0 && WHITESPACE.test(s[end - 1])) end--;
     if (groupedEndsAt(end)) return true;
     let frac = end;
     while (isDigit(frac - 1)) frac--;
@@ -113,6 +117,7 @@ function spelledGroupedCurrency(s) {
   }
   return false;
 }
+spelledGroupedCurrency.words = SPELLED_CURRENCY_WORDS;
 
 /* Size caps. A cap is a cheap structural defense: an enormous body is both a
    denial-of-space risk and a place to bury a payload. These are deliberately

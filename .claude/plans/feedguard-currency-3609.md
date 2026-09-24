@@ -36,6 +36,10 @@ a currency word is letters, so the scan is linear.
 handles `fn` entries (contentFindings and the positive-control test).
 
 ## Tests
+- Letters only: the currency words are a frozen list (`spelledGroupedCurrency.words`),
+  expanded from the old alternation (`dollars?` becomes `dollars`, `dollar`),
+  and a test asserts each is letters only, because the linear bound and the
+  equivalence argument both depend on it. Red with `US$` added.
 - Linear: five 64 KB inputs (the chain that was quadratic, the chain followed by
   USD, 64 KB of whitespace before USD, 7000 currency words each looked back from
   and rejected, a long fraction-shaped run), each under 200 ms and each with its expected answer.

@@ -328,6 +328,11 @@ const SPELLED = fg.PATTERNS.find((p) => p.why === 'grouped currency amount (spel
 // the check matches must update this copy too.
 const SPELLED_REGEX = /\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:USD|EUR|GBP|dollars?|euros?|pounds?)\b/i;
 
+test('#3609: every spelled currency word is letters only (the linear bound depends on it)', () => {
+  assert.ok(Array.isArray(SPELLED.words) && SPELLED.words.length > 0, 'the word list is not reachable');
+  for (const w of SPELLED.words) assert.match(w, /^[A-Za-z]+$/, 'not letters only: ' + JSON.stringify(w));
+});
+
 test('#3609: the spelled grouped-currency check is linear on long inputs', () => {
   const chain = '9' + ',999'.repeat(16384); // 65537 chars; the old regex took seconds
   const inputs = [
