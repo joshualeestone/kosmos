@@ -223,8 +223,8 @@ function readUsage(page) {
     // #2617 the per-agent block
     ok(v.agentsShown === true, 'the By agent block is shown when /api/usage sends byAgent');
     ok(v.agentHead === 'Agent', `the per-agent table heads its first column Agent (got ${JSON.stringify(v.agentHead)})`);
-    ok(JSON.stringify(v.agentNames) === JSON.stringify(['Ann', 'Bob', 'Not an agent (your own sessions)']),
-      `the per-agent rows are the agents by shown name, then the person's own sessions (got ${JSON.stringify(v.agentNames)})`);
+    ok(JSON.stringify(v.agentNames) === JSON.stringify(['Ann', 'Bob', 'Sessions outside any agent\'s folder']),
+      `the per-agent rows are the agents by shown name, then sessions outside any agent's folder (got ${JSON.stringify(v.agentNames)})`);
     ok(v.agentMutedCount === 1, `only the non-agent row is muted (got ${v.agentMutedCount})`);
     ok(v.agentBarsPainted, 'every per-agent share bar paints with a width');
     ok(v.agentFits, 'the per-agent table fits the settings column with no horizontal overflow');
@@ -235,6 +235,24 @@ function readUsage(page) {
       const el = await p.$('#s-sec-usage');
       await el.screenshot({ path: process.env.SHOTS + '/usage-by-agent-1280.png' });
     }
+    // #2617 phone width: the fixed number columns used to leave a name a few pixels
+    // and clip "% total" in both tables. Below 420px the share bar drops out.
+    await p.setViewportSize({ width: 390, height: 1100 });
+    const narrow = await p.evaluate(() => {
+      const fit = (id) => { const el = document.getElementById(id); return el ? el.scrollWidth <= el.clientWidth + 1 : null; };
+      const clipped = [...document.querySelectorAll('#usage-atable .tv-num, #usage-mtable .tv-num, #usage-atable .tv-mrow.head > div, #usage-mtable .tv-mrow.head > div')]
+        .filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => (e.textContent || '').trim());
+      const name = document.querySelector('#usage-atable .tv-mrow:not(.head) .tv-mnl');
+      const bar = document.querySelector('#usage-atable .tv-mbar');
+      return { agentFits: fit('usage-atable'), modelFits: fit('usage-mtable'), clipped,
+        nameW: name ? name.getBoundingClientRect().width : 0, barHidden: bar ? getComputedStyle(bar).display === 'none' : null };
+    });
+    ok(narrow.modelFits === true, 'at 390 wide the per-model table fits with no horizontal overflow (it did not before #2617)');
+    ok(narrow.agentFits === true, 'at 390 wide the per-agent table fits with no horizontal overflow');
+    ok(narrow.clipped.length === 0, `at 390 wide no number or header cell is clipped (clipped: ${JSON.stringify(narrow.clipped)})`);
+    ok(narrow.barHidden === true, 'at 390 wide the share bar column gives way to the name');
+    ok(narrow.nameW >= 24, `at 390 wide an agent name has room to read (got ${Math.round(narrow.nameW)}px)`);
+    await p.setViewportSize({ width: 1280, height: 1100 });
     // the replaced elements are gone
     ok(v.noCards, 'the old full-number cards are removed (replaced by the approved design)');
     ok(v.noMoney, 'the old output-only money box is removed (replaced by the hero value)');

@@ -11,9 +11,12 @@ This slice shows it on Settings > Token Usage.
   bar, tokens, % total) with an "Agent" column, so the page speaks one visual
   language and needs no new component. Tokens are the four-class total, as
   every other figure on the page.
-- Agents first, most tokens first, by shown name. Then "Not an agent (your own
-  sessions)" and, when present, "A folder two agents share", both in the muted
-  Other color with a lighter label, so neither reads as an agent.
+- Agents first, ranked by the four-class total the table shows (the engine
+  sends them by output), by shown name. Then "Sessions outside any agent's
+  folder" and, when present, "Folders shared by more than one agent", both in
+  the muted Other color with a lighter label, so neither reads as an agent.
+- "% total" is of the page's grand total, as in the model table, so unmatched
+  tokens leave the rows short of 100%.
 - A plain sentence under the table says what it cannot show: an unread roster,
   tokens whose transcripts are gone, or the reverse. Silent when there is
   nothing to say.
@@ -31,10 +34,21 @@ That the model table's layout suits agent names. Agent display names can be
 longer than model ids; the name cell truncates with an ellipsis, as model names
 do. Mona reviews styling before merge.
 
+## Phone width
+Below a 420px container the shared table grid drops the share-bar column and the
+name takes the width. Before this, both the per-model and per-agent tables
+overflowed at 390 wide (names cut to "A..", "% total" clipped), the defect the
+0.6.90 closeout recorded on this card for the model table. The % column carries
+the same fact as the bar, so nothing is lost.
+
 ## Verification
-- web.token-usage-2617.test.js runs the real renderers: rows, ordering, the
-  four-class total, muted color, escaping, the note, and paintUsage wiring.
+- web.token-usage-2617.test.js runs the real renderers: rows, ranking by the
+  shown total (not the engine's output order), the four-class total, share of
+  the grand total, muted color, title, escaping, the note, paintUsage wiring.
 - docs/browser-checks/render-token-usage-2617.js asserts the rendered block
-  (rows, header, bars paint, no overflow, note, placement) and that it stays
-  hidden without byAgent. Not run by me: starting a board was refused in my
-  session, so the live render and screenshots are for the styling review.
+  (rows, header, bars paint, no overflow, note, placement), the 390-wide fit of
+  both tables, and that the block stays hidden without byAgent. Run in full with
+  no board process: a preload gives each browser context routing that serves
+  web/index.html (starting a board was refused in my session). All assertions
+  pass on this branch; against origin/main's page, 12 fail, including the
+  per-model 390-wide fit.
