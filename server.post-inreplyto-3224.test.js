@@ -92,8 +92,14 @@ test('#3224 THE FIX: a reply whose in_reply_to is in a DIFFERENT room than the t
   // THE FIX: answering B's message (in_reply_to mB) but targeting Alpha is the misroute.
   const r = await post({ project: a.id, text: 'answer meant for beta', from_pane: '', in_reply_to: mB }, { 'x-kosmos-agent-token': tok() });
   assert.equal(r.json.delivery.state, 'could_not', 'a reply bound to Beta but aimed at Alpha must be refused, not posted into Alpha');
-  assert.match(r.json.delivery.because, /Beta 3224/, 'the refusal must name the room the message is actually in');
-  assert.match(r.json.delivery.because, /Alpha 3224/, 'the refusal must name the room the agent aimed at');
+  assert.match(r.json.delivery.because, new RegExp(mB), 'the refusal references the cited message id the caller already holds');
+  assert.match(r.json.delivery.because, /different room/, 'the refusal must explain the misroute');
+  // #3224 iter2 leak-fix: the refusal must NOT disclose the answered project's NAME --
+  // that would leak a project name to a caller who may not be a member of it
+  // (the id-enumeration tell react() avoids). The answering agent already has the name
+  // in the envelope it is replying to.
+  assert.doesNotMatch(r.json.delivery.because, /Beta 3224/, 'the refusal must not leak the answered project name');
+  assert.doesNotMatch(r.json.delivery.because, /Alpha 3224/, 'the refusal must not leak the target project name either');
 });
 
 test('#3224 MATCH: a reply whose in_reply_to is in the SAME room as the target posts normally', async () => {

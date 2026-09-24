@@ -2197,13 +2197,25 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
+  // An archived project still accepts posts, a RECORDED trade: the
+  // archive hides a project from the list and stops it counting,
+  // and nothing else in the app gates behavior on it (an archived
+  // project's detail is still reachable and its members are still
+  // its members). If archive ever comes to mean "closed", this is
+  // the line that changes.
+  const members = (found.agents || []).map((a) => a.sessionName);
+  // Sender validity FIRST, before the #3224 in_reply_to lookup below, so an invalid
+  // sender is refused uniformly and never reaches a lookup that behaves differently
+  // for an existing vs absent id -- the same id-enumeration precaution react() takes
+  // (membership before the post-id lookup).
+  if (sender && !sender.ok) return { state: 'could_not', because: sender.because };
   /* #3224: if this post ANSWERS a specific message (in_reply_to), bind it to the
      room that message came from. The answered post's project is a non-circular
      oracle (recorded when it was posted, independent of this reply). If the target
-     project differs, this is the misroute Josh reported -- refuse and name both
-     rooms rather than land the answer in the wrong one. A citation that has aged out
-     of the record (projectOfPost null) is treated as absent: never block a legit
-     reply over a stale id. A proactive post (no in_reply_to) is unchanged. */
+     project differs, this is the misroute Josh reported -- refuse rather than land
+     the answer in the wrong room. A citation that has aged out of the record
+     (projectOfPost null) is treated as absent: never block a legit reply over a stale
+     id. A proactive post (no in_reply_to) is unchanged. */
   const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
   if (citedId) {
     let answeredProject = null;
@@ -2218,19 +2230,14 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
       return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
     }
     if (answeredProject && answeredProject !== found.id) {
-      let answeredName = answeredProject;
-      try { const ap = projects.get(answeredProject, roster); if (ap && ap.name) answeredName = ap.name; } catch { /* keep the id if the name is unresolvable */ }
-      return { state: 'could_not', because: 'that message (' + citedId + ') is in ' + answeredName + ', but you asked to post into ' + found.name + '. To answer it, post into ' + answeredName + '; to post into ' + found.name + ', do not answer that message.' };
+      /* Do NOT name the answered project here. The answering agent already holds its
+         name + id in the message envelope it is replying to, so naming it adds nothing
+         for the legitimate case -- and disclosing it would leak a project name to a
+         caller who may not be a member of that room (the id-enumeration tell react()
+         avoids). Reference only the cited id the caller already has. */
+      return { state: 'could_not', because: 'that message (' + citedId + ') belongs to a different room than the one you posted into. Answer it in the room it came from (shown in the message you are replying to), or post here without answering it.' };
     }
   }
-  // An archived project still accepts posts, a RECORDED trade: the
-  // archive hides a project from the list and stops it counting,
-  // and nothing else in the app gates behavior on it (an archived
-  // project's detail is still reachable and its members are still
-  // its members). If archive ever comes to mean "closed", this is
-  // the line that changes.
-  const members = (found.agents || []).map((a) => a.sessionName);
-  if (sender && !sender.ok) return { state: 'could_not', because: sender.because };
   return messages.sendPost({
     fromPane,
     sender,
@@ -11005,6 +11012,15 @@ const server = http.createServer((req, res) => {
            ambiguity this field exists to remove. */
         if ('reply_expected' in body && typeof body.reply_expected !== 'boolean') {
           const bad = new Error('reply_expected must be true or false');
+          bad.status = 400;
+          throw bad;
+        }
+        /* #3224: in_reply_to, when present, must be a string message id -- validated as
+           a request-shape check before any side-effects, the same discipline as
+           reply_expected above. A non-string is refused rather than String()-coerced
+           into a spurious id. Omitted is the common case (a proactive post). */
+        if ('in_reply_to' in body && body.in_reply_to !== null && typeof body.in_reply_to !== 'string') {
+          const bad = new Error('in_reply_to must be a message id like m12');
           bad.status = 400;
           throw bad;
         }

@@ -18,7 +18,10 @@ ANSWERED, a fact recorded when that message was posted, independent of the reply
 - `POST /api/post` (and the shared `sendRoomPostAsAgent`, so the outbox drain agrees) accepts an
   optional `in_reply_to` (a post id).
 - When it resolves to a known post: the answered post's project is the binding. If the request's
-  target project DIFFERS, REFUSE and name both rooms -- the misroute caught, not landed. If it
+  target project DIFFERS, REFUSE -- the misroute caught, not landed. The refusal does NOT name the
+  answered project (the answering agent already holds it in the envelope it is replying to; naming it
+  would leak a project name to a caller who may not be a member of that room -- the id-enumeration
+  tell react() avoids). The guard runs AFTER the sender-validity check, for the same reason. If it
   matches, or `in_reply_to` is absent, behave exactly as today.
 - If `in_reply_to` is given but does not resolve (a citation aged out of the record): treat as
   absent and proceed with the explicit project -- never block a legitimate reply over a stale id.
@@ -50,6 +53,14 @@ addressed replies. A PROACTIVE wrong-project post (not a reply) is still not cau
 that remains the harness-level forcing-fix residual documented in the closed #185 (auto-relay the
 turn / fail a turn that answers without sending), out of Kosmos-fleet build scope. Josh can override
 the refuse-vs-derive call.
+
+Residual id-enumeration tell (iter2, accepted): with the answered project's NAME removed from the
+refusal, a caller can still observe that a mismatched-vs-matched/absent `in_reply_to` behaves
+differently (a weak existence/location tell), but learns no project name. This is bounded by the
+loopback/single-user threat model (the board-token gate blocks /api/post entirely when enforcement is
+on) and is a large reduction from the pre-fix name disclosure. Fully closing it would require gating
+the guard on membership of the answered project; not done, because a legitimate reply implies that
+membership and the nameless residual is loopback-only.
 
 ## Tests
 - server.post-inreplyto-3224.test.js (4): mismatch refused + both rooms named, match posts,
