@@ -5,11 +5,22 @@
  *
  *   node --test web.agent-files-3614.test.js
  */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+// CURRENT is a REAL board card (fixture-discipline): sandbox the roots before requiring the fleet.
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agentfiles-page-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const page = require('./test-support/page');
+const fleet = require('./test-support/fleet');
+const BOARD = fleet.install([fleet.agent('ana'), fleet.agent('bix')]);
+const card = (name) => BOARD.agents.find((c) => c.sessionName === name);
+test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
@@ -27,7 +38,7 @@ test('the Files block sits directly under the four-pack, inside the left column,
   assert.match(SCRIPT, /!document\.getElementById\('panel-detail'\)\.hidden\) paintAgentFiles\(CURRENT\.sessionName\)/, 'the poll does not refresh the Files list');
 });
 
-function harness(respond, current = { sessionName: 'ana' }) {
+function harness(respond, current = card('ana')) {
   const make = (id) => {
     const el = { id, textContent: '', hidden: false, children: [], append(...c) { this.children.push(...c); } };
     Object.defineProperty(el, 'textContent', {
@@ -102,7 +113,7 @@ test('a read the server refuses shows its reason; an answer for another agent is
   const refused = harness(() => ({ ok: false, because: 'this agent’s Files is a link to somewhere else, so Kosmos will not list or open it', files: [] }));
   await refused.api.paintAgentFiles('ana');
   assert.match(refused.el['d-files-msg'].textContent, /is a link to somewhere else/);
-  const other = harness(() => ({ ok: true, total: 1, stamp: 'x', files: [{ name: 'theirs.txt', size: 1 }] }), { sessionName: 'ben' });
+  const other = harness(() => ({ ok: true, total: 1, stamp: 'x', files: [{ name: 'theirs.txt', size: 1 }] }), card('bix'));
   await other.api.paintAgentFiles('ana');
   assert.equal(other.el['d-files-list'].children.length, 0, 'one agent’s files were painted under another agent');
 });
