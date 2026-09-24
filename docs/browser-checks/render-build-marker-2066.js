@@ -1,4 +1,4 @@
-// Browser-check-surface: build
+// Browser-check-surface: buildmark
 'use strict';
 
 /**
@@ -6,7 +6,8 @@
  * view, and the version still reads in Settings > Updates. This check used to assert the marker's
  * text and styling per channel; a removal with no guard gets undone, so it now asserts the absence on
  * a real board after the status poll (the tick that used to paint the marker), with the Settings
- * version line as the control that the page did load and poll.
+ * version line as the control that the page loaded and painted its version (in a source checkout the
+ * poll paints it; a built artifact paints its baked version before any poll).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-build-marker-2066.js
  */
@@ -44,7 +45,16 @@ function chk(ok, label, extra) {
   fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
-  const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
+  let browser;
+  try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
+  catch (err) {
+    console.error('FAIL  render-build-marker-2066: could not start a browser'
+      + (process.env.HEADED === '0' ? '.' : ' (headed; try HEADED=0).'));
+    console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
+    server.close();
+    for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+    process.exit(1);
+  }
   try {
     for (const layout of ['tabs', 'consolidated']) {
       await fetch(URL + '/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout }) });
@@ -56,7 +66,7 @@ function chk(ok, label, extra) {
       // Control first: the status poll landed and painted the version into Settings > Updates.
       const polled = await page.waitForFunction(() => /\d+\.\d+/.test(document.getElementById('build')?.textContent || ''), null, { timeout: 8000 }).then(() => true, () => false);
       const version = await page.evaluate(() => document.getElementById('build')?.textContent || '');
-      chk(polled, 'M3 ' + layout + ': control, the version reads in Settings > Updates after the poll', 'build=' + JSON.stringify(version));
+      chk(polled, 'M3 ' + layout + ': control, the version reads in Settings > Updates', 'build=' + JSON.stringify(version));
       const board = await page.evaluate(() => ({
         marker: !!document.getElementById('buildmark'),
         words: /beta build/i.test(document.body.innerText),
@@ -65,10 +75,11 @@ function chk(ok, label, extra) {
       chk(!board.marker, 'M1 ' + layout + ': there is no corner marker element on the board');
       chk(!board.words, 'M2 ' + layout + ': no "beta build" words anywhere on the board');
       chk(!/v?\d+\.\d+\.\d+/.test(board.cornerText), 'M4 ' + layout + ': the bottom-right corner carries no version', JSON.stringify(board.cornerText));
-      await page.click('[data-agent="beatrix"]').catch(() => {});
-      await page.waitForTimeout(400);
+      // The visible one: the consolidated layout keeps a hidden grid card beside its rail row.
+      const opened = await page.locator('[data-agent="beatrix"]:visible').first().click().then(() => page.waitForSelector('#panel-detail:not([hidden])', { timeout: 5000 })).then(() => true, () => false);
+      chk(opened, 'M5 ' + layout + ': precondition, an agent\'s page opened');
       const detail = await page.evaluate(() => ({ marker: !!document.getElementById('buildmark'), words: /beta build/i.test(document.body.innerText) }));
-      chk(!detail.marker && !detail.words, 'M5 ' + layout + ': none on an agent\'s page either', JSON.stringify(detail));
+      chk(opened && !detail.marker && !detail.words, 'M5 ' + layout + ': none on an agent\'s page either', JSON.stringify(detail));
       chk(errs.length === 0, 'M6 ' + layout + ': no page errors', errs.join(' | '));
       await page.close();
     }
@@ -78,6 +89,9 @@ function chk(ok, label, extra) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
+  if (fail.length) {
+    for (const p of fail) console.error('  FAIL  ' + p);
+    console.log('\n' + fail.length + ' FAILED'); process.exit(1);
+  }
   console.log('\nall build-marker (#3641, removed) checks passed');
 })().catch((e) => { console.error(e); process.exit(1); });

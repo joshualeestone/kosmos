@@ -580,14 +580,15 @@ async function measure(page) {
         const sModel = await sHead();
         // Real scrollbars: Model scrolls and gives up 15px in both engines. The measured reservation of a
         // page that does not scroll is an environment fact, not a product one: 15px where the runner's
-        // viewport scrollbars are classic (Linux CI, a Mac set to show them or with a mouse attached),
-        // 0 where they overlay (a Mac on Automatic with no mouse, and Playwright's WebKit always). The
-        // product must hold the header still either way, which the arms below assert.
+        // viewport scrollbars are classic (a Mac set to show them, or on Automatic with a mouse
+        // attached), 0 where they overlay (a Mac on Automatic with no mouse, and Playwright's WebKit
+        // always). The product must hold the header still either way, which the arms below assert;
+        // where it is 0 the edge arm is only a guard and says so (NOTE).
         chk(sModel.given === 15 && (sBoard.sbw === '0px' || sBoard.sbw === '15px'),
           'A1n ' + engine + ' precondition: a scrolling page gives up 15px and the measured reservation is 0 or 15px', JSON.stringify({ sBoard, sModel }));
         const edgeIsControl = sBoard.sbw === '15px';
         if (!edgeIsControl) {
-          console.log('NOTE  A1n ' + engine + ': this runner reserves no gutter on a page that does not scroll, so the edge arm below is a guard, not a control; it is a control where the reservation is 15px (Linux CI, or a Mac showing scrollbars)');
+          console.log('NOTE  A1n ' + engine + ': this runner reserves no gutter on a page that does not scroll (overlay scrollbars), so the edge arm below is a guard, not a control; it is a control on a Mac showing scrollbars');
         }
         chk(sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
           'A1n ' + engine + ': the board keeps the #1309 gutter and Talk drops it', JSON.stringify({ sBoard, sTalk }));

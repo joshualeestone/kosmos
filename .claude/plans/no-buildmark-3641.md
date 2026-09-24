@@ -17,6 +17,12 @@ assert its absence, with the Settings line as their control.
 - docs/browser-checks/render-build-marker-2066.js: now an absence check on a sandboxed board in both
   layouts after the status poll, with the Settings version as the control.
 - render-talk-fill-2622.js: A1h (marker clear of the box) retired; A2f keeps its composer arm.
+- render-talk-fill-2622.js A1n (found while running it here, not part of the removal): the Chromium
+  precondition required a 15px gutter reservation on a page that does not scroll, which only holds with
+  classic scrollbars. This Mac is on Automatic with no mouse (overlay): measured element scrollbar 15px,
+  root reservation 0, and the check went red on main although the header held still. It now accepts 0
+  or 15 and prints a NOTE that the edge arm is a guard where it is 0. Kept in this PR because this PR
+  already edits the file and the .93 cut runs this check on this Mac.
 - server.js / server.sourcechannel-2066.test.js: comments only; sourceChannel stays (the federation
   gate reads it).
 
