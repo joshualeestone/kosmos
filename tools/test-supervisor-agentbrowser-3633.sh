@@ -56,6 +56,7 @@ fake_install() {
       });
       const b = await ab.ensureShell({
         download: async (url, file) => fs.writeFileSync(file, "zip"),
+        expectBytes: 3,
         sha256Of: async () => build.sha256,
         unzip: async (zip, dest) => { fs.mkdirSync(path.join(dest, build.folder), { recursive: true }); fs.writeFileSync(path.join(dest, build.folder, "chrome-headless-shell"), ""); },
         proveShell: async () => "Google Chrome for Testing " + ab.SHELL.version,

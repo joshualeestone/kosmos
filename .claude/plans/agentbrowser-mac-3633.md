@@ -8,7 +8,8 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   which runs unchanged on macOS (2.9s, measured in a sandbox).
 - The browser is `chrome-headless-shell` 154.0.8037.0, the build the pinned playwright-core
   asks for (`install --dry-run`). Kosmos downloads it once from cdn.playwright.dev and checks
-  a sha256 pinned per Mac CPU (arm64 97 MB, x64 113 MB, both measured 2026-09-24). It is
+  a sha256 and exact byte size pinned per Mac CPU (arm64 99,415,613 bytes, x64 104,347,883,
+  both measured 2026-09-24). It is
   unpacked with `ditto`, proved with `--version`, and swapped in whole: the same order as the
   server tree.
 - The config passes `--browser chromium --executable-path <shell> --headless --isolated`.
@@ -58,7 +59,9 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   highest one, by version order and only among version-named folders (a whole version folder,
   every CPU in it), which a still-running agent from the previous release may name.
 - The board's retry gives up after 3 checksum failures in a row and logs it: a mismatch does
-  not fix itself, and each try downloads about 100 MB.
+  not fix itself, and each try downloads about 100 MB. A body of the wrong size (a captive
+  portal's page, a cut download) is reported as that, not as a checksum failure, and keeps
+  retrying. A Mac CPU with no pinned build stops at once: it cannot change.
 
 ## Evidence
 - Real install in a sandbox: `ensureShell` downloaded, matched the pinned sha256, unpacked and
@@ -73,7 +76,7 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 22 pass (16 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 10 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 25 pass (19 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 10 checks
   across four arms (installed, not installed, env opt-out, file opt-out).
 
 ## Known and left

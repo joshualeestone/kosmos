@@ -105,6 +105,7 @@ test('a proven install, then every launch gets a flag for a file holding exactly
 const shellSeams = (arch, over) => Object.assign({
   arch,
   download: async (url, file) => fs.writeFileSync(file, url),
+  expectBytes: Buffer.byteLength(ab.SHELL.builds[arch] ? ab.SHELL.builds[arch].url : ''),   // the fake body is the url
   sha256Of: async () => ab.SHELL.builds[arch].sha256,
   unzip: async (zip, dest) => {
     const d = path.join(dest, ab.SHELL.builds[arch].folder);
@@ -231,7 +232,7 @@ test('one Mac browser install at a time: a live owner\'s lock refuses, a dead ow
   assert.equal(r.ok, false, 'a fresh lock with no readable pid is live');
   assert.match(r.because, /another browser install/);
 
-  fs.writeFileSync(ab.lockPath(), '999999');                      // no such process
+  fs.writeFileSync(ab.lockPath(), '999999');                      // no such process on macOS (pids stop at 99998)
   r = await ab.ensureShell(shellSeams('arm64'));
   assert.deepEqual(r, { ok: true });
   assert.equal(fs.existsSync(ab.lockPath()), false, 'the lock is released after the install');
@@ -359,4 +360,47 @@ test('the board stops retrying after three checksum failures in a row, and says 
   });
   assert.equal(calls, 3);
   assert.match(lines[lines.length - 1], /checksum 3 times in a row/);
+});
+
+test('a download of the wrong size (a captive portal\'s page) is a network problem, not a checksum mismatch', async () => {
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
+  const r = await ab.ensureShell(shellSeams('arm64', {
+    download: async (url, file) => fs.writeFileSync(file, '<html>sign in to the wifi</html>'),
+    sha256Of: async () => { throw new Error('the hash must not even be computed'); },
+  }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /bytes, not the/);
+  assert.doesNotMatch(r.because, /checksum/, 'so the board keeps retrying instead of giving up');
+  assert.equal(ab.shellInstalled('arm64'), false);
+});
+
+test('kickInstall on a Mac installs the server and then the shell; on Windows, only the server', async () => {
+  const seams = (arch) => Object.assign({}, fakeSeams(), shellSeams(arch), {
+    download: async (url, file) => fs.writeFileSync(file, url),
+  });
+  const saved = process.env.AGENT_WORKFORCE_RUNNERS_DIR;
+  try {
+    process.env.AGENT_WORKFORCE_RUNNERS_DIR = fs.mkdtempSync(path.join(SANDBOX, 'kick-mac-'));
+    const mac = await ab.kickInstall(Object.assign(seams('arm64'), { force: true, platform: 'darwin' }));
+    assert.equal(mac.ok, true);
+    assert.equal(ab.isInstalled(), true);
+    assert.equal(ab.shellInstalled('arm64'), true, 'the Mac kick goes on to the shell');
+
+    process.env.AGENT_WORKFORCE_RUNNERS_DIR = fs.mkdtempSync(path.join(SANDBOX, 'kick-win-'));
+    const win = await ab.kickInstall(Object.assign(seams('arm64'), { force: true, platform: 'win32' }));
+    assert.equal(win.ok, true);
+    assert.equal(ab.isInstalled(), true);
+    assert.equal(ab.shellInstalled('arm64'), false, 'a Windows kick never fetches the Mac shell');
+  } finally { process.env.AGENT_WORKFORCE_RUNNERS_DIR = saved; }
+});
+
+test('the board stops for good when this Mac CPU has no pinned browser', async () => {
+  const lines = [];
+  let calls = 0;
+  ab.installWithRetry({ env: {}, firstDelayMs: 5, log: (l) => lines.push(l),
+    kick: () => { calls += 1; return Promise.resolve({ ok: false, because: 'no pinned browser for this Mac CPU (ppc)' }); } });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(calls, 1, 'tried once, never again');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /not trying again/);
 });

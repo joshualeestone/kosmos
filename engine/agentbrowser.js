@@ -79,8 +79,9 @@ const PIN = Object.freeze({
 /**
  * The Mac browser pin: the `chrome-headless-shell` build the pinned playwright-core
  * asks for (its `install --dry-run` names 154.0.8037.0), one zip per Mac CPU. The
- * sha256 values were measured on 2026-09-24 by downloading each zip. PINNED for the
- * same reason as the server: the bytes must not change because a release happened.
+ * sha256 values and byte sizes were measured on 2026-09-24 by downloading each zip.
+ * PINNED for the same reason as the server: the bytes must not change because a
+ * release happened.
  */
 const SHELL = Object.freeze({
   version: '154.0.8037.0',
@@ -88,11 +89,13 @@ const SHELL = Object.freeze({
     arm64: Object.freeze({
       url: 'https://cdn.playwright.dev/builds/cft/154.0.8037.0/mac-arm64/chrome-headless-shell-mac-arm64.zip',
       sha256: '9d4790010e56a034593b77c9e5994353885bc2dff688fe88ca71aced9b288bd7',
+      bytes: 99415613,
       folder: 'chrome-headless-shell-mac-arm64',
     }),
     x64: Object.freeze({
       url: 'https://cdn.playwright.dev/builds/cft/154.0.8037.0/mac-x64/chrome-headless-shell-mac-x64.zip',
       sha256: 'b59c4af2ee92b5cea39b0cad62e40d52ce03465a5f55922b55a8a5737f3f5387',
+      bytes: 104347883,
       folder: 'chrome-headless-shell-mac-x64',
     }),
   }),
@@ -213,8 +216,9 @@ function writeConfigIfNeeded(file, text) {
  * The config path for ONE agent launch, or null. Sync and NEVER throws: it sits
  * in the launch path, and no answer here may cost an agent its start.
  *
- * 🔑 NOT INSTALLED YET IS NOT A FAILURE. It starts the one-time install in the
- * background and answers null, so this launch goes ahead without a browser and
+ * 🔑 NOT INSTALLED YET IS NOT A FAILURE. Unless asked not to (`install: false`,
+ * as the Mac shim does), it starts the one-time install in the background and
+ * answers null, so this launch goes ahead without a browser and
  * the agent's next (re)launch picks it up. The board starts the same install at
  * boot, so on a normal machine it is long done before the first agent is made.
  */
@@ -417,7 +421,6 @@ async function ensureShell(opts) {
   if (!takeLock()) return { ok: false, because: lockError };
   /* Another installer may have finished between the check above and the lock. */
   if (shellInstalled(arch)) { dropLock(); return { ok: true, already: true }; }
-  sweepLeftovers();
   const doDownload = o.download || ((url, file) => runners.download(url, file, { receivedBytes: 0 }));
   const hashOf = o.sha256Of || sha256Of;
   const unzip = o.unzip || ((zip, dest) => execP('/usr/bin/ditto', ['-x', '-k', zip, dest], { timeout: 300000 }));
@@ -425,9 +428,15 @@ async function ensureShell(opts) {
 
   const staging = path.join(homeDir(), '.shell-staging-' + process.pid + '-' + Date.now());
   try {
+    sweepLeftovers();
     fs.mkdirSync(staging, { recursive: true });
     const zip = path.join(staging, build.url.split('/').pop());
     await doDownload(build.url, zip);
+    /* A body of the wrong size is a network problem (a captive portal's page, a cut
+       download), retried as one; only the right size with the wrong hash is a
+       checksum mismatch. */
+    const size = fs.statSync(zip).size;
+    if (size !== (o.expectBytes || build.bytes)) throw new Error('the browser download was ' + size + ' bytes, not the ' + build.bytes + ' expected; it was not used');
     if ((await hashOf(zip)) !== build.sha256) throw new Error('the browser download did not match its pinned checksum, so it was not used');
     const tree = path.join(staging, 'tree');
     fs.mkdirSync(tree, { recursive: true });
@@ -478,6 +487,10 @@ function installWithRetry(opts) {
     if (!p) return;
     p.then((r) => {
       if (stopped || (r && r.ok)) return;
+      if (/no pinned browser/.test((r && r.because) || '')) {
+        log('agent browser: ' + r.because + '; not trying again');
+        return;
+      }
       badChecksums = /checksum/.test((r && r.because) || '') ? badChecksums + 1 : 0;
       if (badChecksums >= CHECKSUM_GIVE_UP) {
         log('agent browser: the download failed its pinned checksum ' + badChecksums + ' times in a row; not trying again until the board restarts');
