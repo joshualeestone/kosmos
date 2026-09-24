@@ -52,8 +52,8 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
 // The dialog box may sit up to TOL px above the viewport bottom and still read
-// as "filled" -- that room is the body's own bottom padding (64px) plus a little
-// rounding. Pre-change the gap was many hundreds of px, so TOL discriminates.
+// as "filled" -- in the narrow layout that room is the body's own bottom padding
+// (64px) plus a little rounding (the wide layout fills flush, A1b). Pre-change the gap was many hundreds of px, so TOL discriminates.
 const TOL = 130;
 
 const fail = [];
@@ -167,17 +167,36 @@ async function measure(page) {
       const r = b.getBoundingClientRect(), x = box.getBoundingClientRect();
       return { overlaps: r.right > x.left && r.left < x.right && r.bottom > x.top && r.top < x.bottom, left: Math.round(r.left) };
     });
-    chk(mark === null || !mark.overlaps, 'A1h the build marker does not sit inside the Talk box', JSON.stringify(mark));
+    chk(mark !== null && !mark.overlaps, 'A1h the build marker is present and does not sit inside the Talk box', JSON.stringify(mark));
     // A1i: a phone-pairing card between the header and the panel is not covered by the box.
     const ask = await page.evaluate(() => {
       const a = document.getElementById('askcard'); if (!a) return null;
+      const keep = a.innerHTML;
       a.hidden = false; a.textContent = 'Fixture pairing request';
       const r = a.getBoundingClientRect(), x = document.getElementById('d-talk-box').getBoundingClientRect();
       const out = { askBottom: Math.round(r.bottom), boxTop: Math.round(x.top), boxBottom: Math.round(x.bottom), innerHeight: window.innerHeight };
-      a.hidden = true; return out;
+      a.innerHTML = keep; a.hidden = true; return out;
     });
     chk(ask !== null && ask.askBottom <= ask.boxTop && Math.abs(ask.boxBottom - ask.innerHeight) <= 1,
       'A1i a visible phone-pairing card is not covered, and the box still meets the bottom', JSON.stringify(ask));
+    // A1j: a body-level notice BELOW the panel (#conn, the connection banner) stays visible and the
+    // box shrinks to make room, with no page scroll.
+    const conn = await page.evaluate(() => {
+      const c = document.getElementById('conn'); if (!c) return null;
+      const keep = c.textContent; c.hidden = false; c.textContent = 'Fixture connection notice';
+      const r = c.getBoundingClientRect(), x = document.getElementById('d-talk-box').getBoundingClientRect();
+      const out = { connTop: Math.round(r.top), connBottom: Math.round(r.bottom), boxBottom: Math.round(x.bottom), innerHeight: window.innerHeight, docScrollH: document.documentElement.scrollHeight };
+      c.textContent = keep; c.hidden = true; return out;
+    });
+    chk(conn !== null && conn.boxBottom <= conn.connTop && conn.connBottom <= conn.innerHeight + 1 && conn.docScrollH <= conn.innerHeight + 1,
+      'A1j a connection notice below the panel stays on screen, the box makes room, no page scroll', JSON.stringify(conn));
+    // A1k: scrolling a tall identity column (#3385) never slides it under the back link.
+    const scrolled = await page.evaluate(() => {
+      const d = document.querySelector('#panel-detail .dleft'); const b = document.getElementById('detail-back');
+      return { dleftTop: Math.round(d.getBoundingClientRect().top), backBottom: Math.round(b.getBoundingClientRect().bottom) };
+    });
+    chk(scrolled.dleftTop >= scrolled.backBottom,
+      'A1k the identity column scroll box starts below the back link', JSON.stringify(scrolled));
     // A1f: a TALLER header (a wrapped update notice, other fonts) must shrink the box, not push it
     // past the bottom. Control: a fixed-offset height would leave boxTop at the header but boxBottom
     // past innerHeight by the added 60px, and the page would scroll.
@@ -330,7 +349,7 @@ async function measure(page) {
     });
     console.log('MEASURE model section: ' + JSON.stringify(model));
     chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,
-      'A1g the identity block sits at the same place on Talk as on Model (no jump when switching)',
+      'A1g the identity block stays where it was (within 1px of Model; the 1px is the pre-existing Talk/Model line-box difference)',
       'talk=' + talkIdentFromHead + ' model=' + model.identFromHead);
     chk(model.secBottom < model.innerHeight - 200,
       'A6 scoping: a non-Talk section (Model) stays content-height, NOT stretched to the window',

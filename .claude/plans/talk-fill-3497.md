@@ -30,7 +30,8 @@ Turning the body into a flex column while the talk view shows. Any visible body-
 shares the height with the panel (correct: the box fills what is left), but a future body-level
 element that is visible on the agent page would shrink the box. A1b/A1d catch a box that stops
 meeting the bottom or starts scrolling.
-The 53px `.dleft` padding is measured from the back row; A1g pins the identity column's position.
+The back row's space is a 47px `.dleft` margin (plus its existing 6px ring padding), measured from
+the back row, so the column's scroll box starts below the back link; A1g and A1k pin it.
 
 ## Verification
 - docs/browser-checks/render-talk-fill-2622.js: new arms A1b-A1e at two window heights (box meets
@@ -38,6 +39,8 @@ The 53px `.dleft` padding is measured from the back row; A1g pins the identity c
   overlap the identity block). Negative control: against origin/main's web/index.html A1b and A1c
   go red (boxTop=130 vs 77, right 1376 vs 1400, bottom 1036 vs 1100, composer bottom 42 vs 24).
 - A1h: the build marker moves to the bottom-left in this state, clear of the box.
+- A1j: a connection notice below the panel (#conn) stays visible and the box makes room.
+- A1k: the identity column's scroll box starts below the back link.
 - A1i: a visible phone-pairing card (#askcard) is not covered; the header's bottom margin is
   dropped instead of pulling the panel up with a negative margin, which covered it.
 - A1f re-runs the edge arms with a 60px taller header; A1g compares the identity block's distance
