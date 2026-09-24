@@ -45,6 +45,11 @@ R2's staging pointer against the stale committed one and exits red.
   success line (a "BUT" line), so a run that certified less says so where the operator reads.
   Chosen because the alias is the static-or-R2 download whose state today is mid-migration (#3610);
   a transient probe must not red a Mac deploy on it.
+- The alias checksum and alias-zip checks run only when the PROD pointer is served by redirect
+  (they compare against the served pointer's sha). If the pointer were served statically again,
+  git archive ships the committed alias, and the alias falls back to the pre-existing served-verify
+  (200, not html) with no sha comparison. Accepted: a static pointer means the site, not R2, owns
+  the whole Windows download again, which is what the pre-R2 checks were built for.
 - A redirected alias whose checksum or bytes disagree with the prod pointer refuses (A29, A35).
   That assumes R2's alias is always the PROD build. In this repo a staging publish never touches the
   alias, but the R2 publish lives outside this repo; if it ever writes the alias on a STAGING

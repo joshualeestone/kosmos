@@ -70,9 +70,9 @@
 #   A38 today's prod shape (alias zip redirected, its .sha256 static) with a wrong-build alias zip on
 #       R2 -> refuse: the zip is classified on its OWN redirect, not its sidecar's
 #   A39 a redirected pointer whose sha is not 64 hex characters -> refuse on the shape check
-#   A41 a redirected pointer sha that is hex but 63 characters -> refuse on the LENGTH check
 #   A40 CONTROL for A28: a static alias .sha256 that DOES carry the served build's sha -> no #3610
 #       warning, so A28's warning is gated on the mismatch, not on "served statically"
+#   A41 a redirected pointer sha that is hex but 63 characters -> refuse on the LENGTH check
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
