@@ -2492,7 +2492,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #d-nav .dnav-ico svg { display: block; }
 #d-nav .dnav-lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Direct Message: the largest box and the default landing. */
-#d-nav .dnav-dm { padding: 16px; font-size: 1.0625rem; border-radius: 14px; }
+#d-nav.dnav-boxed button.dnav-dm { padding: 16px; font-size: 1.0625rem; border-radius: 14px; }
 /* The four smaller boxes below the DM box. A single column of full-width icon+label boxes rather
    than a 2x2 grid: the nav column is ~200px, and a 2x2 halves that to ~95px cells, too narrow for
    "Instructions" / "AI Settings" on one line (it overflows the column, which the #3045 guard
@@ -2509,6 +2509,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #d-nav.dnav-boxed button.on .dnav-ico { color: var(--gold-deep, var(--gold)); }
 /* The needs-you dot sits at the box's top-right in this layout, not vertically centred at the edge. */
 #d-nav.dnav-boxed button .dot { top: 10px; right: 10px; transform: none; }
+/* Keep the active box's dot at --warn-ink (its default), not the shared .snav button.on override
+   #7a1b12: that dark red was tuned for the old full-gold active fill and is ~1.4:1 (invisible) on
+   this faint-gold-wash active box in dark - and the DM box is BOTH the default-active box and the
+   primary needs-you carrier, so it is exactly where the dot must stay visible. --warn-ink clears
+   contrast in both themes (a bright amber on dark, a dark amber on light). */
+#d-nav.dnav-boxed button.on .dot { background: var(--warn-ink); }
 /* Keep the boxes stacked (DM over the pack) at narrow width, overriding the shared `.snav` row rule. */
 @media (max-width: 56rem) { #d-nav.dnav-boxed { flex-direction: column; } #d-nav.dnav-boxed button { width: 100%; } }
 .dsecs { min-width: 0; }
@@ -8993,7 +8999,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          edited. Prose goes stale at a distance from the edit that kills it. -->
   </section>
   </section>
-  <!-- #2916: the "Model and Memory" pill reveals THIS model region plus the adjacent d-sec-memory
+  <!-- #2916: the "AI Settings" pill (data-go="model"; #3500 relabelled it from "Model and Memory")
+       reveals THIS model region plus the adjacent d-sec-memory
        region. Each region keeps its own accurate aria-label ("Model" here, "Memory" below) so a
        screen-reader user is not told memory controls live in a region that only holds the model. -->
   <section class="dsec" id="d-sec-model" data-sec="model" tabindex="-1" aria-label="Model" hidden>
@@ -9465,7 +9472,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   </section>
   <!-- #2916: the nav PILL is renamed "Advanced", but this region keeps aria-label "Terminal" to
        match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
-       convention as d-sec-model staying "Model" under the "Model and Memory" pill. -->
+       convention as d-sec-model staying "Model" under the "AI Settings" pill (data-go="model"). -->
   <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>
 
   <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
@@ -26148,8 +26155,9 @@ function openDetail(sessionName, section, fromProject) {
      only -- name, then TITLE, then the status bubble. The #2833 subtitle (Title · Provider ·
      Account · Model) is dropped here per Josh: "remove the provider account and model information
      that we had on the other view just to simplify this page." So #d-meta now carries ONLY the
-     title, reading as the title line under the name. The model still shows in the Model and Memory
-     section (drun) and the account in Settings, so nothing is lost, only moved off this header. */
+     title, reading as the title line under the name. The model still shows in the AI Settings
+     section (drun; the model + memory fold) and the account in Settings, so nothing is lost, only
+     moved off this header. */
   const metaBits = [];
   if (roleSeg) metaBits.push(esc(roleSeg));
   // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
@@ -26538,8 +26546,9 @@ function detailPaintWindow(a) {
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
 const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
-/* #2916 (Josh 6.59): two pills now each cover two sections. "Model and Memory" (the `model`
-   pill) reveals the model AND memory sections together; "Instructions" (the `instr` pill)
+/* #2916 (Josh 6.59): two pills now each cover two sections. "AI Settings" (the `model`
+   pill, relabelled from "Model and Memory" by #3500) reveals the model AND memory sections
+   together; "Instructions" (the `instr` pill)
    reveals the instructions AND skills sections. The member sections keep their own data-sec and
    wiring untouched -- only which ones show together changed. detailSectionGroup maps any section
    (the pill's own, or a folded member reached programmatically) to the full set to reveal, and
