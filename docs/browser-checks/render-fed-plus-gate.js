@@ -1,4 +1,4 @@
-// Browser-check-surface: data-fed-ui pj-mode pj-add-ext-person pj-add-ext-agent pj-invite-panel pj-join-mode pj-plus-signup plus-gate-modal plus-gate-msg
+// Browser-check-surface: data-fed-ui pj-mode pj-add-ext-person pj-add-ext-agent pj-invite-panel pj-join-mode pj-plus-signup plus-gate-modal plus-gate-msg plus-gate-close pj-mode-join
 'use strict';
 /**
  * fed-plus-gate: the #3312 federation UI gates on the Kosmos+ launch mode (Josh, 2026-09-21).
@@ -191,13 +191,18 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
     document.getElementById('pj-add-ext-person').click();
     const connect = read();
     if (closeBtn) closeBtn.click();
-    return { join, revertedToCreate, connect };
+    document.getElementById('pj-add-ext-agent').click();
+    const connectAgent = read();
+    if (closeBtn) closeBtn.click();
+    return { join, revertedToCreate, connect, connectAgent };
   });
   check('#3495 non-member selecting Join opens the Plus-gate modal, not the join form', gate.join.open, JSON.stringify(gate.join));
   check('#3495 the Join gate shows the JOIN copy', /must be logged in to access it/.test(gate.join.copy), gate.join.copy.slice(0, 90));
   check('#3495 selecting Join snaps the toggle back to Create (gated form never shown)', gate.revertedToCreate, 'create checked=' + gate.revertedToCreate);
   check('#3495 clicking a grayed Add-external button opens the Plus-gate modal', gate.connect.open, JSON.stringify({ open: gate.connect.open }));
   check('#3495 the connect gate shows the CONNECT copy', /signed in as a Kosmos Plus user/.test(gate.connect.copy), gate.connect.copy.slice(0, 90));
+  check('#3495 the grayed Add-external AGENT button opens the same modal with the CONNECT copy',
+    gate.connectAgent.open && /signed in as a Kosmos Plus user/.test(gate.connectAgent.copy), JSON.stringify({ open: gate.connectAgent.open }));
 
   await browser.close();
   if (problems.length) {
