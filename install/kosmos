@@ -1272,13 +1272,13 @@ cmd_post() {
       fi
       # Drop a leading UTF-8 BOM. Not ${text#...}: under bash 3.2 in a UTF-8 locale that
       # expansion is quadratic in the text length (measured, 5.6s on 200 KB).
-      case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" ;; esac
+      case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; } ;; esac
       # Drop the trailing CR/LF run in linear time: map CR to LF so the command substitution strips
       # the whole run, count the bytes left, and cut the original to that length. A ${text%?} loop
       # is quadratic here (a 60 KB message ending in blank CRLF lines ran for over a minute).
-      _trimmed="$(printf '%s' "$text" | LC_ALL=C tr '\r' '\n')"
-      _keep="$(printf '%s' "$_trimmed" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')"
-      if [ "$_keep" -gt 0 ]; then text="$(printf '%s' "$text" | { LC_ALL=C head -c "$_keep"; cat >/dev/null; })"; else text=""; fi   # macOS head refuses -c 0; cat drains the rest so printf never takes SIGPIPE under pipefail
+      _trimmed="$(printf '%s' "$text" | LC_ALL=C tr '\r' '\n')" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; }
+      _keep="$(printf '%s' "$_trimmed" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; }
+      if [ "$_keep" -gt 0 ]; then text="$(printf '%s' "$text" | { LC_ALL=C head -c "$_keep"; cat >/dev/null; })" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; }; else text=""; fi   # macOS head refuses -c 0; cat drains the rest so printf never takes SIGPIPE under pipefail
       _trimmed=
       case "$text" in
         *[![:space:]]*) ;;
@@ -1303,6 +1303,8 @@ cmd_post() {
     say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955)"
     exit 2
   fi
+  # With --stdin this is a second check, on purpose: the first ran before the read, and a slow pipe
+  # leaves time for the board to go away; this one keeps the message if it did.
   if ! healthy; then
     say "Kosmos is not running, so nothing can be posted. Start it with: kosmos start"
     _keep_piped

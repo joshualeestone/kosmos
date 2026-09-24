@@ -18,6 +18,8 @@ possibly cut short). A --stdin after the project id is refused. "As written" is 
 collapses tabs and CRs.
 
 Known asymmetries, accepted:
+- The #2710 echo-back of refused argument-mode text exists only in install/kosmos (it predates this
+  branch); a refused --stdin message is saved to a file on both CLIs.
 - The Windows CLI reads the pipe before contacting the board (it has no separate health check); a
   failure then saves the message to a file, so nothing is lost either way.
 - bash has no quiet-pipe time limit (same as `feedback write` there): an open pipe nobody writes to

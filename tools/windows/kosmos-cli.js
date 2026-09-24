@@ -211,7 +211,7 @@ const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text
    up to two minutes of silence: long past a slow listing, and still a sentence
    rather than a hang when the pipe never closes. The usage text states it (the
    parity test pins the number there). */
-const CARDS_STDIN_QUIET_LIMIT_MS = 120000;
+const CARDS_STDIN_QUIET_LIMIT_MS = 120000;   /* also post --stdin's limit (#2909): both read piped commands that can be slow to start */
 
 /* A report that arrived and then stopped without the input ending may be a slow
    writer cut short, so it is refused whole rather than saved in part (review round 2). */
