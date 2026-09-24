@@ -201,7 +201,7 @@ if command -v ruby >/dev/null 2>&1; then
   # Card script. $1 = the checks job RESULT, $2 = what the stubbed issue list answers
   # (empty / 7 / null); the open card's last report named render-fields only.
   card() {
-    RESULT="$1" OPEN="$2" RED="render-fields|render-thread|regress-a-night (server did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+    RESULT="$1" OPEN="$2" RED="render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       gh() { case "$1 $2" in
         "label list") true ;;
         "label create") echo "CALL label-create" ;;
@@ -215,10 +215,15 @@ if command -v ruby >/dev/null 2>&1; then
       . "$1"' _ "$BT/card.sh" 2>&1
   }
   out="$(card failure "")" || fail "card script failed on a fresh streak: $out"
-  case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields | render-thread | regress-a-night (server did not boot)"*) ;; *) fail "a fresh red streak did not create the label and a card naming the red checks: $out" ;; esac
+  case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields | render-thread | regress-a-night (server did not boot) | render-list-row render-fields (rich board did not boot)"*) ;; *) fail "a fresh red streak did not create the label and a card naming the red checks: $out" ;; esac
   case "$out" in *"CALL comment"*|*"CALL close"*) fail "a fresh red streak commented or closed: $out" ;; esac
   out="$(card failure 7)" || fail "card script failed with an open card: $out"
-  case "$out" in *"CALL comment 7"*"NEW since the last red night: render-thread"$'\n'*"Red checks: render-fields | render-thread | regress-a-night (server did not boot)"*) ;; *) fail "an open card did not get a comment leading with ONLY the NEW red check (a spaced entry must not split): $out" ;; esac
+  # The NEW entries include a spaced composite that the last report did not name: it must
+  # come through WHOLE (a whitespace split would leak "(rich" and "board" as fake checks).
+  newline="$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')"
+  [ "$newline" = "render-thread | render-list-row render-fields (rich board did not boot)" ] \
+    || fail "the NEW line is not exactly the two new entries, whole: [$newline] in: $out"
+  case "$out" in *"CALL comment 7"*) ;; *) fail "an open card did not get a comment: $out" ;; esac
   case "$out" in *"CALL create"*|*"CALL label-create"*) fail "an open-card streak created again: $out" ;; esac
   out="$(card cancelled "")" || fail "card script failed on a cancelled run: $out"
   case "$out" in *"CALL create"*"ended cancelled"*) ;; *) fail "a cancelled (e.g. timed-out) run did not file a card: $out" ;; esac
