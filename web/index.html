@@ -11288,7 +11288,7 @@ window.kosmosMeasureScrollbarWidth();
                      One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
                      (same POST /api/accounts/{gemini|grok}/apikey, same ACCT_APIKEY_PROVIDERS), the
                      way #fr-openai-flow mirrors #acct-openai-flow. API KEY ONLY for now: the
-                     subscription sign-in for Grok waits on #3391 and for Gemini on #3568, and a
+                     subscription sign-in works for neither yet (open cards: #3391 Grok, #3568 Gemini), and a
                      subscription button that dead-ends is worse than none. There is no managed
                      installer for either runner yet (engine/runners.js), so a missing runner is
                      said plainly from the route's own needsRunner answer. The "Runs on this
@@ -23079,7 +23079,20 @@ document.getElementById('fr-apikey-go').addEventListener('click', async () => {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
     });
     const out = await res.json().catch(() => null);
-    if (mine !== FR_APIKEY_GEN) { if (res.ok) frPaintKeyed(); return; }   // a key that landed still shows as Connected
+    if (mine !== FR_APIKEY_GEN) {
+      if (!res.ok) return;
+      /* A key that landed after the person moved on still shows as Connected. If they
+         have since reopened the box for the SAME provider, close it: a second Add there
+         would make a second account for a provider that is already connected. */
+      if (FR_APIKEY_WHICH === which) {
+        document.getElementById('fr-apikey-flow').hidden = true;
+        FR_APIKEY_WHICH = null;
+        frApikeyExpanded(null);
+        msg.textContent = p.name + ' is connected.';
+      }
+      frPaintKeyed();
+      return;
+    }
     if (!res.ok) {
       if (out && out.needsRunner) throw new Error('The ' + p.name + ' runner is not installed on this computer yet, so there is nothing to connect it to. You can carry on and connect ' + p.name + ' later in Settings, AI Models.');
       throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
