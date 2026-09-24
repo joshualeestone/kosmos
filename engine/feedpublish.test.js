@@ -107,7 +107,7 @@ test('insertFailure classifies a client error as input (safe message) and a stor
   // A client input error (the store's own validation throws) -> 400 with its message.
   const clientErr = fp.insertFailure(new Error('comment references a nonexistent post'), []);
   assert.equal(clientErr.reason, 'input');
-  assert.match(clientErr.error, /nonexistent post/);
+  assert.match(clientErr.error, /does not exist/);
   // A server failure (a disk/permission error whose message can embed a local path)
   // -> 500 with a GENERIC message; the raw is not returned to the caller.
   const serverErr = fp.insertFailure(new Error('EACCES: permission denied, open /Users/secret/path/posts.json'), []);
@@ -140,10 +140,19 @@ test('a leak in a comment body quarantines it', () => {
   assert.equal(r.status, 'quarantined');
 });
 
+test('a comment with NO postId is a clean input rejection (reason:input), not a store 500', () => {
+  // The primitive pre-checks postId presence, so a missing postId never reaches the
+  // store (whose "requires postId" wording the classifier deliberately does not match).
+  const r = fp.publishComment({ kind: 'community_post', agent: 'Trusted1', at: '2026-09-23T00:00:00Z', body: 'no post id' }, { trusted: true });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'input');
+  assert.match(r.error, /postId/i);
+});
+
 test('a comment on a nonexistent post returns ok:false, never throws', () => {
   const r = fp.publishComment({ kind: 'community_post', agent: 'Trusted1', at: '2026-09-23T03:00:00Z', body: 'orphan', postId: 'no-such-post' }, { trusted: true });
   assert.equal(r.ok, false);
-  assert.match(r.error, /nonexistent|postId/i);
+  assert.match(r.error, /does not exist|postId/i);
 });
 
 test('the store persists the SNAPSHOT, not the live candidate object', () => {

@@ -82,18 +82,22 @@ function isWellFormed(snapshot) {
 // free text (names, emails, sentences) out of the publicly-served board column.
 const BOARD_SLUG = /^[a-z][a-z0-9-]{0,31}$/;
 
-// The store throws two DIFFERENT classes of error, and a route must treat them
-// differently: a CLIENT input error (a missing/nonexistent postId, a bad status --
-// thrown synchronously, before any write) is a 400 whose message is safe to return;
-// a SERVER failure (disk full, permission, a corrupt-file rename failure -- thrown
-// during the write, and its `err.message` can embed a local filesystem path) is a
-// 500 that must be LOGGED here (the store boundary) and returned as a GENERIC message
-// so no path leaks to the caller. `reason` tells the route which status code to use.
-const CLIENT_STORE_ERR = /required|must be|nonexistent/i;
+// The store can throw ONE client-input error the primitive cannot pre-check without
+// duplicating the store's lookup: a comment on a post that does not exist. Every
+// OTHER client precondition (a non-object candidate, missing required fields, a
+// missing postId) is validated in the primitive BEFORE the store is called, and the
+// primitive always passes a valid status -- so any REMAINING throw from the store is
+// a SERVER failure (disk full, permission, a corrupt-file rename failure) whose raw
+// message can embed a local filesystem path. This match is the store's EXACT phrase
+// for the nonexistent-parent case (not a loose keyword that a random OS path could
+// contain), so a real server error is never misclassified and its raw message/path
+// is never returned to the caller. A server failure is LOGGED here (the store
+// boundary) and returned as a GENERIC message. `reason` tells the route the status code.
+const NONEXISTENT_PARENT = /references a nonexistent post/i;
 function insertFailure(err, findings) {
   const raw = String((err && err.message) || err);
-  if (CLIENT_STORE_ERR.test(raw)) {
-    return { ok: false, reason: 'input', status: 'rejected', findings, error: raw };
+  if (NONEXISTENT_PARENT.test(raw)) {
+    return { ok: false, reason: 'input', status: 'rejected', findings, error: 'the post being commented on does not exist' };
   }
   console.error('feedpublish: community store write failed: ' + raw);
   return { ok: false, reason: 'store', status: 'error', findings, error: 'the submission could not be stored' };
@@ -187,6 +191,14 @@ function publishComment(candidate, opts = {}) {
   const c = (candidate && typeof candidate === 'object') ? candidate : {};
   // Strip the routing keys feedguard does not know about; guard only the content.
   const { postId, parentId, ...content } = c;
+  // Pre-check postId PRESENCE here (a clear client error) so the store's throw is not
+  // relied on to classify it -- the store's message ("comment requires postId") does
+  // not match insertFailure's nonexistent-parent phrase, so leaving it to the store
+  // would 500 a plain client mistake. (Nonexistent-parent still comes from the store,
+  // which insertFailure classifies by its exact phrase.)
+  if (postId == null || postId === '') {
+    return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'a comment requires a postId' };
+  }
   const trusted = resolveTrusted(o); // identity is opts-only, never content.agent
   const verdict = feedguard.guard(content, { trusted, denyNames: o.denyNames });
   if (!isWellFormed(verdict.post)) {
