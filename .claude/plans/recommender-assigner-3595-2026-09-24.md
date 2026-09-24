@@ -57,9 +57,11 @@ chars). For a new item:
 1. A `roomNote` in the project room, in the product's voice, recording the ask. A note is a log row
    only; it is delivered to nobody (challenge loop, iteration 2), so it cannot be the ask itself.
 2. The ask, `chat.deliver`ed into each peer's pane once (never retried): who is stuck, on what, and
-   `kosmos post <project> "..."` to reply in the room. Peers = up to two OTHER project members,
-   preferring ones not themselves stuck. No peers -> the agent decides alone; that is Josh's
-   standing rule anyway.
+   `kosmos post <project> "..."` to reply in the room. Peers = up to two OTHER members of a
+   non-archived project whose card is on the board `idle` (preferred) or `working`; never an absent
+   member and never one at ANY `needs_you` (a typed Enter on a permission prompt picks an option).
+   No peers -> the agent decides alone; that is Josh's standing rule anyway. The room note is
+   written AFTER the asks and names only the peers who were reached.
 3. `chat.deliver` to the stuck agent: the Recommender playbook for THIS item, naming only the peers
    whose ask was PLACED (none reached says so, never "wait for replies"): wait a few minutes
    for peers, then decide; post the decision to the room with the four required parts (the call,
@@ -74,14 +76,20 @@ chars). For a new item:
 voting engine, no multi-round loop: the per-pair cap and the colleagues rule ("stop after a few
 rounds") both argue against it, and a single documented decision is what Josh asked for.
 
+**Who can change the setting.** Only the person's screen: `PUT /api/recommender-setting` refuses
+a process caller (tokenless, or presenting an agent token), because the guards are the feature's
+only protection and an agent under bypass permissions must not be able to switch them off.
+
 **Guards, stated honestly.** v1 enforces the three guards at the INSTRUCTION level: they are in the
 convening message and in a managed instruction block, only the ACTIVE ones, with the person's own
 switches respected. That matches how agents already treat these three limits (defaults.js). The
 Recommender does not widen what an agent can do; it shortens the wait before a reversible decision.
 A tool-level deny (the PreToolUse hook) is a separate card, not v1.
 
-**Limits.** One convening per item within one board run: the memory is in process, so a board
-restart can convene a still-standing item once more (accepted: restarts are rare, the caps still
+**Limits.** One convening per item: an item that was acted on is remembered for an hour even if
+the card flaps away from stuck, so the same question is not convened twice. The memory is in
+process and turning the setting off clears it, so a board restart or an off/on can convene a
+still-standing item once more (accepted: restarts are rare, the caps still
 apply, and a persisted store is more surface than this is worth in v1). Global cap (default 6 per hour) and a per-agent cap (2 per hour).
 Room notes do not spend the per-pair budget; peer replies do, which is the intended brake.
 

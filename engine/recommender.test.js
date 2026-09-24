@@ -166,14 +166,14 @@ test('an item is convened once: PLACED or UNCONFIRMED ends it; COULD_NOT retries
     const a = afterGrace(roster, members);
     assert.equal(a.toConvene.length, 1);
     assert.equal(a.toConvene[0].retry, false, 'the first convening must post the room note');
-    r.markAttempt(a.next, a.toConvene[0].key, DELIVERY.COULD_NOT, DELIVERY, []); // asks out, playbook reached nothing
+    r.markAttempt(a.next, a.toConvene[0].key, DELIVERY.COULD_NOT, DELIVERY, [], T0 + r.GRACE_MS); // asks out, playbook reached nothing
     let prev = a.next; let now = T0 + r.GRACE_MS;
     for (let i = 1; i < r.MAX_DELIVERY_ATTEMPTS; i++) {
       now += 60000;
       const again = r.step({ prev, roster, setting: ON, members, now });
       assert.equal(again.toConvene.length, 1, 'an unplaced delivery was not retried (attempt ' + i + ')');
       assert.equal(again.toConvene[0].retry, true, 'a retry would post a second room note');
-      r.markAttempt(again.next, again.toConvene[0].key, DELIVERY.COULD_NOT, DELIVERY);
+      r.markAttempt(again.next, again.toConvene[0].key, DELIVERY.COULD_NOT, DELIVERY, undefined, now);
       prev = again.next;
     }
     const exhausted = r.step({ prev, roster, setting: ON, members, now: now + 60000 });
@@ -186,29 +186,49 @@ test('an item is convened once: PLACED or UNCONFIRMED ends it; COULD_NOT retries
     assert.equal(s2.toConvene.filter((c) => !c.retry).length, 1, 'retries spent the per-agent budget');
     // And a PLACED delivery ends the item for good.
     const fresh = afterGrace(roster, members);
-    r.markAttempt(fresh.next, fresh.toConvene[0].key, DELIVERY.PLACED, DELIVERY, []);
+    r.markAttempt(fresh.next, fresh.toConvene[0].key, DELIVERY.PLACED, DELIVERY, [], T0 + r.GRACE_MS);
     const done = r.step({ prev: fresh.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000 });
     assert.equal(done.toConvene.length, 0, 'a convened item fired twice');
     // UNCONFIRMED ends it too: text may already be in the pane, and a re-send could duplicate it.
     const unsure = afterGrace(roster, members);
-    r.markAttempt(unsure.next, unsure.toConvene[0].key, DELIVERY.UNCONFIRMED, DELIVERY, []);
+    r.markAttempt(unsure.next, unsure.toConvene[0].key, DELIVERY.UNCONFIRMED, DELIVERY, [], T0 + r.GRACE_MS);
     const after = r.step({ prev: unsure.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000 });
     assert.equal(after.toConvene.length, 0, 'an UNCONFIRMED playbook was re-sent');
   } finally { b.restore(); }
 });
 
-test('a resolved item is forgotten, so the same words later are a new item', () => {
+test('an acted-on item is kept for an hour: a flap or a repeat of the same words is not re-convened; after the hour it is a new item', () => {
   const b = stuckBoard([{ name: 'forget', report: STUCK('which of two layouts to ship') }]);
   try {
     const members = new Map();
+    const t1 = T0 + r.GRACE_MS;
     const a = afterGrace(b.cards, members);
-    r.markAttempt(a.next, a.toConvene[0].key, DELIVERY.PLACED, DELIVERY, []);
+    assert.equal(a.toConvene.length, 1);
+    r.markAttempt(a.next, a.toConvene[0].key, DELIVERY.PLACED, DELIVERY, [], t1);
+    // One tick away from stuck (the agent did other work), then the same question again.
     const working = b.again('forget', { state: 'working', because: 'building it', project: 'proj-a' });
-    const cleared = r.step({ prev: a.next, roster: working, setting: ON, members, now: T0 + r.GRACE_MS + 1 });
-    assert.equal(cleared.next.items.size, 0);
+    const flap = r.step({ prev: a.next, roster: working, setting: ON, members, now: t1 + 60000 });
+    assert.equal(flap.next.items.size, 1, 'the acted-on item was dropped on the first tick it was not stuck');
     const stuckAgain = b.again('forget', STUCK('which of two layouts to ship'));
-    const back = r.step({ prev: cleared.next, roster: stuckAgain, setting: ON, members, now: T0 + r.GRACE_MS + 2 });
-    assert.equal(back.toConvene.length, 0, 'a fresh item skipped its grace period');
+    let prev = flap.next;
+    for (const dt of [120000, 120000 + r.GRACE_MS, 120000 + 2 * r.GRACE_MS]) {
+      const out = r.step({ prev, roster: stuckAgain, setting: ON, members, now: t1 + dt });
+      assert.equal(out.toConvene.length, 0, 'a flap re-convened the same item within the hour');
+      prev = out.next;
+    }
+    // Control: a never-acted-on item is dropped at once (no tombstone for mere sightings).
+    const seenOnly = r.step({ prev: undefined, roster: stuckAgain, setting: ON, members, now: T0 });
+    const gone = r.step({ prev: seenOnly.next, roster: working, setting: ON, members, now: T0 + 1 });
+    assert.equal(gone.next.items.size, 0, 'an item that was only seen was kept');
+    // After the hour, the same words away from stuck are forgotten, and come back as a new item
+    // that waits out its own grace period.
+    const later = t1 + 61 * 60 * 1000;
+    const aged = r.step({ prev, roster: working, setting: ON, members, now: later });
+    assert.equal(aged.next.items.size, 0, 'the item outlived its hour');
+    const back1 = r.step({ prev: aged.next, roster: stuckAgain, setting: ON, members, now: later + 1 });
+    assert.equal(back1.toConvene.length, 0, 'a fresh item skipped its grace period');
+    const back2 = r.step({ prev: back1.next, roster: stuckAgain, setting: ON, members, now: later + 1 + r.GRACE_MS });
+    assert.equal(back2.toConvene.length, 1, 'the same words after the hour were never convened again');
   } finally { b.restore(); }
 });
 
@@ -223,7 +243,7 @@ test('caps: at most MAX_PER_AGENT_PER_HOUR per agent and MAX_PER_HOUR overall', 
       const seen = r.step({ prev, roster, setting: ON, members, now });
       now += r.GRACE_MS;
       const out = r.step({ prev: seen.next, roster, setting: ON, members, now });
-      for (const c of out.toConvene) { convened++; r.markAttempt(out.next, c.key, DELIVERY.PLACED, DELIVERY, []); }
+      for (const c of out.toConvene) { convened++; r.markAttempt(out.next, c.key, DELIVERY.PLACED, DELIVERY, [], now); }
       prev = out.next; now += 1000;
     }
     assert.ok(now - T0 < 60 * 60 * 1000, 'test setup: the items did not all fall inside one hour');
@@ -242,20 +262,25 @@ test('caps: at most MAX_PER_AGENT_PER_HOUR per agent and MAX_PER_HOUR overall', 
   } finally { many.restore(); }
 });
 
-test('peers: up to two OTHER members, unstuck ones first; none on a solo project', () => {
+test('peers: up to two OTHER members on the board and idle or working, idle first; never absent or at any needs_you', () => {
   const b = stuckBoard([
     { name: 'pstuck', report: STUCK('which of two layouts to ship') },
     { name: 'pmona', displayName: 'Mona', report: STUCK('her own thing') },
-    { name: 'ppete', displayName: 'Pete' },
+    { name: 'pperm', displayName: 'Perm', report: { state: 'needs_you', because: 'asking permission to use Bash', project: 'proj-a', auto: true } },
     { name: 'pangel', displayName: 'Angel', paneState: 'working' },
+    { name: 'ppete', displayName: 'Pete' },
     { name: 'psolo', report: STUCK('solo item', 'proj-solo') },
   ]);
   try {
     const k = b.key;
-    const members = new Map([['proj-a', [k.pstuck, k.pmona, k.ppete, k.pangel]], ['proj-solo', [k.psolo]]]);
+    // 'pgone' is a member with no card on the board (removed or never started).
+    const members = new Map([['proj-a', ['pgone', k.pstuck, k.pmona, k.pperm, k.pangel, k.ppete]], ['proj-solo', [k.psolo]]]);
+    const perm = b.cards.find((c) => c.sessionName === k.pperm);
+    assert.equal(perm.state, 'needs_you', 'fixture: the permission prompt did not reach the card');
     const out = afterGrace(b.cards, members);
     const stuck = out.toConvene.find((c) => c.session === k.pstuck);
-    assert.deepEqual(stuck.peers.map((p) => p.session), [k.ppete, k.pangel], 'stuck Mona was preferred over free members, or self was included');
+    assert.deepEqual(stuck.peers.map((p) => p.session), [k.ppete, k.pangel],
+      'an absent member, a stuck member or one at a permission prompt was chosen, or idle was not preferred');
     assert.deepEqual(stuck.peers.map((p) => p.name), ['Pete', 'Angel'], 'peers are not named by their display names');
     const solo = out.toConvene.find((c) => c.session === k.psolo);
     assert.deepEqual(solo.peers, []);
@@ -293,11 +318,13 @@ test('texts: the playbook names only ACTIVE guards and only peers actually asked
   assert.ok(!onlyPete.includes('Angel'), 'a peer who was not reached was named');
   const nobody = r.playbookText({ ...item, asked: [] }, ON);
   assert.ok(!/I asked/.test(nobody), 'told to wait for replies nobody was asked for');
-  assert.match(nobody, /could not reach the other members/);
+  assert.match(nobody, /could be reached/);
   assert.match(r.playbookText({ ...item, peers: [], asked: [] }, ON), /No one else is on this project/);
   // The room note records the ask; the peer's ask names the project and how to reply there.
-  assert.match(r.roomNoteText(item), /asking Pete and Angel/);
-  assert.match(r.roomNoteText({ ...item, peers: [] }), /No one else is on this project/);
+  assert.match(r.roomNoteText(item), /asked Pete and Angel/);
+  assert.ok(!r.roomNoteText({ ...item, asked: [peers[0]] }).includes('Angel'), 'the room note named a peer who was not reached');
+  assert.match(r.roomNoteText({ ...item, asked: [] }), /April will decide it/);
+  assert.ok(!/asked/.test(r.roomNoteText({ ...item, asked: [] })), 'the room note claims an ask that did not happen');
   const ask = r.peerAskText(item);
   assert.match(ask, /April is stuck on a decision in project proj-a/);
   assert.match(ask, /kosmos post proj-a /);
@@ -324,6 +351,8 @@ test('runOnce: note and asks once per item, the playbook names who was reached, 
     const first = r.runOnce({ prev: seen.next, roster, setting: ON, members, now: T0 + r.GRACE_MS, ...deps });
     assert.equal(notes.length, 1, 'no room note on first convening');
     assert.equal(notes[0][0], 'proj-a');
+    assert.match(notes[0][1], /asked Pete for one reply/, 'the room note did not name the reached peer');
+    assert.ok(!notes[0][1].includes('Gone'), 'the room note named a peer whose ask did not land');
     assert.deepEqual(sent.map((x) => x[0]), [k.runpeer, k.rungone, k.run], 'asks go to both peers, then the playbook');
     assert.match(sent[0][1], /kosmos post proj-a/);
     assert.match(sent[2][1], /I asked Pete for one reply/, 'the playbook did not name the reached peer');
