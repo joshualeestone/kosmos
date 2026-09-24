@@ -32,3 +32,9 @@ assert its absence, with the Settings line as their control.
 ## Weakest premise
 That nothing outside web/index.html renders the marker (the native app's WKWebView shows the page;
 the Swift side draws no version badge). Checked by grep: no "beta build" in native-app/.
+
+## Gates
+Removing the #3497 Talk-view override deletes a line naming d-sec-talk, which
+render-agentpage-fullwidth-2012 declares; that check is not stale (the line only positioned the
+marker), so the commit carries its Browser-check-surface override trailer. render-build-marker-2066
+carries no surface annotation (an absence has no live id; the coarse gate covers it).

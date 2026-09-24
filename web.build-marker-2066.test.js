@@ -23,9 +23,8 @@ test('#3641: no corner marker element, painter or style is left in the page', ()
 });
 
 test('#3641: the page never writes the "beta build" words anywhere a person could see them', () => {
-  /* Any spelling a string literal could carry, since the old marker built it in JS. */
-  assert.equal(/['"`]beta build/i.test(PAGE), false, 'a "beta build" string came back');
-  assert.equal(/>\s*beta build/i.test(PAGE), false, 'a "beta build" text node came back');
+  /* Anywhere, in any literal, text node or comment: the page carries the words nowhere today. */
+  assert.equal(/\bbeta\s+build\b/i.test(PAGE), false, 'the words "beta build" came back somewhere in the page');
 });
 
 test('control: the version still reads in Settings > Updates, painted from the first frame', () => {

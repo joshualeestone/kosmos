@@ -538,10 +538,11 @@ async function measure(page) {
     // A1n: the same promises measured with scrollbars that take width, as on a Mac that shows them,
     // in Chromium and in WebKit (the Mac app's engine). Headless Chromium hides every scrollbar
     // (--hide-scrollbars, a default flag), so this launches its own browser without it, as
-    // render-win32-board-copy does, and forces a 15px classic bar so a Mac with overlay scrollbars
-    // reserves a real gutter too. At Josh's 1000x660: the box reaches the window edge (control:
-    // before #3497's gutter fix it stopped at 985), and the header controls and tabs sit at the
-    // same x on the board, Talk and Model.
+    // render-win32-board-copy does, and forces a 15px classic bar. That gives elements a 15px
+    // scrollbar; whether the root reserves a gutter on a page that does not scroll still follows the
+    // Mac's scrollbar setting (see the precondition below). At Josh's 1000x660: the box reaches the
+    // window edge (a control where the root reserves 15px: before #3497's gutter fix it stopped at
+    // 985), and the header controls and tabs sit at the same x on the board, Talk and Model.
     for (const [engine, launch] of [
       ['chromium', () => chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] })],
       ['webkit', () => webkit.launch({ headless: process.env.HEADED === '0' })],
