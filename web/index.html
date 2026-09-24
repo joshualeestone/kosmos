@@ -2466,7 +2466,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width
      cannot be measured the gutter stays (A1q). */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
-  /* On every wide view the header's right padding is the scrollbar width less the width the page is
+  /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
      actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
      sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
      an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n). */

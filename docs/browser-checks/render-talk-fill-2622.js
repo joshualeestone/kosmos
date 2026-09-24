@@ -387,6 +387,7 @@ async function measure(page) {
     const pad = await page.evaluate(async () => {
       const bootWidth = document.documentElement.style.getPropertyValue('--scrollbar-width');
       document.documentElement.style.setProperty('--scrollbar-width', '15px');
+      const root = document.documentElement;
       const head = document.querySelector('.apphead');
       const read = () => ({ pad: parseFloat(getComputedStyle(head).paddingRight),
         given: window.innerWidth - head.getBoundingClientRect().width });
@@ -399,16 +400,21 @@ async function measure(page) {
       const prevLayout = document.documentElement.getAttribute('data-layout');
       document.documentElement.setAttribute('data-layout', 'consolidated');
       const consTalk = read().pad;
+      // The unpadded base (the --space-8 token), read rather than written down: an unmeasured page
+      // carries no #3497 padding at all.
+      root.removeAttribute('data-scrollbar-measured');
+      const base = read().pad;
+      root.setAttribute('data-scrollbar-measured', '');
       if (prevLayout === null) document.documentElement.removeAttribute('data-layout');
       else document.documentElement.setAttribute('data-layout', prevLayout);
       if (bootWidth) document.documentElement.style.setProperty('--scrollbar-width', bootWidth);
       else document.documentElement.style.removeProperty('--scrollbar-width');
-      return { model, talk, consTalk };
+      return { model, talk, consTalk, base };
     });
-    chk(Math.abs(pad.model.pad - (24 + 15 - pad.model.given)) <= 0.5 && Math.abs(pad.talk.pad - (24 + 15 - pad.talk.given)) <= 0.5,
-      'A1o the header padding is 24px + the scrollbar width (15px here) less the width given up, on Model and Talk (the page is left on Talk)', JSON.stringify(pad));
-    chk(pad.consTalk === 24,
-      'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header keeps the plain 24px', JSON.stringify(pad));
+    chk(pad.base > 0 && Math.abs(pad.model.pad - (pad.base + 15 - pad.model.given)) <= 0.5 && Math.abs(pad.talk.pad - (pad.base + 15 - pad.talk.given)) <= 0.5,
+      'A1o the header padding is the base + the scrollbar width (15px here) less the width given up, on Model and Talk (the page is left on Talk)', JSON.stringify(pad));
+    chk(pad.consTalk === pad.base,
+      'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header keeps the plain base padding', JSON.stringify(pad));
     // A1q: a measurement that failed leaves no data-scrollbar-measured, and then Talk keeps the #1309
     // gutter and the header is not padded, so the header cannot move. Control: the same reads with
     // the attribute present drop the gutter and pad the header.
