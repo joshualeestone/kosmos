@@ -413,7 +413,7 @@ test('the board stops for good when this Mac CPU has no pinned browser', async (
   const lines = [];
   let calls = 0;
   ab.installWithRetry({ env: {}, firstDelayMs: 5, log: (l) => lines.push(l),
-    kick: () => { calls += 1; return Promise.resolve({ ok: false, because: 'no pinned browser for this Mac CPU (ppc)' }); } });
+    kick: () => { calls += 1; return ab.ensureShell({ arch: 'ppc' }); } });
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(calls, 1, 'tried once, never again');
   assert.equal(lines.length, 1);
@@ -448,9 +448,10 @@ test('the CPU default has one source: every shell path defaults to hostArch()', 
   assert.equal(ab.shellDir(), ab.shellDir(a));
   assert.equal(ab.shellExe(), ab.shellExe(a));
   assert.equal(ab.shellInstalled(), ab.shellInstalled(a));
-  const code = fs.readFileSync(path.join(__dirname, 'agentbrowser.js'), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');   // comments do not read anything
-  assert.equal((code.match(/process\.arch/g) || []).length, 1, 'process.arch is read in exactly one place (hostArch)');
+  /* Counted in the raw source, comments included: a mention in a comment over-counts
+     (the safe direction), where stripping comments could hide a real read. */
+  const src = fs.readFileSync(path.join(__dirname, 'agentbrowser.js'), 'utf8');
+  assert.equal((src.match(/process\.arch/g) || []).length, 1, 'process.arch appears in exactly one place (hostArch)');
 });
 
 test('which step failed decides whether it counts toward giving up', async () => {

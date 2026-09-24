@@ -22,9 +22,10 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 ## Wiring
 - engine/agentbrowser.js: `SHELL` pin, `ensureShell`, `shellInstalled`, Mac arm of
   `configFor`/`launchConfig`. `kickInstall` runs the shell step after the tree on a Mac.
-  The Windows output is unchanged. Its existing tests were edited only to pass `env: {}` (so an
-  operator's own opt-out cannot decide them) and to reverse the "a Mac launch is untouched"
-  assertion to "no flag until installed".
+  The Windows output is unchanged. Its existing tests were edited to pass `env: {}` (so an
+  operator's own opt-out cannot decide them), and the "Windows-only" launchConfig test was
+  renamed and changed: "a Mac launch is untouched" became "no flag until installed", and a
+  `platform: 'linux'` arm was added.
 - engine/agent-browser-config.js: prints the config path or nothing, never installs
   (`install: false`), always exits 0.
 - bin/agent-supervisor.sh, Claude arm: runs the shim with Kosmos's node and adds

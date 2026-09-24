@@ -347,6 +347,8 @@ function takeLock() {
         return false;
       }
       fs.closeSync(fd);
+      /* Touches whatever is at lockPath(): after another process takes this lock over,
+         that is its lock, which this only ever makes look fresher, never stale. */
       beat = setInterval(() => { try { const t = new Date(); fs.utimesSync(lockPath(), t, t); } catch { /* gone */ } }, LOCK_BEAT_MS);
       if (beat.unref) beat.unref();
       return true;
@@ -428,7 +430,7 @@ async function ensureShell(opts) {
   const o = opts || {};
   const arch = o.arch || hostArch();
   const build = shellBuild(arch);
-  if (!build) return { ok: false, because: 'no pinned browser for this Mac CPU (' + arch + ')' };
+  if (!build) return { ok: false, terminal: true, because: 'no pinned browser for this Mac CPU (' + arch + ')' };
   if (shellInstalled(arch)) return { ok: true, already: true };
   if (!takeLock()) return { ok: false, because: lockError };
   /* Another installer may have finished between the check above and the lock. */
@@ -532,7 +534,7 @@ function installWithRetry(opts) {
       /* Logged whenever an install actually happened (first try or after retries), so
          the board log shows the browser landed; an already-present one stays quiet. */
       if (r && r.ok) { if (!r.already || retried) log('agent browser: installed'); return; }
-      if (/no pinned browser/.test((r && r.because) || '')) {
+      if (r && r.terminal) {
         log('agent browser: ' + r.because + '; not trying again');
         return;
       }
