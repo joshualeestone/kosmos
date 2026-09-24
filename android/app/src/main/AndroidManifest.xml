@@ -75,7 +75,8 @@
 
         <!-- Shows the system notification-permission prompt (Android 13+) on the
              page's behalf when it asks for push, so the grant is the app's rather
-             than Chrome's. Started only by DelegationService, hence not exported. -->
+             than Chrome's. Reached only through a PendingIntent this app creates, which
+             runs with the app's own identity, hence not exported. -->
         <activity
             android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity"
             android:exported="false" />
