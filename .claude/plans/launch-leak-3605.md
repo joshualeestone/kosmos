@@ -25,8 +25,9 @@ set AGENT_WORKFORCE_LAUNCH). That is not it:
    `node --test --require` (node forwards it to every file's process). It wraps the fs
    calls listed in its WRITERS table (write, append, copy, cp, rename and link
    destinations, truncate, write streams, write-mode opens, and the rm/unlink/rmdir
-   deletes, in sync, callback and promise forms) so one whose target is inside the real
-   LaunchAgents, or is the folder itself, throws a named #3605 error BEFORE the call. This is the load-bearing part: about sixty tests
+   deletes, and mkdir, in sync, callback and promise forms) so one whose target is the real
+   LaunchAgents or anything under it (and, for a recursive rm/rmdir/cp, an ancestor of it)
+   throws a named #3605 error BEFORE the call. This is the load-bearing part: about sixty tests
    write job files themselves with fs.writeFileSync(create.plistPath(...)), which a guard
    inside create.js never sees (measured: with only (2), the control still leaked).
 2. `engine/create.js`: the three product plist writes go through `writePlistFile`, which

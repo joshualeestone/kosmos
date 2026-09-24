@@ -237,6 +237,7 @@ fi
 # real set now; the leak check after the suite refuses any created or modified during
 # it. Fail-soft: a snapshot failure leaves an empty baseline, never a false red here.
 . "$(dirname "$0")/lib/launchagent-leak-guard.sh"
+# $HOME here, while the #3605 guards use the account home: they agree unless HOME is redirected.
 _la_guard_dir="${HOME}/Library/LaunchAgents"
 _la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_guard_before=""
 [ -n "$_la_guard_before" ] && launchagent_snapshot "$_la_guard_dir" > "$_la_guard_before"

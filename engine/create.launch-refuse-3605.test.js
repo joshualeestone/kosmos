@@ -127,6 +127,12 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
     tryIt('openAppendNum', () => fs.openSync(R, fs.constants.O_WRONLY | fs.constants.O_APPEND));
     tryIt('openRead', () => fs.openSync(R, 'r'));
     tryIt('mkdirFolder', () => fs.mkdirSync(REAL, { recursive: true }));
+    tryIt('mkdirNested', () => fs.mkdirSync(path.join(REAL, 'a', 'b'), { recursive: true }));
+    tryIt('rmAncestor', () => fs.rmSync(path.dirname(REAL), { recursive: true, force: true }));
+    tryIt('rmHome', () => fs.rmSync(path.dirname(path.dirname(REAL)), { recursive: true, force: true }));
+    tryIt('cpOntoAncestor', () => fs.cpSync('/nope', path.dirname(REAL), { recursive: true }));
+    tryIt('unlinkSibling', () => fs.unlinkSync(path.join(path.dirname(REAL), 'other.plist')));
+    tryIt('rmSandboxTree', () => fs.rmSync(SAFE, { recursive: true, force: true }));
     tryIt('openDefault', () => fs.openSync(R));
     tryIt('openCallbackOnly', () => fs.open(R, () => {}));
     tryIt('caseVariant', () => fs.writeFileSync(path.join(path.dirname(REAL), 'launchagents', 'p.plist'), 'x'));
@@ -143,15 +149,19 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
   `;
   const env = { ...process.env }; delete env.NODE_OPTIONS;
   const res = JSON.parse(execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
-  const ALLOWED = ['renameFromReal', 'sandbox', 'openRead', 'openDefault', 'p.openRead', 'openCallbackOnly'];
+  const ALLOWED = ['renameFromReal', 'sandbox', 'openRead', 'openDefault', 'p.openRead', 'openCallbackOnly',
+    'unlinkSibling', 'rmSandboxTree'];
   const refused = Object.keys(res.out).filter((k) => !ALLOWED.includes(k));
   if (process.platform !== 'darwin') refused.splice(refused.indexOf('caseVariant'), 1);
   for (const k of refused) assert.equal(res.out[k], 'refused', `${k} must be refused`);
   assert.equal(res.out.renameFromReal, 'allowed', 'moving a file OUT of the real folder is not a write into it');
   assert.equal(res.out.sandbox, 'allowed');
+  assert.equal(res.out.unlinkSibling, 'allowed', 'a file beside the folder (not in it, not a tree delete) is not a target');
+  assert.equal(res.out.rmSandboxTree, 'allowed', 'a recursive delete of a sandbox is not an ancestor of the real folder');
   for (const k of ['openRead', 'openDefault', 'p.openRead', 'openCallbackOnly']) assert.equal(res.out[k], 'allowed', `a read-only open (${k}) is not a write`);
   // Only the allowed calls reached the underlying function: every refusal came BEFORE the call.
-  const expectSeen = ['renameSync', 'writeFileSync', 'openSync:r', 'openSync:undefined', 'p.open:r', 'open:function'];
+  const expectSeen = ['renameSync', 'writeFileSync', 'openSync:r', 'openSync:undefined', 'p.open:r', 'open:function',
+    'unlinkSync', 'rmSync'];
   if (process.platform !== 'darwin') expectSeen.unshift('writeFileSync');
   assert.deepEqual(res.seen.sort(), expectSeen.sort());
 });
@@ -165,13 +175,25 @@ test('#3605: the preload and create.js agree on the real folder and on what is i
   }
 });
 
-test('#3605 create.js: the rollback delete is skipped for a real-folder job file under test', () => {
+test('#3605 create.js: the rollback delete skips a real-folder job file under test (recorder, no real delete possible)', () => {
   assert.equal(create.isRealLaunchTargetUnderTest(path.join(REAL, 'com.kosmos.agent.x.plist'), UNDER_TEST), true);
   assert.equal(create.isRealLaunchTargetUnderTest(path.join(REAL, 'com.kosmos.agent.x.plist'), {}), false);
   assert.equal(create.isRealLaunchTargetUnderTest(path.join(SANDBOX, 'LaunchAgents', 'x.plist'), UNDER_TEST), false);
+  const removed = [];
+  const orig = fs.rmSync;
+  fs.rmSync = (file) => { removed.push(String(file)); };
+  try {
+    assert.equal(create.removeJobFileForRollback(path.join(REAL, 'com.kosmos.agent.x.plist')), false);
+    assert.deepEqual(removed, [], 'no delete may reach a real-folder job file under test');
+    // Control: a sandboxed job file IS deleted, so the recorder can see a delete.
+    const safe = path.join(SANDBOX, 'LaunchAgents', 'com.kosmos.agent.x.plist');
+    assert.equal(create.removeJobFileForRollback(safe), true);
+    assert.deepEqual(removed, [safe]);
+  } finally { fs.rmSync = orig; }
   const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
-  assert.match(src, /if \(!isRealLaunchTargetUnderTest\(plistPath\(name\)\)\) \{\s*try \{ fs\.rmSync\(plistPath\(name\), \{ force: true \}\); \}/,
-    'the createAgent rollback must not delete a real-folder job file under test');
+  assert.equal((src.match(/fs\.rmSync\(\s*plistPath\(/g) || []).length, 0,
+    'a job-file delete must go through removeJobFileForRollback');
+  assert.match(src, /removeJobFileForRollback\(plistPath\(name\)\);/, 'the createAgent rollback must use it');
 });
 
 test('#3605 preload: tools/run-tests.sh loads it on the node --test line', () => {
