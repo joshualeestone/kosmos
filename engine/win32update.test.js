@@ -365,6 +365,107 @@ test('B2: a sidecar that names a different file is refused', T, async () => {
   await refusedWith(freshCase(), site(zip, { sidecar: 'not a checksum' }), /could not be read/);
 });
 
+/* ─── #3525: fall back to the generic name when the versioned name 404s ────────────────────── */
+
+/**
+ * An edge in the 2026-09-23 misconfiguration: it 404s the VERSIONED name and serves only the
+ * GENERIC name (kosmos-win-<arch>.zip[.sha256]). `serveVersionedSidecar` serves a correct versioned
+ * sidecar but still 404s the versioned zip, to exercise the other fallback branch. `genericZip` is
+ * the bytes it serves for the generic name (the NEXT build by default); `genericSidecar` its
+ * checksum text (a correct one for genericZip by default).
+ */
+function genericOnlyEdge(zip, o = {}) {
+  const pointer = o.pointer || pointerBody(zip);
+  const generic = `kosmos-win-${ARCH}.zip`;
+  const genericZip = o.genericZip || zip;
+  const urls = [];
+  const fetch = async (url) => {
+    urls.push(url);
+    const file = decodeURIComponent(new URL(url).pathname.split('/').pop());
+    if (file === 'latest-win.json') return new Response(JSON.stringify(pointer));
+    if (o.serveVersionedSidecar && file === `${pointer.versioned}.sha256`) return new Response(`${pointer.sha256}  ${pointer.versioned}\n`);
+    if (file === `${generic}.sha256`) return new Response(o.genericSidecar !== undefined ? o.genericSidecar : `${sha256(genericZip)}  ${generic}\n`);
+    if (file === generic) return new Response(genericZip, { headers: { 'content-length': String(genericZip.length) } });
+    return new Response('not here', { status: 404 }); // every versioned name 404s, as on the /dist edge
+  };
+  return { fetch, urls, generic };
+}
+
+test('#3525: the versioned sidecar 404s, so the download falls back to the generic name and stages it', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip();
+  const s = genericOnlyEdge(zip);
+  const before = snapshot(SANDBOX, [c.work]);
+  let r;
+  const written = await recordWrites(async () => { r = await win32update.prepare(prepareOpts(c, s)); });
+  assert.equal(r.ok, true, 'expected a staged build, got ' + JSON.stringify(r));
+  assert.equal(r.version, NEXT);
+  assert.equal(r.sha256, sha256(zip), 'the generic bytes hashed to the manifest sha and were accepted');
+  for (const entry of win32update.REQUIRED_ENTRIES) {
+    assert.ok(fs.statSync(path.join(r.stagedDir, ...entry.split('/'))).isFile(), `${entry} is staged`);
+  }
+  assert.deepEqual(s.urls, [
+    `${BASE}/latest-win.json`,
+    `${BASE}/${zipName(NEXT)}.sha256`,          // the versioned sidecar, which 404s
+    `${BASE}/kosmos-win-${ARCH}.zip.sha256`,    // the generic sidecar the edge serves
+    `${BASE}/kosmos-win-${ARCH}.zip?v=${NEXT}`, // the generic zip, with the cache-buster
+  ], 'the versioned sidecar 404 triggers the generic fallback; the versioned zip is never tried');
+  assert.ok(c.log.some((l) => /falling back to the generic name/.test(l)), 'the fallback was logged');
+  /* The path guard still holds on the fallback path. */
+  assert.deepEqual(written.filter((p) => !under(p, c.work)), [], 'written outside WORK');
+  assert.deepEqual(snapshot(SANDBOX, [c.work]), before);
+});
+
+test('#3525: the versioned SIDECAR is served but the versioned ZIP 404s, so it still falls back', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip();
+  const s = genericOnlyEdge(zip, { serveVersionedSidecar: true });
+  const r = await win32update.prepare(prepareOpts(c, s));
+  assert.equal(r.ok, true, 'expected a staged build, got ' + JSON.stringify(r));
+  assert.equal(r.sha256, sha256(zip));
+  assert.deepEqual(s.urls, [
+    `${BASE}/latest-win.json`,
+    `${BASE}/${zipName(NEXT)}.sha256`,          // the versioned sidecar (served, agrees with the pointer)
+    `${BASE}/${zipName(NEXT)}?v=${NEXT}`,        // the versioned zip, which 404s
+    `${BASE}/kosmos-win-${ARCH}.zip.sha256`,    // the generic fallback begins
+    `${BASE}/kosmos-win-${ARCH}.zip?v=${NEXT}`,
+  ], 'a 404 on the versioned zip alone still falls back to the generic name');
+});
+
+test('#3525: generic bytes that do not hash to the manifest sha are refused (the moving-alias race, caught safe)', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip();
+  /* The generic alias has moved to a DIFFERENT build mid-flight: the sidecar even reports the
+     manifest sha (so the cross-check passes), but the bytes are another build. The byte-hash check
+     against latest.sha256 is what refuses, preserving the exact-version guarantee. */
+  const otherBuild = bundleZip({ manifest: { source_sha: 'f'.repeat(40) } });
+  assert.notEqual(sha256(otherBuild), sha256(zip), 'the control: the moved build really is different bytes');
+  const s = genericOnlyEdge(zip, { genericZip: otherBuild, genericSidecar: `${sha256(zip)}  kosmos-win-${ARCH}.zip\n` });
+  await refusedWith(c, s, /does not match the checksum the site published/);
+  assertCleanedUp(c, /does not match/);
+});
+
+test('#3525: a TRANSIENT error on the versioned name fails, and never silently falls back to the generic name', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip();
+  const generic = `kosmos-win-${ARCH}.zip`;
+  const urls = [];
+  /* The versioned sidecar throws (a dropped connection, not an HTTP 404). The generic name IS
+     served, but a transient failure must surface, never reroute. */
+  const fetch = async (url) => {
+    urls.push(url);
+    const file = decodeURIComponent(new URL(url).pathname.split('/').pop());
+    if (file === 'latest-win.json') return new Response(JSON.stringify(pointerBody(zip)));
+    if (file === `${zipName(NEXT)}.sha256`) throw new Error('connection reset by peer');
+    if (file === `${generic}.sha256`) return new Response(`${sha256(zip)}  ${generic}\n`);
+    if (file === generic) return new Response(zip, { headers: { 'content-length': String(zip.length) } });
+    return new Response('not here', { status: 404 });
+  };
+  await refusedWith(c, { fetch, urls }, /could not reach the release host for the update checksum/);
+  assert.equal(urls.some((u) => u.includes(generic)), false, 'the generic name was never fetched on a transient error');
+  assertCleanedUp(c, /could not reach/);
+});
+
 test('B2: a truncated download is refused, with or without a Content-Length', T, async () => {
   const zip = bundleZip();
   const c1 = freshCase();
