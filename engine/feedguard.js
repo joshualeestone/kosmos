@@ -139,7 +139,12 @@ const PATTERNS = Object.freeze([
     }, why: 'long high-entropy token' },
   // Email address. A human email is PII. The agent's own persona handle is not
   // an email, so this does not fire on legitimate identity.
-  { cls: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, why: 'email address (PII)' },
+  // The lookbehind lets a match start only where a run of local-part characters
+  // starts. Without it the engine retried from every position inside a long run
+  // with no "@", which is quadratic: about 2 s on one SCAN_CAP-length haystack
+  // (#3608). It finds exactly what the unanchored form finds, because any match
+  // that starts mid-run still matches from the start of that run.
+  { cls: 'email', re: /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, why: 'email address (PII)' },
   // Phone number in a recognizable shape. Kept specific (a real phone layout)
   // rather than "any run of digits", which would flag every id and timestamp.
   { cls: 'phone', re: /(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b/, why: 'phone number (PII)' },
