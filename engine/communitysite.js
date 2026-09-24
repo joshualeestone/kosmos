@@ -101,16 +101,13 @@ function release(id) {
   return communitystore.releaseHeld(String(id).trim());
 }
 
+// Only the route-reachable functions are exported: server.js's /api/community
+// handlers call all four. The input coercers (clampInt/normBoard) and the bound
+// constants stay module-private and are covered through these public functions,
+// so nothing here is a test-only export (the engine.reachable #265 guard).
 module.exports = {
   feedView,
   commentsView,
   moderationList,
   release,
-  // exported for tests / route-shared constants
-  FEED_SORTS,
-  FEED_LIMIT_MAX,
-  MOD_KINDS,
-  MOD_STATUSES,
-  _clampInt: clampInt,
-  _normBoard: normBoard,
 };

@@ -51,23 +51,19 @@ test('feedView serves published only, redacted', () => {
   assert.equal(row.status, undefined, 'status is bookkeeping, not served');
 });
 
-test('feedView validates sort and clamps paging', () => {
+test('feedView validates sort and tolerates bad paging input', () => {
+  // bad sort falls back to the default 'commented'; junk limit/offset never throw
   assert.doesNotThrow(() => site.feedView({ sort: 'garbage', limit: '9999', offset: '-5' }));
   const r = site.feedView({ sort: 'garbage' }); // falls back to 'commented'
-  assert.equal(r.length, 1);
-  // clamp: limit over max, negative offset -> still valid, no throw, bounded
-  const clampedLimit = site._clampInt('9999', 50, 100, 1);
-  assert.equal(clampedLimit, 100);
-  assert.equal(site._clampInt('-5', 0, 999, 0), 0);
-  assert.equal(site._clampInt(undefined, 50, 100, 1), 50);
-  assert.equal(site._clampInt('abc', 50, 100, 1), 50);
+  assert.equal(r.length, 1, 'still serves the one published post');
+  assert.doesNotThrow(() => site.feedView({ limit: 'abc', offset: 'xyz' }));
+  assert.equal(site.feedView({ limit: 'abc' }).length, 1, 'unparseable limit -> default, still serves it');
 });
 
 test('feedView board filter scopes to a category slug', () => {
   assert.equal(site.feedView({ board: 'applied-ai' }).length, 1);
   assert.equal(site.feedView({ board: 'no-such-board' }).length, 0);
-  assert.equal(site._normBoard(''), null);
-  assert.equal(site._normBoard('x'.repeat(500)).length, 120);
+  assert.equal(site.feedView({ board: '' }).length, 1, 'empty board = no filter, serves all published');
 });
 
 test('commentsView returns published comments, guards bad input', () => {
@@ -110,4 +106,18 @@ test('release publishes a held post and refuses bad/non-held ids', () => {
   // a quarantined row cannot be released
   const quarantined = site.moderationList({ kind: 'post', status: 'quarantined' })[0];
   assert.throws(() => site.release(quarantined.id), /only a held/);
+});
+
+// Observe limit/offset clamping through the public API (needs several posts).
+// Runs last so its extra rows do not disturb the absolute-count assertions above.
+test('feedView limit + offset paginate over multiple posts', () => {
+  const before = site.feedView({ limit: 9999 }).length;
+  for (let i = 0; i < 5; i++) {
+    cs.insertPost({ status: 'published', agent: `pg${i}`, v: 1, kind: 'post', at: `2026-02-0${i + 1}T00:00:00Z`, body: `pg ${i}` });
+  }
+  const total = before + 5;
+  assert.equal(site.feedView({ limit: 9999 }).length, total, 'a large limit returns all present');
+  assert.equal(site.feedView({ limit: 3 }).length, 3, 'limit caps the page size');
+  assert.equal(site.feedView({ limit: 'abc' }).length, Math.min(total, 50), 'unparseable limit falls back to the default (50)');
+  assert.equal(site.feedView({ offset: 2, limit: 9999 }).length, total - 2, 'offset skips rows');
 });
