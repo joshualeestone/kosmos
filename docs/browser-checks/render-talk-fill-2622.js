@@ -77,6 +77,13 @@ async function measure(page) {
       panelWidth: Math.round(pr.width),
       backWidth: back ? Math.round(back.getBoundingClientRect().width) : null,
       boxTop: Math.round(br.top),
+      boxLeft: Math.round(br.left),
+      boxRight: Math.round(br.right),
+      viewW: document.documentElement.clientWidth,
+      headBottom: Math.round(document.querySelector('.apphead').getBoundingClientRect().bottom),
+      backRight: back ? Math.round(back.getBoundingClientRect().right) : null,
+      composerLeft: cr ? Math.round(cr.left) : null,
+      composerRight: cr ? Math.round(cr.right) : null,
       boxBottom: Math.round(br.bottom),
       gapBelowBox: Math.round(window.innerHeight - br.bottom),
       composerBottom: cr ? Math.round(cr.bottom) : null,
@@ -125,13 +132,24 @@ async function measure(page) {
     chk(tall.boxBottom > tall.innerHeight - TOL,
       'A1 tall window: the Talk box fills to near the viewport bottom (control: pre-change it sat far above)',
       'boxBottom=' + tall.boxBottom + ' innerHeight=' + tall.innerHeight + ' gap=' + tall.gapBelowBox);
-    // A1b tightens A1: the box bottom should sit ~64px above the window bottom (the body's
-    // bottom padding), directly validating the 157px offset. A1's TOL=130 is deliberately
-    // loose so it discriminates the pre-change hundreds-of-px gap; this arm catches a chrome
-    // or offset drift of tens of px that would slip under that slack.
-    chk(tall.gapBelowBox >= 45 && tall.gapBelowBox <= 85,
-      'A1b the box bottom sits ~64px above the window bottom (validates the 157px offset directly)',
-      'gap=' + tall.gapBelowBox);
+    // #3497: the wide layout fills to three edges and the composer's bottom margin equals its
+    // side margins. Control: on the pre-#3497 page the box sat 53px below the header, 24px
+    // short of the right edge and 64px above the bottom, and the composer's bottom gap was 42
+    // against 24 at the sides, so every arm below reds there.
+    const edges = (m, tag) => {
+      chk(Math.abs(m.boxTop - m.headBottom) <= 1 && Math.abs(m.boxRight - m.viewW) <= 1 && Math.abs(m.boxBottom - m.innerHeight) <= 1,
+        'A1b ' + tag + ': the Talk box meets the header rule, the right edge and the bottom edge',
+        'boxTop=' + m.boxTop + ' headBottom=' + m.headBottom + ' boxRight=' + m.boxRight + ' viewW=' + m.viewW + ' boxBottom=' + m.boxBottom + ' innerHeight=' + m.innerHeight);
+      const gl = m.composerLeft - m.boxLeft, gr = m.boxRight - m.composerRight, gb = m.boxBottom - m.composerBottom;
+      chk(m.composerBottom !== null && Math.abs(gb - gl) <= 2 && Math.abs(gb - gr) <= 2,
+        'A1c ' + tag + ': the composer bottom margin equals its left and right margins',
+        'left=' + gl + ' right=' + gr + ' bottom=' + gb);
+      chk(m.docScrollH <= m.innerHeight + 1,
+        'A1d ' + tag + ': the filled page does not scroll', 'docScrollH=' + m.docScrollH + ' innerHeight=' + m.innerHeight);
+      chk(m.backRight !== null && m.backRight < m.boxLeft,
+        'A1e ' + tag + ': the back link stays in the left column, clear of the box', 'backRight=' + m.backRight + ' boxLeft=' + m.boxLeft);
+    };
+    edges(tall, 'tall window');
     chk(tall.boxBottom < tall.innerHeight + 40,
       'A3 tall window: the box does not massively overshoot the viewport',
       'boxBottom=' + tall.boxBottom + ' innerHeight=' + tall.innerHeight);
@@ -164,6 +182,7 @@ async function measure(page) {
     chk(short.boxBottom > short.innerHeight - TOL,
       'A2 short window: the Talk box still fills to near the viewport bottom',
       'boxBottom=' + short.boxBottom + ' innerHeight=' + short.innerHeight + ' gap=' + short.gapBelowBox);
+    edges(short, 'short window');
 
     // --- Narrow width (<=56rem): the grid collapses to one column and the snav
     // wraps to a row above .dsecs. The talk fill must still hold WITHOUT ballooning
