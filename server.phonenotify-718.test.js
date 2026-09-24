@@ -181,7 +181,7 @@ test('turning off stops sending at once', async () => {
 test('a Mac not connected to Kosmos+ cannot turn it on, and nothing is saved', async () => {
   const on = await call('PUT', '/api/phone-notify', { body: { on: true } });
   assert.equal(on.code, 400);
-  assert.match(on.json.error, /connect this Mac to Kosmos\+ first/);
+  assert.match(on.json.error, /connect this computer to Kosmos\+ first/);
   assert.equal(phonenotify.readState().on, false);
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });

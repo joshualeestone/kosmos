@@ -52579,14 +52579,14 @@ setInterval(ageCheckedStamp, 1000);
       btn.disabled = true;
       btn.textContent = 'Turn on';
       if (step) step.hidden = true;
-      setMsg(st ? 'Connect this Mac to Kosmos+ first, then turn this on.' : 'This setting could not be read.');
+      setMsg(st ? 'Connect this computer to Kosmos+ first, then turn this on.' : 'This setting could not be read.');
       return;
     }
     btn.disabled = false;
     btn.textContent = st.on ? 'Turn off' : 'Turn on';
     if (link && st.signinUrl) { link.href = st.signinUrl; link.textContent = st.signinUrl; }
     if (step) step.hidden = !(st.on && st.signinUrl);
-    setMsg(st.on ? 'On for this Mac.' : '');
+    setMsg(st.on ? 'On for this computer.' : '');
   }
 
   function load() {

@@ -582,7 +582,7 @@ function setupRun(args, stdin = null) {
     { ok: true, data } with the coordinator's parsed JSON, or
     { ok: false, because }. */
 async function macRequest(method, routePath, body) {
-  if (!enrolled()) return { ok: false, because: 'this Mac is not connected to Kosmos+' };
+  if (!enrolled()) return { ok: false, because: 'this computer is not connected to Kosmos+' };
   const args = ['mac-request', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(),
     '--method', method, '--path', routePath];
   const r = await setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}));
