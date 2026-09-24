@@ -10055,41 +10055,15 @@ const server = http.createServer((req, res) => {
           }
           return connect.start({ configDir: prep.dir, requireInstallConfirm: true, installConfirmed });
         }
-        /* #3326: the DEFAULT first-run start forwards reauth. #3326 made sign-up send
-           reauth:true UNCONDITIONALLY, forcing a real `claude auth login` even on a
-           genuinely LIVE credential. That was the 0.6.84 REGRESSION (Josh): a forced
-           re-login the person is already past can leave them logged out, and the spawned
-           agent then dead-ends at "choose a login method". Fix: only FORCE the login when
-           the credential is POSITIVELY dead. When the file already claims CONNECTED (the
-           shallow-connected case #3326 targeted), a REAL liveness probe distinguishes a
-           live credential from a stale one; a live (or unprobable) credential is left
-           UNTOUCHED -- no forced login, no strand -- and signalled `liveVerified` so the
-           client accepts the resulting short-circuit as a completed login (its watch, which
-           is what sets FR_SUB_LOGIN_VERIFIED, does not run for a short-circuit). Follows
-           create.js's #1315/#1903 doctrine (force only on positively-dead, fail open); a
-           truly-dead credential that fails open is still caught at agent-creation's live
-           gate. Only the DEFAULT sign-up path is gated; the accountDir "Sign in again"
-           above is a deliberate user-requested repair and keeps forcing. */
-        return (async () => {
-          /* Only run the (real, `claude -p`) liveness probe when the FILE already claims
-             connected -- the shallow-connected case #3326 forced reauth for. If the file is
-             not connected, connect.start runs the login regardless of reauth, so there is
-             nothing to gate and no probe cost. */
-          let fileConnected = false;
-          let live = null;
-          if (reauth) {
-            try { const fs2 = subscription.check(); fileConnected = !!(fs2 && fs2.state === subscription.STATE.CONNECTED); }
-            catch { fileConnected = false; }
-            if (fileConnected) {
-              try { live = await create.claudeAccountLive(undefined); }
-              catch { live = subscription.STATE.UNKNOWN; }
-            }
-          }
-          const { effectiveReauth, liveVerified } = reauthDecision(reauth, fileConnected, live, subscription.STATE);
-          const st = await connect.start({ requireInstallConfirm: true, installConfirmed, reauth: effectiveReauth });
-          if (st && liveVerified && st.phase === 'connected') st.liveVerified = true;
-          return st;
-        })();
+        /* #3326: the DEFAULT sign-up start forwards reauth UNCONDITIONALLY, so sign-up always
+           runs a fresh `claude auth login`. Josh, 2026-09-24 14:38 CDT: "i want to force a fresh
+           login everytime. I have seen the other way fail multiple times". This removes #3367's
+           probe gate (force only when the credential probed dead). #3367 existed because a
+           forced login over a still-working credential could strand the person: the flow had
+           no proof the new login landed if the "Login successful" screen was missed. That is
+           now fixed where it happened, in connect.js's loginLanded, which also accepts the
+           credential's refreshTokenExpiresAt moving forward as proof. */
+        return connect.start({ requireInstallConfirm: true, installConfirmed, reauth });
       })
       .then((st) => { if (st) sendJson(res, 200, st); })
       .catch((err) => sendJson(res, 500, {
@@ -15293,31 +15267,13 @@ if (require.main === module) {
   });
 }
 
-/* #3326 fix (0.6.84 regression): the sign-up default-start decision. #3326 forced a real
-   `claude auth login` on EVERY sign-up (reauth:true unconditionally), which re-logs-in a
-   LIVE user and strands them (and their agent) when the forced login does not complete. This
-   decides, from the requested reauth, whether the FILE already claims connected, and the REAL
-   liveness result, whether to actually FORCE the login and whether a resulting short-circuit
-   is verified-live. FORCE only on a POSITIVELY-dead credential (create.js's #1315/#1903
-   doctrine); a live or unprobable credential is left untouched and marked verified-live so the
-   client accepts the short-circuit as a completed login. Pure + exported so the regression is
-   unit-tested, not just asserted at the source. */
-function reauthDecision(reauth, fileConnected, live, STATE) {
-  if (!reauth) return { effectiveReauth: false, liveVerified: false };
-  // File not connected: connect.start runs the login regardless, so reauth is moot here.
-  if (!fileConnected) return { effectiveReauth: reauth, liveVerified: false };
-  // File claims connected: force ONLY if the real probe says positively dead.
-  if (live === STATE.NONE) return { effectiveReauth: true, liveVerified: false };
-  // Live, or the probe could not tell (UNKNOWN): do NOT force -- no strand -- and accept it.
-  return { effectiveReauth: false, liveVerified: true };
-}
 
 // Exported so the routing tests can drive the real server rather than a
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
 module.exports = {
-  server, start, pathOf, decodeSegment, resetHeardBudgetForTests, reauthDecision,
+  server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
