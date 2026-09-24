@@ -64,10 +64,11 @@ A tool-level deny (the PreToolUse hook) is a separate card, not v1.
 **Limits.** One convening per item. Global cap (default 6 per hour) and a per-agent cap (2 per hour).
 Room notes do not spend the per-pair budget; peer replies do, which is the intended brake.
 
-**Instructions.** A new managed block ("When you are stuck", marker registered in `ALL_MARKERS`),
-written to members' instruction files only while the Recommender is on, listing the active guards.
-It is rewritten on a setting change. Running agents get the per-item `chat.deliver`, so no restart is
-needed for the behaviour itself.
+**Instructions.** Phase 1 carries the whole playbook, active guards included, IN the per-item pane
+delivery, so running agents get it with no restart and it always reflects the current guard
+switches. A standing managed instruction block ("When you are stuck") is DEFERRED: it would duplicate
+the delivery, and a block written at session start goes stale the moment a guard switch changes.
+Add it only if agents are seen ignoring the per-item playbook.
 
 ## Assigner design
 **Idle = no work.** An agent is idle-for-assignment when ALL of these hold for 20 min (hysteresis):
@@ -107,10 +108,12 @@ Each automation's controls are enabled in the SAME PR as its behaviour:
 touched it.
 
 ## Build order (separate PRs, each shippable alone)
-1. **Recommender**: a pure `recommender.step(prev, roster, setting, now)` returning `{toConvene, next}`,
-   the loop in server.js (Prompter-shaped, inert under test), convening via roomNote plus chat.deliver,
-   the managed instruction block, UI enabled, default on. Tests: step unit tests (every trigger,
-   exclusion and limit, with controls), route/setting integration, a render check on the live controls.
+1. **Recommender** (BUILT on this branch): pure `recommender.step` plus `runOnce` over injected
+   effects (engine/recommender.js); the ~1-min runner in server.js, gated on live execution like the
+   class-1 sweep; room note once per item, pane playbook, retries capped at 5 and charging no budget;
+   Settings control live, default OFF (Splinter), with a disclosure that the guards are instructions
+   only. Tests: engine/recommender.test.js (every trigger, exclusion and limit, with controls; runOnce
+   glue), web.settings-nav.test.js (live Recommender, still-disabled Assigner, the disclosure).
 2. **Assigner idle-assign**: pure `assigner.step`, the idle predicate, the picker, the loop, UI enabled,
    default on.
 3. **Assigner goals to tasks**: the BRIEF.md goal read and the draft request.
