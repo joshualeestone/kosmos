@@ -66,6 +66,11 @@ case "$out" in *"something nobody has seen"*) ok "it shows the unrecognised erro
 # --- no codesign at all ---
 out="$(KOSMOS_CODESIGN_BIN="no_such_codesign_$$" kosmos_sign_preflight 2>&1)"; rc=$?
 [ "$rc" = 1 ] && ok "no codesign refuses" || bad "no codesign should refuse (rc=$rc)"
+case "$out" in *"no codesign on this machine"*) ok "it says codesign is missing (not another refusal)" ;; *) bad "wrong refusal for no codesign: $out" ;; esac
+
+# --- a seam left set in a real shell must not read as a real probe ---
+out="$(run cs_ok)"
+case "$out" in *"NOT codesign"*"not probed"*) ok "a KOSMOS_CODESIGN_BIN pass says the key was NOT probed" ;; *) bad "a stubbed pass reads like a real probe: $out" ;; esac
 
 # --- the identity it probes is the identity step 4 signs with ---
 bundle_id="$(sed -n 's/^_codesign_id="\${KOSMOS_CODESIGN_ID:-\(.*\)}"$/\1/p' "$REPO/tools/build-kosmos-bundle.sh")"
@@ -98,4 +103,4 @@ fi
 [ "$ncalls" = 1 ] && ok "release.sh calls the preflight exactly once" || bad "release.sh calls the preflight $ncalls times"
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 21 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 23 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }

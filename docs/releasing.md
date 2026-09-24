@@ -33,8 +33,9 @@ improvement it gained would have died with the session that wrote it.
    in about a second and mutates nothing. **Driving a cut on Mortals over SSH:** in
    the SAME session that will run the cut, `security unlock-keychain
    ~/Library/Keychains/login.keychain-db` (it prompts for the login password), then
-   `security set-keychain-settings ~/Library/Keychains/login.keychain-db` so it does
-   not re-lock mid-cut, then run the cut in that session. An unlock in one SSH session
+   `security set-keychain-settings -t 7200 ~/Library/Keychains/login.keychain-db` so it
+   does not re-lock mid-cut (a 2-hour idle auto-lock; the setting persists after the cut,
+   so keep it bounded rather than removing the lock), then run the cut in that session. An unlock in one SSH session
    did not reach a cut detached (nohup) into another. The preflight prints these
    commands when it finds the lock.
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against

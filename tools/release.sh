@@ -295,6 +295,9 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # HERE (before the freeze), so the functions are in memory and unaffected if the shared
 # checkout is fast-forwarded past this cut's sha mid-run.
 . "$REPO/tools/lib/board-shape.sh"
+# #3579: the signing preflight run at step 1c. Sourced with the other libs, before the
+# freeze, for the same reason: loaded from the checkout the operator launched.
+. "$REPO/tools/lib/cut-sign-preflight.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -528,8 +531,6 @@ step "== 1c. the signing key answers, before anything is bumped or built (#3579)
 # detached from the session that unlocked it) made 0.6.91's first cuts die THERE, after
 # ~22 minutes of suite and page layer, and a cut does not resume. One throwaway test-sign
 # here costs about a second and mutates nothing, so a refusal leaves no pushed bump.
-# It runs in THIS process's security session, which is the one step 4 will sign from.
-. "$REPO/tools/lib/cut-sign-preflight.sh"
 kosmos_sign_preflight || exit 1
 
 step "== 2. the version, in one place =="
