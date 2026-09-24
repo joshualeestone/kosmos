@@ -43887,10 +43887,16 @@ function pjMentionPaint() {
   inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 }
 
-document.getElementById('pj-post').addEventListener('input', pjMentionPaint);
+/* No direct 'input' binding on purpose: the existing #pj-post 'input' listener
+   (further down) calls pjGrowComposer on every keystroke, and pjGrowComposer
+   repaints the mirror for #pj-post -- as do the draft/picker/emoji/reset paths
+   that also route through it. A second 'input' listener here would repaint twice
+   per keystroke. These two cover what pjGrowComposer does not: a scroll (translate
+   the mirror to match) and a width change (rewrap and reposition). */
 document.getElementById('pj-post').addEventListener('scroll', () => {
   const input = document.getElementById('pj-post');
-  const inner = document.querySelector('#pj-post-mirror .pj-mirror-in');
+  const mirror = document.getElementById('pj-post-mirror');
+  const inner = mirror && mirror.firstElementChild;
   if (input && inner) inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 });
 window.addEventListener('resize', pjMentionPaint);

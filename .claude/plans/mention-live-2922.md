@@ -1,4 +1,4 @@
-# mention-live-2922 — live @-mention highlight in the project-room composer (#2922 part 2)
+# mention-live-2922: live @-mention highlight in the project-room composer (#2922 part 2)
 
 ## Goal
 Part 1 (#2954) blued recognized `@agent` mentions in the **posted** message. This builds the other
@@ -17,7 +17,7 @@ the caret stays inked, so only the mirror shows.
   posted-message tokenizer and `engine/messages.js` exactly: a partial/unknown `@name` stays plain;
   it turns blue only when the word is a project key, or the word with a trailing `._-` run stripped
   is (so `@mona-` flags `mona`); leading `_` is not peeled, `*~(` are. Keys come from
-  `mentionCandidates` — the exact set the `@` picker offers. Input and message never disagree.
+  `mentionCandidates`, the exact set the `@` picker offers. Input and message never disagree.
 - **Colour-only, not bold.** The posted chip is `font-weight: 600`, but bolding in the input would
   widen glyphs and drift the mirror off the caret, so `.pj-live-mention` changes colour only.
 - **Aligned by construction.** The mirror carries `#pj-post`'s exact metrics (font, line-height,

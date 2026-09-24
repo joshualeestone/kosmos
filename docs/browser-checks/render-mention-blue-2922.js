@@ -234,6 +234,8 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
       check(`${tag} live: .pj-live-mention is colour-only (same weight as normal text, NOT bold)`,
         live.liveWeight != null && live.liveWeight === live.normalWeight, `${live.liveWeight} vs ${live.normalWeight}`);
       // The textarea's own text goes transparent so only the mirror shows; the caret stays inked.
+      check(`${tag} live: #pj-post text is inked WITHOUT .mention-live (the class is what makes it transparent)`,
+        live.plainColor && live.plainColor !== 'rgba(0, 0, 0, 0)' && live.plainColor !== 'transparent', live.plainColor);
       check(`${tag} live: #pj-post.mention-live text is transparent`,
         live.liveColor === 'rgba(0, 0, 0, 0)', live.liveColor);
       check(`${tag} live: #pj-post.mention-live keeps an inked caret (not transparent)`,

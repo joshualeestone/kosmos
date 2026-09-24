@@ -130,7 +130,11 @@ test('pjGrowComposer repaints the mirror for #pj-post (covers every programmatic
   assert.match(body, /pjMentionPaint\(\)/);
 });
 
-test('the input and scroll listeners that keep the mirror live are wired to #pj-post', () => {
-  assert.match(PAGE, /getElementById\('pj-post'\)\.addEventListener\('input', pjMentionPaint\)/);
+test('the mirror stays live via the scroll/resize listeners and the pjGrowComposer input path', () => {
+  // The input case rides on pjGrowComposer (asserted above) to avoid painting twice per
+  // keystroke, so there is deliberately NO direct 'input' -> pjMentionPaint binding.
+  assert.doesNotMatch(PAGE, /getElementById\('pj-post'\)\.addEventListener\('input', pjMentionPaint\)/,
+    'a direct input->pjMentionPaint binding would repaint twice per keystroke (grow already paints)');
   assert.match(PAGE, /getElementById\('pj-post'\)\.addEventListener\('scroll'/);
+  assert.match(PAGE, /window\.addEventListener\('resize', pjMentionPaint\)/);
 });
