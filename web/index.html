@@ -2469,7 +2469,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
      actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
      sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
-     an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n). */
+     an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
+     The cost there: a page that really scrolls sits its header 15px right of the content edge. */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* The build marker moves to the bottom-left corner, over the side column, so it does not sit
@@ -8499,8 +8500,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
    plugged in, which fires no resize, and the press that opens an agent then measures first. */
 window.kosmosMeasureScrollbarWidth = function () {
   var root = document.documentElement;
+  /* The consolidated layout reserves no gutter and neither #3497 rule applies there. */
+  if (root.getAttribute('data-layout') === 'consolidated') return;
   var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
   var x = window.scrollX, y = window.scrollY;
+  var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
+  var vw = null;
   try {
     /* A WebKit older than scrollbar-gutter (the Mac floor is 13.5) never reserved the #1309 gutter,
        so there is nothing to drop and padding the Talk header would itself move it (A1s). */
@@ -8509,15 +8514,24 @@ window.kosmosMeasureScrollbarWidth = function () {
     root.style.scrollbarGutter = 'stable';
     root.style.overflow = 'hidden';
     var gutter = Math.max(0, Math.round(window.innerWidth - root.getBoundingClientRect().width));
+    /* The header padding assumes 100vw includes a reserved gutter. An engine where it does not
+       is never marked measured, so the page keeps the #1309 behaviour (A1t). */
+    vw = document.createElement('div');
+    vw.style.cssText = 'position:absolute;top:-999px;left:0;width:100vw;height:1px';
+    root.appendChild(vw);
+    var vwMatches = Math.round(vw.getBoundingClientRect().width) === Math.round(window.innerWidth);
     root.style.scrollbarGutter = prevGutter;
     root.style.overflow = prevOverflow;
+    if (!vwMatches) { root.removeAttribute('data-scrollbar-measured'); return; }
     root.style.setProperty('--scrollbar-width', gutter + 'px');
     root.setAttribute('data-scrollbar-measured', '');
   } catch (e) { /* no measurement: see data-scrollbar-measured in the #3497 CSS */ }
   finally {
+    if (vw && vw.parentNode) vw.remove();
     root.style.scrollbarGutter = prevGutter;
     root.style.overflow = prevOverflow;
     if (window.scrollX !== x || window.scrollY !== y) window.scrollTo(x, y);
+    if (thread && thread.scrollTop !== threadTop) thread.scrollTop = threadTop;
   }
 };
 window.kosmosMeasureScrollbarWidth();

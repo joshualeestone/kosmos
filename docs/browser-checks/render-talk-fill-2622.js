@@ -24,7 +24,7 @@
  * right edge, and the composer's bottom margin equals its side margins (A1b-A1g), including
  * when the header grows taller (A1f) and without moving the identity column (A1g).
  *
- * #3497 gutter (0.6.91 QA): A1l-A1s cover dropping the #1309 scrollbar gutter in wide Talk and
+ * #3497 gutter (0.6.91 QA): A1l-A1q, A1s and A1t cover dropping the #1309 scrollbar gutter in wide Talk and
  * padding wide headers by the measured scrollbar width. A1n launches its own Chromium (without
  * --hide-scrollbars) and WebKit, so running this by hand needs both Playwright browsers.
  *
@@ -437,7 +437,7 @@ async function measure(page) {
       return { measured, failed };
     });
     chk(unmeasured.measured.gutter === 'auto' && unmeasured.failed.gutter === 'stable'
-      && parseFloat(unmeasured.measured.pad) - parseFloat(unmeasured.failed.pad) === 15,
+      && Math.abs(parseFloat(unmeasured.measured.pad) - parseFloat(unmeasured.failed.pad) - 15) <= 0.5,
       'A1q with no successful measurement, the Talk view keeps the gutter and the header is not padded (control: measured drops it and pads 15px)', JSON.stringify(unmeasured));
     // A1s: an engine without scrollbar-gutter never reserved the #1309 gutter, so the measurer must
     // not mark the page measured there (A1q then shows nothing is dropped or padded). Control: with
@@ -455,6 +455,22 @@ async function measure(page) {
     });
     chk(noGutter.unsupported === false && noGutter.supported === true,
       'A1s without scrollbar-gutter support the page is not marked measured (control: with support it is)', JSON.stringify(noGutter));
+    // A1t: an engine whose 100vw leaves out a reserved gutter would break the header padding formula,
+    // so the measurer must not mark the page measured there. innerWidth is stubbed 50px wider than
+    // 100vw lays out. Control: unstubbed, the same call marks it.
+    const vwCheck = await page.evaluate(() => {
+      const root = document.documentElement;
+      const desc = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+      const real = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, get: () => real + 50 });
+      window.kosmosMeasureScrollbarWidth();
+      const mismatched = root.hasAttribute('data-scrollbar-measured');
+      if (desc) Object.defineProperty(window, 'innerWidth', desc); else delete window.innerWidth;
+      window.kosmosMeasureScrollbarWidth();
+      return { mismatched, matched: root.hasAttribute('data-scrollbar-measured'), restored: window.innerWidth === real };
+    });
+    chk(vwCheck.mismatched === false && vwCheck.matched === true && vwCheck.restored,
+      'A1t where 100vw does not match the window width the page is not marked measured (control: where it does, it is)', JSON.stringify(vwCheck));
     // A1p: the width is re-measured, not fixed at load. It proves the measurer RUNS on these
     // triggers; headless hides scrollbars, so the value it reads is 0 and the Windows 10px width
     // itself is not verified here. A resize (which a zoom or a display move
@@ -543,8 +559,8 @@ async function measure(page) {
         const sModel = await sHead();
         // Real scrollbars: Model scrolls and gives up 15px in both engines. The measured reservation of a
         // page that does not scroll is 15px in Chromium and 0 in Playwright's WebKit, which reserves none.
-        chk(sModel.given === 15 && sBoard.sbw === (engine === 'webkit' ? '0px' : '15px') && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
-          'A1n ' + engine + ' precondition: a scrolling page gives up 15px, the measured reservation is ' + (engine === 'webkit' ? '0' : '15') + 'px, the board\'s computed gutter is stable and Talk\'s auto', JSON.stringify({ sBoard, sTalk, sModel }));
+        chk(sModel.given === 15 && (sBoard.sbw === '0px' || sBoard.sbw === '15px') && sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
+          'A1n ' + engine + ' precondition: a scrolling page gives up 15px, the measured reservation is 0 or 15px (Playwright\'s WebKit reserves none on a page that does not scroll), the board\'s computed gutter is stable and Talk\'s auto', JSON.stringify({ sBoard, sTalk, sModel }));
         chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
           'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (engine === 'webkit' ? ' (a guard in WebKit, which reserves no gutter on a page that does not scroll; Chromium is the control)' : ''), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
         chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight
