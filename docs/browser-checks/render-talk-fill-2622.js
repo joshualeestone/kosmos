@@ -181,11 +181,11 @@ async function measure(page) {
     // A1f: a TALLER header (a wrapped update notice, other fonts) must shrink the box, not push it
     // past the bottom. Control: a fixed-offset height would leave boxTop at the header but boxBottom
     // past innerHeight by the added 60px, and the page would scroll.
-    await page.evaluate(() => { const h = document.querySelector('.apphead'); const x = document.createElement('div'); x.id = 'tf-tall-notice'; x.style.height = '60px'; h.appendChild(x); });
+    await page.evaluate(() => { const h = document.querySelector('.apphead'); const x = document.createElement('div'); x.style.height = '60px'; h.appendChild(x); window.__tfTallNotice = x; });
     await page.waitForTimeout(150);
     const taller = await measure(page);
     edges(taller, 'taller header');
-    await page.evaluate(() => { const x = document.getElementById('tf-tall-notice'); if (x) x.remove(); });
+    await page.evaluate(() => { if (window.__tfTallNotice) window.__tfTallNotice.remove(); });
     await page.waitForTimeout(100);
     chk(tall.boxBottom < tall.innerHeight + 40,
       'A3 tall window: the box does not massively overshoot the viewport',
