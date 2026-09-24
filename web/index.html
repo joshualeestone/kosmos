@@ -3816,7 +3816,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the panel shrink to its row instead of forcing the page taller. */
   html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
-  html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: start; margin: 14px 0 0; max-width: 34rem; }
+  /* #3597 (Josh, 0.6.91 QA): centred in the empty display column, both ways, not pinned top-left. */
+  html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center; margin: 0; max-width: 34rem; }
   /* The rail row: the face, then the name over the title over the state --
      this comment predates #856 and named exactly this three-line stack
      before the markup could deliver it (title used to be squeezed inside
@@ -4031,7 +4032,17 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      border-box width, so the #2842 fill assertion (which measures the border-box) is unaffected. */
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings { grid-column: 2; grid-row: 1; margin: 0; width: 100%; padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings::-webkit-scrollbar { display: none; }
-  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dbody { grid-template-columns: minmax(120px, 30%) minmax(0, 1fr); justify-content: stretch; column-gap: 18px; }
+  /* #3598 (Josh, 0.6.91 QA): a FIXED small gap between the pill nav and the content at any
+     width. The nav column was minmax(120px, 30%) while #s-nav is only max-content wide, so the
+     unused part of that 30% column was added to the gap and grew with the window (measured 142px
+     at 1200, 337px at 2400). The column is now the nav's own width and the gap is the panel's
+     own --space-8 inset. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dbody { grid-template-columns: max-content minmax(0, 1fr); justify-content: stretch; column-gap: var(--space-8); }
+  /* #3598: opening a section scrolls it into view inside #panel-settings, and a section taller
+     than the column was scrolled right past the panel's --space-8 top padding, so its box sat on
+     the header rule (AI Models, Connections, This computer, Automation, Token Usage: the tall
+     ones). scroll-margin-top keeps that same inset when the scroll lands. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dsec { scroll-margin-top: var(--space-8); }
   /* #3053: the relocated New Agent create panel gets the same display-column placement #2842 gave
      settings -- grid-column 2, top of the display area beside the projects list -- and stays a 34rem
      FORM (inherited max-width), NOT a full-width fill.
@@ -14999,8 +15010,16 @@ function plusMount() {
 function plusTeardown() { plusMounted = false; cancelAnimationFrame(plusMountRaf); cancelAnimationFrame(plusMarkRaf); cancelAnimationFrame(plusStarsRaf); plusMountRaf = null; plusMarkRaf = null; plusStarsRaf = null; }
 function syncPlusChrome() {
   if (typeof document === 'undefined' || !document.body) return;
-  var active = (typeof URL_TAB !== 'undefined' && URL_TAB === 'settings')
-    && (typeof SETTINGS_SEC !== 'undefined' && SETTINGS_SEC === 'plus');
+  var onPlus = typeof SETTINGS_SEC !== 'undefined' && SETTINGS_SEC === 'plus';
+  /* #3599 (Josh, 0.6.91 QA): the consolidated view opens Settings INSIDE the projects
+     column (openConsolidatedSettings) while URL_TAB stays on projects, so the tab test
+     alone never saw Kosmos+ there and it painted on the plain ground (Sign in unreadable
+     in light, black in dark). Settings showing in that column on the Plus section is the
+     same screen, so it takes the same blue. */
+  var panel = document.getElementById('panel-settings');
+  var consolidatedPlus = onPlus && document.body.classList.contains('consolidated')
+    && !!panel && !panel.hidden && panel.parentElement === document.getElementById('panel-projects');
+  var active = ((typeof URL_TAB !== 'undefined' && URL_TAB === 'settings') && onPlus) || consolidatedPlus;
   document.body.classList.toggle('plus-active', active);
   if (active) { if (!plusMounted) plusMount(); }
   else if (plusMounted) plusTeardown();
@@ -32602,6 +32621,7 @@ function takeOverDisplayColumn() {
   // paintPjNone keeps #pj-none hidden while an overlay is open (the 5s poll re-runs it); hide it
   // now so it does not flash over the overlay before the next paint.
   { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
+  syncPlusChrome();   // #3599: settings just left the column, so Kosmos+'s blue leaves with it
 }
 /* Open the app settings inside the consolidated display column, staying in the
    consolidated view. Swaps the display column to the settings panel (hiding the
@@ -32789,7 +32809,7 @@ function paintPjNone(which) {
   } else {
     /* Two + buttons sit at the same height with both rails open (New agent,
        New project), so the sentence says which. */
-    say = 'Nothing is open yet. Pick a project on the left, or press + above the project list to start one.';
+    say = 'Open or create a project to get started.';  // #3597: Josh's words
   }
   el.hidden = !say;
   if (el.textContent !== say) el.textContent = say;
@@ -39006,6 +39026,7 @@ function pjView(which) {
     const appC = document.getElementById('panel-create');
     if (appC && proj && appC.parentElement === proj) appC.hidden = true;
   }
+  syncPlusChrome();   // #3599: leaving consolidated settings on Kosmos+ takes the blue down
   paintPjNone(which);
   /* #520: the list is the projects rail in the consolidated view, so it
      stays beside whichever project view is open. */
@@ -40297,8 +40318,8 @@ async function loadProjects() {
       }
     }
     /* #867: no deep link asked for a specific project, so the first load
-       in the consolidated view opens one itself rather than landing on
-       "Nothing is open yet." Which one is not otherwise specified;
+       in the consolidated view opens one itself rather than landing on the
+       empty "Open or create a project to get started." centre. Which one is not otherwise specified;
        PJ_SORT's own order (the person's own chosen sort, defaulting to
        newest first) picks the first active project, the same ordering
        the list itself renders in. */

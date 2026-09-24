@@ -110,7 +110,7 @@ const path = require('path');
       const ra = await rect('#rail-agents'); const rp = await rect('#rail-projects');
       say(!!ra && !!rp && Math.abs(ra.y - rp.y) <= 12, tag + ': the two rails start at the same height', ra && rp ? ra.y + ' vs ' + rp.y : JSON.stringify({ ra, rp }));
       const said = await none();
-      say(!!said && /Pick a project on the left/.test(said), tag + ': the empty centre says what to press', JSON.stringify(said));
+      say(!!said && /Open or create a project to get started/.test(said), tag + ': the empty centre says what to press', JSON.stringify(said));
     }
   }
 
@@ -120,9 +120,9 @@ const path = require('path');
   await forceNothingOpen();
   say((await pg.$('#rail-projects-fold')) === null, 'the projects fold control is gone (#3126)');
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
-  say(/Pick a project on the left/.test((await none()) || ''), 'agents rail folded: the projects centre sentence is unchanged');
+  say(/Open or create a project to get started/.test((await none()) || ''), 'agents rail folded: the projects centre sentence is unchanged');
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
-  say(/Pick a project on the left/.test((await none()) || ''), 'agents rail open again: still the plain sentence');
+  say(/Open or create a project to get started/.test((await none()) || ''), 'agents rail open again: still the plain sentence');
 
   // the New project form open: the sentence is not painted over it by a fold press
   await pg.click('#rail-projects-new'); await pg.waitForTimeout(400);
@@ -149,7 +149,7 @@ const path = require('path');
     return t;
   }, [loaded, failed]);
   say((await paintAs(true, false)) === null, 'no projects, rail open: the sentence is hidden (the rail card says it)');
-  say(/Pick a project on the left/.test((await paintAs(false, false)) || ''), 'before the first read: never "No projects yet"');
+  say(/Open or create a project to get started/.test((await paintAs(false, false)) || ''), 'before the first read: never "No projects yet"');
   say((await paintAs(true, true)) === null, 'after a failed read, rail open: silence beside the rail\'s own message');
 
   // open a project: the sentence goes

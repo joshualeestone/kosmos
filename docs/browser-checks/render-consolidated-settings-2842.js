@@ -127,7 +127,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // #3505: the pills are sized to their longest label, not stretched to the full nav column.
     // Positive-controlled: pre-fix the pill filled the column (pillWidth ~= navToContentSpan minus
     // the column gap), which fails this "comfortably inside its span" bound.
-    ok(t + ' #3505 the settings pills are sized to their label, not the full column', out.err === null && out.pillWidth > 0 && out.pillWidth < out.navToContentSpan - 24, JSON.stringify(out));
+    // #3598 made the nav column the pills' own width, so the span is now pill + the fixed gap;
+    // "sized to the label, not a stretched column" is the pill leaving at least a real gap.
+    ok(t + ' #3505 the settings pills are sized to their label, not the full column', out.err === null && out.pillWidth > 0 && out.pillWidth <= out.navToContentSpan - 16, JSON.stringify(out));
     ok(t + ' #2842 navigating to a project hides settings and shows the project', out.err === null && out.settingsHiddenAfterNav === true && out.projectShownAfterNav === true, JSON.stringify(out));
     ok(t + ' #2842 leaving the consolidated view restores settings to the top level', out.err === null && out.restoredToTopLevel === true, JSON.stringify(out));
     ok(t + ' #2842 CONTROL: in the tab view #rail-me-go does not enter the consolidated view', out.err === null && out.tabViewNotConsolidated === true, JSON.stringify(out));
@@ -135,7 +137,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // ---- The LIST state: settings must not render over the #pj-none "nothing is open" hint.
     // The first evaluate hardcodes PJ_CURRENT='k' (PJ_VIEW='one'); this covers PJ_VIEW='list'
     // with projects present but none open -- the state where paintPjNone shows the hint
-    // ("Nothing is open yet. Pick a project..."). #pj-none is a #panel-projects display-column
+    // ("Open or create a project to get started.", #3597). #pj-none is a #panel-projects display-column
     // child too, so it must be hidden while settings shows -- AND stay hidden when the 5s poll
     // re-invokes paintPjNone. (The zero-projects case is not a conflict: paintPjNone renders an
     // empty string there, so the hint is already hidden.) ----
@@ -187,6 +189,62 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       return res;
     });
     ok(t + ' #2842 settings opens from the Agents tab too, staying consolidated', agentsTab.err === null && agentsTab.consolidatedOnAgents === true && agentsTab.stillConsolidated === true && agentsTab.settingsOpen === true, JSON.stringify(agentsTab));
+
+    // ---- #3598 / #3599 (Josh, 0.6.91 QA), measured on the settings just opened above. ----
+    // #3598 (1): the pill-to-content gap is FIXED, not a share of the window. Measured at a
+    // narrow and a very wide window; the old minmax(120px, 30%) column gave 142px vs 337px.
+    const gapAt = async (width) => {
+      await page.setViewportSize({ width, height: 900 });
+      return page.evaluate(() => {
+        document.querySelector('#s-nav button[data-go="you"]').click();
+        const nav = document.getElementById('s-nav').getBoundingClientRect();
+        const box = document.querySelector('#s-sec-you > *').getBoundingClientRect();
+        return Math.round(box.left - nav.right);
+      });
+    };
+    const gapNarrow = await gapAt(1200);
+    const gapWide = await gapAt(2400);
+    ok(t + ' #3598 the pill nav to content gap is a fixed small margin at any width', gapNarrow === gapWide && gapNarrow > 0 && gapNarrow <= 32, JSON.stringify({ gapNarrow, gapWide }));
+    // #3598 (2): the five sections Josh named sat ON the header rule. They are the tall ones:
+    // opening one scrolls it into view inside #panel-settings, and that scroll ate the panel's
+    // top padding (measured on a live board: scrollTop 24, box on the rule). This file fixture's
+    // panel does not scroll, so the arm pins the property that fixes it on each named section:
+    // scroll-margin-top equal to the panel's own top padding. Red before the fix (0px).
+    const tops = await page.evaluate(() => {
+      const panelTop = getComputedStyle(document.getElementById('panel-settings')).paddingTop;
+      const out = { panelTop };
+      for (const sec of ['accounts', 'connect', 'mac', 'automation', 'usage']) out[sec] = getComputedStyle(document.getElementById('s-sec-' + sec)).scrollMarginTop;
+      return out;
+    });
+    ok(t + ' #3598 Models, Connections, This computer, Automation and Token Usage keep the top inset when scrolled into view', ['accounts', 'connect', 'mac', 'automation', 'usage'].every((k) => tops[k] === tops.panelTop && parseFloat(tops[k]) >= 16), JSON.stringify(tops));
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // #3599: Kosmos+ opened in the consolidated view takes the same blue ground as the tab view
+    // (body.plus-active), and gives it back the moment another section is chosen.
+    const plus = await page.evaluate(() => {
+      document.querySelector('#s-nav button[data-go="plus"]').click();
+      const on = document.body.classList.contains('plus-active');
+      const bg = getComputedStyle(document.body).backgroundImage;
+      document.querySelector('#s-nav button[data-go="you"]').click();
+      return { on, bg: /gradient/.test(bg), offAfter: !document.body.classList.contains('plus-active') };
+    });
+    ok(t + ' #3599 Kosmos+ in the consolidated view is on the blue ground, and leaves it on another section', plus.on === true && plus.bg === true && plus.offAfter === true, JSON.stringify(plus));
+    // #3597: with nothing open the centre says "Open or create a project to get started." centred
+    // both ways in the display column (it sat top-left).
+    const none = await page.evaluate(() => {
+      // The fixture's /api/projects read fails over file://; a person's board has read its list.
+      PJ_READ_FAILED = false; PJ_LOADED_ONCE = true;
+      PJ_CURRENT = null; pjView('list'); pjMarkOpen(null);
+      const el = document.getElementById('pj-none');
+      if (!el || el.hidden) return { shown: false };
+      const r = el.getBoundingClientRect();
+      const list = document.getElementById('pj-list-view').getBoundingClientRect();
+      const col = document.getElementById('panel-projects').getBoundingClientRect();
+      const colLeft = list.right;
+      return { shown: true, text: el.textContent, align: getComputedStyle(el).textAlign,
+        dx: Math.round((r.left + r.width / 2) - (colLeft + (col.right - colLeft) / 2)),
+        dy: Math.round((r.top + r.height / 2) - (col.top + col.height / 2)) };
+    });
+    ok(t + ' #3597 the empty centre reads "Open or create a project to get started." centred both ways', none.shown === true && none.text === 'Open or create a project to get started.' && none.align === 'center' && Math.abs(none.dx) <= 4 && Math.abs(none.dy) <= 4, JSON.stringify(none));
 
     await page.close();
   }

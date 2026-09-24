@@ -22,7 +22,7 @@ test('the org chart never paints while the consolidated view is up; the rail is 
 test('an empty consolidated centre says what to press (the projects column is not collapsible, #3126)', () => {
   assert.match(body, /<p class="fhint" id="pj-none" hidden><\/p>\s*<div id="pj-list-view">/);
   assert.match(PAGE, /function paintPjNone\(which\) \{/);
-  assert.match(PAGE, /'Nothing is open yet\. Pick a project on the left, or press \+ above the project list to start one\.'/);
+  assert.match(PAGE, /'Open or create a project to get started\.'/);
   // #3126 (Josh, 6.68): the folded-projects source branches (the `col` phrase and
   // the two folded sentences) were removed with the collapse control.
   assert.doesNotMatch(PAGE, /The projects list is folded/, 'the folded-projects copy must be gone (#3126)');
@@ -50,7 +50,7 @@ test('an empty consolidated centre says what to press (the projects column is no
   assert.match(PAGE, /document\.getElementById\('pj-' \+ v \+ '-view'\)\.hidden = \(v !== which\);\n  \}\n(?:[^\n]*\n){0,15}  paintPjNone\(which\);/);
   assert.match(PAGE, /aria-label', \(on \? 'Open' : 'Fold'\)[^\n]*\n    \}\n  \}\n  paintPjNone\(\);\n\}/, 'railFoldsApply repaints the sentence after every fold change');
   // it sits in the centre column on the first row, so the projects rail is not pushed down a row
-  assert.match(PAGE, /body\.consolidated #pj-none \{ grid-column: 2; grid-row: 1; align-self: start;/);
+  assert.match(PAGE, /body\.consolidated #pj-none \{ grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center;/);
 });
 
 /* The sentence's whole table, run through the real function with a small
@@ -70,11 +70,11 @@ test('the sentence table: every state says one true thing or nothing', () => {
   assert.equal(paintWith({ classes: [] }), null, 'tab view: never');
   assert.equal(paintWith({ classes: ['consolidated'], view: 'one', projects: one }), null, 'a project open: nothing');
   assert.equal(paintWith({ classes: ['consolidated'], view: 'add', projects: one }), null, 'the New project form open: nothing');
-  assert.equal(paintWith({ classes: ['consolidated'], projects: one }), 'Nothing is open yet. Pick a project on the left, or press + above the project list to start one.');
+  assert.equal(paintWith({ classes: ['consolidated'], projects: one }), 'Open or create a project to get started.');
   /* #3126 (Josh, 6.68): the fold-p (folded-projects) rows were removed - the
      projects column is no longer collapsible, so that state can never occur. */
   assert.equal(paintWith({ classes: ['consolidated'], projects: [] }), null, 'no projects, rail open: the rail card says it');
-  assert.equal(paintWith({ classes: ['consolidated'], projects: [], loaded: false }), 'Nothing is open yet. Pick a project on the left, or press + above the project list to start one.', 'before the first read: never "no projects"');
+  assert.equal(paintWith({ classes: ['consolidated'], projects: [], loaded: false }), 'Open or create a project to get started.', 'before the first read: never "no projects"');
   assert.equal(paintWith({ classes: ['consolidated'], projects: [], failed: true }), null, 'read failed, rail open: silence beside the rail\'s own message');
-  assert.equal(paintWith({ classes: ['consolidated'], view: 'one', projects: one, which: 'list' }), 'Nothing is open yet. Pick a project on the left, or press + above the project list to start one.', 'an explicit which wins over the record');
+  assert.equal(paintWith({ classes: ['consolidated'], view: 'one', projects: one, which: 'list' }), 'Open or create a project to get started.', 'an explicit which wins over the record');
 });
