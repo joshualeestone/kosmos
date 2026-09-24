@@ -7260,7 +7260,7 @@ const server = http.createServer((req, res) => {
         body = body || {};
         const resolved = runners.resolveBin('grok');
         if (!resolved.present) {
-          sendJson(res, 400, { error: 'we could not find the Grok runner on this computer, so there is nothing to sign in to', needsRunner: true, provider: 'grok' });
+          sendJson(res, 400, { error: grokAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'grok' });
           return;
         }
         const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin });

@@ -229,8 +229,15 @@ test('driver: a name that already holds an account is refused before anything ru
   assert.ok(fs.existsSync(nodePath.join(d, 'auth.json')), 'the existing account is untouched');
 });
 
-test('driver: no runner binary is refused', () => {
-  assert.equal(grok.startGrokLogin({ label: 'x', grokBin: '' }).ok, false);
+test('driver: no runner binary, or a path that is not runnable, is refused before anything runs', () => {
+  const none = grok.startGrokLogin({ label: 'x', grokBin: '' });
+  assert.equal(none.ok, false);
+  assert.equal(none.because, grok.MISSING_RUNNER_SENTENCE);
+  const notExec = nodePath.join(SANDBOX, 'not-a-runner.txt');
+  fs.writeFileSync(notExec, 'plain text', { mode: 0o644 });
+  const bad = grok.startGrokLogin({ label: 'notexec', grokBin: notExec });
+  assert.equal(bad.ok, false, 'a non-executable path is refused, not spawned');
+  assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.grok-notexec')), false, 'and no account dir was made for it');
 });
 
 /* ---- slots, claims and anti-litter (iteration-2 review) ---------------------- */

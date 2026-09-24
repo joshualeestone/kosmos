@@ -51,6 +51,7 @@ const { spawn } = require('node:child_process');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
 const accountclaim = require('./accountclaim');
+const runners = require('./runners');
 
 const STATE = subscription.STATE; // CONNECTED | NONE | UNKNOWN -- one vocabulary
 const PROVIDER = 'xai';
@@ -564,6 +565,9 @@ async function listLiveNow() {
  * own `--leader-socket` in the temp dir (see startGrokLogin).
  *
  * The session lives as long as the server process, as in openaiaccounts. */
+/* One copy of the no-runner sentence: the start route reads this too (the
+   openaiaccounts.MISSING_RUNNER_SENTENCE pattern). */
+const MISSING_RUNNER_SENTENCE = 'we could not find the Grok runner on this computer, so there is nothing to sign in to';
 const grokSessions = new Map();
 // What `grok login` writes into GROK_HOME (measured, grok 1.0.41), for reused-slot cleanup.
 const GROK_WRITES = [AUTH_BASENAME, 'docs', 'logs'];
@@ -652,7 +656,7 @@ function resolveFreshGrokDir(label) {
  */
 function startGrokLogin({ label, grokBin } = {}) {
   const bin = String(grokBin || '');
-  if (!bin) return { ok: false, because: 'we could not find the Grok runner on this computer, so there is nothing to sign in to' };
+  if (!bin || !runners.isRunnable(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };
   const spot = resolveFreshGrokDir(label);
   if (spot.error) return { ok: false, because: spot.error };
   activeGrokDirs.add(spot.dir);
@@ -778,7 +782,7 @@ module.exports = {
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, grokLoginStatus, cancelGrokLogin, setGrokTimers,
-  isSignInPending,
+  isSignInPending, MISSING_RUNNER_SENTENCE,
   readName, writeName,
   get HOME_FOR_TEST() { return homeDir(); },
 };
