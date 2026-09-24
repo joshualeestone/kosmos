@@ -24,6 +24,10 @@ until the simulator run, and the PR says so.
 - **The target waits in `PushNotificationManager.boardToOpen` (@Published)** and the WebView loads and
   clears it. Rejected: loading from the notification delegate directly, which has no WebView on a
   cold launch or behind the lock.
+- **Each tap is its own request (`BoardRequest`, with a UUID).** The WebView loads each id once and
+  clears only the request it loaded, so a repeat tap on the same Mac is never swallowed and a newer
+  tap is never wiped by an older clear. Chosen over comparing URLs, which depended on SwiftUI
+  running an update after the clear (challenge-loop iteration 3).
 - **Punycode refused outright.** A Mac name is plain ASCII; an `xn--` label is how a lookalike would
   arrive. What would change it: Mac names allowing Unicode.
 - **The relay domain is derived, not a second constant:** the coordinator origin's host minus its first

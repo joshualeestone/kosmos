@@ -108,7 +108,9 @@ enum KosmosConfig {
     // app registers its APNs token with (the page calls /v1 relative to itself).
     // Decided on #2854 (Liu Kang, 2026-09-24): the app origin is login.kosmosplus.com
     // for both the iOS WebView and the Android TWA. The one place to repoint. The
-    // kosmosSession bridge accepts a session only from this exact origin.
+    // kosmosSession bridge accepts a session only from this exact origin, and a
+    // tapped notification may open only a Mac under this host's parent domain
+    // (PushBridge.boardURL; the "repointing the coordinator origin" test pins it).
     static let coordinatorOrigin = URL(string: "https://login.kosmosplus.com")!
 
     // What the WebView loads: the coordinator's sign-in page, which after sign-in
@@ -128,7 +130,7 @@ struct WebView: UIViewRepresentable {
     let url: URL
     let pushManager: PushNotificationManager
     // A board a tapped notification asked for (PushNotificationManager.boardToOpen).
-    let boardToOpen: URL?
+    let boardToOpen: PushNotificationManager.BoardRequest?
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -141,37 +143,37 @@ struct WebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         // A cold launch from a tapped notification opens that board straight away.
-        webView.load(URLRequest(url: boardToOpen ?? url))
-        context.coordinator.issued = boardToOpen
-        consumeBoardToOpen()
+        webView.load(URLRequest(url: boardToOpen?.url ?? url))
+        if let request = boardToOpen {
+            context.coordinator.issued = request.id
+            consume(request)
+        }
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        guard let target = boardToOpen else {
-            context.coordinator.issued = nil
-            return
+        // Each tap is loaded once, however many times SwiftUI updates before the
+        // clear lands.
+        guard let request = boardToOpen, context.coordinator.issued != request.id else { return }
+        context.coordinator.issued = request.id
+        webView.load(URLRequest(url: request.url))
+        consume(request)
+    }
+
+    // Cleared on the next main-queue turn (publishing from inside a SwiftUI view
+    // update is not allowed), and only if no newer tap has replaced it meanwhile.
+    private func consume(_ request: PushNotificationManager.BoardRequest) {
+        let manager = pushManager
+        DispatchQueue.main.async {
+            if manager.boardToOpen?.id == request.id { manager.boardToOpen = nil }
         }
-        // SwiftUI can update again before the clear below lands; load each tap once.
-        guard context.coordinator.issued != target else { return }
-        context.coordinator.issued = target
-        webView.load(URLRequest(url: target))
-        consumeBoardToOpen()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator {
-        // The tapped board already handed to the WebView and not yet cleared.
-        var issued: URL?
-    }
-
-    // Cleared after the load is issued, on the next main-queue turn: publishing a
-    // change from inside a SwiftUI view update is not allowed.
-    private func consumeBoardToOpen() {
-        guard boardToOpen != nil else { return }
-        let manager = pushManager
-        DispatchQueue.main.async { manager.boardToOpen = nil }
+        // The id of the last tap handed to the WebView.
+        var issued: UUID?
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
