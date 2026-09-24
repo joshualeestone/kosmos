@@ -139,3 +139,16 @@ test('moderationList enforces the MOD_LIMIT_MAX ceiling (200)', () => {
   }
   assert.equal(site.moderationList({ limit: 100000 }).length, 200, 'moderation queue capped at MOD_LIMIT_MAX');
 });
+
+// The routes pass URLSearchParams.get(), which yields null (not undefined) for an
+// absent param. Number(null) === 0 is finite, so a naive clamp returns min(1) and
+// the DEFAULT feed/moderation load silently returns 1 row. Exercise that exact
+// shape so the default path is pinned. (Runs after the ceiling seeds so >1 row exists.)
+test('absent params arrive as null (route shape) and fall back to defaults, not min', () => {
+  const nullFeed = site.feedView({ limit: null, offset: null, sort: null, board: null });
+  assert.ok(nullFeed.length > 1, 'null limit -> default page size, not clamped to 1');
+  assert.equal(nullFeed.length, site.feedView({}).length, 'null and undefined limit behave identically (both = default)');
+  const nullMod = site.moderationList({ limit: null, status: null, kind: null });
+  assert.ok(nullMod.length > 1, 'null mod limit -> default, not clamped to 1');
+  assert.equal(nullMod.length, site.moderationList({}).length, 'null and undefined mod limit behave identically');
+});
