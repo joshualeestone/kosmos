@@ -371,7 +371,7 @@ print('PORT %d' % srv.server_address[1], flush=True)
 srv.serve_forever()
 PY
 
-/usr/bin/python3 -u "$T/srv.py" >"$T/srv.log" 2>&1 &
+python3 -u "$T/srv.py" >"$T/srv.log" 2>&1 &
 SRV=$!
 
 PORT=""
