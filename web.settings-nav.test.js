@@ -79,8 +79,10 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
 // #2054: the consolidated Automation section, in Mona Lisa's ruled order. The
 // "Agents Talking" top-level tab is gone (checked by the nav-order test above,
 // which no longer lists 'talking'); its one block lives here as block 3. Daily
-// report (#2037) is not built yet, so it is not asserted -- it becomes block 4.
-test('#2054/#3138: Automation holds Auto-save, Prompter, Agent Communication, Daily report in order (Sounds moved to This computer), and Agents Talking is no longer its own tab', () => {
+// report (#2037) is block 4. #2619 (Josh review) adds two more automations:
+// Recommender (block 5, with its three irreversible-consequence guards) and
+// Assigner (block 6).
+test('#2054/#3138/#2619: Automation holds Auto-save, Prompter, Agent Communication, Daily report, Recommender, Assigner in order (Sounds moved to This computer), and Agents Talking is no longer its own tab', () => {
   const at = BODY.indexOf('id="s-sec-automation"');
   assert.ok(at > -1, 'the Automation section is gone');
   const end = BODY.indexOf('<section class="dsec"', at + 1);
@@ -90,9 +92,19 @@ test('#2054/#3138: Automation holds Auto-save, Prompter, Agent Communication, Da
   // placeholder note reserved ("before the future Daily report (#2037)").
   // #3138 (Josh, 6.68): "Sounds" MOVED out of Automation to Settings > This computer
   // (bottom) -- whether YOU hear the pop is a per-device property, not a board setting.
-  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agent Communication', 'Daily report'],
-    'the Automation blocks are not Auto-save, Prompter, Agent Communication, Daily report in that order (Sounds moved out per #3138)');
+  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agent Communication', 'Daily report', 'Recommender', 'Assigner'],
+    'the Automation blocks are not Auto-save, Prompter, Agent Communication, Daily report, Recommender, Assigner in that order (#2619 added the last two; Sounds moved out per #3138)');
   assert.ok(!headings.includes('Sounds'), '#3138: Sounds must NOT be in Automation anymore');
+  // #2619: the Recommender carries its three irreversible-consequence guards, each a
+  // real checkbox, all present. (Their DEFAULT-checked state + persistence are pinned
+  // in engine/recommender-setting.test.js; here we assert the controls exist in the UI.)
+  for (const g of ['rec-guard-money', 'rec-guard-public', 'rec-guard-delete']) {
+    assert.match(sec, new RegExp('id="' + g + '"[^>]*type="checkbox"|type="checkbox"[^>]*id="' + g + '"'),
+      '#2619: the Recommender guard checkbox ' + g + ' is missing');
+  }
+  // #2619: both new automations carry the same .toggle switch shape as the others.
+  assert.match(sec, /id="rec-toggle"[^>]*class="toggle"|class="toggle"[^>]*id="rec-toggle"/, '#2619: the Recommender toggle is missing');
+  assert.match(sec, /id="asg-toggle"[^>]*class="toggle"|class="toggle"[^>]*id="asg-toggle"/, '#2619: the Assigner toggle is missing');
   // #3138: Sounds is now LAST in the This computer (mac) section.
   const macAt = BODY.indexOf('id="s-sec-mac"');
   const macEnd = BODY.indexOf('<section class="dsec"', macAt + 1);
