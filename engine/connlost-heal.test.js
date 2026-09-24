@@ -178,3 +178,8 @@ test('#3410 makeTick: inert unless allowed, braked by env, never overlapping, sk
   await first;
   assert.ok(tick(), 'after the first finishes, the next tick runs');
 });
+
+test('#3410 makeTick: a throwing gate is a no-op tick, not an uncaught timer error', () => {
+  const tick = heal.makeTick({ allowed: () => { throw new Error('boom'); }, env: {}, book: new Map(), roster: () => [] });
+  assert.equal(tick(), null);
+});

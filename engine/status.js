@@ -2081,6 +2081,7 @@ const API_ERROR_CONTINUATION_ROWS = 4;
 function connectionLostAtTail(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
   let at = -1;
+  let atJoined = '';
   // Only Claude Code's own error row counts ("⏺ API Error: …", or bare "API Error: …"), never the
   // agent's prose quoting the same words: that would read connection_lost on a healthy agent,
   // and PR 2b's sweep types into panes that read connection_lost.
@@ -2093,7 +2094,7 @@ function connectionLostAtTail(tail) {
     for (let k = 1; k <= API_ERROR_CONTINUATION_ROWS && i + k < rows.length && /^\s{2,}\S/.test(rows[i + k]) && !/^\s*[⏺●❯›]/.test(rows[i + k]); k += 1) {
       joined += ' ' + rows[i + k].trim();
     }
-    if (CONNECTION_LOST_MESSAGE.test(joined)) at = i;
+    if (CONNECTION_LOST_MESSAGE.test(joined)) { at = i; atJoined = joined; }
   }
   if (at === -1) return null;
   // Newer content supersedes it: agent output, or any later Claude Code error row (bulleted or
@@ -2104,7 +2105,9 @@ function connectionLostAtTail(tail) {
     if (/^\s*[⏺●]\s/.test(rows[i]) || API_ERROR_ROW.test(rows[i]) || /Retrying in\s+\d/.test(rows[i])) return null;
   }
   // Evidence without the ⏺/● bullet, so the same error reads the same however it was drawn.
-  return matchedLine(rows[at].replace(/^[⏺●]\s+/, ''), [/API Error:/]);
+  // The whole message, continuation rows included, so the evidence shows what the screen says.
+  const line = atJoined.replace(/^[⏺●]\s+/, '').replace(/\s+/g, ' ').trim();
+  return line.length > 240 ? line.slice(0, 240) + '…' : line;
 }
 
 /* #3410: Claude Code's live retry line, anchored at both ends:

@@ -61,7 +61,9 @@ test('#3410: Claude Code breaking its error text onto a continuation row still r
 test('#3410: the long proxy message broken over three continuation rows still reads connection_lost', () => {
   // The phrase completes only on the THIRD continuation row, so a cap of 2 would miss it.
   const pane = WEDGED.replace(ERR, '⏺ API Error: Request\n  timed out.\n  Check your\n  internet connection');
-  assert.equal(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+  const r = status.classify(PANE, pane);
+  assert.equal(r.state, status.STATE.CONNECTION_LOST);
+  assert.equal(r.evidence, 'API Error: Request timed out. Check your internet connection', 'evidence keeps the continuation rows');
 });
 
 test('#3410: a later, different bare API Error row supersedes the old connection error', () => {

@@ -38,7 +38,7 @@ sticky until then. A test interleaves lost, lost, working for an hour and assert
 ## Also fixed in review
 - An unreadable roster (a failed snapshot) no longer prunes the book, so it cannot reset the loop guard.
 - The server's per-tick gating is `makeTick` and is tested: live-execution gate, brake, no overlap.
-- Claude Code breaking its own error text onto continuation rows is matched (error row + up to 2
+- Claude Code breaking its own error text onto continuation rows is matched (error row + up to 4
   indented rows).
 
 ## Limits, stated rather than fixed

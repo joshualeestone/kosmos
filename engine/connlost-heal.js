@@ -153,6 +153,9 @@ function probeApi({ host = 'api.anthropic.com', port = 443, timeoutMs = 3000 } =
 function makeTick(deps) {
   let busy = false;
   return function tick() {
+    try { return tickBody(); } catch { return null; } // best-effort, like the class-1 sweep
+  };
+  function tickBody() {
     if (!deps.allowed()) return null;                                       // inert under test / before opt-in
     if ((deps.env || process.env).AGENT_WORKFORCE_CONNLOST_HEAL_OFF === '1') return null; // operator brake
     if (busy) return null;                                                  // a slow probe must not overlap
@@ -165,7 +168,7 @@ function makeTick(deps) {
       probe: deps.probe, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
     }).catch((err) => { if (deps.log) { try { deps.log({ name: '-', session: '-', act: 'sweep-error', because: String((err && err.message) || err) }); } catch { /* never breaks */ } } return null; })
       .finally(() => { busy = false; });
-  };
+  }
 }
 
 module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };
