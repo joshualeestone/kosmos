@@ -23,7 +23,8 @@ strand. #3367 avoided it by not forcing when the probe said live. Josh has ruled
   reads through `loginexpiry.refreshExpiryFor`, which returns only the timestamp, from the entry
   the launch writes (`CLAUDE_CONFIG_DIR` = launchDir, or unset). **Fails closed:** a null baseline
   (no entry OR a failed read) disables it for the flow, so a failed read followed by a good one
-  cannot make the old credential look new. macOS only; never the real keychain under
+  cannot make the old credential look new. Reads are async (`execFile`, 5 s), so a slow keychain
+  never blocks the board. macOS only; never the real keychain under
   `node --test` (`setRefreshExpiryReader` seam). The gate still also requires checkLive CONNECTED.
 - `server.js`: the default sign-up start forwards `reauth` unconditionally; `reauthDecision`
   and the liveness probe gate are removed.
@@ -51,9 +52,9 @@ only a completed one.
 **macOS only.** expiryMoved reads the macOS keychain; on another platform (a Windows sign-in host)
 the proof is off and a missed login-done frame still goes stuck.
 
-**Keychain consent prompt.** The baseline is a synchronous `security` read (5 s bound). If macOS
-shows a consent dialog for it, the read times out, the proof turns off (fail closed), and the person
-sees an unexplained keychain prompt mid sign-up. Probably not triggered if Claude Code's own entry
+**Keychain consent prompt.** The reads are asynchronous `security` calls (5 s bound), so they never
+stall the board. If macOS shows a consent dialog for one, the read times out, the proof turns off
+(fail closed), and the person sees an unexplained keychain prompt mid sign-up. Probably not triggered if Claude Code's own entry
 is readable by `security`, but unmeasured; include it in the real-Mac check.
 
 A concurrent login elsewhere on the same keychain entry (the bare entry is shared by every
