@@ -1,4 +1,3 @@
-// Browser-check-surface: buildmark
 'use strict';
 
 /**
@@ -8,6 +7,9 @@
  * a real board after the status poll (the tick that used to paint the marker), with the Settings
  * version line as the control that the page loaded and painted its version (in a source checkout the
  * poll paints it; a built artifact paints its baked version before any poll).
+ *
+ * No Browser-check-surface line: it asserts an absence, so there is no live id for the fine-grained
+ * gate to key on, and the coarse gate (#1720) covers it.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-build-marker-2066.js
  */
