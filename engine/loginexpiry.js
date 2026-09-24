@@ -12,31 +12,36 @@
  *    ONLY the timestamp (a number). It never returns, logs, or threads the token values.
  *    The keychain body is parsed and discarded in one place (refreshExpiryFor).
  *
- * 📌 macOS keychain service name (measured on Agent1s 2026-09-23): the DEFAULT config dir
- *    (~/.claude) uses the bare `Claude Code-credentials`; any other dir uses
- *    `Claude Code-credentials-<first 8 hex of sha256(ABSOLUTE dir path, no trailing slash)>`.
- *    Verified against all 5 config dirs on the box.
+ * 🛑 THE #2129 CLASS -- key on SET-vs-UNSET, not on a path compare. The macOS keychain
+ *    service name is decided by the CLAUDE_CONFIG_DIR the agent's process ACTUALLY has:
+ *      - UNSET                      -> bare `Claude Code-credentials`
+ *      - SET to any value V         -> `Claude Code-credentials-<first 8 hex of sha256(V)>`
+ *    An explicit CCD EQUAL to the default path (~/.claude) still uses the SUFFIXED entry, not
+ *    the bare one. Measured on Agent1s: the gmail-slot bots set CLAUDE_CONFIG_DIR=/Users/
+ *    agent1/.claude explicitly and read "...-2a1a4199" (sha256 of that path, expiry 09-29),
+ *    while a CCD-UNSET process reads the bare entry (expiry 09-25). Same path, two different
+ *    credentials, two different expiries. So the caller MUST pass the agent's REAL process
+ *    CCD (undefined when unset), never a stored path that has lost the set-vs-unset bit.
  *
  * 📌 ADVISORY, not a classify state: the agent is still WORKING while its login nears expiry,
  *    so callers consume this as a per-account OVERLAY, never a working/idle precedence arm.
  *    FAIL SOFT everywhere: an unreadable/absent credential yields no advisory, never a throw.
  */
 const crypto = require('crypto');
-const os = require('os');
-const path = require('path');
 const { execFileSync } = require('child_process');
 
 const DEFAULT_SERVICE = 'Claude Code-credentials';
 const DAY_MS = 86400000;
 
-/* The default config dir uses the bare service name; every other dir is suffixed with
- * the first 8 hex of sha256 of its absolute path (no trailing slash). A null/undefined
- * configDir means the default dir. */
-function serviceNameFor(configDir, { homeDir = os.homedir() } = {}) {
-  const def = path.join(homeDir, '.claude');
-  const abs = configDir ? path.resolve(configDir) : def;
-  if (abs === def) return DEFAULT_SERVICE;
-  const hex = crypto.createHash('sha256').update(abs).digest('hex').slice(0, 8);
+/* Service name for the credential an agent will actually READ, given its CLAUDE_CONFIG_DIR
+ * env value (`ccd`). undefined/null/'' means UNSET -> the bare entry; any other value is
+ * hashed VERBATIM (Claude Code hashes the env string as set -- a trailing slash changes the
+ * hash and is preserved; only a trailing newline from a capture is stripped). */
+function serviceNameFor(ccd) {
+  if (ccd == null) return DEFAULT_SERVICE;
+  const v = String(ccd).replace(/[\r\n]+$/, '');
+  if (v === '') return DEFAULT_SERVICE;
+  const hex = crypto.createHash('sha256').update(v).digest('hex').slice(0, 8);
   return `${DEFAULT_SERVICE}-${hex}`;
 }
 
@@ -53,10 +58,10 @@ function readCredDefault(service) {
   }
 }
 
-/* Returns claudeAiOauth.refreshTokenExpiresAt (epoch ms) for a config dir, or null.
- * The credential body is parsed and dropped here; only the number leaves this function. */
-function refreshExpiryFor(configDir, { readCred = readCredDefault, homeDir } = {}) {
-  const service = serviceNameFor(configDir, { homeDir });
+/* Returns claudeAiOauth.refreshTokenExpiresAt (epoch ms) for an agent's CCD env value, or
+ * null. The credential body is parsed and dropped here; only the number leaves this function. */
+function refreshExpiryFor(ccd, { readCred = readCredDefault } = {}) {
+  const service = serviceNameFor(ccd);
   let raw;
   try { raw = readCred(service); } catch { return null; }
   if (!raw) return null;
@@ -72,22 +77,25 @@ function severityFor(daysLeft) {
   return 'notice';
 }
 
-/* accounts: [{ configDir, account?, agents:[names] }] -- already deduped per config dir by
- * the caller, since agents share a dir. Returns one advisory per account whose refresh token
- * expires within warnWithinDays, soonest first. daysLeft is floored (a 1.5-day expiry reads
- * "1 day", an already-expired one reads negative -> the UI says "expired"). Fail soft: an
- * account whose credential can't be read is skipped, never breaking the others. */
-function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = 5, readCred, homeDir } = {}) {
+/* accounts: [{ ccd, account?, agents:[names] }] -- grouped per credential by the caller.
+ * The dedup KEY is the credential (serviceNameFor(ccd)), NOT the path: CCD-unset and
+ * CCD=~/.claude are different credentials, so they are different buckets. Returns one advisory
+ * per account whose refresh token expires within warnWithinDays, soonest first. daysLeft is
+ * floored (a 1.5-day expiry reads "1 day", an already-expired one reads negative -> the UI says
+ * "expired"). Fail soft: an account whose credential can't be read is skipped, never breaking
+ * the others. */
+function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = 5, readCred } = {}) {
   const out = [];
   for (const acct of accounts) {
-    const expiresAt = refreshExpiryFor(acct.configDir, { readCred, homeDir });
+    const expiresAt = refreshExpiryFor(acct.ccd, { readCred });
     if (expiresAt == null) continue;
     const daysLeft = Math.floor((expiresAt - now) / DAY_MS);
     if (daysLeft > warnWithinDays) continue;
     out.push({
-      configDir: acct.configDir || null,
+      ccd: acct.ccd == null ? null : String(acct.ccd),
       account: acct.account || null,
       agents: Array.isArray(acct.agents) ? acct.agents.slice() : [],
+      service: serviceNameFor(acct.ccd),
       expiresAt,
       daysLeft,
       expired: daysLeft < 0,
