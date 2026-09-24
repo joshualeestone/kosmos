@@ -230,3 +230,15 @@ test('#3566 DELETE: disconnect and delete each say what happened (the row report
   assert.equal(db.removed, true);
   assert.match(db.because || '', /deleted/, 'a delete must say it deleted: ' + JSON.stringify(db));
 });
+
+test('#3566 store: a leftover EMPTY slot (a cancelled add) is reused, and no claim marker is left behind', async () => {
+  geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const spot = geminiAccounts.nextWorkDir();
+  fs.mkdirSync(spot.dir, { recursive: true });   // the shape a cancelled add leaves
+  assert.equal(fs.existsSync(geminiAccounts.keyFile(spot.dir)), false, 'CONTROL: the slot must start keyless');
+  const r = await post('/api/accounts/gemini/apikey', { key: 'AIzaSy-reuse-slot-key-12121212' });
+  assert.equal(r.status, 200);
+  const b = await r.json();
+  assert.equal(b.account.dir, spot.dir, 'a free keyless slot was skipped instead of reused');
+  assert.equal(fs.existsSync(nodePath.join(spot.dir, '.kosmos-claim')), false, 'the claim marker outlived the add');
+});

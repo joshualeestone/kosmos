@@ -1673,6 +1673,8 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    from it (bin/agent-supervisor.sh). One helper for both providers, parameterized by
    `mod` (geminiaccounts/grokaccounts), so the two cannot drift. The raw key is never
    logged or echoed back -- the response carries the label + the live verdict only. */
+/* #3566: the exclusive-create marker a label-less add holds on its slot while the key is checked. */
+const CLAIM_FILE = '.kosmos-claim';
 function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
   readBody(req)
     .then(async (raw) => {
@@ -1701,16 +1703,23 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
       if (body.label === undefined || body.label === null || String(body.label).trim() === '') {
         /* 🛑 CLAIM THE SLOT, do not just pick it. The live key check below awaits the network,
            so two label-less adds racing (two tabs, an API caller) would otherwise both pick
-           work1 and the second storeKey would overwrite the first account's key. mkdir without
-           `recursive` is atomic: exactly one request creates the dir, the other sees EEXIST and
-           moves to the next slot. It also refuses a planted symlink the same way (EEXIST). */
+           work1 and the second storeKey would overwrite the first account's key. The claim is
+           a file created with 'wx' (exclusive) inside the slot: exactly one request creates it,
+           the other sees EEXIST and moves to the next slot. A claim FILE rather than the dir
+           itself, because nextWorkDir deliberately hands out an existing keyless dir (a
+           cancelled add) as free, and that dir must stay reusable. A symlinked slot is refused. */
         const exclude = new Set();
         named = null;
         for (let n = 0; n < 50 && !named; n += 1) {
           const spot = mod.nextWorkDir(exclude);
           if (!spot) break;
-          try { fs.mkdirSync(spot.dir, { mode: 0o700 }); claimed = spot.dir; named = { ok: true, label: spot.label, dir: spot.dir }; }
-          catch (err) { if (err && err.code === 'EEXIST') exclude.add(spot.dir); else break; }
+          try {
+            if (fs.existsSync(spot.dir) && fs.lstatSync(spot.dir).isSymbolicLink()) { exclude.add(spot.dir); continue; }
+            fs.mkdirSync(spot.dir, { recursive: true, mode: 0o700 });
+            fs.closeSync(fs.openSync(path.join(spot.dir, CLAIM_FILE), 'wx', 0o600));
+            claimed = spot.dir;
+            named = { ok: true, label: spot.label, dir: spot.dir };
+          } catch (err) { if (err && err.code === 'EEXIST') exclude.add(spot.dir); else break; }
         }
         if (!named) named = { ok: false, because: `there is no free spot for another ${providerLabel} account on this computer` };
       } else {
@@ -1732,17 +1741,20 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
       // key (STATE.NONE); accept CONNECTED and UNKNOWN (unreachable / a non-attributed
       // refusal), never blocking a good key on an answer that does not confirm it bad.
       const live = await mod.validateLive(String(body.key || '').trim());
-      // rmdir removes only an EMPTY dir, so giving a claimed slot back cannot delete anything.
-      const giveBack = () => { if (claimed) { try { fs.rmdirSync(claimed); } catch { /* best effort */ } } };
+      // Drop the claim file; rmdir then removes the slot only if it is EMPTY, so giving a
+      // claimed slot back cannot delete anything else.
+      const unclaim = () => { if (claimed) { try { fs.unlinkSync(path.join(claimed, CLAIM_FILE)); } catch { /* best effort */ } } };
+      const giveBack = () => { if (claimed) { unclaim(); try { fs.rmdirSync(claimed); } catch { /* best effort */ } } };
       if (live.state === mod.STATE.NONE) { giveBack(); sendJson(res, 400, { error: live.because }); return; }
       /* Re-checked AFTER the await: an explicitly-labelled add racing another with the same
          label passes the check above in both requests, and this is the last point before a
          write that would land in an existing account. */
       if (mod.identityOf(named.dir)) {
+        unclaim();
         sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
         return;
       }
-      try { mod.storeKey(named.dir, body.key); }
+      try { mod.storeKey(named.dir, body.key); unclaim(); }
       catch {
         try { mod.forgetKey(named.dir); } catch { /* best effort: leave no orphaned key file */ }
         giveBack();

@@ -22535,7 +22535,9 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
     keyField.value = '';
     nameField.value = '';
     const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
-    const goldBox = frCheckRow({ state: 'ok', title: p.name + ' is connected',
+    /* A key the provider did not answer for is saved but unconfirmed: the '?' state, not the
+       green check, so the mark agrees with the words. */
+    const goldBox = frCheckRow({ state: unknown ? 'unknown' : 'ok', title: unknown ? p.name + ' key saved' : p.name + ' is connected',
       detail: unknown
         ? 'The key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
         : 'This computer is signed in with an API key.' });

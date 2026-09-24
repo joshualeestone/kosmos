@@ -37,7 +37,7 @@ test('#1034: the block tells the agent it cannot see the screen, which is the wh
   assert.match(body, /Do not guess and do not describe a button as though you/);
 });
 
-test('#1034: it names only the two providers that can actually be connected today', () => {
+test('#1034/#3566: it names the providers that can be connected today and says the rest cannot', () => {
   const body = connections.blockBody();
   assert.match(body, /Claude Code/);
   assert.match(body, /Codex/);
