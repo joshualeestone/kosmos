@@ -111,11 +111,17 @@ test('#2054/#3138/#2619: Automation holds Auto-save, Prompter, Agent Communicati
   // future change that re-enables a do-nothing control fails here. The toggles are
   // <button> elements (a disabled button fires no click); the guards are disabled
   // checkboxes. If the behaviour PR wires them live, it updates this contract.
-  assert.match(sec, /id="rec-toggle"[^>]*\bdisabled\b/, '#2619: the Recommender toggle must be disabled until the behaviour is wired');
-  assert.match(sec, /id="asg-toggle"[^>]*\bdisabled\b/, '#2619: the Assigner toggle must be disabled until the behaviour is wired');
+  // The real boolean `disabled` attribute, NOT aria-disabled: the toggles carry
+  // BOTH (aria-disabled="true" disabled), and a plain /\bdisabled\b/ matches inside
+  // "aria-disabled" because the hyphen is a word boundary - so it would pass even if
+  // the real, click-blocking attribute were dropped. The negative lookbehind
+  // (?<!aria-) requires the standalone attribute. (Perturbation-checked: dropping the
+  // real `disabled` while keeping aria-disabled makes these fail.)
+  assert.match(sec, /id="rec-toggle"[^>]*(?<!aria-)\bdisabled\b/, '#2619: the Recommender toggle must carry the real disabled attribute (not just aria-disabled) until the behaviour is wired');
+  assert.match(sec, /id="asg-toggle"[^>]*(?<!aria-)\bdisabled\b/, '#2619: the Assigner toggle must carry the real disabled attribute (not just aria-disabled) until the behaviour is wired');
   for (const g of ['rec-guard-money', 'rec-guard-public', 'rec-guard-delete']) {
-    assert.match(sec, new RegExp('id="' + g + '"[^>]*\\bdisabled\\b'),
-      '#2619: the guard checkbox ' + g + ' must be disabled until the behaviour is wired');
+    assert.match(sec, new RegExp('id="' + g + '"[^>]*(?<!aria-)\\bdisabled\\b'),
+      '#2619: the guard checkbox ' + g + ' must carry the real disabled attribute until the behaviour is wired');
   }
   assert.match(sec, /Not active yet/, '#2619: the automations need a "not active yet" note so a disabled control is explained');
   // #3138: Sounds is now LAST in the This computer (mac) section.
