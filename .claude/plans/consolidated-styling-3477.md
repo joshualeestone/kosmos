@@ -51,7 +51,8 @@ and the "Join Kosmos+" CTA now sits within the viewport.
 
 ## Weakest premise
 The exact amount to "move content up" is a visual judgment Josh will finalize in his sub-nav
-rework; I trimmed the wordmark 20% and nudged the sign-in 12px (measured 27px effective gap),
+rework; I trimmed the wordmark width cap 25% (560px -> 420px; the responsive stop 82% -> 70%)
+and nudged the sign-in var(--space-5)=12px (measured 27px effective gap),
 a modest, reversible improvement that addresses both literal asks. The wordmark canvas does
 not render under headless chromium, so the screenshot shows its region blank; the geometry
 (width/height) and the sign-in gap are the measured, reliable signals. Josh confirms the final
