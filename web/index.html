@@ -49531,8 +49531,8 @@ async function frConnectStartConfirmed(installConfirmed, opener) {
     // the flow is newer than anything requested before it.
     FR_CONN_SEQ += 1;
     if (st.phase === 'connected') {
-      /* #3326: sign-up always forces a fresh login (reauth), and a reauth never short-circuits
-         to 'connected', so a 'connected' here was not a login this click ran: it stays
+      /* #3326: sign-up always forces a fresh login (reauth), and a reauth start never finishes
+         as connected by itself, so a 'connected' here was not a login this click ran: it stays
          unverified (the shallow-file case #3326 guarded). FR_SUB_LOGIN_VERIFIED is set only by
          frConnWatch on a login it watched complete. */
       if (sub) sub.innerHTML = ''; frConnSettle(); return;

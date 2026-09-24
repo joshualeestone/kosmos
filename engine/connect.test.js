@@ -2128,10 +2128,21 @@ driverTest('#1922: a re-auth on a still-live credential does NOT finish on a cap
 
 // #3326: sign-up now ALWAYS forces a fresh login (Josh, 2026-09-24), so the still-live case
 // above is the common path, and going STUCK there is the 0.6.84 strand. The proof that the new
-// login landed when the "Login successful" screen was missed: the credential's
-// refreshTokenExpiresAt moves forward. The reader is asked about the SAME CLAUDE_CONFIG_DIR the
-// launch sets (unset when there is no launch dir), which is the #2129 set-vs-unset class.
-function reauthOnLiveWithExpiry(expiryAfterLogin) {
+// login landed when the "Login successful" screen was missed and the pane died: the credential's
+// refreshTokenExpiresAt moved past a baseline read before the launch (expiryMoved). The reader
+// must be asked about the SAME CLAUDE_CONFIG_DIR the launch used, read here from the recorded
+// tmux argv (not recomputed), in both the set arm and the unset (production default) arm.
+function launchCcdFrom(all) {
+  const made = all.find((a) => a[0] === 'new-session');
+  if (!made) return { found: false };
+  const set = made.find((x) => typeof x === 'string' && x.startsWith('CLAUDE_CONFIG_DIR='));
+  if (set) return { found: true, ccd: set.slice('CLAUDE_CONFIG_DIR='.length) };
+  const u = made.indexOf('-u');
+  if (u !== -1 && made[u + 1] === 'CLAUDE_CONFIG_DIR') return { found: true, ccd: undefined };
+  return { found: false };
+}
+
+function reauthOnLiveWithExpiry({ baseline = 1790000000000, afterLogin, unsetDir = false }) {
   return async () => {
     const term = fakeTerminal();
     let failCaptures = false;
@@ -2145,35 +2156,63 @@ function reauthOnLiveWithExpiry(expiryAfterLogin) {
     connect.setDryRun(false);
     writeClaudeConfig(CONNECTED_CONFIG);
     subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
-    const BEFORE = 1790000000000;
-    let expiry = BEFORE;
+    let expiry = baseline;
     const asked = [];
     connect.setRefreshExpiryReader((ccd) => { asked.push(ccd); return expiry; });
+    const savedDir = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+    const realWarn = console.warn;
+    if (unsetDir) {
+      delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+      // The DIR-without-CONFIG mismatch warning is expected in this arm (see the #1922 test).
+      console.warn = (...a) => { if (!a.join(' ').includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')) realWarn.apply(console, a); };
+    }
     try {
       await connect.start({ reauth: true });
       await until(() => String(connect.state().phase).startsWith('signin'), 5000);
-      expiry = expiryAfterLogin(BEFORE);   // the login writes the credential (or does not)...
-      failCaptures = true;                 // ...and exits, closing the pane before login-done is seen
+      expiry = afterLogin(baseline);   // the login writes the credential (or does not)...
+      failCaptures = true;             // ...and exits, closing the pane before login-done is seen
       await until(() => connect.state().phase === connect.PHASE.CONNECTED
         || connect.state().phase === connect.PHASE.STUCK, 15000);
-      const expectCcd = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR || undefined;
-      assert.ok(asked.length >= 2 && asked.every((c) => c === expectCcd),
-        `the expiry reader must read the entry the launch writes (${expectCcd}); asked ${JSON.stringify(asked)}`);
+      const launch = launchCcdFrom(term.all);
+      assert.ok(launch.found, 'the launch argv did not show how CLAUDE_CONFIG_DIR was set: ' + JSON.stringify(term.all.find((a) => a[0] === 'new-session')));
+      if (unsetDir) assert.equal(launch.ccd, undefined, 'this arm must launch with CLAUDE_CONFIG_DIR unset');
+      assert.ok(asked.length >= 1 && asked.every((c) => c === launch.ccd),
+        `the expiry reader must read the entry the launch writes (${launch.ccd}); asked ${JSON.stringify(asked)}`);
       return connect.state();
-    } finally { subscription.setRunner(null); connect.setRefreshExpiryReader(null); }
+    } finally {
+      subscription.setRunner(null); connect.setRefreshExpiryReader(null);
+      if (unsetDir) { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = savedDir; console.warn = realWarn; }
+    }
   };
 }
 
+const MOVED = (b) => b + 30 * 86400000;
+
 driverTest('#3326: a forced re-login of a LIVE credential whose pane closed finishes when the refresh expiry moved forward', async () => {
-  const st = await reauthOnLiveWithExpiry((before) => before + 30 * 86400000)();
+  const st = await reauthOnLiveWithExpiry({ afterLogin: MOVED })();
   assert.equal(st.phase, connect.PHASE.CONNECTED,
     'the new login landed (refreshTokenExpiresAt jumped ~30 days) but the flow did not finish: ' + st.because);
 });
 
+driverTest('#3326: the same proof works with CLAUDE_CONFIG_DIR unset (the production default launch)', async () => {
+  const st = await reauthOnLiveWithExpiry({ afterLogin: MOVED, unsetDir: true })();
+  assert.equal(st.phase, connect.PHASE.CONNECTED, 'unset-arm login did not finish: ' + st.because);
+});
+
 driverTest('#3326 CONTROL: an unchanged refresh expiry is not proof, so it still goes STUCK (no false connected)', async () => {
-  const st = await reauthOnLiveWithExpiry((before) => before)();
+  const st = await reauthOnLiveWithExpiry({ afterLogin: (b) => b })();
   assert.equal(st.phase, connect.PHASE.STUCK,
     'an unchanged credential must not read as a completed login: ' + st.because);
+});
+
+driverTest('#3326 FAIL-CLOSED: a baseline read that failed (null) disables the proof, even if a later read succeeds', async () => {
+  // null at the start can mean "the read failed", so a later good read of the OLD credential
+  // must not look like a new login.
+  let first = true;
+  const st = await reauthOnLiveWithExpiry({ baseline: null, afterLogin: () => { first = false; return 1790000000000; } })();
+  assert.equal(first, false);
+  assert.equal(st.phase, connect.PHASE.STUCK,
+    'a failed baseline read must fall back to stuck, never connected: ' + st.because);
 });
 
 // #1922 (reauth-on-DEAD, the complement of the still-live test above): a RE-AUTH of a

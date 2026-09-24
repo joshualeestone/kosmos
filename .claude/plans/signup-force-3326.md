@@ -17,18 +17,21 @@ tick, so CONNECTED proves nothing. `claude auth login` exits on success and clos
 strand. #3367 avoided it by not forcing when the probe said live. Josh has ruled that out.
 
 ## Change
-- `engine/connect.js`: `loginLanded(owner)`, a single proof used by all four completion gates.
-  It is true on the login-done screen, OR when the credential's `refreshTokenExpiresAt` has moved
-  past a baseline read just before the launch (a real login moves it ~1 month). It reads through
-  `loginexpiry.refreshExpiryFor`, which returns only the timestamp and never a token, from the
-  entry the launch writes (`CLAUDE_CONFIG_DIR` = launchDir, or unset). Reads are throttled to
-  one per 3 s, behind a `setRefreshExpiryReader` seam, and never touch the real keychain under `node --test`.
+- `engine/connect.js`: `expiryMoved(owner)`, used ONLY at the pane-death gate (the capture-fail
+  rescue), where `claude auth login` has exited so its writes are done. It is true when the
+  credential's `refreshTokenExpiresAt` is later than a baseline read just before the launch. It
+  reads through `loginexpiry.refreshExpiryFor`, which returns only the timestamp, from the entry
+  the launch writes (`CLAUDE_CONFIG_DIR` = launchDir, or unset). **Fails closed:** a null baseline
+  (no entry OR a failed read) disables it for the flow, so a failed read followed by a good one
+  cannot make the old credential look new. macOS only; never the real keychain under
+  `node --test` (`setRefreshExpiryReader` seam). The gate still also requires checkLive CONNECTED.
 - `server.js`: the default sign-up start forwards `reauth` unconditionally; `reauthDecision`
   and the liveness probe gate are removed.
 - `web/index.html`: the `st.liveVerified` short-circuit is removed (the server never sends it now).
-- Tests: `engine/connect.test.js` adds a reauth-of-live whose pane closed, where a moved expiry
-  finishes CONNECTED and an unchanged one stays STUCK, and both assert the reader was asked about
-  the launch's config dir. `server.test.js` pins the unconditional forward and forbids the gate returning.
+- Tests (`engine/connect.test.js` "#3326"): moved expiry finishes CONNECTED (CCD set, and CCD unset
+  as production launches it); unchanged expiry stays STUCK; a null baseline stays STUCK even when a
+  later read succeeds. The reader's config dir is checked against the recorded launch argv.
+  `server.test.js` pins the unconditional forward. `engine.reachable.test.js` excuses the seam.
 
 ## Rejected
 - Keep #3367's gate: Josh ruled against it.
@@ -37,6 +40,11 @@ strand. #3367 avoided it by not forcing when the probe said live. Josh has ruled
 - Compare the access-token expiry (`expiresAt`): it auto-refreshes hourly without a login.
 
 ## Weakest premise
+A concurrent login elsewhere on the same keychain entry (the bare entry is shared by every
+CCD-unset Claude process) during a forced sign-up whose own login did not land would read as
+landed. The gate also requires checkLive CONNECTED, so the worst case is finishing on a credential
+that works, which is what #3367 did deliberately.
+
 That `claude auth login` over a working credential rewrites the same keychain entry with a later
 `refreshTokenExpiresAt`. #3532's memory measured /login moving it about a month, but not
 `auth login` on a still-valid credential. The real-Mac check (a live-credentialed sign-up
