@@ -141,7 +141,7 @@ function readUsage(page) {
       agentHead: ((document.querySelector('#usage-atable .tv-mrow.head > div') || {}).textContent || '').trim(),
       agentNames: [...document.querySelectorAll('#usage-atable .tv-mrow:not(.head) .tv-mnl')].map((e) => (e.textContent || '').trim()),
       agentMutedCount: document.querySelectorAll('#usage-atable .tv-mrow.muted').length,
-      agentBarsPainted: [...document.querySelectorAll('#usage-atable .tv-mbar span')].every((b) => b.getBoundingClientRect().width > 0),
+      agentBarsPainted: (() => { const bars = [...document.querySelectorAll('#usage-atable .tv-mbar span')]; return bars.length > 0 && bars.every((b) => b.getBoundingClientRect().width > 0); })(),
       agentFits: (() => { const el = document.getElementById('usage-atable'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
       // Mona's #3603 review: the non-agent label is a sentence and must read in full.
       mutedLabelWhole: (() => { const el = document.querySelector('#usage-atable .tv-mrow.muted .tv-mnl'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
