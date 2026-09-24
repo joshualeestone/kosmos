@@ -10435,7 +10435,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
      real. His point is that neither belongs on the screen that asks somebody to
      make their first agent, because both are the product talking about itself. */
   assert.match(empty.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i,
-    'the generic opening line is gone from the create-first-agent step');
+    'the create-first-agent step does not carry Josh\'s #3659 body line');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /everything is connected|everything is in place/i,
     'the screen claims everything is connected, which it cannot know on the skipped-check or failed-search paths');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /could not look|did not find any agents/i,

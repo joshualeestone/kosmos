@@ -61,7 +61,7 @@ async function landOnGiddyUp(browser, found, label) {
   }));
 
   chk(/ready to start using Kosmos/i.test(seen.heading), `[${label}] first run shows the Giddy Up heading, not a found list`, seen.heading);
-  chk(/let’s get started/i.test(seen.box), `[${label}] the Giddy Up copy is present`, seen.box.slice(0, 120));
+  chk(/create or import agents/i.test(seen.box), `[${label}] the Giddy Up copy is present`, seen.box.slice(0, 120));
   chk(seen.foundRowsOnScreen === 0, `[${label}] no found/scan/adopt rows render on first run`, String(seen.foundRowsOnScreen));
   chk(seen.countLine === null, `[${label}] no found-count line renders`, JSON.stringify(seen.countLine));
   chk(connectCalls === 0, `[${label}] nothing was auto-connected on first run`, String(connectCalls));

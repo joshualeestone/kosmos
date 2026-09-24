@@ -284,11 +284,11 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     ok(await page.isHidden('#firstrun'), 'the overlay closed');
     ok(await page.isVisible('.tab[data-tab="agents"].on'), 'Giddy Up landed on the Agents dashboard (#3575)');
     ok(await page.isHidden('#panel-create'), 'and did NOT open Create Agent (#3575)');
-    // The ending's import pointer says "choose New agent". This is the fleet-present (rich)
-    // board, where the empty state's "Create your first agent" button does not exist, so this
-    // is the case that proves the pointer names a control that is really there.
+    // The ending says "Head to your dashboard to create or import agents" (#3659). This is the
+    // fleet-present (rich) board, where the empty state's "Create your first agent" button does
+    // not exist, so this is the case that proves the dashboard it sends them to has a way to do it.
     ok(await page.isVisible('#new-agent') || await page.isVisible('#rail-agents-new'),
-      'a New agent control is on the populated dashboard, as the ending\'s pointer says');
+      'a New agent control is on the populated dashboard, as the ending promises');
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
       'the app behind is interactive again');
     // #3030: poll for the flag (its write can lag this read under cut load).

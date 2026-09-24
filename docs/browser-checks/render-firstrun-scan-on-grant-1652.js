@@ -87,7 +87,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     }));
 
     if (/ready to start using Kosmos/i.test(view.title)) ok('first run lands on the Giddy Up heading even with a grant + candidates'); else bad('Giddy Up heading', JSON.stringify(view.title));
-    if (/let’s get started/i.test(view.box)) ok('the Giddy Up copy is present'); else bad('Giddy Up copy', view.box.slice(0, 160));
+    if (/create or import agents/i.test(view.box)) ok('the Giddy Up copy is present'); else bad('Giddy Up copy', view.box.slice(0, 160));
     if (view.scanRows === 0) ok('no scan/found rows render on first run'); else bad('scan/found rows still render', String(view.scanRows));
     // The onboarding granted-scan is /api/scan-import (frScanAgents uses it when granted), so
     // scan-import === 0 is the suppression signal: the onboarding auto-scan and the grant-flip
