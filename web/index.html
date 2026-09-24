@@ -2466,15 +2466,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    max-width:100% so it cannot overflow a narrow column (render-settings-nav.js confirms no
    overflow at 420px). */
 #s-nav { width: max-content; max-width: 100%; }
-/* #3045 (Josh, 6.63 review): the "Model and Memory" pill (#2916's combined section) is the
-   longest label in this 176px nav column, and at the default 28px side padding it word-wrapped
-   to two lines. Keep it on one line: nowrap plus a little more inner room (18px sides) so the
-   label has real slack rather than a 1px-tight fit that could wrap or clip on another render.
-   Anchored to #d-nav (the agent-view nav), NOT the shared .snav: .snav is also the Settings
-   nav (#s-nav), so keying on #d-nav makes the scope structural rather than relying on
-   data-go="model" being unique. The button is width:100% with centered text, so the reduced
-   side padding is invisible (same box, same centering) and no other nav button changes. */
-#d-nav button[data-go="model"] { white-space: nowrap; padding-left: 18px; padding-right: 18px; overflow: hidden; text-overflow: ellipsis; }
+/* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
+   side padding, because that centered full-width pill was the longest label and word-wrapped.
+   #3500 supersedes it: the pill is relabelled "AI Settings" (shorter), the buttons are flex
+   icon+label boxes with a left-aligned label, and `#d-nav .dnav-lab` above carries
+   `overflow:hidden; text-overflow:ellipsis; white-space:nowrap` for EVERY boxed label, so the
+   one-off model rule (which no longer clips correctly on a flex container) is removed. */
 .snav button.on { background: var(--gold); border-color: var(--gold); color: #14161a; font-weight: 600; }
 .snav button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .snav .sep { height: 1px; background: var(--k-rule); margin: 8px 14px; }
@@ -2500,7 +2497,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #d-nav.dnav-boxed button:hover { color: var(--k-ink); border-color: var(--k-ink-2); }
 #d-nav .dnav-ico { flex: none; display: inline-flex; }
 #d-nav .dnav-ico svg { display: block; }
-#d-nav .dnav-lab { min-width: 0; }
+#d-nav .dnav-lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Direct Message: the largest box and the default landing. */
 #d-nav .dnav-dm { padding: 16px; font-size: 1.0625rem; border-radius: 14px; }
 /* The four smaller boxes below the DM box. A single column of full-width icon+label boxes rather
@@ -2515,7 +2512,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    wash + a gold outline + a gold-deep icon, with the label in ink, so "selected" reads without the
    loud slab. Scoped to #d-nav so #s-nav keeps its own .on. Alternatives to show him: (b) a gold
    left-accent bar only, no fill; (c) gold icon + a gold underline, no fill/outline. */
-#d-nav.dnav-boxed button.on { background: rgba(214,166,46,.12); border-color: var(--gold); color: var(--k-ink); }
+#d-nav.dnav-boxed button.on { background: rgba(214,166,46,.12); border-color: var(--gold-edge); color: var(--k-ink); }
 #d-nav.dnav-boxed button.on .dnav-ico { color: var(--gold-deep, var(--gold)); }
 /* The needs-you dot sits at the box's top-right in this layout, not vertically centred at the edge. */
 #d-nav.dnav-boxed button .dot { top: 10px; right: 10px; transform: none; }
@@ -8687,9 +8684,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        their grouping moved. A hidden section is still painted by the poll,
        because the painters write by id and never ask whether they are on
        screen, which is what lets a switch be instant.
-       🔑 TWO LABELS CARRY THE AGENT'S NAME ("Talk to April", "Remove April")
-       and are painted by `detailNavNames` from `a.name`, on open and after a
-       rename. The markup ships the nameless form so a painter that returns
+       🔑 THE AGENT'S NAME IS CARRIED where a bare label would be unsafe: the
+       "Change & Restart <name>" model button and the Remove section's aria-label
+       (#3500 made the DM box a fixed "Direct Message" and folded Remove into
+       Advanced, so those two pills no longer carry it). `detailNavNames` paints
+       them from `a.name`, on open and after a rename. The markup ships the nameless form so a painter that returns
        early never leaves the previous agent's name on a button.
        🔑 THE DOT IS A SHAPE, so it survives greyscale; colour reinforces. It is
        set by `detailDots` from the same facts the sections render (a needs_you
@@ -9388,9 +9387,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          was editing stayed behind. -->
     <div class="frow">
       <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
-      <!-- "Remove picture", not "Remove": this row sits on a page whose last
-             pill is "Remove <name>", and a bare verb beside "Change picture"
-             reads as the agent until you have pressed it (#406). -->
+      <!-- "Remove picture", not "Remove": a bare verb beside "Change picture"
+             reads as removing the AGENT until you have pressed it (#406). (This
+             page also has a "Remove <name>" control, in the Advanced section since
+             #3500 folded it there.) -->
         <button class="btn" id="d-remove" type="button">Remove picture</button>
       <input type="file" id="d-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
     </div>
@@ -26656,9 +26656,9 @@ function detailGo(section, opts) {
   target = detailSection(group[0]);
   /* 🔑 FOCUS MOVES INTO THE SECTION ON A CLICK, so a keyboard user's next Tab
      is the first control of what they asked for rather than the next pill.
-     (Shift+Tab from there lands on the last pill, Remove, because that is DOM
-     order; the pill they came from is a few more presses back. Known, not a
-     trap.) On
+     (Shift+Tab from there lands on the last pill, Advanced, because that is DOM
+     order - #3500 folded Remove under Advanced, so Advanced is now the last pill;
+     the pill they came from is a few more presses back. Known, not a trap.) On
      open it stays where it was: opening an agent already manages focus (the
      answer button's intent, the back button), and yanking it here would fight
      that. */
