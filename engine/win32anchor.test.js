@@ -381,7 +381,6 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
   /* On Windows the process runs ON the anchored copy, so its lock is real. Elsewhere it runs on
      the original interpreter: the anchored path holds only a text stand-in (#3634). */
   const runOn = process.platform === 'win32' ? nodeAt : process.execPath;
-  /* THE invariant that removes the #3634 hazard: off Windows nothing execs the anchored path. */
   if (process.platform !== 'win32') assert.notEqual(runOn, nodeAt, 'off Windows the arm must not exec the anchored interpreter (#3634)');
   const running = cp.spawn(runOn, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   const stillRunning = () => running.exitCode === null && running.signalCode === null;
