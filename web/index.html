@@ -11278,19 +11278,31 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon" title="Gemini connects with an API key in Settings, AI Models, once setup is done.">After setup</span></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
                 <!-- #3386 (Josh, 2026-09-21): Grok shown up front, grouped with
                      Gemini (the other cloud provider, connected in Settings, AI Models) before the on-your-
                      computer tier. xAI has no vendor SVG here, so it uses the same "X" initial-letter
                      chip the provider combobox falls back to, not a new asset. -->
-                <div class="llm off"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><span class="soon" title="Grok connects with an API key in Settings, AI Models, once setup is done.">After setup</span></div>
-                <!-- #3566 (Splinter's scope call, 2026-09-24): Gemini and Grok are connectable now, but
-                     in Settings, AI Models, not in this wizard: the wizard's Continue and first-agent
-                     steps are built for Claude and OpenAI. So their pill says "After setup" rather than
-                     "Coming soon", and this line says where. Same .llm off weight as the roster below,
-                     because they cannot be connected FROM here. -->
-                <p class="dhint" id="fr-later-models" style="margin:4px 0 10px;">Gemini and Grok connect with an API key in Settings, AI Models, once setup is done.</p>
-                <p class="smore-t">Runs on this computer</p>
+                <div class="llm on"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
+                <!-- #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE, with the same gold
+                     Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
+                     One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
+                     (same POST /api/accounts/{gemini|grok}/apikey, same ACCT_APIKEY_PROVIDERS), the
+                     way #fr-openai-flow mirrors #acct-openai-flow. API KEY ONLY for now: the
+                     subscription sign-in for Grok waits on #3391 and for Gemini on #3568, and a
+                     subscription button that dead-ends is worse than none. There is no managed
+                     installer for either runner yet (engine/runners.js), so a missing runner is
+                     said plainly from the route's own needsRunner answer. The "Runs on this
+                     computer" subheading is gone too: one uninterrupted list, in PROVIDER_ORDER. -->
+                <div id="fr-apikey-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-apikey-t">
+                  <p class="fr-confirm-t" id="fr-apikey-t">Paste an API key.</p>
+                  <div class="frow"><a class="btn" id="fr-apikey-getkey" href="#" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow" style="margin-top:8px;">
+                    <input type="password" id="fr-apikey-key" autocomplete="new-password" spellcheck="false" aria-label="API key" placeholder="API key">
+                    <button class="btn uprime" id="fr-apikey-go" type="button">Add</button>
+                  </div>
+                </div>
+                <div class="dhint" id="fr-apikey-msg" role="status" aria-live="polite"></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
@@ -22958,6 +22970,101 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
   } finally {
     // Only this visit's own request re-arms its button; a stale one must not arm a newer one.
     if (ACCT_APIKEY_GEN === mine) go.disabled = false;
+  }
+});
+/* #3658: Gemini and Grok connect from first run's model step, by API key (the only path
+   that works today for both). The box is shared; FR_APIKEY_WHICH is the provider it is
+   open for ('google' | 'xai'), read from ACCT_APIKEY_PROVIDERS so the route, vendor and
+   key hint are Settings' own. FR_APIKEY_GEN drops an answer that returns after the box was
+   switched or closed, the same guard Settings uses. */
+const FR_APIKEY_GETKEY = { google: 'https://aistudio.google.com/app/apikey', xai: 'https://console.x.ai/' };
+let FR_APIKEY_WHICH = null;
+let FR_APIKEY_GEN = 0;
+function frApikeyOpen(which) {
+  FR_APIKEY_GEN += 1;
+  const flow = document.getElementById('fr-apikey-flow');
+  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
+  const same = FR_APIKEY_WHICH === which && !flow.hidden;
+  for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
+    const b = document.getElementById(id);
+    if (b) b.setAttribute('aria-expanded', String(!same && b.dataset.keyed === which));
+  }
+  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; return; }   // a second press closes it
+  if (FR_APIKEY_WHICH !== which) {
+    const k = document.getElementById('fr-apikey-key'); k.value = '';
+    document.getElementById('fr-apikey-msg').textContent = '';
+  }
+  FR_APIKEY_WHICH = which;
+  const article = /^(x|[aeiou])/i.test(p.vendor) ? 'an ' : 'a ';   // "an xAI key"
+  document.getElementById('fr-apikey-t').textContent = 'Paste ' + article + p.vendor + ' API key for ' + p.name + '. A key is a bit like a password that ' + p.vendor + ' issues for this computer.';
+  document.getElementById('fr-apikey-getkey').href = FR_APIKEY_GETKEY[which] || '#';
+  const key = document.getElementById('fr-apikey-key');
+  key.setAttribute('aria-label', p.name + ' API key');
+  key.placeholder = p.hint;
+  flow.hidden = false;
+  key.focus();
+}
+/* Paint one keyed row's Connect as Connected (green check, disabled) or Connect, from a
+   known answer or from /api/accounts, the way frPaintOpenai does for GPT. A read that
+   fails or cannot tell leaves the row as it was. */
+async function frPaintKeyed(known) {
+  let list = known;
+  if (!list) {
+    try {
+      const res = await fetch('/api/accounts', { cache: 'no-store' });
+      if (!res.ok) return;
+      list = ((await res.json()) || {}).accounts || [];
+    } catch { return; }
+  }
+  for (const [id, provider] of [['fr-gemini-connect', 'google'], ['fr-grok-connect', 'xai']]) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    const a = list.find((x) => acctProvider(x) === provider && x.connection && x.connection.state === 'connected');
+    const connected = !!a;
+    b.innerHTML = connected ? '<span aria-hidden="true">✓</span> Connected' : 'Connect';
+    b.disabled = connected;
+    b.classList.toggle('is-connected', connected);
+    b.setAttribute('aria-disabled', String(connected));
+  }
+}
+for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
+  const b = document.getElementById(id);
+  if (b) b.addEventListener('click', () => frApikeyOpen(b.dataset.keyed));
+}
+document.getElementById('fr-apikey-go').addEventListener('click', async () => {
+  const which = FR_APIKEY_WHICH;
+  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
+  const keyField = document.getElementById('fr-apikey-key');
+  const go = document.getElementById('fr-apikey-go');
+  const msg = document.getElementById('fr-apikey-msg');
+  if (!p) return;
+  const key = keyField.value.trim();
+  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  const mine = FR_APIKEY_GEN;
+  go.disabled = true;
+  msg.textContent = 'Checking the key with ' + p.vendor + '…';
+  try {
+    const res = await fetch('/api/accounts/' + p.route + '/apikey', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
+    });
+    const out = await res.json().catch(() => null);
+    if (mine !== FR_APIKEY_GEN) return;
+    if (!res.ok) {
+      if (out && out.needsRunner) throw new Error('The ' + p.name + ' runner is not installed on this computer yet, so there is nothing to connect it to. You can carry on and connect ' + p.name + ' later in Settings, AI Models.');
+      throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
+    }
+    keyField.value = '';
+    document.getElementById('fr-apikey-flow').hidden = true;
+    FR_APIKEY_WHICH = null;
+    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
+    msg.textContent = unknown
+      ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
+      : p.name + ' is connected.';
+    await frPaintKeyed();
+  } catch (err) {
+    if (mine === FR_APIKEY_GEN) msg.textContent = String((err && err.message) || 'We could not add that key.');
+  } finally {
+    if (mine === FR_APIKEY_GEN) go.disabled = false;
   }
 });
 document.getElementById('acct-openai-pick-sub').addEventListener('click', () => acctOpenaiChoose('sub'));
@@ -48824,6 +48931,7 @@ function frGo(step) {
     // running server-side is repainted by frConnResume once its answer arrives.
     frPaintSubscription();
     frPaintOpenai();
+    frPaintKeyed();   // #3658: Gemini and Grok rows show Connected when an account already is
     frConnResume();
   } else if (step === 6) {
     // S6 Self improving: one consent switch (the daily feedback report). #11

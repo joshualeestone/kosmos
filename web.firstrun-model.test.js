@@ -158,15 +158,18 @@ test('no disclosure survives: all eleven providers render in the open', () => {
      works via Settings, so first-run stopped saying otherwise. #1040 added four
      more, and #3386 added Grok up front (Josh, 2026-09-21), honouring "show all the
      models"; the sticky footer already removed the fold tension six rows once created. */
-  /* #3566: Gemini and Grok stay at `.llm off` weight (they cannot be connected FROM the
-     wizard) but their pill now reads "After setup", because Settings, AI Models connects
-     them. The other seven still say "Coming soon". */
-  assert.equal((STEP.match(/class="llm off"/g) || []).length, 9,
-    'expected exactly the nine not-connectable-here providers at .llm off weight');
+  /* #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE now, with the gold
+     Connect, so they are `.llm on` like Claude and GPT and carry no pill. The seven
+     genuinely unavailable providers stay `.llm off` and say "Coming soon", and no
+     "After setup" pill survives (it said the opposite of what the row now does). */
+  assert.equal((STEP.match(/class="llm off"/g) || []).length, 7,
+    'expected exactly the seven not-yet-available providers at .llm off weight');
+  assert.equal((STEP.match(/class="llm on"/g) || []).length, 4,
+    'expected Claude, GPT, Gemini and Grok as connectable rows');
   assert.equal((STEP.match(/class="soon"[^>]*>Coming soon</g) || []).length, 7,
     'expected a "Coming soon" pill on each of the seven still-unavailable providers');
-  assert.equal((STEP.match(/class="soon"[^>]*>After setup</g) || []).length, 2,
-    'expected an "After setup" pill on Gemini and Grok, which connect in AI Models');
+  assert.equal((STEP.match(/After setup/g) || []).length, 0,
+    'an "After setup" pill came back; Gemini and Grok connect on this step (#3658)');
 });
 
 test('every provider carries a real, inlined vendor mark', () => {
@@ -182,13 +185,18 @@ test('every provider carries a real, inlined vendor mark', () => {
      means the grayscale/opacity filter lifts, not a colour change. */
   assert.match(STEP, /class="llm-m pmark live" data-pmark="claude"/, 'Claude is not a live mark');
   assert.match(STEP, /class="llm-m pmark live" data-pmark="openai"/, 'OpenAI is not a live mark');
-  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 8,
-    'expected all eight still-coming-soon marks to be dimmed');
+  /* #3658: Gemini's mark is live now (it connects here); the seven coming-soon marks stay dim. */
+  assert.match(STEP, /class="llm-m pmark live" data-pmark="gemini"/, 'Gemini is not a live mark');
+  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 7,
+    'expected all seven still-coming-soon marks to be dimmed');
 });
 
 test('the tier label and its separator match the rest of the product', () => {
-  assert.match(STEP, /<p class="smore-t">Runs on this computer<\/p>/,
-    'the "Runs on this computer" tier heading is missing or changed shape');
+  /* #3658 (Josh): "kill 'Runs on this computer' ... just list all the models in a single
+     uninterrupted list." Its ABSENCE is asserted, so a branch cut before this cannot
+     silently bring it back (the #1214-era deletion that came back is the precedent). */
+  assert.doesNotMatch(STEP, /Runs on this computer/, 'the "Runs on this computer" tier heading came back');
+  assert.doesNotMatch(STEP, /class="smore-t"/, 'a tier heading came back inside the model list');
   /* The house never ships an em dash in PRODUCT-FACING TEXT (code comments
      are a different convention and use them freely, including several in
      this very step's own build comments) -- so this strips HTML comments

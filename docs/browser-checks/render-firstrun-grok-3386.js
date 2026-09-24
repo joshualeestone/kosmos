@@ -40,9 +40,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     const res = await page.evaluate(() => {
       const fr = document.getElementById('firstrun'); if (fr) fr.hidden = false;
       const pane = document.getElementById('fr-pane-5'); if (pane) pane.hidden = false;
+      /* #3658: Grok is a connectable (.llm.on) row now, so it is looked up among ALL rows. */
       const tiles = [...(pane ? pane.querySelectorAll('.llm.off') : [])];
+      const rows = [...(pane ? pane.querySelectorAll('.llm') : [])];
       const nameOf = (tile) => { const b = tile.querySelector('.llm-w b'); return b ? b.textContent : null; };
-      const grok = tiles.find((el) => nameOf(el) === 'Grok') || null;
+      const grok = rows.find((el) => nameOf(el) === 'Grok') || null;
       const kids = pane ? [...pane.querySelectorAll('.llm, .smore-t')] : [];
       const idxName = (nm) => kids.findIndex((k) => k.classList.contains('llm') && (k.querySelector('.llm-w b') || {}).textContent === nm);
       const dividerIdx = kids.findIndex((k) => k.classList.contains('smore-t'));
@@ -53,7 +55,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         hasGrok: !!grok,
         grokCompany: grok ? (grok.querySelector('.llm-w small') || {}).textContent : null,
         grokSoon: grok ? !!grok.querySelector('.soon') : false,
-        grokPill: grok && grok.querySelector('.soon') ? grok.querySelector('.soon').textContent.trim() : null,
+        grokOn: grok ? grok.classList.contains('on') : false,
+        grokConnect: grok && grok.querySelector('.connect-b') ? grok.querySelector('.connect-b').id : null,
         markText: mark ? (mark.textContent || '').trim() : null,
         markHasSvg: mark ? !!mark.querySelector('svg') : null,
         markVisible: mark ? mark.offsetParent !== null : false,
@@ -64,11 +67,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
 
     ok(t + ' #3386 fr-pane-5 (the model step) is present', res.paneFound === true, JSON.stringify(res));
-    /* #3566: Grok connects in Settings, AI Models now, so its pill says "After setup", never "Coming soon". */
-    ok(t + ' #3386/#3566 a Grok / xAI tile is in the model step, pointing to after setup', res.hasGrok === true && res.grokCompany === 'xAI' && res.grokSoon === true && res.grokPill === 'After setup', JSON.stringify(res));
+    /* #3658 (superseding #3566's "After setup"): Grok connects on this step, with a gold Connect and no pill. */
+    ok(t + ' #3386/#3658 a Grok / xAI row is in the model step and connects right here', res.hasGrok === true && res.grokCompany === 'xAI' && res.grokOn === true && res.grokSoon === false && res.grokConnect === 'fr-grok-connect', JSON.stringify(res));
     ok(t + ' #3386 Grok uses the "X" initial-letter chip, not a (wrong-brand) SVG', res.markText === 'X' && res.markHasSvg === false, JSON.stringify(res));
-    ok(t + ' #3386 Grok is grouped with Gemini before the "Runs on this computer" divider', res.geminiIdx >= 0 && res.grokIdx === res.geminiIdx + 1 && res.dividerIdx > res.grokIdx, JSON.stringify(res));
-    ok(t + ' #3386 nine not-connectable-here tiles in the model step (Gemini + Grok + seven)', res.offCount === 9, JSON.stringify(res));
+    ok(t + ' #3386/#3658 Grok sits right under Gemini, in one list with no tier divider', res.geminiIdx >= 0 && res.grokIdx === res.geminiIdx + 1 && res.dividerIdx === -1, JSON.stringify(res));
+    ok(t + ' #3658 seven not-yet-available tiles in the model step', res.offCount === 7, JSON.stringify(res));
     // Visual: only meaningful if the pane actually laid out (file:// nav can bail). This is a flat
     // assertion harness with no real gating, so the two arms below are companion diagnostics, not a
     // gate: if the pane did not lay out BOTH fail, and the first tells you WHY (not laid out) vs the
