@@ -22,9 +22,14 @@
  * this directory keeps getting burned by. The push is delivered THROUGH the
  * worker's own handler via CDP, so a broken or missing `push` listener fails it.
  *
- * ⚠️ HEADED BY DEFAULT like every check here (HEADED=0 for a no-console machine).
- * A real notification platform is most reliable headed; the release-cut gate runs
- * these headed.
+ * ⚠️ HEADED BY DEFAULT like every check here (HEADED=0 for a no-console machine,
+ * which includes the staging-cut gate). The notification-RENDER read needs a real
+ * notification platform, which only HEADED provides: headless Chromium delivers
+ * the push to the worker's handler but returns [] from getNotifications(). So that
+ * one assertion is headed-only and is skipped (with a printed SKIP line) under
+ * HEADED=0; everything else -- serve/register/control and the CDP push delivery --
+ * still runs headless, and the payload mapping is covered headless by the node
+ * suite web.sw-718.test.js. See the HEADED gate at the render assertion below.
  *
  * Needs a board with first run already complete (the driver runs it on the shared
  * $B8 board) -- see the README.
@@ -37,6 +42,13 @@ const playwright = require('playwright');
 
 const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 
+// HEADED vs headless is a per-machine choice (see BROWSER_TESTING): a console
+// machine runs headed; a CI/cron/no-console box, and the staging-cut gate, run
+// headless via HEADED=0. It gates the notification-RENDER assertion below:
+// headless Chromium delivers a push to the worker's handler but does not surface
+// the notification to getNotifications(), so that one read is headed-only.
+const HEADED = process.env.HEADED !== '0';
+
 const results = [];
 function check(name, pass, detail) {
   results.push({ name, pass: Boolean(pass), detail });
@@ -46,7 +58,7 @@ function check(name, pass, detail) {
 (async () => {
   const origin = new URL(BASE).origin;
 
-  const browser = await playwright.chromium.launch({ headless: process.env.HEADED === '0' });
+  const browser = await playwright.chromium.launch({ headless: !HEADED });
   const ctx = await browser.newContext({
     viewport: { width: 1280, height: 1400 },
     serviceWorkers: 'allow',
@@ -163,27 +175,32 @@ function check(name, pass, detail) {
     deliverErr = String((e && e.message) || e);
   }
   check('a push was delivered to the worker (CDP)', delivered, deliverErr);
-  /* Assert the DERIVED notification, not an echoed one: sw.js maps
-     kind+agent+project -> headline ("Scorpion needs you" / "In Kosmos Inside
-     Out") and address -> an https click-through to her own Mac. A worker that
-     ignored the coordinator shape (the old {title,body,url} reader) would show
-     "Kosmos" / generic and open "/", and fail all three. */
-  const hit = shown.find((n) =>
-    n.title === 'Scorpion needs you' &&
-    n.body === 'In Kosmos Inside Out' &&
-    n.url === 'https://study.kosmos.example/');
-  /* #3552 / #3510: PENDING, not a failure. The coordinator-push -> sw.js
-     mapped-notification path is unfinished - #3510 (webpush thin coordinator
-     proxies) is still OPEN - so this assertion tests an incomplete path and is red
-     on origin, blocking the 0.6.91 cut. The push IS delivered to the worker (the
-     assertion just above passes); only the coordinator->headline mapping is not
-     wired yet, so `shown` is empty. Marked pending on #3510 per Splinter's ruling
-     (2026-09-24), SKIPPED not deleted: restore this check() when #3510 lands.
-     Logged as SKIP so it is neither pass nor fail (not pushed to `results`), same
-     pattern as render-thread's #3557 focus SKIP. */
-  process.stdout.write(`  SKIP  the delivered coordinator push produced the mapped notification `
-    + `(pending on #3510: push proxy path still open; shown=${JSON.stringify(shown).slice(0, 200)}; `
-    + `derived-match=${!!hit})\n`);
+  /* The notification-RENDER read is HEADED-ONLY. Headless Chromium delivers the
+     push to the worker's handler (the check above passes) but does NOT surface
+     the notification to getNotifications() -- measured in both arms against a
+     board with no coordinator proxies: headed returns the mapped notification,
+     headless returns []. That is a browser-platform limitation, not a product
+     failure, so under HEADED=0 we skip only this render read rather than
+     false-fail the headless cut gate. The coordinator-payload MAPPING itself
+     (sw.js deriving kind+agent+project -> headline and address -> the https
+     click-through) is covered headless by the node suite web.sw-718.test.js
+     (notificationFor), so nothing about the mapping goes unverified when skipped.
+     (This supersedes the #3552 stopgap that skipped UNCONDITIONALLY on a
+     "#3510 / mapping unwired" rationale: verified false -- the mapping renders
+     correctly headed, independent of #3510, so the skip is headless-only.)
+     When HEADED, assert the DERIVED notification (not an echoed one): a worker
+     that ignored the coordinator shape (the old {title,body,url} reader) would
+     show "Kosmos" / generic and open "/", and fail all three. */
+  if (HEADED) {
+    const hit = shown.find((n) =>
+      n.title === 'Scorpion needs you' &&
+      n.body === 'In Kosmos Inside Out' &&
+      n.url === 'https://study.kosmos.example/');
+    check('the delivered coordinator push produced the mapped notification', !!hit,
+      JSON.stringify(shown).slice(0, 240));
+  } else {
+    console.log('SKIP  the delivered coordinator push produced the mapped notification (headed-only: headless has no notification platform to read via getNotifications; mapping covered by web.sw-718.test.js)');
+  }
 
   check('no page errors', errors.length === 0, errors.join(' | ').slice(0, 160));
   await browser.close();
