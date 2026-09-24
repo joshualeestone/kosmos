@@ -273,8 +273,13 @@ function check(name, pass, detail) {
        coming soon. This assertion moved WITH the product in the same change,
        per the menu's own instruction that whoever wires a second provider
        enables its option in the same commit. */
-    check(`[${engine}] two providers can be chosen and the rest are refused up front`,
-      enabled.length === 2
+    /* #3566: Gemini and Grok joined, GATED on a connected account of theirs
+       (paintKeyedProviderOptions), so on a machine without one they are refused up front
+       like the roster and on a machine with one they are choosable. Either is correct; what
+       must hold is that nothing OUTSIDE those four is ever choosable and the two always-on
+       providers always are. */
+    check(`[${engine}] Anthropic and OpenAI can be chosen, Gemini/Grok only when connected, and the rest are refused up front`,
+      enabled.every(([t]) => /anthropic|openai|gemini|grok/i.test(t))
         && enabled.some(([t]) => /anthropic/i.test(t))
         && enabled.some(([t]) => /openai/i.test(t))
         && seen.providers.length === 8,

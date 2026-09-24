@@ -163,3 +163,26 @@ test('DELETE grok: a name-shaped non-account is refused (defence in depth on a d
   assert.match((await r.json()).error, /not a Grok account/);
   assert.ok(fs.existsSync(bogus), 'the non-account folder is left untouched');
 });
+
+/* #3566: the Settings form sends no label (the person's optional words are the display
+   `name`), so a blank label takes the next free work slot rather than being refused. */
+test('#3566 store: no label -> the next free work slot, and the display name is kept', async () => {
+  grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const r = await post('/api/accounts/grok/apikey', { key: 'xai-nolabel-key-12345678', name: 'Josh Grok' });
+  assert.equal(r.status, 200, 'a label-less add must not be refused');
+  const b = await r.json();
+  assert.match(b.account.label, /^work\d+$/, 'a blank label takes a work slot: ' + b.account.label);
+  assert.equal(b.account.dir, nodePath.join(SANDBOX, '.grok-' + b.account.label));
+  assert.equal(grokAccounts.readName(b.account.dir), 'Josh Grok', 'the display name travels separately');
+  // A second label-less add takes a DIFFERENT slot, never the same account.
+  const r2 = await post('/api/accounts/grok/apikey', { key: 'xai-nolabel-key-87654321' });
+  assert.equal(r2.status, 200);
+  const b2 = await r2.json();
+  assert.notEqual(b2.account.dir, b.account.dir, 'two label-less adds landed on one account');
+});
+
+test('#3566 store CONTROL: an explicit label is still validated (a blank-label fallback did not swallow it)', async () => {
+  geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const r = await post('/api/accounts/gemini/apikey', { label: 'default', key: 'AIzaSy-reserved-label-key-1234' });
+  assert.equal(r.status, 400, '"default" is reserved and must still be refused');
+});

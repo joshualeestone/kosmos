@@ -86,6 +86,9 @@ function world(pageText, { accounts, unreadable, current, providerValue }) {
     _html: '',
     selectedIndex: 0,
     options: [],
+    // #3566: the picker names its provider in its accessible name ("Gemini sign-in to run on").
+    attrs: {},
+    setAttribute(k, v) { this.attrs[k] = String(v); },
     get innerHTML() { return this._html; },
     set innerHTML(v) { this._html = v; this.options = optionsOf(v); },
   };
@@ -96,6 +99,7 @@ function world(pageText, { accounts, unreadable, current, providerValue }) {
     CURRENT: current,
     ACCOUNTS: accounts,
     ACCOUNTS_UNREADABLE: unreadable,
+    ACCOUNTS_LOADED: true,
     SWITCH_ACCT_TOUCHED: false,
     SWITCH_ACCT_SAID: '',
     console,
@@ -103,7 +107,11 @@ function world(pageText, { accounts, unreadable, current, providerValue }) {
   vm.runInNewContext(
     // #2095: fillSwitchAccounts now disambiguates via accountQualifiers and names
     // accounts through acctPrimaryName (which calls acctChosenName); lift all three.
-    page.liftAll(script, ['esc', 'openaiAllDead', 'accountQualifiers', 'acctChosenName', 'acctPrimaryName', 'fillSwitchAccounts'])
+    // #3566: and the keyed-provider helpers it now reads (acctProvider over the route
+    // table, the Gemini/Grok gate paintKeyedProviderOptions, and switchKeyedWord).
+    page.liftAll(script, ['esc', 'openaiAllDead', 'accountQualifiers', 'acctChosenName', 'acctPrimaryName', 'fillSwitchAccounts',
+      'acctProvider', 'paintKeyedProviderOptions', 'switchKeyedWord', 'acctOfferableTarget'])
+    + '\n' + page.liftConst(script, 'ACCT_KEYED_ROUTE')
     + '\n' + page.liftConst(script, 'providerOf')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_HINT')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_UNREADABLE')

@@ -51,6 +51,15 @@ function runFillCreate(accounts, providerValue) {
   const chosenNameSrc = grab('function acctChosenName(');
   const primNameSrc = grab('function acctPrimaryName(');
   const fillSrc = grab('function fillCreateAccounts(');
+  // #3566: fillCreateAccounts reads the provider through acctProvider (and its route
+  // table), gates Gemini/Grok with paintKeyedProviderOptions, and names a keyed
+  // fallback with switchKeyedWord, so the eval scope carries all four.
+  const routeAt = PAGE.indexOf('const ACCT_KEYED_ROUTE');
+  assert.notEqual(routeAt, -1, 'ACCT_KEYED_ROUTE is gone from the page');
+  const routeSrc = PAGE.slice(routeAt, PAGE.indexOf('\n', routeAt));
+  const provSrc = grab('function acctProvider(');
+  const paintSrc = grab('function paintKeyedProviderOptions(');
+  const wordSrc = grab('function switchKeyedWord(');
   const asel = { innerHTML: '' };
   const provider = { value: providerValue || 'anthropic' };
   const document = {
@@ -64,6 +73,10 @@ function runFillCreate(accounts, providerValue) {
     ${qualSrc}
     ${offerSrc}
     ${unkSrc}
+    ${routeSrc}
+    ${provSrc}
+    ${paintSrc}
+    ${wordSrc}
     let CREATE_ACCOUNTS = accounts;
     ${fillSrc}
     fillCreateAccounts();

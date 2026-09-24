@@ -1691,7 +1691,17 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
       if (shape) { sendJson(res, 400, { error: shape }); return; }
       // Taken-label guard BEFORE the live check (so a doomed add does not send the key
       // to the provider) and BEFORE storeKey (never write a key into an EXISTING account).
-      const named = mod.dirForLabel(body.label);
+      /* #3566: the Settings form makes the label optional, the same as OpenAI's: a blank
+         label takes the first free work slot (~/.gemini-work1, ~/.grok-work1, ...), and the
+         human-chosen display name travels separately in `body.name`. An explicit label keeps
+         its old validation, so an API caller naming a slot is unchanged. */
+      let named;
+      if (body.label === undefined || body.label === null || String(body.label).trim() === '') {
+        const spot = mod.nextWorkDir();
+        named = spot ? { ok: true, label: spot.label, dir: spot.dir } : { ok: false, because: `there is no free spot for another ${providerLabel} account on this computer` };
+      } else {
+        named = mod.dirForLabel(body.label);
+      }
       if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
       if (mod.identityOf(named.dir)) {
         sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
@@ -1750,7 +1760,10 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
       }
       const result = remove ? mod.removeAccount(dir, usedBy) : mod.forgetAccount(dir, usedBy);
       if (!result.ok) {
-        sendJson(res, 400, { error: result.because, usedBy: result.usedBy || [] });
+        /* #3566: stopUnavailable -- this route has no disconnect-and-stop (see above), so
+           the Settings row must not offer "Disconnect and stop X?", a press that could
+           only be refused again. The page reads this flag for exactly that. */
+        sendJson(res, 400, { error: result.because, usedBy: result.usedBy || [], stopUnavailable: true });
         return;
       }
       sendJson(res, 200, remove
