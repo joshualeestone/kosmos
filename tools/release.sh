@@ -530,7 +530,8 @@ step "== 1c. the signing key answers, before anything is bumped or built (#3579)
 # Step 4 signs Developer ID. A locked login keychain (any plain SSH session, or a cut
 # detached from the session that unlocked it) made 0.6.91's first cuts die THERE, after
 # ~22 minutes of suite and page layer, and a cut does not resume. One throwaway test-sign
-# here costs about a second and mutates nothing, so a refusal leaves no pushed bump.
+# here costs about a second and mutates nothing, so a refusal leaves no pushed bump. It also
+# checks the Installer identity and the notary key that 3c's pkg rebuild needs (#3647).
 kosmos_sign_preflight || exit 1
 
 step "== 2. the version, in one place =="
