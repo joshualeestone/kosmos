@@ -5,7 +5,7 @@
 (backticks, $, quotes, backslashes, newlines, tabs, inner CRs; trailing CR/LF run, a leading BOM
 and non-whitespace control characters such as ESC are dropped), combines with --no-reply in either order, and refuses
 (exit 2, nothing sent) when args are also given, when nothing (or only whitespace/control characters)
-is piped, when stdin is a terminal (bash), when the pipe went quiet without ending (Windows only, same
+is piped, when stdin is a terminal, when the pipe went quiet without ending (Windows only, same
 guard as feedback write), or when the encoded request body is over the board's 6 MB request-read limit
 (measured after JSON escaping; the room's own, much lower text cap refuses with its own sentence).
 Without --stdin the message source is unchanged; the bash escaper's tab/CR/control handling does
@@ -29,6 +29,8 @@ Known asymmetries, accepted:
   empty refusal carries the existing POWERSHELL_PIPE_NOTE. Git Bash (kosmos.sh execs node) works.
 
 ## Decisions
+- Both CLIs read at most one byte past the board's 6 MB limit, judged on the raw bytes, and refuse
+  (without a saved copy) anything bigger, so an accidental huge pipe is never held whole or truncated.
 - Windows --stdin waits up to 120 s for a quiet pipe (feedback triage's limit), not 3 s: a piped
   command such as `gh` can be slow to start.
 - Argument-mode control-character dropping is bash-only (its hand-rolled escaper would emit invalid

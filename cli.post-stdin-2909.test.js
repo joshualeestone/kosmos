@@ -289,6 +289,15 @@ test('#2909: a wrong-world post whose outbox keep fails still keeps the piped me
   fs.rmSync(saved[1]);
 }, '{"wrongWorld":true,"world":"other"}'));
 
+test('#2909: a raw pipe over the board limit is refused at the read, not held whole or truncated', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const out = await runCli(['post', '--stdin', 'proj'], env, 'z'.repeat(6 * 1024 * 1024 + 10));
+  assert.equal(out.code, 2, out.stdout + out.stderr);
+  assert.match(out.stdout, /over the 6 MB the board accepts/);
+  assert.doesNotMatch(out.stdout, /saved at/, 'only the start was read, so no misleading partial copy is kept');
+  assert.equal(seen.length, 0);
+}));
+
 test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'plain', 'words'], env, 'this must not be read');

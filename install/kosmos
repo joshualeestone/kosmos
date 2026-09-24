@@ -1254,22 +1254,38 @@ cmd_post() {
       exit 2
     fi
     if [ -n "$project" ]; then
+      if [ -t 0 ]; then
+        say "--stdin reads the message from a pipe or file, and nothing was piped in: kosmos post --stdin <project-id> < message.md"
+        exit 2
+      fi
       # Check the board BEFORE reading: a live pipe (gh ... | kosmos post --stdin) cannot be
       # replayed, so consuming it and then finding Kosmos down would lose the message.
       if ! healthy; then
         say "Kosmos is not running, so nothing can be posted (the piped message was not read). Start it with: kosmos start"
         exit 1
       fi
-      if [ -t 0 ]; then
-        text=""
+      # Read at most one byte past the board's limit, raw, into a private file: an accidental huge
+      # pipe is never held whole, and the size is judged on the bytes as sent, before anything is
+      # dropped, so an over-limit message is refused rather than truncated and posted.
+      local _raw _rawn
+      _raw="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-read.XXXXXX")" || { say "Nothing was posted: the piped message could not be read."; exit 2; }
+      if ! LC_ALL=C head -c "$((POST_BODY_MAX_BYTES + 1))" > "$_raw"; then
+        rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2
+      fi
+      _rawn="$(LC_ALL=C wc -c < "$_raw" | LC_ALL=C tr -d ' ')" || { rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2; }
+      if [ "$_rawn" -gt "$POST_BODY_MAX_BYTES" ]; then
+        rm -f "$_raw"
+        say "Nothing was posted: the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Post a summary, or split it."
+        exit 2
+      fi
       # Control characters are dropped at the read (before the blank check, so control-only
       # input is refused), and under LC_ALL=C so bytes that are not UTF-8 pass through instead
       # of making tr abort; the board decodes them as it decodes any body. NUL is outside the tr
       # range because bash's $(...) already drops it; reading by another route must drop it too.
-      elif ! text="$(LC_ALL=C tr -d '\001-\010\013\014\016-\037\177')"; then
-        say "Nothing was posted: the piped message could not be read."
-        exit 2
+      if ! text="$(LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' < "$_raw")"; then
+        rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2
       fi
+      rm -f "$_raw"
       # Drop a leading UTF-8 BOM. Not ${text#...}: under bash 3.2 in a UTF-8 locale that
       # expansion is quadratic in the text length (measured, 5.6s on 200 KB).
       case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" || { say "Nothing was posted: the piped message could not be processed."; _keep_piped; exit 2; } ;; esac
@@ -1319,7 +1335,7 @@ cmd_post() {
   # plus DEL are dropped, since a raw one makes the body invalid JSON (colored tool output piped
   # through --stdin carries ESC).
   local _tab=$'\t' _cr=$'\r'
-  esc_text=$(printf '%s' "$text" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed "s/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g; s/${_tab}/\\\\t/g; s/${_cr}/\\\\r/g" | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+  esc_text=$(printf '%s' "$text" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed "s/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g; s/${_tab}/\\\\t/g; s/${_cr}/\\\\r/g" | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g') || { say "Nothing was posted: the message could not be prepared for sending."; _keep_piped; exit 2; }
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # -m 120, not msg's 15: delivery fans out SERIALLY and a wedged tmux
   # can stall ~15s per recipient, so a room-sized timeout has to cover

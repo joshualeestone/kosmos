@@ -209,7 +209,7 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   fs.rmSync(path.dirname(declinedSaved[1]), { recursive: true });
   const big = 'w'.repeat(200 * 1024);
   const ww = await run(['post', '--stdin', 'proj-1'], () => ({ status: 421, body: { wrongWorld: true } }), undefined, async () => ({ text: big, ended: true }));
-  assert.equal(ww.code, 1, 'an entry over the outbox cap is not kept for later: ' + ww.err.slice(0, 200));
+  assert.equal(ww.code, 1, 'the outbox cannot keep it here (no sender for this token, or over its cap): ' + ww.err.slice(0, 200));
   const wwSaved = ww.err.match(/saved at (\S+)/);
   assert.ok(wwSaved, 'the outbox refusal keeps the piped message in a file');
   assert.equal(fs.readFileSync(wwSaved[1], 'utf8'), big);
@@ -242,6 +242,23 @@ test('#2909: post --stdin through the REAL readStandardInput (BOM, chunks, end) 
   const r = await run(['post', '--stdin', 'proj-1'], () => ({ body: { delivery: { state: 'placed' } } }), undefined, (ms) => cli.readStandardInput(pipe, ms));
   assert.equal(r.code, 0, r.err);
   assert.equal(r.calls[0].body.text, 'line one\r\n[1mtwo[0m', 'reader strips the BOM, post drops ESC and the trailing CR/LF run');
+});
+
+test('#2909: readStandardInput stops at an optional byte cap and reports overflow; post refuses it', async () => {
+  const pipe = new PassThrough();
+  setTimeout(() => { pipe.write('a'.repeat(10)); pipe.write('b'.repeat(10)); }, 5);
+  assert.deepEqual(await cli.readStandardInput(pipe, SHORT_QUIET_MS * 3, 15), { text: '', ended: false, overflow: true });
+  const under = new PassThrough();
+  setTimeout(() => { under.end('small'); }, 5);
+  assert.deepEqual(await cli.readStandardInput(under, SHORT_QUIET_MS * 3, 15), { text: 'small', ended: true }, 'under the cap is unchanged');
+  const r = await run(['post', '--stdin', 'proj-1'], () => ({ body: { delivery: { state: 'placed' } } }), undefined, async (ms, max) => {
+    assert.equal(max, 6 * 1024 * 1024, 'post passes the board limit as the read cap');
+    return { text: '', ended: false, overflow: true };
+  });
+  assert.equal(r.code, 2);
+  assert.equal(r.calls.length, 0);
+  assert.match(r.err, /over the 6 MB the board accepts/);
+  assert.doesNotMatch(r.err, /saved at/);
 });
 
 test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {

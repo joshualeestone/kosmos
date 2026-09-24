@@ -174,7 +174,7 @@ const STDIN_QUIET_LIMIT_MS = 3000;
  *   writes to can never hang the command.
  * `stream` and `quietMs` are also the seams a test drives.
  */
-function readStandardInput(stream, quietMs) {
+function readStandardInput(stream, quietMs, maxBytes) {
   const input = stream || process.stdin;
   if (input.isTTY) return Promise.resolve({ text: '', ended: false });
   const limit = quietMs || STDIN_QUIET_LIMIT_MS;
@@ -182,6 +182,8 @@ function readStandardInput(stream, quietMs) {
     const chunks = [];
     let timer = null;
     let done = false;
+    let total = 0;
+    let overflow = false;
     const finish = (ended) => {
       if (done) return;
       done = true;
@@ -190,10 +192,18 @@ function readStandardInput(stream, quietMs) {
       /* Let go of the pipe: a read still pending on it keeps this process alive. */
       input.pause();
       if (typeof input.destroy === 'function') input.destroy();
+      if (overflow) { resolve({ text: '', ended: false, overflow: true }); return; }
       resolve({ text: Buffer.concat(chunks).toString('utf8').replace(BYTE_ORDER_MARK_AT_START, ''), ended });
     };
     const restartQuietTimer = () => { clearTimeout(timer); timer = setTimeout(() => finish(false), limit); };
-    function onData(chunk) { chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))); restartQuietTimer(); }
+    function onData(chunk) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      total += buf.length;
+      /* #2909: an optional cap, so a caller with a hard limit never holds an accidental huge pipe. */
+      if (maxBytes && total > maxBytes) { overflow = true; chunks.length = 0; finish(false); return; }
+      chunks.push(buf);
+      restartQuietTimer();
+    }
     input.on('data', onData);
     input.once('end', () => finish(true));
     input.once('error', () => finish(false));
@@ -296,7 +306,8 @@ async function verbPost(ctx, args) {
     if (!project) { ctx.err(USAGE.post); return 2; }
     if (args.length) { ctx.err('Give the message on stdin OR as arguments, not both: kosmos post --stdin <project-id>, with the message piped in.'); return 2; }
     /* The long limit feedback triage uses: a command piped in (gh, git log) can be slow to start. */
-    const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS);
+    const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
+    if (piped.overflow) { ctx.err('Nothing was posted: the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Post a summary, or split it.'); return 2; }
     /* Drop C0 controls other than tab/LF/CR, and DEL, as install/kosmos does (colored tool
        output carries ESC); then the trailing CR/LF run. */
     text = String(piped.text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
@@ -316,8 +327,6 @@ async function verbPost(ctx, args) {
   const body = { project, text, from_pane: '' };
   if (noReply) body.reply_expected = false;
   if (inReplyTo) body.in_reply_to = inReplyTo;
-  /* The board drops a request body over its limit, which would read as unreachable; measured on the
-     encoded body, as install/kosmos does. */
   /* #2909: a piped message may have no other copy, so a failure after the read keeps it in a
      private file and names the path. A no-op without --stdin. */
   const keepPiped = () => {
@@ -330,6 +339,8 @@ async function verbPost(ctx, args) {
       ctx.err('The piped message was not sent; it is saved at ' + file);
     } catch (e) { ctx.err('The piped message was not sent, and we could not save a copy of it.'); }
   };
+  /* The board drops a request body over its limit, which would read as unreachable; measured on the
+     encoded body, as install/kosmos does. */
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
   if (!r.reached) {
@@ -726,7 +737,7 @@ async function main(argv, io) {
     err,
     call,
     outbox,
-    readStdin: o.readStdin || ((quietMs) => readStandardInput(undefined, quietMs)),
+    readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
