@@ -1078,7 +1078,7 @@ html { scroll-padding-top: 132px; }
      ⭐ Fixing it here rather than by narrowing the two long panes: narrowing
      treats the symptom and the next Settings row that overflows brings it back. */
   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
-  /* (The wide agent Talk view drops it too, and pads the header to match: see the #3497 block.) */
+  /* (The wide agent Talk view is exempted from this gutter and pads the header to match: see the #3497 block.) */
 /* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
    case; the comment above says per width, and the notice changed the
    heights): desktop stays 128 tall so 132 still clears; between 441 and
@@ -2458,7 +2458,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
     position: relative; flex: 1 1 auto; min-height: 0; height: auto;
     margin-right: calc(-1 * var(--space-8)); }
-  /* The page does not scroll in this view (A1d, at 660px of window height and up), so the #1309 scrollbar gutter (reserved on html so long
+  /* The page does not scroll in this view (the body is a 100vh flex column; A1d), so the #1309 scrollbar gutter (reserved on html so long
      pages do not shift) would only hold an empty strip down the right edge on a Mac that shows
      scrollbars. It is dropped here, and the header is padded by the scrollbar's width (--scrollbar-width,
      measured at load) so the header does not move when an agent opens or closes, which is the
@@ -8487,7 +8487,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
    10px under the Windows scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309
    gutter so the box reaches the window edge, and pads the header by this much so the header does not
    move between views. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar
-   rule changes the width), and on resize, which a zoom or a move to another display fires. */
+   rule changes the width), on resize (a zoom, a move to another display), and on every pointer
+   press, focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
+   plugged in, which fires no resize, and the press that opens an agent then measures first. */
 window.kosmosMeasureScrollbarWidth = function () {
   var d = null;
   try {
@@ -8507,6 +8509,9 @@ window.kosmosMeasureScrollbarWidth();
     queued = true;
     requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
   });
+  window.addEventListener('pointerdown', window.kosmosMeasureScrollbarWidth, { capture: true, passive: true });
+  window.addEventListener('focus', window.kosmosMeasureScrollbarWidth);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) window.kosmosMeasureScrollbarWidth(); });
 })();
 </script>
 </head>

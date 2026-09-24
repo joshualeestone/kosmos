@@ -257,7 +257,7 @@ async function measure(page) {
     // window.innerWidth, so it reds on that strip.
     await page.setViewportSize({ width: 1000, height: 660 });
     await page.waitForTimeout(200);
-    edges(await measure(page), 'Josh window 1000x660');
+    edges(await measure(page), 'A1l Josh window 1000x660');
 
     // --- Narrow width (<=56rem): the identity block and nav stack above the Talk box, so the page
     // scrolls and the box is its own window-tall block; the header is not sticky in this view.
@@ -409,7 +409,11 @@ async function measure(page) {
     });
     chk(parseFloat(pad.talk) - parseFloat(pad.model) === 15,
       'A1o in Talk the header is padded by the scrollbar width (15px here), and not in Model (the page is left on Talk)', JSON.stringify(pad));
-    // A1p: the width is re-measured, not fixed at load. A resize (which a zoom or a display move
+    chk(pad.consTalk === pad.model,
+      'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header is not padded', JSON.stringify(pad));
+    // A1p: the width is re-measured, not fixed at load. It proves the measurer RUNS on these
+    // triggers; headless hides scrollbars, so the value it reads is 0 and the Windows 10px width
+    // itself is not verified here. A resize (which a zoom or a display move
     // fires) replaces a planted wrong value with the measured one, and the Windows stamp re-measures
     // too (its scrollbar rule changes the width).
     const remeasure = await page.evaluate(async () => {
@@ -419,6 +423,9 @@ async function measure(page) {
       window.dispatchEvent(new Event('resize'));
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const afterResize = root.style.getPropertyValue('--scrollbar-width');
+      root.style.setProperty('--scrollbar-width', '99px');
+      window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      const afterPress = root.style.getPropertyValue('--scrollbar-width');
       // The Windows stamp: a served win32 meta, and applyPlatformCopy on a DETACHED root so no copy
       // on the page is swapped; it stamps html and must re-measure. Then everything is put back.
       root.style.setProperty('--scrollbar-width', '99px');
@@ -431,14 +438,12 @@ async function measure(page) {
       meta.remove(); if (prevMeta) document.head.appendChild(prevMeta);
       root.removeAttribute('data-kosmos-platform');
       window.kosmosMeasureScrollbarWidth();
-      return { before, afterResize, afterStamp, restored: root.style.getPropertyValue('--scrollbar-width') };
+      return { before, afterResize, afterPress, afterStamp, restored: root.style.getPropertyValue('--scrollbar-width') };
     });
     const px = (v) => /^\d+px$/.test(v);
-    chk(px(remeasure.afterResize) && remeasure.afterResize !== '99px' && px(remeasure.afterStamp) && remeasure.afterStamp !== '99px'
+    chk(px(remeasure.afterResize) && remeasure.afterResize !== '99px' && px(remeasure.afterPress) && remeasure.afterPress !== '99px' && px(remeasure.afterStamp) && remeasure.afterStamp !== '99px'
       && remeasure.restored === remeasure.before,
-      'A1p the scrollbar width is re-measured on resize and when the Windows stamp is applied', JSON.stringify(remeasure));
-    chk(pad.consTalk === pad.model,
-      'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header is not padded', JSON.stringify(pad));
+      'A1p the scrollbar width is re-measured on resize, on a pointer press and when the Windows stamp is applied (the measurer runs; the Windows width itself is unverified headless)', JSON.stringify(remeasure));
     chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,
       'A1g the identity block stays where it was (within 1px of Model; the 1px is the pre-existing Talk/Model line-box difference)',
       'talk=' + talkIdentFromHead + ' model=' + model.identFromHead);
