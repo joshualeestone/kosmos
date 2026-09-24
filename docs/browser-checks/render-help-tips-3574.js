@@ -437,22 +437,48 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.waitForTimeout(1500);
     const gone24 = await cardState(page);
     chk(!/ of /.test(gone24.step) && !(await api('GET')).seen.includes('tour'), 'T24 precondition: the tour went with its screen, unrecorded', JSON.stringify(gone24));
-    withAgent();
-    // The agent is made away from the board (as from New agent's own page); the board learns of it
-    // on its next status answer, before the person comes back.
-    chk(await page.waitForFunction(() => Array.isArray(LAST) && LAST.length > 0, null, { timeout: 8000 }).then(() => true, () => false), 'T24 precondition: the board has heard of the first agent');
     // The first save of the met tour fails: it must be tried again, or the next launch is stranded.
+    // Routed before the agent arrives, since the catch-up can run on the first tick after it does.
     let failedOnce = 0;
     await page.route('**/api/tips', (route) => {
       const r = route.request();
       if (r.method() === 'PUT' && /"tour"/.test(r.postData() || '') && failedOnce === 0) { failedOnce++; return route.abort(); }
       return route.continue();
     });
+    withAgent();
+    // The agent is made away from the board (as from New agent's own page); the board learns of it
+    // on its next status answer, before the person comes back.
+    chk(await page.waitForFunction(() => Array.isArray(LAST) && LAST.length > 0, null, { timeout: 8000 }).then(() => true, () => false), 'T24 precondition: the board has heard of the first agent');
     await page.evaluate(() => document.querySelector('#tabs [data-tab="agents"]').click());
     chk(await waitTitle(page, 'The ring is your agent\'s memory', 8000), 'T24 after the first agent, the screen tips follow a tour that went unrecorded');
     let saved = false;
     for (let i = 0; i < 20 && !saved; i++) { saved = (await api('GET')).seen.includes('tour'); if (!saved) await page.waitForTimeout(500); }
     chk(failedOnce === 1 && saved, 'T24 and the tour is recorded as seen, after a first save that failed', JSON.stringify({ failedOnce, saved }));
+    await page.unroute('**/api/tips');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+
+    // T25: the tour closed the ordinary way (a click outside) records it, but that save fails. The
+    // local list already says seen, so only a retry keyed on what the board confirmed can mend it
+    // once the first agent arrives (control: T2, the same close with a save that lands).
+    resetStore({ seen: [], off: false });
+    noAgents();
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    chk(await waitTitle(page, TOUR, 4000), 'T25 precondition: the tour shows by itself');
+    let failed25 = 0;
+    await page.route('**/api/tips', (route) => {
+      const r = route.request();
+      if (r.method() === 'PUT' && /"tour"/.test(r.postData() || '') && failed25 === 0) { failed25++; return route.abort(); }
+      return route.continue();
+    });
+    await page.mouse.click(640, 780);   // outside the card, on the dimmed page
+    await page.waitForTimeout(600);
+    const closed25 = await cardState(page);
+    chk(failed25 === 1 && !/ of /.test(closed25.step) && !(await api('GET')).seen.includes('tour'), 'T25 precondition: the tour closed and its save failed', JSON.stringify({ failed25, closed25 }));
+    withAgent();
+    let saved25 = false;
+    for (let i = 0; i < 24 && !saved25; i++) { saved25 = (await api('GET')).seen.includes('tour'); if (!saved25) await page.waitForTimeout(500); }
+    chk(saved25, 'T25 once the first agent arrives, the tour whose save failed is recorded after all');
     await page.unroute('**/api/tips');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);

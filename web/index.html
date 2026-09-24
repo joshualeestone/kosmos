@@ -52740,8 +52740,9 @@ let TIP_PLACES = [];            // the tour's steps whose place is on screen
 let TIP_STEP = 0;               // the tour step showing
 let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
 let TIP_TOUR_MET = false;       // the tour showed by itself this session (a new board)
+let TIP_TOUR_SAVED = false;     // the board has said 'tour' is in its seen list
 let TIP_TOUR_NEXT_TRY = 0;      // when recording the met tour may be tried (again)
-const TIP_TOUR_RETRY_MS = 5000;
+let TIP_TOUR_RETRY_MS = 5000;   // doubles on each failed try, to a minute
 
 /* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
    takeover (.upd-back) is added while it is up. */
@@ -52770,6 +52771,7 @@ async function tipsLoad() {
   try {
     const r = await (await fetch('/api/tips', { cache: 'no-store' })).json();
     TIPS_STATE = (r && r.ok === true && Array.isArray(r.seen)) ? { ok: true, seen: r.seen, off: r.off === true } : { ok: false, seen: [], off: true };
+    if (TIPS_STATE.ok && r.seen.includes('tour')) TIP_TOUR_SAVED = true;
   } catch { TIPS_STATE = { ok: false, seen: [], off: true }; }
 }
 
@@ -52778,6 +52780,7 @@ async function tipsSave(patch) {
     const res = await fetch('/api/tips', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) });
     const r = await res.json();
     if (res.ok && r && r.ok) {
+      if (Array.isArray(r.seen) && r.seen.includes('tour')) TIP_TOUR_SAVED = true;
       const local = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.seen : [];
       TIPS_STATE = { ok: true, seen: [...new Set([...local, ...r.seen])], off: r.off === true };
       return true;
@@ -52818,15 +52821,16 @@ function tipsCheck() {
      (keyboard, Back, a link: unrecorded, below) left a board with agents and no tour seen, which is
      the upgrader's state, so no tip would ever show by itself again. Above the open-tip return so a failed save is retried while
      a screen tip is up; never while the tour itself is on screen. */
-  if (TIP_TOUR_MET && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && !TIPS_STATE.seen.includes('tour') && Array.isArray(LAST) && LAST.length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
-    /* Counted locally at once so this tick's screen tip can follow. A save that fails takes it back
-       and tries again shortly: left counted, the next launch would find the stranded state again. */
+  if (TIP_TOUR_MET && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && Array.isArray(LAST) && LAST.length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
+    /* Keyed on what the board has confirmed, not on the local list: a close that recorded the tour
+       locally but whose save failed is caught here too. Counted locally at once so the screen tips can
+       follow; a failed save is tried again, less often each time. */
     TIP_TOUR_NEXT_TRY = Infinity;
-    TIPS_STATE = { ...TIPS_STATE, seen: [...TIPS_STATE.seen, 'tour'] };
-    tipsSave({ seen: ['tour'] }).then((ok) => {
-      if (ok) return;
-      if (TIPS_STATE) TIPS_STATE = { ...TIPS_STATE, seen: TIPS_STATE.seen.filter((id) => id !== 'tour') };
+    if (!TIPS_STATE.seen.includes('tour')) TIPS_STATE = { ...TIPS_STATE, seen: [...TIPS_STATE.seen, 'tour'] };
+    tipsSave({ seen: ['tour'] }).then(() => {
+      if (TIP_TOUR_SAVED) return;
       TIP_TOUR_NEXT_TRY = Date.now() + TIP_TOUR_RETRY_MS;
+      TIP_TOUR_RETRY_MS = Math.min(TIP_TOUR_RETRY_MS * 2, 60000);
     });
   }
   /* A dialog opened while a tip is up: the tip steps aside until the dialog closes. */
