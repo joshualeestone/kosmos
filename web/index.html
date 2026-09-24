@@ -2489,6 +2489,38 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .snav button[data-dot] .dot { display: block; }
 .snav button.on .dot { background: #7a1b12; }
 .snav button:not([data-dot]) .vh { display: none; }
+/* #3500 (Josh, 2026-09-23): the agent-view nav as icon+label rounded boxes. Scoped to #d-nav
+   (an id, so it beats the shared `.snav button` rules by specificity) so the Settings nav #s-nav
+   keeps its own styling, exactly as #3505 scoped its pill work to #s-nav. Direct Message is the
+   large default box; the four-pack (.dnav-pack) is a 2x2 grid of smaller boxes. */
+#d-nav.dnav-boxed { gap: 10px; }
+#d-nav.dnav-boxed button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 12px 14px; border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
+  color: var(--k-ink-2); font-weight: 600; }
+#d-nav.dnav-boxed button:hover { color: var(--k-ink); border-color: var(--k-ink-2); }
+#d-nav .dnav-ico { flex: none; display: inline-flex; }
+#d-nav .dnav-ico svg { display: block; }
+#d-nav .dnav-lab { min-width: 0; }
+/* Direct Message: the largest box and the default landing. */
+#d-nav .dnav-dm { padding: 16px; font-size: 1.0625rem; border-radius: 14px; }
+/* The four smaller boxes below the DM box. A single column of full-width icon+label boxes rather
+   than a 2x2 grid: the nav column is ~200px, and a 2x2 halves that to ~95px cells, too narrow for
+   "Instructions" / "AI Settings" on one line (it overflows the column, which the #3045 guard
+   forbids). A column keeps each label on one line and the boxes clearly smaller than the DM box.
+   (If Josh's wireframe wants a literal 2x2, it implies a wider nav column - noted on the card.) */
+#d-nav .dnav-pack { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+#d-nav .dnav-pack button { padding: 11px 12px; }
+/* ACTIVE STATE - deliberately NOT the old full-solid-gold fill (`.snav button.on`, which Josh
+   said does not make sense here). One reasoned default (he wants to pick from options): a faint gold
+   wash + a gold outline + a gold-deep icon, with the label in ink, so "selected" reads without the
+   loud slab. Scoped to #d-nav so #s-nav keeps its own .on. Alternatives to show him: (b) a gold
+   left-accent bar only, no fill; (c) gold icon + a gold underline, no fill/outline. */
+#d-nav.dnav-boxed button.on { background: rgba(214,166,46,.12); border-color: var(--gold); color: var(--k-ink); }
+#d-nav.dnav-boxed button.on .dnav-ico { color: var(--gold-deep, var(--gold)); }
+/* The needs-you dot sits at the box's top-right in this layout, not vertically centred at the edge. */
+#d-nav.dnav-boxed button .dot { top: 10px; right: 10px; transform: none; }
+/* Keep the boxes stacked (DM over the pack) at narrow width, overriding the shared `.snav` row rule. */
+@media (max-width: 56rem) { #d-nav.dnav-boxed { flex-direction: column; } #d-nav.dnav-boxed button { width: 100%; } }
 .dsecs { min-width: 0; }
 /* #3385: mirror the .dleft padding-top so the section content starts at the same y as the
    identity block. .dleft carries 6px to keep the memory ring inside its overflow:auto box; without
@@ -8825,17 +8857,41 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            no projects, which is a claim nobody made. -->
     </div>
   </div>
-  <nav class="snav" id="d-nav" aria-label="Sections of this page">
-    <button type="button" data-go="talk" aria-controls="d-sec-talk" class="on" aria-current="true"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <!-- #2916 (Josh 6.59): Model and Memory share one pill; Instructions holds Skills below it;
-         the Terminal pill is renamed Advanced. The memory + skills SECTIONS are unchanged and
-         still keyed on their own data-sec; detailGo reveals both members of a pill's group. -->
-    <button type="button" data-go="model" aria-controls="d-sec-model d-sec-memory">Model and Memory</button>
-    <button type="button" data-go="instr" aria-controls="d-sec-instr d-sec-skills"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-      <button type="button" data-go="profile" aria-controls="d-sec-profile">Profile</button>
-    <button type="button" data-go="term" aria-controls="d-sec-term" data-win-copy="terminalTab">Advanced</button>
-    <div class="sep" role="separator"></div>
-    <button type="button" data-go="remove" aria-controls="d-sec-remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
+  <!-- #3500 (Josh, 2026-09-23): icon+label rounded-box nav. Direct Message is the largest box and
+       the default; Profile / Instructions / AI Settings / Advanced form the four-pack below it.
+       Remove agent folded INTO Advanced (DETAIL_SECTION_PILL remove->term), which is what frees the
+       clean four-pack, so the top-level Remove pill and its separator are gone and Advanced's
+       aria-controls gains d-sec-remove. data-go and the folded-section ids are otherwise unchanged,
+       so the section-switch logic and its tests hold; labels, icons and layout change. #2916 history:
+       Model+Memory share the pill (relabelled "AI Settings"); Instructions holds Skills. The active
+       state is deliberately NOT the old full-gold fill (see .snav button.on in the CSS) - Josh wants
+       to pick from options, so this ships one reasoned default. Built from text spec, pending his
+       screenshot reconcile. -->
+  <nav class="snav dnav-boxed" id="d-nav" aria-label="Sections of this page">
+    <button type="button" data-go="talk" aria-controls="d-sec-talk" class="dnav-dm on" aria-current="true">
+      <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3.5 20.5l1.4-5A8.5 8.5 0 1 1 21 11.5z"/></svg></span>
+      <span class="dnav-lab" id="d-nav-talk">Direct Message</span>
+      <span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span>
+    </button>
+    <div class="dnav-pack">
+      <button type="button" data-go="profile" aria-controls="d-sec-profile">
+        <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-6 8-6s8 2.7 8 6"/></svg></span>
+        <span class="dnav-lab">Profile</span>
+      </button>
+      <button type="button" data-go="instr" aria-controls="d-sec-instr d-sec-skills">
+        <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h11M8 12h11M8 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></span>
+        <span class="dnav-lab">Instructions</span>
+        <span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span>
+      </button>
+      <button type="button" data-go="model" aria-controls="d-sec-model d-sec-memory">
+        <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1.5 14h5M9.5 8h5M17.5 16h5"/></svg></span>
+        <span class="dnav-lab">AI Settings</span>
+      </button>
+      <button type="button" data-go="term" aria-controls="d-sec-term d-sec-remove">
+        <span class="dnav-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5M12 19h8"/></svg></span>
+        <span class="dnav-lab" data-win-copy="terminalTab">Advanced</span>
+      </button>
+    </div>
   </nav>
   </div>
   <div class="dsecs">
@@ -26551,8 +26607,12 @@ const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile'
    keyboard user tabs past Model to reach Memory. No caller passes a folded member today; if one
    is added and must focus ON the member, teach detailGo to focus the requested section rather
    than group[0]. */
-const DETAIL_SECTION_GROUPS = { model: ['model', 'memory'], instr: ['instr', 'skills'] };
-const DETAIL_SECTION_PILL = { memory: 'model', skills: 'instr' };
+/* #3500 (Josh, 2026-09-23): "Remove agent" folds INTO Advanced (data-go="term"), the same
+   fold mechanism model+memory and instr+skills already use, so the top-level Remove pill can
+   leave the nav and free the clean four-pack. The Advanced pill now reveals both the terminal
+   section and the remove section; section 'remove' maps to the 'term' pill. */
+const DETAIL_SECTION_GROUPS = { model: ['model', 'memory'], instr: ['instr', 'skills'], term: ['term', 'remove'] };
+const DETAIL_SECTION_PILL = { memory: 'model', skills: 'instr', remove: 'term' };
 function detailSectionGroup(section) {
   const pill = DETAIL_SECTION_PILL[section] || section;
   return DETAIL_SECTION_GROUPS[pill] || [pill];
@@ -27964,27 +28024,24 @@ function freshStartLabel(name) {
   const lede = document.getElementById('d-fresh-lede');
   if (lede) lede.textContent = 'Three ways to get ' + (n || 'it') + ' going again, whatever the reason.';
 }
-/* Two pills carry the agent's name. Painted from the same `a.name` the header
-   paints, on open and after a rename, and never left holding the last agent's. */
+/* #3500: the DM nav box is now the fixed label "Direct Message" (the big Talk box); the agent's
+   name is carried by the DM header ("Direct Message to <name>") and the identity column, so the
+   nav box stays short in its icon+label form. The Remove pill is gone (folded into Advanced), so
+   its two former label writes are removed; the remove SECTION still names the agent via its
+   aria-label below, which is what a screen reader on the (now Advanced-revealed) section reads. */
 function detailNavNames(name) {
   const n = (name || '').trim();
-  document.getElementById('d-nav-talk').textContent = n ? 'Talk to ' + n : 'Talk to this agent';
-  document.getElementById('d-nav-remove').textContent = n ? 'Remove ' + n : 'Remove this agent';
+  document.getElementById('d-nav-talk').textContent = 'Direct Message';
   detailSection('talk').setAttribute('aria-label', n ? 'Talk to ' + n : 'Talk');
   detailSection('remove').setAttribute('aria-label', n ? 'Remove ' + n : 'Remove');
-  /* The model button names the agent for the same reason the Remove pill
-     does: a page that always shows one agent makes a bare label unambiguous
-     only while you remember which page you are on. */
+  /* The model button names the agent for the same reason: a page that always shows one agent
+     makes a bare label unambiguous only while you remember which page you are on. */
   document.getElementById('d-model-go').textContent = n ? 'Change & Restart ' + n : 'Change & Restart';
   /* The Fresh start button too (the mock's ruling, Josh 2026-08-22: long form
      on all three, naming the agent). It also stops this page carrying two
      controls called "Restart it" (the header banner's and this one), which a
      screen reader cannot tell apart. */
   freshStartLabel(n);
-  /* The Remove pill and the removal dialog's confirm would both read "Remove
-     <name>" while the dialog is open; the pill's accessible name keeps its
-     visible text and says what it is. */
-  document.querySelector('#d-nav button[data-go="remove"]').setAttribute('aria-label', n ? 'Go to Remove ' + n : 'Go to Remove this agent');
 }
 /* 🔑 THE DOTS ARE READ OFF THE SECTIONS, NOT COMPUTED AGAIN. A nav that derived
    "needs you" from the agent record would be a second rendering of a state the
