@@ -413,15 +413,30 @@ async function measure(page) {
     // fires) replaces a planted wrong value with the measured one, and the Windows stamp re-measures
     // too (its scrollbar rule changes the width).
     const remeasure = await page.evaluate(async () => {
-      const before = document.documentElement.style.getPropertyValue('--scrollbar-width');
-      document.documentElement.style.setProperty('--scrollbar-width', '99px');
+      const root = document.documentElement;
+      const before = root.style.getPropertyValue('--scrollbar-width');
+      root.style.setProperty('--scrollbar-width', '99px');
       window.dispatchEvent(new Event('resize'));
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      const after = document.documentElement.style.getPropertyValue('--scrollbar-width');
-      return { before, after, platformHook: /kosmosMeasureScrollbarWidth\(\)/.test(String(applyPlatformCopy)) };
+      const afterResize = root.style.getPropertyValue('--scrollbar-width');
+      // The Windows stamp: a served win32 meta, and applyPlatformCopy on a DETACHED root so no copy
+      // on the page is swapped; it stamps html and must re-measure. Then everything is put back.
+      root.style.setProperty('--scrollbar-width', '99px');
+      const meta = document.createElement('meta'); meta.name = 'kosmos-platform'; meta.content = 'win32';
+      const prevMeta = document.querySelector('meta[name="kosmos-platform"]');
+      if (prevMeta) prevMeta.remove();
+      document.head.appendChild(meta);
+      applyPlatformCopy(document.createElement('div'));
+      const afterStamp = root.style.getPropertyValue('--scrollbar-width');
+      meta.remove(); if (prevMeta) document.head.appendChild(prevMeta);
+      root.removeAttribute('data-kosmos-platform');
+      window.kosmosMeasureScrollbarWidth();
+      return { before, afterResize, afterStamp, restored: root.style.getPropertyValue('--scrollbar-width') };
     });
-    chk(remeasure.after === remeasure.before && remeasure.after !== '99px' && remeasure.platformHook,
-      'A1p the scrollbar width is re-measured on resize and after the Windows stamp', JSON.stringify(remeasure));
+    const px = (v) => /^\d+px$/.test(v);
+    chk(px(remeasure.afterResize) && remeasure.afterResize !== '99px' && px(remeasure.afterStamp) && remeasure.afterStamp !== '99px'
+      && remeasure.restored === remeasure.before,
+      'A1p the scrollbar width is re-measured on resize and when the Windows stamp is applied', JSON.stringify(remeasure));
     chk(pad.consTalk === pad.model,
       'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header is not padded', JSON.stringify(pad));
     chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,

@@ -2458,7 +2458,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
     position: relative; flex: 1 1 auto; min-height: 0; height: auto;
     margin-right: calc(-1 * var(--space-8)); }
-  /* The page does not scroll in this view at any usable height (A1d), so the #1309 scrollbar gutter (reserved on html so long
+  /* The page does not scroll in this view (A1d, at 660px of window height and up), so the #1309 scrollbar gutter (reserved on html so long
      pages do not shift) would only hold an empty strip down the right edge on a Mac that shows
      scrollbars. It is dropped here, and the header is padded by the scrollbar's width (--scrollbar-width,
      measured at load) so the header does not move when an agent opens or closes, which is the
