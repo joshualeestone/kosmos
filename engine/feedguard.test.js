@@ -253,6 +253,52 @@ test('a huge body is held (oversize) and does not hang the content scan', () => 
   assert.ok(v.findings.some((x) => x.cls === 'oversize' && x.field === 'body'));
 });
 
+/* #3608: the email pattern used to be quadratic on a long run of local-part
+   characters with no "@", about 2 s per scan-capped haystack, which is what
+   made the test above fail on a busy Mac. 16384 is SCAN_CAP, the longest
+   haystack any pattern sees. The unanchored form takes 0.9 to 2 s on these
+   inputs and the anchored one well under 1 ms, so a 200 ms bound separates
+   them by a wide margin in both directions. */
+const EMAIL = fg.PATTERNS.find((p) => p.cls === 'email').re;
+const EMAIL_UNANCHORED = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+
+test('#3608: the email pattern is linear on a scan-capped run with no match', () => {
+  const inputs = ['x'.repeat(16384), 'a.'.repeat(8192), 'a@' + 'a-'.repeat(8191), 'a@'.repeat(8192)];
+  for (const s of inputs) {
+    const start = Date.now();
+    const hit = EMAIL.test(s);
+    const ms = Date.now() - start;
+    assert.equal(hit, false);
+    assert.ok(ms < 200, 'email pattern took ' + ms + ' ms on a ' + s.length + '-char ' + JSON.stringify(s.slice(0, 4)) + '... run');
+  }
+});
+
+test('#3608: the anchored email pattern finds exactly what the unanchored one does', () => {
+  const fixed = [
+    'a@b.cd', 'mail me at first.last+tag@example.co.uk today', 'x.y@z', 'a@b.c', '@b.cd', 'a@.cd',
+    'foo@@bar.com', 'a@b.cd@e.fg', '..a@b.cd', 'name@host', 'Josh <jo%sh@ex-ample.org>', 'a b@c.de',
+  ];
+  for (const s of fixed) assert.equal(EMAIL.test(s), EMAIL_UNANCHORED.test(s), JSON.stringify(s));
+  // A seeded generator over the characters that matter to either form, so a
+  // failure reproduces. At least one string must match, or agreeing on "no"
+  // everywhere would pass while proving nothing.
+  let seed = 3608;
+  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; };
+  // Letters, dots and '@' are weighted so that a useful share of strings are
+  // email-shaped; with a flat alphabet only about 40 in 50000 matched.
+  const alphabet = 'aabb.@.@ab1%+-_ Z\n';
+  let matched = 0;
+  for (let i = 0; i < 50000; i++) {
+    let s = '';
+    const len = Math.floor(rand() * 14);
+    for (let j = 0; j < len; j++) s += alphabet[Math.floor(rand() * alphabet.length)];
+    const want = EMAIL_UNANCHORED.test(s);
+    if (want) matched++;
+    assert.equal(EMAIL.test(s), want, JSON.stringify(s));
+  }
+  assert.ok(matched > 300, 'the generator produced only ' + matched + ' matching strings');
+});
+
 test('a circular reference (via links) is unserializable and fails closed without throwing', () => {
   const cand = clean();
   const arr = [];
