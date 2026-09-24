@@ -266,6 +266,14 @@ test('grok: an auth.json that is not ONE auth.x.ai entry is not a subscription, 
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': {}, 'https://auth.x.ai::b': {} }) })), 'two entries keep the key');
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://other.example::a': {} }) })), 'another issuer keeps the key');
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: '{"https://auth.x.ai::a":{"email":' })), 'ONE entry in a file that does not parse keeps the key (readAuth would not describe it)');
+  // Round 20: kept, but never silently -- the supervisor log names the file. CONTROL: a readable sign-in says nothing.
+  const torn = runGrokWithAccount({ door: 'globaldoorvalue', authRaw: '{"https://auth.x.ai::a":{"email":', withStderr: true });
+  assert.match(torn.stderr, /auth\.json is not one Grok sign-in Kosmos can read, so this agent keeps any XAI_API_KEY/);
+  const good = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, withStderr: true });
+  assert.doesNotMatch(good.stderr, /is not one Grok sign-in/);
+  // And a key-only account (no auth.json) is not an undescribed sign-in: no line.
+  const keyOnly = runGrokWithAccount({ door: 'globaldoorvalue', keyFile: 'xai-own', withStderr: true });
+  assert.doesNotMatch(keyOnly.stderr, /is not one Grok sign-in/);
   // CONTROL: exactly one entry, a sign-in that is positively good (a refresh token), strips through the same fixture path.
   assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', refresh_token: 'r' } }) })));
 });

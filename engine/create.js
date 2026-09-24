@@ -3595,7 +3595,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
     // #3391: one sentence for a lapsed subscription, default or named.
     /* Says what works TODAY: Kosmos cannot sign in to Grok again yet (the sign-in button is #3391
        part 2, and a default ~/.grok has no in-product path back at all), so it points at the key. */
-    const expiredSignIn = (w) => `That ${w} sign-in has expired, so an agent created on it could not run. Kosmos cannot sign in to ${w} again yet; for now, add a ${w} API key in Settings, AI Models.`;
+    const expiredSignIn = (w) => `That ${w} sign-in has expired, so an agent created on it could not run. Kosmos cannot sign in to ${w} again yet; for now, add a ${w} API key in Settings, AI Models, and choose that account for this agent.`;
     /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
        board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
     if (!dir && prov === 'xai') {

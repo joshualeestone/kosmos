@@ -613,7 +613,10 @@ function armGrokForceKill(session) {
 function parseGrokLoginOutput(text) {
   const out = {};
   const s = String(text);
-  const url = (s.match(/https?:\/\/[^\s'"<>]+/g) || [])
+  /* https only (the page renders it as a link), and only once whitespace FOLLOWS it:
+     output arrives in chunks, the first URL seen is kept, and a URL cut off at a chunk
+     end must not be stored as the link (round 20). */
+  const url = (s.match(/https:\/\/[^\s'"<>]+(?=\s)/g) || [])
     .map((u) => u.replace(/[.,;:!?)\]}'"]+$/, ''))[0];
   if (url) out.authUrl = url;
   const code = s.replace(/https?:\/\/[^\s'"<>]+/g, ' ').match(/\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b/);

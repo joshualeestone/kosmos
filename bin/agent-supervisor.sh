@@ -683,6 +683,12 @@ if [ -z "$adopt" ]; then
           try {
             const w = require(process.argv[1]).identityOf(process.argv[2]);
             if (w) process.stdout.write(String(w.authMode));
+            // A sign-in file that is not ONE readable Grok account (torn mid-refresh, a second
+            // account, another issuer): the key stays, as for any undescribed account, but it
+            // is never silent, because it may be a sign-in running on the machine key.
+            else if (require("fs").existsSync(require("path").join(process.argv[2], "auth.json"))) {
+              process.stderr.write("grok: " + process.argv[2] + "/auth.json is not one Grok sign-in Kosmos can read, so this agent keeps any XAI_API_KEY\n");
+            }
           } catch (e) {
             // The key stays, and the log says why: a silent keep would read as "not a subscription".
             process.stderr.write("grok: could not read what kind of account " + process.argv[2] + " is (" + ((e && e.message) || e) + "), so this agent keeps any XAI_API_KEY\n");

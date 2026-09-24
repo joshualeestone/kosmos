@@ -130,6 +130,9 @@ test('parseGrokLoginOutput reads the measured device output; the code is not tak
   assert.deepEqual(grok.parseGrokLoginOutput(measured), { authUrl: 'https://accounts.x.ai/oauth2/device?user_code=JBXC-XGGR', userCode: 'JBXC-XGGR' });
   // The URL alone carries a code-shaped token; it must not be read as the code.
   assert.deepEqual(grok.parseGrokLoginOutput('open https://accounts.x.ai/oauth2/device?user_code=AAAA-BBBB\n'), { authUrl: 'https://accounts.x.ai/oauth2/device?user_code=AAAA-BBBB' });
+  // Round 20: a URL cut off at a chunk end is not a link yet, and a plain-http one never is.
+  assert.equal(grok.parseGrokLoginOutput('open https://accounts.x.ai/oauth2/dev').authUrl, undefined, 'a truncated URL was stored');
+  assert.equal(grok.parseGrokLoginOutput('open http://accounts.x.ai/oauth2/device?user_code=AAAA-BBBB\n').authUrl, undefined, 'an http link was offered');
 });
 
 /* ---- the sign-in driver, against a fake grok -------------------------------- */
