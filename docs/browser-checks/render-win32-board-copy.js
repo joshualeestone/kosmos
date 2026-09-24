@@ -263,6 +263,42 @@ async function readConnectCard(browser) {
     await browser.close();
   }
 
+  /* #3443: the win32 scrollbar restyle, measured rather than asserted from source. A scrollable
+     element's (offsetWidth - clientWidth) is the width the scrollbar takes in layout: under win32
+     the ::-webkit-scrollbar width:10px classic bar takes 10px, and on a Mac (unstamped) the native
+     overlay takes 0. This needs the real scrollbar rendered, so it launches its OWN chromium with
+     --hide-scrollbars turned OFF (the default headless flag would hide every bar and read 0 for
+     both arms, a vacuous pass). The Mac arm is the control: if the win32 rule were absent, the
+     win32 arm would read 0 too (Mac overlay), so 10-vs-0 proves the rule applies AND is win32-only. */
+  {
+    const sbBrowser = await playwright.chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });
+    try {
+      const measure = async (stampWin32) => {
+        const page = await sbBrowser.newPage({ viewport: { width: 800, height: 600 } });
+        await page.addInitScript(stubPageFetches);
+        await page.goto('file://' + PAGE);
+        const sw = await page.evaluate((doStamp) => {
+          if (doStamp) document.documentElement.setAttribute('data-kosmos-platform', 'win32');
+          const d = document.createElement('div');
+          d.style.cssText = 'width:200px;height:100px;overflow-y:scroll;position:absolute;left:-9999px;top:0;';
+          const inner = document.createElement('div'); inner.style.height = '400px'; d.appendChild(inner);
+          document.body.appendChild(d);
+          const w = d.offsetWidth - d.clientWidth;
+          d.remove();
+          return w;
+        }, stampWin32);
+        await page.close();
+        return sw;
+      };
+      const winSb = await measure(true);
+      const macSb = await measure(false);
+      check('win32 scrollable panes get the thin 10px bar (#3443)', winSb === 10, `win32 scrollbar = ${winSb}px`);
+      check('CONTROL a Mac keeps its native overlay scrollbar, so the bar is win32-only (#3443)', macSb === 0, `mac scrollbar = ${macSb}px`);
+    } finally {
+      await sbBrowser.close();
+    }
+  }
+
   const failed = results.filter((r) => !r.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   process.exit(failed.length ? 1 : 0);
