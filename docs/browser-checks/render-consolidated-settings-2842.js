@@ -127,7 +127,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // #3505: the pills are sized to their longest label, not stretched to the full nav column.
     // Positive-controlled: pre-fix the pill filled the column (pillWidth ~= navToContentSpan minus
     // the column gap), which fails this "comfortably inside its span" bound.
-    ok(t + ' #3505 the settings pills are sized to their label, not the full column', out.err === null && out.pillWidth > 0 && out.pillWidth < out.navToContentSpan - 24, JSON.stringify(out));
+    // #3598 made the nav column the pills' own width (max-content), so "a pill stretched to the
+    // full column" and "a pill sized to its label" are now the same width and this arm can no
+    // longer tell them apart. What it still guards is the pill stopping short of the content by a
+    // real gap; the fixed-gap arm (#3598, below) is the sharper guard for the layout.
+    ok(t + ' #3505/#3598 the settings pills stop short of the content by a real gap', out.err === null && out.pillWidth > 0 && out.pillWidth <= out.navToContentSpan - 16, JSON.stringify(out));
     ok(t + ' #2842 navigating to a project hides settings and shows the project', out.err === null && out.settingsHiddenAfterNav === true && out.projectShownAfterNav === true, JSON.stringify(out));
     ok(t + ' #2842 leaving the consolidated view restores settings to the top level', out.err === null && out.restoredToTopLevel === true, JSON.stringify(out));
     ok(t + ' #2842 CONTROL: in the tab view #rail-me-go does not enter the consolidated view', out.err === null && out.tabViewNotConsolidated === true, JSON.stringify(out));
@@ -135,10 +139,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // ---- The LIST state: settings must not render over the #pj-none "nothing is open" hint.
     // The first evaluate hardcodes PJ_CURRENT='k' (PJ_VIEW='one'); this covers PJ_VIEW='list'
     // with projects present but none open -- the state where paintPjNone shows the hint
-    // ("Nothing is open yet. Pick a project..."). #pj-none is a #panel-projects display-column
+    // ("Open or create a project to get started.", #3597). #pj-none is a #panel-projects display-column
     // child too, so it must be hidden while settings shows -- AND stay hidden when the 5s poll
-    // re-invokes paintPjNone. (The zero-projects case is not a conflict: paintPjNone renders an
-    // empty string there, so the hint is already hidden.) ----
+    // re-invokes paintPjNone. ----
     const listState = await page.evaluate(() => {
       const res = {};
       const none = document.getElementById('pj-none');
@@ -187,6 +190,102 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       return res;
     });
     ok(t + ' #2842 settings opens from the Agents tab too, staying consolidated', agentsTab.err === null && agentsTab.consolidatedOnAgents === true && agentsTab.stillConsolidated === true && agentsTab.settingsOpen === true, JSON.stringify(agentsTab));
+
+    // ---- #3598 / #3599 (Josh, 0.6.91 QA), measured on the settings just opened above. ----
+    // #3598 (1): the pill-to-content gap is FIXED, not a share of the window. Measured at a
+    // narrow and a very wide window; the old minmax(120px, 30%) column gave 142px vs 337px.
+    const gapAt = async (width) => {
+      await page.setViewportSize({ width, height: 900 });
+      return page.evaluate(() => {
+        document.querySelector('#s-nav button[data-go="you"]').click();
+        const nav = document.getElementById('s-nav').getBoundingClientRect();
+        const box = document.querySelector('#s-sec-you > *').getBoundingClientRect();
+        return Math.round(box.left - nav.right);
+      });
+    };
+    const gapNarrow = await gapAt(1200);
+    const gapWide = await gapAt(2400);
+    ok(t + ' #3598 the pill nav to content gap is a fixed small margin at any width', gapNarrow === gapWide && gapNarrow > 0 && gapNarrow <= 32, JSON.stringify({ gapNarrow, gapWide }));
+    // #3598 (2): the five sections Josh named sat ON the header rule. They are the tall ones:
+    // opening one scrolls it into view inside #panel-settings, and that scroll went past the
+    // panel's top padding. The fixture's panel grows with its content, so it is given a fixed
+    // height here to make it the scroll container a person's board has, and each section is
+    // made to overflow; then its pill is clicked and the box's inset is measured. The
+    // CONTROL runs it with scroll-margin-top switched off, where the box must land on the edge.
+    const tops = await page.evaluate(() => {
+      const panel = document.getElementById('panel-settings');
+      const oldH = panel.style.height;
+      panel.style.height = '320px';
+      const measure = (sec, noMargin) => {
+        const el = document.getElementById('s-sec-' + sec);
+        const spacer = document.createElement('div'); spacer.style.height = '2000px'; el.appendChild(spacer);
+        if (noMargin) el.style.scrollMarginTop = '0px';
+        // The pill click a person makes: settingsGo shows the section and focuses it, and
+        // that focus is the scroll under test.
+        panel.scrollTop = 0;
+        document.querySelector('#s-nav button[data-go="' + sec + '"]').click();
+        const box = [...el.children].find((k) => k.offsetParent !== null);
+        const r = { inset: Math.round(box.getBoundingClientRect().top - panel.getBoundingClientRect().top), scrolled: panel.scrollTop };
+        spacer.remove(); el.style.scrollMarginTop = ''; panel.scrollTop = 0;
+        return r;
+      };
+      const out = {};
+      for (const sec of ['accounts', 'connect', 'mac', 'automation', 'usage']) out[sec] = measure(sec, false);
+      out.control = measure('accounts', true);
+      panel.style.height = oldH;
+      return out;
+    });
+    const named = ['accounts', 'connect', 'mac', 'automation', 'usage'].map((k) => tops[k]);
+    // With the fix the box already sits at the panel's inset, so the scroll has nothing to do
+    // (scrollTop stays 0); the CONTROL below proves this panel really scrolls when it would not.
+    ok(t + ' #3598 Models, Connections, This computer, Automation and Token Usage keep a top inset when scrolled into view', named.every((v) => v.inset >= 16), JSON.stringify(tops));
+    ok(t + ' #3598 CONTROL: with scroll-margin-top off the same scroll lands the box on the edge (the arm can see the bug)', tops.control.scrolled > 0 && tops.control.inset < 8, JSON.stringify(tops.control));
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // #3599: Kosmos+ opened in the consolidated view takes the same blue ground as the tab view
+    // (body.plus-active), and gives it back the moment another section is chosen.
+    const plus = await page.evaluate(() => {
+      const blue = () => document.body.classList.contains('plus-active');
+      const toPlus = () => { openConsolidatedSettings(); document.querySelector('#s-nav button[data-go="plus"]').click(); };
+      toPlus();
+      const on = blue();
+      const bg = /gradient/.test(getComputedStyle(document.body).backgroundImage);
+      const tickSees = typeof plusOnScreen === 'function' && plusOnScreen();   // the #743 status tick reads the same predicate
+      // Re-opening Settings while already on Kosmos+ must not tear the canvases down and
+      // remount them (the wordmark's intro would replay for nothing). Count teardowns.
+      let teardowns = 0; const realTeardown = window.plusTeardown;
+      window.plusTeardown = function () { teardowns += 1; return realTeardown.apply(this, arguments); };
+      openConsolidatedSettings();
+      window.plusTeardown = realTeardown;
+      const reopenTeardowns = teardowns;
+      document.querySelector('#s-nav button[data-go="you"]').click();
+      const offOnSection = !blue();
+      toPlus(); pjView('one');                          // project navigation leaves Settings
+      const offOnProject = !blue();
+      toPlus(); openConsolidatedCreate();               // New Agent takes over the column
+      const offOnCreate = !blue();
+      pjView('list');
+      return { on, bg, tickSees, reopenTeardowns, offOnSection, offOnProject, offOnCreate };
+    });
+    ok(t + ' #3599 Kosmos+ in the consolidated view is on the blue ground, and the status tick sees it on screen', plus.on === true && plus.bg === true && plus.tickSees === true, JSON.stringify(plus));
+    ok(t + ' #3599 the blue leaves with it: another section, opening a project, or New Agent', plus.offOnSection === true && plus.offOnProject === true && plus.offOnCreate === true, JSON.stringify(plus));
+    ok(t + ' #3599 re-opening Settings while on Kosmos+ keeps the canvases (no teardown)', plus.reopenTeardowns === 0, JSON.stringify(plus));
+    // #3597: with nothing open the centre says "Open or create a project to get started." centred
+    // both ways in the display column (it sat top-left).
+    const none = await page.evaluate(() => {
+      // The fixture's /api/projects read fails over file://; a person's board has read its list.
+      PJ_READ_FAILED = false; PJ_LOADED_ONCE = true;
+      PJ_CURRENT = null; pjView('list'); pjMarkOpen(null);
+      const el = document.getElementById('pj-none');
+      if (!el || el.hidden) return { shown: false };
+      const r = el.getBoundingClientRect();
+      const list = document.getElementById('pj-list-view').getBoundingClientRect();
+      const col = document.getElementById('panel-projects').getBoundingClientRect();
+      const colLeft = list.right;
+      return { shown: true, text: el.textContent, align: getComputedStyle(el).textAlign,
+        dx: Math.round((r.left + r.width / 2) - (colLeft + (col.right - colLeft) / 2)),
+        dy: Math.round((r.top + r.height / 2) - (col.top + col.height / 2)) };
+    });
+    ok(t + ' #3597 the empty centre reads "Open or create a project to get started." centred both ways', none.shown === true && none.text === 'Open or create a project to get started.' && none.align === 'center' && Math.abs(none.dx) <= 4 && Math.abs(none.dy) <= 4, JSON.stringify(none));
 
     await page.close();
   }

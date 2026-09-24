@@ -110,7 +110,7 @@ const path = require('path');
       const ra = await rect('#rail-agents'); const rp = await rect('#rail-projects');
       say(!!ra && !!rp && Math.abs(ra.y - rp.y) <= 12, tag + ': the two rails start at the same height', ra && rp ? ra.y + ' vs ' + rp.y : JSON.stringify({ ra, rp }));
       const said = await none();
-      say(!!said && /Pick a project on the left/.test(said), tag + ': the empty centre says what to press', JSON.stringify(said));
+      say(!!said && /Open or create a project to get started/.test(said), tag + ': the empty centre says what to press', JSON.stringify(said));
     }
   }
 
@@ -120,9 +120,9 @@ const path = require('path');
   await forceNothingOpen();
   say((await pg.$('#rail-projects-fold')) === null, 'the projects fold control is gone (#3126)');
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
-  say(/Pick a project on the left/.test((await none()) || ''), 'agents rail folded: the projects centre sentence is unchanged');
+  say(/Open or create a project to get started/.test((await none()) || ''), 'agents rail folded: the projects centre sentence is unchanged');
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
-  say(/Pick a project on the left/.test((await none()) || ''), 'agents rail open again: still the plain sentence');
+  say(/Open or create a project to get started/.test((await none()) || ''), 'agents rail open again: still the plain sentence');
 
   // the New project form open: the sentence is not painted over it by a fold press
   await pg.click('#rail-projects-new'); await pg.waitForTimeout(400);
@@ -136,8 +136,8 @@ const path = require('path');
   // click handler calls -- so it returns to the list view without the hidden click.
   await pg.click('#rail-agents-fold'); await forceNothingOpen(); await pg.waitForTimeout(400);
 
-  // #3126 (Josh, 6.68): a board with no projects: the open rail's own card says it,
-  // so the sentence stays hidden; a failed read never says "no projects". The
+  // #3597 (Josh, 0.6.91 QA): a board with no projects yet shows the centred sentence too
+  // ("when there's no project available"); a failed read stays silent. #3126: the
   // projects column is no longer collapsible, so the folded variants (press + /
   // "folded; press ›") were removed - fold-p can never be set.
   const paintAs = (loaded, failed) => pg.evaluate(([l, f]) => {
@@ -148,8 +148,8 @@ const path = require('path');
     PROJECTS = keep.P; PJ_LOADED_ONCE = keep.L; PJ_READ_FAILED = keep.F; paintPjNone('list');
     return t;
   }, [loaded, failed]);
-  say((await paintAs(true, false)) === null, 'no projects, rail open: the sentence is hidden (the rail card says it)');
-  say(/Pick a project on the left/.test((await paintAs(false, false)) || ''), 'before the first read: never "No projects yet"');
+  say(/Open or create a project to get started/.test((await paintAs(true, false)) || ''), 'no projects yet: the centre says to open or create one (#3597)');
+  say(/Open or create a project to get started/.test((await paintAs(false, false)) || ''), 'before the first read: the same sentence (#3597)');
   say((await paintAs(true, true)) === null, 'after a failed read, rail open: silence beside the rail\'s own message');
 
   // open a project: the sentence goes

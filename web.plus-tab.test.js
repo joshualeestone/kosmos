@@ -112,7 +112,8 @@ test('#743: the status line stays fresh while the tab is open, not only on arriv
   const tick = pageFnSource('tick');
   assert.doesNotMatch(tick, /\nfunction topLevelReset\(/,
     'CONTROL: the extraction ran past tick() into the next function, so the pin below would prove nothing');
-  assert.match(tick, /if \(URL_TAB === 'settings' && SETTINGS_SEC === 'plus'\) paintPlus\(\);/,
+  // #3599: the predicate is plusOnScreen(), shared with syncPlusChrome (the tab OR consolidated Settings on Plus).
+  assert.match(tick, /if \(plusOnScreen\(\)\) paintPlus\(\);/,
     'the status tick no longer keeps the Plus section fresh while it is the one on screen');
 });
 
