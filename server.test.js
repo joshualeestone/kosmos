@@ -5667,13 +5667,13 @@ test('no subscription state renders a verdict about the person\'s Claude account
 test('#3326: the default sign-up start ALWAYS forwards reauth (Josh, 2026-09-24: force a fresh login every time)', () => {
   /* Josh ruled 2026-09-24 14:38 CDT: "i want to force a fresh login everytime. I have seen the
      other way fail multiple times". #3367 had gated the forced login on a liveness probe; that
-     gate is removed, and the strand it worked around is fixed in connect.js (loginLanded, tested
-     in engine/connect.login-landed-3326.test.js). This pins the route: the default start hands
+     gate is removed, and the strand it worked around is fixed in connect.js (expiryMoved at the
+     pane-death gate, tested in engine/connect.test.js "#3326"). This pins the route: the default start hands
      the requested reauth to connect.start as-is, and no liveness probe decides it. */
   const src = require('fs').readFileSync(require('path').join(__dirname, 'server.js'), 'utf8');
   assert.match(src, /return connect\.start\(\{ requireInstallConfirm: true, installConfirmed, reauth \}\);/,
     'the default sign-up start must forward reauth unconditionally');
-  assert.doesNotMatch(src, /reauthDecision|liveVerified/,
+  assert.doesNotMatch(src, /function reauthDecision\(|\.liveVerified\s*=/,
     'a probe-gated reauth (#3367) is back: Josh ruled sign-up always forces a fresh login');
 });
 

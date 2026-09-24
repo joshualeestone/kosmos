@@ -93,25 +93,25 @@ let refreshExpiryReader = null;
 function setRefreshExpiryReader(fn) { refreshExpiryReader = typeof fn === 'function' ? fn : null; }
 function readRefreshExpiry(ccd) {
   if (refreshExpiryReader) return refreshExpiryReader(ccd);
-  if (process.env.NODE_TEST_CONTEXT) return null; // a test never reads the real keychain
+  // The keychain is macOS-only, and `node --test` never reads the real one.
+  if (process.platform !== 'darwin' || process.env.NODE_TEST_CONTEXT) return null;
   return loginexpiry.refreshExpiryFor(ccd);
 }
-const RENEWAL_READ_EVERY_MS = 3000; // the gates run per tick; `security` is a subprocess
-/* True once the flow has proof that THIS login landed: the "Login successful" screen, or the
-   credential's refresh expiry moving past the baseline taken before the launch (or appearing
-   where there was none). */
-function loginLanded(owner) {
-  if (owner.sawLoginDone) return true;
+/* The expiry proof, used ONLY at the pane-death gate: `claude auth login` exits on success and
+   that closes its pane, so the strand (a landed login whose "Login successful" frame was missed)
+   happens there, after the CLI's writes are done. A live pane may still be mid-login, so no
+   other gate uses it, and the synchronous keychain read runs once per pane death, not per tick.
+   FAILS CLOSED: it arms only when the baseline read before the launch returned a real number.
+   A null baseline can mean "no entry" or "the read failed" (timeout, locked keychain), and a
+   failed read followed by a good one would make the OLD credential look new, so null disables
+   the proof for the flow and the gate falls back to its pre-#3326 behaviour (stuck, never a
+   false connected). The gate also requires the live check to read CONNECTED, so a concurrent
+   login elsewhere on the same entry can at worst finish on a credential that works. */
+function expiryMoved(owner) {
   const w = owner.renewalWatch;
-  if (!w) return false;
-  const now = Date.now();
-  if (w.lastReadAt == null || now - w.lastReadAt >= RENEWAL_READ_EVERY_MS) {
-    w.lastReadAt = now;
-    w.latest = readRefreshExpiry(w.ccd);
-  }
-  if (typeof w.latest !== 'number') return false;
-  if (w.latest > (typeof w.baseline === 'number' ? w.baseline : -Infinity)) { owner.sawLoginDone = true; return true; }
-  return false;
+  if (!w || typeof w.baseline !== 'number') return false;
+  const latest = readRefreshExpiry(w.ccd);
+  return typeof latest === 'number' && latest > w.baseline;
 }
 
 
@@ -2663,7 +2663,7 @@ async function launchSignin(owner) {
      the CLI must write where the flow's checker reads or a successful
      login ends in "we cannot see the connection yet". */
   const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
-  /* #3326: the baseline for loginLanded, read from the entry this launch will write
+  /* #3326: the baseline for expiryMoved, read from the entry this launch will write
      (CLAUDE_CONFIG_DIR is set to launchDir below, or unset when there is none). */
   if (owner.needsLogin) owner.renewalWatch = { ccd: launchDir || undefined, baseline: readRefreshExpiry(launchDir || undefined) };
   const made = await host.open({ claudeBin: claudeBinPath(), launchDir: launchDir || null, needsLogin: owner.needsLogin });
@@ -2769,7 +2769,7 @@ async function tickBody(owner) {
          off the old credential. A non-needsLogin flow (fresh first-run) has no stale
          credential to mistake, so checkLive CONNECTED is enough. */
       if (live.state === subscription.STATE.CONNECTED
-          && (!owner.needsLogin || owner.deadCredential || loginLanded(owner))) {
+          && (!owner.needsLogin || owner.sawLoginDone || owner.deadCredential || expiryMoved(owner))) {
         await finishConnected(owner, subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined));
         return;
       }
@@ -2802,7 +2802,7 @@ async function tickBody(owner) {
          no completion evidence is a genuine "we could not confirm", not a silent
          success on the old credential. A flow with no login to run (a fresh machine,
          add-another) is unchanged: `!owner.needsLogin` short-circuits the guard true. */
-      if (sub.state === subscription.STATE.CONNECTED && (!owner.needsLogin || loginLanded(owner))) {
+      if ((!owner.needsLogin || owner.sawLoginDone) && sub.state === subscription.STATE.CONNECTED) {
         finishConnected(owner, sub);
         return;
       }
@@ -2902,7 +2902,7 @@ async function tickBody(owner) {
        still-running `claude auth login` and reports success with no credential
        repaired. Require login-done first whenever needsLogin; a flow with no login to
        run (a fresh machine, file starts signed-out) is unchanged. */
-    if (!owner.needsLogin || loginLanded(owner)) {
+    if (!owner.needsLogin || owner.sawLoginDone) {
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
       if (sub.state === subscription.STATE.CONNECTED) {
         await finishConnected(owner, sub);
@@ -3165,7 +3165,7 @@ async function tickBody(owner) {
            a needsLogin flow with no login evidence does not finish here and falls to the
            never-moves becomeStuck / the abandoned-signin timeout rather than false-finishing. */
         if ((seen.kind === 'repl' || (owner.settleTicks || 0) > 4)
-          && (!owner.needsLogin || loginLanded(owner))) {
+          && (!owner.needsLogin || owner.sawLoginDone)) {
           await finishConnected(owner, sub);
           return;
         }
