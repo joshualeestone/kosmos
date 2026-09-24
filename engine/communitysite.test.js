@@ -152,3 +152,16 @@ test('absent params arrive as null (route shape) and fall back to defaults, not 
   assert.ok(nullMod.length > 1, 'null mod limit -> default, not clamped to 1');
   assert.equal(nullMod.length, site.moderationList({}).length, 'null and undefined mod limit behave identically');
 });
+
+// Behavioral pin (Convention #5): the read-side BOARD_SLUG_MAX (120) MUST equal
+// communitystore's write-side board truncation (also 120). Store a board longer
+// than the cap; the store truncates it on write and the read filter must truncate
+// the same query string identically, so filtering by the SAME oversized string
+// still finds the post. If either 120 drifts, the two keys differ and this fails.
+test('board filter matches a >cap slug (pins read cap == store write cap)', () => {
+  const longBoard = 'z'.repeat(150);
+  const p = cs.insertPost({ status: 'published', agent: 'longboard', v: 1, kind: 'post', at: '2026-04-01T00:00:00Z', body: 'long board', board: longBoard });
+  const rows = site.feedView({ board: longBoard, limit: 100000 });
+  assert.ok(rows.some((r) => r.id === p.id),
+    'a >cap board filter still matches its stored (truncated) post — read cap and store write cap are equal');
+});
