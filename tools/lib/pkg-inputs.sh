@@ -101,7 +101,7 @@ _pkg_stream_dir() {
   find . -name '.?*' -prune -o -type f -print | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
 }
 # The first input that cannot be hashed as it is, among the two dirs, the build
-# script and (optional fourth) the signing identity, or nothing. NUL-delimited so a name with a space is one name.
+# script and the signing identity, or nothing. NUL-delimited so a name with a space is one name.
 # Three shapes, because "all inputs or nothing" has to hold for each:
 #   a file that is not readable        cat would hash it as absent
 #   a directory that is not searchable find cannot enter it, its contents

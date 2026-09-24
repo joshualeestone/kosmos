@@ -92,8 +92,8 @@ else
   bad "identity drift: preflight probes [$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID], the shared default is [$KOSMOS_SIGN_APP_DEFAULT]"
 fi
 # And no other shell script names the team: one place, or a partial switch ships two teams (#3643).
-_team_pat="$KOSMOS_SIGN_TEAM_ID|$KOSMOS_SIGN_TEAM_NAME|$KOSMOS_NOTARY_KEY_ID_DEFAULT|$KOSMOS_NOTARY_ISSUER_DEFAULT"
-_team_all="$(grep -rlIE "$_team_pat" "$REPO/tools")"   # every text file under tools/, not only *.sh
+# Fixed strings (-F): a team name like "Inc." or with parentheses must not be read as a regex.
+_team_all="$(grep -rlIF -e "$KOSMOS_SIGN_TEAM_ID" -e "$KOSMOS_SIGN_TEAM_NAME" -e "$KOSMOS_NOTARY_KEY_ID_DEFAULT" -e "$KOSMOS_NOTARY_ISSUER_DEFAULT" "$REPO/tools")"   # every text file under tools/
 if ! printf '%s\n' "$_team_all" | grep -q '/tools/lib/signing-identity.sh$'; then
   bad "CONTROL: the team sweep did not even find lib/signing-identity.sh, so it cannot see anything"
 else
