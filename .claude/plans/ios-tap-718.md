@@ -16,15 +16,29 @@ part of push's definition of done, before the go-live runbook.
    WebView exists.
 4. Builds green; logic tests pass with mutations red.
 
+**Status of 1 and 3: built, NOT run.** The address gate is tested; the WebView wiring that acts on it
+has only been compiled and reasoned through (no simulator runtime on this box). They stay unproven
+until the simulator run, and the PR says so.
+
 ## Decisions
 - **The target waits in `PushNotificationManager.boardToOpen` (@Published)** and the WebView loads and
   clears it. Rejected: loading from the notification delegate directly, which has no WebView on a
   cold launch or behind the lock.
 - **Punycode refused outright.** A Mac name is plain ASCII; an `xn--` label is how a lookalike would
   arrive. What would change it: Mac names allowing Unicode.
-- **`KosmosConfig.relayDomain = "kosmosplus.com"`**, from the coordinator's systemd unit
-  (`deploy/kosmos-coordinator.service`, `KOSMOS_DOMAIN=kosmosplus.com`).
-- Approve/Deny actions stay log-only: the coordinator sends no category yet (Kano's plan).
+- **The relay domain is derived, not a second constant:** the coordinator origin's host minus its first
+  label (`login.kosmosplus.com` -> `kosmosplus.com`, matching `KOSMOS_DOMAIN=kosmosplus.com` in
+  kosmos-relay `deploy/kosmos-coordinator.service`). Repointing `KosmosConfig.coordinatorOrigin`
+  repoints the tap with it; a host with fewer than three labels refuses every tap. The coordinator's
+  own host is refused as a tap target (challenge-loop iteration 1).
+- **What a tap lands on (read from kosmos-relay source, not measured):** the same URL the coordinator's
+  own web-push tap opens (`coordinator/src/sw.js`, `openWindow("https://" + address + "/")`). The
+  tunnel's gate (`crates/tunnel/src/proxy.rs`) shows the board when the request carries that Mac's
+  session cookie and its gate page otherwise, which links to the coordinator sign-in. The WebView
+  uses the default persistent website data store, so a device admitted to that Mac inside the app
+  reaches the board; one that was not sees the gate page. That is the existing behavior, not new.
+- Approve/Deny actions stay log-only: the coordinator sends no category yet (Kano's plan). They do
+  not touch `boardToOpen`; that branch is UIKit code outside the Foundation-only tests.
 
 ## Weakest part
 The WebView wiring (publish, load, clear on the next main-queue turn, a coordinator guarding double

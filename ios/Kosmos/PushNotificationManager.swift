@@ -190,7 +190,7 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
             // only when it is a plain host under the relay domain (PushBridge.boardURL).
             let target = PushBridge.boardURL(
                 fromNotification: response.notification.request.content.userInfo,
-                relayDomain: KosmosConfig.relayDomain
+                coordinator: KosmosConfig.coordinatorOrigin
             )
             if let target = target {
                 DispatchQueue.main.async { self.boardToOpen = target }

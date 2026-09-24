@@ -115,11 +115,6 @@ enum KosmosConfig {
     // links the person on to their own Mac's board.
     static let boardURL = URL(string: "/", relativeTo: coordinatorOrigin)!.absoluteURL
 
-    // The domain every Mac's address lives under (`<mac name>.kosmosplus.com`,
-    // the coordinator's KOSMOS_DOMAIN in production). A tapped notification may
-    // open only a board directly under it.
-    static let relayDomain = "kosmosplus.com"
-
     // Require Face ID / Touch ID before the board renders. Off by default so the
     // shell behaves as before; flip to true to demonstrate the biometric-unlock
     // native surface (#718). Whether production requires it is a product decision.
