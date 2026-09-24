@@ -455,10 +455,15 @@ rm -rf "$EXPORT"
 # is the site's OWN version ($ART, from the live latest.json this script already validated). We
 # fetched + sha-verified each gitignored artifact pre-deploy, so confirm the SERVED copy of each
 # matches the LOCAL verified copy by sha (a drop 404s the fetch; wrong bytes fail the sha).
+# The sha256 of the SERVED bytes at $HOST/dist/<path>, fetched to a file (never `curl | shasum`, so a
+# failed fetch is not hidden by the pipe's status). Returns 1, printing nothing, if the fetch fails.
+served_sha256() {  # <path-under-dist>
+  _sst=$(mktemp "${TMPDIR:-/tmp}/deploy-site-served.XXXXXX")
+  curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/$1" -o "$_sst" || { rm -f "$_sst"; return 1; }
+  shasum -a 256 < "$_sst" | awk '{print $1}'; rm -f "$_sst"
+}
 served_matches() {  # <path-under-dist> <local-verified-file>
-  t=$(mktemp "${TMPDIR:-/tmp}/deploy-site-served.XXXXXX")
-  curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/$1" -o "$t" || { echo "deploy-site: SERVED dist/$1 could not be fetched after deploy (dropped? this is the #1669 shape) -- investigate."; rm -f "$t"; exit 1; }
-  ss=$(shasum -a 256 < "$t" | awk '{print $1}'); rm -f "$t"
+  ss=$(served_sha256 "$1") || { echo "deploy-site: SERVED dist/$1 could not be fetched after deploy (dropped? this is the #1669 shape) -- investigate."; exit 1; }
   ll=$(shasum -a 256 < "$2" | awk '{print $1}')
   [ "$ss" = "$ll" ] || { echo "deploy-site: SERVED dist/$1 does not match what was deployed (served '$ss' local '$ll') -- wrong bytes on the live site. Investigate."; exit 1; }
 }
@@ -570,10 +575,7 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   [ "$_wsc" = "$_wwant" ] || { echo "deploy-site: the served latest-win.json advertises sha $WIN_SERVED_SHA for $WIN_VERIFY but its served .sha256 says '${_wsc:-nothing}' -- the Windows updater would refuse this update. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
   # And the served zip BYTES must hash to it: this zip came from R2, so nothing earlier in this script
   # hashed it (derive_committed_win_versioned hashes only the committed zip). ~40 MB, about a second.
-  # Fetch to a file, never `curl | shasum`, so a failed fetch is not hidden by the pipe's status.
-  _wzf=$(mktemp "${TMPDIR:-/tmp}/deploy-site-winzip.XXXXXX")
-  curl -fsSL --connect-timeout 10 --max-time 300 -H 'Cache-Control: no-cache' "$HOST/dist/$WIN_VERIFY" -o "$_wzf" || { echo "deploy-site: could not fetch the served $WIN_VERIFY to hash it -- the deploy already ran, investigate (#3600)."; rm -f "$_wzf"; exit 1; }
-  _wzgot=$(shasum -a 256 < "$_wzf" | awk '{print $1}'); rm -f "$_wzf"
+  _wzgot=$(served_sha256 "$WIN_VERIFY") || { echo "deploy-site: could not fetch the served $WIN_VERIFY to hash it -- the deploy already ran, investigate (#3600)."; exit 1; }
   [ "$_wzgot" = "$_wwant" ] || { echo "deploy-site: the served $WIN_VERIFY hashes to '${_wzgot:-nothing}' but its pointer and .sha256 say $_wwant -- a corrupt or partial R2 upload; every Windows update would refuse it. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
 fi
 # The STAGED Windows build, served whole: the Windows box verifies it from these served copies
