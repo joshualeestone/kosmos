@@ -2309,7 +2309,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    settings column is too narrow to hold both side by side (it is at the 34rem
    desktop cap; side by side only when the column genuinely widens past ~620px). */
 @container (max-width: 620px) { .tv-wtr { grid-template-columns: 1fr; } }
-.tv-mtable { border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
+.tv-mtable { border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; container-type: inline-size; }
 .tv-mrow { display: grid; grid-template-columns: 1.6fr 1fr 88px 84px; gap: 10px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--k-rule); }
 .tv-mrow:first-child { border-top: none; }
 .tv-mrow.head { background: var(--k-bg); font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .07em; color: var(--k-ink-2); }
@@ -2319,11 +2319,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .tv-mbar { height: 7px; background: var(--k-rule); border-radius: 5px; overflow: hidden; }
 .tv-mbar span { display: block; height: 100%; border-radius: 5px; }
 .tv-mrow .tv-num { font: 500 .84rem var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--k-ink); }
-/* #2617: on a phone-width column the fixed number columns left the name a few
-   pixels ("A..") and clipped "% total". When the usage section is below 420px
-   the share bar goes (the % column carries the same fact) and the name takes
-   the freed width. Keyed on the section, not the table, so it applies to both
-   tables when the section is narrow. */
+/* #2617: in a narrow table the fixed number columns left the name a few pixels
+   ("A..") and clipped "% total". Each .tv-mtable is its own size container, so
+   this keys on the TABLE's width: it fires on a phone, and also when a wide
+   section puts the model table beside the donut at half width. Below 420px the
+   share bar goes (the % column carries the same fact) and the name takes the
+   freed width. */
 @container (max-width: 420px) {
   .tv-mrow { grid-template-columns: minmax(0, 1fr) 64px 64px; gap: 8px; padding: 11px 12px; }
   .tv-mrow > .tv-mbar, .tv-mrow.head > div:nth-child(2) { display: none; }
@@ -27623,7 +27624,6 @@ function usageAgentRows(byAgent) {
       const name = seen[shown] > 1 && a.name && a.name !== shown ? shown + ' (' + a.name + ')' : shown;
       return { name, tok: usageRowTokenTotal(a), muted: false };
     })
-    .filter((r) => r.name && r.tok > 0)
     .sort((a, b) => (b.tok - a.tok) || a.name.localeCompare(b.name));
   const other = usageRowTokenTotal(byAgent.elsewhere || {});
   if (other > 0) rows.push({ name: 'Sessions outside any agent\'s folder', tok: other, muted: true });
