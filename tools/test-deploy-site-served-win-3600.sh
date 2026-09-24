@@ -69,6 +69,7 @@
 #       fallback (which refuses here, since R2's pointer is what the host really serves)
 #   A38 today's prod shape (alias zip redirected, its .sha256 static) with a wrong-build alias zip on
 #       R2 -> refuse: the zip is classified on its OWN redirect, not its sidecar's
+#   A39 a redirected pointer whose sha is not 64 hex characters -> refuse on the shape check
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -193,6 +194,7 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-aliasprobefail - as aliasstatic, and the un-followed probe of the alias .sha256 fails
 #   redirect-aliasbytes - as redirect, but R2's alias zip is another build than its pointer names
 #   redirect-stagedr2-probefail - as stagedr2, but the un-followed probe of the staging pointer fails
+#   redirect-badshasha - as redirect, but R2's pointer sha is not 64 hex characters
 #   redirect-aliasstatic-badbytes - today's prod shape (alias zip on R2, its .sha256 static) with the
 #                        R2 alias zip being another build
 #   redirect-behind   - as redirect, but R2 serves an OLDER build (0.6.30) than the committed 0.6.40
@@ -303,6 +305,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         printf '%s\n' 'dist/latest-win.json' 'dist/kosmos-*win-x64.zip' 'dist/kosmos-[0-9]*-win-x64.zip.sha256' > "$live/.redirects"
       fi
       [ "$mode" = redirect-aliasprobefail ] && printf '%s\n' 'dist/kosmos-win-x64.zip.sha256' > "$live/.probe-fail-paths"
+      [ "$mode" = redirect-badshasha ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW" "not-hex-and-too-short"
       [ "$mode" = redirect-aliasstatic-badbytes ] && printf 'SOME-OTHER-BUILD\n' > "$r2/kosmos-win-x64.zip"
       [ "$mode" = redirect-aliasbytes ] && printf 'SOME-OTHER-BUILD\n' > "$r2/kosmos-win-x64.zip"
       [ "$mode" = redirect-aliasbad ] && printf '%s  kosmos-win-x64.zip\n' 2222222222222222222222222222222222222222222222222222222222222222 > "$r2/kosmos-win-x64.zip.sha256"
@@ -701,5 +704,14 @@ else
   bad "A38: the R2 alias zip went unhashed because its sidecar is static (rc=$RC); out=$out"
 fi
 
+# A39) the served pointer's sha is malformed: refused before anything is compared with it.
+read -r S L R <<<"$(make_scenario redirect-badshasha)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "which is not hex"; then
+  pass "A39: a redirected pointer with a malformed sha refuses on the shape check (rc=$RC)"
+else
+  bad "A39: a malformed served sha was not refused on its shape (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 38 arms passed"
+echo "test-deploy-site-served-win-3600: all 39 arms passed"

@@ -669,7 +669,7 @@ case "${_wsp%% *}" in
     elif [ "$WIN_STAGED" != "$SWP_NAME" ]; then
       _wscv=$(win_zip_version "$WIN_STAGED"); _wssv=$(win_zip_version "$SWP_NAME"); _wsn=""
       [ -z "$_wscv" ] || [ -z "$_wssv" ] || _wsn=$(printf '%s\n%s\n' "$_wscv" "$_wssv" | sort -V | tail -1)
-      if [ -z "$_wsn" ]; then
+      if [ -z "$_wsn" ] || [ "$_wscv" = "$_wssv" ]; then
         echo "deploy-site: NOTE (#3618): prod serves latest-win-staging.json by redirect and it names $SWP_NAME; the site's committed copy names $WIN_STAGED, and which is newer cannot be told. Verifying the served staging build." >&2
       elif [ "$_wsn" = "$_wscv" ]; then
         # The site's staged build is NEWER than R2's: a staging publish was committed but never
