@@ -318,15 +318,17 @@ async function checkLive(dir, _opts) {
 function subscriptionVerdict(dir) {
   const auth = readAuth(dir);
   if (auth.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'nobody has connected this account yet' };
-  if (auth.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not read this account\'s Grok sign-in' };
+  if (auth.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'Could not read the Grok sign-in' };
   const e = auth.entry;
   if (typeof e.refresh_token === 'string' && e.refresh_token) {
     return { state: STATE.CONNECTED, checkedLive: true, because: 'signed in with your Grok subscription' };
   }
   const until = typeof e.expires_at === 'string' ? Date.parse(e.expires_at) : NaN;
-  if (!Number.isFinite(until)) return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not tell whether this Grok sign-in is still good' };
+  if (!Number.isFinite(until)) return { state: STATE.UNKNOWN, checkedLive: true, because: 'Could not check the Grok sign-in' };
   if (until > Date.now()) return { state: STATE.CONNECTED, checkedLive: true, because: 'signed in with your Grok subscription' };
-  return { state: STATE.NONE, checkedLive: true, because: 'this Grok sign-in has expired; sign in again' };
+  /* Pill-sized, and no promise: Kosmos cannot sign in to Grok again yet (create.js expiredSignIn says what
+     works instead), and a long sentence overflows the account pill (#2568). */
+  return { state: STATE.NONE, checkedLive: true, because: 'Grok sign-in expired' };
 }
 
 /* ---- add / store / forget / remove ---------------------------------------- */
@@ -678,6 +680,8 @@ function startGrokLogin({ label, grokBin } = {}) {
   /* The leader socket: grok's default is ~/.grok/leader.sock, the machine's own. A
      path inside the account dir can pass macOS's 104-byte socket-path limit for a long
      name, so it goes in the temp dir under a short per-sign-in name instead. */
+  /* Read BEFORE the spawn, so nothing grok writes can be mistaken for what was already there. */
+  const preexisting = spot.madeDir ? [] : GROK_WRITES.filter((n) => fs.existsSync(path.join(spot.dir, n)));
   const sessionId = crypto.randomBytes(16).toString('hex');
   const sock = path.join(os.tmpdir(), `kgrok-${sessionId.slice(0, 12)}.sock`);
   const args = ['login', '--device-auth', '--leader-socket', sock];
@@ -689,7 +693,7 @@ function startGrokLogin({ label, grokBin } = {}) {
     if (spot.madeDir) { try { fs.rmSync(spot.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     return { ok: false, because: 'we could not start the Grok sign-in' };
   }
-  const session = { id: sessionId, child, dir: spot.dir, label: spot.label || null, typedLabel: label, madeDir: spot.madeDir, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false };
+  const session = { preexisting, id: sessionId, child, dir: spot.dir, label: spot.label || null, typedLabel: label, madeDir: spot.madeDir, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false };
   grokSessions.set(sessionId, session);
   /* Anti-litter a sign-in that did not land an account: a dir we made goes whole; a
      reused slot loses only what grok writes there (auth.json, docs/, logs/, measured),
@@ -697,7 +701,9 @@ function startGrokLogin({ label, grokBin } = {}) {
   const dropDirIfOurs = () => {
     if (session.account) return;
     if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } return; }
+    // Only what THIS sign-in created: an earlier agent's grok logs/ in a reused slot is not ours to delete.
     for (const name of GROK_WRITES) {
+      if (session.preexisting.includes(name)) continue;
       try { fs.rmSync(path.join(session.dir, name), { recursive: true, force: true }); } catch { /* best effort */ }
     }
   };

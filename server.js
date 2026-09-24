@@ -7271,6 +7271,7 @@ const server = http.createServer((req, res) => {
           sendJson(res, 400, { error: grokAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'grok' });
           return;
         }
+        if (body.label != null && typeof body.label !== 'string') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         // The URL and code are printed by grok AFTER this returns; read them from status.

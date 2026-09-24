@@ -102,6 +102,13 @@ test('a body that is not an object is refused', async () => {
   assert.equal(r.status, 400);
 });
 
+test('a label that is not a string is refused with a 400, and no sign-in starts', async () => {
+  for (const label of [42, ['a'], { a: 1 }, true]) {
+    const r = await post('/api/accounts/grok/subscription/start', { label });
+    assert.equal(r.status, 400, `label ${JSON.stringify(label)} was accepted`);
+  }
+});
+
 /* The BLOCKER the iteration-2 review found: an API-key add must never land on a slot a
    pending sign-in holds, or the sign-in's cleanup deletes the key (and its success would be
    overridden by it). Both orders, through the real routes. */

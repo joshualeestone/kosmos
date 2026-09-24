@@ -112,6 +112,16 @@ const GROK_SUB_ROW = {
   memoryShared: true, offerable: true,
   connection: { state: 'connected', badge: 'signed_in_unverified', plan: null, checkedLive: true, because: 'signed in with your Grok subscription', observedAt: null, observedAgeMs: null },
 };
+/* #3391 round 18: a LAPSED and an UNKNOWN Grok subscription. Neither is connected, so the server
+   adds no badge and the page's legacy fallback puts connection.because in the VISIBLE pill. Those
+   sentences must be pill-sized and must not promise a sign-in Kosmos cannot start yet. The texts
+   are grokaccounts.subscriptionVerdict's own. */
+const grokSubRow = (email, dir, state, because) => ({
+  ...GROK_SUB_ROW, email, label: email, dir,
+  connection: { state, plan: null, checkedLive: true, because, observedAt: null, observedAgeMs: null },
+});
+const GROK_SUB_LAPSED = grokSubRow('grok-lapsed@example.com', '/home/.grok-gl', 'none', 'Grok sign-in expired');
+const GROK_SUB_UNKNOWN = grokSubRow('grok-unk@example.com', '/home/.grok-gu', 'unknown', 'Could not check the Grok sign-in');
 const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
   row('rej@example.com', 'rejected', 'rd'),
@@ -122,6 +132,8 @@ const ACCOUNTS = [
   CLAUDE_APIKEY_ROW,
   OPENAI_APIKEY_ROW,
   GROK_SUB_ROW,
+  GROK_SUB_LAPSED,
+  GROK_SUB_UNKNOWN,
 ];
 
 (async () => {
@@ -176,7 +188,7 @@ const ACCOUNTS = [
 
   const problems = [];
   if (r.error) problems.push(r.error);
-  if (r.count !== 9) problems.push('expected 9 account rows, got ' + r.count);
+  if (r.count !== ACCOUNTS.length) problems.push('expected ' + ACCOUNTS.length + ' account rows, got ' + r.count);
 
   const want = [
     // A Claude subscription row carries the browser-OAuth reauth (data-reauth), never the
@@ -214,6 +226,10 @@ const ACCOUNTS = [
     { email: 'grok@example.com', cls: 'acct-unknown', text: /Signed in/, honesty: true, checkNow: false,
       titleText: /confirms itself the next time an agent on it runs/, notTitle: /Check now/,
       disconnectTitle: /sign-in/, notDisconnectTitle: /key/, deleteTitle: /sign-in/, notDeleteTitle: /API key/ },
+    // #3391 round 18: the lapsed and unknown Grok sign-ins show their short sentence, never green,
+    // and never a promise to sign in again (Kosmos cannot start that from here yet).
+    { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false },
+    { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];

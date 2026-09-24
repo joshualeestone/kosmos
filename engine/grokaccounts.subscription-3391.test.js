@@ -91,14 +91,23 @@ test('checkLive: no refresh token is CONNECTED before expiry and NONE after it',
   const lapsed = await grok.checkLive(d);
   assert.equal(lapsed.state, grok.STATE.NONE);
   assert.match(lapsed.because, /expired/);
+  // Round 18: a badge-sized sentence, and no promise of an action Kosmos cannot take yet.
+  assert.ok(lapsed.because.length <= 32, `too long for a pill: ${lapsed.because}`);
+  assert.doesNotMatch(lapsed.because, /sign in again|please|to fix/i);
 });
 
 test('checkLive: an unparseable expiry, or a file we cannot read, is UNKNOWN, never NONE', async () => {
   const d = fresh('.grok-live-unk');
   writeAuth(d, ENTRY({ expires_at: 'soon' }));
-  assert.equal((await grok.checkLive(d)).state, grok.STATE.UNKNOWN);
+  const soon = await grok.checkLive(d);
+  assert.equal(soon.state, grok.STATE.UNKNOWN);
   writeAuth(d, '{not json');
-  assert.equal((await grok.checkLive(d)).state, grok.STATE.UNKNOWN);
+  const garbled = await grok.checkLive(d);
+  assert.equal(garbled.state, grok.STATE.UNKNOWN);
+  for (const v of [soon, garbled]) {
+    assert.ok(v.because.length <= 32, `too long for a pill: ${v.because}`);
+    assert.doesNotMatch(v.because, /sign in again|please|to fix/i);
+  }
 });
 
 test('checkLive: a dir with neither a key nor a sign-in is NONE (unchanged)', async () => {
@@ -292,6 +301,20 @@ test('anti-litter on a REUSED slot removes only what grok writes, and a reused s
   assert.equal(fs.existsSync(nodePath.join(slot, 'docs')), false, 'grok\'s docs/ is taken back');
   assert.equal(fs.existsSync(nodePath.join(slot, 'logs')), false, 'grok\'s logs/ is taken back');
   assert.ok(fs.existsSync(nodePath.join(slot, 'keepme.txt')), 'and nothing grok did not write');
+  fs.rmSync(slot, { recursive: true, force: true });
+}));
+
+test('anti-litter on a REUSED slot keeps a grok folder that was there BEFORE this sign-in (an earlier agent\'s logs/)', () => withMode('noauth', async () => {
+  for (const n of [1, 2]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
+  const slot = nodePath.join(SANDBOX, '.grok-work1');
+  fs.mkdirSync(nodePath.join(slot, 'logs'), { recursive: true });
+  fs.writeFileSync(nodePath.join(slot, 'logs', 'earlier.log'), 'an earlier agent ran here');
+  const s = grok.startGrokLogin({ grokBin: FAKE });
+  await waitFor(() => grok.grokLoginStatus(s.sessionId).state === 'error');
+  await waitFor(() => !grok.isSignInPending(slot));
+  assert.ok(fs.existsSync(nodePath.join(slot, 'logs', 'earlier.log')), 'a logs/ that predates this sign-in was deleted');
+  // CONTROL: what this sign-in DID create is still taken back.
+  assert.equal(fs.existsSync(nodePath.join(slot, 'docs')), false, 'grok\'s docs/ from this sign-in stayed');
   fs.rmSync(slot, { recursive: true, force: true });
 }));
 

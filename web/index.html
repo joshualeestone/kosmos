@@ -19793,8 +19793,9 @@ function acctChosenName(a) {
    ChatGPT sign-in), mapped to the engine's route word (/api/accounts/<route>).
    Everything not listed is a Claude account. */
 const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
-/* #3566: a provider connected only by a pasted key (Gemini, Grok): keyed, and not OpenAI,
-   whose sign-in and model picker are its own. Read from the route table. */
+/* #3566: a keyed provider other than OpenAI (Gemini, Grok), whose sign-in and model picker
+   are its own. (#3391: a Grok account may also be a subscription sign-in; Kosmos cannot start
+   one from these screens yet.) Read from the route table. */
 function keyOnlyProvider(p) {
   return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
 }
@@ -19823,7 +19824,7 @@ function switchKeyedSay(text, p) {
 function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
-    if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // the key-only providers (Gemini, Grok)
+    if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // Gemini and Grok
     /* "Usable" is BOTH rules: the create list's (acctOfferableTarget) and the switch list's
        (a live check that is not 'none', not marked unofferable). Offering the provider when
        either list would come up empty would post with no account. */
