@@ -179,7 +179,7 @@ test('real tmux resolves a repeated -e to the LAST value (the precedence the per
    (auth.json, no key file) must reach grok with NO XAI_API_KEY at all, or grok runs on the
    key instead of the sign-in. An EMPTY value still counts as set to grok (measured), so the
    supervisor drops every door pair and runs grok through `env -u XAI_API_KEY`. */
-function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome }) {
+function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome, plutil, withStderr }) {
   const tree = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-grok-sub-'));
   fs.mkdirSync(nodePath.join(tree, 'bin'), { recursive: true });
   fs.mkdirSync(nodePath.join(tree, 'secrets', 'env'), { recursive: true });
@@ -201,10 +201,11 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
   ].join('\n') + '\n', { mode: 0o755 });
   const env = { PATH: process.env.PATH, HOME: tree, REC: rec, AGENT_WORKFORCE_HOME: tree };
   if (!defaultHome) env.GROK_HOME = acct;
-  spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), 'agent-grok', tree, '/usr/bin/true', fake, '', 'grok-4.6', 'grok'], { env, encoding: 'utf8', timeout: 20000 });
+  if (plutil) env.KOSMOS_PLUTIL_BIN = plutil;
+  const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), 'agent-grok', tree, '/usr/bin/true', fake, '', 'grok-4.6', 'grok'], { env, encoding: 'utf8', timeout: 20000 });
   const out = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
   fs.rmSync(tree, { recursive: true, force: true });
-  return out;
+  return withStderr ? { rec: out, stderr: r.stderr || '' } : out;
 }
 
 test('grok SUBSCRIPTION account: the door XAI_API_KEY is dropped and grok runs under env -u XAI_API_KEY', () => {
@@ -276,4 +277,14 @@ test('grok: a PER-ACCOUNT subscription agent gets its own short leader socket; a
   assert.equal(Buffer.byteLength(m[1].slice(m[1].lastIndexOf('/.grok/'))), '/.grok/leader-'.length + 12 + '.sock'.length);
   assert.ok(!/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', keyFile: 'peraccountvalue', authJson: true })), 'CONTROL: a key-file account keeps the default leader');
   assert.ok(!/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, defaultHome: true })), 'CONTROL: the default account IS the default leader');
+});
+
+test('grok: with NO plutil a sign-in keeps the door key AND says so (never a silent keep)', () => {
+  const r = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, plutil: '/nonexistent/plutil', withStderr: true });
+  assert.ok(kept(r.rec), 'the key is kept (the visible failure)');
+  assert.match(r.stderr, /auth\.json is there but \/nonexistent\/plutil is not, so this agent keeps any XAI_API_KEY/, 'and the supervisor log says why');
+  // CONTROL: the real plutil strips the same fixture, and says nothing.
+  const c = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, withStderr: true });
+  assert.ok(stripped(c.rec));
+  assert.doesNotMatch(c.stderr, /plutil is not/);
 });

@@ -673,12 +673,18 @@ if [ -z "$adopt" ]; then
     _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
     _GROK_KEYF="${_GROK_ACCT}/.kosmos-grok-apikey"
     _GROK_SUB=0
+    # KOSMOS_PLUTIL_BIN is a test seam only (the no-plutil arm is otherwise untestable).
+    _PLUTIL="${KOSMOS_PLUTIL_BIN:-/usr/bin/plutil}"
     if [ -e "$_GROK_KEYF" ] && { [ -d "$_GROK_KEYF" ] || [ ! -r "$_GROK_KEYF" ]; }; then
       _GROK_SUB=0
     elif [ -r "$_GROK_KEYF" ] && grep -q '[^[:space:]]' "$_GROK_KEYF" 2>/dev/null; then
       _GROK_SUB=0
-    elif [ -r "${_GROK_ACCT}/auth.json" ] && [ -x /usr/bin/plutil ] \
-      && /usr/bin/plutil -convert json -o /dev/null -- "${_GROK_ACCT}/auth.json" >/dev/null 2>&1; then
+    elif [ -r "${_GROK_ACCT}/auth.json" ] && [ ! -x "$_PLUTIL" ]; then
+      # Keep the key (the visible failure), but SAY so: without plutil we cannot tell a
+      # subscription sign-in from a damaged file, and a silent keep would read as a choice.
+      echo "grok: ${_GROK_ACCT}/auth.json is there but ${_PLUTIL} is not, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
+    elif [ -r "${_GROK_ACCT}/auth.json" ] \
+      && "$_PLUTIL" -convert json -o /dev/null -- "${_GROK_ACCT}/auth.json" >/dev/null 2>&1; then
       _entries="$(grep -o '"https://auth\.x\.ai::' "${_GROK_ACCT}/auth.json" 2>/dev/null | wc -l | tr -d ' ')"
       [ "$_entries" = 1 ] && _GROK_SUB=1
       unset _entries
@@ -714,7 +720,7 @@ if [ -z "$adopt" ]; then
         unset _hash
       fi
     fi
-    unset _GROK_ACCT _GROK_KEYF _GROK_SUB
+    unset _GROK_ACCT _GROK_KEYF _GROK_SUB _PLUTIL
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \

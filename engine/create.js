@@ -3591,6 +3591,8 @@ async function accountConnectable({ provider, accountDir } = {}) {
       console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);
       return { ok: true };
     };
+    // #3391: one sentence for a lapsed subscription, default or named.
+    const expiredSignIn = (w) => `That ${w} sign-in has expired, so an agent created on it could not run. Sign in again in Settings, AI Models.`;
     /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
        board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
     if (!dir && prov === 'xai') {
@@ -3601,7 +3603,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
       let dlive;
       try { dlive = await grok.checkLive(def.dir); } catch (err) { return failOpenK('Grok.checkLive (default)', err); }
       if (dlive && dlive.state === NONE) {
-        return { ok: false, because: 'That Grok sign-in has expired, so an agent created on it could not run. Sign in again in Settings, AI Models.' };
+        return { ok: false, because: expiredSignIn('Grok') };
       }
       return { ok: true };
     }
@@ -3615,10 +3617,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
     let live; try { live = await mod.checkLive(acct.dir); } catch (err) { return failOpenK(word + '.checkLive', err); }
     if (live && live.state === mod.STATE.NONE) {
       /* #3391: a Grok subscription account has no key; its NONE is a lapsed sign-in. */
-      if (acct.authMode === 'subscription') {
-        return { ok: false, because: `That ${word} sign-in has expired, so an agent created on it could not run. `
-          + 'Sign in again in Settings, AI Models.' };
-      }
+      if (acct.authMode === 'subscription') return { ok: false, because: expiredSignIn(word) };
       return { ok: false, because: `${vendor} rejected that ${word} account's key, so an agent created on it could not run. `
         + 'Add a working key in Settings, AI Models.' };
     }
