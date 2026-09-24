@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: automations-recommender-assigner-2619
-diff_hash: 387ed2beeb21ef097ecf01e5c1fca3bc38e365ff76e28c154c39e7b511ba30da
+diff_hash: 96923683393789c053682a6415a538d371347e9c285855dc2ea23afef65544a6
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-24T07:21:46Z
@@ -97,6 +97,23 @@ None.
   busy box (live board on :16180, load 3.69), not a regression from this change; CI on a
   clean runner will not have that contention.
 - Affected suites run directly: engine/recommender-setting.test.js + engine/assigner-setting.test.js (17) + server.recommender-assigner-2619.test.js (11) + web.settings-nav.test.js (6) = 34, all pass. node --check server.js clean.
+
+### Post-convergence: a CI finding the blind passes could not reach
+
+The first PR run (PR #3549) passed `test` but failed `browser-checks`: the
+`named-controls` headless check flagged "settings: automation: every visible control
+has a name" on #rec-guard-money/public/delete. That check reads a control's accessible
+name from aria-label / aria-labelledby / own text / title / label[for=id] - NOT from an
+implicit wrapping <label>. The guards were wrapped-label only, so they read as unnamed.
+This class is structurally invisible to the four blind passes: it requires rendering the
+page in a headless browser, which a no-Playwright reviewer session cannot do.
+
+FIXED (commit c61e05557): added for="<id>" to each guard's <label> (name = the visible
+text; WCAG label-in-name satisfied). Verified headless against a sandboxed board with the
+check's own name-resolution logic: all three guards now resolve their visible text and the
+automation surface reports zero unnamed controls. Added a static assertion in
+web.settings-nav.test.js requiring the explicit label[for] association, so the class is now
+caught at the node layer too, not only in CI.
 
 ### Strengths (across all iterations)
 - Fail-safe guard coercion: a missing/non-boolean/corrupt/array/partial config falls to
