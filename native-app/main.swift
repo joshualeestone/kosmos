@@ -1262,7 +1262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Steady state is cheap: only a fileExists per request name. Resolve the install
         // (config load + disk path resolution) ONLY when a request is actually pending,
         // rather than every 1.5s tick for the app's whole idle lifetime.
-        let names = ["a11y-prompt-request", "file-access-prompt-request", "tmux-a11y-prompt-request", "a11y-recheck-request"]
+        let names = ["a11y-prompt-request", "file-access-prompt-request", "a11y-recheck-request"]
         let pending = names.contains { name in
             guard let u = storeFileURL(name) else { return false }
             return FileManager.default.fileExists(atPath: u.path)
@@ -1285,16 +1285,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // (see fileAccessReading / --kosmos-app-fileaccessprompt).
             self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-fileaccessprompt")
         }
-        consumeRequest(named: "tmux-a11y-prompt-request") { [weak self] in
-            // #2911/#3113: run an osascript automation op UNDER tmux so macOS prompts for tmux
-            // (the responsible process agents run under). No AXIsProcessTrusted here -- that
-            // would register the app; the whole point is to prompt for tmux so it acquires its
-            // own Accessibility TCC row. Requested by the client UP FRONT on the S3
-            // (Access-step) ENTRY via server.js /api/tmux-a11y-prompt (#3221), so tmux is
-            // registered + listed in Accessibility before the user acts; the tmux gate
-            // row's Turn On then just deep-links to the Accessibility pane (#3113).
-            self?.spawnTmuxAutomationPrompt(kosmosHome: home)
-        }
+        // #3282: the "tmux-a11y-prompt-request" consumer (and spawnTmuxAutomationPrompt) were
+        // removed. That onboarding pre-register was written only by the deleted
+        // /api/tmux-a11y-prompt route, whose web trigger #3113/#3298 removed. The runtime
+        // automation path (engine/terminal.js osascript under tmux) is separate and untouched.
         consumeRequest(named: "a11y-recheck-request") { [weak self] in
             // #2912: a manual "Check again" on the Access screen. Run ONLY the axcheck
             // (AXIsProcessTrusted, no prompt) so a just-granted permission is re-measured
@@ -1357,58 +1351,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         fire()
     }
 
-    /// #2911/#3113: fire the macOS accessibility/automation prompt attributed to TMUX, so the
-    /// user secures it during onboarding (from the tmux gate row's Turn On) instead of being
-    /// ambushed mid-work (Josh's ruling), and so tmux acquires its own Accessibility TCC row --
-    /// the row whose absence otherwise leaves the onboarding tmux gate showing a bare "Checking..."
-    /// (before #3113 that state had no Turn On at all; #3113 makes it actionable in the render).
-    ///
-    /// Unlike spawnAxHatchUnderTmux (which runs the app executable under tmux and calls
-    /// AXIsProcessTrusted as the APP -- the calling binary, #2451, so it registers Kosmos),
-    /// this runs an osascript automation op DIRECTLY under the bundled tmux, so the AppleEvents
-    /// / accessibility operation is attributed to the RESPONSIBLE process: the tmux server.
-    /// That mirrors the real runtime trigger -- engine/terminal.js drives Terminal.app via
-    /// osascript under an agent's tmux, which is what raises "tmux wants to control your
-    /// computer" the first time an agent acts. Pre-firing it here secures the tmux grant.
-    private func spawnTmuxAutomationPrompt(kosmosHome: String) {
-        guard let tmux = resolveBundledTmux(kosmosHome: kosmosHome) else {
-            logLine("tmux-a11y: no bundled tmux under \(kosmosHome) (AGENT_WORKFORCE_TMUX_BIN / tmux/bin/tmux); skipping (gate stays fail-safe)")
-            return
-        }
-        // Two DISTINCT TCC grants must be primed here, because they are separate services and
-        // macOS grants Automation PER TARGET APP:
-        //   (a) System Events -> the Accessibility ("control your computer") grant the a11y gate reads;
-        //   (b) Terminal      -> the Automation grant engine/terminal.js needs to open an agent's
-        //       window (`tell application "Terminal" ... do script "tmux attach"`). WITHOUT this
-        //       probe the runtime is the FIRST thing to touch Terminal, and it fails with
-        //       -1743 "Not authorized to send Apple events to Terminal" mid-work -- exactly the
-        //       ambush this onboarding priming exists to prevent (Josh, 0.6.84). Priming System
-        //       Events does NOT cover Terminal: Automation is keyed on the (source, target) pair.
-        // ⚠️ BOTH probes are VERIFY-PINNED (#2911/#3113): a fresh-install verify confirms which
-        // service each raises and which binary macOS names. The Terminal probe is `get version`
-        // (read-only, no `do script`, no window); confirm on the verify that it raises the
-        // Automation-to-Terminal prompt and note whether it briefly launches Terminal.app.
-        let probes = [
-            "tell application \"System Events\" to get name of first process",
-            "tell application \"Terminal\" to get version",
-        ]
-        for probe in probes {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: tmux)
-            // Run osascript DIRECTLY under tmux so the responsible process is the tmux server --
-            // matching engine/terminal.js, which drives Terminal under an agent's tmux. The command
-            // is one shell string tmux hands to /bin/sh; each probe carries double quotes and no
-            // single quote, so single-quoting the -e argument is safe.
-            p.arguments = ["-L", "kosmos-axcheck", "new-session", "-d", "/usr/bin/osascript -e '\(probe)'"]
-            p.standardOutput = FileHandle.nullDevice
-            p.standardError = FileHandle.nullDevice
-            do {
-                try p.run()
-            } catch {
-                logLine("tmux-a11y: could not spawn tmux for the automation prompt (\(probe)): \(error.localizedDescription)")
-            }
-        }
-    }
+    // #3282: spawnTmuxAutomationPrompt was REMOVED. It ran an osascript automation op under
+    // the bundled tmux to pre-register the tmux Accessibility/Automation grant during
+    // onboarding, driven by the deleted /api/tmux-a11y-prompt route (web trigger removed by
+    // #3113/#3298). With no caller it was dead code. The runtime path that actually acquires
+    // the grant at first agent action (engine/terminal.js osascript under tmux) is separate
+    // and unchanged; spawnAxHatchUnderTmux (the app-subject a11y/file-access hatch) also remains.
 
     private func spawnAxHatchUnderTmux(kosmosHome: String, hatch: String) {
         guard let exe = Bundle.main.executableURL?.path else {
