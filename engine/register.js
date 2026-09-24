@@ -418,4 +418,4 @@ function repair(opts) {
   };
 }
 
-module.exports = { known, survey, repair };
+module.exports = { known, survey, repair, shownName };
