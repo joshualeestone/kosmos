@@ -1766,7 +1766,10 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
          write that would land in an existing account. */
       if (mod.identityOf(named.dir)) {
         unclaim();
-        sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+        // A label-less add was given no name, so do not blame one: another add took the spot.
+        sendJson(res, 400, { error: claimed
+          ? `another ${providerLabel} account was added at the same moment; add this one again`
+          : `there is already a ${providerLabel} account by that name on this computer` });
         return;
       }
       try { mod.storeKey(named.dir, body.key); unclaim(); }

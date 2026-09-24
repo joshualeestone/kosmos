@@ -100,11 +100,14 @@ test('#3566: a Grok account the provider REJECTED does not turn Grok on', () => 
   assert.equal(opt(sel, 'xai').disabled, true, 'a rejected key is offered as a place to run');
 });
 
-test('#3566: an UNKNOWN list leaves them on (the engine refuses a missing account with its own sentence)', () => {
+test('#3566: an UNKNOWN list keeps them off (no account to send means an unchecked env key), and says so', () => {
   const sel = menu();
-  api.paintKeyedProviderOptions(sel, [], false, 'anthropic');
-  assert.equal(opt(sel, 'google').disabled, false);
-  assert.equal(opt(sel, 'xai').disabled, false);
+  // Even a list that happens to hold a Gemini row is not trusted until it is known.
+  api.paintKeyedProviderOptions(sel, [{ provider: 'google', dir: '/h/.gemini-work1', connection: { state: 'connected' } }], false, 'anthropic');
+  for (const v of ['google', 'xai']) {
+    assert.equal(opt(sel, v).disabled, true, v + ' is offered before the accounts were read');
+    assert.equal(opt(sel, v).dataset.off, 'Checking your accounts');
+  }
 });
 
 test('#3566: the provider an agent is ON stays selectable so the menu can show it', () => {
@@ -198,4 +201,18 @@ test('#3566: a DEFAULT Gemini/Grok agent joins its own provider\'s default row, 
   assert.equal(match({ runner: 'grok' }, null, list), undefined, 'a default Grok agent with no Grok row must join nothing, not OpenAI');
   assert.equal(match({ runner: 'codex' }, null, list).dir, '/h/.codex', 'CONTROL: codex still joins the OpenAI default');
   assert.equal(match({ runner: 'claude' }, null, list).dir, '/h/.claude', 'CONTROL: Claude still joins the Claude default');
+});
+
+test('#3566: a Gemini row and a Grok row that read alike are told apart by PROVIDER, not by path', () => {
+  const grabFn = (sig) => { const at = PAGE.indexOf(sig); return PAGE.slice(at, PAGE.indexOf('\n}', at) + 2); };
+  // eslint-disable-next-line no-new-func
+  const q = new Function(grabFn('function esc(') + '\n' + grabFn('function acctChosenName(') + '\n'
+    + grabFn('function acctPrimaryName(') + '\n' + grabFn('function accountQualifiers(') + '\nreturn accountQualifiers;')();
+  const rows = [
+    { provider: 'google', dir: '/h/.gemini-work1', keyTail: 'ABCD' },
+    { provider: 'xai', dir: '/h/.grok-work1', keyTail: 'ABCD' },
+  ];
+  const out = q(rows);
+  assert.equal(out.get('/h/.gemini-work1'), 'Gemini', 'got ' + out.get('/h/.gemini-work1'));
+  assert.equal(out.get('/h/.grok-work1'), 'Grok', 'got ' + out.get('/h/.grok-work1'));
 });

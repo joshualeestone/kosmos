@@ -160,7 +160,7 @@ function check(name, pass, detail) {
           const known = typeof CREATE_ACCOUNTS_KNOWN !== 'undefined' && CREATE_ACCOUNTS_KNOWN === true;
           const rows = typeof CREATE_ACCOUNTS !== 'undefined' ? CREATE_ACCOUNTS : [];
           const has = (p) => rows.some((x) => x && String(x.provider || '').toLowerCase() === p && acctOfferableTarget(x));
-          return { known, google: !known || has('google'), xai: !known || has('xai') };
+          return { known, google: known && has('google'), xai: known && has('xai') };
         })(),
         keyedSeen: { google: !id('create-provider').querySelector('option[value="google"]').disabled,
           xai: !id('create-provider').querySelector('option[value="xai"]').disabled },

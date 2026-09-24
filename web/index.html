@@ -9110,9 +9110,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <select id="d-provider" aria-label="Provider">
           <option value="anthropic">Anthropic / Claude</option>
           <option value="openai">OpenAI / Codex</option>
-          <option value="google" disabled>Google Gemini</option>
+          <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
           <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
-          <option value="xai" disabled>xAI Grok</option>
+          <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
           <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -11708,9 +11708,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
             <!-- Enabled with #245, per this menu's own instruction above:
                  the create path can wire a codex agent end to end now. -->
             <option value="openai">OpenAI / Codex</option>
-            <option value="google" disabled>Google Gemini</option>
+            <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
             <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
-            <option value="xai" disabled>xAI Grok</option>
+            <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
             <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
             <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -19469,20 +19469,19 @@ function switchKeyedWord(p) {
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
 /* #3566: Gemini and Grok are offered in a provider menu (#d-provider, #create-provider)
-   only when an account for them is connected, because an agent put on either with no
-   key cannot start. A disabled one says why through `data-off`, which the combobox
-   shows as its pill. When the account list is not known (not loaded yet, or the read
-   failed) they are LEFT ON: the engine refuses a missing account with its own
-   sentence, and hiding a working provider on a slow read is the worse of the two
-   mistakes. `current` stays selectable so the menu can show what the agent is on. */
+   only when an account for them is connected. A disabled one says why through `data-off`, which the combobox
+   shows as its pill. While the account list is not known (not loaded yet, or the read
+   failed) they stay OFF too: with no account to send, the engine does not refuse, it
+   puts the agent on the machine's own env key, which nobody has checked. `current`
+   stays selectable so the menu can show what the agent is on. */
 function paintKeyedProviderOptions(sel, accounts, known, current) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
     if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // the key-only providers (Gemini, Grok)
-    const has = (accounts || []).some((x) => x && acctProvider(x) === opt.value && acctOfferableTarget(x));
-    const on = has || !known || opt.value === current;
+    const has = known && (accounts || []).some((x) => x && acctProvider(x) === opt.value && acctOfferableTarget(x));
+    const on = has || opt.value === current;
     opt.disabled = !on;
-    if (on) delete opt.dataset.off; else opt.dataset.off = 'Connect in AI Models';
+    if (on) delete opt.dataset.off; else opt.dataset.off = known ? 'Connect in AI Models' : 'Checking your accounts';
   }
 }
 function acctPrimaryName(a) {
@@ -19706,7 +19705,8 @@ function accountQualifiers(list) {
         const provId = provIdOf(a);
         const prov = !providerDistinguishes ? ''
           : (provId === 'openai' ? 'OpenAI'
-            : (provId === 'anthropic' ? 'Claude' : ''));
+            : (provId === 'anthropic' ? 'Claude'
+              : (provId === 'google' ? 'Gemini' : (provId === 'xai' ? 'Grok' : ''))));  // #3566
         qual = (prov && !takenAlready(prov)) ? prov : distinctly(dir);
       }
     }
@@ -33704,6 +33704,10 @@ async function paintModelPicker(a) {
      stays down. The Claude flow below would otherwise offer Claude models under a
      Gemini agent, the #2167 "Claude models under an OpenAI agent" shape again. */
   if (a && (a.runner === 'gemini' || a.runner === 'grok')) {
+    /* An OpenAI models fetch started for this panel (e.g. just before a switch to Gemini)
+       must not land on it, and an OpenAI note must not stay under a Gemini agent. */
+    OPENAI_DETAIL_GEN += 1;
+    if (msg && msg.textContent) msg.textContent = '';
     const word = a.runner === 'gemini' ? 'Gemini' : 'Grok';
     const one = '<option value="" selected>' + esc(word + ' picks its own model') + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
@@ -34173,13 +34177,21 @@ async function paintAccountPicker(a) {
      arms only when a different account is picked. */
   sel.disabled = !ours;
   go.disabled = !ours || !sel.value;
-  if (msg && !msg.textContent && !ours && world.isKeyed && !world.isCodex && !acctLive && !ACCOUNTS_UNREADABLE) {
-    /* #3566: a Gemini/Grok agent with no named account runs on the machine's own key (the
-       default door), which the account list has no row for. The list WAS read, so "could
-       not read" would be false; say where it runs and where another account comes from. */
-    const word = switchKeyedWord(world.keyedProvider);
-    msg.textContent = 'It runs on this computer\'s own ' + word + ' key. To move it to another ' + word
-      + ' account, add one in Settings, AI Models.';
+  /* #3566: a Gemini/Grok agent's missing row has two causes and they are told apart by
+     whether its job names a folder. None: it runs on the machine's own key (the default
+     door), which has no row by design. One: it is pinned to a named account whose key is
+     gone from the list. The list WAS read in both, so "could not read" would be false. */
+  const keyedWord = world.isKeyed && !world.isCodex ? switchKeyedWord(world.keyedProvider) : '';
+  const onDefaultDoor = !!keyedWord && !(acct && acct.dir) && !acctLive && !ACCOUNTS_UNREADABLE;
+  const namedGone = !!keyedWord && !!(acct && acct.dir) && !acctLive && !ACCOUNTS_UNREADABLE;
+  if (msg && !msg.textContent && !ours && onDefaultDoor) {
+    msg.textContent = 'It runs on this computer\'s own ' + keyedWord + ' key. To move it to a '
+      + keyedWord + ' account, add one in Settings, AI Models.';
+  } else if (msg && !msg.textContent && namedGone) {
+    msg.textContent = 'The ' + keyedWord + ' account this agent runs on is no longer on this computer, so it cannot run. '
+      + (ours ? 'Pick an account above and press Move.' : 'Add one in Settings, AI Models, then move it here.');
+  } else if (msg && !msg.textContent && ours && onDefaultDoor) {
+    msg.textContent = 'It runs on this computer\'s own ' + keyedWord + ' key. Pick an account above and press Move to put it on one of yours.';
   } else if (msg && !msg.textContent && !ours && !(world.isKeyed && acctLive)) {
     /* #2338: a codex agent IS movable now -- `acctMoveWorld` gives it the OpenAI
        accounts and `setCodexAccount` performs the swap -- so the old "This is a
@@ -35666,7 +35678,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
               const on = switchAcctShown();
               if (on) return 'and it will run on ' + on + '.';
               if (switchAcctSending()) return 'and it runs on the ' + label + ' sign-in shown above.';
-              return 'and it needs a ' + label + ' account connected in AI Models. If there is not one, the switch will stop and say so.';
+              return 'and with no ' + label + ' account shown above it runs on this computer\'s own ' + label + ' key, if one is set up.';
             })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
@@ -35867,7 +35879,7 @@ function fillCreateAccounts() {
     ? usable.map((x) =>
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')
     : (openai ? '<option value="">The OpenAI sign-in on this computer</option>'
-      : keyed ? '<option value="">The ' + esc(switchKeyedWord(want)) + ' key on this computer</option>'
+      : keyed ? '<option value="">This computer\'s own ' + esc(switchKeyedWord(want)) + ' key, if one is set up</option>'
       : '<option value="">Your Claude account</option>');
   /* #2097 (Josh re-rule 2026-09-04, supersedes the earlier "shown even at one"):
      HIDE the account row unless there are two or more accounts to choose from. A
@@ -37774,7 +37786,18 @@ async function loadCreateExtras() {
     {
       const pv = document.getElementById('create-provider');
       const cur = pv && pv.options[pv.selectedIndex];
-      if (cur && cur.disabled && keyOnlyProvider(cur.value)) { pv.value = 'anthropic'; applyCreateProviderUI(); }
+      if (cur && cur.disabled && keyOnlyProvider(cur.value)) {
+        const gone = switchKeyedWord(cur.value);
+        // The same default the form opens on: OpenAI only when it is the one usable provider.
+        const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
+        const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
+        pv.value = (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
+        applyCreateProviderUI();
+        // Said, not silent: a deliberate pick was undone under the person.
+        const why = document.getElementById('create-model-why');
+        if (why) { why.textContent = 'There is no ' + gone + ' account connected, so this is back on '
+          + (pv.value === 'openai' ? 'OpenAI' : 'Claude') + '. Add one in Settings, AI Models.'; why.hidden = false; }
+      }
     }
     /* #2097: resetCreateProvider ran before this with CREATE_ACCOUNTS still empty, so on
        the FIRST create of a page session the provider fell back to the Claude default even
