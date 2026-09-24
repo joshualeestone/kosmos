@@ -19,7 +19,7 @@ const CLI = path.join(__dirname, 'install', 'kosmos');
 function runCli(args, env, input, timeoutMs) {
   return new Promise((resolve) => {
     const child = execFile(CLI, args, { env, timeout: timeoutMs || 20000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ code: err && typeof err.code === 'number' ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0, stdout: stdout || '', stderr: stderr || '' });
     });
     child.stdin.end(input === undefined ? '' : input);
   });
