@@ -14805,7 +14805,7 @@ function start(port = PORT) {
          stops and the card stays red for a person. Same gating as the class-1 sweep: inert under
          `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1, own ~1-min timer, unref'd, best-effort. */
-      const connlostBook = new Map();
+      const connlostBook = new Map(); // in memory: a board restart (or 10 min not lost) clears an escalation
       let connlostBusy = false;
       const connlostSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in

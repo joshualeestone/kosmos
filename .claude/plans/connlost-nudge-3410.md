@@ -44,6 +44,14 @@ sticky until then. A test interleaves lost, lost, working for an hour and assert
   down but the public host up it nudges in vain (the loop guard then escalates).
 - **Race:** the roster is read before the probe (up to 3 s), and chat.deliver re-checks that the pane
   is an agent but not its state, so input typed in that window can be overtaken.
+- **A nudge that could not be delivered still counts** toward the 3 (chat.deliver's COULD_NOT, for
+  example the pane in copy mode). Deliberate: otherwise a pane that keeps refusing would be retried
+  every two sweeps forever. Three failed deliveries escalate an agent that was never typed into.
+- **A second outage within 10 minutes of an escalation gets no new budget.** Escalation stays until
+  10 minutes of not being lost; a fresh loss inside that window stays escalated (the card is red for
+  a person) rather than being nudged again.
+- **The history lives in memory.** Only a board restart, or 10 minutes not lost, clears an escalation;
+  the brake AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1 stops the sweep but does not clear it.
 
 ## Weakest premise
 (MEASURED, no longer an assumption) A delivered message into a wedged Claude Code pane makes it retry
