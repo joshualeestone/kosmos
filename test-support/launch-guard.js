@@ -24,8 +24,11 @@ const os = require('node:os');
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 
+// Same derivation as engine/create.js realLaunchAgentsDir(); the #3605 test pins them equal.
 function realLaunchAgentsDir() {
-  try { return path.join(os.userInfo().homedir, 'Library', 'LaunchAgents'); } catch { return ''; }
+  let home = '';
+  try { home = os.userInfo().homedir; } catch { home = ''; }
+  return home ? path.join(home, 'Library', 'LaunchAgents') : '';
 }
 
 const REAL = realLaunchAgentsDir();
@@ -55,8 +58,10 @@ const WRITERS = [
   [fs, 'writeFileSync', 0], [fs, 'appendFileSync', 0], [fs, 'copyFileSync', 1],
   [fs, 'renameSync', 1], [fs, 'symlinkSync', 1], [fs, 'linkSync', 1],
   [fs, 'writeFile', 0], [fs, 'appendFile', 0], [fs, 'copyFile', 1], [fs, 'rename', 1],
+  [fs, 'symlink', 1], [fs, 'link', 1],
   [fs.promises, 'writeFile', 0], [fs.promises, 'appendFile', 0],
   [fs.promises, 'copyFile', 1], [fs.promises, 'rename', 1],
+  [fs.promises, 'symlink', 1], [fs.promises, 'link', 1],
   [fs, 'rmSync', 0], [fs, 'unlinkSync', 0], [fs, 'rm', 0], [fs, 'unlink', 0],
   [fs.promises, 'rm', 0], [fs.promises, 'unlink', 0],
 ];
