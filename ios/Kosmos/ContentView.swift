@@ -5,7 +5,7 @@ import WebKit
 // biometric unlock (KosmosConfig.requireBiometricUnlock).
 struct ContentView: View {
     // Receives the session the coordinator sign-in page hands over (#718).
-    let pushManager: PushNotificationManager
+    @ObservedObject var pushManager: PushNotificationManager
     // Starts unlocked when the gate is off, so default behavior is unchanged.
     @State private var isUnlocked = !KosmosConfig.requireBiometricUnlock
     // Set only when the app has actually gone to the background, so returning to
@@ -20,7 +20,11 @@ struct ContentView: View {
     var body: some View {
         Group {
             if isUnlocked {
-                WebView(url: KosmosConfig.boardURL, pushManager: pushManager)
+                WebView(
+                    url: KosmosConfig.boardURL,
+                    pushManager: pushManager,
+                    boardToOpen: pushManager.boardToOpen
+                )
                     .ignoresSafeArea()
             } else {
                 LockView(onUnlock: unlock)
@@ -111,6 +115,11 @@ enum KosmosConfig {
     // links the person on to their own Mac's board.
     static let boardURL = URL(string: "/", relativeTo: coordinatorOrigin)!.absoluteURL
 
+    // The domain every Mac's address lives under (`<mac name>.kosmosplus.com`,
+    // the coordinator's KOSMOS_DOMAIN in production). A tapped notification may
+    // open only a board directly under it.
+    static let relayDomain = "kosmosplus.com"
+
     // Require Face ID / Touch ID before the board renders. Off by default so the
     // shell behaves as before; flip to true to demonstrate the biometric-unlock
     // native surface (#718). Whether production requires it is a product decision.
@@ -123,6 +132,8 @@ enum KosmosConfig {
 struct WebView: UIViewRepresentable {
     let url: URL
     let pushManager: PushNotificationManager
+    // A board a tapped notification asked for (PushNotificationManager.boardToOpen).
+    let boardToOpen: URL?
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -134,13 +145,41 @@ struct WebView: UIViewRepresentable {
         )
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
-        webView.load(URLRequest(url: url))
+        // A cold launch from a tapped notification opens that board straight away.
+        webView.load(URLRequest(url: boardToOpen ?? url))
+        context.coordinator.issued = boardToOpen
+        consumeBoardToOpen()
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        guard let target = boardToOpen else {
+            context.coordinator.issued = nil
+            return
+        }
+        // SwiftUI can update again before the clear below lands; load each tap once.
+        guard context.coordinator.issued != target else { return }
+        context.coordinator.issued = target
+        webView.load(URLRequest(url: target))
+        consumeBoardToOpen()
+    }
 
-    static func dismantleUIView(_ webView: WKWebView, coordinator: ()) {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        // The tapped board already handed to the WebView and not yet cleared.
+        var issued: URL?
+    }
+
+    // Cleared after the load is issued, on the next main-queue turn: publishing a
+    // change from inside a SwiftUI view update is not allowed.
+    private func consumeBoardToOpen() {
+        guard boardToOpen != nil else { return }
+        let manager = pushManager
+        DispatchQueue.main.async { manager.boardToOpen = nil }
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.configuration.userContentController
             .removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
     }

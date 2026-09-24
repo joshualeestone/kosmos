@@ -131,6 +131,36 @@ enum PushBridge {
         return req
     }
 
+    // MARK: - Where a tapped notification goes
+
+    // The coordinator puts the Mac's address in every push as a top-level
+    // `address` ("<mac name>.<relay domain>", kosmos-relay apns.rs payload()), and
+    // a tap opens https://<address>/. A push is not trusted input: only a single
+    // DNS label directly under the relay domain is accepted, so a payload can never
+    // steer the app's WebView to another site, a path, a port or a scheme.
+    static func boardURL(fromNotification userInfo: [AnyHashable: Any], relayDomain: String) -> URL? {
+        guard let raw = userInfo["address"] as? String else { return nil }
+        let address = raw.lowercased()
+        let suffix = "." + relayDomain.lowercased()
+        guard address.hasSuffix(suffix) else { return nil }
+        let label = String(address.dropLast(suffix.count))
+        guard isHostLabel(label) else { return nil }
+        return URL(string: "https://\(address)/")
+    }
+
+    // RFC 1123 label: 1 to 63 of a-z, 0-9 and hyphen, not starting or ending with a
+    // hyphen. A punycode label (xn--) is refused too: it is how a lookalike Unicode
+    // name would arrive in ASCII.
+    private static func isHostLabel(_ label: String) -> Bool {
+        guard (1...63).contains(label.count),
+              label.first != "-", label.last != "-",
+              !label.hasPrefix("xn--")
+        else { return false }
+        return label.unicodeScalars.allSatisfy {
+            ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-"
+        }
+    }
+
     // MARK: - What a response means for the stored session
 
     enum Outcome: Equatable {
