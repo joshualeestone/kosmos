@@ -37,11 +37,16 @@ column, never a wrapped label".
   (`scrollWidth<=clientWidth` on all four). Negative control: forcing the grid single-column at
   wide reds the two-column arm (`tracks=1`). The #3045 one-line/no-overflow guard on the bold
   active label still PASS.
-- render-talk-fill-2622.js: A2c `navGapInDleft=0` -- the taller stacked nav still sits flush in
-  its `.dleft` row (my #3552 fix holds).
+- render-talk-fill-2622.js (a SIBLING cut-time check, NOT in this diff -- run separately to
+  confirm no cross-check regression): A2c `navGapInDleft=0`, i.e. the now-taller stacked nav still
+  sits flush in its `.dleft` row (that check's `.dleft` is `overflow:auto` in the Talk state, so a
+  taller nav scrolls rather than reflowing the flush row). Verified out-of-band, not gated by this
+  changeset.
 - web.agent-nav.test.js: 5/5 (markup unaffected).
-- Real in-process board render: 2x2 = `106px 106px`, zero label overflow; 430px = a single
-  `382px` column. Screenshots shown to Josh.
+- Ad-hoc in-process board render (a throwaway screenshot script, not committed): 2x2 = `106px 106px`,
+  zero label overflow at a 1400px viewport; a single `382px` column at a 430px viewport. The
+  committed narrow assertion in render-agent-nav.js tests the single-column state at 420px.
+  Screenshots shown to Josh.
 
 ## Scope
 web/index.html (nav CSS only) + docs/browser-checks/render-agent-nav.js (assertion). No behaviour

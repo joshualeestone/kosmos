@@ -248,14 +248,18 @@ function chk(ok, label, extra) {
       const narrow = await page.evaluate(() => {
         const nav = document.getElementById('d-nav').getBoundingClientRect();
         const sec = document.querySelector('#panel-detail .dsec:not([hidden])').getBoundingClientRect();
-        const packTracks = getComputedStyle(document.querySelector('#d-nav .dnav-pack')).gridTemplateColumns.trim().split(/\s+/).length;
-        return { navBottom: nav.bottom, secTop: sec.top, packTracks, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+        const packEl = document.querySelector('#d-nav .dnav-pack');
+        const packDisplay = getComputedStyle(packEl).display;
+        const packTracks = getComputedStyle(packEl).gridTemplateColumns.trim().split(/\s+/).length;
+        return { navBottom: nav.bottom, secTop: sec.top, packDisplay, packTracks, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
       });
       chk(narrow.navBottom <= narrow.secTop + 1, `[${theme}] at 420px the nav sits above the section`, JSON.stringify(narrow));
       chk(!narrow.overflow, `[${theme}] at 420px the page does not scroll sideways`);
       // Josh, 2026-09-24: rather than wrap a label into a too-tight 2x2 cell, the pack drops to a
-      // single column when the panel reflows narrow. One track here; two at the normal width above.
-      chk(narrow.packTracks === 1, `[${theme}] at 420px the four-pack is a single column (no wrap-forcing 2x2)`, 'tracks=' + narrow.packTracks);
+      // single column when the panel reflows narrow. Assert it is STILL a grid with one track (not
+      // reverted to flex, which computes gridTemplateColumns:"none" -> split length 1 and would
+      // otherwise false-pass a bare ===1); two tracks at the normal width above.
+      chk(narrow.packDisplay === 'grid' && narrow.packTracks === 1, `[${theme}] at 420px the four-pack is a single grid column (no wrap-forcing 2x2)`, 'display=' + narrow.packDisplay + ' tracks=' + narrow.packTracks);
       await page.screenshot({ path: path.join(OUT, `${theme}-narrow.png`), fullPage: false });
 
       // An agent Kosmos cannot tie to its name has no window box; the Terminal
