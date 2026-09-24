@@ -269,7 +269,10 @@ test('grok: a PER-ACCOUNT subscription agent gets its own short leader socket; a
   const m = sub.match(/--leader-socket (\S+)/);
   assert.ok(m, 'a per-account subscription agent is launched with its own --leader-socket');
   assert.match(m[1], /\/\.grok\/leader-[0-9a-f]{12}\.sock$/, 'named leader-<hash>.sock so `grok leader list` finds it');
-  assert.ok(Buffer.byteLength(m[1]) < 104, 'short enough for the socket path limit');
+  /* The length the CODE controls is the fixed suffix after $HOME (30 bytes), whatever the
+     account's name: $HOME is /Users/<name> on a real Mac, and a fixture's mkdtemp HOME is
+     longer, so an absolute bound would measure the fixture, not the code. */
+  assert.equal(Buffer.byteLength(m[1].slice(m[1].lastIndexOf('/.grok/'))), '/.grok/leader-'.length + 12 + '.sock'.length);
   assert.ok(!/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', keyFile: 'peraccountvalue', authJson: true })), 'CONTROL: a key-file account keeps the default leader');
   assert.ok(!/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, defaultHome: true })), 'CONTROL: the default account IS the default leader');
 });
