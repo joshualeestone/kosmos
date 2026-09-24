@@ -115,6 +115,21 @@ function chk(ok, label, extra) {
       });
       chk(dot.attr && dot.drawn === 'block', `[${theme}] the Talk pill carries the needs-you dot`, JSON.stringify(dot));
 
+      // #3500 follow-up (Josh, 2026-09-24): the four-pack is a 2x2 of identical tiles whose
+      // labels never wrap. A markup test sees neither. At the normal nav width the pack must
+      // resolve to TWO equal columns (a single-column regression drops it to one track), and
+      // every label -- not only the bold active one #3045 checks -- must sit on one line inside
+      // its tile. Under `white-space: nowrap` a too-wide label does not wrap, it truncates with
+      // an ellipsis, so scrollWidth > clientWidth is the no-wrap guard.
+      const pack = await page.evaluate(() => {
+        const p = document.querySelector('#d-nav .dnav-pack');
+        const tracks = getComputedStyle(p).gridTemplateColumns.trim().split(/\s+/).length;
+        const labs = [...p.querySelectorAll('.dnav-lab')].map((l) => ({ t: l.textContent, over: l.scrollWidth > l.clientWidth }));
+        return { tracks, labs };
+      });
+      chk(pack.tracks === 2, `[${theme}] the four-pack is a 2x2 (two equal columns) at the normal nav width`, 'tracks=' + pack.tracks);
+      chk(pack.labs.every((x) => !x.over), `[${theme}] every four-pack label sits on one line, no truncation`, JSON.stringify(pack.labs));
+
       for (const k of PILLS) {
         await page.click('#d-nav button[data-go="' + k + '"]');
         await page.waitForTimeout(150);
@@ -213,10 +228,14 @@ function chk(ok, label, extra) {
       const narrow = await page.evaluate(() => {
         const nav = document.getElementById('d-nav').getBoundingClientRect();
         const sec = document.querySelector('#panel-detail .dsec:not([hidden])').getBoundingClientRect();
-        return { navBottom: nav.bottom, secTop: sec.top, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+        const packTracks = getComputedStyle(document.querySelector('#d-nav .dnav-pack')).gridTemplateColumns.trim().split(/\s+/).length;
+        return { navBottom: nav.bottom, secTop: sec.top, packTracks, overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth };
       });
       chk(narrow.navBottom <= narrow.secTop + 1, `[${theme}] at 420px the nav sits above the section`, JSON.stringify(narrow));
       chk(!narrow.overflow, `[${theme}] at 420px the page does not scroll sideways`);
+      // Josh, 2026-09-24: rather than wrap a label into a too-tight 2x2 cell, the pack drops to a
+      // single column when the panel reflows narrow. One track here; two at the normal width above.
+      chk(narrow.packTracks === 1, `[${theme}] at 420px the four-pack is a single column (no wrap-forcing 2x2)`, 'tracks=' + narrow.packTracks);
       await page.screenshot({ path: path.join(OUT, `${theme}-narrow.png`), fullPage: false });
 
       // An agent Kosmos cannot tie to its name has no window box; the Terminal
