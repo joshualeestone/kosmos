@@ -469,3 +469,11 @@ test('a lock or staging folder carrying our own pid, not held by us, is a leftov
   assert.deepEqual(await ab.ensureShell(shellSeams('arm64')), { ok: true });
   assert.equal(fs.existsSync(mine), false);
 });
+
+test('the board sweeps a dead install\'s leftovers at start, even when the shell is already installed', { skip: process.platform !== 'darwin' ? 'uses 999997 as a pid that cannot exist, true only on macOS' : false }, async () => {
+  await ensureShellFor('arm64');
+  const left = path.join(ab.homeDir(), '.staging-999997-1');
+  fs.mkdirSync(left, { recursive: true });
+  ab.installWithRetry({ env: {}, log: () => {}, kick: () => Promise.resolve({ ok: true, already: true }) })();
+  assert.equal(fs.existsSync(left), false);
+});

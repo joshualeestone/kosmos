@@ -63,6 +63,8 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   not fix themselves, and each try downloads about 100 MB. A body of the wrong size (a cut
   download) counts as a network problem and keeps retrying. A Mac CPU with no pinned build
   stops at once: it cannot change.
+- The leftover sweep also runs once when the board starts its install loop, so a dead
+  install's staging folder is cleared even when the shell is already installed.
 - A lock or staging folder carrying the board's own pid that it does not hold is a leftover
   from before a restart (launchd can reuse a pid), and is cleared.
 
@@ -74,12 +76,13 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   for 2026-10-15 ($101 and $124 Frontier, $169 Southwest/American/Delta).
 - Kayak returns "What is a bot?" to this shell and to installed Chrome in headless mode alike.
 - tools/test-supervisor-agentbrowser-3633.sh: the installed-arm checks pass on this branch; against
-  origin/main's supervisor, the three installed-arm checks fail (the control).
+  origin/main's supervisor, the four checks that need the wiring fail (arm 1's three and
+  arm 5's one; the control).
 - engine/agentbrowser.test.js: see the count below.
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 30 pass (24 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 31 pass (25 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
   across five arms (installed, not installed, env opt-out, file opt-out, installed with a
   model); with the model line's flag removed, only the model arm fails.
 

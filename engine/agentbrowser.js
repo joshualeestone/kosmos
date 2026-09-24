@@ -410,7 +410,7 @@ function sweepLeftovers() {
     for (const v of others.slice(1)) {
       try { fs.rmSync(path.join(shells, v), { recursive: true, force: true }); } catch { /* best effort */ }
     }
-  } catch { /* none yet */ }
+  } catch { /* no shells folder yet, or one vanished mid-listing: prune nothing */ }
 }
 
 const sha256Of = (file) => new Promise((resolve, reject) => {
@@ -527,7 +527,11 @@ function installWithRetry(opts) {
       log('agent browser: install did not finish (' + ((r && r.because) || 'unknown') + '); trying again in ' + Math.round(wait / 1000) + 's');
     }).catch(() => { /* a throwing log must not become an unhandled rejection */ });
   };
-  attempt();
+  /* Once at board start: a server-tree staging folder left by a killed install is
+     otherwise only swept when a shell install actually runs. Only dead owners'
+     folders and old versions go, so it needs no lock. */
+  try { sweepLeftovers(); } catch { /* never fatal */ }
+  try { attempt(); } catch { /* a throwing log must not escape the board's call */ }
   return () => { stopped = true; if (timer) clearTimeout(timer); };
 }
 
