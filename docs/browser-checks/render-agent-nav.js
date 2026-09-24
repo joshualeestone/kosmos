@@ -116,19 +116,39 @@ function chk(ok, label, extra) {
       chk(dot.attr && dot.drawn === 'block', `[${theme}] the Talk pill carries the needs-you dot`, JSON.stringify(dot));
 
       // #3500 follow-up (Josh, 2026-09-24): the four-pack is a 2x2 of identical tiles whose
-      // labels never wrap. A markup test sees neither. At the normal nav width the pack must
-      // resolve to TWO equal columns (a single-column regression drops it to one track), and
-      // every label -- not only the bold active one #3045 checks -- must sit on one line inside
-      // its tile. Under `white-space: nowrap` a too-wide label does not wrap, it truncates with
-      // an ellipsis, so scrollWidth > clientWidth is the no-wrap guard.
+      // labels never wrap. A markup test sees none of it. At the normal nav width the pack must
+      // resolve to TWO equal columns (a single-column regression drops it to one track); every
+      // tile must be the EXACT same size (Josh's words) in both width and height -- `1fr 1fr` gives
+      // equal widths and `grid-auto-rows: 1fr` forces the two rows equal, so a future asymmetric
+      // tile cannot silently break it; and every label -- not only the bold active one #3045
+      // checks -- must sit on one line inside its tile. Under `white-space: nowrap` a too-wide
+      // label does not wrap, it truncates with an ellipsis, so scrollWidth > clientWidth is the
+      // no-wrap guard.
       const pack = await page.evaluate(() => {
         const p = document.querySelector('#d-nav .dnav-pack');
         const tracks = getComputedStyle(p).gridTemplateColumns.trim().split(/\s+/).length;
+        const btns = [...p.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; });
         const labs = [...p.querySelectorAll('.dnav-lab')].map((l) => ({ t: l.textContent, over: l.scrollWidth > l.clientWidth }));
-        return { tracks, labs };
+        const sameSize = btns.every((b) => Math.abs(b.w - btns[0].w) <= 1 && Math.abs(b.h - btns[0].h) <= 1);
+        return { tracks, btns, labs, sameSize };
       });
       chk(pack.tracks === 2, `[${theme}] the four-pack is a 2x2 (two equal columns) at the normal nav width`, 'tracks=' + pack.tracks);
+      chk(pack.sameSize, `[${theme}] all four pack tiles are the exact same size (width AND height)`, JSON.stringify(pack.btns));
       chk(pack.labs.every((x) => !x.over), `[${theme}] every four-pack label sits on one line, no truncation`, JSON.stringify(pack.labs));
+
+      // The mouseover preview actually applies (Josh approved it 2026-09-24): a resting tile takes
+      // the rule border and no wash; on hover the border becomes the gold edge and a faint warm
+      // wash appears. Asserting both CHANGE (not their exact rgb) guards the rule from being
+      // dropped or mis-scoped without pinning a brittle colour string. Pointer parked afterward so
+      // it does not perturb the pill measurements below.
+      const hoverSel = '#d-nav button[data-go="profile"]';
+      const rest = await page.evaluate((s) => { const cs = getComputedStyle(document.querySelector(s)); return { bc: cs.borderTopColor, bg: cs.backgroundColor }; }, hoverSel);
+      await page.hover(hoverSel);
+      await page.waitForTimeout(150);
+      const hov = await page.evaluate((s) => { const cs = getComputedStyle(document.querySelector(s)); return { bc: cs.borderTopColor, bg: cs.backgroundColor }; }, hoverSel);
+      chk(hov.bc !== rest.bc && hov.bg !== rest.bg, `[${theme}] hovering a four-pack tile applies the warm preview (border and wash both change)`, JSON.stringify({ rest, hov }));
+      await page.mouse.move(0, 0);
+      await page.waitForTimeout(50);
 
       for (const k of PILLS) {
         await page.click('#d-nav button[data-go="' + k + '"]');

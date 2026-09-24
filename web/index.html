@@ -2493,29 +2493,34 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #3500 follow-up (Josh, 2026-09-24): icon over label, centred, in every box (was icon
    beside a left-aligned label). Stacking gives the label the whole tile width back, which is
    what makes the 2x2 pack below fit without the label wrapping. */
-#d-nav.dnav-boxed button { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; text-align: center;
+#d-nav.dnav-boxed button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 100%; text-align: center;
   padding: 12px 14px; border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
   color: var(--k-ink-2); font-weight: 600; }
-/* MOUSEOVER (Josh approved, 2026-09-24): a preview of the selected gold at low intensity - a
-   faint warm wash and a medium-gold edge, the label+icon warmed to full ink, but NOT the gold
-   icon (that stays reserved for .on) so hover and selected never read the same. :not(.on) so an
-   already-selected tile does not shift under the pointer. */
-#d-nav.dnav-boxed button:not(.on):hover { background: rgba(214,166,46,.06); border-color: rgba(214,166,46,.5); color: var(--k-ink); }
+/* MOUSEOVER (Josh approved, 2026-09-24): a low-intensity preview of the selected state. The edge
+   reuses the SAME tokenized var(--gold-edge) as .on -- per-theme and clearing the 3:1 non-text
+   contrast floor (WCAG 1.4.11) that a flat gold literal does not (a raw rgba gold at ~1.5:1 in
+   light) -- so hover and selected share the gold edge, and the SEPARATION is carried by the fill
+   depth (a lighter .06 wash vs .on's .12) and the icon (ink here; only .on gets the gold icon).
+   That previews selection without reading as selected. The .06 wash is a literal like .on's own
+   fill wash. :not(.on) so an already-selected tile does not shift under the pointer. */
+#d-nav.dnav-boxed button:not(.on):hover { background: rgba(214,166,46,.06); border-color: var(--gold-edge); color: var(--k-ink); }
 #d-nav .dnav-ico { flex: none; display: inline-flex; }
 #d-nav .dnav-ico svg { display: block; }
 #d-nav .dnav-lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Direct Message: the largest box and the default landing. */
 #d-nav.dnav-boxed button.dnav-dm { padding: 16px; font-size: 1.0625rem; border-radius: 14px; }
 /* The four smaller boxes below the DM box, as a 2x2 grid (Josh, 2026-09-24: the 2x2 is the ideal;
-   all four tiles the exact same size; the label must never wrap). Two equal `1fr` columns keep the
-   tiles identical and cap the grid at two across (never three). What made a 2x2 wrap before was the
+   all four tiles the exact same size; the label must never wrap). Two equal `1fr` columns plus
+   `grid-auto-rows: 1fr` keep every tile identical in BOTH width and height (the two rows are forced
+   equal, so "exact same size" holds by construction, not by the tiles happening to have symmetric
+   content), and cap the grid at two across (never three). What made a 2x2 wrap before was the
    old icon-BESIDE-label row: at the 220px nav column each cell is ~106px, and a side-by-side label
    only got ~65px. Stacking the icon above (the button rule up top) gives the label the full ~90px
    cell width, and at .875rem the longest label "Instructions" is ~80px, so it sits on one line with
    margin. The single narrow case (<=56rem, where the whole panel reflows) drops the pack to one
    column - see the media query below - so a label never wraps rather than being forced into a 2x2
    that no longer fits. The #3045 no-overflow guard still holds in both. */
-#d-nav .dnav-pack { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+#d-nav .dnav-pack { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 8px; margin: 0; }
 #d-nav .dnav-pack button { padding: 14px 8px; }
 #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
 /* ACTIVE STATE - deliberately NOT the old full-solid-gold fill (`.snav button.on`, which Josh
