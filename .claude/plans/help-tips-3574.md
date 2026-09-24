@@ -2,12 +2,13 @@
 
 Josh, 2026-09-24 12:50 CDT (#chaoskosmos-design): "lets try putting in the help modals on like .93 and
 see how they look". Build the mock as drawn: chaoskosmos-site `design/first-run-help.html`, branch
-`first-run-help-3574` (61f29dd). Tour A (all four at once), my recommendation; Josh did not pick, and
-B (step-through) is a small swap if he asks.
+`first-run-help-3574` (61f29dd). Tour B, the step-through, per Josh 2026-09-24 15:51 ("I liked this
+style much better", with the mock's B screenshot); A (all four at once) was built first and replaced.
 
 ## Finished looks like
-The first time the board opens with this build (a fresh install after setup, and an existing install once after it updates: the tour has not been seen there either, and existing users have not had it), one help card numbers the four places
-(New agent, Agents, Projects, your name) and closes with Got it, the x, Escape or a click outside. It
+The first time the board opens with this build (a fresh install after setup, and an existing install once after it updates: the tour has not been seen there either, and existing users have not had it), the tour walks the four places one at a time
+(New agent, Agents, Projects, your name: "N of 4", the place ringed, the rest dimmed, dots, Skip and
+Next, Got it on the last) and ends with Got it, Skip, the x, Escape or a click outside. It
 never returns on its own. A ? button beside the user's name reopens this screen's tip, the welcome
 tour, or the ring explainer. Each screen named in the mock shows its tip once, the first visit.
 "Stop showing tips" turns every first-visit tip off; Settings has the switch to turn them back on.

@@ -1437,7 +1437,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard p { margin: 0 0 6px; font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
 .tipcard ol { margin: 4px 0 8px; padding: 0; list-style: none; font-size: .875rem; color: var(--k-ink-2); }
 .tipcard ol li { display: flex; gap: 9px; align-items: flex-start; margin: 6px 0; line-height: 1.45; }
-.tipcard ol li i, .tippin { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--gold-bright); color: #14161a;
+.tipcard ol li i { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--gold-bright); color: #14161a;
   font: 800 .6875rem/20px var(--font-ui); text-align: center; font-style: normal; margin-top: 1px; }
 .tipcard ol li b { color: var(--k-ink); }
 .tipcard .tip-bands { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 8px; font-size: .8125rem; color: var(--k-ink-2); }
@@ -1451,7 +1451,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .tipdim { position: fixed; inset: 0; z-index: 44; background: rgba(20,22,26,.28); }
 .tipdim[hidden] { display: none; }
-.tippin { position: fixed; z-index: 45; width: 24px; height: 24px; font-size: .8125rem; line-height: 24px; margin: 0; box-shadow: 0 2px 6px rgba(0,0,0,.25); pointer-events: none; }
+.tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
+.tipcard .tip-dots { display: flex; gap: 5px; }
+.tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--k-rule); }
+.tipcard .tip-dots i.on { background: var(--gold-deep); }
+.tipcard .tip-btns { display: flex; align-items: center; gap: 12px; }
 @media (max-width: 40rem) {
   .tipcard { left: 12px !important; right: 12px; width: auto; }
   .tipcard .tip-arrow { display: none; }
@@ -52505,18 +52510,21 @@ function revealBoot() {
 /* The gauge's own classes colour the dots (light and dark); one inline width keeps the three the same size. */
 const TIP_BAND = (cls, label) => '<span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="2.25" fill="none" style="stroke-width:4.5" class="gf' + (cls ? ' ' + cls : '') + '"/></svg>' + label + '</span>';
 const TIPS = [
-  { id: 'tour', tour: true, eb: 'Welcome to Kosmos', title: 'Four places to know',
+  /* Josh, 2026-09-24 15:51: the step-through tour (the mock's B), one place at a time. Each step
+     names its tab-layout target first and its consolidated-layout one second; a step whose place is
+     not on screen is left out, and the count says how many there are. */
+  { id: 'tour', tour: true,
     show: () => tipVisible('#boardbar') && !tipVisible('#panel-detail'),
-    /* Numbered from the places actually on screen, so the card's numbers always match its pins
-       (the consolidated layout hides the tab row). */
-    places: [
-      /* Each place names its tab-layout target first and its consolidated-layout one second. */
-      { at: ['#new-agent', '#rail-agents-new'], html: '<b>New agent</b> is where you make your first agent.' },
-      { at: ['#tabs [data-tab="agents"]', '#rail-agents .railname'], html: '<b>Agents</b> shows everyone working for you.' },
-      { at: ['#tabs [data-tab="projects"]', '#rail-projects .railname', '#rail-projects'], html: '<b>Projects</b> is where agents work together on something.' },
-      { at: ['#userpop-btn'], html: '<b>Settings</b> live under your name, top right.' },
-    ],
-    foot: 'Tips come back from the ? button' },
+    steps: [
+      { at: ['#new-agent', '#rail-agents-new'], title: 'Make your first agent',
+        body: 'Start here. You give it a name, a picture and a job, and it gets to work.' },
+      { at: ['#tabs [data-tab="agents"]', '#rail-agents .railname'], title: 'Your agents',
+        body: 'Agents shows everyone working for you. Click any agent to talk to it.' },
+      { at: ['#tabs [data-tab="projects"]', '#rail-projects .railname', '#rail-projects'], title: 'Your projects',
+        body: 'Projects is where agents work together on something.' },
+      { at: ['#userpop-btn'], title: 'Your settings',
+        body: 'Settings live under your name, top right. Tips come back from the ? beside it.' },
+    ] },
   { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#panel-create h2', side: true,
     body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
   { id: 'ring', title: 'The ring is your agent\'s memory', /* Only a card that draws the gauge: a filled band (.gf) or the unknown-memory dashed ring (.gu).
@@ -52546,18 +52554,14 @@ let TIP_OPEN = null;            // the tip on screen, or null
 let TIP_RETURN = null;          // focus to restore on close
 let TIPS_TIMER = null;
 let TIPS_STARTED = false;
-let TIP_PLACES = [];            // the tour's places as numbered when it opened
+let TIP_PLACES = [];            // the tour's steps whose place is on screen
+let TIP_STEP = 0;               // the tour step showing
 let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
 
 /* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
    takeover (.upd-back) is added while it is up. */
 function tipModalOpen() {
   return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .upd-back, dialog[open]');
-}
-
-/* The tour's title counts what it numbers: "Four places to know" when all four are on screen. */
-function tipTourTitle(n) {
-  return (['', 'One place', 'Two places', 'Three places', 'Four places'][n] || 'Places') + ' to know';
 }
 
 function tipVisibleAny(sel) {
@@ -52640,30 +52644,62 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   TIP_OPEN = t;
   TIP_AUTO = auto;
   TIP_RETURN = auto ? null : (returnTo || document.activeElement);
-  const places = t.tour
-    ? t.places.map((pl) => ({ ...pl, sel: pl.at.find((sel) => tipVisible(sel)) })).filter((pl) => pl.sel)
-    : [];
-  TIP_PLACES = places;
-  const body = t.tour
-    ? '<ol>' + places.map((pl, i) => '<li><i>' + (i + 1) + '</i><span>' + pl.html + '</span></li>').join('') + '</ol>'
-    : t.body;
+  if (t.tour) {
+    TIP_PLACES = t.steps.map((st) => ({ ...st, sel: st.at.find((sel) => tipVisible(sel)) })).filter((st) => st.sel);
+    TIP_STEP = 0;
+    if (!TIP_PLACES.length) { TIP_OPEN = null; return; }
+    tipTourRender(card, auto);
+    return;
+  }
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
     + '<button class="tip-x" type="button" aria-label="Close">&times;</button>'
     + '<div class="tip-eb">' + esc(t.eb || 'Tip') + '</div>'
-    + '<h2 id="tipcard-title">' + esc(t.tour ? tipTourTitle(places.length) : t.title) + '</h2>' + body
+    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2>' + t.body
     + '<div class="tip-acts">'
-    + (t.foot ? '<span class="tip-foot">' + esc(t.foot) + '</span>' : '<button class="tip-off" type="button">Stop showing tips</button>')
+    + '<button class="tip-off" type="button">Stop showing tips</button>'
     + '<button class="tip-go" type="button">Got it</button></div>';
   card.hidden = false;
   card.querySelector('.tip-go').addEventListener('click', () => tipClose({ record: true }));
   card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
-  const off = card.querySelector('.tip-off');
-  if (off) off.addEventListener('click', () => { tipClose({ record: true, also: { off: true } }).then(paintTipsToggle); });
-  const live = document.getElementById('tip-live');
-  if (live) { live.textContent = ''; live.textContent = 'Tip: ' + card.querySelector('h2').textContent; }
-  tipLayout(t, card, places);
+  card.querySelector('.tip-off').addEventListener('click', () => { tipClose({ record: true, also: { off: true } }).then(paintTipsToggle); });
+  tipAnnounce(card);
+  tipLayout(t, card);
   if (!auto) card.querySelector('.tip-go').focus();
 }
+
+function tipAnnounce(card) {
+  const live = document.getElementById('tip-live');
+  if (live) { live.textContent = ''; live.textContent = 'Tip: ' + card.querySelector('h2').textContent; }
+}
+
+/* One step of the tour: "N of M", the step's words, progress dots, Skip and Next (Got it on the last).
+   Skip, the x, Escape and a click outside all end it, and ending it any way counts as seen. */
+function tipTourRender(card, auto) {
+  const st = TIP_PLACES[TIP_STEP];
+  const n = TIP_PLACES.length;
+  const last = TIP_STEP === n - 1;
+  card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
+    + '<button class="tip-x" type="button" aria-label="Close the tour">&times;</button>'
+    + '<div class="tip-eb">' + (TIP_STEP + 1) + ' of ' + n + '</div>'
+    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><p>' + esc(st.body) + '</p>'
+    + '<div class="tip-acts"><span class="tip-dots" aria-hidden="true">'
+    + TIP_PLACES.map((_, i) => '<i' + (i === TIP_STEP ? ' class="on"' : '') + '></i>').join('') + '</span>'
+    + '<span class="tip-btns">' + (last ? '' : '<button class="tip-off tip-skip" type="button">Skip</button>')
+    + '<button class="tip-go" type="button">' + (last ? 'Got it' : 'Next') + '</button></span></div>';
+  card.hidden = false;
+  card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
+  const skip = card.querySelector('.tip-skip');
+  if (skip) skip.addEventListener('click', () => tipClose({ record: true }));
+  card.querySelector('.tip-go').addEventListener('click', () => {
+    if (last) { tipClose({ record: true }); return; }
+    TIP_STEP += 1;
+    tipTourRender(card, false);
+  });
+  tipAnnounce(card);
+  tipLayout(TIP_OPEN, card);
+  if (!auto) card.querySelector('.tip-go').focus();
+}
+
 
 function tipSuspend(on) {
   const card = document.getElementById('tipcard');
@@ -52676,26 +52712,26 @@ function tipSuspend(on) {
 }
 
 /* Position only; the card's content and focus are left alone, so a resize or scroll does not rebuild it. */
-function tipLayout(t, card, places) {
+function tipLayout(t, card) {
   if (t.tour) {
-    document.getElementById('tipdim').hidden = false;
-    const pins = document.getElementById('tippins');
-    pins.innerHTML = '';
-    (places || TIP_PLACES).forEach((pl, i) => {
-      const el = document.querySelector(pl.sel);
-      if (!el || !tipVisible(pl.sel)) return;
+    /* The step's place stays bright inside a gold ring and the rest of the page dims: one fixed ring
+       whose outer shadow is the dim, so nothing in the app has to be lifted above it. */
+    const st = TIP_PLACES[TIP_STEP];
+    const halo = document.getElementById('tippins');
+    const el = st && document.querySelector(st.sel);
+    halo.innerHTML = '';
+    if (el && tipVisible(st.sel)) {
       const r = el.getBoundingClientRect();
-      const pin = document.createElement('span');
-      pin.className = 'tippin';
-      pin.setAttribute('aria-hidden', 'true');
-      pin.textContent = String(i + 1);
-      pin.style.left = Math.round(r.left - 8) + 'px';
-      pin.style.top = Math.round(r.top - 8) + 'px';
-      pins.appendChild(pin);
-    });
-    card.className = 'tipcard flat';
-    card.style.left = Math.round((document.documentElement.getBoundingClientRect().width - card.offsetWidth) / 2) + 'px';
-    card.style.top = Math.round(Math.max(80, (window.innerHeight - card.offsetHeight) / 2)) + 'px';
+      const ring = document.createElement('span');
+      ring.className = 'tiphalo';
+      ring.setAttribute('aria-hidden', 'true');
+      ring.style.left = Math.round(r.left - 4) + 'px';
+      ring.style.top = Math.round(r.top - 4) + 'px';
+      ring.style.width = Math.round(r.width + 8) + 'px';
+      ring.style.height = Math.round(r.height + 8) + 'px';
+      halo.appendChild(ring);
+    }
+    tipPlace(card, st && st.sel);
   } else {
     tipPlace(card, t.at, t.side);
   }

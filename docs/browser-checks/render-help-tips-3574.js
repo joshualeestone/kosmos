@@ -31,7 +31,7 @@ const srv = require('../../server.js');
 const tipsStore = require('../../engine/tips');
 
 const SHOTS = process.argv[2] || null;
-const TOUR = 'Four places to know';
+const TOUR = 'Make your first agent';   // the tour's first step (Josh chose the step-through tour)
 const fail = [];
 function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
@@ -42,8 +42,9 @@ const cardState = (page) => page.evaluate(() => {
   const c = document.getElementById('tipcard');
   const h = c && c.querySelector('h2');
   return { shown: !!c && !c.hidden, title: h ? h.textContent : null,
-    dim: !document.getElementById('tipdim').hidden, pins: document.querySelectorAll('#tippins .tippin').length,
-    items: c ? c.querySelectorAll('ol li').length : 0 };
+    dim: !document.getElementById('tipdim').hidden || !!document.querySelector('#tippins .tiphalo:not([hidden])'),
+    halo: document.querySelectorAll('#tippins .tiphalo').length,
+    step: c ? (c.querySelector('.tip-eb')?.textContent || '') : '', dots: c ? c.querySelectorAll('.tip-dots i').length : 0 };
 });
 const waitTitle = (page, title, ms) => page.waitForFunction((t) => { const c = document.getElementById('tipcard'); return c && !c.hidden && c.querySelector('h2')?.textContent === t; }, title, { timeout: ms }).then(() => true, () => false);
 /* The store, written directly: the API only ever adds to seen, which is the product rule. */
@@ -64,11 +65,13 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.goto(URL, { waitUntil: 'networkidle' });
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
 
-    // T1: the welcome tour shows once on the board, dims the screen, and numbers exactly the places
-    // its card lists.
+    // T1: the welcome tour shows once on the board, one place at a time: step 1 of 4, the New agent
+    // button ringed and the rest dimmed, four dots.
     chk(await waitTitle(page, TOUR, 4000), 'T1 the welcome tour shows on the board after first run');
     const tour = await cardState(page);
-    chk(tour.dim && tour.pins === 4 && tour.items === 4, 'T1 it dims, and numbers four places with four pins', JSON.stringify(tour));
+    chk(tour.dim && tour.halo === 1 && tour.step === '1 of 4' && tour.dots === 4, 'T1 step 1 of 4: one place ringed, the rest dimmed, four dots', JSON.stringify(tour));
+    const ringed = await page.evaluate(() => { const h = document.querySelector('#tippins .tiphalo').getBoundingClientRect(); const b = document.getElementById('new-agent').getBoundingClientRect(); return Math.abs(h.left + 4 - b.left) <= 1 && Math.abs(h.top + 4 - b.top) <= 1; });
+    chk(ringed, 'T1 the ring sits on the New agent button');
     if (SHOTS) {
       fs.mkdirSync(SHOTS, { recursive: true });
       await page.screenshot({ path: path.join(SHOTS, 'tour-light.png') });
@@ -77,7 +80,17 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       await page.emulateMedia({ colorScheme: 'light' });
     }
 
-    // T2: Got it closes it and the board remembers.
+    // T2: Next walks the four places in order, and Got it on the last closes it and the board remembers.
+    const walked = [];
+    for (let i = 0; i < 3; i++) {
+      await page.click('#tipcard .tip-go');
+      await page.waitForTimeout(150);
+      const st = await cardState(page);
+      walked.push(st.step + ' ' + st.title);
+    }
+    chk(JSON.stringify(walked) === JSON.stringify(['2 of 4 Your agents', '3 of 4 Your projects', '4 of 4 Your settings']), 'T2 Next walks Agents, Projects, then your name', JSON.stringify(walked));
+    const lastBtn = await page.evaluate(() => ({ go: document.querySelector('#tipcard .tip-go').textContent, skip: !!document.querySelector('#tipcard .tip-skip') }));
+    chk(lastBtn.go === 'Got it' && !lastBtn.skip, 'T2 the last step says Got it and offers no Skip', JSON.stringify(lastBtn));
     await page.click('#tipcard .tip-go');
     await page.waitForTimeout(300);
     const closed = await cardState(page);
@@ -276,9 +289,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-btn');
     await page.click('#helpq-menu [data-help="tour"]');
     const cons = await cardState(page);
-    const words = ['', 'One place', 'Two places', 'Three places', 'Four places'];
-    chk(cons.shown && cons.pins === cons.items && cons.items === 4 && cons.title === words[cons.items] + ' to know',
-      'T12 under the consolidated layout the tour still finds all four places (the rail heads) and its title counts them', JSON.stringify(cons));
+    chk(cons.shown && cons.step === '1 of 4' && cons.dots === 4 && cons.halo === 1,
+      'T12 under the consolidated layout the tour still finds all four places (the rail heads)', JSON.stringify(cons));
     await page.keyboard.press('Escape');
     await page.evaluate(() => applyLayout('tabs', true));
 
