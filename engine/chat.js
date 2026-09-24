@@ -129,9 +129,13 @@ const DELIVERY = {
 // a PRODUCT choice, not a transport limit: the #3419 paste transport (pasteWire) delivers the body
 // in 256B (PASTE_CHUNK_BYTES) sub-threshold chunks with a size-adaptive wait, so a longer body is
 // delivered without the busy-pane head-truncation a single send-keys burst had -- the chunking
-// already scales to any size. The UI maxlength on the agent-message composers must stay EQUAL to
-// this (a client cap under this one silently saves less than the caller typed; kosmos#3403); the
-// soft near-limit counter warns before the cap so the cut is never silent.
+// already scales to any size. The two MULTI-LINE agent-message composers (#d-say, #pj-post) carry
+// maxlength=10000 to match this cap -- render-msg-counter-3403 asserts that cap, and the soft
+// near-limit counter (which reads each composer's own maxlength) warns before it so the cut is
+// never silent. A UI maxlength BELOW this cap is the #3403 cutoff itself (input just stops, no
+// warning); one ABOVE it would let the caller type past what the engine keeps. The two single-line
+// quick inputs (#pj-say, #d-term-say) stay at 2000 for now, a documented plan follow-on: they are
+// quick-say inputs, not the long-message composers Josh hit.
 const MAX_TEXT = 10000;
 
 /**
