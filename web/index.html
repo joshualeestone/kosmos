@@ -7521,6 +7521,17 @@ html[data-kosmos-platform="win32"] ::-webkit-scrollbar-track { background: trans
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb { background: var(--k-ink-2); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb:hover { background: var(--k-ink); }
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-corner { background: transparent; }
+/* Hide the native up/down arrow buttons Chromium can glue to a custom-width scrollbar on
+   Windows, so the bar stays a clean thin thumb rather than a thin bar with wide OS buttons. */
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-button { display: none; }
+/* #3443 scope note: this is a catch-all, so on Windows it also unifies the ONE pane that already
+   had a custom scrollbar, .pj-screen (the raw agent-screen/permission capture box, #113/#3419):
+   its bar goes 6px->10px, its track --k-sunk->transparent, its radius 3px->6px. This is
+   DELIBERATE, not accidental: .pj-screen stays non-overlay and its thumb is now --k-ink-2 (more
+   visible than before), so its "persistent, always-visible" intent holds; only the metrics unify
+   to the app-wide Windows look, which is the consistency #3443 asks for. macOS .pj-screen is
+   untouched (this whole block is win32-scoped). If .pj-screen's exact 6px tuning must be kept on
+   Windows, re-assert it at higher specificity under this same platform scope. */
 /* #3330 -> federation Kosmos+ gate (Josh launch spec, 2026-09-21). The #3312 fed
    UI was hidden on prod by a plain sourceChannel gate; it now gates on the mode
    that fedGateStamp() computes into data-fed-ui ('show' / 'signup' / 'hidden')

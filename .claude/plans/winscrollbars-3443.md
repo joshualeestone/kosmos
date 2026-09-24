@@ -18,8 +18,14 @@ macOS keeps its native overlay scrollbars unchanged.
   untouched. Applying it globally would replace macOS overlay scrollbars app-wide, which Josh did
   not ask for.
 - THIN + THEME-AWARE (the card's "minimum acceptable"), because true auto-hide overlay is not a
-  pure-CSS affordance on the Windows webview. Colors are the existing theme tokens (--k-rule thumb,
-  --k-ink-2 on hover) so the bar tracks light/dark on its own.
+  pure-CSS affordance on the Windows webview. Thumb is --k-ink-2 (the theme mid-ink: dark on light,
+  light on dark), --k-ink on hover, so the bar tracks light/dark on its own AND is visible at rest.
+  The hairline --k-rule token was tried first and rejected as too faint (~1.3:1 vs the page, it read
+  as no scrollbar). ::-webkit-scrollbar-button is hidden so Windows shows no wide native arrows.
+- CATCH-ALL, deliberately. It also unifies the one pane that already had a custom scrollbar,
+  .pj-screen (#113/#3419), on Windows: metrics move to the app-wide look while its non-overlay
+  persistence and a visible thumb are kept. Chosen over excluding it (which would need duplicating
+  .pj-screen's values under the platform scope) because consistent Windows scrollbars is the intent.
 - ::-webkit-scrollbar pseudo-elements, NOT `scrollbar-width`. On newer Chromium setting
   scrollbar-width disables the ::-webkit-scrollbar rules, so the pseudo-element form alone is the
   version-safe path for the Electron webview.
