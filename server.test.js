@@ -8746,16 +8746,21 @@ test('the agent detail page is eight sections behind a nav, in the ruled order',
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const panel = raw.slice(raw.indexOf('<section class="detail" id="panel-detail"'),
                           raw.indexOf('<section class="panel" id="panel-settings"'));
-  const nav = panel.slice(panel.indexOf('<nav class="snav" id="d-nav"'), panel.indexOf('</nav>'));
+  // Locate the nav by its id, not a fixed class list (#3500 added `dnav-boxed` to the class).
+  const navStart = panel.search(/<nav [^>]*id="d-nav"/);
+  const nav = panel.slice(navStart, panel.indexOf('</nav>', navStart));
   const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
-  // #2916 (Josh 6.59): Memory folds under the "Model and Memory" pill and Skills under
-  // "Instructions", so neither has a pill of its own; the "Terminal" pill is renamed "Advanced".
-  // The pill order a person sees:
-  assert.deepEqual(gos, ['talk', 'model', 'instr', 'profile', 'term', 'remove'],
-    'the nav pill order moved; the pills read Talk, Model and Memory, Instructions, Profile, Advanced, Remove');
-  // The pill LABELS Josh asked for, and the two folded pills absent by name.
-  assert.match(nav, /data-go="model"[^>]*>Model and Memory</, 'the model pill is not labelled "Model and Memory"');
-  assert.match(nav, /data-go="term"[^>]*>Advanced</, 'the Terminal pill was not renamed "Advanced"');
+  // #3500 (Josh, 2026-09-23): the nav is icon+label boxes. Direct Message is the large default box;
+  // the four-pack is Profile, Instructions, AI Settings (the relabelled Model and Memory pill), and
+  // Advanced. Memory still folds under the AI Settings pill and Skills under Instructions (#2916).
+  // "Remove agent" now folds INTO Advanced (DETAIL_SECTION_PILL remove->term), so there is no
+  // top-level Remove pill. The pill order a person sees:
+  assert.deepEqual(gos, ['talk', 'profile', 'instr', 'model', 'term'],
+    'the nav pill order moved; #3500 reads Direct Message, then the four-pack Profile, Instructions, AI Settings, Advanced (no Remove pill - it folded into Advanced)');
+  // The pill LABELS now live in a .dnav-lab span beside the icon; model is relabelled "AI Settings".
+  assert.match(nav, /data-go="model"[\s\S]*?>AI Settings</, 'the AI Settings pill (was Model and Memory) is mislabelled');
+  assert.match(nav, /data-go="term"[\s\S]*?>Advanced</, 'the Advanced pill is mislabelled');
+  assert.doesNotMatch(nav, /data-go="remove"/, 'a top-level Remove pill is back; #3500 folds Remove into Advanced');
   assert.doesNotMatch(nav, /data-go="memory"/, 'a standalone Memory pill is back');
   assert.doesNotMatch(nav, /data-go="skills"/, 'a standalone Skills pill is back');
   const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
@@ -8763,8 +8768,11 @@ test('the agent detail page is eight sections behind a nav, in the ruled order',
   // the section it folds under (memory after model, skills after instr).
   assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
     'the section order moved');
-  // Pills are the sections minus the folded pair, in the same relative order.
-  assert.deepEqual(secs.filter((s) => gos.includes(s)), gos, 'the pills are not in section order');
+  // #3500: the pills follow Josh's four-pack order (Direct Message, then Profile, Instructions,
+  // AI Settings, Advanced), which deliberately does NOT track section order, so the exact pill
+  // order is pinned by the deepEqual above. Here we only guard that every pill maps to a real
+  // section (no pill points at a phantom).
+  assert.ok(gos.every((g) => secs.includes(g)), 'a pill points at a section that does not exist');
   // ⚠️ The control: the old grid no longer exists in this panel, so a revival
   // of it here would be a second layout under the nav.
   assert.ok(!panel.includes('class="dgrid"'), 'the detail panel grew a grid back under the nav');
