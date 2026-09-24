@@ -6528,7 +6528,8 @@ const server = http.createServer((req, res) => {
    * that wants one number has to choose how, and say what it chose.
    * `rootsRead` travels too, so a caller can say which config directories
    * were actually scanned rather than imply it saw everything.
-   * `byAgent` (#2617) is the window per agent, from usage.byAgent().
+   * `byAgent` (#2617) is the window per agent, from usage.byAgentAsync(), plus
+   * `rosterRead`; it is null when that split fails.
    */
   if (pathname === '/api/usage' && (req.method === 'GET' || req.method === 'HEAD')) {
     let days = 7;

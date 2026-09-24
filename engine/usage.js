@@ -420,7 +420,11 @@ async function dailyUsageByModel(days = 7) {
  * agent's own folder, both sides compared after `canonical` (realpath), so a
  * link and its target match and two identical spellings always do. A subfolder is not
  * claimed, so an agent recorded on a broad folder cannot absorb the person's
- * own sessions beneath it. A folder two agents share goes to `shared`, not to
+ * own sessions beneath it. A message found in two transcripts (a resumed copy)
+ * counts once, for the transcript whose path sorts first: stable across scans,
+ * but not a judgement about which copy is the original. Kosmos resumes an agent
+ * in its own folder, so both copies usually carry the same launch folder.
+ * A folder two agents share goes to `shared`, not to
  * whichever name sorts first. A folder no agent owns goes to `elsewhere`.
  *
  * Checked per day against the per-model total: `unattributed` is what a day's

@@ -71,7 +71,9 @@ test('#2617: GET /api/usage splits the window per agent by the folder each sessi
   const annDir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'ann');
   fs.mkdirSync(annDir, { recursive: true });
   require('./engine/store').writeProfile('ann', { displayName: 'Ann' });
-  const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'proj');
+  // Its own project folder; other tests' rows are subtracted via a baseline.
+  const before = (await (await fetch(base + '/api/usage?days=1')).json()).byAgent.elsewhere.output_tokens;
+  const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'proj-ann');
   fs.mkdirSync(dir, { recursive: true });
   const row = (id, cwd, out) => JSON.stringify({ timestamp: `${today}T09:00:00.000Z`, cwd, sessionId: 'sess',
     message: { id, model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
@@ -83,7 +85,7 @@ test('#2617: GET /api/usage splits the window per agent by the folder each sessi
   const ann = body.byAgent.agents.find((a) => a.name === 'ann');
   assert.ok(ann, 'the agent whose folder the session ran in got no tokens: ' + JSON.stringify(body.byAgent));
   assert.equal(ann.output_tokens, 30);
-  assert.equal(body.byAgent.elsewhere.output_tokens, 4, 'a session outside every agent folder must be counted as elsewhere');
+  assert.equal(body.byAgent.elsewhere.output_tokens - before, 4, 'a session outside every agent folder must be counted as elsewhere');
   // The per-folder split names every folder a session ran in; only its per-agent
   // sum leaves. (rootsRead does name the config folders; that predates this.)
   assert.equal(body.byFolder, undefined, 'the route leaked the per-folder split');
@@ -100,7 +102,6 @@ test('#2617: a roster that cannot be read says so, and a failing split leaves th
     const today = new Date().toISOString().slice(0, 10);
     const cleoDir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cleo');
     fs.mkdirSync(cleoDir, { recursive: true });
-    register.known = knownWas;
     require('./engine/store').writeProfile('cleo', { displayName: 'Cleo' });
     const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'proj-cleo');
     fs.mkdirSync(dir, { recursive: true });

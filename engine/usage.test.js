@@ -467,11 +467,14 @@ test('#2617: byAgentAsync resolves folders without a synchronous realpath and sp
   const B = { input_tokens: 0, output_tokens: 13, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 };
   const result = { byDay: { d: { m: { ...B, output_tokens: 20 } } }, byFolder: { d: { [fs.realpathSync(real)]: B, '/gone/elsewhere': { ...B, output_tokens: 7 } } } };
   const agents = [{ name: 'ann', dir: link }];
-  const syncWas = fs.realpathSync.native;
+  const nativeWas = fs.realpathSync.native;
+  const plainWas = fs.realpathSync;
   let syncCalls = 0;
-  fs.realpathSync.native = (...a) => { syncCalls += 1; return syncWas(...a); };
+  const counted = (fn) => (...a) => { syncCalls += 1; return fn(...a); };
+  fs.realpathSync = counted(plainWas);
+  fs.realpathSync.native = counted(nativeWas);
   let out;
-  try { out = await usage.byAgentAsync(result, agents); } finally { fs.realpathSync.native = syncWas; }
+  try { out = await usage.byAgentAsync(result, agents); } finally { fs.realpathSync = plainWas; plainWas.native = nativeWas; }
   assert.equal(syncCalls, 0, 'byAgentAsync made a synchronous realpath call');
   assert.equal((out.agents[0] || {}).output_tokens, 13, 'the link and its target did not match');
   assert.equal(out.elsewhere.output_tokens, 7, 'a folder that is gone must still be counted, as elsewhere');
