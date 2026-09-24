@@ -151,3 +151,14 @@ test('pjRoomBody derives its highlight key-set from pjMentionKeys, the single so
   assert.match(body, /const agentNames = pjMentionKeys\(p\)/,
     'pjRoomBody must derive agentNames from pjMentionKeys, not re-inline its own key Set');
 });
+
+test('the attach-only filename auto-fill repaints the mirror (no stale/blank mirror over real text)', () => {
+  // pjPostSend sets #pj-post.value directly when a file is attached with no caption. Like every
+  // other programmatic value-set it must route through pjGrowComposer (which repaints the mirror),
+  // or .mention-live keeps the text transparent over a stale mirror and the composer looks empty
+  // while holding the filenames it is about to post.
+  const at = PAGE.indexOf('input.value = attachList(ATTACH_ROOM).map((r) => r.name)');
+  assert.ok(at > 0, 'the attach-only filename fill must exist in pjPostSend');
+  assert.match(PAGE.slice(at, at + 700), /pjGrowComposer\(input\)/,
+    'the attach-only filename fill must be followed by pjGrowComposer(input) to repaint the mirror');
+});
