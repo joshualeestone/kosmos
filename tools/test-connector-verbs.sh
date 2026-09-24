@@ -40,8 +40,18 @@ connector_verbs_check "$EXIT2" "$OPEN" 2>"$T/err" && bad "an exit 2 without unre
 HANG="$T/hang-tunnel"; printf '#!/bin/sh\nexec sleep 60\n' > "$HANG"; chmod +x "$HANG"
 start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$HANG" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
 [ "$took" -lt 10 ] && grep -q "could not check" "$T/err" && ok "a hanging connector is cut off by the bound (${took}s) and refused as unrunnable" || bad "a hang was not bounded (${took}s): $(cat "$T/err")"
+# A connector whose CHILD hangs (no exec): the bound must kill the whole group, not only the shell.
+KID="$T/child-hang-tunnel"; printf '#!/bin/sh\nsleep 60 &\necho $! > "%s"\nwait\n' "$T/kid.pid" > "$KID"; chmod +x "$KID"
+start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$KID" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
+[ "$took" -lt 10 ] && grep -q "did not answer within 2 seconds" "$T/err" && ok "a connector whose child hangs is also cut off (${took}s), naming the time limit" || bad "a hanging child was not bounded (${took}s): $(cat "$T/err")"
+if [ -s "$T/kid.pid" ]; then
+  kill -0 "$(cat "$T/kid.pid")" 2>/dev/null && { bad "the hung connector's child outlived the bound"; kill "$(cat "$T/kid.pid")" 2>/dev/null; } || ok "the timed-out connector's child process is gone too"
+else bad "the child-hang stand-in never recorded its child (the check above proved nothing)"; fi
 printf "// const PHONE_APP_CAN_RECEIVE = true;\nconst PHONE_APP_CAN_RECEIVE = false;\n" > "$T/commented.js"
 [ "$(connector_gate_value "$T/commented.js")" = false ] && ok "a commented-out line is not read as the gate" || bad "a commented-out declaration was read as the gate"
+
+# The gate reader called bare under set -e with no match still returns (prints nothing).
+if bash -c 'set -euo pipefail; . tools/lib/connector-verbs.sh; connector_gate_value "$1"; echo REACHED' _ "$T/odd.js" 2>/dev/null | grep -qx REACHED; then ok "the gate reader called bare under set -e survives a file with no gate line"; else bad "the gate reader aborted a bare set -e caller"; fi
 
 # The real gate in this checkout reads as a value (the declaration has not drifted from what this lib matches).
 g="$(connector_gate_value engine/phonenotify.js)"
@@ -59,6 +69,6 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
 if [ -x "$R" ]; then
-  if "$R" mac-request --help >/dev/null 2>&1; then echo "NOTE  the connector at $R knows mac-request"; else echo "NOTE  the connector at $R predates mac-request (rebuild before the gate opens)"; fi
+  echo "NOTE  the connector at $R: $(connector_mac_request_probe "$R")"
 else echo "NOTE  no connector at $R on this machine; the integration line did not run"; fi
 echo "connector-verbs: $FAILS failures"; [ "$FAILS" -eq 0 ]
