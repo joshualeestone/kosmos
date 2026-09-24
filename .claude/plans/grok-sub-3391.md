@@ -65,10 +65,14 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
 - A connected subscription row carries badge signed_in_unverified from the /api/accounts overlay
   (added in challenge iteration 6: before it, the row had no badge and the page drew the green legacy
   pill, so a file alone DID read green, contrary to what this plan said).
-- A PER-ACCOUNT subscription agent launches with its own `--leader-socket ~/.grok/leader-<hash12>.sock`.
-  grok's leader is its relay to xAI (`grok leader info` names wss://code.grok.com); whether a leader
-  carries the sign-in of whoever started it is UNMEASURED (it needs two real subscriptions). Isolating
-  it per account is cheap and reversible; a key account and the default keep the default leader.
+- EVERY PER-ACCOUNT agent, key or subscription, launches with its own
+  `--leader-socket ~/.grok/leader-<hash12>.sock`, keyed on its dir AND the identity in it (widened in
+  challenge iteration 10; before that it was subscription agents only). Only the DEFAULT keeps the default
+  leader. grok's leader is its relay to xAI (`grok leader info` names wss://code.grok.com); whether a
+  leader carries the sign-in of whoever started it is UNMEASURED (it needs two real subscriptions), and
+  the premise cuts both ways, so it is applied to both kinds. Cheap and reversible.
+  ⚠️ SCOPE: this changes how EXISTING per-account Grok API-key agents launch (their own leader instead
+  of the shared one), which predates #3391. Named in the PR description for that reason.
   MEASURED (iteration 8, throwaway GROK_HOME): top-level `grok --leader-socket <p> models` runs (rc 0),
   and an unknown flag is rejected (rc 2, "unexpected argument"), so the launch flag is accepted.
   `grok login --device-auth --leader-socket <p>` created NO socket and started NO leader: one process,
