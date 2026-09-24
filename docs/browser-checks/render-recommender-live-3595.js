@@ -32,6 +32,8 @@ process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-r
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-recommender-config-'));
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
+const SANDBOXES = [SANDBOX, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS,
+  process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT];
 
 const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
@@ -103,13 +105,15 @@ const readRow = () => {
       chk(on.guards.money && on.guards.public && on.guards.delete, `[${theme}] all three guards start ticked`, JSON.stringify(on.guards));
       chk(/cannot yet stop these actions/.test(on.disclosure), `[${theme}] the instruction-only disclosure is on screen`, JSON.stringify(on.disclosure));
 
-      await page.click('#rec-guard-money');
-      await page.waitForTimeout(600);
+      // Wait for each save to land before the next click: a click while a save is in flight is
+      // refused by design, and a fixed sleep would make this check race it.
+      const putDone = () => page.waitForResponse((r) => r.url().endsWith('/api/recommender-setting') && r.request().method() === 'PUT', { timeout: 8000 });
+      await Promise.all([putDone(), page.click('#rec-guard-money')]);
       const stored = await (await page.request.get(URL + '/api/recommender-setting')).json();
       chk(stored.on === true && stored.guards && stored.guards.money === false && stored.guards.public === true && stored.guards.delete === true,
         `[${theme}] unticking one guard stores exactly that change`, JSON.stringify(stored));
-      await page.click('#rec-guard-money');
-      await page.click('#rec-toggle');
+      await Promise.all([putDone(), page.click('#rec-guard-money')]);
+      await Promise.all([putDone(), page.click('#rec-toggle')]);
       await page.waitForFunction(() => document.getElementById('rec-toggle').getAttribute('aria-checked') === 'false', null, { timeout: 8000 }).catch(() => {});
       const back = await (await page.request.get(URL + '/api/recommender-setting')).json();
       chk(back.on === false && back.guards.money === true, `[${theme}] ticking back and turning off are stored`, JSON.stringify(back));
@@ -128,6 +132,7 @@ const readRow = () => {
   } finally {
     await browser.close();
     server.close();
+    for (const d of SANDBOXES) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
   console.log(fail.length ? `\nFAIL: ${fail.length}` : '\nAll checks passed');
   process.exit(fail.length ? 1 : 0);

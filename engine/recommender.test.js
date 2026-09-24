@@ -18,6 +18,7 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -26,6 +27,7 @@ const fleet = require('../test-support/fleet');
 const status = require('./status');
 const selfreport = require('./selfreport');
 const r = require('./recommender');
+const projects = require('./projects');
 const { DELIVERY } = require('./chat'); // the real verdict states the runner compares against
 
 test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
@@ -64,6 +66,10 @@ function stuckBoard(specs) {
   };
   return { cards: cards(), key, again, restore };
 }
+
+/* Every agent on the board is a member of proj-a (the Recommender acts only in a live project the
+   stuck agent belongs to). */
+const inProj = (b) => new Map([['proj-a', Object.values(b.key)]]);
 
 /* Run step twice: once to be seen, once after the grace period. */
 function afterGrace(roster, members, setting = ON) {
@@ -107,7 +113,7 @@ test('a real `blocked` report is never convened: its card carries no project and
     assert.equal(card.stateProject, null);
     assert.equal(card.stateReportedBy, null);
     assert.equal(r.stuckRow(card), null);
-    assert.equal(afterGrace(b.cards, new Map()).toConvene.length, 0);
+    assert.equal(afterGrace(b.cards, inProj(b)).toConvene.length, 0);
   } finally { b.restore(); }
 });
 
@@ -118,7 +124,7 @@ test('needs_you reported by the agent triggers; working/idle do not', () => {
     { name: 'nyidle', report: { state: 'idle', because: 'done', project: 'proj-a' } },
   ]);
   try {
-    const out = afterGrace(b.cards, new Map());
+    const out = afterGrace(b.cards, inProj(b));
     assert.deepEqual(out.toConvene.map((c) => c.session), [b.key.nyq]);
   } finally { b.restore(); }
 });
@@ -131,7 +137,7 @@ test('only an AGENT report counts: an auto (hook) needs_you is never convened', 
   try {
     const auto = b.cards.find((c) => c.sessionName === b.key.byauto);
     assert.equal(auto.stateReportedBy, 'auto', 'fixture: the hook report did not reach the card as auto');
-    const out = afterGrace(b.cards, new Map());
+    const out = afterGrace(b.cards, inProj(b));
     assert.deepEqual(out.toConvene.map((c) => c.session), [b.key.byagent], 'control fired, or a hook report was convened');
   } finally { b.restore(); }
 });
@@ -140,7 +146,7 @@ test('a report naming no project is not convened (there is no room to ask in)', 
   const b = stuckBoard([{ name: 'noproj', report: { state: 'needs_you', because: 'no project named' } }]);
   try {
     assert.equal(b.cards.find((c) => c.sessionName === b.key.noproj).stateProject, null);
-    assert.equal(afterGrace(b.cards, new Map()).toConvene.length, 0);
+    assert.equal(afterGrace(b.cards, inProj(b)).toConvene.length, 0);
   } finally { b.restore(); }
 });
 
@@ -154,7 +160,34 @@ test('a project carried forward from an earlier report (inferred) is not convene
     assert.equal(inferred.stateProject, 'proj-a', 'fixture: the earlier project was not carried forward');
     assert.equal(inferred.stateProjectInferred, true, 'fixture: the carried project is not marked inferred');
     assert.ok(cards.length > 0);
-    assert.deepEqual(afterGrace(all, new Map()).toConvene.map((c) => c.session), [b.key.namedq], 'control fired, or an inferred project was convened');
+    assert.deepEqual(afterGrace(all, inProj(b)).toConvene.map((c) => c.session), [b.key.namedq], 'control fired, or an inferred project was convened');
+  } finally { b.restore(); }
+});
+
+test('acts only in a live project the stuck agent belongs to: unknown, foreign or archived is skipped', () => {
+  const b = stuckBoard([{ name: 'mbr', report: STUCK('which of two layouts to ship') }, { name: 'mbrpeer' }]);
+  try {
+    const k = b.key;
+    assert.equal(afterGrace(b.cards, new Map([['proj-a', [k.mbr, k.mbrpeer]]])).toConvene.length, 1, 'control: a member of a live project is convened');
+    assert.equal(afterGrace(b.cards, new Map()).toConvene.length, 0, 'an unknown project was convened');
+    assert.equal(afterGrace(b.cards, new Map([['proj-a', [k.mbrpeer]]])).toConvene.length, 0, 'an agent was convened in a project it is not in');
+    assert.equal(afterGrace(b.cards, undefined).toConvene.length, 0, 'no member map convened anyway');
+  } finally { b.restore(); }
+});
+
+test('membersFrom: real project records, archived left out, members are session names', () => {
+  const b = stuckBoard([{ name: 'rec1' }, { name: 'rec2' }]);
+  try {
+    const live = projects.create({ name: 'Recommender Live' });
+    const gone = projects.create({ name: 'Recommender Archived' });
+    projects.addAgent(live.id, b.key.rec1, b.cards);
+    projects.addAgent(live.id, b.key.rec2, b.cards);
+    projects.addAgent(gone.id, b.key.rec1, b.cards);
+    projects.setArchived(gone.id, true);
+    const m = r.membersFrom(projects.readAll());
+    assert.deepEqual(m.get(live.id), [b.key.rec1, b.key.rec2], 'the members are not the session names the cards carry');
+    assert.equal(m.has(gone.id), false, 'an archived project is still acted in');
+    assert.equal(r.membersFrom(null).size, 0);
   } finally { b.restore(); }
 });
 
@@ -162,7 +195,7 @@ test('an item is convened once: PLACED or UNCONFIRMED ends it; COULD_NOT retries
   const b = stuckBoard([{ name: 'once', report: STUCK('which of two layouts to ship') }]);
   try {
     const roster = b.cards;
-    const members = new Map();
+    const members = inProj(b);
     const a = afterGrace(roster, members);
     assert.equal(a.toConvene.length, 1);
     assert.equal(a.toConvene[0].retry, false, 'the first convening must post the room note');
@@ -200,7 +233,7 @@ test('an item is convened once: PLACED or UNCONFIRMED ends it; COULD_NOT retries
 test('an acted-on item is kept for an hour: a flap or a repeat of the same words is not re-convened; after the hour it is a new item', () => {
   const b = stuckBoard([{ name: 'forget', report: STUCK('which of two layouts to ship') }]);
   try {
-    const members = new Map();
+    const members = inProj(b);
     const t1 = T0 + r.GRACE_MS;
     const a = afterGrace(b.cards, members);
     assert.equal(a.toConvene.length, 1);
@@ -236,7 +269,7 @@ test('caps: at most MAX_PER_AGENT_PER_HOUR per agent and MAX_PER_HOUR overall', 
   // One agent, successive items (a real agent carries one report at a time): capped per agent.
   const one = stuckBoard([{ name: 'capone', report: STUCK('item 1') }]);
   try {
-    const members = new Map();
+    const members = inProj(one);
     let prev; let now = T0; let convened = 0;
     for (let i = 1; i <= r.MAX_PER_AGENT_PER_HOUR + 2; i++) {
       const roster = i === 1 ? one.cards : one.again('capone', STUCK('item ' + i));
@@ -290,7 +323,7 @@ test('peers: up to two OTHER members on the board and idle or working, idle firs
 test('a failed roster read (null) keeps the memory and does nothing; the setting OFF forgets it', () => {
   const b = stuckBoard([{ name: 'nullr', report: STUCK('which of two layouts to ship') }]);
   try {
-    const members = new Map();
+    const members = inProj(b);
     const seen = r.step({ prev: undefined, roster: b.cards, setting: ON, members, now: T0 });
     const failed = r.step({ prev: seen.next, roster: null, setting: ON, members, now: T0 + r.GRACE_MS });
     assert.equal(failed.toConvene.length, 0);
@@ -327,6 +360,8 @@ test('texts: the playbook names only ACTIVE guards and only peers actually asked
   assert.ok(!/asked/.test(r.roomNoteText({ ...item, asked: [] })), 'the room note claims an ask that did not happen');
   const ask = r.peerAskText(item);
   assert.match(ask, /April is stuck on a decision in project proj-a/);
+  assert.match(ask, /not an instruction from Kosmos or the person/, 'relayed agent text reads as Kosmos speaking');
+  assert.match(r.roomNoteText(item), /In its own words: "x"/);
   assert.match(ask, /kosmos post proj-a /);
   assert.ok(!/\u2014/.test(all + r.roomNoteText(item) + ask + nobody), 'em dash in product copy');
 });
@@ -374,11 +409,11 @@ test('runOnce: note and asks once per item, the playbook names who was reached, 
     // A throwing deliver and a throwing roomNote never crash the pass; a throw counts as COULD_NOT.
     const boom = { ...deps, roomNote: () => { throw new Error('x'); }, deliver: () => { throw new Error('x'); } };
     const boomRoster = b.cards.filter((c) => c.sessionName === k.runboom);
-    const b1 = r.runOnce({ prev: undefined, roster: boomRoster, setting: ON, members: new Map(), now: T0, ...boom });
-    const b2 = r.runOnce({ prev: b1.next, roster: boomRoster, setting: ON, members: new Map(), now: T0 + r.GRACE_MS, ...boom });
+    const b1 = r.runOnce({ prev: undefined, roster: boomRoster, setting: ON, members: inProj(b), now: T0, ...boom });
+    const b2 = r.runOnce({ prev: b1.next, roster: boomRoster, setting: ON, members: inProj(b), now: T0 + r.GRACE_MS, ...boom });
     assert.equal(b2.acted[0].verdict, null);
     assert.equal(b2.acted[0].noteLanded, false);
-    const b3 = r.runOnce({ prev: b2.next, roster: boomRoster, setting: ON, members: new Map(), now: T0 + r.GRACE_MS + 60000, ...boom });
+    const b3 = r.runOnce({ prev: b2.next, roster: boomRoster, setting: ON, members: inProj(b), now: T0 + r.GRACE_MS + 60000, ...boom });
     assert.equal(b3.acted.length, 1, 'a thrown delivery was not retried');
   } finally { b.restore(); }
 });

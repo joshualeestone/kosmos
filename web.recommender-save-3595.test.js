@@ -66,6 +66,31 @@ test('a click DROPPED while another save is in flight is undone', async () => {
   assert.equal(cb.checked, true, 'a dropped click left the box unticked with nothing saved');
 });
 
+test('a refused save is undone even when a repaint started meanwhile (epoch moved)', async () => {
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  const h = harness(async (url, opts) => {
+    if (opts && opts.method === 'PUT') { await gate; return { ok: false, json: async () => ({ error: 'no' }) }; }
+    return okGet();
+  });
+  const cb = h.el['rec-guard-public'];
+  cb.checked = true;
+  h.document.activeElement = cb;
+  const saving = h.api.saveRecommender({ guard: 'public', value: true });
+  const repaint = h.api.paintRecommender(); // bumps the epoch while the PUT is in flight
+  release();
+  await saving; await repaint;
+  await new Promise((res) => setImmediate(res));
+  assert.equal(cb.checked, false, 'a refused save stayed on screen because a repaint had moved the epoch');
+});
+
+test('a toggle click dropped while saving says so', async () => {
+  const h = harness(async () => okGet());
+  h.api.setSaving(true);
+  await h.api.saveRecommender({ on: true });
+  assert.match(h.el['rec-msg'].textContent, /Still saving/);
+});
+
 test('control: a SUCCESSFUL save keeps the new value', async () => {
   const saved = { on: true, guards: { money: true, public: true, delete: true } };
   const h = harness(async () => ({ ok: true, json: async () => saved }));
