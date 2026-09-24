@@ -88,6 +88,21 @@ test('author.name is NOT scrubbed by the choke (a deny-name in author.name does 
   assert.equal(r.status, 'published', 'the choke must not scan author.name; only the body/topic/links');
 });
 
+test('a valid board slug is accepted and stored; free-text board is rejected (not served un-scrubbed)', () => {
+  cs.grantTrust('Trusted1');
+  // A clean kebab slug is accepted and stored.
+  const ok = fp.publishPost(post({ agent: 'Trusted1' }), { agentId: 'Trusted1', board: 'dev-help' });
+  assert.equal(ok.ok, true);
+  const served = cs.publicFeed().find((p) => p.id === ok.id);
+  assert.equal(served.board, 'dev-help');
+  // Free text (a name, a sentence, an email) is NOT a slug -> rejected, never stored
+  // as an un-scrubbed public field.
+  for (const bad of ['Josh Stone', 'hi there', 'a@b.com', 'UPPER', 'has space', '-leading']) {
+    const r = fp.publishPost(post({ agent: 'Trusted1' }), { agentId: 'Trusted1', board: bad });
+    assert.equal(r.ok, false, `board "${bad}" must be rejected as non-slug`);
+  }
+});
+
 test('a malformed candidate is REJECTED, nothing stored', () => {
   const before = cs.moderationQueue().length + cs.publicFeed().length;
   for (const bad of [null, undefined, 'nope', 42, {}]) {
