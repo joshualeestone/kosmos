@@ -87,6 +87,7 @@ Red-capability: against origin/main's deploy-site.sh, A1 fails with the exact pr
 ## Status
 
 - [x] fix + test, red-capability shown
-- [x] full `yarn test` green at e4fd818d (8671 tests, 0 failed); later commits re-validated at the
-  loop's final gate
+- [x] full `yarn test` green at e4fd818d (8671 tests, 0 failed). That is an early commit; the final
+  HEAD is validated by the challenge loop's closing gate, whose result and diff hash are in the proof
+  file, not here
 - [ ] challenge-loop, PR, merge
