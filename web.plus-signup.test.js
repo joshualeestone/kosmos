@@ -30,12 +30,21 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
-/** The Plus settings pane: from its sign-up paragraph to the flow that follows. */
+/** The Plus SIGN-UP region: from the sign-up paragraph to where state 2 begins.
+ *
+ * #3478 bounded this to `id="plus-state2"` (was `id="plus-flow"`). The ruling this
+ * guards is about where SIGN-UP happens ("on the site, not in the app"), and the
+ * sign-up copy lives in state 1. state 2 became the in-app SIGN-IN wizard, which
+ * legitimately DOES happen in this pane and says so; sweeping it into a sign-up
+ * guard both blew past the length CONTROL below (the wizard is ~5KB) and would
+ * false-flag the wizard's honest "signing in happens here" language. The guard
+ * still covers the exact paragraph the regression appeared in; it just no longer
+ * reaches into the sign-IN flow, which is a different concern. */
 function plusPane() {
   const start = PAGE.indexOf('<b>Sign-up is not open yet.</b>');
   assert.notEqual(start, -1, 'the Plus sign-up paragraph has moved or been renamed');
-  const end = PAGE.indexOf('id="plus-flow"', start);
-  assert.notEqual(end, -1, 'the Plus flow block that bounds this pane has moved');
+  const end = PAGE.indexOf('id="plus-state2"', start);
+  assert.notEqual(end, -1, 'the Plus state-2 block that bounds the sign-up region has moved');
   /* Wrapped at 78 columns, so newlines fall inside sentences. Collapse before
      matching: the same wrap made `grep -c "this is where it happens"` return
      zero from a file that contains it. */
