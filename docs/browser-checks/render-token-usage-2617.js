@@ -143,6 +143,8 @@ function readUsage(page) {
       agentMutedCount: document.querySelectorAll('#usage-atable .tv-mrow.muted').length,
       agentBarsPainted: [...document.querySelectorAll('#usage-atable .tv-mbar span')].every((b) => b.getBoundingClientRect().width > 0),
       agentFits: (() => { const el = document.getElementById('usage-atable'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
+      // Mona's #3603 review: the non-agent label is a sentence and must read in full.
+      mutedLabelWhole: (() => { const el = document.querySelector('#usage-atable .tv-mrow.muted .tv-mnl'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
       agentNote: txt('#usage-agents-note') || '',
       agentsAfterWtr: (() => { const a = document.getElementById('usage-agents'), w = document.getElementById('usage-wtr'); return a && w ? !!(w.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) : null; })(),
       // the removed elements must be GONE (Josh's exact-to-spec replacement).
@@ -228,6 +230,7 @@ function readUsage(page) {
     ok(v.agentMutedCount === 1, `only the non-agent row is muted (got ${v.agentMutedCount})`);
     ok(v.agentBarsPainted, 'every per-agent share bar paints with a width');
     ok(v.agentFits, 'the per-agent table fits the settings column with no horizontal overflow');
+    ok(v.mutedLabelWhole === true, 'the non-agent row label reads in full, wrapped rather than cut short');
     ok(/2K tokens in the totals above come from transcripts that have since been removed or can no longer be read/.test(v.agentNote),
       `the note states the tokens that cannot be matched (got ${JSON.stringify(v.agentNote)})`);
     ok(v.agentsAfterWtr === true, 'the By agent block sits under the per-model table and donut');
@@ -247,12 +250,14 @@ function readUsage(page) {
       const bar = document.querySelector('#usage-atable .tv-mbar');
       return { agentFits: fit('usage-atable'), modelFits: fit('usage-mtable'), clipped,
         nameShare: cell && row ? cell.getBoundingClientRect().width / row.getBoundingClientRect().width : 0,
-        barHidden: bar ? getComputedStyle(bar).display === 'none' : null };
+        barHidden: bar ? getComputedStyle(bar).display === 'none' : null,
+        mutedWhole: (() => { const el = document.querySelector('#usage-atable .tv-mrow.muted .tv-mnl'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })() };
     });
     ok(narrow.modelFits === true, 'at 390 wide the per-model table fits with no horizontal overflow (it did not before #2617)');
     ok(narrow.agentFits === true, 'at 390 wide the per-agent table fits with no horizontal overflow');
     ok(narrow.clipped.length === 0, `at 390 wide no number or header cell is clipped (clipped: ${JSON.stringify(narrow.clipped)})`);
     ok(narrow.barHidden === true, 'at 390 wide the share bar column gives way to the name');
+    ok(narrow.mutedWhole === true, 'at 390 wide the non-agent row label still reads in full');
     ok(narrow.nameShare >= 0.35, `at 390 wide the name cell takes at least a third of the row (got ${Math.round(narrow.nameShare * 100)}%)`);
     await p.setViewportSize({ width: 1280, height: 1100 });
     // the replaced elements are gone
