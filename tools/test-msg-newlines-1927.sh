@@ -34,17 +34,19 @@ if ! have_node; then
 fi
 
 # --- pull the REAL esc_text pipeline out of the installer --------------------
-# Every esc_text= line is identical; take the first. Strip the leading
+# The esc_text= lines share one transform (cmd_msg's adds LC_ALL=C); take the first, cmd_msg's. Strip the leading
 # `esc_text=$(printf '%s' "$text" | ` and trailing `)` so we are left with the
 # transform, then run our own $text through the same commands.
-esc_line="$(grep -m1 -E '^\s*esc_text=\$\(printf' install/kosmos)"
+# #2909: cmd_msg's line is `if ! esc_text=$(...); then` (a guarded form), and it is the FIRST site,
+# so it is the one exercised here; the prefix and the `; then` suffix are accepted and stripped.
+esc_line="$(grep -m1 -E '^\s*(if ! )?esc_text=\$\(printf' install/kosmos)"
 if [ -z "$esc_line" ]; then
   bad "could not find an esc_text pipeline in install/kosmos"
   echo "test-msg-newlines-1927: $FAILS failures"; exit 1
 fi
 
 # The transform after `printf '%s' "$text" | `
-transform="$(printf '%s' "$esc_line" | sed -e 's/^[^|]*| //' -e 's/)[[:space:]]*$//')"
+transform="$(printf '%s' "$esc_line" | sed -e 's/^[^|]*| //' -e 's/)[[:space:]]*\(; then\)\{0,1\}[[:space:]]*$//')"
 
 run_esc() { # $1 = raw text -> escaped JSON string body on stdout
   printf '%s' "$1" | eval "$transform"
