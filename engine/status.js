@@ -2071,7 +2071,9 @@ const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewa
    is stale and the rule does not fire. Prompt rows, footers and the status bar are not agent
    output, so a wedged pane (error, footer, empty prompt, status bar) still matches, whatever
    placeholder its prompt shows. Returns the evidence line, or null. */
-const API_ERROR_ROW = /^\s*(?:[⏺●]\s+)?API Error:/u;
+// Column 0 on purpose: Claude Code draws its own error row at column 0 (every capture), while an
+// agent's quoted line or a tool's output is indented. `^\s*` let those read connection_lost.
+const API_ERROR_ROW = /^(?:[⏺●]\s+)?API Error:/u;
 // How many indented continuation rows under an "API Error:" row are read as part of it. Claude Code
 // breaks its own long message text; the longest network message (~140 characters, the proxy
 // tunnel one) can take three rows on a narrow pane, so allow four.
@@ -2096,8 +2098,13 @@ function connectionLostAtTail(tail) {
   if (at === -1) return null;
   // Newer content supersedes it: agent output, or any later Claude Code error row (bulleted or
   // bare), which means the current error is a different one.
-  for (let i = at + 1; i < rows.length; i += 1) if (/^\s*[⏺●]\s/.test(rows[i]) || API_ERROR_ROW.test(rows[i])) return null;
-  return matchedLine(rows[at], [API_ERROR_ROW]);
+  // A retry line after it (any shape, including ones RETRYING_LINES does not match, such as a
+  // minutes countdown) also supersedes it: Claude Code is working on a newer attempt.
+  for (let i = at + 1; i < rows.length; i += 1) {
+    if (/^\s*[⏺●]\s/.test(rows[i]) || API_ERROR_ROW.test(rows[i]) || /Retrying in\s+\d/.test(rows[i])) return null;
+  }
+  // Evidence without the ⏺/● bullet, so the same error reads the same however it was drawn.
+  return matchedLine(rows[at].replace(/^[⏺●]\s+/, ''), [/API Error:/]);
 }
 
 /* #3410: Claude Code's live retry line, anchored at both ends:

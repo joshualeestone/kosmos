@@ -24,11 +24,11 @@ by the Recommender sweep and server.js).
 3. `server.js`: a 60 s sweep beside the class-1 one, inert under test (live-execution gate), operator
    brake `AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1`, `safeRoster()`, `chat.deliver`.
 
-## Why a live retry is not nudged (an assumption, not a guarantee)
-PR 2a made the live retry line read WORKING. A retry shape still unmeasured (a `*` frame) would read
-connection_lost with the retry line itself as evidence, whose seconds countdown changes each sweep, so
-"same evidence on 2 consecutive sweeps" rejects it. A MINUTES-only countdown ("Retrying in 4m") could
-repeat identically across two sweeps a minute apart and be nudged mid-retry. Unmeasured, low odds.
+## Why a live retry is not nudged
+PR 2a made the measured live retry line read WORKING. Any other retry row after the error ("Retrying
+in <n>", including shapes RETRYING_LINES misses, such as a minutes countdown) supersedes the error in
+connectionLostAtTail, so a pane that is retrying never reads connection_lost. The evidence is always
+Claude Code's own column-0 "API Error:" row.
 
 ## Loop guard (review finding, fixed)
 A nudge makes Claude Code retry, and the retry reads WORKING. So the history (nudges, escalation) is
@@ -57,6 +57,10 @@ sticky until then. A test interleaves lost, lost, working for an hour and assert
 - **A second outage within 10 minutes of an escalation gets no new budget.** Escalation stays until
   10 minutes of not being lost; a fresh loss inside that window stays escalated (the card is red for
   a person) rather than being nudged again.
+- **A nudge pasted but not submitted stays in the prompt**, and the pane still reads connection_lost,
+  so the next nudge lands after it. The 3-nudge cap bounds this.
+- **Cost:** each tick takes a full roster snapshot (one capture per agent), as the class-1 sweep does,
+  so this adds a second fleet capture per minute.
 - **The history lives in memory.** Only a board restart, or 10 minutes not lost, clears an escalation;
   the brake AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1 stops the sweep but does not clear it.
 

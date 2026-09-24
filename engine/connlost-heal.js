@@ -14,8 +14,8 @@
  *
  * WHEN. Only when all hold:
  *  - the reconciled state is connection_lost on at least MIN_SWEEPS consecutive sweeps, with the
- *    SAME evidence line each time. A live retry line changes every second (its countdown), so an
- *    unmeasured retry shape that status.js still misreads as connection_lost cannot pass this;
+ *    SAME evidence line each time (status.js only reports connection_lost while Claude Code's own
+ *    error row is the latest thing on screen; any later retry row or output supersedes it);
  *  - a connectivity probe succeeds (the caller's `probe`), so a nudge is not wasted while the
  *    network is still down;
  *  - fewer than MAX_NUDGES nudges inside WINDOW_MS. Past that it ESCALATES: no more nudges, a log
@@ -163,7 +163,8 @@ function makeTick(deps) {
     return sweepOnce({
       roster, book: deps.book, now: deps.now ? deps.now() : Date.now(),
       probe: deps.probe, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
-    }).catch(() => null).finally(() => { busy = false; });
+    }).catch((err) => { if (deps.log) { try { deps.log({ name: '-', session: '-', act: 'sweep-error', because: String((err && err.message) || err) }); } catch { /* never breaks */ } } return null; })
+      .finally(() => { busy = false; });
   };
 }
 

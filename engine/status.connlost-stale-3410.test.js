@@ -59,11 +59,25 @@ test('#3410: Claude Code breaking its error text onto a continuation row still r
 });
 
 test('#3410: the long proxy message broken over three continuation rows still reads connection_lost', () => {
-  const pane = WEDGED.replace(ERR, "⏺ API Error: Couldn't connect through your\n  proxy (ERR_PROXY_TUNNEL) — the proxy refused\n  the tunnel: check its credentials and that it\n  allows this host");
+  // The phrase completes only on the THIRD continuation row, so a cap of 2 would miss it.
+  const pane = WEDGED.replace(ERR, '⏺ API Error: Request\n  timed out.\n  Check your\n  internet connection');
   assert.equal(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
 });
 
 test('#3410: a later, different bare API Error row supersedes the old connection error', () => {
   const pane = WEDGED.replace(ERR, ERR + '\nAPI Error: 500 Internal server error');
+  assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});
+
+test('#3410: an INDENTED "API Error:" row (a quote in agent output, or tool output) is not Claude Code\'s error row', () => {
+  const quoted = ['⏺ Here is what it printed:', '  API Error: Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED)',
+    '✻ Worked for 9s · done 5:40 PM', ...CHROME].join('\n');
+  assert.notEqual(status.classify(PANE, quoted).state, status.STATE.CONNECTION_LOST);
+  const tool = ['⏺ Bash(curl)', '     API Error: Unable to connect to API (ECONNREFUSED)', '✻ Worked for 3s · done 5:41 PM', ...CHROME].join('\n');
+  assert.notEqual(status.classify(PANE, tool).state, status.STATE.CONNECTION_LOST);
+});
+
+test('#3410: a retry after the error (even a shape RETRYING_LINES misses) supersedes it', () => {
+  const pane = WEDGED.replace('✻ Cogitated for 3m 6s · done 5:17 PM', '✻ Connection refused · Retrying in 4m · attempt 9/10');
   assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
 });
