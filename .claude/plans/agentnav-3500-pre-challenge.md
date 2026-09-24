@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agentnav-3500
-diff_hash: 16c114aacc8cc96936736e4a09d0988e1348e25edf2bf066109a63f43114c3c6
+diff_hash: 8bdb2f1c62fb81490df2272275d4845af53bd192159f415c3e329d40d25ce959
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-24T06:35:35Z
@@ -40,6 +40,9 @@ Resolved: corrected the "single column" comment and the check label; removed the
 - render-agent-nav.js (the covering check) updated and passing both themes; render-win32-board-copy.js 88/88; render-agentpage-fullwidth-2012.js passing; the #3045 no-overflow guard passing.
 - Screenshots (light + dark) reviewed and posted to the design channel for Josh's active-state pick.
 - Surface gate: render-agent-nav.js updated + two honest per-check override trailers (render-win32-board-copy.js, render-agentpage-fullwidth-2012.js) - both checks pass as-is; the tokens appear only from the nav rewrite / label-span move.
+- CI post-PR: the `test` job (full node suite) PASSED on the clean CI runner. The `browser-checks`
+  job caught what the contended local box could not - `named-controls.js` clicked the removed Remove
+  pill; fixed to reach the remove section via the Advanced (term) fold. Pushed for CI re-validation.
 - Full suite: PASSED green on the immediately-prior commit (validation-log, exit 0) BEFORE the iteration-2/3 deltas, which are CSS + comments + a browser-check label string + a dead-CSS removal - none touches the node --test suite logic. A final-HEAD re-run was all-green until machine contention (load 9.41 on 10 cores, ~30 node processes across the fleet at 01:30 CDT) SIGTERM'd it at ~85%; that is contention, not the change (per #704 / the suite's own footer). Kosmos CI re-validates the final HEAD on a clean runner and is the authoritative full-suite gate for the PR.
 
 ### Strengths (across iterations)
