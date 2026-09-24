@@ -168,6 +168,8 @@ test('ON: needs_you sends once per change into it, reply sends replied, never th
   assert.equal(first.headers['x-kosmos-notify-token'], MINTED);
   assert.deepEqual(Object.keys(first.body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session']);
   assert.equal(first.body.kind, 'needs_you');
+  assert.match(first.body.id, /^report:\d{4}-\d\d-\d\dT/, 'the unique part of the event id is not first, so a long session name could cut it off');
+  assert.match(third.body.id, /^reply:\d{4}-\d\d-\d\dT/);
   assert.equal(first.body.session, WHO);
   assert.equal(third.body.kind, 'replied');
   const all = JSON.stringify(sent);
@@ -230,6 +232,45 @@ test('a tunnel too old for mac-request says this computer needs an update, not t
     assert.equal(r.code, 400);
     assert.match(r.json.error, /needs an update/);
     assert.equal(phonenotify.readState().on, false);
+  } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
+});
+
+function tunnelScript(name, body) {
+  const f = path.join(SANDBOX, name);
+  fs.writeFileSync(f, '#!/bin/bash\n' + body + '\n', { mode: 0o755 });
+  return f;
+}
+
+test('a hung tunnel times out: turning on fails in plain words, and the next turn-on is not stuck', async () => {
+  enrol();
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('hung-tunnel', 'cat >/dev/null; sleep 30');
+  process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '500';
+  try {
+    const t0 = Date.now();
+    const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
+    assert.ok(Date.now() - t0 < 5000, 'turning on waited for the hung tunnel instead of timing out');
+    assert.equal(r.code, 400);
+    assert.match(r.json.error, /could not be reached/);
+    assert.equal(phonenotify.readState().on, false);
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
+    const again = await call('PUT', '/api/phone-notify', { body: { on: true } });
+    assert.equal(again.code, 200, 'a timed-out turn-on left later turn-ons stuck');
+  } finally {
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
+    delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS;
+  }
+});
+
+test('turning off while a turn-on is still minting ends off', async () => {
+  enrol();
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('slow-tunnel', `cat >/dev/null; sleep 1; printf '{"token":"${MINTED}"}\\n'`);
+  try {
+    const onP = call('PUT', '/api/phone-notify', { body: { on: true } });
+    await new Promise((r) => setTimeout(r, 150));
+    const off = await call('PUT', '/api/phone-notify', { body: { on: false } });
+    await onP;
+    assert.equal(off.json.on, false);
+    assert.equal(phonenotify.readState().on, false, 'the late turn-on saved on over the off');
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
 });
 

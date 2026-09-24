@@ -6150,7 +6150,7 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = body.on ? await phonenotify.turnOn() : phonenotify.turnOff();
+        const saved = body.on ? await phonenotify.turnOn() : await phonenotify.turnOff();
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, phonenotify.status());
       })
@@ -10855,7 +10855,7 @@ const server = http.createServer((req, res) => {
             const pj = pid ? projects.get(pid, roster) : null;
             projectName = pj ? pj.name : null;
           } catch { projectName = null; }
-          phonenotify.happened({ kind: 'needs_you', id: 'report:' + who + ':' + kept.at, agent: sender.card.name || who, session: who, project: projectName });
+          phonenotify.happened({ kind: 'needs_you', id: 'report:' + kept.at + ':' + who, agent: sender.card.name || who, session: who, project: projectName });
         }
         sendJson(res, 200, { recorded: true });
       })
@@ -10919,7 +10919,7 @@ const server = http.createServer((req, res) => {
         // #718: phone notifications, only when the person turned them on
         // (engine/phonenotify.js). Never the reply's words.
         if (kept.recorded === true) {
-          phonenotify.happened({ kind: 'replied', id: 'reply:' + who + ':' + replyAt, agent: sender.card.name || who, session: who, project: null });
+          phonenotify.happened({ kind: 'replied', id: 'reply:' + replyAt + ':' + who, agent: sender.card.name || who, session: who, project: null });
         }
         sendJson(res, 200, {
           kept: kept.recorded === true,
