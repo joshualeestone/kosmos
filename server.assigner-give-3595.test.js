@@ -97,6 +97,26 @@ for (const state of [chat.DELIVERY.PLACED, chat.DELIVERY.UNCONFIRMED]) {
   });
 }
 
+test('the takeback never clears a part somebody took while the pane line was being sent', () => {
+  const s = setup(['giveslow', 'givegrab']);
+  try {
+    const real = chat.deliver;
+    // While the Assigner's line is "being sent", a person gives the part to givegrab; then the
+    // line fails to reach anyone.
+    chat.deliver = () => {
+      chat.deliver = real;
+      const grab = givePart(s.pid, s.n, 1, 'givegrab', { screen: true, roster: [] });
+      assert.equal(grab.ok, true, 'fixture: the person\'s give failed');
+      return { state: chat.DELIVERY.COULD_NOT, because: 'no pane' };
+    };
+    let g;
+    try { g = givePart(s.pid, s.n, 1, 'giveslow', { assigner: true, roster: s.board.agents }); } finally { chat.deliver = real; }
+    assert.equal(g.ok, false);
+    assert.equal(s.partOf().who, 'givegrab', 'the takeback cleared a part a person took in the meantime');
+    assert.match(g.because, /taking it back failed: that part is no longer on giveslow/);
+  } finally { s.board.restore(); }
+});
+
 test('control: a process (agent) give still charges the parts valve', () => {
   const s = setup(['giveagent']);
   try {

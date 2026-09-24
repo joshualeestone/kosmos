@@ -307,6 +307,8 @@ function assignPart(projectId, n, partId, who, made) {
   let moved = false;
   // #3595: `made.onlyIfFree` refuses, inside the same write, a part somebody is already on, so a
   // caller that chose the part from an earlier read never moves it off a person who took it since.
+  // `made.onlyIfWho` likewise refuses unless the part is still on that agent (the Assigner's
+  // takeback, so it never clears a part somebody else took in the meantime).
   let taken = false;
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
@@ -322,6 +324,7 @@ function assignPart(projectId, n, partId, who, made) {
       if (Number(x.id) !== Number(partId)) return x;
       found = true;
       if (made && made.onlyIfFree && x.who) { taken = true; return x; }
+      if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
@@ -330,7 +333,7 @@ function assignPart(projectId, n, partId, who, made) {
     });
   });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
-  if (taken) return { ok: false, because: 'somebody is already on that part' };
+  if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
   // line either. `who: null` is a real event -- somebody was taken off.

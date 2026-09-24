@@ -129,6 +129,16 @@ test('PUT assigner on:true enables it and is read back; on:false turns it off', 
   assert.equal(w2.json.on, false);
 });
 
+test('#3595 PUT assigner is refused to a process caller: tokenless, or an agent presenting a token', async () => {
+  const before = (await getJson('/api/assigner-setting')).on;
+  const raw = async (headers, body) => (await fetch(`${base}/api/assigner-setting`, { method: 'PUT', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })).status;
+  assert.equal(await raw({}, { on: !before }), 403, 'a tokenless process call switched the Assigner');
+  assert.equal(await raw({ 'sec-fetch-site': 'same-origin', 'x-kosmos-agent-token': 'any' }, { on: !before }), 403, 'an agent presenting a token switched the Assigner');
+  assert.equal((await getJson('/api/assigner-setting')).on, before, 'a refused write changed the store');
+  const ok = await put('/api/assigner-setting', { on: before });
+  assert.equal(ok.status, 200, 'control: the screen call was refused');
+});
+
 test('PUT assigner a non-boolean on is a 400 and does not change the stored value', async () => {
   await put('/api/assigner-setting', { on: true }); // known baseline
   const w = await put('/api/assigner-setting', { on: 'yes' });

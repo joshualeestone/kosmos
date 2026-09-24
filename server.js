@@ -323,7 +323,8 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
     if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord();
   }
   if (assigner && out.changed && !(heard && heard.state !== chat.DELIVERY.COULD_NOT)) {
-    const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner' });
+    // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
+    const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
     return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard };
   }
   return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard };
@@ -6691,6 +6692,10 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* #3595: the Assigner now types "you were given task N" into agent panes, so as with the
+           Recommender, refuse a caller isViaScreen reads as a process. ADVISORY (a local process
+           can send the header); it stops the default CLI path only. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
         const saved = assignerSetting.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
@@ -14792,24 +14797,20 @@ function start(port = PORT) {
       /* #3595 phase 2: the Assigner runner. Reads assigner-setting every tick. For an agent on the
          board that reads idle, whose commitments read clear and that has no open part of any task,
          for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
-         agent belongs to, through givePart in its assigner mode (see givePart). Commitments are
-         read only for idle cards, since they are not on the card.
+         agent belongs to, through givePart in its assigner mode (see givePart). The tick's
+         composition is assigner.tick, with the reads injected here.
          Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
       let assignerPrev;
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
-          const setting = assignerSetting.read();
-          const roster = setting.on ? safeRoster() : null;
-          const records = setting.on ? projects.readAll() : [];
-          const states = new Map();
-          for (const a of Array.isArray(roster) ? roster : []) {
-            if (!assigner.idleCard(a)) continue;
-            try { states.set(a.sessionName, commitments.read(a.sessionName).state); } catch { /* unread is not clear */ }
-          }
-          const out = assigner.runOnce({
-            prev: assignerPrev, roster, setting, records, commitments: states, now: Date.now(),
-            give: (projectId, n, partId, who) => givePart(projectId, n, partId, who, { assigner: true, roster }),
+          const out = assigner.tick({
+            prev: assignerPrev, now: Date.now(),
+            readSetting: () => assignerSetting.read(),
+            readRoster: () => safeRoster(),
+            readRecords: () => projects.readAll(),
+            readCommitment: (session) => commitments.read(session),
+            give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
           });
           assignerPrev = out.next;
           for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
