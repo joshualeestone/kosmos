@@ -41,12 +41,15 @@ for _trivial in "x" "   " "   .  "; do
   else fail "trivial reason '$_trivial' was NOT refused (FAILED='${FAILED[*]:-}')"; fi
 done
 
-# an INFRA / board-cascade failure is NOT acceptable even when named -- it keeps gating
-reset; FAILED=("render-thread (server did not boot)"); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"
-kosmos_bc_apply_accept_known
-if [ "${#FAILED[@]}" -eq 1 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 0 ]
-then pass "an infra failure (server did not boot) keeps gating, even when its name is accepted"
-else fail "infra not gated (FAILED='${FAILED[*]:-}')"; fi
+# an INFRA / board-cascade failure is NOT acceptable even when named -- it keeps gating.
+# Both marked infra shapes: "(server did not boot)" and the 126/127 "(could not run)".
+for _infra in "render-thread (server did not boot)" "render-thread (could not run)"; do
+  reset; FAILED=("$_infra"); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"
+  kosmos_bc_apply_accept_known
+  if [ "${#FAILED[@]}" -eq 1 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 0 ]
+  then pass "an infra failure ('$_infra') keeps gating, even when its name is accepted"
+  else fail "infra not gated for '$_infra' (FAILED='${FAILED[*]:-}')"; fi
+done
 
 # an UN-named failing check still gates; only the named one is accepted
 reset; FAILED=(render-thread render-firstrun-wizard-flow); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"

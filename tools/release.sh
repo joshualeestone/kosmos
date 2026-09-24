@@ -837,6 +837,11 @@ if [ -n "${KOSMOS_BC_ACCEPT_KNOWN:-}" ] && grep -q 'ACCEPTED KNOWN-FAILING' "$_p
   printf '%s version=%s accepted_known="%s" reason="%s"\n' \
     "$(date -u +%FT%TZ)" "$V" "${KOSMOS_BC_ACCEPT_KNOWN}" "${KOSMOS_BC_ACCEPT_REASON:-}" \
     >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+  # grep -qF is a literal, single-pattern match (the lib already refused a multi-line
+  # or trivial reason, so this is one meaningful line). Fail-safe edge: a reason with
+  # HTML-special chars (& < >) that get escaped when written into the entry HTML would
+  # not substring-match and would REFUSE the cut -- annoying, never a silent ship. Keep
+  # the reason in the entry's <p> as plain prose to avoid it.
   if [ -z "${KOSMOS_BC_ACCEPT_REASON:-}" ] || ! grep -qF "${KOSMOS_BC_ACCEPT_REASON}" "$KOSMOS_ENTRY_FILE" 2>/dev/null; then
     echo "accept-known: this run accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but its reason is not written in the versions entry ($KOSMOS_ENTRY_FILE)."
     echo "  Put the accept reason into the entry's <p> so the SERVED versions page names what shipped un-verified, then re-cut."

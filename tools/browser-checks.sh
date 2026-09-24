@@ -716,7 +716,10 @@ run_one() {
   # them (the binary will not appear), and it must say what they are.
   if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
     log "COULD NOT RUN  $label (exit $rc: a program it needs is missing or not executable; this is not an assertion failing)"
-    FAILED+=("$label")
+    # #1398b: carry the "(could not run)" marker in the FAILED entry itself (like the
+    # "(server did not boot)" entries), so KOSMOS_BC_ACCEPT_KNOWN keeps this INFRA
+    # class gating and can never accept a 126/127 as if it were a genuine check red.
+    FAILED+=("$label (could not run)")
     REASONS+=("$label:"$'\n'"           exit $rc: could not run, a program it needs is missing or not executable. Read the line above the exit, not the assertions.")
     rm -f "$cap"
     return 1
@@ -1626,5 +1629,10 @@ if [ "${#FAILED[@]}" -gt 0 ]; then
   for r in ${REASONS[@]+"${REASONS[@]}"}; do log "  $r"; done
   exit 1
 fi
-log "all page checks passed"
+# #1398b: after an accept, some named checks did NOT pass -- do not assert they did.
+if [ -n "${ACCEPTED_KNOWN+x}" ] && [ "${#ACCEPTED_KNOWN[@]}" -gt 0 ]; then
+  log "all OTHER page checks passed; ${#ACCEPTED_KNOWN[@]} named check(s) were ACCEPTED not passed (see the banner above)"
+else
+  log "all page checks passed"
+fi
 exit 0

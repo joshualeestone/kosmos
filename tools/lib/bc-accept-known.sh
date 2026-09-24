@@ -44,14 +44,20 @@ kosmos_bc_apply_accept_known() {
   # lone "x" both fail) and refuse a multi-line reason (grep -qF would then treat it
   # as several alternative patterns, weakening the versions-entry check). On refusal
   # append a failure so the run still gates -- never clear anything without a reason.
-  local _reason_clean _reason_nl=0
+  # BC_MIN_REASON_CHARS: the minimum NON-WHITESPACE length for a reason to count as
+  # real. 10 is "a short sentence, not a placeholder" -- enough to reject "   ", a lone
+  # "x", or "  . " while a genuine reason like "accepted for the #3542 headless env
+  # issue" passes. It is also what makes the release.sh `grep -qF` of the reason into
+  # the versions entry meaningful: a trivial reason would match almost any HTML by
+  # accident.
+  local BC_MIN_REASON_CHARS=10 _reason_clean _reason_nl=0
   _reason_clean="$(printf '%s' "${KOSMOS_BC_ACCEPT_REASON:-}" | tr -d '[:space:]')"
-  # A literal newline in the pattern -- $'\n' (this file is #!/bin/bash). NOT
-  # "$(printf '\n')", whose trailing newline command substitution strips, leaving an
-  # empty pattern that matches every reason and refuses all of them.
+  # A literal newline in the pattern uses bash's $'\n' (this lib is sourced by bash).
+  # NOT "$(printf '\n')": command substitution strips the trailing newline, leaving an
+  # empty pattern that matches every reason and would refuse all of them.
   case "${KOSMOS_BC_ACCEPT_REASON:-}" in *$'\n'*) _reason_nl=1 ;; esac
-  if [ "${#_reason_clean}" -lt 10 ] || [ "$_reason_nl" = 1 ]; then
-    FAILED+=("KOSMOS_BC_ACCEPT_KNOWN needs a real one-line KOSMOS_BC_ACCEPT_REASON (>=10 non-space chars, no newline) -- refusing to accept a failing check without one")
+  if [ "${#_reason_clean}" -lt "$BC_MIN_REASON_CHARS" ] || [ "$_reason_nl" = 1 ]; then
+    FAILED+=("KOSMOS_BC_ACCEPT_KNOWN needs a real one-line KOSMOS_BC_ACCEPT_REASON (>=${BC_MIN_REASON_CHARS} non-space chars, no newline) -- refusing to accept a failing check without one")
     return 0
   fi
 
@@ -62,7 +68,7 @@ kosmos_bc_apply_accept_known() {
     # them can stand for a whole board (browser-checks.sh appends 20+ names on a
     # single boot failure). Only a genuine per-check red is acceptable.
     case "$_f" in
-      *"did not boot"*|*"never ran"*|*"matched no checks"*|*"could not run"*|*"without KOSMOS_BC_ACCEPT_REASON"*)
+      *"did not boot"*|*"never ran"*|*"matched no checks"*|*"could not run"*)
         _kept+=("$_f"); continue ;;
     esac
     _name="${_f%% *}"                 # the check NAME, before any " (failed twice)" suffix
