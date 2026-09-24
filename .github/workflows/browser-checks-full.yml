@@ -70,8 +70,8 @@ jobs:
           set -o pipefail
           KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh 2>&1 | tee "$RUNNER_TEMP/browser-checks.log"
       # The labels of the checks that went red, for the card. Read from the driver's own
-      # one-line summary (`FAILED:  <labels>`), not from FAIL lines, which the individual
-      # checks also print for their assertions.
+      # summary (`FAILED-LIST:  a|b (why)|c`, one entry per "|", since entries can contain
+      # spaces), not from FAIL lines, which the individual checks also print.
       - name: 'collect the red check labels (#2518)'
         id: failed
         if: always()
@@ -80,7 +80,7 @@ jobs:
           # failed and left no log: the fallback line below has to run either way.
           log="$RUNNER_TEMP/browser-checks.log"
           labels=""
-          if [ -f "$log" ]; then labels=$(sed -n 's/^FAILED:  //p' "$log" | tail -n 1 || true); fi
+          if [ -f "$log" ]; then labels=$(sed -n 's/^FAILED-LIST:  //p' "$log" | tail -n 1 || true); fi
           echo "labels=${labels:-(none captured; see the run log)}" >> "$GITHUB_OUTPUT"
 
   # 🔑 A nightly red must reach the fleet, not just the run's actor (GitHub mails only
@@ -112,16 +112,24 @@ jobs:
             fi
             exit 0
           fi
-          red="${RED:-(none captured)}"
+          # Entries are separated by "|" (they can contain spaces); shown as " | ".
+          red=$(printf '%s' "${RED:-(none captured)}" | sed 's/[[:space:]]*|[[:space:]]*/ | /g')
           if [ -n "$open" ]; then
             # The labels named by this card's most recent report, so only NEW ones lead.
             prev=$(gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
               -q '[.body] + [.comments[].body] | map(select(test("Red checks: "))) | last // ""' \
               | sed -n 's/^.*Red checks: //p' | tail -n 1 || true)
             new=""
-            for w in $red; do case " $prev " in *" $w "*) ;; *) new="$new $w" ;; esac; done
+            _ifs=$IFS; IFS='|'
+            for w in $red; do
+              w="${w# }"; w="${w% }"; [ -n "$w" ] || continue
+              seen=""
+              for q in $prev; do q="${q# }"; q="${q% }"; [ "$q" = "$w" ] && seen=1; done
+              [ -n "$seen" ] || new="${new:+$new | }$w"
+            done
+            IFS=$_ifs
             gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
-          NEW since the last red night:${new:- none}
+          NEW since the last red night: ${new:-none}
           Red checks: $red"
           else
             if ! gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name' | grep -qx "$label"; then

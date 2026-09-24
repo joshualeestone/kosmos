@@ -194,19 +194,19 @@ if command -v ruby >/dev/null 2>&1; then
     || fail "the label collector aborted with no log under -e/pipefail: $out"
   grep -q '^labels=(none captured' "$BT/o1" || fail "the collector wrote no fallback with no log: $(cat "$BT/o1")"
   # Collector WITH a log that also carries assertion-level FAIL lines: only the summary's labels.
-  mkdir -p "$BT/log"; printf '  FAIL  an assertion line\nFAIL  render-fields (failed twice)\nFAILED:  render-fields render-thread\n' > "$BT/log/browser-checks.log"
+  mkdir -p "$BT/log"; printf '  FAIL  an assertion line\nFAIL  render-fields (failed twice)\nFAILED:  render-fields regress-a-night (server did not boot)\nFAILED-LIST:  render-fields|regress-a-night (server did not boot)\n' > "$BT/log/browser-checks.log"
   RUNNER_TEMP="$BT/log" GITHUB_OUTPUT="$BT/o2" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" >/dev/null 2>&1 || fail "the collector failed on a real log"
-  [ "$(cat "$BT/o2")" = "labels=render-fields render-thread" ] || fail "the collector read the wrong labels: $(cat "$BT/o2")"
-  pass "the label collector reads only the FAILED: summary, and falls back without aborting when there is no log"
+  [ "$(cat "$BT/o2")" = "labels=render-fields|regress-a-night (server did not boot)" ] || fail "the collector read the wrong labels: $(cat "$BT/o2")"
+  pass "the label collector reads only the FAILED-LIST: summary (entries kept whole), and falls back without aborting when there is no log"
   # Card script. $1 = the checks job RESULT, $2 = what the stubbed issue list answers
   # (empty / 7 / null); the open card's last report named render-fields only.
   card() {
-    RESULT="$1" OPEN="$2" RED="render-fields render-thread" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+    RESULT="$1" OPEN="$2" RED="render-fields|render-thread|regress-a-night (server did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       gh() { case "$1 $2" in
         "label list") true ;;
         "label create") echo "CALL label-create" ;;
         "issue list") echo "$OPEN" ;;
-        "issue view") printf "%s\n" "Still not green (failure) at old: u" "NEW since the last red night: none" "Red checks: render-fields" ;;
+        "issue view") printf "%s\n" "Still not green (failure) at old: u" "NEW since the last red night: none" "Red checks: render-fields | regress-a-night (server did not boot)" ;;
         "issue comment") echo "CALL comment $3 :: $*" ;;
         "issue create") echo "CALL create :: $*" ;;
         "issue close") echo "CALL close $3 :: $*" ;;
@@ -215,10 +215,10 @@ if command -v ruby >/dev/null 2>&1; then
       . "$1"' _ "$BT/card.sh" 2>&1
   }
   out="$(card failure "")" || fail "card script failed on a fresh streak: $out"
-  case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields render-thread"*) ;; *) fail "a fresh red streak did not create the label and a card naming the red checks: $out" ;; esac
+  case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields | render-thread | regress-a-night (server did not boot)"*) ;; *) fail "a fresh red streak did not create the label and a card naming the red checks: $out" ;; esac
   case "$out" in *"CALL comment"*|*"CALL close"*) fail "a fresh red streak commented or closed: $out" ;; esac
   out="$(card failure 7)" || fail "card script failed with an open card: $out"
-  case "$out" in *"CALL comment 7"*"NEW since the last red night: render-thread"*"Red checks: render-fields render-thread"*) ;; *) fail "an open card did not get a comment leading with the NEW red check: $out" ;; esac
+  case "$out" in *"CALL comment 7"*"NEW since the last red night: render-thread"$'\n'*"Red checks: render-fields | render-thread | regress-a-night (server did not boot)"*) ;; *) fail "an open card did not get a comment leading with ONLY the NEW red check (a spaced entry must not split): $out" ;; esac
   case "$out" in *"CALL create"*|*"CALL label-create"*) fail "an open-card streak created again: $out" ;; esac
   out="$(card cancelled "")" || fail "card script failed on a cancelled run: $out"
   case "$out" in *"CALL create"*"ended cancelled"*) ;; *) fail "a cancelled (e.g. timed-out) run did not file a card: $out" ;; esac

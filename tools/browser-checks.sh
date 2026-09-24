@@ -1652,6 +1652,9 @@ fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
+  # #2518: the same list, one entry per "|", for machines. Entries can contain spaces
+  # ("regress-a-night (server did not boot)"), so the line above cannot be re-split.
+  log "FAILED-LIST:  $(IFS='|'; printf '%s' "${FAILED[*]}")"
   log "why, from each check's own output (the full log has the rest):"
   for r in ${REASONS[@]+"${REASONS[@]}"}; do log "  $r"; done
   exit 1
