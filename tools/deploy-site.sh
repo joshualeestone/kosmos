@@ -518,15 +518,15 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # #3618: read a Windows pointer that prod serves by REDIRECT (to R2). Sets SWP_NAME and SWP_SHA, and
 # refuses a name that is not a bare kosmos-<version>-win-x64.zip (it becomes a URL path below) or a
 # pointer with no sha. Call it as a plain statement, never in $(...): it sets globals and may exit.
-read_served_win_pointer() {  # <pointer file under dist> <redacted redirect target>
-  _rswj=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1") || { echo "deploy-site: the served $1 redirects ($2) but could not be read through the redirect -- the deploy already ran, investigate (#3600)."; exit 1; }
+read_served_win_pointer() {  # <pointer file under dist> <redacted redirect target> <card tag, e.g. #3600>
+  _rswj=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1") || { echo "deploy-site: the served $1 redirects ($2) but could not be read through the redirect -- the deploy already ran, investigate ($3)."; exit 1; }
   SWP_NAME=$(ptr_versioned "$_rswj"); SWP_SHA=$(ptr_sha "$_rswj")
   case "$SWP_NAME" in
     kosmos-[0-9]*-win-x64.zip) : ;;
-    *) echo "deploy-site: the served (redirected) $1 names '${SWP_NAME:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate (#3600)."; exit 1 ;;
+    *) echo "deploy-site: the served (redirected) $1 names '${SWP_NAME:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate ($3)."; exit 1 ;;
   esac
-  case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$SWP_NAME', which is not a bare file name -- the deploy already ran, investigate (#3600)."; exit 1 ;; esac
-  [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- investigate (#3600)."; exit 1; }
+  case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$SWP_NAME', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
+  [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- investigate ($3)."; exit 1; }
 }
 # #3600/#3618: for a zip named by a REDIRECTED pointer, the served .sha256 must describe what the
 # pointer advertises (the Windows updater fetches it FIRST and refuses a mismatch), and the served zip
@@ -556,7 +556,7 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   case "${_wr%% *}" in
     301|302|303|307|308)
       _wrt=$(_served_verify_redact_userinfo "${_wr#* }")   # the redirect target, credentials redacted
-      read_served_win_pointer latest-win.json "$_wrt"
+      read_served_win_pointer latest-win.json "$_wrt" "#3600"
       WIN_VERIFY=$SWP_NAME; WIN_SERVED_SHA=$SWP_SHA
       _wcv=$WIN_PROD_VERSION   # the committed name's version, before it is replaced by the served one
       WIN_PROD_VERSION=$(win_zip_version "$WIN_VERIFY")
@@ -638,11 +638,13 @@ fi
 # the served pointer is the truth: verify the build IT names, and do not compare it with the site's
 # committed copy, which goes stale on every Windows staging publish. Measured, as for prod; a probe
 # that cannot tell keeps the committed staging pointer and its strict checks.
+# Same race as prod: the staging reads (probe, pointer, sidecar, zip) are separate requests, so a
+# Windows staging publish landing between them can refuse a good deploy. Re-run once first.
 WIN_STAGED_SERVED_SHA=""
 _wsp=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$HOST/dist/latest-win-staging.json" 2>/dev/null) || _wsp=''
 case "${_wsp%% *}" in
   301|302|303|307|308)
-    read_served_win_pointer latest-win-staging.json "$(_served_verify_redact_userinfo "${_wsp#* }")"
+    read_served_win_pointer latest-win-staging.json "$(_served_verify_redact_userinfo "${_wsp#* }")" "#3618"
     if [ -n "$WIN_STAGED" ] && [ "$WIN_STAGED" != "$SWP_NAME" ]; then
       _wscv=$(win_zip_version "$WIN_STAGED"); _wssv=$(win_zip_version "$SWP_NAME"); _wsn=""
       [ -z "$_wscv" ] || [ -z "$_wssv" ] || _wsn=$(printf '%s\n%s\n' "$_wscv" "$_wssv" | sort -V | tail -1)
