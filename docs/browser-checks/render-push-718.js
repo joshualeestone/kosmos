@@ -23,13 +23,13 @@
  * worker's own handler via CDP, so a broken or missing `push` listener fails it.
  *
  * ⚠️ HEADED BY DEFAULT like every check here (HEADED=0 for a no-console machine,
- * which includes the staging-cut gate). The notification-RENDER read needs a real
- * notification platform, which only HEADED provides: headless Chromium delivers
- * the push to the worker's handler but returns [] from getNotifications(). So that
- * one assertion is headed-only and is skipped (with a printed SKIP line) under
- * HEADED=0; everything else -- serve/register/control and the CDP push delivery --
- * still runs headless, and the payload mapping is covered headless by the node
- * suite web.sw-718.test.js. See the HEADED gate at the render assertion below.
+ * which includes the staging-cut gate). Headless Chromium keeps notification
+ * permission at 'denied' even after grantPermissions, so showNotification rejects
+ * there and getNotifications() returns []. The notification-RENDER read is therefore
+ * headed-only and is skipped (with a printed SKIP line) under HEADED=0. The HANDLER
+ * itself is still checked headless (#3565): the check wraps showNotification inside
+ * the live worker and asserts what the real push handler called and how the call
+ * settled. See the HEADED gate at the render assertion below.
  *
  * Needs a board with first run already complete (the driver runs it on the shared
  * $B8 board) -- see the README.
@@ -45,8 +45,8 @@ const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 // HEADED vs headless is a per-machine choice (see BROWSER_TESTING): a console
 // machine runs headed; a CI/cron/no-console box, and the staging-cut gate, run
 // headless via HEADED=0. It gates the notification-RENDER assertion below:
-// headless Chromium delivers a push to the worker's handler but does not surface
-// the notification to getNotifications(), so that one read is headed-only.
+// headless Chromium keeps notification permission at 'denied', so nothing is
+// shown and that one read is headed-only. The handler call is asserted in both.
 const HEADED = process.env.HEADED !== '0';
 
 const results = [];
@@ -125,6 +125,9 @@ function check(name, pass, detail) {
   let delivered = false;
   let deliverErr = '';
   let shown = [];
+  let calls = null;       // what the worker's own push handler passed to showNotification
+  let captureErr = '';
+  let swWorker = null;   // the live /sw.js worker the capture is installed in
   try {
     const cdp = await ctx.newCDPSession(page);
     let registrationId = null;
@@ -141,6 +144,37 @@ function check(name, pass, detail) {
     check('CDP reports the worker registration', !!registrationId, String(registrationId));
 
     if (registrationId) {
+      /* #3565: observe the HANDLER from inside the worker, headless included.
+         Wrap self.registration.showNotification in the live worker (test-side
+         only: nothing is added to the shipped sw.js) so the real
+         addEventListener('push') handler records what it called and how the call
+         settled. Installed just before the delivery below, because a worker that
+         restarts in between comes back without the wrapper (that reads as no call,
+         a red, never a pass). */
+      try {
+        const sw = ctx.serviceWorkers().find((w) => w.url() === origin + '/sw.js');
+        if (!sw) throw new Error('no /sw.js worker in the context: ' + ctx.serviceWorkers().map((w) => w.url()).join(','));
+        await sw.evaluate(() => {
+          self.__kosmos3565 = [];
+          const reg = self.registration;
+          const orig = reg.showNotification.bind(reg);
+          reg.showNotification = (title, options) => {
+            const rec = {
+              title,
+              body: options && options.body,
+              url: (options && options.data && options.data.url) || null,
+              settled: 'pending',
+            };
+            self.__kosmos3565.push(rec);
+            return orig(title, options).then(
+              (v) => { rec.settled = 'resolved'; return v; },
+              (e) => { rec.settled = 'rejected: ' + String((e && e.message) || e); throw e; });
+          };
+        });
+        swWorker = sw;
+      } catch (e) {
+        captureErr = String((e && e.message) || e);
+      }
       /* The REAL coordinator payload shape (kosmos-relay VapidSender): who/what/
          where, never content -- {kind, agent, project, id, address}. sw.js must
          DERIVE the notification from these fields. Delivering {title,body} here
@@ -160,6 +194,15 @@ function check(name, pass, detail) {
         }),
       });
       delivered = true;
+      // #3565: read back the handler's call from the worker, in BOTH modes.
+      if (swWorker) {
+        for (let i = 0; i < 25; i++) {
+          calls = await swWorker.evaluate(() => self.__kosmos3565 || null).catch((e) => { captureErr = String((e && e.message) || e); return null; });
+          if (calls) captureErr = '';
+          if (calls && calls.length && calls[0].settled !== 'pending') break;
+          await page.waitForTimeout(200);
+        }
+      }
       // Poll for the rendered notification ONLY when headed: headless never
       // surfaces it (see the render-assertion note below), so polling there would
       // just burn ~5s timing out on every cut run.
@@ -180,28 +223,44 @@ function check(name, pass, detail) {
     deliverErr = String((e && e.message) || e);
   }
   check('a push was delivered to the worker (CDP)', delivered, deliverErr);
-  /* The notification-RENDER read is HEADED-ONLY. Headless Chromium delivers the
-     push to the worker's handler (the check above passes) but does NOT surface
-     the notification to getNotifications() -- measured in both arms against a
-     board with no coordinator proxies: headed returns the mapped notification,
-     headless returns []. That is a browser-platform limitation, not a product
-     failure, so under HEADED=0 we skip only this render read rather than
-     false-fail the headless cut gate. The coordinator-payload MAPPING itself
+  /* #3565: the handler RAN and called showNotification with the DERIVED
+     notification, observed inside the worker, so it holds headless too. A handler
+     that threw before showNotification, or that ignored the coordinator shape,
+     reds here in both modes. */
+  const call = (calls || [])[0] || null;
+  check('the push handler called showNotification with the mapped notification (observed in the worker)',
+    !!call && (calls || []).length === 1 &&
+      call.title === 'Scorpion needs you' &&
+      call.body === 'In Kosmos Inside Out' &&
+      call.url === 'https://study.kosmos.example/',
+    captureErr || JSON.stringify(calls).slice(0, 240));
+  /* How that call settled. Headed it must RESOLVE. Headless Chromium keeps
+     notification permission at 'denied' even after grantPermissions (measured
+     2026-09-24: page and worker both read 'denied' headless, 'granted' headed), so
+     there showNotification REJECTS for permission; that one rejection is accepted
+     only while the page really reads 'denied'. Any other rejection reds. The
+     message is matched loosely (/permission/i) so a Chromium rewording does not
+     red the cut gate; the 'denied' reading is what carries the weight.
+     Not covered: whether the call was handed to event.waitUntil. The capture sees
+     the call and its outcome, not which promise the handler kept alive. */
+  const perm = await page.evaluate(() => Notification.permission).catch(() => 'unreadable');
+  const settledOk = !!call && (call.settled === 'resolved' ||
+    (!HEADED && perm === 'denied' && /^rejected: .*permission/i.test(call.settled)));
+  check('the handler\'s showNotification settled as this mode allows (headed: resolved; headless: only the permission denial)',
+    settledOk, `mode=${HEADED ? 'headed' : 'headless'} permission=${perm} settled=${call ? call.settled : 'no call'}`);
+  /* The notification-RENDER read is HEADED-ONLY. Headless, the handler runs and
+     calls showNotification (the two #3565 arms above assert it), but the call
+     rejects for permission, so getNotifications() returns []. That is a
+     browser-platform limitation, not a product failure, so under HEADED=0 we skip
+     only this render read rather than false-fail the headless cut gate. The coordinator-payload MAPPING itself
      (sw.js deriving kind+agent+project -> headline and address -> the https
      click-through) is covered headless by the node suite web.sw-718.test.js
      (notificationFor), so nothing about the mapping goes unverified when skipped.
      (This supersedes the #3552 stopgap that skipped UNCONDITIONALLY on a
      "#3510 / mapping unwired" rationale: verified false -- the mapping renders
      correctly headed, independent of #3510, so the skip is headless-only.)
-     ⚠️ Residual gap, named rather than implied: skipping this headless removes the
-     only END-TO-END check that the push HANDLER runs to completion and calls
-     showNotification. web.sw-718.test.js covers notificationFor as a PURE function
-     but not the real addEventListener('push') wiring, and "a push was delivered
-     (CDP)" only confirms the send did not throw, not that the handler finished.
-     So a regression in the handler's execution (as opposed to the notification
-     mapping) is caught only by a HEADED run of this check, which the headless cut
-     gate does not currently do. Follow-up: run this check in a headed lane (#3565).
-     This is an accepted tradeoff (a real browser-platform limitation), not silent.
+     Handler EXECUTION is no longer headed-only (#3565): the worker-side capture
+     above reds headless when the handler throws or ignores the coordinator shape.
      When HEADED, assert the DERIVED notification (not an echoed one): a worker
      that ignored the coordinator shape (the old {title,body,url} reader) would
      show "Kosmos" / generic and open "/", and fail all three. */
@@ -213,7 +272,7 @@ function check(name, pass, detail) {
     check('the delivered coordinator push produced the mapped notification', !!hit,
       JSON.stringify(shown).slice(0, 240));
   } else {
-    console.log('SKIP  the delivered coordinator push produced the mapped notification (headed-only: headless has no notification platform to read via getNotifications; mapping covered by web.sw-718.test.js)');
+    console.log('SKIP  the delivered coordinator push produced the mapped notification (headed-only: headless Chromium denies notification permission, so nothing is shown; the handler call is asserted above)');
   }
 
   check('no page errors', errors.length === 0, errors.join(' | ').slice(0, 160));
