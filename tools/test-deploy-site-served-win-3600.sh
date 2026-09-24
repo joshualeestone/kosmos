@@ -34,7 +34,8 @@
 #   A16 KOSMOS_WIN_ZIP names the prod build: the staged compare uses ITS version, not the stale
 #       committed pointer's, so a staged build older than the override is still superseded
 #   A17 the committed Windows build is NEWER than what R2 serves (a promote R2 never got) -> a loud
-#       WARNING that users do not have it, not the "stale, expected" NOTE; rc 0
+#       WARNING that users do not have it (repeated after the final success line), not the
+#       "stale, expected" NOTE; rc 0
 #   A18 the redirect probe gets no status at all (transport error) -> a NOTE, strict fallback
 #   A19 static path, committed pointer whose `version` (0.6.99) disagrees with its checked name
 #       (0.6.40): the staged compare uses the NAME, so a pending 0.6.55 staged build is still verified
@@ -427,7 +428,8 @@ fi
 # (not the "expected" NOTE), verify what IS served, and do not fail the Mac deploy for it.
 read -r S L R <<<"$(make_scenario redirect-behind)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "is NEWER than what prod serves by redirect (kosmos-0.6.30-win-x64.zip)" && ! has "$out" "is older, so the committed pointer is stale"; then
+if [ "$RC" = 0 ] && has "$out" "is NEWER than what prod serves by redirect (kosmos-0.6.30-win-x64.zip)" \
+   && has "$out" "BUT (#3600) the Windows build $WZ_OLD is committed and NOT served" && ! has "$out" "is older, so the committed pointer is stale"; then
   pass "A17: committed newer than served -> the loud 'users do NOT have' WARNING, not the stale NOTE, rc=0"
 else
   bad "A17: a committed build newer than R2 was not flagged as unpublished (rc=$RC); out=$out"
@@ -474,7 +476,7 @@ fi
 # A22) no readable committed version: say so, do not claim the committed pointer is the older one.
 read -r S L R <<<"$(make_scenario redirect-oddname)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "has no readable version, so which is newer cannot be told" && ! has "$out" "is older, so the committed pointer is stale"; then
+if [ "$RC" = 0 ] && has "$out" "has no readable version (or the compare failed), so which is newer cannot be told" && ! has "$out" "is older, so the committed pointer is stale"; then
   pass "A22: an unversioned committed name gets the 'cannot be told' NOTE, not a staleness claim, rc=0"
 else
   bad "A22: an unversioned committed name was mislabeled or failed (rc=$RC); out=$out"

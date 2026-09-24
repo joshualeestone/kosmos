@@ -504,6 +504,7 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # still fails loudly on a genuinely unserved zip. An explicit KOSMOS_WIN_ZIP still overrides.
 WIN_VERIFY=$WINZIP
 WIN_SERVED_SHA=""
+WIN_UNPUBLISHED=""   # set when the site's Windows build is newer than what R2 serves; repeated at the end
 # The prod Windows version users get, for the staged block below, always read from the NAME of the
 # zip being verified ($WINZIP here: the sha-verified committed name, or an explicit KOSMOS_WIN_ZIP),
 # never from a pointer's separate `version` field, which nothing checks against the name. The
@@ -526,12 +527,15 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
       _wcv=$WIN_PROD_VERSION   # the committed name's version, before it is replaced by the served one
       WIN_PROD_VERSION=$(win_zip_version "$WIN_VERIFY")
       if [ "$WIN_VERIFY" != "$WINZIP" ]; then
-        if [ -z "$_wcv" ]; then
-          echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's Windows name $WINZIP has no readable version, so which is newer cannot be told. Verifying what users get ($WIN_VERIFY)." >&2
-        elif [ "$(printf '%s\n%s\n' "$_wcv" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$_wcv" ]; then
+        _wnewer=""
+        [ -z "$_wcv" ] || _wnewer=$(printf '%s\n%s\n' "$_wcv" "$WIN_PROD_VERSION" | sort -V | tail -1)
+        if [ -z "$_wcv" ] || [ -z "$_wnewer" ]; then
+          echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's Windows name $WINZIP has no readable version (or the compare failed), so which is newer cannot be told. Verifying what users get ($WIN_VERIFY)." >&2
+        elif [ "$_wnewer" = "$_wcv" ]; then
           # The site's Windows name is NEWER than what prod serves: a Windows promote was committed
           # but R2 was not updated, so users did NOT get it. Not a Mac deploy failure, but loud.
           echo "deploy-site: WARNING (#3600): the site's Windows name $WINZIP is NEWER than what prod serves by redirect ($WIN_VERIFY). R2 was not updated, so users do NOT have that Windows build. Verifying what they do get ($WIN_VERIFY); publish the build to R2 to finish the Windows promote." >&2
+          WIN_UNPUBLISHED="$WINZIP"
         else
           echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's committed Windows name $WINZIP is older, so the committed pointer is stale. Verifying what users get ($WIN_VERIFY). This is expected after a Windows publish to R2 and is not a deploy failure." >&2
         fi
@@ -578,7 +582,8 @@ fi
 # #3600: a staging pointer whose version is NOT newer than the prod Windows build users get names a
 # superseded build. The zip wildcard redirects it to R2, where an old staged build is often absent
 # (2026-09-24: staging said 0.6.81, prod 0.6.89, 0.6.81 404'd), so verifying it would exit red on
-# every Mac deploy for a build nobody will promote. Warn and skip ITS ZIP AND SIDECAR; the staging
+# every Mac deploy for a build nobody will promote. (Equal to prod counts as superseded: staging was
+# promoted. A same-version rebuild with different bytes would therefore not be served-verified.) Warn and skip ITS ZIP AND SIDECAR; the staging
 # pointer itself is served statically and is still checked against the committed one. A NEWER staged
 # build is verified in full, because the Windows box verifies that one from these served copies.
 WIN_STAGED_SUPERSEDED=0
@@ -628,6 +633,7 @@ _svsetup_want=$(awk '{print $1; exit}' "$_svsetup_sum"); rm -f "$_svsetup_sum"
 [ -n "$_svsetup_want" ] && [ "$_svsetup_want" = "$_svsetup_got" ] || { echo "deploy-site: the served /setup (sha $_svsetup_got) does NOT match its served /setup.sha256 (${_svsetup_want:-<none>}) -- refusing to certify. This is exactly what makes the .pkg postinstall refuse with \"installation failed\" (#1666/#2511): a half-published or half-warmed-CDN state where a client can fetch a mismatched (setup, setup.sha256) pair. Re-run the deploy and/or purge+warm the edge for /setup and /setup.sha256."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
+[ -z "$WIN_UNPUBLISHED" ] || echo "deploy-site: BUT (#3600) the Windows build $WIN_UNPUBLISHED is committed and NOT served: users still get $WIN_VERIFY. Publish it to R2 to finish that Windows promote."
 
 # #2159: a --promote that moves the prod pointer FORWARD is a new release going live to users, so
 # generate the release-notes social posts, exactly as a prod CUT does (release.sh's #2159 hook). A
