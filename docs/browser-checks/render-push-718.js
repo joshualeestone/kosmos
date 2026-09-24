@@ -160,15 +160,20 @@ function check(name, pass, detail) {
         }),
       });
       delivered = true;
-      // The handler is async (waitUntil showNotification); poll for the result.
-      for (let i = 0; i < 25; i++) {
-        shown = await page.evaluate(async () => {
-          const r = await navigator.serviceWorker.ready;
-          const ns = await r.getNotifications();
-          return ns.map((n) => ({ title: n.title, body: n.body, url: (n.data && n.data.url) || null }));
-        });
-        if (shown.length) break;
-        await page.waitForTimeout(200);
+      // Poll for the rendered notification ONLY when headed: headless never
+      // surfaces it (see the render-assertion note below), so polling there would
+      // just burn ~5s timing out on every cut run.
+      if (HEADED) {
+        // The handler is async (waitUntil showNotification); poll for the result.
+        for (let i = 0; i < 25; i++) {
+          shown = await page.evaluate(async () => {
+            const r = await navigator.serviceWorker.ready;
+            const ns = await r.getNotifications();
+            return ns.map((n) => ({ title: n.title, body: n.body, url: (n.data && n.data.url) || null }));
+          });
+          if (shown.length) break;
+          await page.waitForTimeout(200);
+        }
       }
     }
   } catch (e) {
@@ -188,6 +193,15 @@ function check(name, pass, detail) {
      (This supersedes the #3552 stopgap that skipped UNCONDITIONALLY on a
      "#3510 / mapping unwired" rationale: verified false -- the mapping renders
      correctly headed, independent of #3510, so the skip is headless-only.)
+     ⚠️ Residual gap, named rather than implied: skipping this headless removes the
+     only END-TO-END check that the push HANDLER runs to completion and calls
+     showNotification. web.sw-718.test.js covers notificationFor as a PURE function
+     but not the real addEventListener('push') wiring, and "a push was delivered
+     (CDP)" only confirms the send did not throw, not that the handler finished.
+     So a regression in the handler's execution (as opposed to the notification
+     mapping) is caught only by a HEADED run of this check, which the headless cut
+     gate does not currently do. Follow-up: run this check in a headed lane (#3565).
+     This is an accepted tradeoff (a real browser-platform limitation), not silent.
      When HEADED, assert the DERIVED notification (not an echoed one): a worker
      that ignored the coordinator shape (the old {title,body,url} reader) would
      show "Kosmos" / generic and open "/", and fail all three. */
