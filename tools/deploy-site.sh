@@ -524,8 +524,12 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
         echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's COMMITTED latest-win.json names $WINZIP and is stale. Verifying what users get ($WIN_VERIFY). This is expected after a Windows promote and is not a deploy failure." >&2
       fi
       ;;
+    200) : ;;   # served statically: git archive shipped the committed pointer, so $WINZIP is it
     '')
       echo "deploy-site: NOTE (#3600): could not probe whether latest-win.json is served by redirect (transport error or timeout), so verifying the committed $WINZIP. If that 404s while prod redirects to R2, it is this probe, not the deploy; re-run the check." >&2
+      ;;
+    *)
+      echo "deploy-site: NOTE (#3600): latest-win.json answered ${_wr%% *} (neither a redirect nor 200), so verifying the committed $WINZIP. The Windows pointer route itself may be broken; check it." >&2
       ;;
   esac
 fi
