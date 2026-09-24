@@ -66,7 +66,7 @@ paint at 4400ms).
   multi-line), confirmed by browser-checks-reason-grep.test.js.
 
 ## Verification
-- docs/browser-checks/render-autohello-switch-2716.js, 17 checks. The old source
+- docs/browser-checks/render-autohello-switch-2716.js, 19 checks. The old source
   invariant (2 x poll > hold), which was red by design, is replaced by three
   behavioural arms: an early report still lands once the line is painted;
   nothing is written if the dialog closes first; the wait gives up after the
@@ -80,4 +80,7 @@ paint at 4400ms).
   #d-provider-go (measured 231ms), which has its own call site and an extra
   accounts refresh. Removing the retry reds arms 7, 11 and 11b; removing the
   provider call site reds 11b.
+  Arm 9b paints 500ms past the hold, measured from the report, so dropping the
+  one-second margin reds it. Arm 11c: a real switch that does not restart
+  (outcome partial) sends no hello; dropping `restarted` from the guard reds it.
 - web.change-dialog.test.js (source wiring, run from the repo root): 3 pass.

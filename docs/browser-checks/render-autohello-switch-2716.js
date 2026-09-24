@@ -52,7 +52,7 @@ function initStub() {
     // The real model-switch and provider-switch flows (arms 11, 11b) POST here first.
     if (/\/api\/agent\/[^/]+\/model$/.test(u) && method === 'POST') {
       window.__statusSinceRestart = 0;
-      return enc({ outcome: 'changed', because: 'Changed and restarting on the new model.' });
+      return enc({ outcome: window.__modelOutcome || 'changed', because: 'Changed and restarting on the new model.' });
     }
     if (/\/api\/agent\/[^/]+\/provider$/.test(u) && method === 'POST') {
       window.__statusSinceRestart = 0;
@@ -199,6 +199,34 @@ function initStub() {
   check('early report, line never painted within the bound: the wait gives up (bounded, no late write)',
     s9.threadCalls === 1 && s9.msg === MANUAL, 'bound=' + bound + 'ms calls=' + s9.threadCalls + ' msg=' + JSON.stringify(s9.msg));
 
+  // ---- Arm 9b: the margin past the hold is load-bearing ----
+  // The wait runs to hold + 1s from the report. Paint 500ms after the hold (measured from
+  // when the report fired), inside the margin: the confirmation must still land, so a
+  // bound of the bare hold (the margin dropped) reds here.
+  const s9b = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const back = document.getElementById('chg-modal');
+    const msg = document.getElementById('chg-msg');
+    const MAN = 'Say hello to April to reactivate them on OpenAI.';
+    window.__kosmosRestartHoldMs = 300;
+    window.__posted = [];
+    window.__threadResp = { recorded: true, delivery: { state: 'placed' } };
+    window.__statusSinceRestart = 0;
+    window.__readyAfterCalls = 2;
+    CURRENT = { sessionName: 'april', name: 'April' };
+    back.hidden = false; msg.textContent = 'Restarting April';
+    autoHelloOnSwitchRestart('april', 'April', 'OpenAI', MAN);
+    const t0 = Date.now();
+    while (!window.__posted.some((x) => /\/thread$/.test(x.url)) && Date.now() - t0 < 3000) await sleep(5);
+    await sleep(300 + 500);                     // hold + 500ms after the report: inside hold + 1s
+    msg.textContent = MAN;
+    await sleep(400);
+    window.__kosmosRestartHoldMs = undefined;
+    return { msg: msg.textContent };
+  });
+  check('early report: a paint inside the one-second margin past the hold still gets the confirmation',
+    s9b.msg === SAID, JSON.stringify(s9b.msg));
+
   // ---- Arm 10: a STALE report from an earlier restart of the same agent ----
   // Two switches of one agent to the same provider paint the identical manual line. The
   // first restart's report, still waiting for that line, must not write "said hello" into
@@ -301,6 +329,35 @@ function initStub() {
     s11b.helloAt !== null && s11b.helloAt < 600, 'helloAt=' + s11b.helloAt + 'ms, hold=600ms');
   check('real provider switch: the dialog still ends on the confirmation',
     s11b.threads === 1 && /^Reactivated on OpenAI, and said hello to wake /.test(s11b.msg), 'threads=' + s11b.threads + ' msg=' + JSON.stringify(s11b.msg));
+
+  // ---- Arm 11c: a real switch that does NOT restart sends no hello ----
+  const s11c = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const back = document.getElementById('chg-modal');
+    const msg = document.getElementById('chg-msg');
+    back.hidden = true; msg.textContent = '';
+    window.__posted = [];
+    window.__statusSinceRestart = 0;
+    window.__readyAfterCalls = 2;
+    window.__modelOutcome = 'partial';
+    window.__kosmosRestartHoldMs = 300;
+    CURRENT = { sessionName: 'april', name: 'April', displayName: 'April', runner: 'claude', isNamedOurs: true };
+    const sel = document.getElementById('d-model');
+    sel.innerHTML = '<option value="opus5">Claude Opus 5</option>';
+    sel.value = 'opus5';
+    const dgo = document.getElementById('d-model-go');
+    dgo.disabled = false;
+    dgo.click();
+    document.getElementById('chg-go').click();
+    await sleep(1500);
+    const out = { threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length, msg: msg.textContent };
+    window.__modelOutcome = undefined;
+    window.__kosmosRestartHoldMs = undefined;
+    document.getElementById('chg-keep').click();
+    return out;
+  });
+  check('real model switch that does not restart: no hello is sent and no confirmation is shown',
+    s11c.threads === 0 && !/Reactivated/.test(s11c.msg), 'threads=' + s11c.threads + ' msg=' + JSON.stringify(s11c.msg));
 
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);
