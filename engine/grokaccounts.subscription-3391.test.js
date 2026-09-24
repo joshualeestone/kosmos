@@ -131,6 +131,7 @@ fs.writeFileSync(FAKE, [
   'printf "%s\\n" "$*" > "$FAKE_REC.argv"',
   'printf "%s\\n" "${XAI_API_KEY-<unset>}" > "$FAKE_REC.key"',
   'printf "%s\\n" "$GROK_HOME" > "$FAKE_REC.home"',
+  'if [ "$FAKE_MODE" = urlonly ]; then printf "open https://accounts.x.ai/oauth2/device?user_code=ZZZZ-YYYY in your browser\\n"; exec sleep 30; fi',
   'printf "\\nTo sign in, open this URL in your browser:\\n\\n  https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI\\n\\nConfirm this code in your browser:\\n\\n  QWER-TYUI\\n\\nWaiting for authorization...\\n"',
   'case "$FAKE_MODE" in',
   '  approve) touch "$4"; sleep 0.3; printf \'{"https://auth.x.ai::u1":{"email":"sub@example.com","refresh_token":"r"}}\' > "$GROK_HOME/auth.json"; exit 0 ;;',
@@ -327,3 +328,13 @@ test('a NAMED sign-in refuses a dir whose auth.json we cannot describe, so a fai
   assert.match(out.because, /already a Grok account/);
   assert.ok(fs.existsSync(nodePath.join(d, 'auth.json')), 'the credentials are untouched');
 });
+
+test('driver: the sign-in moves on as soon as the URL is out, even if no separate code line appears', () => withMode('urlonly', async () => {
+  grok.setGrokTimers({ forceKill: 200 });
+  const out = grok.startGrokLogin({ label: 'urlonly', grokBin: FAKE });
+  const s = await waitFor(() => { const x = grok.grokLoginStatus(out.sessionId); return x.authUrl ? x : null; });
+  assert.equal(s.state, 'awaiting-code', 'a person can act on the URL, so the screen should move on');
+  assert.equal(s.userCode, undefined, 'CONTROL: no code was printed on its own line, and the one inside the URL is not read as the code');
+  grok.cancelGrokLogin(out.sessionId);
+  await waitFor(() => !fs.existsSync(nodePath.join(SANDBOX, '.grok-urlonly')));
+}));
