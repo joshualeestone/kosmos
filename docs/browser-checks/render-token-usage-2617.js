@@ -46,7 +46,7 @@ const USAGE = {
       { name: 'ann', shown: 'Ann', input_tokens: 3000000, output_tokens: 1000000, cache_creation_input_tokens: 12000000, cache_read_input_tokens: 1500000000, rows: 10 },
       { name: 'bob', shown: 'Bob', input_tokens: 500000, output_tokens: 200000, cache_creation_input_tokens: 2000000, cache_read_input_tokens: 150000000, rows: 3 },
     ],
-    elsewhere: { input_tokens: 651004, output_tokens: 261889, cache_creation_input_tokens: 4103778, cache_read_input_tokens: 314004102, rows: 2 },
+    elsewhere: { input_tokens: 651004, output_tokens: 259889, cache_creation_input_tokens: 4103778, cache_read_input_tokens: 314004102, rows: 2 },
     shared: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 },
     unattributed: { input_tokens: 0, output_tokens: 2000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 },
     overcount: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 },

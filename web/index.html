@@ -2317,9 +2317,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .tv-mbar span { display: block; height: 100%; border-radius: 5px; }
 .tv-mrow .tv-num { font: 500 .84rem var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--k-ink); }
 /* #2617: on a phone-width column the fixed number columns left the name a few
-   pixels ("A..") and clipped "% total". Below 420px the share bar goes (the %
-   column carries the same fact) and the name takes the freed width. Applies to
-   the per-model and per-agent tables alike, since they share this grid. */
+   pixels ("A..") and clipped "% total". When the usage section is below 420px
+   the share bar goes (the % column carries the same fact) and the name takes
+   the freed width. Keyed on the section, not the table, so it applies to both
+   tables when the section is narrow. */
 @container (max-width: 420px) {
   .tv-mrow { grid-template-columns: minmax(0, 1fr) 64px 64px; gap: 8px; padding: 11px 12px; }
   .tv-mrow > .tv-mbar, .tv-mrow.head > div:nth-child(2) { display: none; }
@@ -27298,8 +27299,16 @@ function usageShareTableHtml(label, rows, grandTotal, colorFor) {
    left out. Pure. */
 function usageAgentRows(byAgent) {
   if (!byAgent || typeof byAgent !== 'object') return [];
-  const rows = (Array.isArray(byAgent.agents) ? byAgent.agents : [])
-    .map((a) => ({ name: String((a && (a.shown || a.name)) || ''), tok: usageRowTokenTotal(a || {}), muted: false }))
+  const listed = (Array.isArray(byAgent.agents) ? byAgent.agents : []).filter((a) => a && typeof a === 'object');
+  // Two agents can share a display name; name them apart by their own name.
+  const seen = {};
+  for (const a of listed) { const k = String(a.shown || a.name || ''); seen[k] = (seen[k] || 0) + 1; }
+  const rows = listed
+    .map((a) => {
+      const shown = String(a.shown || a.name || '');
+      const name = seen[shown] > 1 && a.name && a.name !== shown ? shown + ' (' + a.name + ')' : shown;
+      return { name, tok: usageRowTokenTotal(a), muted: false };
+    })
     .filter((r) => r.name && r.tok > 0)
     .sort((a, b) => (b.tok - a.tok) || a.name.localeCompare(b.name));
   const other = usageRowTokenTotal(byAgent.elsewhere || {});
@@ -27309,16 +27318,16 @@ function usageAgentRows(byAgent) {
   return rows;
 }
 /* #2617: the per-agent table, drawn by the same usageShareTableHtml as the
-   model table. The palette's last color is the muted "Other", kept for the
-   non-agent rows so they never read as an agent; agents take the others by
-   rank, those past them sharing the last agent color. "% total" is of the page's grand total, as in
+   model table. Agents are all one neutral ink, NOT the model palette: sitting
+   under the model table, the top agent in the top model's gold would read as a
+   link between the two that does not exist. The non-agent rows keep the
+   palette's muted "Other" color. "% total" is of the page's grand total, as in
    the model table, so tokens the note reports as unmatched leave the rows short
    of 100%. Pure. */
+const USAGE_AGENT_COLOR = 'var(--k-ink-2)';
 function usageAgentTableHtml(rows, grandTotal) {
-  const other = USAGE_MODEL_COLORS.length - 1;
-  let rank = 0;
-  return usageShareTableHtml('Agent', rows, grandTotal,
-    (x) => (x.muted ? USAGE_MODEL_COLORS[other] : USAGE_MODEL_COLORS[Math.min(rank++, other - 1)]));
+  const other = USAGE_MODEL_COLORS[USAGE_MODEL_COLORS.length - 1];
+  return usageShareTableHtml('Agent', rows, grandTotal, (x) => (x.muted ? other : USAGE_AGENT_COLOR));
 }
 /* #2617: the sentence under the per-agent table. Says what the table cannot
    show rather than letting a gap read as zero: an unreadable roster, tokens in
@@ -27329,9 +27338,10 @@ function usageAgentNote(byAgent) {
   const out = [];
   if (byAgent.rosterRead === false) out.push('We could not read the list of agents just now, so every session shows as not an agent.');
   const gone = usageRowTokenTotal(byAgent.unattributed || {});
-  if (gone > 0) out.push(usageAbbr(gone) + ' tokens in the totals above come from transcripts that have since been removed or can no longer be read, so they cannot be matched to an agent.');
+  const tokens = (n) => usageAbbr(n) + (n === 1 ? ' token' : ' tokens');
+  if (gone > 0) out.push(tokens(gone) + ' in the totals above come from transcripts that have since been removed or can no longer be read, so they cannot be matched to an agent.');
   const over = usageRowTokenTotal(byAgent.overcount || {});
-  if (over > 0) out.push('On some days the transcripts still here hold ' + usageAbbr(over) + ' more tokens than the totals saved for those days, so this table can add up to more than the totals above, by up to that much.');
+  if (over > 0) out.push('On some days the transcripts still here hold ' + tokens(over) + ' more than the totals saved for those days, so this table can add up to more than the totals above, by up to that much.');
   return out.join(' ');
 }
 /* #2840: the donut -- per-model token SHARE, top 6 + an "Other" bucket, matching
