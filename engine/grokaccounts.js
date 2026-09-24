@@ -13,13 +13,18 @@
  * file's home and the session home are all ONE directory. (Gemini is the
  * asymmetric sibling; see engine/geminiaccounts.js.)
  *
- * 🔑 WHERE THE KEY LIVES, AND WHY NOT A FILE THE CLI POINTS AT. codex keeps its
- * key in auth.json inside CODEX_HOME, so openaiaccounts never stores a key of its
- * own -- codex's own login writes the file codex reads. Grok has no such file:
- * the interactive CLI reads its key from the XAI_API_KEY ENV VAR (measured, grok
- * 1.0.41: "Logged in with API key" with just XAI_API_KEY set, no config written).
- * So per-account key delivery is NEW plumbing with no codex precedent -- this
- * module stores the raw key in a mode-600 file inside the account dir
+ * 🔑 TWO KINDS OF GROK ACCOUNT, and the key file wins when a dir has both.
+ *  - API KEY: the interactive CLI reads its key from the XAI_API_KEY ENV VAR
+ *    (measured, grok 1.0.41: "Logged in with API key" with just XAI_API_KEY set).
+ *    Nothing the CLI writes holds it, so this module keeps its own copy (below).
+ *  - SUBSCRIPTION (#3391): `grok login --device-auth` writes GROK_HOME/auth.json,
+ *    one object keyed `https://auth.x.ai::<uuid>` holding the sign-in (email,
+ *    refresh_token, expires_at, ...), mode 0600. The CLI reads it back itself, so
+ *    this module only reads it for identity and never stores a credential of its own.
+ *    An EMPTY XAI_API_KEY still counts as set to grok ("You are using XAI_API_KEY",
+ *    measured), which is why the supervisor REMOVES the variable for this kind.
+ * For the API-key kind, per-account key delivery is NEW plumbing with no codex
+ * precedent -- this module stores the raw key in a mode-600 file inside the account dir
  * (.kosmos-grok-apikey), the SAME discipline claudeaccounts uses for its own
  * apiKeyHelper file, and bin/agent-supervisor.sh reads that file for a
  * per-account grok agent and exports XAI_API_KEY into the pane env. The DEFAULT
@@ -40,6 +45,8 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const { spawn } = require('node:child_process');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
 
@@ -109,24 +116,51 @@ function readKey(dir) {
   return { kind: 'ok', key: String(raw).trim() };
 }
 
-/** What we know about who this account is, read from the stored key file, or null
-    when nothing usable is stored here (no file, unreadable, or an empty file).
-    An api-key account's identity is the key's last four characters -- never the
-    key. */
+/* The grok CLI's own sign-in file for a subscription account. */
+const AUTH_BASENAME = 'auth.json';
+const AUTH_ISSUER_PREFIX = 'https://auth.x.ai::';
+function authFile(dir) { return path.join(path.resolve(String(dir || '')), AUTH_BASENAME); }
+
+/* Read a subscription sign-in: absent (no file), unreadable (cannot read or parse,
+   or no auth.x.ai entry), or ok with the ONE auth.x.ai entry. Two entries is
+   `unreadable`: we could not say which one grok will use. Nothing here is ever
+   returned to a caller outside this module except the email. */
+function readAuth(dir) {
+  let raw;
+  try { raw = fs.readFileSync(authFile(dir), 'utf8'); }
+  catch (e) {
+    if (e && e.code === 'ENOENT') return { kind: 'absent' };
+    return { kind: 'unreadable' };
+  }
+  let data;
+  try { data = JSON.parse(raw); } catch { return { kind: 'unreadable' }; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return { kind: 'unreadable' };
+  const keys = Object.keys(data).filter((k) => k.startsWith(AUTH_ISSUER_PREFIX));
+  if (keys.length !== 1) return { kind: 'unreadable' };
+  const entry = data[keys[0]];
+  if (!entry || typeof entry !== 'object') return { kind: 'unreadable' };
+  return { kind: 'ok', entry };
+}
+
+/** What we know about who this account is, or null when nothing usable is here.
+    The key file wins (an api-key account; identity is the key's last four
+    characters, never the key). Otherwise a readable auth.x.ai sign-in is a
+    subscription account, identified by its email. */
 function identityOf(dir) {
   const got = readKey(dir);
-  if (got.kind !== 'ok' || !got.key) return null;
-  return { authMode: 'apikey', email: null, keyTail: got.key.slice(-4) };
+  if (got.kind === 'ok' && got.key) return { authMode: 'apikey', email: null, keyTail: got.key.slice(-4) };
+  const auth = readAuth(dir);
+  if (auth.kind !== 'ok') return null;
+  const email = typeof auth.entry.email === 'string' && auth.entry.email ? auth.entry.email : null;
+  return { authMode: 'subscription', email, keyTail: null };
 }
 
 function rowFor(dir, isDefault) {
   const who = identityOf(dir);
-  /* Gate on a stored key, default INCLUDED -- exactly as openaiaccounts gates its
-     default on identityOf(auth.json). A grok account (default or labelled) appears
-     here only once it has a per-account key file. The machine-global-door default
-     (no key file) is deliberately NOT listed by this subsystem; surfacing it is the
-     connect-UI / observability follow-on's job, and gating on a per-account artifact
-     keeps this module from reaching into the global env/secrets door. */
+  /* Gate on a per-account credential, default INCLUDED -- exactly as openaiaccounts
+     gates its default on identityOf(auth.json): a key file, or a subscription
+     auth.json. A default that relies only on the machine-global XAI_API_KEY door
+     (neither file) is not listed; this module never reads that door. */
   if (!who) return null;
   return {
     provider: PROVIDER,
@@ -135,7 +169,7 @@ function rowFor(dir, isDefault) {
     label: isDefault ? null : path.basename(dir).replace(new RegExp('^' + DIR_PREFIX.replace('.', '\\.')), ''),
     name: readName(dir),
     isDefault: isDefault === true,
-    email: null,
+    email: who.email,
     authMode: who.authMode,
     keyTail: who.keyTail,
   };
@@ -251,11 +285,31 @@ async function validateLive(key) {
  */
 async function checkLive(dir, _opts) {
   const got = readKey(dir);
-  if (got.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'no API key is stored for this account' };
+  if (got.kind === 'absent') return subscriptionVerdict(dir);
   if (got.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not read this account\'s stored key to check it' };
   if (!got.key) return { state: STATE.UNKNOWN, checkedLive: true, because: 'this account\'s stored key is empty' };
   const live = await validateLive(got.key);
   return { ...live, checkedLive: true };
+}
+
+/* A subscription account, judged OFFLINE from its auth.json (#3391). There is no
+   live check: grok has no `login status`, `grok models` lists models even with an
+   empty key, and refreshing a person's token from a probe is not ours to do. So a
+   sign-in grok can renew (a refresh token) or one still inside its expiry is
+   CONNECTED, which the observed overlay shows as signed_in_unverified until a real
+   grok session succeeds on it. NONE only for a sign-in that has provably lapsed. */
+function subscriptionVerdict(dir) {
+  const auth = readAuth(dir);
+  if (auth.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'no API key is stored for this account' };
+  if (auth.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not read this account\'s Grok sign-in' };
+  const e = auth.entry;
+  if (typeof e.refresh_token === 'string' && e.refresh_token) {
+    return { state: STATE.CONNECTED, checkedLive: true, because: 'signed in with your Grok subscription' };
+  }
+  const until = typeof e.expires_at === 'string' ? Date.parse(e.expires_at) : NaN;
+  if (!Number.isFinite(until)) return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not tell whether this Grok sign-in is still good' };
+  if (until > Date.now()) return { state: STATE.CONNECTED, checkedLive: true, because: 'signed in with your Grok subscription' };
+  return { state: STATE.NONE, checkedLive: true, because: 'this Grok sign-in has expired; sign in again' };
 }
 
 /* ---- add / store / forget / remove ---------------------------------------- */
@@ -287,15 +341,15 @@ function dirForLabel(label) {
 }
 
 /** The first free unlabelled work slot, the way openaiaccounts.nextWorkDir hands
-    one out. A dir that exists but holds no key file is free too (a cancelled add
-    leaves exactly that shape and must not eat a spot forever). */
+    one out. A dir that exists but holds neither a key file nor a sign-in is free too
+    (a cancelled add leaves exactly that shape and must not eat a spot forever). */
 function nextWorkDir(exclude) {
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
     const dir = path.join(homeDir(), DIR_PREFIX + label);
     if (exclude && exclude.has(dir)) continue;
     if (!fs.existsSync(dir)) return { label, dir };
-    if (!fs.existsSync(keyFile(dir))) return { label, dir };
+    if (!fs.existsSync(keyFile(dir)) && !fs.existsSync(authFile(dir))) return { label, dir };
   }
   return null;
 }
@@ -344,9 +398,9 @@ const FORGOTTEN_PREFIX = '.removed-grok-';
 
 /**
  * Forget a Grok account WITHOUT deleting the credential: rename its dir aside so it
- * stops being listed, but the key stays on the person's own computer (reversible).
- * Mirrors openaiaccounts.forgetAccount, minus the ChatGPT-reauth guard (grok has no
- * OAuth sign-in in flight to protect).
+ * stops being listed, but the key or sign-in stays on the person's own computer
+ * (reversible). Mirrors openaiaccounts.forgetAccount, including its refusal of a dir
+ * a live sign-in holds (#3391).
  *
  * `usedBy` is supplied by the caller (the route knows which agents run on the dir;
  * this module cannot ask without a cycle through create.js).
@@ -359,8 +413,8 @@ function forgetAccount(dir, usedBy) {
   /* Only ever a grok home directly inside this computer's home. Defence in depth on
      an unauthenticated local endpoint that renames directories. */
   /* 🛑 Defence in depth on a directory-renaming endpoint: the DEFAULT home (~/.grok) is the
-     machine's own CLI home, NOT a per-account artifact this subsystem manages (never credentialed
-     or listed here), so it is never ours to move. Refusing it closes the rm-your-whole-CLI-home
+     machine's own CLI home, NOT a per-account artifact this subsystem manages (listed when it holds
+     a key or a sign-in, never credentialed by this module), so it is never ours to move. Refusing it closes the rm-your-whole-CLI-home
      path a manually-placed key file could otherwise open on the remove sibling. A deliberate
      DIVERGENCE from openaiaccounts, whose default IS disconnectable/deletable (#2684) because it is
      a codex-only home Kosmos manages; grok's default is the unmanaged machine-global key door. */
@@ -369,6 +423,9 @@ function forgetAccount(dir, usedBy) {
   }
   if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
     return { ok: false, forgotten: false, because: 'that is not a Grok account on this computer' };
+  }
+  if (activeGrokDirs.has(clean)) {
+    return { ok: false, forgotten: false, because: 'a sign-in for that account is still in progress; finish or cancel it first' };
   }
   // An account is a real directory, not a symlink (see storeKey). A crafted symlink named like an
   // account is not one -- refuse it so forget never renames a path that points somewhere else.
@@ -432,6 +489,9 @@ function removeAccount(dir, usedBy) {
   if (path.dirname(clean) !== home || !base.startsWith(DIR_PREFIX)) {
     return { ok: false, removed: false, because: 'that is not a Grok account on this computer' };
   }
+  if (activeGrokDirs.has(clean)) {
+    return { ok: false, removed: false, because: 'a sign-in for that account is still in progress; finish or cancel it first' };
+  }
   // Refuse a crafted symlink (see storeKey / forgetAccount): rmSync removes the LINK not its
   // target, so it is already data-loss-safe, but a symlink is not a managed account.
   let st = null;
@@ -479,6 +539,197 @@ async function listLiveNow() {
   }));
 }
 
+/* ---- subscription sign-in (#3391) -----------------------------------------
+ *
+ * The grok mirror of openaiaccounts' ChatGPT sign-in driver (#2338): spawn
+ * `grok login --device-auth` ASYNC into a FRESH account dir (GROK_HOME), keep a
+ * session the route polls, and on a clean exit accept the dir only if it now reads
+ * back as a subscription account. Device mode only; no reauth in this slice.
+ *
+ * Measured against grok 1.0.41 (2026-09-24, in a throwaway GROK_HOME): it prints
+ *   https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH
+ * then the code again on its own line, then waits. It honours GROK_HOME, and it
+ * needs `--leader-socket` inside the account dir: without it, it would share the
+ * machine's ~/.grok/leader.sock.
+ *
+ * The session lives as long as the server process, as in openaiaccounts. */
+const grokSessions = new Map();
+let grokLoginTimeoutMs = 5 * 60 * 1000;
+let grokSessionTtlMs = 2 * 60 * 1000;
+let grokForceKillMs = 3000;
+function setGrokTimers({ timeout, ttl, forceKill } = {}) {
+  if (Number.isFinite(timeout)) grokLoginTimeoutMs = timeout;
+  if (Number.isFinite(ttl)) grokSessionTtlMs = ttl;
+  if (Number.isFinite(forceKill)) grokForceKillMs = forceKill;
+}
+// Dirs a live (non-terminal) sign-in holds; forget/remove refuse them too.
+const activeGrokDirs = new Set();
+const GROK_TERMINAL = new Set(['connected', 'error', 'cancelled']);
+function grokIsTerminal(session) { return GROK_TERMINAL.has(session.state); }
+function reapGrokSession(session) {
+  if (session.reaped) return;
+  session.reaped = true;
+  if (session.timer) { clearTimeout(session.timer); session.timer = null; }
+  const t = setTimeout(() => { grokSessions.delete(session.id); }, grokSessionTtlMs);
+  if (t && typeof t.unref === 'function') t.unref();
+}
+function armGrokForceKill(session) {
+  const t = setTimeout(() => {
+    if (session.exited) return;
+    try { session.child.kill('SIGKILL'); } catch { /* best effort */ }
+  }, grokForceKillMs);
+  if (t && typeof t.unref === 'function') t.unref();
+  session.forceKillTimer = t;
+}
+
+/* Pull the verification URL and the user code out of grok's output. The URL is the
+   first https URL; the code is the hyphenated uppercase token, searched with URLs
+   removed so the user_code inside the URL is not what we read. */
+function parseGrokLoginOutput(text) {
+  const out = {};
+  const s = String(text);
+  const url = (s.match(/https:\/\/[^\s'"<>]+/g) || [])
+    .map((u) => u.replace(/[.,;:!?)\]}'"]+$/, ''))[0];
+  if (url) out.authUrl = url;
+  const code = s.replace(/https?:\/\/[^\s'"<>]+/g, ' ').match(/\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b/);
+  if (code) out.userCode = code[0];
+  return out;
+}
+
+/* A fresh dir for a sign-in: a named one must not already hold an account or a live
+   sign-in; otherwise the first free work slot. madeDir says whether WE created it,
+   so cleanup never deletes a dir it did not make. */
+function resolveFreshGrokDir(label) {
+  let spot;
+  if (label != null && String(label).trim()) {
+    const got = dirForLabel(label);
+    if (!got.ok) return { error: got.because };
+    if (identityOf(got.dir)) return { error: 'there is already a Grok account by that name on this computer' };
+    if (activeGrokDirs.has(got.dir)) return { error: 'a sign-in for that name is already in progress' };
+    spot = { label: got.label, dir: got.dir };
+  } else {
+    spot = nextWorkDir(activeGrokDirs);
+    if (!spot) return { error: 'we could not find a free spot for another account' };
+  }
+  let st = null;
+  try { st = fs.lstatSync(spot.dir); } catch { st = null; }
+  if (st && st.isSymbolicLink()) return { error: 'we could not make a place for that account on this computer' };
+  let madeDir;
+  try { fs.mkdirSync(spot.dir); madeDir = true; }
+  catch (e) {
+    if (e && e.code === 'EEXIST') madeDir = false;
+    else return { error: 'we could not make a place for that account on this computer' };
+  }
+  return { dir: spot.dir, label: spot.label, madeDir };
+}
+
+/**
+ * Start a Grok subscription sign-in. Non-blocking; poll grokLoginStatus.
+ * @param {{label?:string, grokBin:string}} args
+ * @returns {{ok:true, sessionId:string} | {ok:false, because:string}}
+ */
+function startGrokLogin({ label, grokBin } = {}) {
+  const bin = String(grokBin || '');
+  if (!bin) return { ok: false, because: 'we could not find the Grok runner on this computer, so there is nothing to sign in to' };
+  const spot = resolveFreshGrokDir(label);
+  if (spot.error) return { ok: false, because: spot.error };
+  activeGrokDirs.add(spot.dir);
+  /* XAI_API_KEY REMOVED, not blanked: an empty value still reads as set to grok. */
+  const env = { ...process.env, GROK_HOME: spot.dir };
+  delete env.XAI_API_KEY;
+  const args = ['login', '--device-auth', '--leader-socket', path.join(spot.dir, 'leader-kosmos.sock')];
+  let child;
+  try {
+    child = spawn(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    activeGrokDirs.delete(spot.dir);
+    if (spot.madeDir) { try { fs.rmSync(spot.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+    return { ok: false, because: 'we could not start the Grok sign-in' };
+  }
+  const sessionId = crypto.randomBytes(16).toString('hex');
+  const session = { id: sessionId, child, dir: spot.dir, label: spot.label || null, typedLabel: label, madeDir: spot.madeDir, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false };
+  grokSessions.set(sessionId, session);
+  /* Anti-litter a sign-in that did not land an account: a dir we made goes whole; a
+     reused slot loses only the auth.json grok may have written. A landed account stays. */
+  const dropDirIfOurs = () => {
+    if (session.account) return;
+    if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+    else { try { fs.rmSync(authFile(session.dir), { force: true }); } catch { /* best effort */ } }
+  };
+  // Call only once the child is confirmed gone. Idempotent.
+  const freeSlotAndDir = () => { activeGrokDirs.delete(session.dir); dropDirIfOurs(); };
+  const onData = (d) => {
+    session.buf += String(d);
+    const parsed = parseGrokLoginOutput(session.buf);
+    if (parsed.authUrl && !session.authUrl) session.authUrl = parsed.authUrl;
+    if (parsed.userCode && !session.userCode) session.userCode = parsed.userCode;
+    if (session.state === 'starting' && session.userCode) session.state = 'awaiting-code';
+  };
+  if (child.stdout) child.stdout.on('data', onData);
+  if (child.stderr) child.stderr.on('data', onData);
+  child.on('error', () => {
+    if (grokIsTerminal(session)) return;
+    session.state = 'error';
+    session.error = 'the Grok sign-in process failed to run';
+    freeSlotAndDir();
+    reapGrokSession(session);
+  });
+  child.on('exit', (code) => {
+    session.exited = true;
+    if (session.forceKillTimer) { clearTimeout(session.forceKillTimer); session.forceKillTimer = null; }
+    if (grokIsTerminal(session)) { freeSlotAndDir(); return; }
+    if (code === 0) {
+      const who = identityOf(session.dir);
+      if (who && who.authMode === 'subscription') {
+        if (session.typedLabel != null && String(session.typedLabel).trim()) writeName(session.dir, session.typedLabel);
+        const row = rowFor(session.dir, false);
+        if (row) {
+          session.state = 'connected';
+          session.account = row;
+          freeSlotAndDir();
+          reapGrokSession(session);
+          return;
+        }
+      }
+      session.error = 'the Grok sign-in finished but we could not read it back';
+    } else {
+      session.error = 'the Grok sign-in did not complete';
+    }
+    session.state = 'error';
+    freeSlotAndDir();
+    reapGrokSession(session);
+  });
+  session.timer = setTimeout(() => {
+    if (grokIsTerminal(session)) return;
+    try { session.child.kill(); } catch { /* best effort */ }
+    armGrokForceKill(session);
+    session.state = 'error';
+    session.error = 'the Grok sign-in timed out';
+    reapGrokSession(session);
+  }, grokLoginTimeoutMs);
+  if (session.timer && typeof session.timer.unref === 'function') session.timer.unref();
+  return { ok: true, sessionId };
+}
+
+/** Poll a Grok sign-in. @returns {{ok:true, state, authUrl?, userCode?, account?, error?} | {ok:false, because}} */
+function grokLoginStatus(sessionId) {
+  const s = grokSessions.get(sessionId);
+  if (!s) return { ok: false, because: 'no such sign-in in progress' };
+  return { ok: true, state: s.state, authUrl: s.authUrl, userCode: s.userCode, account: s.account, error: s.error };
+}
+
+/** Cancel a PENDING Grok sign-in; the exit handler frees the slot once the child is gone. */
+function cancelGrokLogin(sessionId) {
+  const s = grokSessions.get(sessionId);
+  if (!s) return { ok: false, because: 'no such sign-in in progress' };
+  if (grokIsTerminal(s)) return { ok: true, cancelled: false };
+  s.state = 'cancelled';
+  try { s.child.kill(); } catch { /* best effort */ }
+  armGrokForceKill(s);
+  reapGrokSession(s);
+  return { ok: true, cancelled: true };
+}
+
 /* One shared sweep for concurrent callers (the #1618 collapse openaiaccounts uses):
    the slot holds the promise only while unsettled, so no answer outlives the moment
    it was true. Not a cache. */
@@ -490,6 +741,7 @@ module.exports = {
   setFetcher, askModels, validateLive, checkLive, listLive,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
+  authFile, readAuth, parseGrokLoginOutput, startGrokLogin, grokLoginStatus, cancelGrokLogin, setGrokTimers,
   readName, writeName,
   get HOME_FOR_TEST() { return homeDir(); },
 };

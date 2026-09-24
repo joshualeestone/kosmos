@@ -653,10 +653,37 @@ if [ -z "$adopt" ]; then
       [ -n "$_xkey" ] && PANE_ENV+=(-e "XAI_API_KEY=$_xkey")
       unset _xkey
     fi
+    # #3391: a per-account SUBSCRIPTION agent (auth.json, no key file) must reach grok
+    # with NO XAI_API_KEY at all, or grok uses the key instead of the sign-in. An EMPTY
+    # value still counts as set to grok (measured), so the variable is REMOVED: every
+    # `-e XAI_API_KEY=...` pair the secrets/env door added is dropped from PANE_ENV, and
+    # the pane runs grok through `env -u XAI_API_KEY` so a server-global value cannot
+    # reach it either. A key-file account and the default account are unchanged.
+    _GROK_PREFIX=()
+    if [ -n "${GROK_HOME:-}" ] && [ ! -s "${GROK_HOME}/.kosmos-grok-apikey" ] && [ -f "${GROK_HOME}/auth.json" ]; then
+      _kept=()
+      _i=0
+      _n=${#PANE_ENV[@]}
+      while [ "$_i" -lt "$_n" ]; do
+        if [ "${PANE_ENV[$_i]}" = "-e" ] && [ $((_i + 1)) -lt "$_n" ]; then
+          case "${PANE_ENV[$((_i + 1))]}" in
+            XAI_API_KEY=*) ;;
+            *) _kept+=(-e "${PANE_ENV[$((_i + 1))]}") ;;
+          esac
+          _i=$((_i + 2))
+        else
+          _kept+=("${PANE_ENV[$_i]}")
+          _i=$((_i + 1))
+        fi
+      done
+      PANE_ENV=(${_kept[@]+"${_kept[@]}"})
+      unset _kept _i _n
+      _GROK_PREFIX=(env -u XAI_API_KEY)
+    fi
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
-      "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
+      ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs

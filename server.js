@@ -7031,9 +7031,9 @@ const server = http.createServer((req, res) => {
         });
         /* #3391 observability follow-on: the XAI/Grok observed-overlay, the identical sibling
            of the GOOGLE overlay above (positive-only, per-provider filter, per-account join,
-           newest-wins, additive-only). Same documented default-account boundary as gemini:
-           grokAccounts.listLive() emits only NAMED accounts in this slice, so a default-account
-           grok agent's observation is harmlessly orphaned and forward-compatible. */
+           newest-wins, additive-only). grokAccounts.listLive() lists the default ~/.grok only
+           when it holds a key file or a subscription sign-in (#3391); without either there is no
+           default row, and a default-account grok agent's observation has nothing to land on. */
         const obsByGrokDir = new Map();
         for (const o of observed.all()) {
           if (o.provider !== observed.PROVIDER.XAI) continue;
@@ -7236,6 +7236,51 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/accounts/grok' && req.method === 'DELETE') {
     handleApikeyAccountDelete(req, res, { mod: grokAccounts, runner: 'grok' });
+    return;
+  }
+  /* #3391: connect a Grok account with a SUBSCRIPTION (device sign-in, no key). The
+     grok mirror of /api/accounts/openai/subscription/*: `start` spawns `grok login
+     --device-auth` into a fresh account dir and returns a session; the screen polls
+     `status` for the URL, the code and the outcome; `cancel` ends a pending one. */
+  if (pathname === '/api/accounts/grok/subscription/start' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (body != null && typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        body = body || {};
+        const resolved = runners.resolveBin('grok');
+        if (!resolved.present) {
+          sendJson(res, 400, { error: 'we could not find the Grok runner on this computer, so there is nothing to sign in to', needsRunner: true, provider: 'grok' });
+          return;
+        }
+        const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin });
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        // The URL and code are printed by grok AFTER this returns; read them from status.
+        sendJson(res, 200, { sessionId: out.sessionId });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/accounts/grok/subscription/status' && req.method === 'GET') {
+    let sessionId = '';
+    try { sessionId = new URL(req.url, ROUTING_BASE).searchParams.get('sessionId') || ''; } catch { sessionId = ''; }
+    const out = grokAccounts.grokLoginStatus(sessionId);
+    if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+    sendJson(res, 200, { state: out.state, authUrl: out.authUrl, userCode: out.userCode, account: out.account, error: out.error });
+    return;
+  }
+  if (pathname === '/api/accounts/grok/subscription/cancel' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const sessionId = body && typeof body === 'object' ? String(body.sessionId || '') : '';
+        const out = grokAccounts.cancelGrokLogin(sessionId);
+        if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+        sendJson(res, 200, { cancelled: out.cancelled });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
