@@ -46247,6 +46247,13 @@ async function pjAnswerFrom(sessionName, displayName) {
    * here means the agent left between the paint and the click.
    */
   if (!CURRENT || CURRENT.sessionName !== sessionName) {
+    /* #3557: openDetail did not open this agent, so no paint will ever observe
+       the intent set above -- disarm it. Left armed, it would dangle (the window
+       never starts, and CURRENT never becomes this session, so neither drop path
+       in the paint fires) and could auto-focus the composer on a LATER direct
+       reopen of this same agent the user did not press answer from. */
+    ANSWER_WANTS_FOCUS = null;
+    ANSWER_WANTS_FOCUS_AT = 0;
     showTab('agents');
     const msg = document.getElementById('board-msg');
     if (msg) {
