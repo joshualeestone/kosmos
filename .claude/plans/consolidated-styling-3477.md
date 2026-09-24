@@ -28,11 +28,14 @@ and MEASURED:
   down (hero at y=390 of a 900px viewport).
 
 ## Decision (implemented, consolidated-scoped only, spacing only)
-Two rules under `html[data-layout="consolidated"] body.consolidated #s-sec-plus`:
+Two rules under `html[data-layout="consolidated"] body.consolidated #plus-state1` (scoped to
+`#plus-state1`, the HOME/marketing state that holds the top sign-in row and the wordmark - NOT
+the broader `#s-sec-plus`, so the state-2 sign-in-wizard "Not now" row, which is also a
+`.plus-topbar`, is not matched):
 1. `.plus-topbar { margin-top: var(--space-5); }` - lifts the sign-in row off the header rule.
 2. `#plus-mark { width: min(420px, 70%); margin: 2px 0 4px; }` - trims the wordmark footprint
-   so the content reads higher. The tab view keeps the full immersive wordmark (unscoped rule
-   at ~line 8198 is unchanged).
+   so the content reads higher. The tab view keeps the full immersive wordmark (the base
+   `#plus-mark` rule elsewhere in the file is unchanged).
 
 Verified by re-measuring after the change (CSS injected onto the live board): sign-in gap
 0 -> 27px (clears the rule); wordmark 262 -> 210px; hero top 390 -> 365 (content moved up),
