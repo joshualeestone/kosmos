@@ -124,7 +124,15 @@ const DELIVERY = {
  * refused, so the person's paragraph arrives as a paragraph-shaped sentence
  * rather than an error.
  */
-const MAX_TEXT = 2000;
+// #3403: 8000, not 2000. Josh hit the old 2000 cap writing a message to an agent and was cut
+// off mid-message with no warning; 2000 chars is short for actually instructing an agent. This is
+// a PRODUCT choice, not a transport limit: the #3419 paste transport (pasteWire) delivers the body
+// in 256B (PASTE_CHUNK_BYTES) sub-threshold chunks with a size-adaptive wait, so a longer body is
+// delivered without the busy-pane head-truncation a single send-keys burst had -- the chunking
+// already scales to any size. The UI maxlength on the agent-message composers must stay EQUAL to
+// this (a client cap under this one silently saves less than the caller typed; kosmos#3403); the
+// soft near-limit counter warns before the cap so the cut is never silent.
+const MAX_TEXT = 8000;
 
 /**
  * Ceiling on how many of the person's messages one thread keeps.
