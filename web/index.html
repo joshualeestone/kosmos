@@ -2243,11 +2243,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #2840: the scrollable usage-history list (Mona's token-value design, ported to the
    app's --k-* tokens). A fixed-height scroll box; the header sticks. Right-aligned
    tabular numerics so magnitudes line up. */
-.usage-hist { margin: 24px 0 0; }
-.usage-hist h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 6px; }
-/* #2617: the per-agent block reads as a sibling of the history block. */
-.usage-agents { margin: 24px 0 0; }
-.usage-agents h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 6px; }
+/* #2617: the per-agent block reads as a sibling of the history block, so the
+   two share one rule rather than two copies that could drift. */
+.usage-hist, .usage-agents { margin: 24px 0 0; }
+.usage-hist h4, .usage-agents h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 6px; }
 .usage-agents .tv-mtable { margin-top: 10px; }
 /* The two non-agent labels are fixed sentences, not names, and read wrong cut
    short ("Sessions outside a..."), so they wrap instead (Mona's review of #3603).
