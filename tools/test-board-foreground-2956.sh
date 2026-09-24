@@ -89,18 +89,40 @@ rm -rf "$H"
 # second node onto the taken port. Needs a real HTTP server on the port (healthy()
 # curls it), so this uses the system node; skipped if none is available.
 NODE_BIN="$(command -v node 2>/dev/null || true)"
+
+# start_holder <http|net> <body> <host>: start a port holder on a port the OS picks
+# (listen 0) and set SRV (its pid) and HOLDER_PORT (the port it got). #3616: these
+# arms used fixed ports, and on a Mac where several agents run the suite at once the
+# holder of one run hit EADDRINUSE on another run's holder; this run's lsof/curl wait
+# then saw the OTHER run's listener, and board-run started node once that one exited.
+# HOLDER_PORT is empty when the holder did not start; the arm then fails rather than
+# asserting against a port it does not own.
+start_holder() {
+  local pf; pf="$(mktemp "${TMPDIR:-/tmp}/holder-port.XXXXXXXXXX")" || { SRV=""; HOLDER_PORT=""; return 1; }
+  "$NODE_BIN" -e 'const [kind, body, host, pf] = process.argv.slice(1);
+    const s = kind === "http" ? require("http").createServer((_, r) => r.end(body)) : require("net").createServer(() => {});
+    s.listen(0, host, () => require("fs").writeFileSync(pf, String(s.address().port)));' "$1" "$2" "$3" "$pf" &
+  SRV=$!
+  HOLDER_PORT=""
+  for _i in $(seq 1 50); do [ -s "$pf" ] && { HOLDER_PORT="$(cat "$pf")"; break; }; sleep 0.1; done
+  rm -f "$pf"
+  [ -n "$HOLDER_PORT" ]
+}
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
   H="$(new_home)"
-  PORTX=18719
-  "$NODE_BIN" -e 'require("http").createServer((_,r)=>r.end("Kosmos board")).listen('"$PORTX"',"127.0.0.1")' &
-  SRV=$!
-  for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTX/" >/dev/null 2>&1 && break; sleep 0.1; done
-  printf 'SENTINEL-4242' > "$H/board.pid"
-  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTX /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-  [ "$rc" = 0 ] && ok "foreign healthy board: board-run exits 0 (defers)" || bad "foreign healthy board: exit $rc (want 0)"
-  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-4242" ] && ok "foreign healthy board: pidfile NOT clobbered" || bad "foreign healthy board: pidfile clobbered -> $(cat "$H/board.pid" 2>/dev/null)"
-  [ ! -f "$H/.node-ran" ] && ok "foreign healthy board: node not exec'd (no doomed second bind)" || bad "foreign healthy board: node ran anyway"
+  if start_holder http "Kosmos board" 127.0.0.1; then
+    PORTX=$HOLDER_PORT
+    for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTX/" >/dev/null 2>&1 && break; sleep 0.1; done
+    printf 'SENTINEL-4242' > "$H/board.pid"
+    PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTX /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    [ "$rc" = 0 ] && ok "foreign healthy board: board-run exits 0 (defers)" || bad "foreign healthy board: exit $rc (want 0)"
+    [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-4242" ] && ok "foreign healthy board: pidfile NOT clobbered" || bad "foreign healthy board: pidfile clobbered -> $(cat "$H/board.pid" 2>/dev/null)"
+    [ ! -f "$H/.node-ran" ] && ok "foreign healthy board: node not exec'd (no doomed second bind)" || bad "foreign healthy board: node ran anyway"
+  else
+    bad "foreign healthy board: holder did not start (no port to test against)"
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  fi
   rm -rf "$H"
 else
   echo "SKIP  foreign-healthy-board case (no system node to run a stub server)"
@@ -112,16 +134,19 @@ fi
 # healthy() is false but port_taken_by_stranger is true.
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
   H="$(new_home)"
-  PORTY=18723
-  "$NODE_BIN" -e 'require("http").createServer((_,r)=>r.end("some other app")).listen('"$PORTY"',"127.0.0.1")' &
-  SRV=$!
-  for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTY/" >/dev/null 2>&1 && break; sleep 0.1; done
-  printf 'SENTINEL-7777' > "$H/board.pid"
-  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTY /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-  [ "$rc" = 0 ] && ok "stranger on port: board-run exits 0 (no doomed exec)" || bad "stranger on port: exit $rc (want 0)"
-  [ ! -f "$H/.node-ran" ] && ok "stranger on port: node not exec'd (no crash-loop)" || bad "stranger on port: node ran into EADDRINUSE"
-  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-7777" ] && ok "stranger on port: pidfile NOT clobbered" || bad "stranger on port: pidfile clobbered"
+  if start_holder http "some other app" 127.0.0.1; then
+    PORTY=$HOLDER_PORT
+    for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTY/" >/dev/null 2>&1 && break; sleep 0.1; done
+    printf 'SENTINEL-7777' > "$H/board.pid"
+    PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTY /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    [ "$rc" = 0 ] && ok "stranger on port: board-run exits 0 (no doomed exec)" || bad "stranger on port: exit $rc (want 0)"
+    [ ! -f "$H/.node-ran" ] && ok "stranger on port: node not exec'd (no crash-loop)" || bad "stranger on port: node ran into EADDRINUSE"
+    [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-7777" ] && ok "stranger on port: pidfile NOT clobbered" || bad "stranger on port: pidfile clobbered"
+  else
+    bad "stranger on port: holder did not start (no port to test against)"
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  fi
   rm -rf "$H"
 else
   echo "SKIP  stranger-on-port case (no system node)"
@@ -139,16 +164,19 @@ fi
 # calls lsof by its absolute path.
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ] && [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; then
   H="$(new_home)"
-  PORTZ=18729
-  "$NODE_BIN" -e 'require("net").createServer(function(){}).listen('"$PORTZ"',"127.0.0.1")' &
-  SRV=$!
-  for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTZ -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
-  printf 'SENTINEL-8888' > "$H/board.pid"
-  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTZ /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-  [ "$rc" = 0 ] && ok "silent holder: board-run exits 0 (defers)" || bad "silent holder: exit $rc (want 0)"
-  [ ! -f "$H/.node-ran" ] && ok "silent holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "silent holder: node ran into EADDRINUSE"
-  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-8888" ] && ok "silent holder: pidfile NOT clobbered" || bad "silent holder: pidfile clobbered"
+  if start_holder net "" 127.0.0.1; then
+    PORTZ=$HOLDER_PORT
+    for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTZ -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
+    printf 'SENTINEL-8888' > "$H/board.pid"
+    PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTZ /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    [ "$rc" = 0 ] && ok "silent holder: board-run exits 0 (defers)" || bad "silent holder: exit $rc (want 0)"
+    [ ! -f "$H/.node-ran" ] && ok "silent holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "silent holder: node ran into EADDRINUSE"
+    [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-8888" ] && ok "silent holder: pidfile NOT clobbered" || bad "silent holder: pidfile clobbered"
+  else
+    bad "silent holder: holder did not start (no port to test against)"
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  fi
   rm -rf "$H"
 else
   echo "SKIP  silent-holder case (needs system node + /usr/sbin/lsof)"
@@ -163,16 +191,19 @@ fi
 # assume across machines/CI, so it is verified manually (2026-09-13), not here.)
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ] && [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; then
   H="$(new_home)"
-  PORTW=18731
-  "$NODE_BIN" -e 'require("net").createServer(function(){}).listen('"$PORTW"',"0.0.0.0")' &
-  SRV=$!
-  for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTW -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
-  printf 'SENTINEL-9999' > "$H/board.pid"
-  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTW /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-  [ "$rc" = 0 ] && ok "all-interfaces (*) holder: board-run exits 0 (defers)" || bad "all-interfaces (*) holder: exit $rc (want 0)"
-  [ ! -f "$H/.node-ran" ] && ok "all-interfaces (*) holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "all-interfaces (*) holder: node ran into EADDRINUSE"
-  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-9999" ] && ok "all-interfaces (*) holder: pidfile NOT clobbered" || bad "all-interfaces (*) holder: pidfile clobbered"
+  if start_holder net "" 0.0.0.0; then
+    PORTW=$HOLDER_PORT
+    for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTW -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
+    printf 'SENTINEL-9999' > "$H/board.pid"
+    PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTW /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    [ "$rc" = 0 ] && ok "all-interfaces (*) holder: board-run exits 0 (defers)" || bad "all-interfaces (*) holder: exit $rc (want 0)"
+    [ ! -f "$H/.node-ran" ] && ok "all-interfaces (*) holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "all-interfaces (*) holder: node ran into EADDRINUSE"
+    [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-9999" ] && ok "all-interfaces (*) holder: pidfile NOT clobbered" || bad "all-interfaces (*) holder: pidfile clobbered"
+  else
+    bad "all-interfaces (*) holder: holder did not start (no port to test against)"
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  fi
   rm -rf "$H"
 else
   echo "SKIP  all-interfaces-holder case (needs system node + /usr/sbin/lsof)"
