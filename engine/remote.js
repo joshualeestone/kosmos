@@ -546,9 +546,10 @@ function status() {
     register` path pipes the session token in this way, so the 30-day credential
     never sits on argv); when it is null the child gets no stdin, exactly as
     before -- so every existing caller is unaffected. */
-function setupRun(args, stdin = null) {
+function setupRun(args, stdin = null, timeoutMs = 0) {
   return new Promise((resolve) => {
     let spawned;
+    let timer = null;
     try {
       spawned = spawn(BIN(), args, { stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     } catch (err) {
@@ -568,7 +569,15 @@ function setupRun(args, stdin = null) {
       spawned.stdin.on('error', () => {});
       try { spawned.stdin.end(String(stdin)); } catch { /* the exit handler reports the real outcome */ }
     }
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try { spawned.kill('SIGKILL'); } catch { /* already gone */ }
+        resolve({ ok: false, because: 'the tunnel program did not answer in time', timedOut: true });
+      }, timeoutMs);
+      if (typeof timer.unref === 'function') timer.unref();
+    }
     spawned.on('exit', (code) => {
+      if (timer) clearTimeout(timer);
       if (code === 0) { resolve({ ok: true, because: null, said: out.trim() }); return; }
       const lines = (errOut.trim() || out.trim()).split('\n').filter(Boolean);
       resolve({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')') });
@@ -581,11 +590,14 @@ function setupRun(args, stdin = null) {
     A POST body goes on stdin, never argv. Resolves to
     { ok: true, data } with the coordinator's parsed JSON, or
     { ok: false, because }. */
+const MAC_REQUEST_TIMEOUT_MS = 20 * 1000;
 async function macRequest(method, routePath, body) {
   if (!enrolled()) return { ok: false, because: 'this computer is not connected to Kosmos+' };
   const args = ['mac-request', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(),
     '--method', method, '--path', routePath];
-  const r = await setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}));
+  // AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS is a test seam (a hung tunnel in a test).
+  const timeout = Number(process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS) || MAC_REQUEST_TIMEOUT_MS;
+  const r = await setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout);
   if (!r.ok) return { ok: false, because: r.because };
   try { return { ok: true, data: JSON.parse(r.said) }; }
   catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }

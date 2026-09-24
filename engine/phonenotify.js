@@ -107,7 +107,9 @@ async function doTurnOn() {
     if (/unrecognized subcommand|mac-request/.test(String(minted.because || ''))) {
       return { ok: false, because: 'Kosmos on this computer needs an update before phone notifications can be turned on' };
     }
-    return { ok: false, because: 'Kosmos+ did not answer: ' + minted.because };
+    // The raw reason goes to the board's log; the person gets a sentence.
+    process.stderr.write('phonenotify: turning on failed: ' + String(minted.because || '') + '\n');
+    return { ok: false, because: 'Kosmos+ could not be reached just now. Try again in a minute.' };
   }
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
   if (!TOKEN_SHAPE.test(token)) return { ok: false, because: 'Kosmos+ answered in a shape we could not use' };
@@ -115,8 +117,10 @@ async function doTurnOn() {
 }
 
 /** Turn them off. Nothing is sent while off. The token is kept on disk (it can
-    only send events), and turning on again mints a new one anyway. */
-function turnOff() {
+    only send events), and turning on again mints a new one anyway. Waits for a
+    turn-on in flight, so that turn-on cannot save `on` over this. */
+async function turnOff() {
+  if (turningOn) { try { await turningOn; } catch { /* its outcome does not matter here */ } }
   const s = readState();
   return writeState({ on: false, notifyId: s.notifyId, token: s.token });
 }
@@ -160,9 +164,18 @@ function defaultSend(url, headers, body) {
   const req = (u.protocol === 'http:' ? http : https).request(
     { method: 'POST', hostname: u.hostname, port: u.port || undefined, path: u.pathname,
       headers: { ...headers, 'content-length': Buffer.byteLength(body) }, timeout: TIMEOUT_MS, agent: false },
-    (res) => { res.resume(); },
+    (res) => {
+      // A refused send stops notifications with no other symptom, so say so in
+      // the board's log (never the token or the payload).
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        process.stderr.write('phonenotify: Kosmos+ answered ' + res.statusCode + ' to a notification\n');
+      }
+      res.resume();
+    },
   );
-  req.on('error', () => {});
+  req.on('error', (err) => {
+    process.stderr.write('phonenotify: could not reach Kosmos+: ' + ((err && err.code) || 'error') + '\n');
+  });
   req.on('timeout', () => { try { req.destroy(); } catch { /* gone */ } });
   req.end(body);
 }
@@ -181,6 +194,9 @@ function happened(event) {
       const now = clock();
       const last = lastNeedsYou.get(key);
       if (last !== undefined && now - last < NEEDS_YOU_COOLDOWN_MS) return;
+      if (lastNeedsYou.size > 500) {
+        for (const [k, t] of lastNeedsYou) if (now - t >= NEEDS_YOU_COOLDOWN_MS) lastNeedsYou.delete(k);
+      }
       lastNeedsYou.set(key, now);
     }
     const url = coordinatorUrl(NOTIFY_ROUTE);
