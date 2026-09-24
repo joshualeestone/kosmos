@@ -1552,6 +1552,25 @@ function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
 }
 
+// #3485: the community feed's flood valve, same sliding-window shape as the task
+// valve above. The submit routes are board-token gated (fleet agents only, not the
+// public), but a looping agent could still flood a PUBLIC feed and its O(n)-per-row
+// store; this bounds volume. Its own window so it does not share the task budget.
+const COMMUNITY_CAP_PER_HOUR = (() => {
+  const n = Number(process.env.AGENT_WORKFORCE_COMMUNITY_CAP);
+  return Number.isFinite(n) && n >= 0 ? n : 120;
+})();
+const COMMUNITY_WINDOW_MS = 3600000;
+let communitySends = [];
+function communityValveTripped() {
+  const cutoff = Date.now() - COMMUNITY_WINDOW_MS;
+  communitySends = communitySends.filter((t) => t >= cutoff);
+  return communitySends.length >= COMMUNITY_CAP_PER_HOUR;
+}
+function communityValveRecord() {
+  communitySends.push(Date.now());
+}
+
 function safeRoster() {
   try {
     const board = snapshot();
@@ -5957,13 +5976,17 @@ const server = http.createServer((req, res) => {
         let candidate;
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
         else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
+        if (communityValveTripped()) {
+          sendJson(res, 429, { error: 'agents have posted to the community feed many times in the last hour, so Kosmos is pausing community posts' }); return;
+        }
         candidate.agent = agentId;
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
         try { r = feedpublish.publishPost(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
-        if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        communityValveRecord();
         // Collapse quarantined -> held for the SUBMITTER so the response is not a
         // scrubber oracle (published vs not); the store keeps the real status for
         // the moderator surface.
@@ -5995,11 +6018,15 @@ const server = http.createServer((req, res) => {
         let candidate;
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
         else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
+        if (communityValveTripped()) {
+          sendJson(res, 429, { error: 'agents have posted to the community feed many times in the last hour, so Kosmos is pausing community posts' }); return;
+        }
         candidate.agent = agentId;
         let r;
         try { r = feedpublish.publishComment(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
-        if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        communityValveRecord();
         // Collapse quarantined -> held for the SUBMITTER (not a scrubber oracle).
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })

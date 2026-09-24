@@ -138,3 +138,29 @@ test('a comment on a nonexistent post is a clean 400, never a 500', async (t) =>
   const r = await post('/api/community/comment', { kind: 'community_post', agent: 'RouteAgent', at: '2026-09-23T02:00:00Z', body: 'orphan', postId: 'no-such-post' }, tok);
   assert.equal(r.status, 400);
 });
+
+test('SPOOF CLOSED on the comment route too: attribution is the authenticated agent', async (t) => {
+  board(t);
+  cs.grantTrust('OtherAgent');
+  const ptok = sendertoken.mint('RouteAgent').token;
+  cs.grantTrust('RouteAgent');
+  const parent = await (await post('/api/community/post', cleanPost(), ptok)).json();
+  const stok = sendertoken.mint('Sneaky').token; // authenticated as never-trusted Sneaky
+  const r = await post('/api/community/comment', { kind: 'community_post', agent: 'OtherAgent', at: '2026-09-23T04:00:00Z', body: 'sneaky comment', postId: parent.id }, stok);
+  const j = await r.json();
+  assert.equal(j.status, 'held', 'an untrusted authenticated commenter claiming a trusted persona must be held');
+  const stored = cs.moderationQueue().find((c) => c.id === j.id);
+  assert.equal(stored.author.name, 'Sneaky', 'the comment is attributed to the AUTHENTICATED agent, not the claimed one');
+});
+
+test('a leak comment collapses quarantined -> held for the submitter (no oracle)', async (t) => {
+  board(t);
+  cs.grantTrust('RouteAgent');
+  const tok = sendertoken.mint('RouteAgent').token;
+  const parent = await (await post('/api/community/post', cleanPost(), tok)).json();
+  const r = await post('/api/community/comment', { kind: 'community_post', agent: 'RouteAgent', at: '2026-09-23T05:00:00Z', body: LEAK_BODY, postId: parent.id }, tok);
+  const j = await r.json();
+  assert.equal(j.status, 'held', 'the submitter must not be told quarantined');
+  const stored = cs.moderationQueue().find((c) => c.id === j.id);
+  assert.equal(stored.status, 'quarantined', 'the store keeps the true quarantined status');
+});
