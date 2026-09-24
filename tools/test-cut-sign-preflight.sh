@@ -92,8 +92,14 @@ else
   bad "identity drift: preflight probes [$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID], the shared default is [$KOSMOS_SIGN_APP_DEFAULT]"
 fi
 # And no other shell script names the team: one place, or a partial switch ships two teams (#3643).
-_team_hits="$(grep -rlE "$KOSMOS_SIGN_TEAM_ID|Stone Syndicate LLC" "$REPO/tools" --include='*.sh' | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/tools/test-' || true)"
-[ -z "$_team_hits" ] && ok "only lib/signing-identity.sh names the signing team" || bad "the signing team is named outside lib/signing-identity.sh: $_team_hits"
+_team_pat="$KOSMOS_SIGN_TEAM_ID|$KOSMOS_SIGN_TEAM_NAME|$KOSMOS_NOTARY_KEY_ID_DEFAULT|$KOSMOS_NOTARY_ISSUER_DEFAULT"
+_team_all="$(grep -rlE "$_team_pat" "$REPO/tools" --include='*.sh')"
+if ! printf '%s\n' "$_team_all" | grep -q '/tools/lib/signing-identity.sh$'; then
+  bad "CONTROL: the team sweep did not even find lib/signing-identity.sh, so it cannot see anything"
+else
+  _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/tools/test-' || true)"
+  [ -z "$_team_hits" ] && ok "only lib/signing-identity.sh names the signing team or its notary key" || bad "the signing team or notary key is named outside lib/signing-identity.sh: $_team_hits"
+fi
 # And KOSMOS_CODESIGN_ID reaches the probe, as it reaches step 4.
 KOSMOS_CODESIGN_ID="Some Other Identity" KOSMOS_CODESIGN_BIN=cs_args kosmos_sign_preflight >/dev/null 2>&1
 grep -qx 'Some Other Identity' "$WORK/cs-args.argv" 2>/dev/null \

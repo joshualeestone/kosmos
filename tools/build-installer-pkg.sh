@@ -127,7 +127,7 @@ productsign --sign "$INSTALLER_CERT" "$UNSIGNED" "$PKG"
 rm -f "$UNSIGNED"
 
 echo "==> notarytool submit --wait"
-NOTARY_KEY="$("$HOME/.claude/scripts/secrets-map.sh" path kosmos-notarize)"
+NOTARY_KEY="$("$HOME/.claude/scripts/secrets-map.sh" path "$KOSMOS_NOTARY_SECRET_TARGET")"
 xcrun notarytool submit "$PKG" \
   --key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" \
   --wait

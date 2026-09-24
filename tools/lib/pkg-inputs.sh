@@ -13,7 +13,7 @@
 # pkg's inputs against what the CURRENT source would build.
 #
 # The input identity is the sha256 of everything the build consumes that
-# decides the pkg's BEHAVIOUR, and since #665 that is three paths, not one:
+# decides the pkg's BEHAVIOUR (and, since #3643, who signs it): four paths.
 #   install/pkg-scripts/**        the postinstall (what runs)
 #   install/pkg-resources/**      the Welcome and Conclusion screens (what the
 #                                 person is told; #662/#663 live here)
@@ -100,8 +100,8 @@ _pkg_stream_file() {
 _pkg_stream_dir() {
   find . -name '.?*' -prune -o -type f -print | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
 }
-# The first input that cannot be hashed as it is, among the two dirs and the
-# build script, or nothing. NUL-delimited so a name with a space is one name.
+# The first input that cannot be hashed as it is, among the two dirs, the build
+# script and (optional fourth) the signing identity, or nothing. NUL-delimited so a name with a space is one name.
 # Three shapes, because "all inputs or nothing" has to hold for each:
 #   a file that is not readable        cat would hash it as absent
 #   a directory that is not searchable find cannot enter it, its contents
