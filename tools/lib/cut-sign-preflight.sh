@@ -36,13 +36,14 @@ kosmos_sign_preflight_installer_and_notary() {
   local sec="${KOSMOS_SECURITY_BIN:-security}" sm="${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}"
   local ids key err src krc fail=0
   # Both are checked before refusing, so a box missing both is told about both at once.
-  # A seam left exported in an operator's shell reads "not probed" and is not refused,
+  # A seam left exported in an operator's shell reads "not probed" (keyed on the basename,
+  # as the codesign seam is) and is not refused,
   # like KOSMOS_CODESIGN_BIN before it: the wording is the only guard.
   err="$(mktemp "${TMPDIR:-/tmp}/kosmos-sign-preflight-err.XXXXXX")" || err=/dev/null
   src=0; ids="$("$sec" find-identity -v 2>"$err")" || src=$?
   case "$src:$ids" in
     0:*"$inst"*)
-      if [ -n "${KOSMOS_SECURITY_BIN:-}" ]; then echo "signing preflight: Installer identity PASSED THROUGH KOSMOS_SECURITY_BIN=$sec, NOT security: not probed. Unset it for a real cut."
+      if [ "${sec##*/}" != security ]; then echo "signing preflight: Installer identity PASSED THROUGH KOSMOS_SECURITY_BIN=$sec, NOT security: not probed. Unset it for a real cut."
       else echo "signing preflight: the Installer identity \"$inst\" is in this session's keychains"; fi ;;
     *) if [ "$src" != 0 ]; then echo "signing preflight: '$sec find-identity -v' FAILED (rc=$src), so the Developer ID Installer identity \"$inst\" could not be checked. Step 3c signs the installer with it whenever the pkg's inputs changed."
        else echo "signing preflight: the Developer ID Installer identity \"$inst\" is NOT in this session's keychains (as a valid identity). Step 3c signs the installer with it whenever the pkg's inputs changed. Cut on the Mac that holds it (Mortals), or set KOSMOS_INSTALLER_CERT."; fi
@@ -52,7 +53,7 @@ kosmos_sign_preflight_installer_and_notary() {
   [ "$err" = /dev/null ] || : > "$err"
   krc=0; key="$("$sm" path "$KOSMOS_NOTARY_SECRET_TARGET" 2>"$err")" || krc=$?
   if [ -n "$key" ] && [ -f "$key" ] && [ -r "$key" ]; then
-    if [ -n "${KOSMOS_SECRETS_MAP_BIN:-}" ]; then echo "signing preflight: notary key PASSED THROUGH KOSMOS_SECRETS_MAP_BIN=$sm, NOT secrets-map.sh: not probed. Unset it for a real cut."
+    if [ "${sm##*/}" != secrets-map.sh ]; then echo "signing preflight: notary key PASSED THROUGH KOSMOS_SECRETS_MAP_BIN=$sm, NOT secrets-map.sh: not probed. Unset it for a real cut."
     else echo "signing preflight: the notary key ($KOSMOS_NOTARY_SECRET_TARGET) resolves to a readable file"; fi
   else
     echo "signing preflight: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm on this machine (rc=$krc, got '${key:-nothing}'). Step 3c notarises the installer with it. File it with /add-secret, or cut on Mortals."

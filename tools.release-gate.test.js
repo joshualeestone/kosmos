@@ -49,6 +49,7 @@ const { spawnSync } = require('node:child_process');
 const SIGN_STUBS = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-signstubs-'));
 const SANDBOX_INSTALLER_ID = 'Developer ID Installer: kosmos release-gate sandbox';
 fs.writeFileSync(path.join(SIGN_STUBS, 'notary.p8'), 'not a key\n');
+test.after(() => fs.rmSync(SIGN_STUBS, { recursive: true, force: true }));
 fs.writeFileSync(path.join(SIGN_STUBS, 'security'),
   `#!/bin/sh\nprintf '  1) 0000000000 "%s"\\n' '${SANDBOX_INSTALLER_ID}'\n`, { mode: 0o755 });
 fs.writeFileSync(path.join(SIGN_STUBS, 'secrets-map'),

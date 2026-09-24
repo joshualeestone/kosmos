@@ -41,5 +41,5 @@ listed identity (a truncated SHA-1, say) passes 1c. Kept on purpose: an exact ma
 That a present Installer identity is usable whenever the Application one just signed (same keychain,
 same unlock). A separately locked or partitioned Installer key would still fail at 3c.
 
-Branched from signing-identity-3643 (it needs KOSMOS_SIGN_INSTALLER_DEFAULT and
-KOSMOS_NOTARY_SECRET_TARGET); rebase onto main once #3652 merges.
+Built on signing-identity-3643 (it needs KOSMOS_SIGN_INSTALLER_DEFAULT and
+KOSMOS_NOTARY_SECRET_TARGET); rebased onto main after #3652 merged (58443893).

@@ -183,4 +183,4 @@ out="$(KOSMOS_SECURITY_BIN=sec_listfail run cs_ok)"; rc=$?
 case "$rc:$out" in 1:*"FAILED (rc=1)"*"partial enumeration"*) ok "#3647: a security command that lists the identity but exits non-zero refuses" ;; *) bad "#3647: a non-zero security exit passed on a listed identity (rc=$rc): $out" ;; esac
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 38 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 42 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
