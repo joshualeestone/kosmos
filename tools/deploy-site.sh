@@ -527,7 +527,7 @@ read_served_win_pointer() {  # <pointer file under dist> <redacted redirect targ
 # the committed one). About 40 MB, about a second.
 check_win_sidecar_and_bytes() {  # <zip name> <sha the pointer advertises> <pointer file> <card tag> <who is refused>
   _cwsc=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1.sha256") || { echo "deploy-site: could not re-read the served $1.sha256 -- the deploy already ran, investigate ($4)."; exit 1; }
-  _cwsc=$(printf '%s' "$_cwsc" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]')
+  _cwsc=$(printf '%s' "$_cwsc" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]' | tr -cd '[:print:]')   # R2 content: printable only
   _cwwant=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
   [ "$_cwsc" = "$_cwwant" ] || { echo "deploy-site: the served $3 advertises sha $2 for $1 but its served .sha256 says '${_cwsc:-nothing}' -- $5 would refuse it. The deploy already ran; investigate the R2 publish ($4)."; exit 1; }
   _cwgot=$(served_sha256 "$1" 300) || { echo "deploy-site: could not fetch the served $1 to hash it -- the deploy already ran, investigate ($4)."; exit 1; }
@@ -612,7 +612,7 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   # (re-run once before investigating R2, as for the pointers above).
   _war=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip.sha256" 2>/dev/null) || _war=''
   _was=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/kosmos-win-x64.zip.sha256") || { echo "deploy-site: could not re-read the served kosmos-win-x64.zip.sha256 -- the deploy already ran, investigate (#3610)."; exit 1; }
-  _was=$(printf '%s' "$_was" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]')
+  _was=$(printf '%s' "$_was" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]' | tr -cd '[:print:]')   # R2/site content: printable only
   case "${_war%% *}" in
     301|302|303|307|308)
       [ "$_was" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip.sha256 says '${_was:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA for the same build -- a broken alias checksum on R2. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }

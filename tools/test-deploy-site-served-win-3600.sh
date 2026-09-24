@@ -81,6 +81,7 @@
 #   A43 the alias .sha256 probe answers 500 while it disagrees -> rc 0, a BUT line, no site claim
 #   A44 no committed staging pointer and its route 404s -> nothing staged: no BUT line, rc 0
 #   A45 no committed staging pointer and its probe answers 500 -> a BUT line that it was not verified
+#   A46 a COMMITTED staging pointer whose route 404s -> refused by the strict served-verify
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -328,6 +329,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
       fi
       [ "$mode" = redirect-aliaszipprobefail ] && printf '%s\n' 'dist/kosmos-win-x64.zip' > "$live/.probe-fail-paths"
       [ "$mode" = redirect-aliassha500 ] && printf '%s\n' 'dist/kosmos-win-x64.zip.sha256 500' > "$live/.probe-codes"
+      [ "$mode" = redirect-staged404-committed ] && printf '%s\n' 'dist/latest-win-staging.json 404' > "$live/.probe-codes" && printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
       [ "$mode" = redirect-staged404 ] && printf '%s\n' 'dist/latest-win-staging.json 404' > "$live/.probe-codes"
       [ "$mode" = redirect-staged500 ] && printf '%s\n' 'dist/latest-win-staging.json 500' > "$live/.probe-codes"
       [ "$mode" = redirect-aliasprobefail ] && printf '%s\n' 'dist/kosmos-win-x64.zip.sha256' > "$live/.probe-fail-paths"
@@ -800,5 +802,14 @@ else
   bad "A45: a 500 staging probe with nothing committed was not reported (rc=$RC); out=$out"
 fi
 
+# A46) a committed staging pointer that is not served (404) is a real drop: refuse.
+read -r S L R <<<"$(make_scenario redirect-staged404-committed old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "latest-win-staging.json failed served-verify"; then
+  pass "A46: a committed staging pointer whose route 404s is refused (rc=$RC)"
+else
+  bad "A46: a 404ing committed staging pointer was not refused (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 45 arms passed"
+echo "test-deploy-site-served-win-3600: all 46 arms passed"
