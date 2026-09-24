@@ -7,11 +7,18 @@ import UserNotifications
 // thin forwarder.
 final class PushNotificationManager: NSObject, ObservableObject {
 
+    // One tap's request to open a board. Each tap gets its own id, so a second tap
+    // on the same Mac is a new request rather than an unchanged value.
+    struct BoardRequest: Equatable {
+        let id = UUID()
+        let url: URL
+    }
+
     // A board a tapped notification asked to open, waiting for the WebView to load
     // it. Held here rather than loaded directly because a tap can arrive before
     // the WebView exists (a cold launch from the notification, or the biometric
     // lock still showing); the WebView loads it and clears it when it can.
-    @Published var boardToOpen: URL?
+    @Published var boardToOpen: BoardRequest?
 
     // The one notification category the board uses today: an agent asking the
     // user to approve or deny a permission prompt. Additional categories (e.g.
@@ -193,7 +200,8 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
                 coordinator: KosmosConfig.coordinatorOrigin
             )
             if let target = target {
-                DispatchQueue.main.async { self.boardToOpen = target }
+                NSLog("[Push] tapped notification opens \(target.host ?? "?")")
+                DispatchQueue.main.async { self.boardToOpen = BoardRequest(url: target) }
             } else {
                 NSLog("[Push] tapped notification had no usable address; staying put")
             }
