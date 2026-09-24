@@ -127,3 +127,13 @@ test('an unreadable setting disables the control and says so', async () => {
   assert.equal(h.btn.disabled, true);
   assert.match(h.msg.textContent, /could not be read/);
 });
+
+test('on but no longer connected: says nothing is sent, and can still be turned off', async () => {
+  const h = load({ state: { on: true, connected: false } });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(h.btn.disabled, false);
+  assert.equal(h.btn.textContent, 'Turn off');
+  assert.match(h.msg.textContent, /not connected to Kosmos\+, so nothing is sent/);
+  await h.win.kosmosPhoneNotifyToggle();
+  assert.deepEqual(h.calls.fetch.find((c) => c.method === 'PUT').body, { on: false });
+});
