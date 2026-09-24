@@ -202,7 +202,13 @@ function nextPartId(parts) {
    restart does not open the valve. The SCREEN is never valved. */
 const PARTS_PER_HOUR = 12;
 const HOUR_MS = 3600000;
-function viaOf(made) { return made && made.via === 'process' ? 'process' : 'screen'; }
+/* #3595: 'assigner' is the Kosmos Assigner's own write. It is its own provenance so the process
+   parts valve (which counts 'process' only) never charges agents for it, nor blames them for it. */
+function viaOf(made) {
+  if (made && made.via === 'process') return 'process';
+  if (made && made.via === 'assigner') return 'assigner';
+  return 'screen';
+}
 
 /** Every process-originated part write in the last hour, across all
  * projects: parts added, and parts moved to somebody. Answers the count and
@@ -299,6 +305,9 @@ function assignPart(projectId, n, partId, who, made) {
   // `changed` (the merged task record it returns) -- same word, unrelated
   // meaning, easy to conflate on a re-read.
   let moved = false;
+  // #3595: `made.onlyIfFree` refuses, inside the same write, a part somebody is already on, so a
+  // caller that chose the part from an earlier read never moves it off a person who took it since.
+  let taken = false;
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
@@ -312,6 +321,7 @@ function assignPart(projectId, n, partId, who, made) {
     return parts.map((x) => {
       if (Number(x.id) !== Number(partId)) return x;
       found = true;
+      if (made && made.onlyIfFree && x.who) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
@@ -320,6 +330,7 @@ function assignPart(projectId, n, partId, who, made) {
     });
   });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  if (taken) return { ok: false, because: 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
   // line either. `who: null` is a real event -- somebody was taken off.

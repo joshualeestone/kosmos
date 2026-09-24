@@ -42,7 +42,7 @@ test('a REFUSED guard save puts the focused box back to the stored value', async
   await h.api.saveRecommender({ guard: 'public', value: true });
   await new Promise((res) => setImmediate(res)); // let the forced repaint's GET land
   assert.equal(cb.checked, false, 'the box still shows a guard as on that the store has off');
-  assert.equal(h.el['rec-msg'].textContent, '', 'control: the repaint ran and cleared the message');
+  assert.equal(h.el['rec-msg'].textContent, 'no', 'the repaint wiped the reason the save was refused');
 });
 
 test('an UNREACHABLE save (fetch throws) puts the box back too', async () => {

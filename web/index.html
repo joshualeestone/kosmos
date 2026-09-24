@@ -19417,7 +19417,7 @@ function paintRecommenderFrom(r, force) {
     if (cb && (force || document.activeElement !== cb)) cb.checked = g[k] !== false;
   }
 }
-async function paintRecommender(force) {
+async function paintRecommender(force, keepMsg) {
   const mine = ++REC_EPOCH;
   const msg = document.getElementById('rec-msg');
   if (!document.getElementById('rec-toggle')) return;
@@ -19428,7 +19428,7 @@ async function paintRecommender(force) {
     const r = await res.json();
     if (mine !== REC_EPOCH) return;
     paintRecommenderFrom(r, force);
-    if (msg) msg.textContent = '';
+    if (msg && !keepMsg) msg.textContent = ''; // a repaint after a failed save keeps the reason
   } catch {
     if (mine !== REC_EPOCH) return;
     paintSwitch('rec-toggle', null);
@@ -19473,7 +19473,7 @@ async function saveRecommender(change) {
     if (mine === REC_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
   } finally {
     REC_SAVING = false;
-    if (failed) { recUndoGuard(change); paintRecommender(true); }
+    if (failed) { recUndoGuard(change); paintRecommender(true, true); }
   }
 }
 function recToggleClick() {
@@ -19500,7 +19500,7 @@ for (const k of REC_GUARDS) {
    a failed save repaints from the store. */
 let ASG_EPOCH = 0;
 let ASG_SAVING = false;
-async function paintAssigner() {
+async function paintAssigner(keepMsg) {
   const mine = ++ASG_EPOCH;
   const msg = document.getElementById('asg-msg');
   if (!document.getElementById('asg-toggle')) return;
@@ -19511,7 +19511,7 @@ async function paintAssigner() {
     const r = await res.json();
     if (mine !== ASG_EPOCH) return;
     paintSwitch('asg-toggle', r.on === true);
-    if (msg) msg.textContent = '';
+    if (msg && !keepMsg) msg.textContent = ''; // a repaint after a failed save keeps the reason
   } catch {
     if (mine !== ASG_EPOCH) return;
     paintSwitch('asg-toggle', null);
@@ -19539,7 +19539,7 @@ async function saveAssigner(on) {
     if (mine === ASG_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
   } finally {
     ASG_SAVING = false;
-    if (failed) paintAssigner();
+    if (failed) paintAssigner(true);
   }
 }
 function asgToggleClick() {
