@@ -411,15 +411,20 @@ function jobOps(platform) {
       stopNow: (name, job) => Boolean(win32job.end(name, job && job.worldId).ok),
       enable: (name, job) => Boolean(win32job.enable(name, job && job.worldId).ok),
       startNow: (name, job) => Boolean(win32job.start(name, job && job.worldId).ok),
-      /* #3418: confirm the task is REGISTERED after a start. ⚠️ This is NOT the full analog of
-         the Mac's launchd-loaded check below: win32job.status exposes {registered, enabled} but
-         no RUNNING state, so it cannot catch the win32 analog of Nora -- a /Run that reports ok
-         but whose process never comes up would still register as loaded. The real win32
-         protection remains win32job.start().ok (the relaunch result, captured as `relaunched`);
-         a genuine running-state probe is a win32job follow-up. `registered` is the strongest
-         signal available here today and is never weaker than the pre-#3418 behavior, which
-         trusted start().ok alone. */
-      loaded: (name, job) => win32job.status(name, job && job.worldId).registered === true,
+      /* #3431: a GENUINE running-state check now exists. The prior version confirmed only that
+         the task was REGISTERED (win32job.status), which proves the task EXISTS, not that a
+         supervisor came up -- so the win32 analog of Nora (a /Run that reports ok but whose
+         process never starts) would still read as loaded. `win32job.running` polls the
+         supervisor-authored liveness signal (win32streamstate.liveIdentity) against the
+         pre-restart baseline, which is the real analog of the Mac's `launchctl print` probe:
+         it catches a start that took at the task level but never produced a running process.
+         `beforeRestart` captures that baseline before the /End+/Run relaunch so a dying
+         supervisor's leftover state file is not mistaken for the new one. */
+      loaded: (name, job, before) => win32job.running(name, job && job.worldId, { before }).ok,
+      /* The pre-restart liveness identity, so `loaded` can tell the NEW supervisor from a
+         leftover state file the old one wrote. win32-only; the Mac arm has no such op and
+         restartInner passes null there. */
+      beforeRestart: (name) => require('./win32streamstate').liveIdentity(name),
       /* The Mac asks whether the plist is still on disk; the analog is whether
          the task is still registered. Same question, different substrate. */
       startableGone: (name, job) => win32job.status(name, job && job.worldId).registered !== true,
@@ -1915,6 +1920,11 @@ function restartInner(name, cause, platform, startIfDead) {
      comment above turns on: a task re-reads its command line when it is run, so
      a re-registered job (a model change, an account flip) takes effect rather
      than starting again with the arguments the old instance was holding. */
+  /* #3431: capture the liveness baseline BEFORE the /End+/Run relaunch, platform-neutrally.
+     On win32 this is the supervisor's pre-restart identity, so the loaded check below can tell
+     the NEW supervisor from a state file the dying one left behind; on the Mac there is no
+     `beforeRestart` op and this is null, which the Mac's `loaded` ignores. */
+  const before = ops.beforeRestart ? ops.beforeRestart(clean, job) : null;
   const relaunched = step('asked it to start again now', () => {
     ops.stopNow(clean, job);
     return ops.startNow(clean, job);
@@ -1926,7 +1936,7 @@ function restartInner(name, cause, platform, startIfDead) {
      rendered to the person verbatim, so a plain bootstrap failure must not read as two separate
      failures), and the check gets the same try/catch every other op in this function has. The
      verdict gates on `loaded` directly, not on `steps`. */
-  const loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job));
+  const loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job, before));
 
   if (!loaded) {
     /* The relaunch did not take: bootout already unloaded the job, so nothing will bring the
@@ -1949,11 +1959,20 @@ function restartInner(name, cause, platform, startIfDead) {
             ? `${shown}'s launch file is gone, so we could not start it. It has to be created again.`
             : `we closed ${shown}'s window but its launch file is gone, so we could not start it `
               + 'again. It has to be created again.')
-        : (fromDead
-            ? `we could not start ${shown}. Its launch job did not load, so it is not running. `
-              + 'It needs another try.'
-            : `we closed ${shown}'s window but could not start it again. Its launch job did not `
-              + 'reload, so it is not running right now. It needs another restart.'),
+        /* #3431: win32-accurate wording. On Windows the relaunch is a task /Run, and what fails
+           is the supervisor coming up, not a launchd job "loading" -- so say what actually
+           happened rather than borrowing the Mac's launchd language. */
+        : (ops.win32
+            ? (fromDead
+                ? `we started ${shown}'s task but its supervisor never came up, so it is not `
+                  + 'running. It needs another try.'
+                : `we closed ${shown}'s window and started its task, but its supervisor never came `
+                  + 'up, so it is not running right now. It needs another restart.')
+            : (fromDead
+                ? `we could not start ${shown}. Its launch job did not load, so it is not running. `
+                  + 'It needs another try.'
+                : `we closed ${shown}'s window but could not start it again. Its launch job did not `
+                  + 'reload, so it is not running right now. It needs another restart.')),
     };
   }
 
