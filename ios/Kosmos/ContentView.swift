@@ -4,6 +4,8 @@ import WebKit
 // The board, rendered full-screen in a WKWebView, optionally gated behind a
 // biometric unlock (KosmosConfig.requireBiometricUnlock).
 struct ContentView: View {
+    // Receives the session the coordinator sign-in page hands over (#718).
+    let pushManager: PushNotificationManager
     // Starts unlocked when the gate is off, so default behavior is unchanged.
     @State private var isUnlocked = !KosmosConfig.requireBiometricUnlock
     // Set only when the app has actually gone to the background, so returning to
@@ -18,7 +20,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if isUnlocked {
-                WebView(url: KosmosConfig.boardURL)
+                WebView(url: KosmosConfig.boardURL, pushManager: pushManager)
                     .ignoresSafeArea()
             } else {
                 LockView(onUnlock: unlock)
@@ -98,13 +100,16 @@ struct LockView: View {
 }
 
 enum KosmosConfig {
-    // The single fixed front-door origin the store app targets. This is the
-    // blocking dependency #2854: a TWA and an iOS shell both need ONE fixed public
-    // origin that routes to the user's own Mac, because the relay hands each user a
-    // per-user hostname. It is a PLACEHOLDER until that origin is decided; this is
-    // the one place to repoint, mirroring the Android skeleton's strings.xml. The
-    // build does not depend on the URL resolving.
-    static let boardURL = URL(string: "https://app.kosmos.io/")!
+    // The coordinator's origin: the sign-in page the app renders AND the API the
+    // app registers its APNs token with (the page calls /v1 relative to itself).
+    // Decided on #2854 (Liu Kang, 2026-09-24): the app origin is login.kosmosplus.com
+    // for both the iOS WebView and the Android TWA. The one place to repoint. The
+    // kosmosSession bridge accepts a session only from this exact origin.
+    static let coordinatorOrigin = URL(string: "https://login.kosmosplus.com")!
+
+    // What the WebView loads: the coordinator's sign-in page, which after sign-in
+    // links the person on to their own Mac's board.
+    static let boardURL = URL(string: "/", relativeTo: coordinatorOrigin)!.absoluteURL
 
     // Require Face ID / Touch ID before the board renders. Off by default so the
     // shell behaves as before; flip to true to demonstrate the biometric-unlock
@@ -112,18 +117,55 @@ enum KosmosConfig {
     static let requireBiometricUnlock = false
 }
 
-// A minimal WKWebView wrapper that renders the board. Native in-app navigation
-// chrome is still future work; APNs registration and biometric unlock now live
-// in AppDelegate / PushNotificationManager / BiometricAuth.
+// A minimal WKWebView wrapper that renders the board. It also exposes the
+// kosmosSession message handler the coordinator sign-in page posts the session to
+// (#718); the origin gate lives in PushNotificationManager.handleSessionMessage.
 struct WebView: UIViewRepresentable {
     let url: URL
+    let pushManager: PushNotificationManager
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero)
+        let config = WKWebViewConfiguration()
+        // WKUserContentController retains its handlers strongly; the proxy holds
+        // the manager weakly so the handler never keeps anything alive.
+        config.userContentController.add(
+            SessionMessageProxy(target: pushManager),
+            name: PushNotificationManager.sessionHandlerName
+        )
+        let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         webView.load(URLRequest(url: url))
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: ()) {
+        webView.configuration.userContentController
+            .removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
+    }
+}
+
+// Forwards kosmosSession posts with the sender's frame facts. The body is never
+// logged here or downstream: it carries the person's session.
+final class SessionMessageProxy: NSObject, WKScriptMessageHandler {
+    private weak var target: PushNotificationManager?
+
+    init(target: PushNotificationManager) {
+        self.target = target
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        let origin = message.frameInfo.securityOrigin
+        target?.handleSessionMessage(
+            body: message.body,
+            isMainFrame: message.frameInfo.isMainFrame,
+            scheme: origin.protocol,
+            host: origin.host,
+            port: origin.port
+        )
+    }
 }
