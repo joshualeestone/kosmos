@@ -2,10 +2,9 @@
 /**
  * #750: Add a project, styled like New agent: no box, "Name", "Description", no folder
  * talk, a dropdown behind Add an agent, and a big yellow Create project.
- * #3312 (Josh 2026-09-19): the screen is now two MODES -- Create New Project and Join
- * External Project (relay federation MVP) -- so the heading is visually hidden behind the
- * pill toggle, and the two external-add doors are LIVE (they mint an invite code) rather
- * than the #750 honestly-disabled placeholders.
+ * #3312 (Josh 2026-09-19) / #3495: the screen has two modes, "Create a project" and
+ * "Join an external project" (relay federation MVP), behind a segmented toggle, and the two
+ * external-add doors mint an invite code for a Kosmos+ member.
  *
  *   node --test web.add-project.test.js
  */

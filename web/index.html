@@ -1347,14 +1347,13 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .layopt[aria-checked="true"]:focus-visible { outline-color: #14161a; }
 .layopt:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 @media (max-width: 959.98px) { .laypick { display: none; } }
-/* #3312 (Josh 2026-09-19): the Add-Project mode toggle -- two pills with "or" between, the
-   active one filled with ink, the other outlined. Bigger than the .laypick segmented control
-   (this is the screen's top-level choice, not a compact icon switch), and it uses ink/surface
-   rather than gold so it never competes with the gold "Create project" / "Join Project" CTA. */
+/* #3312 (Josh 2026-09-19): the Add-Project mode toggle. Bigger than the .laypick segmented
+   control (this is the screen's top-level choice), and it uses ink/surface rather than gold so it
+   never competes with the gold "Create project" / "Join Project" CTA. */
 /* #3495 (Josh, 2026-09-23): the Create/Join toggle is now a SEGMENTED selector - the two tabs are
    joined (shared border, outer corners rounded) rather than separate pills with an "or". The active
    tab fills; the radio stays the source of truth. */
-.pj-mode { display: inline-flex; align-items: stretch; flex-wrap: wrap; margin: 4px 0 24px;
+.pj-mode { display: inline-flex; align-items: stretch; flex-wrap: nowrap; margin: 4px 0 24px;
            border: 0; padding: 0; min-width: 0; }
 .pj-mode-opt { display: inline-flex; align-items: center; font: inherit; font-weight: 700;
                font-size: 1.0625rem; line-height: 1; padding: .7em 1.4em;
@@ -1371,9 +1370,6 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* Federation Kosmos+ gate: the "sign up for Kosmos+" prompt shown (via the
    data-fed-ui="signup" gate) instead of the fed entry points to a non-member. A
    quiet card, not an alarm: it explains the feature and offers the one action. */
-.pj-plus-signup { margin: 4px 0 24px; padding: 16px 18px; border: 1px solid var(--k-rule);
-                  border-radius: 12px; background: var(--k-surface); max-width: 34rem; }
-.pj-plus-signup .btn { margin: 0; }
 /* A read-only value line in Join mode (the owner's project name/description, which the receiver
    cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
 .pj-ro { margin: 2px 0 0; color: var(--label); white-space: pre-wrap; }
@@ -7636,19 +7632,11 @@ html[data-kosmos-platform="win32"] ::-webkit-scrollbar-button { display: none; }
    UI was hidden on prod by a plain sourceChannel gate; it now gates on the mode
    that fedGateStamp() computes into data-fed-ui ('show' / 'signup' / 'hidden')
    from sourceChannel + the federation-live flip + the viewer's Plus entitlement.
-   The mode logic lives in JS (fedGateMode, unit-tested); these two rules just hide
-   whatever the mode does not authorize.
-     - The fed entry points are shown ONLY in 'show' mode (a Kosmos+ member on a
-       live channel, or staging). `.pj-mode` is the create/join toggle (hiding it
-       leaves plain create-a-project); the two `#pj-add-ext-*` buttons are the
-       create-side external doors; `#pj-invite-panel` and `#pj-join-mode` are their
-       follow-ons. `#pj-add-agent`/`#pj-create` (local) are NOT gated.
-     - `#pj-plus-signup` (the "sign up for Kosmos+" prompt) shows ONLY in 'signup'
-       mode (a non-member / not-logged-in viewer on a live channel).
-   FAIL-SAFE: before the first status tick data-fed-ui is absent, so BOTH rules
-   match and nothing federation-related shows. Verified by render-fed-plus-gate.js.
-   The flip is engine-side (federationLive true) -- no web redeploy, Splinter
-   coordinates it after slice 3 is e2e-proven. */
+   The mode logic lives in JS (fedGateMode, unit-tested); the rules below hide the
+   Plus-only content the mode does not authorize (#pj-invite-panel, #pj-join-mode) and
+   gray the Add-external doors. `#pj-add-agent`/`#pj-create` (local) are NOT gated.
+   Before the first status tick data-fed-ui is absent, which reads as not-"show".
+   Verified by render-fed-plus-gate.js. The flip is engine-side (federationLive true). */
 /* #3495 (Angel, gate-behaviour half): the Create/Join toggle (.pj-mode) and the two
    Add-external buttons now ALWAYS show (Josh: the toggle is always up, the Join tab and the
    grayed buttons gate by MESSAGE, not by hiding). Only the Plus-only CONTENT stays hidden for a
@@ -7659,7 +7647,6 @@ html:not([data-fed-ui="show"]) #pj-invite-panel,html:not([data-fed-ui="show"]) #
 /* The Add-external buttons show GRAYED (not hidden) for a non-"show" viewer, and stay CLICKABLE so
    the click can open showPlusGate("connect"). Visual gray only -- no pointer-events:none. */
 html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"]) #pj-add-ext-agent { opacity: .55; }
-html:not([data-fed-ui="signup"]) #pj-plus-signup { display: none !important; }
 /* The Windows install command and its Copy button (W-14). The command keeps its own
    wrapping rule above; the row only puts the button beside it. */
 .fr-cmd-row { display: flex; align-items: flex-start; gap: var(--space-4); }
@@ -12913,18 +12900,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join an external project</label>
     </fieldset>
 
-    <!-- Federation Kosmos+ gate (Josh launch spec, 2026-09-21): shown INSTEAD of the
-         federation entry points when a viewer on a live channel is not an
-         authenticated Kosmos+ member (fedGateStamp -> data-fed-ui="signup"). The gate
-         CSS hides it in every other mode. It routes into the in-app Kosmos Plus
-         section (no hardcoded domain -- the Plus section owns where sign-up goes). -->
-    <div id="pj-plus-signup" class="pj-plus-signup">
-      <!-- #3495 (Josh, 2026-09-23): the top explainer paragraph is removed; the "Kosmos Plus
-           feature / must be signed in" message now lives in the shared plus-gate modal
-           (showPlusGate). The #pj-plus-signup div + its Sign-up button stay for Angel's fed-gate
-           rework to keep or fold into the modal (her half owns data-fed-ui + fedGateMode). -->
-      <button class="btn uprime" type="button" id="pj-plus-signup-go">Sign up for Kosmos+</button>
-    </div>
 
     <div id="pj-create-mode">
 
@@ -24333,10 +24308,10 @@ function fedGateStamp(data) {
   data = data || {};
   const mode = fedGateMode(data.sourceChannel, data.federationLive, data.kosmos_plus);
   document.documentElement.setAttribute('data-fed-ui', mode);
+  document.documentElement.toggleAttribute('data-fed-member', data.kosmos_plus === true);
 }
-/* The "sign up for Kosmos+" prompt (shown when data-fed-ui="signup") routes into
-   the in-app Kosmos Plus section -- no hardcoded domain (Josh's ruling: the Plus
-   section owns where sign-up goes). */
+/* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
+   no hardcoded domain (Josh's ruling: the Plus section owns where sign-up goes). */
 function fedPlusSignupGo() {
   showTab('settings');
   settingsGo('plus');
@@ -24349,6 +24324,7 @@ function fedPlusSignupGo() {
 const PLUS_GATE_COPY = {
   join: "It's a Kosmos Plus feature and you must be logged in to access it.",
   connect: 'To connect external people or agents, you must be signed in as a Kosmos Plus user.',
+  soon: 'This is coming to Kosmos Plus soon. You are already a member, so there is nothing to do.',
 };
 /* The element that opened the gate, so closing returns the keyboard to it. The caller passes it
    EXPLICITLY: WebKit (the production WKWebView) does not focus a <button> on click, so
@@ -24362,7 +24338,12 @@ function showPlusGate(kind, opener) {
   if (!back || !msgEl) return;
   PLUS_GATE_OPENER = opener
     || ((document.activeElement && document.activeElement !== document.body) ? document.activeElement : null);
-  msgEl.textContent = PLUS_GATE_COPY[kind] || PLUS_GATE_COPY.join;
+  // A member gated only because federation has not launched yet (data-fed-ui "hidden") gets
+  // "soon" and no Sign up button: telling a paying member to sign up is false.
+  const member = document.documentElement.hasAttribute('data-fed-member');
+  msgEl.textContent = member ? PLUS_GATE_COPY.soon : (PLUS_GATE_COPY[kind] || PLUS_GATE_COPY.join);
+  const go = document.getElementById('plus-gate-go');
+  if (go) go.hidden = member;
   back.hidden = false;
   const close = document.getElementById('plus-gate-close');
   if (close) close.focus();
@@ -46466,11 +46447,9 @@ document.getElementById('pj-mode-create').addEventListener('change', () => { if 
    shared modal and snap the toggle back to Create so the gated form is never shown. */
 document.getElementById('pj-mode-join').addEventListener('change', () => {
   if (!document.getElementById('pj-mode-join').checked) return;
-  if (!fedShow()) { showPlusGate('join', document.getElementById('pj-mode-join')); pjSetAddMode('create'); return; }
+  if (!fedShow()) { showPlusGate('join', document.getElementById('pj-mode-create')); pjSetAddMode('create'); return; }
   pjSetAddMode('join');
 });
-// Federation Kosmos+ gate: the sign-up prompt routes into the in-app Kosmos Plus section.
-document.getElementById('pj-plus-signup-go').addEventListener('click', fedPlusSignupGo);
 /* #3495: the shared Plus-gate modal's own controls (Angel's behaviour calls showPlusGate to open it). */
 document.getElementById('plus-gate-close').addEventListener('click', hidePlusGate);
 document.getElementById('plus-gate-go').addEventListener('click', () => { hidePlusGate(); fedPlusSignupGo(); });
@@ -46490,7 +46469,7 @@ document.addEventListener('keydown', (e) => {
   const go = document.getElementById('plus-gate-go');
   // Intercept at the LAST element in the traversal direction and wrap to the first, so natural
   // tabbing never exits the dialog (the updconfirm note explains why last, not first).
-  const reachable = [close, go].filter((el) => el && !el.disabled);
+  const reachable = [close, go].filter((el) => el && !el.disabled && !el.hidden);
   const order = e.shiftKey ? reachable.slice().reverse() : reachable;
   if (!order.length) { e.preventDefault(); return; }
   const inside = back.contains(document.activeElement);
