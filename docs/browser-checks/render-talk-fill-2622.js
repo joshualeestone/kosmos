@@ -177,14 +177,7 @@ async function measure(page) {
     // A1g (checked at the Model visit below): the identity block sits at the same distance from the
     // header on Talk as on Model, so switching sections does not make it jump.
     const talkIdentFromHead = tall.identTop - tall.headBottom;
-    // A1h: the build marker is not inside the box (it moves to the bottom-left in this state).
-    const mark = await page.evaluate(() => {
-      const b = document.getElementById('buildmark'); const box = document.getElementById('d-talk-box');
-      if (!b || b.hidden) return null;
-      const r = b.getBoundingClientRect(), x = box.getBoundingClientRect();
-      return { overlaps: r.right > x.left && r.left < x.right && r.bottom > x.top && r.top < x.bottom, left: Math.round(r.left) };
-    });
-    chk(mark !== null && !mark.overlaps, 'A1h the build marker is present and does not sit inside the Talk box', JSON.stringify(mark));
+    // A1h retired with the corner build marker (#3641): there is no marker to keep clear of the box.
     // A1i: a phone-pairing card between the header and the panel is not covered by the box.
     const ask = await page.evaluate(() => {
       const a = document.getElementById('askcard'); if (!a) return null;
@@ -294,22 +287,17 @@ async function measure(page) {
     chk(nEnd.gutter === 'stable', 'A1m scope: the narrow Talk view (which scrolls) keeps the scrollbar gutter', 'gutter=' + nEnd.gutter);
     chk(onScreen(nMax),
       'A2e narrow width: at the end of the page (where scrolling stops), the whole box is on screen and uncovered', JSON.stringify(nMax));
-    // A2f: focusing the box (the app does, e.g. the paintTalk rescue) keeps its composer on screen,
-    // and at the end of the page the build marker sits below the box, not under Post.
+    // A2f: focusing the box (the app does, e.g. the paintTalk rescue) keeps its composer on screen.
     const nFocus = await page.evaluate(() => {
       window.scrollTo(0, 0);
       const box = document.getElementById('d-talk-box'); box.focus();
       const c = document.querySelector('#d-talk-box .dmbar.composerbox').getBoundingClientRect();
       const out = { composerBottom: Math.round(c.bottom), innerHeight: window.innerHeight };
-      window.scrollTo(0, document.documentElement.scrollHeight);
-      const m = document.getElementById('buildmark'); const b = box.getBoundingClientRect();
-      const r = m && !m.hidden ? m.getBoundingClientRect() : null;
-      out.markInBox = r ? (r.top < b.bottom && r.bottom > b.top && r.left < b.right && r.right > b.left) : null;
       box.blur(); window.scrollTo(0, 0);
       return out;
     });
-    chk(nFocus.composerBottom <= nFocus.innerHeight && nFocus.markInBox === false,
-      'A2f narrow width: focusing the box keeps the composer on screen; the build marker is present and clear of the box', JSON.stringify(nFocus));
+    chk(nFocus.composerBottom <= nFocus.innerHeight,
+      'A2f narrow width: focusing the box keeps the composer on screen', JSON.stringify(nFocus));
 
     // --- A long THREAD in a SHORT window: the composer must stay reachable. This
     // guards a failure mode the FILL ITSELF introduces, NOT a pre-change control
@@ -591,13 +579,20 @@ async function measure(page) {
         await sp.waitForTimeout(300);
         const sModel = await sHead();
         // Real scrollbars: Model scrolls and gives up 15px in both engines. The measured reservation of a
-        // page that does not scroll is 15px in Chromium and 0 in Playwright's WebKit, which reserves none.
-        chk(sModel.given === 15 && (engine === 'chromium' ? sBoard.sbw === '15px' : (sBoard.sbw === '0px' || sBoard.sbw === '15px')),
-          'A1n ' + engine + ' precondition: a scrolling page gives up 15px and the measured reservation is ' + (engine === 'chromium' ? '15px (so the edge arm is a control that reds on main)' : '0 or 15px (Playwright\'s WebKit reserves none on a page that does not scroll)'), JSON.stringify({ sBoard, sModel }));
+        // page that does not scroll is an environment fact, not a product one: 15px where the runner's
+        // viewport scrollbars are classic (Linux CI, a Mac set to show them or with a mouse attached),
+        // 0 where they overlay (a Mac on Automatic with no mouse, and Playwright's WebKit always). The
+        // product must hold the header still either way, which the arms below assert.
+        chk(sModel.given === 15 && (sBoard.sbw === '0px' || sBoard.sbw === '15px'),
+          'A1n ' + engine + ' precondition: a scrolling page gives up 15px and the measured reservation is 0 or 15px', JSON.stringify({ sBoard, sModel }));
+        const edgeIsControl = sBoard.sbw === '15px';
+        if (!edgeIsControl) {
+          console.log('NOTE  A1n ' + engine + ': this runner reserves no gutter on a page that does not scroll, so the edge arm below is a guard, not a control; it is a control where the reservation is 15px (Linux CI, or a Mac showing scrollbars)');
+        }
         chk(sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
           'A1n ' + engine + ': the board keeps the #1309 gutter and Talk drops it', JSON.stringify({ sBoard, sTalk }));
         chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
-          'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (engine === 'webkit' ? ' (a guard in WebKit, which reserves no gutter on a page that does not scroll; Chromium is the control)' : ''), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
+          'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (edgeIsControl ? '' : ' (a guard on this runner, see the NOTE)'), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
         chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight
           && sBoard.tabsLeft === sTalk.tabsLeft && sTalk.tabsLeft === sModel.tabsLeft,
           'A1n ' + engine + ': the header controls and tabs do not move between the board, Talk and Model', JSON.stringify({ sBoard, sTalk, sModel }));
