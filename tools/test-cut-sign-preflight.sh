@@ -93,7 +93,7 @@ else
 fi
 # And no other shell script names the team: one place, or a partial switch ships two teams (#3643).
 _team_pat="$KOSMOS_SIGN_TEAM_ID|$KOSMOS_SIGN_TEAM_NAME|$KOSMOS_NOTARY_KEY_ID_DEFAULT|$KOSMOS_NOTARY_ISSUER_DEFAULT"
-_team_all="$(grep -rlE "$_team_pat" "$REPO/tools" --include='*.sh')"
+_team_all="$(grep -rlIE "$_team_pat" "$REPO/tools")"   # every text file under tools/, not only *.sh
 if ! printf '%s\n' "$_team_all" | grep -q '/tools/lib/signing-identity.sh$'; then
   bad "CONTROL: the team sweep did not even find lib/signing-identity.sh, so it cannot see anything"
 else
