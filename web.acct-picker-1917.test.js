@@ -79,6 +79,7 @@ function runFillCreate(accounts, providerValue) {
     ${wordSrc}
     let CREATE_ACCOUNTS = accounts;
     let CREATE_ACCOUNTS_KNOWN = true;
+    let CREATE_ACCOUNTS_FAILED = false;
     ${fillSrc}
     fillCreateAccounts();
   `);

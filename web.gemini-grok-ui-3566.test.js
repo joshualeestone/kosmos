@@ -216,3 +216,12 @@ test('#3566: a Gemini row and a Grok row that read alike are told apart by PROVI
   assert.equal(out.get('/h/.gemini-work1'), 'Gemini', 'got ' + out.get('/h/.gemini-work1'));
   assert.equal(out.get('/h/.grok-work1'), 'Grok', 'got ' + out.get('/h/.grok-work1'));
 });
+
+test('#3566: once a read has FAILED the off-reason says so, and does not claim a check is running', () => {
+  const sel = menu();
+  api.paintKeyedProviderOptions(sel, [], false, 'anthropic', true);
+  assert.equal(opt(sel, 'google').dataset.off, 'Could not check your accounts');
+  const sel2 = menu();
+  api.paintKeyedProviderOptions(sel2, [], false, 'anthropic', false);
+  assert.equal(opt(sel2, 'google').dataset.off, 'Checking your accounts', 'CONTROL: a pending read still says checking');
+});

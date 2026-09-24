@@ -110,7 +110,7 @@ function world(pageText, { accounts, unreadable, current, providerValue }) {
     // #3566: and the keyed-provider helpers it now reads (acctProvider over the route
     // table, the Gemini/Grok gate paintKeyedProviderOptions, and switchKeyedWord).
     page.liftAll(script, ['esc', 'openaiAllDead', 'accountQualifiers', 'acctChosenName', 'acctPrimaryName', 'fillSwitchAccounts',
-      'acctProvider', 'paintKeyedProviderOptions', 'switchKeyedWord', 'acctOfferableTarget'])
+      'acctProvider', 'paintKeyedProviderOptions', 'switchKeyedWord', 'switchKeyedSay', 'keyOnlyProvider', 'acctOfferableTarget'])
     + '\n' + page.liftConst(script, 'ACCT_KEYED_ROUTE')
     + '\n' + page.liftConst(script, 'providerOf')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_HINT')

@@ -1741,48 +1741,53 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
         named = mod.dirForLabel(body.label);
       }
       if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
-      if (mod.identityOf(named.dir)) {
-        sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
-        return;
-      }
-      // 🛑 A planted symlink account dir (~/.gemini-x -> ~/.gemini) would let storeKey/writeName
-      // write THROUGH it into the real CLI home. Refuse it BEFORE storeKey, so the failed-store
-      // cleanup (forgetKey) never runs through the symlink either. lstat does not follow the link;
-      // an absent path is the normal fresh-account case. storeKey itself also throws on a symlink
-      // (defence in depth for direct callers).
-      try { if (fs.lstatSync(named.dir).isSymbolicLink()) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; } }
-      catch { /* absent = fresh account, fine */ }
-      // #1315 discipline: validate LIVE at add time. Refuse ONLY a positively-rejected
-      // key (STATE.NONE); accept CONNECTED and UNKNOWN (unreachable / a non-attributed
-      // refusal), never blocking a good key on an answer that does not confirm it bad.
-      const live = await mod.validateLive(String(body.key || '').trim());
       // Drop the claim file; rmdir then removes the slot only if it is EMPTY, so giving a
       // claimed slot back cannot delete anything else.
       const unclaim = () => { if (claimed) { try { fs.unlinkSync(path.join(claimed, CLAIM_FILE)); } catch { /* best effort */ } } };
       const giveBack = () => { if (claimed) { unclaim(); try { fs.rmdirSync(claimed); } catch { /* best effort */ } } };
-      if (live.state === mod.STATE.NONE) { giveBack(); sendJson(res, 400, { error: live.because }); return; }
-      /* Re-checked AFTER the await: an explicitly-labelled add racing another with the same
-         label passes the check above in both requests, and this is the last point before a
-         write that would land in an existing account. */
-      if (mod.identityOf(named.dir)) {
-        unclaim();
-        // A label-less add was given no name, so do not blame one: another add took the spot.
-        sendJson(res, 400, { error: claimed
-          ? `another ${providerLabel} account was added at the same moment; add this one again`
-          : `there is already a ${providerLabel} account by that name on this computer` });
-        return;
+      // Every exit from here that did not store the key gives a claimed slot back,
+      // including a throw into the outer catch, so cleanup is certain, not time-based.
+      let stored = false;
+      try {
+        if (mod.identityOf(named.dir)) {
+          sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+          return;
+        }
+        // 🛑 A planted symlink account dir (~/.gemini-x -> ~/.gemini) would let storeKey/writeName
+        // write THROUGH it into the real CLI home. Refuse it BEFORE storeKey, so the failed-store
+        // cleanup (forgetKey) never runs through the symlink either. lstat does not follow the link;
+        // an absent path is the normal fresh-account case. storeKey itself also throws on a symlink
+        // (defence in depth for direct callers).
+        try { if (fs.lstatSync(named.dir).isSymbolicLink()) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; } }
+        catch { /* absent = fresh account, fine */ }
+        // #1315 discipline: validate LIVE at add time. Refuse ONLY a positively-rejected
+        // key (STATE.NONE); accept CONNECTED and UNKNOWN (unreachable / a non-attributed
+        // refusal), never blocking a good key on an answer that does not confirm it bad.
+        const live = await mod.validateLive(String(body.key || '').trim());
+        if (live.state === mod.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+        /* Re-checked AFTER the await: an explicitly-labelled add racing another with the same
+           label passes the check above in both requests, and this is the last point before a
+           write that would land in an existing account. */
+        if (mod.identityOf(named.dir)) {
+          // A label-less add was given no name, so do not blame one: another add took the spot.
+          sendJson(res, 400, { error: claimed
+            ? `another ${providerLabel} account was added at the same moment; add this one again`
+            : `there is already a ${providerLabel} account by that name on this computer` });
+          return;
+        }
+        try { mod.storeKey(named.dir, body.key); stored = true; unclaim(); }
+        catch {
+          try { mod.forgetKey(named.dir); } catch { /* best effort: leave no orphaned key file */ }
+          sendJson(res, 400, { error: 'we could not store that key on this computer' });
+          return;
+        }
+        // #2095 sibling: the optional human-chosen display name, best-effort (a failed
+        // name write never fails the add -- the account is fully usable unnamed).
+        if (body.name) { try { mod.writeName(named.dir, body.name); } catch { /* best effort */ } }
+        sendJson(res, 200, { account: { label: named.label, dir: named.dir, connection: { state: live.state } } });
+      } finally {
+        if (!stored) giveBack();
       }
-      try { mod.storeKey(named.dir, body.key); unclaim(); }
-      catch {
-        try { mod.forgetKey(named.dir); } catch { /* best effort: leave no orphaned key file */ }
-        giveBack();
-        sendJson(res, 400, { error: 'we could not store that key on this computer' });
-        return;
-      }
-      // #2095 sibling: the optional human-chosen display name, best-effort (a failed
-      // name write never fails the add -- the account is fully usable unnamed).
-      if (body.name) { try { mod.writeName(named.dir, body.name); } catch { /* best effort */ } }
-      sendJson(res, 200, { account: { label: named.label, dir: named.dir, connection: { state: live.state } } });
     })
     .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
 }

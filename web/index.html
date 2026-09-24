@@ -19468,20 +19468,27 @@ function acctProvider(a) {
 function switchKeyedWord(p) {
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
+/* #3566: an OpenAI sentence re-said for the picker's provider. Gemini and Grok accounts are
+   pasted keys, never a sign-in, so "OpenAI sign-in" becomes "Gemini account" there. */
+function switchKeyedSay(text, p) {
+  if (!keyOnlyProvider(p)) return text;
+  return String(text).replace(/OpenAI sign-in/g, switchKeyedWord(p) + ' account').replace(/OpenAI/g, switchKeyedWord(p));
+}
 /* #3566: Gemini and Grok are offered in a provider menu (#d-provider, #create-provider)
    only when an account for them is connected. A disabled one says why through `data-off`, which the combobox
    shows as its pill. While the account list is not known (not loaded yet, or the read
    failed) they stay OFF too: with no account to send, the engine does not refuse, it
    puts the agent on the machine's own env key, which nobody has checked. `current`
    stays selectable so the menu can show what the agent is on. */
-function paintKeyedProviderOptions(sel, accounts, known, current) {
+function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
     if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // the key-only providers (Gemini, Grok)
     const has = known && (accounts || []).some((x) => x && acctProvider(x) === opt.value && acctOfferableTarget(x));
     const on = has || opt.value === current;
     opt.disabled = !on;
-    if (on) delete opt.dataset.off; else opt.dataset.off = known ? 'Connect in AI Models' : 'Checking your accounts';
+    if (on) delete opt.dataset.off;
+    else opt.dataset.off = known ? 'Connect in AI Models' : failed ? 'Could not check your accounts' : 'Checking your accounts';
   }
 }
 function acctPrimaryName(a) {
@@ -19495,8 +19502,8 @@ function acctPrimaryName(a) {
     || a.label || a.dir)) || '');
 }
 /* #2095: whether the account carries a human-chosen name (so the key last-4 is a
-   SECONDARY detail rather than the primary label). Only OpenAI accounts have a
-   name AND a keyTail; empty for everyone else. */
+   SECONDARY detail rather than the primary label). Only keyed accounts (OpenAI, Gemini,
+   Grok) have a name AND a keyTail; empty for everyone else. */
 function acctHasChosenName(a) {
   return !!(a && /^(openai|google|xai)$/i.test(String(a.provider || '')) && acctChosenName(a));
 }
@@ -19829,7 +19836,7 @@ async function paintAccounts() {
     /* #540: an OpenAI account signed in with a key has no email; codex's
        own `login status` names it by the key's last characters, so the row
        does the same. Never the key. */
-    const isOpenai = a.provider === 'openai';
+    const isOpenai = acctProvider(a) === 'openai';
     /* #3566: Gemini and Grok rows are keyed rows like OpenAI's: no Claude history
        arm, no Check now (a Claude probe), no reauth (there is no sign-in to redo),
        and Disconnect / Delete go to their own route. `keyRoute` is that route. */
@@ -34532,7 +34539,7 @@ function paintProviderPicker(a) {
   for (const opt of sel.options) {
     if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = false;
   }
-  paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current);
+  paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE);
   /* An unrecognised provider leaves the select alone rather than silently
      showing the first option as though it were the answer. */
   sel.value = current || '';
@@ -34627,7 +34634,7 @@ function fillSwitchAccountsSafely() {
     if (pmsgX && !pmsgX.textContent) {
       // #3566: name the provider the picker was for (Gemini/Grok as well as OpenAI).
       const provX = document.getElementById('d-provider');
-      const brokenLine = SWITCH_ACCT_BROKEN.replace('OpenAI', switchKeyedWord(provX && provX.value));
+      const brokenLine = switchKeyedSay(SWITCH_ACCT_BROKEN, provX && provX.value);
       pmsgX.textContent = brokenLine;
       SWITCH_ACCT_SAID = brokenLine;
     }
@@ -34659,7 +34666,7 @@ function fillSwitchAccounts() {
      when it is one of those, else ''. The OpenAI-only sentences below (unreadable,
      all dead) stay OpenAI's: they describe engine behaviour measured for codex. */
   const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : '';
-  paintKeyedProviderOptions(prov, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, CURRENT ? providerOf(CURRENT) : '');
+  paintKeyedProviderOptions(prov, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, CURRENT ? providerOf(CURRENT) : '', ACCOUNTS_UNREADABLE);
   /* ⚠️ ONLY WHEN THE SWITCH IS ACTUALLY ARMED. paintProviderPicker sets
      #d-provider to the agent's CURRENT provider, so on an agent already running
      on OpenAI this menu would render live and enabled while Switch stays
@@ -34810,7 +34817,7 @@ function fillSwitchAccounts() {
      options with no boolean attribute, so they are unaffected either way. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
   else if (sel.options.length) { sel.selectedIndex = Math.max(0, [...sel.options].findIndex((o) => o.defaultSelected)); }
-  sel.setAttribute('aria-label', switchKeyedWord(keyed) + ' sign-in to run on');
+  sel.setAttribute('aria-label', switchKeyedSay('OpenAI sign-in to run on', keyed));
   sel.hidden = false;
   /* 🛑 RE-DERIVE THE DISABLED STATE HERE, OR AN IN-FLIGHT DISABLE OUTLIVES ITS REQUEST.
      `changeProviderNow` disables this select while a switch is in flight and re-enables it
@@ -34887,8 +34894,8 @@ function fillSwitchAccounts() {
          screen-reader user exactly the sentence the sighted dialog is written to avoid. */
       const rawOne = sel.options.length === 1 ? (sel.options[0].textContent || '').trim() : '';
       const one = rawOne.startsWith('/') ? '' : rawOne.replace(/\s*\(could not check just now\)$/, '');
-      const line = ACCOUNTS_UNREADABLE ? SWITCH_ACCT_STALE.replace('OpenAI', switchKeyedWord(keyed))
-        : (sel.options.length > 1 ? SWITCH_ACCT_HINT.replace('OpenAI', switchKeyedWord(keyed))
+      const line = ACCOUNTS_UNREADABLE ? switchKeyedSay(SWITCH_ACCT_STALE, keyed)
+        : (sel.options.length > 1 ? switchKeyedSay(SWITCH_ACCT_HINT, keyed)
           : (one ? 'It will run on ' + one + '.' : ''));
       /* ⚠️ COMPARED AGAINST THE REGION, NOT AGAINST `SWITCH_ACCT_SAID`, AND INSIDE THIS
          GUARD THE TWO DIFFER IN EXACTLY ONE CASE THAT MATTERS. The guard above already
@@ -35680,7 +35687,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
             + ((() => {
               const on = switchAcctShown();
               if (on) return 'and it will run on ' + on + '.';
-              if (switchAcctSending()) return 'and it runs on the ' + label + ' sign-in shown above.';
+              if (switchAcctSending()) return 'and it runs on the ' + label + ' account shown above.';
               return 'and with no ' + label + ' account shown above it runs on this computer\'s own ' + label + ' key, if one is set up.';
             })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
@@ -35812,10 +35819,12 @@ document.getElementById('create-model').addEventListener('change', () => paintMo
    and are offered whole. When the list has no OpenAI sign-in the option
    names what the agent will actually use, the same rule as the Claude arm. */
 let CREATE_ACCOUNTS = [];
-/* #3566: true only once /api/accounts ANSWERED for the create form. An empty list alone
-   cannot tell "none on this computer" from "not read yet", and the Gemini/Grok gate needs
-   the difference: read-and-empty turns them off, not-read leaves them on. */
+/* #3566: true only once /api/accounts ANSWERED for the create form (an empty list alone
+   cannot tell "none on this computer" from "not read yet"). CREATE_ACCOUNTS_FAILED is set
+   when a read finished without an answer, so the Gemini/Grok gate can say "could not
+   check" rather than "checking" once nothing is pending. */
 let CREATE_ACCOUNTS_KNOWN = false;
+let CREATE_ACCOUNTS_FAILED = false;
 /* #2097: true once the create-provider has been chosen deliberately -- by a manual
    pick OR by an import setting it explicitly (both fire the `change` handler below).
    resetCreateProvider clears it (an auto-default is not a choice). loadCreateExtras
@@ -35828,7 +35837,7 @@ function fillCreateAccounts() {
   if (!asel) return;
   const provSel = document.getElementById('create-provider');
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
-  paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '');
+  paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED);
   const openai = provSel.value === 'openai';
   /* #3566: `keyed` covers OpenAI, Gemini and Grok (a pasted key or an OpenAI sign-in);
      the Claude-only memoryShared rule below does not apply to any of them. The list is
@@ -37781,11 +37790,11 @@ async function loadCreateExtras() {
     if (gen !== EXTRAS_GEN) return;
     CREATE_ACCOUNTS = list;
     CREATE_ACCOUNTS_KNOWN = known;
+    CREATE_ACCOUNTS_FAILED = !known;
     fillCreateAccounts();
-    /* #3566: Gemini/Grok could be picked while the list was unknown (so offered). If the list
-       now says there is no account for the picked one, the gate has turned it off UNDER the
-       selection; leaving it selected would post a create the engine refuses. Fall back to
-       the default provider through the one provider function. */
+    /* #3566: a Gemini/Grok pick made against an earlier visit's list can be turned off by this
+       read (the account is gone, or the read failed); leaving it selected would post a create
+       with no account. Fall back to the form's default provider and say which of the two it was. */
     {
       const pv = document.getElementById('create-provider');
       const cur = pv && pv.options[pv.selectedIndex];
@@ -37798,8 +37807,13 @@ async function loadCreateExtras() {
         applyCreateProviderUI();
         // Said, not silent: a deliberate pick was undone under the person.
         const why = document.getElementById('create-model-why');
-        if (why) { why.textContent = 'There is no ' + gone + ' account connected, so this is back on '
-          + (pv.value === 'openai' ? 'OpenAI' : 'Claude') + '. Add one in Settings, AI Models.'; why.hidden = false; }
+        const back = pv.value === 'openai' ? 'OpenAI' : 'Claude';
+        if (why) {
+          why.textContent = known
+            ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
+            : 'We could not check your ' + gone + ' accounts just now, so this is back on ' + back + '.';
+          why.hidden = false;
+        }
       }
     }
     /* #2097: resetCreateProvider ran before this with CREATE_ACCOUNTS still empty, so on
