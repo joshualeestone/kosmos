@@ -138,3 +138,16 @@ test('the mirror stays live via the scroll/resize listeners and the pjGrowCompos
   assert.match(PAGE, /getElementById\('pj-post'\)\.addEventListener\('scroll'/);
   assert.match(PAGE, /window\.addEventListener\('resize', pjMentionPaint\)/);
 });
+
+test('pjRoomBody derives its highlight key-set from pjMentionKeys, the single source (no drift)', () => {
+  // #2922's correctness claim is that the live input and the posted message never disagree about
+  // what is a real mention. That holds BY CONSTRUCTION only while both derive the key-set from the
+  // ONE source (pjMentionKeys -> mentionCandidates); the live highlighter and the @ picker already
+  // share it. A future re-inline of pjRoomBody's own Set would silently reintroduce drift, so this
+  // pins the single source rather than trusting a comment (repo Convention #5).
+  const start = PAGE.indexOf('function pjRoomBody');
+  assert.ok(start > 0, 'pjRoomBody must exist');
+  const body = PAGE.slice(start, PAGE.indexOf('\nfunction ', start + 1));
+  assert.match(body, /const agentNames = pjMentionKeys\(p\)/,
+    'pjRoomBody must derive agentNames from pjMentionKeys, not re-inline its own key Set');
+});

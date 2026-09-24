@@ -42977,11 +42977,12 @@ function pjRoomBody(m, p) {
   const words = pjWords(m);
   if (!words) return '';
   /* #2922: the Set of agent keys (sessionNames) on THIS project, so pjRichSpans can highlight an
-     @name that flags an agent here. Same key derivation as mentionCandidates (a member is a string
-     key or a {sessionName} object). Empty/absent -> no highlight, which is the safe default. */
-  const agentNames = new Set(((p && p.agents) || [])
-    .map((a) => (typeof a === 'string' ? a : (a && typeof a.sessionName === 'string' ? a.sessionName : '')))
-    .filter(Boolean));
+     @name that flags an agent here. Derived by pjMentionKeys -- the SAME single source the
+     live-input highlighter (pjMentionPaint) and the @ picker use -- so the posted message and the
+     input can never disagree about what is a real mention (the whole point of #2922 part 2). It
+     returns a fresh Set, so the self-exclusion below can mutate it. Empty/absent -> no highlight,
+     the safe default. */
+  const agentNames = pjMentionKeys(p);
   /* #2922: mirror the backend's recipient filter (engine/messages.js: recipients = operator ?
      members : members.filter(m => m !== from)). A non-operator post never flags its OWN author, so
      an agent's `@<self>` must NOT render blue -- it would falsely promise a message reaching the one
