@@ -28,12 +28,24 @@ same character class. Only `test()` is used on PATTERNS, so match position does
 not matter.
 
 Every other pattern was timed on adversarial 16 KB inputs (runs of letters,
-digits, "a.", "a@", "$1", "1,", mixed): all at or under 1.4 ms. Email was the
-only quadratic one (908 ms worst case before, 0.44 ms after).
+digits, "a.", "a@", "$1", "1,", mixed): all at or under 1.4 ms. That sweep MISSED
+one: the blind review found the spelled grouped-currency pattern
+(`\d{1,3}(?:,\d{3})+...(?:USD|...)`) is also quadratic, on input shaped
+"9,999,999,...": 121 ms at 16 KB, about 4x per doubling. My sweep used "1,"
+repeated, which never forms a three-digit group, so it could not trigger it.
+It is left out of this change because a lookbehind anchor is not equivalent
+there (a match may legitimately start after a comma inside a chain), and it is
+filed as its own card, #3609. It is far below the email cost and not what the flaky
+test measured.
 
 ## Tests
-- Linear: the email pattern on four 16384-char no-match inputs completes in
-  under 200 ms each. Red (720 ms) with the old regex restored.
+- Linear: the email pattern on four 65536-char no-match inputs completes in
+  under 200 ms each. 65536 rather than SCAN_CAP because this tests the regex,
+  and the quadratic cost is 16x larger there. With the fix: about 1 ms. With the
+  old regex restored: red in 3 of 3 runs, about 2.1 s on the first input. (A
+  first version used 16384-char inputs; the review measured the old regex at
+  120 to 140 ms there on a warm run, under the bound, so that test could not
+  fail. My 720 ms red at that size came from a cold regex.)
 - Equivalence: anchored and unanchored agree on fixed cases and on 50000 seeded
   generated strings, with a floor on how many of those match so agreeing on "no"
   everywhere cannot pass. Red when the TLD length is perturbed to {3,}.
