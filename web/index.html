@@ -2316,6 +2316,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .tv-mbar { height: 7px; background: var(--k-rule); border-radius: 5px; overflow: hidden; }
 .tv-mbar span { display: block; height: 100%; border-radius: 5px; }
 .tv-mrow .tv-num { font: 500 .84rem var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--k-ink); }
+/* #2617: on a phone-width column the fixed number columns left the name a few
+   pixels ("A..") and clipped "% total". Below 420px the share bar goes (the %
+   column carries the same fact) and the name takes the freed width. Applies to
+   the per-model and per-agent tables alike, since they share this grid. */
+@container (max-width: 420px) {
+  .tv-mrow { grid-template-columns: minmax(0, 1fr) 64px 64px; gap: 8px; padding: 11px 12px; }
+  .tv-mrow > .tv-mbar, .tv-mrow.head > div:nth-child(2) { display: none; }
+  .tv-mrow.head > div { white-space: nowrap; }
+}
 .tv-pie { border: 1px solid var(--k-rule); border-radius: 16px; padding: 22px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: var(--k-bg); }
 .tv-pie svg { max-width: 220px; }
 .tv-pielegend { display: flex; flex-direction: column; gap: 9px; width: 100%; }
@@ -27273,34 +27282,40 @@ function usageModelTableHtml(models, grandTotal) {
   return '<div class="tv-mrow head"><div>Model</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + rows;
 }
 /* #2617: the per-agent rows from /api/usage's byAgent, as the model table's
-   { name, tok } shape plus `muted` for the two rows that are not an agent (the
-   person's own sessions, and folders two agents share). Agents first, most
-   tokens first, as the engine orders them; a zero row is left out. Pure. */
+   { name, tok } shape plus `muted` for the two rows that are not an agent
+   (sessions outside every agent's folder, and folders more than one agent
+   shares). Agents first, ranked by the four-class total the table shows (the
+   engine's own order is by output only), then the muted rows; a zero row is
+   left out. Pure. */
 function usageAgentRows(byAgent) {
   if (!byAgent || typeof byAgent !== 'object') return [];
   const rows = (Array.isArray(byAgent.agents) ? byAgent.agents : [])
     .map((a) => ({ name: String((a && (a.shown || a.name)) || ''), tok: usageRowTokenTotal(a || {}), muted: false }))
-    .filter((r) => r.name && r.tok > 0);
+    .filter((r) => r.name && r.tok > 0)
+    .sort((a, b) => (b.tok - a.tok) || a.name.localeCompare(b.name));
   const other = usageRowTokenTotal(byAgent.elsewhere || {});
-  if (other > 0) rows.push({ name: 'Not an agent (your own sessions)', tok: other, muted: true });
+  if (other > 0) rows.push({ name: 'Sessions outside any agent\'s folder', tok: other, muted: true });
   const shared = usageRowTokenTotal(byAgent.shared || {});
-  if (shared > 0) rows.push({ name: 'A folder two agents share', tok: shared, muted: true });
+  if (shared > 0) rows.push({ name: 'Folders shared by more than one agent', tok: shared, muted: true });
   return rows;
 }
 /* #2617: the per-agent table, the model table's markup with an Agent column.
-   Agents take USAGE_MODEL_COLORS by rank; the two non-agent rows take the muted
-   "Other" color so they never read as an agent. Share is of the rows shown. Pure. */
-function usageAgentTableHtml(rows) {
+   Agents take USAGE_MODEL_COLORS by rank, the seventh and later sharing the
+   sixth (the muted "Other" color is kept for the non-agent rows, so they never
+   read as an agent). "% total" is of the page's grand total, as in the model
+   table, so tokens the note reports as unmatched leave the rows short of 100%.
+   The name carries a title so a truncated one can still be read. Pure. */
+function usageAgentTableHtml(rows, grandTotal) {
   const r = Array.isArray(rows) ? rows : [];
   if (!r.length) return '';
-  const total = r.reduce((a, x) => a + (Number(x.tok) || 0), 0) || 1;
+  const total = Number(grandTotal) || r.reduce((a, x) => a + (Number(x.tok) || 0), 0) || 1;
   const max = r.reduce((a, x) => Math.max(a, Number(x.tok) || 0), 0) || 1;
   let rank = 0;
   const body = r.map((x) => {
     const color = x.muted ? USAGE_MODEL_COLORS[6] : USAGE_MODEL_COLORS[Math.min(rank++, 5)];
     const pct = (Number(x.tok) || 0) / total * 100;
     const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '&lt;0.1%';
-    return '<div class="tv-mrow' + (x.muted ? ' muted' : '') + '"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl">' + esc(x.name) + '</span></div>'
+    return '<div class="tv-mrow' + (x.muted ? ' muted' : '') + '"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl" title="' + esc(x.name) + '">' + esc(x.name) + '</span></div>'
       + '<div class="tv-mbar"><span style="width:' + ((Number(x.tok) || 0) / max * 100).toFixed(1) + '%;background:' + color + '"></span></div>'
       + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
       + '<div class="tv-num">' + pctStr + '</div></div>';
@@ -27565,7 +27580,7 @@ async function paintUsage() {
     if (wtr) wtr.hidden = !models.length;
     /* #2617: byAgent is null when the server could not split the window; the
        block then stays hidden rather than showing an empty or wrong table. */
-    const agentHtml = usageAgentTableHtml(usageAgentRows(data.byAgent));
+    const agentHtml = usageAgentTableHtml(usageAgentRows(data.byAgent), grandTotal);
     if (atable) atable.innerHTML = agentHtml;
     if (anote) anote.textContent = usageAgentNote(data.byAgent);
     if (agentsBox) agentsBox.hidden = !agentHtml;

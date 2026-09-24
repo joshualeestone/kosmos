@@ -355,17 +355,18 @@ const BY_AGENT = {
 
 test('#2617: usageAgentRows lists agents by shown name with the four-class total, then the non-agent rows', () => {
   const rows = U.usageAgentRows(BY_AGENT);
-  assert.deepEqual(rows.map((r) => r.name), ['Ann', 'bob', 'Not an agent (your own sessions)'], 'a zero agent or a zero shared row was shown, or the order moved');
+  assert.deepEqual(rows.map((r) => r.name), ['Ann', 'bob', 'Sessions outside any agent\'s folder'], 'a zero agent or a zero shared row was shown, or the order moved');
   assert.equal(rows[0].tok, 1 + 90 + 900, 'an agent row must carry all four classes, as every other usage total does');
   assert.deepEqual(rows.map((r) => r.muted), [false, false, true]);
   const withShared = U.usageAgentRows({ ...BY_AGENT, shared: B(5, 0) });
-  assert.equal(withShared[withShared.length - 1].name, 'A folder two agents share');
+  assert.equal(withShared[withShared.length - 1].name, 'Folders shared by more than one agent');
   assert.deepEqual(U.usageAgentRows(null), [], 'a null split (the server could not compute it) must give no rows');
 });
 
 test('#2617: the per-agent table reuses the model table markup, and the non-agent rows never take an agent color', () => {
   const html = U.usageAgentTableHtml(U.usageAgentRows(BY_AGENT));
   assert.match(html, /<div class="tv-mrow head"><div>Agent<\/div>/);
+  assert.match(html, /<span class="tv-mnl" title="Ann">Ann<\/span>/, 'a truncated name has no title to read it by');
   assert.equal((html.match(/class="tv-mrow( muted)?"/g) || []).length, 3, 'one row per shown entry');
   const muted = html.slice(html.indexOf('tv-mrow muted'));
   assert.ok(muted.includes(U.USAGE_MODEL_COLORS[6]), 'the non-agent row must use the muted Other color');
@@ -377,6 +378,20 @@ test('#2617: an agent name is escaped in the per-agent table', () => {
   const html = U.usageAgentTableHtml(U.usageAgentRows({ ...BY_AGENT, agents: [{ name: 'x', shown: '<img src=x onerror=alert(1)>', ...B(5, 0) }] }));
   assert.ok(!html.includes('<img'), 'a hostile agent name reached the page as markup');
   assert.ok(html.includes('&lt;img'));
+  assert.ok(!/title="<img/.test(html), 'the title attribute carries the raw name');
+});
+
+test('#2617: agents rank by the total the table shows, not by the engine\'s output order', () => {
+  // The engine sends agents by OUTPUT; the table shows the four-class total.
+  // Here the higher-output agent has the far smaller total, so the orders differ.
+  const rows = U.usageAgentRows({ ...BY_AGENT, elsewhere: Z,
+    agents: [{ name: 'talky', shown: 'Talky', ...B(500, 0) }, { name: 'reader', shown: 'Reader', ...B(10, 90000) }] });
+  assert.deepEqual(rows.map((r) => r.name), ['Reader', 'Talky'], 'rows follow the engine order, so the bars step up');
+});
+
+test('#2617: "% total" is of the page grand total, so unmatched tokens leave the rows short of 100%', () => {
+  const html = U.usageAgentTableHtml([{ name: 'Ann', tok: 50, muted: false }], 200);
+  assert.match(html, />25\.0%</, 'the share is not of the grand total');
 });
 
 test('#2617: the note states what the table cannot show, and says nothing when there is nothing to say', () => {
@@ -392,7 +407,7 @@ test('#2617: the section carries the per-agent block, hidden until painted, and 
   assert.match(CODE, /id="usage-atable"/);
   assert.match(CODE, /id="usage-agents-note"/);
   const paint = lift('paintUsage');
-  assert.match(paint, /usageAgentTableHtml\(usageAgentRows\(data\.byAgent\)\)/, 'paintUsage does not render the per-agent table from byAgent');
+  assert.match(paint, /usageAgentTableHtml\(usageAgentRows\(data\.byAgent\), grandTotal\)/, 'paintUsage does not render the per-agent table from byAgent against the grand total');
   assert.match(paint, /agentsBox\.hidden = !agentHtml/, 'the block is not hidden when there is nothing to show');
   assert.match(paint, /if \(agentsBox\) agentsBox\.hidden = true;/, 'clearAll does not hide the per-agent block');
 });
