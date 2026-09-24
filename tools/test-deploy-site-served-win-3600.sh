@@ -36,6 +36,8 @@
 #   A17 the committed Windows build is NEWER than what R2 serves (a promote R2 never got) -> a loud
 #       WARNING that users do not have it, not the "stale, expected" NOTE; rc 0
 #   A18 the redirect probe gets no status at all (transport error) -> a NOTE, strict fallback
+#   A19 static path, committed pointer whose `version` (0.6.99) disagrees with its checked name
+#       (0.6.40): the staged compare uses the NAME, so a pending 0.6.55 staged build is still verified
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -142,6 +144,8 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-stagedrift - as redirect, and latest-win-staging.json is served from R2 with other bytes
 #   redirect-behind   - as redirect, but R2 serves an OLDER build (0.6.30) than the committed 0.6.40
 #   redirect-probenone - as redirect, but the un-followed probe gets no status (transport error)
+#   static-versionskew - static, the committed pointer's version field says 0.6.99, and the staged
+#                        zip is unservable
 # $2 (optional) staged: "" none | old (0.6.45, absent from R2) | new (0.6.55, in R2) | new-missing
 #    | old-withnew (old, and the site ALSO commits WZ_NEW so KOSMOS_WIN_ZIP can name it)
 make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
@@ -175,6 +179,9 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   ( cd "$s/dist" && shasum -a 256 "$WZ_OLD" > "$WZ_OLD.sha256" )
   oldsha=$(sha_of "$s/dist/$WZ_OLD")
   write_win_ptr "$s/dist/latest-win.json" "$WV_OLD" "$oldsha"
+  if [ "$mode" = static-versionskew ]; then
+    printf '{"version":"0.6.99","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$oldsha" "$WZ_OLD" > "$s/dist/latest-win.json"
+  fi
   printf 'WINALIAS\n' > "$s/dist/kosmos-win-x64.zip"
   ( cd "$s/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   if [ -n "$staged" ]; then
@@ -223,6 +230,9 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         write_win_ptr "$r2/latest-win-staging.json" 0.6.44 "$newsha"
       fi
       [ "$mode" = redirect-badsum ] && printf '%s  %s\n' 1111111111111111111111111111111111111111111111111111111111111111 "$WZ_NEW" > "$r2/$WZ_NEW.sha256"
+      ;;
+    static-versionskew)
+      printf '%s\n' 'dist/kosmos-0.6.55-win-x64.zip' > "$live/.redirects"
       ;;
     static-nozip)
       # The committed zip is carried by git archive, so drop it from what the stub serves AFTER the
@@ -411,5 +421,15 @@ else
   bad "A18: a status-less probe was not named or did not fall back strictly (rc=$RC); out=$out"
 fi
 
+# A19) the staged compare reads the checked NAME (0.6.40), not the pointer's version field (0.6.99),
+# so the pending 0.6.55 staged build is verified, and refuses because it is not served.
+read -r S L R <<<"$(make_scenario static-versionskew new-missing)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the staged Windows zip kosmos-0.6.55-win-x64.zip failed served-verify"; then
+  pass "A19: a committed version field that disagrees with the name does not skip a pending staged build (rc=$RC)"
+else
+  bad "A19: the staged compare trusted the pointer's version field over the checked name (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 18 arms passed"
+echo "test-deploy-site-served-win-3600: all 19 arms passed"
