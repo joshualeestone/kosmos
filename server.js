@@ -6558,7 +6558,10 @@ const server = http.createServer((req, res) => {
             return { name, shown: register.shownName(name), dir };
           }) : [];
           byAgent = { ...usage.byAgent(result, agents), rosterRead: known.ok };
-        } catch { byAgent = null; }
+        } catch (err) {
+          console.error('usage: the per-agent split failed:', (err && err.message) || err);
+          byAgent = null;
+        }
         sendJson(res, 200, { ...rest, byAgent });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));

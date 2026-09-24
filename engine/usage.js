@@ -162,7 +162,10 @@ async function scanUsage({ sinceDay, untilDay }) {
   const days = {};
   const folders = {};
   for (const root of roots) {
-    for (const file of await walkTranscriptsUnder(root)) {
+    /* Sorted, so when one message id appears in two transcripts launched in
+       different folders (a resumed session), the same file wins the dedup on
+       every scan and the per-agent split does not depend on readdir order. */
+    for (const file of (await walkTranscriptsUnder(root)).sort()) {
       let text;
       try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
       /* #2617: a transcript is keyed by the FIRST cwd it records, the folder
@@ -347,17 +350,19 @@ async function dailyUsageByModel(days = 7) {
     const scanResult = await scanUsage({ sinceDay, untilDay });
     rootsRead = scanResult.rootsRead;
     for (const day of missing) {
-      const scannedFolders = scanResult.folders[day] || {};
-      byFolder[day] = scannedFolders;
-      /* A day whose per-model total is already frozen keeps it: re-deriving it
-         from today's transcripts could only lose what has been pruned since. */
-      const modelFrozen = day !== today && Object.prototype.hasOwnProperty.call(byDay, day);
+      /* Whichever half of a past day is already frozen keeps it: re-deriving
+         it from today's transcripts could only lose what has been pruned
+         since. Only the missing half is taken from this scan and frozen. */
+      const has = (o) => day !== today && Object.prototype.hasOwnProperty.call(o, day);
+      const modelFrozen = has(byDay);
+      const folderFrozen = has(byFolder);
       if (!modelFrozen) byDay[day] = scanResult.days[day] || {};
+      if (!folderFrozen) byFolder[day] = scanResult.folders[day] || {};
       if (day !== today) {
         try {
           await ensureUsageDir();
           if (!modelFrozen) await fsp.writeFile(frozenDayPath(day), JSON.stringify(byDay[day]), 'utf8');
-          await fsp.writeFile(frozenFolderPath(day), JSON.stringify(scannedFolders), 'utf8');
+          if (!folderFrozen) await fsp.writeFile(frozenFolderPath(day), JSON.stringify(byFolder[day]), 'utf8');
         } catch { /* best effort: a failed freeze just means this day rescans next time */ }
       }
     }
