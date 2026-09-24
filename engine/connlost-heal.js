@@ -28,6 +28,9 @@
 const MIN_SWEEPS = 2;
 const MAX_NUDGES = 3;
 const WINDOW_MS = 30 * 60 * 1000;
+// A nudge makes Claude Code retry, and a retry reads WORKING, so a short spell of not-lost is
+// not a recovery. History (nudges, escalation) is dropped only after this much time not lost.
+const RECOVERED_MS = 10 * 60 * 1000;
 const NUDGE_TEXT = 'Your connection to the API is back. Please retry what you were doing.';
 
 /*
@@ -37,6 +40,9 @@ const NUDGE_TEXT = 'Your connection to the API is back. Please retry what you we
  */
 function planHeal(entry, now, probeOk) {
   if (!entry || entry.evidence == null) return { act: 'none', because: 'not connection_lost' };
+  // Escalation is sticky until a sustained recovery clears the entry: a window rolling over
+  // must not restart the nudges on an agent that three nudges did not fix.
+  if (entry.escalated) return { act: 'escalate', because: 'already escalated; waiting for a person or a real recovery' };
   const nudges = Array.isArray(entry.nudges) ? entry.nudges : null;
   const nowBad = !Number.isFinite(now);
   // Corrupt history counts as fully used, so it escalates rather than nudging again.
@@ -57,8 +63,8 @@ function planHeal(entry, now, probeOk) {
 function observe(prev, evidence) {
   const nudges = prev && Array.isArray(prev.nudges) ? prev.nudges : (prev ? prev.nudges : []);
   const escalated = !!(prev && prev.escalated); // log an escalation once per loss, not every sweep
-  if (prev && prev.evidence === evidence) return { evidence, sweeps: (prev.sweeps || 0) + 1, nudges, escalated };
-  return { evidence, sweeps: 1, nudges, escalated };
+  if (prev && prev.evidence === evidence) return { evidence, sweeps: (prev.sweeps || 0) + 1, nudges, escalated, okSince: null };
+  return { evidence, sweeps: 1, nudges, escalated, okSince: null };
 }
 
 /*
@@ -81,7 +87,13 @@ async function sweepOnce(o) {
     seen.add(session);
     const display = agent.name || session;
     if (agent.state !== 'connection_lost' || typeof agent.stateEvidence !== 'string' || !agent.stateEvidence) {
-      book.delete(session); // recovered (or never lost): start clean next time
+      const prev = book.get(session);
+      if (!prev) continue;
+      // Not lost right now. Keep the history (a nudge's own retry reads WORKING) and drop it only
+      // after RECOVERED_MS of not being lost.
+      const okSince = Number.isFinite(prev.okSince) ? prev.okSince : now;
+      if (now - okSince >= RECOVERED_MS) { book.delete(session); continue; }
+      book.set(session, { ...prev, evidence: null, sweeps: 0, okSince });
       continue;
     }
     const entry = observe(book.get(session), agent.stateEvidence);
@@ -94,9 +106,9 @@ async function sweepOnce(o) {
     }
     if (plan.act !== 'nudge') {
       results.push({ session, name: display, act: plan.act, because: plan.because });
-      if (plan.act === 'escalate' && log && !entry.escalated) {
-        entry.escalated = true;
-        try { log({ name: display, session, act: 'escalate', because: plan.because }); } catch { /* never breaks a sweep */ }
+      if (plan.act === 'escalate' && !entry.escalated) {
+        entry.escalated = true; // sticky, and logged once
+        if (log) { try { log({ name: display, session, act: 'escalate', because: plan.because }); } catch { /* never breaks a sweep */ } }
       }
       continue;
     }
@@ -129,4 +141,4 @@ function probeApi({ host = 'api.anthropic.com', port = 443, timeoutMs = 3000 } =
   });
 }
 
-module.exports = { planHeal, observe, sweepOnce, probeApi, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, NUDGE_TEXT };
+module.exports = { planHeal, observe, sweepOnce, probeApi, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };

@@ -2071,10 +2071,14 @@ const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewa
    is stale and the rule does not fire. Prompt rows, footers and the status bar are not agent
    output, so a wedged pane (error, footer, empty prompt, status bar) still matches, whatever
    placeholder its prompt shows. Returns the evidence line, or null. */
+const API_ERROR_ROW = /^\s*(?:[⏺●]\s+)?API Error:/u;
 function connectionLostAtTail(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
   let at = -1;
-  for (let i = 0; i < rows.length; i += 1) if (CONNECTION_LOST_MESSAGE.test(rows[i])) at = i;
+  // Only Claude Code's own error row counts ("⏺ API Error: …", or bare "API Error: …"), never the
+  // agent's prose quoting the same words: that would read connection_lost on a healthy agent,
+  // and PR 2b's sweep types into panes that read connection_lost.
+  for (let i = 0; i < rows.length; i += 1) if (API_ERROR_ROW.test(rows[i]) && CONNECTION_LOST_MESSAGE.test(rows[i])) at = i;
   if (at === -1) return null;
   for (let i = at + 1; i < rows.length; i += 1) if (/^\s*[⏺●]\s/.test(rows[i])) return null;
   return matchedLine(rows[at], [CONNECTION_LOST_MESSAGE]);

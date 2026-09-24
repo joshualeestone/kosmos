@@ -41,3 +41,11 @@ test('#3410: a second error after a recovered turn reads connection_lost again (
   const again = RECOVERED.replace('✻ Worked for 2s · done 5:18 PM', '✻ Worked for 2s · done 5:18 PM\n' + ERR);
   assert.equal(status.classify(PANE, again).state, status.STATE.CONNECTION_LOST);
 });
+
+test('#3410: the agent quoting the error words in its own prose is NOT connection_lost', () => {
+  // Found in review: only Claude Code's own "API Error:" row counts, or a healthy agent that
+  // writes about a firewall would read connection_lost and be nudged.
+  const pane = ['⏺ It said the request failed because a firewall or proxy may be blocking it, so I stopped.',
+    '✻ Worked for 12s · done 5:20 PM', ...CHROME].join('\n');
+  assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});
