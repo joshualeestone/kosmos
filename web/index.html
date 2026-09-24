@@ -44087,7 +44087,11 @@ function pjGrowComposer(el) {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
-  pjComposerCount(el);
+  // #3403: the near-limit counter rides here (every value change calls pjGrowComposer).
+  // Guarded because web.composer-height-1303c.test.js LIFTS pjGrowComposer on its own and
+  // eval()s it in isolation, where its sibling helper is out of scope; in the page they are
+  // always both defined, and the counter's real behaviour is covered by render-msg-counter-3403.
+  if (typeof pjComposerCount === 'function') pjComposerCount(el);
 }
 
 /**
