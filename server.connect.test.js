@@ -435,6 +435,41 @@ test('#2645: a present-but-dead credential launches a real login (auth login --c
   }
 });
 
+// #3326 (Josh, 2026-09-24: "force a fresh login everytime"): the DEFAULT sign-up start with
+// reauth:true must launch a REAL login even when the credential is file-connected AND LIVE.
+// #3367 had gated this on a liveness probe, which launched nothing for a live credential; this
+// drives the real route to prove the gate is gone. The already-connected test above (no reauth,
+// answers connected, runs nothing) is the control.
+test('#3326: sign-up with reauth forces a real login even when the credential is LIVE', async () => {
+  const subscription = require('./engine/subscription');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const calls = [];
+  connect.setRunner((file, args) => {
+    calls.push({ file, args: args || [] });
+    if ((args || []).includes('--version')) return { ok: true, stdout: '2.1.0' };
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const got = await post('/api/connect/start', { reauth: true });
+    assert.equal(got.status, 200, got.body);
+    assert.notEqual(json(got).phase, 'connected', 'a live credential short-circuited to connected: the probe gate is back');
+    for (let end = Date.now() + 2000; Date.now() < end && !calls.some((c) => (c.args || []).includes('new-session')); ) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const launch = calls.find((c) => (c.args || []).includes('new-session'));
+    assert.ok(launch, 'no tmux new-session -- sign-up with reauth did not launch a login for a live credential');
+    assert.match(launch.args.join(' '), /auth login --claudeai/,
+      'sign-up with reauth must launch a REAL login; got: ' + launch.args.join(' '));
+  } finally {
+    connect.setRunner(null);
+    subscription.setRunner(null);
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    await post('/api/connect/cancel').catch(() => {});
+    connect.resetForTests();
+  }
+});
+
 // #2645 CONTROL: a genuinely FRESH machine (no credential -> check() NONE -> the
 // deadCredential fall-through is never entered) must still launch a BARE claude for its
 // own onboarding. Without this arm, the test above is satisfied by a change that ALWAYS
