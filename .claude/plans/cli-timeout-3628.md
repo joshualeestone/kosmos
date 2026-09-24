@@ -44,7 +44,14 @@ cli.exit-code-mapping-3628.test.js:
   Restoring world-outbox's -1 reds it too.
   Perturbations: restoring `?? 1` in one file, and deleting the reject line in another,
   each red the guard.
-All 16 harness files: 107/108 pass with the guard at the time, 5/5 guard after tightening.
+All 18 changed cli.* files: 113/113 pass (review pass 3, measured). The bare-code rule
+is per call site: each exit code taken bare from an exec error (`code: err ? err.code`,
+`code: e && e.code`, `const code = err ? err.code`) must follow a `typeof x.code !==
+'number'` check within 400 characters, so one guarded site cannot vouch for another
+(perturbation: a second unguarded site in cli.task-2662 reds it). Scoped to `code`
+positions and err/e/error, because a first unscoped version flagged six non-exit uses
+(typed error checks, an HTTP status) in four other files; those are negative controls now.
+The reject message names timeout, output-buffer overflow, or spawn failure.
 
 ## Found along the way (not a code defect)
 The CLI tests first failed at exactly 20s on every case. That was the agent1 syspolicyd

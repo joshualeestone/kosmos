@@ -34,7 +34,7 @@ function run(args, { home, data }, input) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: '9' };
     const child = execFile('bash', [CLI, ...args], { env, timeout: 20000 }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, out: `${stdout}`, err: `${stderr}`, both: `${stdout}${stderr}` });
     });
     if (input != null) { child.stdin.write(input); child.stdin.end(); }

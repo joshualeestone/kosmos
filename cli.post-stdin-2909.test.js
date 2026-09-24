@@ -24,7 +24,7 @@ const BIG_INPUT_TIMEOUT_MS = 60000;
 function runCli(args, env, input, timeoutMs) {
   return new Promise((resolve, reject) => {
     const child = execFile(CLI, args, { env, timeout: timeoutMs || 20000 }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
     child.stdin.end(input === undefined ? '' : input);
@@ -34,7 +34,7 @@ function runCli(args, env, input, timeoutMs) {
 function runShell(line, env) {
   return new Promise((resolve, reject) => {
     const child = execFile('/bin/sh', ['-c', line], { env, timeout: 20000 }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
     child.stdin.end('');

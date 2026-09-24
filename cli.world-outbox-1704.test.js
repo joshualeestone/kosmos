@@ -99,7 +99,7 @@ function runCli(args, extraEnv) {
   };
   return new Promise((resolve, reject) => {
     execFile(BASH, [posixPath(CLI_COPY), ...args], { env, timeout: 60000 }, (err, stdout, stderr) => {
-      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout or never started. ' + (stderr || ''))); return; }
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: String(stdout), stderr: String(stderr) });
     });
   });
