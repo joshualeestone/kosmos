@@ -40,7 +40,7 @@ out="$(run cs_locked)"; rc=$?
 [ "$rc" = 1 ] && ok "a locked keychain refuses" || bad "a locked keychain should refuse (rc=$rc)"
 case "$out" in *"login keychain is LOCKED"*) ok "it names the lock" ;; *) bad "it did not name the lock: $out" ;; esac
 case "$out" in *"security unlock-keychain"*) ok "it prints the unlock command" ;; *) bad "no unlock command: $out" ;; esac
-case "$out" in *"SAME session"*"not detached"*) ok "it says to unlock in the cut's own session, not a detached one" ;; *) bad "no same-session guidance: $out" ;; esac
+case "$out" in *"SAME session"*"did not reach a cut detached"*) ok "it says to unlock in the cut's own session" ;; *) bad "no same-session guidance: $out" ;; esac
 case "$out" in *errSecInternalComponent*) ok "it shows codesign's own error" ;; *) bad "codesign's error was hidden: $out" ;; esac
 
 # The other spelling of the same lock.
@@ -109,6 +109,15 @@ else
   bad "release.sh wiring: entry-gate=[$entry] preflight=[$call] bump=[$bump]; the preflight must sit between them"
 fi
 [ "$ncalls" = 1 ] && ok "release.sh calls the preflight exactly once" || bad "release.sh calls the preflight $ncalls times"
+# The 1c label is what files a signing refusal under its own bucket in cut-suite-runs.log
+# (cut_record_done writes $_STEP); without it they land in 1b's. Pinned like 1b's label
+# in test-versions-entry-gate.sh.
+nlbl="$(grep -c 'step "== 1c' "$R")"
+lbl="$(grep -n 'step "== 1c' "$R" | head -1 | cut -d: -f1)"
+[ "$nlbl" = 1 ] && ok "the 1c step label exists exactly once" || bad "the 1c label is missing or duplicated (found $nlbl)"
+if [ -n "$lbl" ] && [ -n "$entry" ] && [ -n "$call" ] && [ "$entry" -lt "$lbl" ] && [ "$lbl" -lt "$call" ]; then
+  ok "and it sits after the versions gate and before the preflight call ($entry < $lbl < $call)"
+else bad "the 1c label is misplaced (entry-gate=$entry label=$lbl call=$call)"; fi
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 26 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 28 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }

@@ -63,7 +63,7 @@ EOF
       echo "The identity is here but this session cannot use its key: the login keychain is LOCKED, which is normal over SSH."
       echo "Step 4 would fail the same way AFTER the suite and the page layer. In the SAME session that will run the cut:"
       echo "    security unlock-keychain \"$kc\"          # prompts for the login password"
-      echo "then run the cut in that session, not detached (nohup) from it: an unlock in one session did not reach a cut detached into another."
+      echo "then run the cut in that session. An unlock in one SSH session did not reach a cut detached (nohup) into another."
       ;;
     *"ambiguous"*)
       echo "More than one identity matches \"$id\". Set KOSMOS_CODESIGN_ID to the exact one (its SHA-1 from 'security find-identity -v -p codesigning')."
