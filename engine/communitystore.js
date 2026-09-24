@@ -25,7 +25,7 @@
  *   // -> { ok, status: 'published'|'held'|'quarantined', id }
  *
  * 🔑 Two safety layers, kept distinct (Pete's held-by-default policy, #3485).
- * Both are DISPOSITION decisions the BOARD makes at feed.publish() (feedguard +
+ * Both are DISPOSITION decisions the choke (engine/feedpublish.js) makes (feedguard +
  * the trust ladder below); this store PERSISTS the status the board decided and
  * does not itself re-decide publish-vs-hold:
  *   1. Scrubber (feedguard, the backstop): a post must be `clean` to publish; a
