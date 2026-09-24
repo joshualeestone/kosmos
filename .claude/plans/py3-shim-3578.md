@@ -8,17 +8,20 @@ text and exits 69, and `tools/run-tests.sh` goes red locally on a tree nobody ch
 2026-09-24 on two unrelated branches). CI (macos-latest, license accepted) is unaffected, which is
 why it stayed local.
 
-## Change
-Call `python3` from PATH, as sibling scripts already do (test-pkg-arch-gate-1562.sh,
-test-site-push-race-2276.sh, test-permission-acceptance.sh, test-data-root-1511.sh,
-test-scan-hatch-symlink-2125b.sh). After this, no script under tools/ hard-codes /usr/bin/python3.
+## Change (revised after CI)
+Each script picks its interpreter once, near `set -u`:
+`PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3`, and every call site uses "$PY3".
+So wherever the system python runs (CI, any Mac with the license accepted) behaviour is EXACTLY as
+before, and only a Mac whose shim cannot run falls back to python3 on PATH.
 
-**Scope, stated plainly:** this fixes the local red only where a non-shim python3 comes BEFORE
-/usr/bin on the PATH of whatever runs the suite (true for agent1's interactive shells: Homebrew's
-python3 first). A context whose PATH lacks /opt/homebrew/bin still gets the shim and still fails the
-same way. It is never worse than today (without Homebrew, python3 IS /usr/bin/python3), but the
-machine-level fix is still #3592's license acceptance. Also note that local run-tests.sh stays red
-on agent1 for a separate shim, swiftc in test-floor-gate-tree.sh (#3592).
+**Why revised:** the first version (bare `python3` from PATH everywhere) went red on CI (PR #3601,
+run 36022095028): test-served-verify.sh "local server did not start" with an EMPTY server log, so the
+runner's PATH python3 produced no PORT line inside the script's 5s poll where /usr/bin/python3 did.
+Root cause on the runner is NOT established (a slow first start of the toolcache python is a guess).
+The prefer-system form makes that question moot: CI keeps the interpreter it always used.
+
+**Scope:** fixes the local red on agent1 for these three scripts. Local run-tests.sh stays red on
+agent1 for a separate shim, swiftc in tools/test-floor-gate-tree.sh (#3592).
 
 ## Rejected
 - `export DEVELOPER_DIR=/Library/Developer/CommandLineTools` in each script: it works (measured for
@@ -29,14 +32,15 @@ on agent1 for a separate shim, swiftc in test-floor-gate-tree.sh (#3592).
   Josh's behalf is his call (the card says so).
 
 ## Weakest premise
-That no script relies on the SYSTEM python specifically (e.g. a stdlib-version quirk). The six call
+That `"$PY3" -c ''` succeeding means the system python is fully usable (it proves the shim runs, not
+every stdlib module). And, for the fallback arm only, that no script relies on the SYSTEM python specifically (e.g. a stdlib-version quirk). The six call
 sites (four in test-pkg-checksum-1670.sh, one in each of the other two) are http.server servers,
 one `re`-based extraction, and plain stdlib heredocs, which every python3 carries.
 
 ## Tests
-Both arms per script, on agent1: normal PATH -> rc=0; PATH with a `python3` symlinked to the
-`/usr/bin` shim first -> rc=1 with the license text (the control reproduces the original failure).
-Full `tools/run-tests.sh` on agent1 (committed tree, 2026-09-24): node suite 8612 tests / 0 fail;
-test-served-verify.sh now passes ("local server listening"); the suite still exits 69 at
-tools/test-floor-gate-tree.sh, whose swiftc is the same unaccepted-license shim (#3592, out of scope
-here). CI on macos-latest is the authoritative full run.
+Both arms per script on agent1:
+- fallback arm (as-is: /usr/bin/python3 shim exits 69, so PY3=python3): all three rc=0.
+- system arm (DEVELOPER_DIR=CommandLineTools makes /usr/bin/python3 3.9.6 run, so PY3=/usr/bin/python3,
+  the CI path): all three rc=0.
+Selection verified directly in each arm (prints python3 vs /usr/bin/python3).
+CI (macos-latest) is the authoritative run for the system arm.

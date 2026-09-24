@@ -141,6 +141,9 @@
 #
 #   bash tools/test-served-verify.sh
 set -u
+# #3578: prefer the system /usr/bin/python3 (what CI has always used), but fall back to python3 on
+# PATH when that shim cannot run -- on a Mac whose Xcode license is unaccepted it exits 69 on every call.
+PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$DIR/lib/served-verify.sh"
@@ -371,7 +374,7 @@ print('PORT %d' % srv.server_address[1], flush=True)
 srv.serve_forever()
 PY
 
-python3 -u "$T/srv.py" >"$T/srv.log" 2>&1 &
+"$PY3" -u "$T/srv.py" >"$T/srv.log" 2>&1 &
 SRV=$!
 
 PORT=""
