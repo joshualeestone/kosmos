@@ -2062,17 +2062,18 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  */
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
-/* #3410: Claude Code's live retry lines, two layouts, each anchored at both ends.
-   1. "✻ <error> · Retrying in 5s · attempt 4/10": measured 2026-09-24 (2.1.281) in all
-      152 retrying frames, always the ✻ glyph and always at column 0 (the glyph did not
-      animate). Column 0 is required, because agent prose continuation rows are indented.
-      The class is WORKING_LINE's spinner frames WITHOUT `*`, since this anchor is plain
-      text and a markdown "* " bullet ending in the suffix would otherwise match.
-   2. "  └ Retrying in 30 seconds… (attempt 7/10)": the layout captured live on #874
-      (2026-08-25), a sub-row under the error. */
+/* #3410: Claude Code's live retry line, anchored at both ends:
+   "✻ <error> · Retrying in 5s · attempt 4/10". Measured 2026-09-24 (2.1.281) in all 152
+   retrying frames: always the ✻ glyph, always at column 0 (the glyph did not animate).
+   Column 0 is required because agent prose continuation rows are indented. The class is
+   WORKING_LINE's spinner frames WITHOUT `*`, since this anchor is plain text and a markdown
+   "* " bullet ending in the suffix would otherwise match.
+   NOT covered, deliberately: #874's "  └ Retrying in 30 seconds… (attempt 7/10)" layout. It was
+   only ever seen under a 401 (which authFailed catches), never under a network error, and its
+   persistence after the retries end is unmeasured; matching it anywhere in the tail let a stale
+   row make a wedged pane read working (a false calm the self-heal would never act on). */
 const RETRYING_LINES = [
   /^[·✢✳✶✻✽] .*·\s+Retrying in\s+\d+s\s+·\s+attempt\s+\d+\/\d+\s*$/u,
-  /^\s{0,4}└ Retrying in\s+\d+\s+seconds?…\s+\(attempt\s+\d+\/\d+\)\s*$/u,
 ];
 
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
