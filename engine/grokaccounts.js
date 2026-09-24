@@ -559,9 +559,9 @@ async function listLiveNow() {
  *
  * Measured against grok 1.0.41 (2026-09-24, in a throwaway GROK_HOME): it prints
  *   https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH
- * then the code again on its own line, then waits. It honours GROK_HOME, and it
- * needs `--leader-socket` inside the account dir: without it, it would share the
- * machine's ~/.grok/leader.sock.
+ * then the code again on its own line, then waits. It honours GROK_HOME. Its leader
+ * socket defaults to the machine's ~/.grok/leader.sock, so each sign-in passes its
+ * own `--leader-socket` in the temp dir (see startGrokLogin).
  *
  * The session lives as long as the server process, as in openaiaccounts. */
 const grokSessions = new Map();

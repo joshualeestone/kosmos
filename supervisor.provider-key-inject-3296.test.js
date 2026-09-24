@@ -179,7 +179,7 @@ test('real tmux resolves a repeated -e to the LAST value (the precedence the per
    (auth.json, no key file) must reach grok with NO XAI_API_KEY at all, or grok runs on the
    key instead of the sign-in. An EMPTY value still counts as set to grok (measured), so the
    supervisor drops every door pair and runs grok through `env -u XAI_API_KEY`. */
-function runGrokWithAccount({ door, keyFile, authJson, defaultHome }) {
+function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome }) {
   const tree = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-grok-sub-'));
   fs.mkdirSync(nodePath.join(tree, 'bin'), { recursive: true });
   fs.mkdirSync(nodePath.join(tree, 'secrets', 'env'), { recursive: true });
@@ -190,6 +190,8 @@ function runGrokWithAccount({ door, keyFile, authJson, defaultHome }) {
   if (door) fs.writeFileSync(nodePath.join(tree, 'secrets', 'env', 'XAI_API_KEY'), door);
   if (keyFile !== undefined) fs.writeFileSync(nodePath.join(acct, '.kosmos-grok-apikey'), keyFile, { mode: 0o600 });
   if (authJson) fs.writeFileSync(nodePath.join(acct, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::abc': { email: 'x@example.com', refresh_token: 'r' } }), { mode: 0o600 });
+  if (authRaw !== undefined) fs.writeFileSync(nodePath.join(acct, 'auth.json'), authRaw, { mode: 0o600 });
+  if (keyIsDir) fs.mkdirSync(nodePath.join(acct, '.kosmos-grok-apikey'));
   const rec = nodePath.join(tree, 'rec.txt');
   const fake = nodePath.join(tree, 'rec-tmux.sh');
   fs.writeFileSync(fake, [
@@ -239,4 +241,25 @@ test('grok DEFAULT CONTROL: a default ~/.grok with NO sign-in keeps the door key
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', defaultHome: true });
   assert.match(rec, /-e XAI_API_KEY=globaldoorvalue/, 'the door key still reaches a default agent with no sign-in');
   assert.ok(!/env -u XAI_API_KEY/.test(rec));
+});
+
+/* The supervisor decides "subscription" by the SAME rules as grokaccounts.identityOf, or a
+   dir the board does not list as a subscription would still lose its key (iteration-4 review). */
+const kept = (rec) => /-e XAI_API_KEY=globaldoorvalue/.test(rec) && !/env -u XAI_API_KEY/.test(rec);
+const stripped = (rec) => !/XAI_API_KEY=/.test(rec) && /env -u XAI_API_KEY/.test(rec);
+
+test('grok: an auth.json that is not ONE auth.x.ai entry is not a subscription, so the door key stays', () => {
+  assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: '{}' })), 'an empty {} keeps the key');
+  assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': {}, 'https://auth.x.ai::b': {} }) })), 'two entries keep the key');
+  assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://other.example::a': {} }) })), 'another issuer keeps the key');
+  // CONTROL: exactly one entry strips, through the same fixture path.
+  assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e' } }) })));
+});
+
+test('grok: a WHITESPACE-only key file beside a sign-in is a subscription (identityOf trims it to empty)', () => {
+  assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', keyFile: '  \n', authJson: true })));
+});
+
+test('grok: an UNREADABLE key file beside a sign-in describes nothing, so nothing is stripped', () => {
+  assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', keyIsDir: true, authJson: true })));
 });

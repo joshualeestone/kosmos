@@ -133,7 +133,7 @@ fs.writeFileSync(FAKE, [
   'printf "%s\\n" "$GROK_HOME" > "$FAKE_REC.home"',
   'printf "\\nTo sign in, open this URL in your browser:\\n\\n  https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI\\n\\nConfirm this code in your browser:\\n\\n  QWER-TYUI\\n\\nWaiting for authorization...\\n"',
   'case "$FAKE_MODE" in',
-  '  approve) sleep 0.3; printf \'{"https://auth.x.ai::u1":{"email":"sub@example.com","refresh_token":"r"}}\' > "$GROK_HOME/auth.json"; exit 0 ;;',
+  '  approve) touch "$4"; sleep 0.3; printf \'{"https://auth.x.ai::u1":{"email":"sub@example.com","refresh_token":"r"}}\' > "$GROK_HOME/auth.json"; exit 0 ;;',
   '  fail) sleep 0.2; exit 1 ;;',
   '  noauth) mkdir -p "$GROK_HOME/docs" "$GROK_HOME/logs"; sleep 0.2; exit 0 ;;',
   '  hang) exec sleep 30 ;;',
@@ -178,6 +178,7 @@ test('driver: approve -> awaiting-code with the URL and code -> connected with a
   const sock = argv[3];
   assert.ok(sock.startsWith(os.tmpdir()), 'its leader socket is in the temp dir, never ~/.grok/leader.sock');
   assert.ok(Buffer.byteLength(sock) < 104, 'and short enough for macOS\'s 104-byte socket path limit');
+  await waitFor(() => !fs.existsSync(sock));   // the fake created it; the settled sign-in removed it
   assert.ok(grok.list().some((a) => a.dir === dir), 'the account is listed afterwards');
 }));
 

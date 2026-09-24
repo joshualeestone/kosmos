@@ -658,12 +658,31 @@ if [ -z "$adopt" ]; then
     # still counts as set to grok (measured), so the variable is REMOVED: every
     # `-e XAI_API_KEY=...` pair the secrets/env door added is dropped from PANE_ENV, and
     # the pane runs grok through `env -u XAI_API_KEY` so a server-global value cannot
-    # reach it either. The default ~/.grok follows the same rule, because the board lists
-    # it as the subscription account it holds (engine/grokaccounts.js rowFor). A key-file
-    # account, and a default with no sign-in, are unchanged.
+    # reach it either. The default follows the same rule, because the board lists it as
+    # the subscription account it holds (engine/grokaccounts.js rowFor).
+    # WHICH DIR: GROK_HOME for a per-account agent; for a default one, the three tiers of
+    # engine/grokaccounts.js defaultDir(), reproduced as the codex arm above reproduces
+    # defaultAgentCodexHome() (in production both tiers are unset and it is $HOME/.grok).
+    # WHAT KIND, the same rules as grokaccounts.identityOf: a key file that is there but
+    # unreadable describes nothing (no strip); a key file with any non-blank character is
+    # an api-key account (no strip); otherwise it is a subscription only if auth.json holds
+    # exactly ONE https://auth.x.ai:: entry (identityOf also requires it to parse, which a
+    # grep cannot check; a file with one entry that does not parse is the one case where
+    # the two can still disagree).
     _GROK_PREFIX=()
-    _GROK_ACCT="${GROK_HOME:-${HOME}/.grok}"
-    if [ ! -s "${_GROK_ACCT}/.kosmos-grok-apikey" ] && [ -f "${_GROK_ACCT}/auth.json" ]; then
+    _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
+    _GROK_KEYF="${_GROK_ACCT}/.kosmos-grok-apikey"
+    _GROK_SUB=0
+    if [ -e "$_GROK_KEYF" ] && { [ -d "$_GROK_KEYF" ] || [ ! -r "$_GROK_KEYF" ]; }; then
+      _GROK_SUB=0
+    elif [ -r "$_GROK_KEYF" ] && grep -q '[^[:space:]]' "$_GROK_KEYF" 2>/dev/null; then
+      _GROK_SUB=0
+    elif [ -r "${_GROK_ACCT}/auth.json" ]; then
+      _entries="$(grep -o '"https://auth\.x\.ai::' "${_GROK_ACCT}/auth.json" 2>/dev/null | wc -l | tr -d ' ')"
+      [ "$_entries" = 1 ] && _GROK_SUB=1
+      unset _entries
+    fi
+    if [ "$_GROK_SUB" = 1 ]; then
       _kept=()
       _i=0
       _n=${#PANE_ENV[@]}
@@ -683,7 +702,7 @@ if [ -z "$adopt" ]; then
       unset _kept _i _n
       _GROK_PREFIX=(/usr/bin/env -u XAI_API_KEY)
     fi
-    unset _GROK_ACCT
+    unset _GROK_ACCT _GROK_KEYF _GROK_SUB
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
