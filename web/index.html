@@ -1347,29 +1347,26 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .layopt[aria-checked="true"]:focus-visible { outline-color: #14161a; }
 .layopt:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 @media (max-width: 959.98px) { .laypick { display: none; } }
-/* #3312 (Josh 2026-09-19): the Add-Project mode toggle -- two pills with "or" between, the
-   active one filled with ink, the other outlined. Bigger than the .laypick segmented control
-   (this is the screen's top-level choice, not a compact icon switch), and it uses ink/surface
-   rather than gold so it never competes with the gold "Create project" / "Join Project" CTA. */
-.pj-mode { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 24px;
+/* #3312 (Josh 2026-09-19): the Add-Project mode toggle. Bigger than the .laypick segmented
+   control (this is the screen's top-level choice), and it uses ink/surface rather than gold so it
+   never competes with the gold "Create project" / "Join Project" CTA. */
+/* #3495 (Josh, 2026-09-23): the Create/Join toggle is now a SEGMENTED selector - the two tabs are
+   joined (shared border, outer corners rounded) rather than separate pills with an "or". The active
+   tab fills; the radio stays the source of truth. */
+.pj-mode { display: inline-flex; align-items: stretch; flex-wrap: nowrap; margin: 4px 0 24px;
            border: 0; padding: 0; min-width: 0; }
 .pj-mode-opt { display: inline-flex; align-items: center; font: inherit; font-weight: 700;
-               font-size: 1.0625rem; line-height: 1; padding: .8em 1.5em;
-               border-radius: var(--radius-pill, 100px); border: 1.5px solid var(--label);
+               font-size: 1.0625rem; line-height: 1; padding: .7em 1.4em;
+               border: 1.5px solid var(--label); border-radius: 0;
                background: none; color: var(--label); cursor: pointer; }
-/* The pill IS the control; the radio is visually hidden but stays focusable + keyboard-navigable. */
+.pj-mode-opt:first-of-type { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+.pj-mode-opt:last-of-type { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+.pj-mode-opt:not(:first-of-type) { border-left-width: 0; }
+/* The tab IS the control; the radio is visually hidden but stays focusable + keyboard-navigable. */
 .pj-mode-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 .pj-mode-opt:hover:not(:has(input:checked)) { background: var(--bg-elevated); }
 .pj-mode-opt:has(input:checked) { background: var(--label); color: var(--bg-elevated); border-color: var(--label); }
 .pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: 2px; }
-.pj-mode-or { color: var(--label-2); font-weight: 600; }
-/* Federation Kosmos+ gate: the "sign up for Kosmos+" prompt shown (via the
-   data-fed-ui="signup" gate) instead of the fed entry points to a non-member. A
-   quiet card, not an alarm: it explains the feature and offers the one action. */
-.pj-plus-signup { margin: 4px 0 24px; padding: 16px 18px; border: 1px solid var(--k-rule);
-                  border-radius: 12px; background: var(--k-surface); max-width: 34rem; }
-.pj-plus-signup-t { margin: 0 0 12px; color: var(--label); }
-.pj-plus-signup .btn { margin: 0; }
 /* A read-only value line in Join mode (the owner's project name/description, which the receiver
    cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
 .pj-ro { margin: 2px 0 0; color: var(--label); white-space: pre-wrap; }
@@ -7664,21 +7661,21 @@ html[data-kosmos-platform="win32"] ::-webkit-scrollbar-button { display: none; }
    UI was hidden on prod by a plain sourceChannel gate; it now gates on the mode
    that fedGateStamp() computes into data-fed-ui ('show' / 'signup' / 'hidden')
    from sourceChannel + the federation-live flip + the viewer's Plus entitlement.
-   The mode logic lives in JS (fedGateMode, unit-tested); these two rules just hide
-   whatever the mode does not authorize.
-     - The fed entry points are shown ONLY in 'show' mode (a Kosmos+ member on a
-       live channel, or staging). `.pj-mode` is the create/join toggle (hiding it
-       leaves plain create-a-project); the two `#pj-add-ext-*` buttons are the
-       create-side external doors; `#pj-invite-panel` and `#pj-join-mode` are their
-       follow-ons. `#pj-add-agent`/`#pj-create` (local) are NOT gated.
-     - `#pj-plus-signup` (the "sign up for Kosmos+" prompt) shows ONLY in 'signup'
-       mode (a non-member / not-logged-in viewer on a live channel).
-   FAIL-SAFE: before the first status tick data-fed-ui is absent, so BOTH rules
-   match and nothing federation-related shows. Verified by render-fed-plus-gate.js.
-   The flip is engine-side (federationLive true) -- no web redeploy, Splinter
-   coordinates it after slice 3 is e2e-proven. */
-html:not([data-fed-ui="show"]) .pj-mode,html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"]) #pj-add-ext-agent,html:not([data-fed-ui="show"]) #pj-invite-panel,html:not([data-fed-ui="show"]) #pj-join-mode { display: none !important; }
-html:not([data-fed-ui="signup"]) #pj-plus-signup { display: none !important; }
+   The mode logic lives in JS (fedGateMode, unit-tested); the rules below hide the
+   Plus-only content the mode does not authorize (#pj-invite-panel, #pj-join-mode) and
+   gray the Add-external doors. `#pj-add-agent`/`#pj-create` (local) are NOT gated.
+   Before the first status tick data-fed-ui is absent, which reads as not-"show".
+   Verified by render-fed-plus-gate.js. The flip is engine-side (federationLive true). */
+/* #3495 (Angel, gate-behaviour half): the Create/Join toggle (.pj-mode) and the two
+   Add-external buttons now ALWAYS show (Josh: the toggle is always up, the Join tab and the
+   grayed buttons gate by MESSAGE, not by hiding). Only the Plus-only CONTENT stays hidden for a
+   non-"show" viewer: #pj-invite-panel (the minted-invite flow) and #pj-join-mode (the join form) --
+   a non-Plus viewer who selects Join gets showPlusGate("join") instead (see the change handler),
+   so the form is never reached anyway; this rule is the belt-and-suspenders. */
+html:not([data-fed-ui="show"]) #pj-invite-panel,html:not([data-fed-ui="show"]) #pj-join-mode { display: none !important; }
+/* The Add-external buttons show GRAYED (not hidden) for a non-"show" viewer, and stay CLICKABLE so
+   the click can open showPlusGate("connect"). Visual gray only -- no pointer-events:none. */
+html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"]) #pj-add-ext-agent { opacity: .55; }
 /* The Windows install command and its Copy button (W-14). The command keeps its own
    wrapping rule above; the row only puts the button beside it. */
 .fr-cmd-row { display: flex; align-items: flex-start; gap: var(--space-4); }
@@ -9738,6 +9735,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="rm-acts">
       <button class="btn" type="button" id="uc-no">Not now</button>
       <button class="btn uprime" type="button" id="uc-go">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- #3495 (Josh, 2026-09-23): the shared Kosmos Plus gate modal. showPlusGate(kind) opens it with
+     the kind's copy - "join" for the Join-an-external-project tab, "connect" for the grayed
+     Add-external person/agent buttons (one modal, two messages: #3495 items 3-5). The behaviour
+     (fed-gate state, when to gate) lives in fedGateMode; this modal only shows the prompt. -->
+<div class="rm-back" id="plus-gate-modal" hidden>
+  <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-gate-t" aria-describedby="plus-gate-msg">
+    <h2 class="rm-title" id="plus-gate-t">Kosmos Plus</h2>
+    <p class="rm-small" id="plus-gate-msg"></p>
+    <div class="rm-acts">
+      <button class="btn" type="button" id="plus-gate-close">Not now</button>
+      <button class="btn uprime" type="button" id="plus-gate-go">Sign up for Kosmos+</button>
     </div>
   </div>
 </div>
@@ -12913,20 +12925,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          on the label; the input is visually hidden but focusable. -->
     <fieldset class="pj-mode">
       <legend class="vh">Create a new project or join an external one</legend>
-      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create New Project</label>
-      <span class="pj-mode-or" aria-hidden="true">or</span>
-      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join External Project</label>
+      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create a project</label>
+      <label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join an external project</label>
     </fieldset>
 
-    <!-- Federation Kosmos+ gate (Josh launch spec, 2026-09-21): shown INSTEAD of the
-         federation entry points when a viewer on a live channel is not an
-         authenticated Kosmos+ member (fedGateStamp -> data-fed-ui="signup"). The gate
-         CSS hides it in every other mode. It routes into the in-app Kosmos Plus
-         section (no hardcoded domain -- the Plus section owns where sign-up goes). -->
-    <div id="pj-plus-signup" class="pj-plus-signup">
-      <p class="pj-plus-signup-t">Working across organizations is a Kosmos+ feature. Join external projects and invite people and agents from outside your Kosmos with Kosmos+.</p>
-      <button class="btn uprime" type="button" id="pj-plus-signup-go">Sign up for Kosmos+</button>
-    </div>
 
     <div id="pj-create-mode">
 
@@ -18302,7 +18304,7 @@ async function tick() {
     // Prod-by-default (anything but 'staging'), matching the server's default.
     document.documentElement.setAttribute('data-source-channel',
       data.sourceChannel === 'staging' ? 'staging' : 'prod');
-    // Federation Kosmos+ gate: compute the mode (fed UI / sign-up prompt / hidden)
+    // Federation Kosmos+ gate: compute the mode (fed UI / gated with sign-up / hidden)
     // from sourceChannel + the federation-live flip + this viewer's Plus entitlement,
     // and stamp it on <html> for the CSS gate. Fail-safe (see fedGateMode).
     fedGateStamp(data);
@@ -24293,7 +24295,7 @@ function paintBuildLine(version) {
        always treated live (a review surface).
      - plusEntitled: is THIS viewer an authenticated Kosmos+ member? Members get
        the fed UI; everyone else gets a "sign up for Kosmos+" prompt instead.
-   Returns the gate mode: 'show' (fed UI), 'signup' (sign-up prompt), or 'hidden'.
+   Returns the gate mode: 'show' (fed UI), 'signup' (gated; the Plus-gate modal offers sign-up), or 'hidden'.
    MEMBERSHIP signal (ICK, kosmos-relay fed-plus-gate-3311): a boolean `kosmos_plus`
    (== the coordinator's standing == "good"), the SAME field the coordinator's own gate
    reads, so the UI and the API cannot disagree. ⚠️ ENDPOINT still to settle with ICK:
@@ -24314,26 +24316,78 @@ function fedGateMode(sourceChannel, federationLive, kosmosPlus) {
   if (kosmosPlus === true) return 'show';
   // Staging review continuity: while entitlement is not yet wired (neither true nor false),
   // keep showing the fed UI on staging so reviewers are not blocked. On PROD an unknown
-  // entitlement is treated as NOT a member (fail-safe) -> the sign-up prompt.
+  // entitlement is treated as NOT a member (fail-safe) -> gated with sign-up.
   const unknownPlus = kosmosPlus !== true && kosmosPlus !== false;
   if (staging && unknownPlus) return 'show';
   return 'signup';
 }
-/* Stamp the computed gate mode on <html> as data-fed-ui; the CSS gate hides
-   whatever the mode does not authorize. Fail-safe: before the first status tick
-   there is no data-fed-ui attribute, so both the fed UI and the sign-up prompt are
-   hidden until a real signal resolves. */
+/* #3495 (Angel): is the viewer an authorized Kosmos+ member on a live channel, i.e. may they
+   actually use the external-collaboration features? The gate mode "show" is the only authorized
+   state (see fedGateMode). Read from the same data-fed-ui stamp the CSS reads, so the behaviour
+   gate and the display gate cannot disagree. Fail-safe: absent attribute (before the first status
+   tick) reads false -> the Plus-gate prompt shows, never a silent pass. */
+function fedShow() {
+  return document.documentElement.getAttribute('data-fed-ui') === 'show';
+}
+/* Stamp the computed gate mode on <html> as data-fed-ui (read by the CSS gate and by fedShow),
+   whether the viewer is a member (data-fed-member), and the Add-external doors' hint. */
 function fedGateStamp(data) {
   data = data || {};
   const mode = fedGateMode(data.sourceChannel, data.federationLive, data.kosmos_plus);
   document.documentElement.setAttribute('data-fed-ui', mode);
+  document.documentElement.toggleAttribute('data-fed-member', data.kosmos_plus === true);
+  // The gated doors say so before the click (their gray is visual only).
+  for (const [id, who] of [['pj-add-ext-person', 'a person'], ['pj-add-ext-agent', 'an agent']]) {
+    const b = document.getElementById(id);
+    if (b) b.title = mode === 'show'
+      ? 'Invite ' + who + " outside your Kosmos to this project's messages"
+      : 'Inviting ' + who + ' from outside your Kosmos needs Kosmos Plus';
+  }
 }
-/* The "sign up for Kosmos+" prompt (shown when data-fed-ui="signup") routes into
-   the in-app Kosmos Plus section -- no hardcoded domain (Josh's ruling: the Plus
-   section owns where sign-up goes). */
+/* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
+   no hardcoded domain (Josh's ruling: the Plus section owns where sign-up goes). */
 function fedPlusSignupGo() {
   showTab('settings');
   settingsGo('plus');
+}
+/* #3495 (Josh, 2026-09-23): the shared Kosmos Plus gate modal. showPlusGate(kind) fills the copy
+   and shows it - kind is "join" (the Join-an-external-project tab) or "connect" (the grayed
+   Add-external person/agent buttons). One modal, two messages. It is a no-op if the modal DOM is
+   absent, so a caller (the fedGateMode gate behaviour, Angel's half) is always safe to call it. The
+   gate DECISION (when a viewer is gated) lives in fedGateMode; this only PRESENTS the prompt. */
+const PLUS_GATE_COPY = {
+  join: "It's a Kosmos Plus feature and you must be logged in to access it.",
+  connect: 'To connect external people or agents, you must be signed in as a Kosmos Plus user.',
+  soon: 'This is coming to Kosmos Plus soon. You are already a member, so there is nothing to do.',
+};
+/* The element that opened the gate, so closing returns the keyboard to it. The caller passes it
+   EXPLICITLY: WebKit (the production WKWebView) does not focus a <button> on click, so
+   document.activeElement is <body> for the grayed-button 'connect' case and cannot be trusted;
+   activeElement is only the fallback, which the radio-driven 'join' case does satisfy. A new sibling
+   does not inherit the aria-modal focus guard by sitting beside one (see the updconfirm note). */
+let PLUS_GATE_OPENER = null;
+function showPlusGate(kind, opener) {
+  const back = document.getElementById('plus-gate-modal');
+  const msgEl = document.getElementById('plus-gate-msg');
+  if (!back || !msgEl) return;
+  PLUS_GATE_OPENER = opener
+    || ((document.activeElement && document.activeElement !== document.body) ? document.activeElement : null);
+  // A member gated only because federation has not launched yet (data-fed-ui "hidden") gets
+  // "soon" and no Sign up button: telling a paying member to sign up is false.
+  const member = document.documentElement.hasAttribute('data-fed-member');
+  msgEl.textContent = member ? PLUS_GATE_COPY.soon : (PLUS_GATE_COPY[kind] || PLUS_GATE_COPY.join);
+  const go = document.getElementById('plus-gate-go');
+  if (go) go.hidden = member;
+  back.hidden = false;
+  const close = document.getElementById('plus-gate-close');
+  if (close) close.focus();
+}
+function hidePlusGate() {
+  const back = document.getElementById('plus-gate-modal');
+  if (back) back.hidden = true;
+  const opener = (PLUS_GATE_OPENER && document.contains(PLUS_GATE_OPENER)) ? PLUS_GATE_OPENER : null;
+  PLUS_GATE_OPENER = null;
+  if (opener) opener.focus();
 }
 function paintBuildMark(version, sourceChannel) {
   const el = document.getElementById('buildmark');
@@ -46422,11 +46476,45 @@ async function pjJoinSubmit() {
 }
 
 document.getElementById('pj-mode-create').addEventListener('change', () => { if (document.getElementById('pj-mode-create').checked) pjSetAddMode('create'); });
-document.getElementById('pj-mode-join').addEventListener('change', () => { if (document.getElementById('pj-mode-join').checked) pjSetAddMode('join'); });
-// Federation Kosmos+ gate: the sign-up prompt routes into the in-app Kosmos Plus section.
-document.getElementById('pj-plus-signup-go').addEventListener('click', fedPlusSignupGo);
-document.getElementById('pj-add-ext-person').addEventListener('click', () => pjMintInvite('person'));
-document.getElementById('pj-add-ext-agent').addEventListener('click', () => pjMintInvite('agent'));
+/* #3495 (Angel): the Join tab is always selectable, but a non-Plus/not-live viewer gets the
+   Plus-gate MESSAGE instead of the join form (Josh: "when clicked, show a message"). Open the
+   shared modal and snap the toggle back to Create so the gated form is never shown. */
+document.getElementById('pj-mode-join').addEventListener('change', () => {
+  if (!document.getElementById('pj-mode-join').checked) return;
+  if (!fedShow()) { showPlusGate('join', document.getElementById('pj-mode-create')); pjSetAddMode('create'); return; }
+  pjSetAddMode('join');
+});
+/* #3495: the shared Plus-gate modal's own controls (Angel's behaviour calls showPlusGate to open it). */
+document.getElementById('plus-gate-close').addEventListener('click', hidePlusGate);
+document.getElementById('plus-gate-go').addEventListener('click', () => { hidePlusGate(); fedPlusSignupGo(); });
+(() => { const b = document.getElementById('plus-gate-modal'); if (b) b.addEventListener('click', (e) => { if (e.target === b) hidePlusGate(); }); })();
+/* #3495: the plus-gate modal gets the same .rm-back machinery as its siblings (updconfirm/rm-modal):
+   Escape leaves, and Tab is trapped among its two buttons so focus cannot leak to a control behind
+   the aria-modal backdrop. aria-modal is a promise these two listeners keep. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!document.getElementById('plus-gate-modal').hidden) hidePlusGate();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const back = document.getElementById('plus-gate-modal');
+  if (back.hidden) return;
+  const close = document.getElementById('plus-gate-close');
+  const go = document.getElementById('plus-gate-go');
+  // Intercept at the LAST element in the traversal direction and wrap to the first, so natural
+  // tabbing never exits the dialog (the updconfirm note explains why last, not first).
+  const reachable = [close, go].filter((el) => el && !el.disabled && !el.hidden);
+  const order = e.shiftKey ? reachable.slice().reverse() : reachable;
+  if (!order.length) { e.preventDefault(); return; }
+  const inside = back.contains(document.activeElement);
+  if (!inside) { e.preventDefault(); close.focus(); return; }
+  if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
+});
+/* #3495 (Angel): the grayed Add-external buttons stay clickable; a non-Plus/not-live viewer gets
+   the shared Plus-gate modal ("must be signed in as a Kosmos Plus user") instead of minting an
+   invite. A "show" viewer mints as before. */
+document.getElementById('pj-add-ext-person').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('person'); });
+document.getElementById('pj-add-ext-agent').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('agent'); });
 document.getElementById('pj-invite-copy').addEventListener('click', pjCopyInvite);
 document.getElementById('pj-join-verify').addEventListener('click', pjVerifyCode);
 document.getElementById('pj-join-submit').addEventListener('click', pjJoinSubmit);

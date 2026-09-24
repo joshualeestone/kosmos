@@ -368,6 +368,21 @@ const BLOCK = [
   'every agent, so use the name you were given. A message that uses their name',
   'reads as written to them; a generic word like "the operator" reads as written',
   'about them to someone else.',
+  '',
+  '### When someone reacts to your post',
+  '',
+  '**A reaction is feedback, not a message.** When someone reacts to one of your',
+  'room posts with an emoji, `kosmos room` shows it on a line under that post.',
+  'Read it the way you would in any chat: a thumbs up means seen or approved, a',
+  'heart or a fire means they liked it, eyes mean they are looking at it.',
+  '**Do not reply to a reaction.** A message that answers a thumbs up is noise.',
+  '',
+  '**You may react back, sparingly.** React instead of replying only when a reply',
+  'would be noise: to mark something done, or to acknowledge a post that asked',
+  'nothing of you. **A reaction never answers a message addressed to you**; that',
+  'still needs a post, or the room keeps showing you as not having answered. Do',
+  'not react to every post, put at most one reaction on any post, and never',
+  'react to your own posts.',
 ].join('\n');
 
 /**
@@ -562,8 +577,21 @@ function block() {
  *     agent with no record has no name to use. The shipped prose is conditional
  *     ("If you were given a name for them ...") so that case degrades to the
  *     generic word rather than asserting a name that is not there.
+ *
+ *  13. kosmos#3570. Josh, 2026-09-24 07:27: agents should know when a person
+ *     reacts to their post, and may react back, "but not in an annoying way".
+ *     `kosmos room` now prints a post's reactions on a `[kosmos]` line under
+ *     it (server.js room text arm); before, only the web board drew them, so
+ *     an agent never saw one. A NEW section says how to read a reaction (no
+ *     reply to one) and when to react back.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
+ *     `missingFrom` matches by heading, so agents that already exist are
+ *     re-offered it through the consented refresh, not only new ones.
+ *     WEAKEST PREMISE, NAMED: an agent sees a reaction the next time it reads
+ *     the room, not as a notice that wakes it. Nothing is pushed to the pane,
+ *     which is also why a reaction cannot force a reply turn.
  */
-const DOCTRINE_VERSION = 12;
+const DOCTRINE_VERSION = 13;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
