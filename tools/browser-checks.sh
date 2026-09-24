@@ -101,6 +101,8 @@ kosmos_mark_run browser
 # #1079: a durable record of every run, so a retry no longer depends on a person
 # reading scrollback. It can never fail a run; see the lib's header.
 . "$REPO/tools/lib/browser-run-log.sh"
+# #1398b: the KOSMOS_BC_ACCEPT_KNOWN filter, applied to FAILED in the summary below.
+. "$REPO/tools/lib/bc-accept-known.sh"
 # #1818: the frozen-runner child (the re-exec in the freeze block below) runs the
 # checks while the PARENT stays alive as a live page layer that has ALREADY passed
 # this guard. Parent and child are one logical run, but they carry different run
@@ -1613,47 +1615,10 @@ if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
   fi
 fi
 
-# #1398b: KOSMOS_BC_ACCEPT_KNOWN -- accept NAMED failing checks, and ONLY those,
-# with a REQUIRED reason, so a cut can ship past a known-flaky / known-broken check
-# without hiding the browser or skipping the whole page layer. Every OTHER failure
-# still gates below. This runs AFTER the #2445 allowlist bookkeeping, so a
-# never-ran/misspelled allowlist entry is in FAILED and can itself be a named
-# accept (deliberate: the operator names exactly what they take).
-#
-# 🛑 THIS IS NOT A WAY TO SILENCE A RED. The accepted checks + the reason are logged
-# LOUDLY here (the run log), and release.sh writes the same reason into the SERVED
-# versions entry, so a shipped run that leaned on this can never read as a clean
-# pass -- it names what was accepted and why, in the artifact users see. A reason
-# is mandatory; without one the accept is refused and the run still gates.
-if [ -n "${KOSMOS_BC_ACCEPT_KNOWN:-}" ] && [ "${#FAILED[@]}" -gt 0 ]; then
-  if [ -z "${KOSMOS_BC_ACCEPT_REASON:-}" ]; then
-    FAILED+=("KOSMOS_BC_ACCEPT_KNOWN was set without KOSMOS_BC_ACCEPT_REASON -- refusing to accept a failing check with no written reason")
-  else
-    _bc_kept=()
-    ACCEPTED_KNOWN=()
-    for _bc_f in ${FAILED[@]+"${FAILED[@]}"}; do
-      _bc_name="${_bc_f%% *}"          # the check NAME, before any " (failed twice)" / " (server did not boot)" suffix
-      _bc_match=0
-      for _bc_ak in ${KOSMOS_BC_ACCEPT_KNOWN//,/ }; do [ "$_bc_ak" = "$_bc_name" ] && { _bc_match=1; break; }; done
-      if [ "$_bc_match" = 1 ]; then ACCEPTED_KNOWN+=("$_bc_name"); else _bc_kept+=("$_bc_f"); fi
-    done
-    FAILED=(${_bc_kept[@]+"${_bc_kept[@]}"})
-    if [ "${#ACCEPTED_KNOWN[@]}" -gt 0 ]; then
-      log "‼️  ACCEPTED KNOWN-FAILING page checks (KOSMOS_BC_ACCEPT_KNOWN): ${ACCEPTED_KNOWN[*]}"
-      log "‼️  They did NOT pass. This run is accepted deliberately, and every OTHER page check still gated."
-      log "‼️  REASON: ${KOSMOS_BC_ACCEPT_REASON}"
-      log "‼️  Recorded here and in the served versions entry -- never a silent pass."
-    fi
-    # A named check that did NOT fail this run means the accept list is stale (the
-    # check recovered). Say so loudly so the list gets pruned; do NOT gate on it --
-    # a shrinking accept list is the safe direction.
-    for _bc_ak in ${KOSMOS_BC_ACCEPT_KNOWN//,/ }; do
-      _bc_hit=0
-      for _bc_a in ${ACCEPTED_KNOWN[@]+"${ACCEPTED_KNOWN[@]}"}; do [ "$_bc_a" = "$_bc_ak" ] && { _bc_hit=1; break; }; done
-      [ "$_bc_hit" = 0 ] && log "note: KOSMOS_BC_ACCEPT_KNOWN named '$_bc_ak' but it did not fail this run -- drop it from the accept list."
-    done
-  fi
-fi
+# #1398b: accept NAMED known-failing page checks (KOSMOS_BC_ACCEPT_KNOWN), reason
+# required, everything else still gates. The logic lives in the lib so it is unit
+# tested directly (test-bc-accept-known-1398b.sh) without booting the gate.
+kosmos_bc_apply_accept_known
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"

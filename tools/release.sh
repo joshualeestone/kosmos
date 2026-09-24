@@ -826,6 +826,26 @@ fi
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
+# #1398b: if the page gate went green ONLY because KOSMOS_BC_ACCEPT_KNOWN accepted
+# named failing checks, this run is NOT a clean page pass, and it must leave a trace
+# in BOTH the release log and the SERVED versions entry -- never a silent pass. The
+# accept + reason are already printed above (the `^‼️` grep). Here we (1) record it
+# structurally in the cut log, and (2) REQUIRE the reason to be in the versions entry
+# that ships, refusing otherwise: an accepted red the served page does not mention is
+# exactly what this lever must not enable.
+if [ -n "${KOSMOS_BC_ACCEPT_KNOWN:-}" ] && grep -q 'ACCEPTED KNOWN-FAILING' "$_page_log" 2>/dev/null; then
+  printf '%s version=%s accepted_known="%s" reason="%s"\n' \
+    "$(date -u +%FT%TZ)" "$V" "${KOSMOS_BC_ACCEPT_KNOWN}" "${KOSMOS_BC_ACCEPT_REASON:-}" \
+    >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
+  if [ -z "${KOSMOS_BC_ACCEPT_REASON:-}" ] || ! grep -qF "${KOSMOS_BC_ACCEPT_REASON}" "$KOSMOS_ENTRY_FILE" 2>/dev/null; then
+    rm -f "$_page_log"
+    echo "accept-known: this run accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but its reason is not written in the versions entry ($KOSMOS_ENTRY_FILE)."
+    echo "  Put the accept reason into the entry's <p> so the SERVED versions page names what shipped un-verified, then re-cut."
+    echo "  A cut that leans on accept-known MUST say so in the artifact users see; refusing to ship it silently."
+    exit 1
+  fi
+  echo "   #1398b: accepted known-failing page checks (${KOSMOS_BC_ACCEPT_KNOWN}); recorded in the cut log and named in the versions entry."
+fi
 rm -f "$_page_log"
 # <<< #2760-P1 gated-steps region END <<<
 
