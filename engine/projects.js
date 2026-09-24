@@ -1385,7 +1385,10 @@ function listFiles(folder, limit) {
        directory read itself: a subfolder with a million entries costs LIST_MAX_SCAN
        reads, not a million. */
     let dir;
-    try { dir = fs.opendirSync(abs); } catch { continue; } // unreadable subfolder: skipped
+    try { dir = fs.opendirSync(abs); } catch (err) {
+      if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+      continue; // unreadable subfolder: skipped
+    }
     try {
       for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
         if (scanned >= LIST_MAX_SCAN) { truncated = true; break; }

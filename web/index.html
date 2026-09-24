@@ -41868,7 +41868,7 @@ async function pjLoadDocs(id) {
     /* ⚠️ Only if this project is still the open one. Same capture-and-recheck
        every other async painter here carries: an answer that arrives after a
        switch would paint one project's failure under another's name. */
-    if (PJ_CURRENT === id) { msg.textContent = 'We could not read this project\u2019s folder just now.'; PJ_DOCS_OK = false; }
+    if (PJ_CURRENT === id) { msg.textContent = 'We could not read this project\u2019s folder just now.'; PJ_DOCS_OK = false; PJ_DOCS_RAIL_PARTIAL = false; }
     return;
   }
   if (epoch !== PJ_DOCS_EPOCH) return;
@@ -41887,6 +41887,7 @@ async function pjLoadDocs(id) {
   PJ_DOCS_OK = nowOk;
   box.textContent = '';
   if (!body || body.ok !== true) {
+    PJ_DOCS_RAIL_PARTIAL = false; // #2245: a failed read carries no list to be partial about
     msg.textContent = (body && body.because) || 'We could not read this project\u2019s folder just now.';
     all.hidden = true;
     return;
