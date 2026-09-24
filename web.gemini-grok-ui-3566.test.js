@@ -225,3 +225,22 @@ test('#3566: once a read has FAILED the off-reason says so, and does not claim a
   api.paintKeyedProviderOptions(sel2, [], false, 'anthropic', false);
   assert.equal(opt(sel2, 'google').dataset.off, 'Checking your accounts', 'CONTROL: a pending read still says checking');
 });
+
+test('#3566 (source): a machine whose only connected provider is Gemini/Grok opens the create form on it', () => {
+  // loadCreateExtras is async and fetches, so this pins the branch that decides it, beside #2097's
+  // OpenAI rule, and runs its chooser on sample lists.
+  const at = PAGE.indexOf('async function loadCreateExtras');
+  assert.ok(at > 0, 'loadCreateExtras moved');
+  const fn = PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2);
+  assert.match(fn, /else if \(!hasClaude && !hasOpenai && known\) \{/, 'the only-keyed-provider default is gone');
+  const m = fn.match(/const only = (Object\.keys\(ACCT_KEYED_ROUTE\)[\s\S]*?\);)\n/);
+  assert.ok(m, 'the chooser changed shape; re-anchor');
+  const lift = (sig) => { const i = PAGE.indexOf(sig); return PAGE.slice(i, PAGE.indexOf('\n}', i) + 2); };
+  const r = PAGE.indexOf('const ACCT_KEYED_ROUTE');
+  // eslint-disable-next-line no-new-func
+  const choose = new Function('CREATE_ACCOUNTS', PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n' + lift('function keyOnlyProvider(') + '\n'
+    + lift('function acctProvider(') + '\n' + lift('function acctOfferableTarget(') + '\nreturn ' + m[1]);
+  assert.equal(choose([{ provider: 'xai', dir: '/h/.grok-work1', connection: { state: 'connected' } }]), 'xai');
+  assert.equal(choose([{ provider: 'xai', dir: '/h/.grok-work1', connection: { state: 'none' } }]), undefined,
+    'CONTROL: a rejected key must not become the default');
+});
