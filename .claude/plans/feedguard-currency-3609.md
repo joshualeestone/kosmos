@@ -40,6 +40,10 @@ handles `fn` entries (contentFindings and the positive-control test).
   expanded from the old alternation (`dollars?` becomes `dollars`, `dollar`),
   and a test asserts each is letters only, because the linear bound and the
   equivalence argument both depend on it. Red with `US$` added.
+- Exact list: a test pins the list to the nine words and plants an amount
+  before every one of them, in three spellings. The equivalence generator never
+  emits `euro`, so without this, dropping `euro` passed every test. Red with
+  `euro` dropped.
 - Linear: five 64 KB inputs (the chain that was quadratic, the chain followed by
   USD, 64 KB of whitespace before USD, 7000 currency words each looked back from
   and rejected, a long fraction-shaped run), each under 200 ms and each with its expected answer.
@@ -59,6 +63,10 @@ handles `fn` entries (contentFindings and the positive-control test).
   about 200, so it now draws 100000 (about 400) and keeps its floor of 300.
 
 ## Not changed
+- The large-amount spelled pattern (`\b\d{4,}...(?:USD|EUR|GBP|dollars?|euros?|pounds?)`)
+  still spells its own copy of the words. Building it from the same list would
+  change a second pattern, which is out of scope here; a new word added to the
+  list should be added there too.
 The other three financial patterns were timed on adversarial input in #3608
 and are linear (`$`-prefixed forms can only start at the symbol; the
 large-amount spelled form has `\b` before a single digit run).
