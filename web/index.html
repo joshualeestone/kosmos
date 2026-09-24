@@ -13857,11 +13857,11 @@ window.kosmosMeasureScrollbarWidth();
         stops, nothing else. Kosmos only does what you asked an agent to do.
       </p>
     </section>
-    <!-- #718: Phone notifications. A setting of THIS MAC (engine/phonenotify.js,
+    <!-- #718: Phone notifications. A setting of THIS COMPUTER (engine/phonenotify.js,
          /api/phone-notify), off by default: while off nothing about agents leaves
-         the Mac. Turning it on lets the board tell Kosmos+ when an agent needs the
-         person or answers them; the phone itself subscribes on the Kosmos+ sign-in
-         page ("Notify me on this phone"), which is option C on #3510. -->
+         it. Turning it on lets the board tell Kosmos+ when an agent needs the
+         person or answers them; the phone receives them through the Kosmos phone
+         app (Josh, 2026-09-24: apps only). -->
     <section class="dbox" id="phone-notify">
       <h3 class="dlab">Phone notifications</h3>
       <div class="setrow" id="phone-notify-row" style="margin-top:14px;">
@@ -13870,7 +13870,7 @@ window.kosmosMeasureScrollbarWidth();
         <button class="btn uprime" id="phone-notify-toggle" type="button" disabled>Turn on</button>
       </div>
       <p class="dhint" id="phone-notify-msg" role="status" style="margin:8px 0 0;"></p>
-      <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then on your phone, open <a id="phone-notify-link" href="#" target="_blank" rel="noopener"></a>, sign in, and tap <b>Notify me on this phone</b>. Do this on each phone you want alerts on.</p>
+      <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then open the Kosmos app on your phone, sign in, and allow notifications. Do this on each phone you want alerts on.</p>
     </section>
     <!-- #2436 (Josh, 2026-09-07): the master on/off for the #2407 new-message sound.
          #3138 (Josh, 6.68): MOVED here to This computer (from Automations), LAST in the
@@ -52757,8 +52757,8 @@ setInterval(ageCheckedStamp, 1000);
      breaks every one of them. Self-contained: no dependency on the app's state.
      The worker (/sw.js) is registered for the offline shell and shows a push when
      one arrives. The control reads and sets /api/phone-notify, a setting of this
-     computer; a phone subscribes on the Kosmos+ sign-in page, not here (option C
-     on #3510). The board-origin subscribe flow that lived here came in with PR
+     computer; a phone gets them through the Kosmos phone app (Josh, 2026-09-24:
+     apps only), not here. The board-origin subscribe flow that lived here came in with PR
      #3520 and was removed on #3510; restore it from #3520 if a subscribe must
      happen on the board's own origin (option A, or an Android app whose origin
      is the board's). -->
@@ -52784,14 +52784,13 @@ setInterval(ageCheckedStamp, 1000);
   function el(id) { return document.getElementById(id); }
   function setMsg(text) { var m = el('phone-notify-msg'); if (m) m.textContent = text || ''; }
 
-  /* Paint from what the board said: on/off, whether this Mac is connected to
-     Kosmos+, and the sign-in page a phone subscribes on. */
+  /* Paint from what the board said: on/off, and whether this computer is
+     connected to Kosmos+. */
   var current = null;
   function paint(st) {
     current = st;
     var btn = el('phone-notify-toggle');
     var step = el('phone-notify-step');
-    var link = el('phone-notify-link');
     if (!btn) return;
     if (!st || !st.connected) {
       // Still on but no longer connected: nothing is sent, and it can be turned off.
@@ -52806,8 +52805,7 @@ setInterval(ageCheckedStamp, 1000);
     }
     btn.disabled = false;
     btn.textContent = st.on ? 'Turn off' : 'Turn on';
-    if (link && st.signinUrl) { link.href = st.signinUrl; link.textContent = st.signinUrl; }
-    if (step) step.hidden = !(st.on && st.signinUrl);
+    if (step) step.hidden = !st.on;
     setMsg(st.on ? 'On for this computer.' : '');
   }
 

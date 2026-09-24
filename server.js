@@ -6134,8 +6134,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* Phone notifications (#718), engine/phonenotify.js. GET: the switch, whether
-     this Mac is connected to Kosmos+, and the sign-in page a phone subscribes on.
+  /* Phone notifications (#718), engine/phonenotify.js. GET: the switch and whether
+     this computer is connected to Kosmos+.
      PUT {on:true} mints the notify token (once) and turns them on; {on:false}
      turns them off. Off by default. The token never leaves this route. */
   if (pathname === '/api/phone-notify' && (req.method === 'GET' || req.method === 'HEAD')) {
