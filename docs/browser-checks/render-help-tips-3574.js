@@ -31,7 +31,8 @@ const srv = require('../../server.js');
 const tipsStore = require('../../engine/tips');
 
 const SHOTS = process.argv[2] || null;
-const TOUR = 'Make your first agent';   // the tour's first step (Josh chose the step-through tour)
+const TOUR = 'Make your first agent';
+const TOUR_TITLE_IN_PAGE = TOUR;   // the tour's first step (Josh chose the step-through tour)
 const fail = [];
 function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
@@ -99,7 +100,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#tipcard .tip-go');
     await page.waitForTimeout(300);
     const closed = await cardState(page);
-    chk(!closed.shown && !closed.dim, 'T2 Got it closes the tour and the dim');
+    // The next first-visit tip may already be up (the timer runs), so the claim is about the tour.
+    chk(!closed.dim && !/ of /.test(closed.step), 'T2 Got it closes the tour and its dim', JSON.stringify(closed));
     chk((await api('GET')).seen.includes('tour'), 'T2 the board records the tour as seen');
 
     // T3: the ring tip then shows by itself on the board (a card has a ring), as a screen tip.
@@ -154,8 +156,13 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // T6: Stop showing tips turns them off in one write, and the Settings switch reads it. With tips
     // off and nothing seen, nothing shows; turning the switch on shows the tour from that same state
     // (the control).
+    let tipPuts = 0;
+    const countPut = (r) => { if (r.method() === 'PUT' && r.url().endsWith('/api/tips')) tipPuts++; };
+    page.on('request', countPut);
     await page.click('#tipcard .tip-off');
     await page.waitForTimeout(400);
+    page.off('request', countPut);
+    chk(tipPuts === 1, 'T6 Stop showing tips is one save, not two that could race', 'puts=' + tipPuts);
     chk((await api('GET')).off === true, 'T6 Stop showing tips turns tips off on the board');
     const sw = await page.evaluate(() => document.getElementById('tips-toggle')?.getAttribute('aria-checked'));
     chk(sw === 'false', 'T6 the Settings switch reads off', 'aria-checked=' + sw);
@@ -334,6 +341,32 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(cons.shown && cons.step === '1 of 4' && cons.dots === 4 && cons.halo === 1,
       'T12 under the consolidated layout the tour still finds all four places (the rail heads)', JSON.stringify(cons));
     await page.keyboard.press('Escape');
+    // T19: under the consolidated layout the rail (with its rings) shows on every screen. On Settings
+    // the tour does not start by itself (it belongs to the board), and "this screen" is the Settings
+    // tip, not the ring explainer.
+    resetStore({ seen: ['ring', 'agents', 'settings'], off: false });
+    await page.goto(URL + '/?tab=settings', { waitUntil: 'load' });
+    await page.waitForTimeout(2800);
+    const onSettings = await page.evaluate(() => ({ settings: !document.getElementById('panel-settings').hidden, card: !document.getElementById('tipcard')?.hidden, title: document.querySelector('#tipcard h2')?.textContent || null }));
+    chk(onSettings.settings && !(onSettings.card && onSettings.title === TOUR_TITLE_IN_PAGE), 'T19 under the consolidated layout the tour does not start by itself over Settings', JSON.stringify(onSettings));
+    if (onSettings.card) { await page.keyboard.press('Escape'); await page.waitForTimeout(150); }
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="screen"]');
+    chk((await cardState(page)).title === 'Settings for this computer', 'T19 "Show tips for this screen" on Settings is the Settings tip, not the ring', JSON.stringify(await cardState(page)));
+    // T20: a screen tip leaves an Escape meant for an open picker alone (the picker closes on any
+    // Escape), and takes it when nothing else is open (the control).
+    // The reaction picker is built on first use; stand it up under its own id if it is not there yet.
+    await page.evaluate(() => {
+      let d = document.getElementById('rxn-picker');
+      if (!d) { d = document.createElement('div'); d.id = 'rxn-picker'; document.body.appendChild(d); window.__tipsMadePicker = true; }
+      d.hidden = false;
+    });
+    await page.keyboard.press('Escape');   // the picker's own handler hides it; the tip must stay
+    const kept = (await cardState(page)).shown;
+    await page.evaluate(() => { const d = document.getElementById('rxn-picker'); if (window.__tipsMadePicker) { d.remove(); delete window.__tipsMadePicker; } else d.hidden = true; });
+    await page.keyboard.press('Escape');
+    const gone = !(await cardState(page)).shown;
+    chk(kept && gone, 'T20 Escape with a picker open leaves a screen tip; with none open it closes it', JSON.stringify({ kept, gone }));
     await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) }));
     await page.evaluate(() => applyLayout('tabs', true));
 

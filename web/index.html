@@ -1451,7 +1451,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
   box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
-.tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--k-rule); }
+.tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
 .tipcard .tip-dots i.on { background: var(--gold-deep); }
 .tipcard .tip-btns { display: flex; align-items: center; gap: 12px; }
 @media (max-width: 40rem) {
@@ -52513,7 +52513,10 @@ const TIPS = [
   { id: 'tour', tour: true,
     /* On the board: its stats bar in the tab layout, its rail in the consolidated one (which hides
        the bar at wide widths). */
-    show: () => (tipVisible('#boardbar') || tipVisible('#rail-agents')) && !tipVisible('#panel-detail'),
+    /* Not over Settings, the create form or an agent's page. (The consolidated layout keeps a project
+       view beside its rails on the board itself, so an open project does not rule the board out.) */
+    show: () => (tipVisible('#boardbar') || tipVisible('#rail-agents')) && !tipVisible('#panel-detail')
+      && !tipVisible('#panel-settings') && !tipVisible('#panel-create'),
     steps: [
       { at: ['#new-agent', '#rail-agents-new'], title: 'Make your first agent',
         body: 'Start here. You give it a name, a picture and a job, and it gets to work.' },
@@ -52536,9 +52539,12 @@ const TIPS = [
     at: '.viewtoggle[data-scope="agents"]',
     body: '<p>Cards, a list, or an org chart that shows who reports to whom. Click any agent to talk to it.</p>' },
   { id: 'projects', title: 'A project is shared work', show: () => tipVisible('#panel-projects') && !tipVisible('#panel-projects .pj3'),
-    at: '#pj-new',
+    at: '#pj-new, #rail-projects-new',
     body: '<p>Put a few agents on one project and they work on it together, in one conversation, with one set of files. Show projects as cards or as a roadmap.</p>' },
-  { id: 'project', title: 'Everything about this project, in one place', show: () => tipVisible('#panel-projects .pj3'), at: '#pj-add-member',
+  /* Tab layout only: the consolidated project view moves members into the Agents list and member
+     changes into project Settings, so these four lines would describe a page that is not there. */
+  { id: 'project', title: 'Everything about this project, in one place',
+    show: () => tipVisible('#panel-projects .pj3') && !document.body.classList.contains('consolidated'), at: '#pj-add-member',
     body: '<ol><li><i>1</i><span><b>Members</b> are the agents on it. Add more any time.</span></li>'
       + '<li><i>2</i><span><b>Conversation</b> is where you talk to all of them at once.</span></li>'
       + '<li><i>3</i><span><b>Files</b> collects everything they make.</span></li>'
@@ -52594,8 +52600,9 @@ async function tipsSave(patch) {
 
 /* The card, the tour's dim and pins, and the live region, built once into one container at the end of
    <body>. Built here rather than written into the markup because the consolidated layout makes <body> a
-   grid with a fixed count of pre-rail rows (web.consolidated-980): every piece here is position:fixed
-   or visually hidden, so none of it takes a grid row, and it adds no static child to that count. */
+   grid with a fixed count of pre-rail rows (web.consolidated-980): the container is a zero-height
+   item there and everything in it is position:fixed or visually hidden, so it shows nothing in that
+   grid and adds no static child to that count. */
 function tipLayerEnsure() {
   if (document.getElementById('tiplayer')) return;
   const layer = document.createElement('div');
@@ -52648,8 +52655,10 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
        itself, and hands it back when it ends. */
     if (auto) TIP_RETURN = document.activeElement !== document.body ? document.activeElement : null;
     TIP_PLACES = t.steps.map((st) => ({ ...st, sel: st.at.find((sel) => tipVisible(sel)) })).filter((st) => st.sel);
+    /* Asked for from the ? on a screen that shows none of the four places: walk them anyway, centred
+       and unringed, rather than a menu item that does nothing. */
+    if (!TIP_PLACES.length) TIP_PLACES = t.steps.map((st) => ({ ...st, sel: null }));
     TIP_STEP = 0;
-    if (!TIP_PLACES.length) { TIP_OPEN = null; return; }
     tipTourRender(card, auto);
     return;
   }
@@ -52702,7 +52711,10 @@ function tipTourRender(card, auto) {
   });
   tipAnnounce(card);
   tipLayout(TIP_OPEN, card);
-  card.querySelector('.tip-go').focus();
+  /* It takes focus, unless it opened by itself while the person is typing somewhere. */
+  const ae = document.activeElement;
+  const busy = auto && !!ae && ae !== document.body && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
+  if (!busy) card.querySelector('.tip-go').focus();
 }
 
 
@@ -52722,7 +52734,7 @@ function tipLayout(t, card) {
        whose outer shadow is the dim, so nothing in the app has to be lifted above it. */
     const st = TIP_PLACES[TIP_STEP];
     const halo = document.getElementById('tippins');
-    const el = st && document.querySelector(st.sel);
+    const el = st && st.sel ? document.querySelector(st.sel) : null;
     halo.innerHTML = '';
     if (el && tipVisible(st.sel)) {
       const r = el.getBoundingClientRect();
@@ -52744,8 +52756,12 @@ function tipLayout(t, card) {
 /* Beside the thing, never over it: below when there is room, above otherwise, clamped to the
    window; the arrow points at the target's centre. No target on screen: centred, no arrow. */
 function tipPlace(card, sel, side = false) {
+  /* The first match that is on screen: a selector list names the tab layout's target and the
+     consolidated layout's, and only one of them is showing. */
   let el = null;
-  try { el = sel ? document.querySelector(sel) : null; } catch { el = null; }   // :has() in an older webview
+  try {
+    el = sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
+  } catch { el = null; }   // :has() in an older webview
   const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
@@ -52802,11 +52818,13 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !TIP_OPEN || tipModalOpen()) return;
   /* An open menu (the burger, the user menu, the ?) takes the Escape. */
   if (document.querySelector('[aria-haspopup][aria-expanded="true"]')) return;
-  /* A screen tip leaves an Escape meant for something else alone: typing in a field, or an open menu. */
+  /* A screen tip leaves an Escape meant for something else alone: typing in a field, an open menu,
+     or an open picker (the reaction picker and the project emoji panel close on any Escape). */
   const ae = document.activeElement;
   const inField = !!ae && !ae.closest('#tipcard') && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
   const inMenu = !!ae && !!ae.closest('[role="menu"], .userpop-menu:not([hidden])');
-  if (!TIP_OPEN.tour && (inField || inMenu)) return;
+  const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden])');
+  if (!TIP_OPEN.tour && (inField || inMenu || pickerOpen)) return;
   e.preventDefault();
   tipClose({ record: true });
 }, true);
@@ -52848,7 +52866,9 @@ function wireHelpq() {
     closeHelpMenu();
     const want = b.dataset.help;
     let t = null;
-    if (want === 'screen') t = TIPS.find((x) => !x.tour && x.show()) || TIPS.find((x) => x.tour);
+    /* This screen's own tip: the ring has its own item, and its rail rings show on every
+       consolidated screen, so it is not a screen's answer. */
+    if (want === 'screen') t = TIPS.find((x) => !x.tour && x.id !== 'ring' && x.show()) || TIPS.find((x) => x.tour);
     else t = TIPS.find((x) => x.id === want);
     if (t) tipShow(t, { returnTo: btn });
   });
@@ -52867,9 +52887,11 @@ function paintTipsToggle() {
   box.hidden = !(TIPS_STATE && TIPS_STATE.ok);
   if (!box.hidden) paintSwitch('tips-toggle', !TIPS_STATE.off);
 }
-document.getElementById('tips-toggle')?.addEventListener('click', async () => {
-  if (!TIPS_STATE || !TIPS_STATE.ok) return;
-  await tipsSave({ off: !TIPS_STATE.off });
+document.getElementById('tips-toggle')?.addEventListener('click', async (e) => {
+  const sw = e.currentTarget;
+  if (!TIPS_STATE || !TIPS_STATE.ok || sw.disabled) return;
+  sw.disabled = true;   // one save at a time, so two quick clicks are a toggle and back, not the same write twice
+  try { await tipsSave({ off: !TIPS_STATE.off }); } finally { sw.disabled = false; }
   paintTipsToggle();
 });
 
