@@ -91,8 +91,9 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 
 - **Tapping a notification** opens `https://<address>/`, where `address` is the
   Mac's host from the coordinator's payload. Only a single hostname label under
-  `KosmosConfig.relayDomain` (`kosmosplus.com`) is accepted
-  (`PushBridge.boardURL`); anything else leaves the app where it is.
+  the coordinator's domain (`kosmosplus.com`, taken from
+  `KosmosConfig.coordinatorOrigin`) is accepted (`PushBridge.boardURL`); anything
+  else leaves the app where it is.
 
 ### Tests that run without a simulator
 
