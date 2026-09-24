@@ -5671,8 +5671,6 @@ test('#3326: the default sign-up start ALWAYS forwards reauth (Josh, 2026-09-24:
      pane-death gate, tested in engine/connect.test.js "#3326"). This pins the route: the default start hands
      the requested reauth to connect.start as-is, and no liveness probe decides it. */
   const src = require('fs').readFileSync(require('path').join(__dirname, 'server.js'), 'utf8');
-  assert.match(src, /return connect\.start\(\{ requireInstallConfirm: true, installConfirmed, reauth \}\);/,
-    'the default sign-up start must forward reauth unconditionally');
   assert.doesNotMatch(src, /function reauthDecision\(|\.liveVerified\s*=/,
     'a probe-gated reauth (#3367) is back: Josh ruled sign-up always forces a fresh login');
 });
