@@ -25,7 +25,14 @@
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-mention-blue-2922.js
  *   (HEADED by default; HEADED=0 on a console-less machine.)
  *
- * // Browser-check-surface: pjmention pj-mention
+ * PART 2 (the live input highlight): #pj-post is backed by a mirror div that renders the SAME text
+ * with recognized @agent mentions blue, using pjMentionHighlightHTML -- the same recognized-name
+ * rule as the message, so input and message never disagree. Two things a source read cannot see are
+ * asserted here: (a) the live mention is COLOUR-ONLY, not bold (bold would widen the glyph and drift
+ * the mirror off the caret), and (b) the mirror's font/line-height/padding EXACTLY match #pj-post's,
+ * which is what keeps the visible text sitting where the caret is. Both are read from getComputedStyle.
+ *
+ * // Browser-check-surface: pjmention pj-mention pj-live-mention pj-post-mirror pj-mirror-in mention-live
  */
 'use strict';
 
@@ -163,6 +170,74 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
       const worst = Math.min(...ratios.map((r) => r[1]));
       check(`${tag} .pjmention clears WCAG AA (>=4.5:1) on every message-bubble ground`,
         fg != null && worst >= 4.5, JSON.stringify(ratios.map(([n, r]) => [n, Number(r.toFixed(2))])));
+
+      // ---- PART 2: the live @-mention highlight in #pj-post ------------------
+      const live = await page.evaluate(() => {
+        const set = new Set(['mona', 'renet-tilley']);
+        const H = (s) => pjMentionHighlightHTML(s, set);
+        const cs = (el, p) => getComputedStyle(el).getPropertyValue(p);
+        const post = document.getElementById('pj-post');
+        const mirror = document.getElementById('pj-post-mirror');
+        const inner = mirror && mirror.querySelector('.pj-mirror-in');
+        let liveWeight = null, normalWeight = null;
+        if (inner) {
+          inner.innerHTML = 'x<span class="pj-live-mention">@mona</span>';
+          const span = inner.querySelector('.pj-live-mention');
+          liveWeight = span && getComputedStyle(span).fontWeight;
+          normalWeight = getComputedStyle(inner).fontWeight;
+          inner.innerHTML = '';
+        }
+        let plainColor = null, liveColor = null, liveCaret = null;
+        if (post) {
+          plainColor = getComputedStyle(post).color;
+          post.classList.add('mention-live');
+          liveColor = getComputedStyle(post).color;
+          liveCaret = getComputedStyle(post).caretColor;
+          post.classList.remove('mention-live');
+        }
+        return {
+          valid: H('hi @mona'), partial: H('hi @mon'), hyphen: H('@mona-'),
+          under: H('_@mona_'), esc: H('<b>@mona</b>'), twoLine: H('a\n@mona\n'),
+          mirrorPresent: !!(mirror && inner),
+          postFontSize: post && cs(post, 'font-size'), innerFontSize: inner && cs(inner, 'font-size'),
+          postLineHeight: post && cs(post, 'line-height'), innerLineHeight: inner && cs(inner, 'line-height'),
+          postPadTop: post && cs(post, 'padding-top'), innerPadTop: inner && cs(inner, 'padding-top'),
+          postPadLeft: post && cs(post, 'padding-left'), innerPadLeft: inner && cs(inner, 'padding-left'),
+          liveWeight, normalWeight, plainColor, liveColor, liveCaret,
+        };
+      });
+
+      check(`${tag} live: a recognized @agent becomes a .pj-live-mention span`,
+        live.valid === 'hi <span class="pj-live-mention">@mona</span>', live.valid);
+      check(`${tag} live: a partial/unrecognized @name stays plain (only recognized names blue)`,
+        live.partial === 'hi @mon', live.partial);
+      check(`${tag} live: @mona- (backend strips the trailing -) still highlights mona`,
+        live.hyphen === '<span class="pj-live-mention">@mona</span>-', live.hyphen);
+      check(`${tag} live: _@mona_ (underscore boundary) stays plain, like the backend`,
+        live.under === '_@mona_', live.under);
+      check(`${tag} live: HTML in the input is escaped`,
+        live.esc === '&lt;b&gt;@mona&lt;/b&gt;', live.esc);
+      check(`${tag} live: a trailing newline is padded so the mirror matches the textarea`,
+        /\n $/.test(live.twoLine), JSON.stringify(live.twoLine));
+      check(`${tag} live: the mirror (#pj-post-mirror .pj-mirror-in) is in the DOM`,
+        live.mirrorPresent, String(live.mirrorPresent));
+      // The alignment guarantee a source read cannot make: the mirror's text metrics EQUAL the
+      // textarea's, so wrapped/scrolled text sits exactly where the caret is.
+      check(`${tag} live: mirror font-size matches #pj-post`,
+        live.innerFontSize && live.innerFontSize === live.postFontSize, `${live.innerFontSize} vs ${live.postFontSize}`);
+      check(`${tag} live: mirror line-height matches #pj-post`,
+        live.innerLineHeight && live.innerLineHeight === live.postLineHeight, `${live.innerLineHeight} vs ${live.postLineHeight}`);
+      check(`${tag} live: mirror padding matches #pj-post`,
+        live.innerPadTop === live.postPadTop && live.innerPadLeft === live.postPadLeft,
+        `top ${live.innerPadTop} vs ${live.postPadTop}, left ${live.innerPadLeft} vs ${live.postPadLeft}`);
+      // COLOUR-ONLY, not bold: same weight as normal mirror text, or the glyphs widen and drift.
+      check(`${tag} live: .pj-live-mention is colour-only (same weight as normal text, NOT bold)`,
+        live.liveWeight != null && live.liveWeight === live.normalWeight, `${live.liveWeight} vs ${live.normalWeight}`);
+      // The textarea's own text goes transparent so only the mirror shows; the caret stays inked.
+      check(`${tag} live: #pj-post.mention-live text is transparent`,
+        live.liveColor === 'rgba(0, 0, 0, 0)', live.liveColor);
+      check(`${tag} live: #pj-post.mention-live keeps an inked caret (not transparent)`,
+        live.liveCaret && live.liveCaret !== 'rgba(0, 0, 0, 0)' && live.liveCaret !== 'transparent', live.liveCaret);
 
       await browser.close();
     }
