@@ -11433,7 +11433,7 @@ window.kosmosMeasureScrollbarWidth();
                 <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
       </div>
 
-      <!-- S9 the ending, eyebrow SETUP COMPLETE since #3659 (reuse old fr-pane-7 #fr-fleet fork). Mona S9a head + #fr-found-agents; fork picks found(S9a) vs create(S9b). -->
+      <!-- S9 the ending, eyebrow SETUP COMPLETE since #3659 (reuse old fr-pane-7 #fr-fleet box). Setup always lands on this one screen (#2497/#3575); the found/scan painters are kept but not reached. -->
       <div class="fr-pane" id="fr-pane-9" hidden>
         <!-- ============================================================
              SCREEN 9A - YOUR AGENTS (found)   (new screen; shown ONLY if agents were found)
@@ -11465,12 +11465,12 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fc-eyebrow" id="fr-fleet-eyebrow">Setup complete</p>
         <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
              (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
-             text below is only the pre-JS default. #2497: first run now ALWAYS
-             lands on the no-agent create screen, so the default matches that
-             outcome to avoid a flash of the wrong heading before JS runs. The
+             text below is only the pre-JS default. #2497/#3575: first run ALWAYS
+             lands on the one ending screen, so the default is its headline
+             (frPaintFleet sets the same text) to avoid a flash of a wrong one. The
              kept-but-bypassed engine can still rewrite it to "We found N agents
              on this computer" / "You already have N agents here." elsewhere. -->
-        <h2 id="fr-fleet-title">Create your first agent.</h2>
+        <h2 id="fr-fleet-title">You’re ready to start using Kosmos.</h2>
         <!-- install-flow-9screen: the found/create/adopt fork renders into
              #fr-fleet below (the existing, tested add/undo/adopt flow, which
              already implements S9a's intent: "We found N agents..." + a per-row
@@ -50728,9 +50728,9 @@ function frEnterSubmit(e) {
     if (tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') return;
     if (t.isContentEditable) return;
     // 🛑 A SEARCH FIELD IS A TYPE-AND-FILTER FIELD, NOT A FILL-AND-CONTINUE ONE.
-    // The SETUP COMPLETE ending (#fr-fleet) shows Continue enabled AND carries a
-    // live search box (#fr-foundsearch, type=search) whose only handler is an
-    // `input` filter -- so Enter there has no field action and would bubble here
+    // The found-agents screen (frPaintFound; kept, but not reached during setup since #2497)
+    // shows Continue enabled AND carries a live search box (#fr-foundsearch, type=search)
+    // whose only handler is an `input` filter -- so Enter there has no field action and would bubble here
     // and fire frFinish, ejecting the person mid-adoption. Before #2186 Enter in
     // that box did nothing; keep it that way. A blanket INPUT carve-out is wrong
     // (About-you's text inputs DO want Enter=Continue), so this is scoped to search.

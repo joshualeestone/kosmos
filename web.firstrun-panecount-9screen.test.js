@@ -116,12 +116,16 @@ test('#3659: the final setup page is Josh\'s copy: SETUP COMPLETE, one body line
   const end = PAGE.indexOf('\n}', open);
   assert.ok(end !== -1, 'frPaintFleet has no closing line; the slice would be the rest of the page');
   const body = PAGE.slice(open, end);
-  assert.match(body, /Head to your dashboard to create or import agents, set up your projects, /);
-  assert.match(body, /and start building your next big idea\./);
-  assert.match(body, /eyebrow\.textContent = 'Setup complete'/, 'the eyebrow is not set to Setup complete');
+  // Everything below is checked on the REACHABLE code (before the forced Giddy Up return), so a
+  // line moved below that return into the kept-but-unreachable arms cannot satisfy it.
+  const reach = body.slice(0, body.indexOf("frActions({ label: 'Giddy Up'"));
+  assert.ok(reach.length > 0 && reach.length < body.length, 'could not find the forced Giddy Up return');
+  assert.match(reach, /Head to your dashboard to create or import agents, set up your projects, /);
+  assert.match(reach, /and start building your next big idea\./);
+  assert.match(reach, /eyebrow\.textContent = 'Setup complete'/, 'the eyebrow is not set to Setup complete');
   assert.match(PAGE, /<p class="fc-eyebrow" id="fr-fleet-eyebrow">Setup complete<\/p>/, 'the pre-JS eyebrow still says something else');
-  const render = body.slice(body.indexOf('box.innerHTML = '), body.indexOf("frActions({ label: 'Giddy Up'"));
-  assert.ok(render.length > 0, 'could not find the rendered body statement');
+  const render = reach.slice(reach.indexOf('box.innerHTML = '));
+  assert.ok(reach.indexOf('box.innerHTML = ') !== -1, 'could not find the rendered body statement');
   assert.doesNotMatch(render, /get started|Already have agents|Import option/, 'an old paragraph is still rendered');
 });
 
