@@ -1408,6 +1408,51 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    primary colour), so the promo stands out without a heavy background. */
 .userpop-ico { flex: none; color: var(--k-ink-2); }
 .userpop-sep { height: 0; margin: 4px 6px; border: 0; border-top: 0.5px solid var(--separator); }
+/* #3574 (Josh, 2026-09-24, for 0.6.93): first-run help. ONE card is the welcome tour and every
+   first-visit tip: a small gold label, a title, a few short sentences, one button. The ? beside the
+   user's name brings any of it back. Only the tour dims the screen; a screen tip floats beside the
+   thing and the page stays usable. No solid left bars (Josh, the same day). */
+.helpq { position: relative; display: inline-flex; }
+.helpq-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--k-rule); background: var(--k-surface);
+  display: inline-grid; place-items: center; cursor: pointer; font: 700 var(--text-callout) var(--font-ui); color: var(--k-ink-2); padding: 0; }
+.helpq-btn:hover { color: var(--k-ink); border-color: var(--gold-edge); }
+.helpq-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.helpq .userpop-menu { min-width: 236px; }
+.tipcard { position: fixed; z-index: 60; width: 300px; max-width: calc(100vw - 24px); background: var(--bg-elevated); color: var(--k-ink);
+  border: 1px solid var(--gold-edge); border-radius: 14px; padding: 14px 16px 12px; box-shadow: 0 12px 32px rgba(20,22,26,.22); }
+.tipcard[hidden] { display: none; }
+.tipcard .tip-arrow { position: absolute; width: 14px; height: 14px; background: var(--bg-elevated);
+  border-left: 1px solid var(--gold-edge); border-top: 1px solid var(--gold-edge); }
+.tipcard.up .tip-arrow { top: -8px; left: var(--ax, 28px); transform: rotate(45deg); }
+.tipcard.down .tip-arrow { bottom: -8px; left: var(--ax, 28px); transform: rotate(225deg); }
+.tipcard.flat .tip-arrow { display: none; }
+.tipcard .tip-x { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: 0; background: none; border-radius: 7px;
+  color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1; }
+.tipcard .tip-x:hover { background: var(--k-sunk); color: var(--k-ink); }
+.tipcard .tip-eb { font: 700 .625rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--gold-edge); }
+.tipcard h2 { margin: 2px 26px 4px 0; font-size: 1rem; letter-spacing: -.005em; }
+.tipcard p { margin: 0 0 6px; font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
+.tipcard ol { margin: 4px 0 8px; padding: 0; list-style: none; font-size: .875rem; color: var(--k-ink-2); }
+.tipcard ol li { display: flex; gap: 9px; align-items: flex-start; margin: 6px 0; line-height: 1.45; }
+.tipcard ol li i, .tippin { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--gold-bright); color: #14161a;
+  font: 800 .6875rem/20px var(--font-ui); text-align: center; font-style: normal; margin-top: 1px; }
+.tipcard ol li b { color: var(--k-ink); }
+.tipcard .tip-bands { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 8px; font-size: .8125rem; color: var(--k-ink-2); }
+.tipcard .tip-bands span { display: flex; align-items: center; gap: 8px; }
+.tipcard .tip-bands svg { flex: none; display: block; }
+.tipcard .tip-acts { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.tipcard .tip-off { border: 0; background: none; padding: 0; cursor: pointer; font: var(--text-footnote, .75rem) var(--font-ui); font-size: .75rem;
+  color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 2px; }
+.tipcard .tip-foot { font-size: .75rem; color: var(--k-ink-2); }
+.tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
+.tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.tipdim { position: fixed; inset: 0; z-index: 55; background: rgba(20,22,26,.28); }
+.tipdim[hidden] { display: none; }
+.tippin { position: fixed; z-index: 58; width: 24px; height: 24px; font-size: .8125rem; line-height: 24px; margin: 0; box-shadow: 0 2px 6px rgba(0,0,0,.25); pointer-events: none; }
+@media (max-width: 40rem) {
+  .tipcard { left: 12px !important; right: 12px; width: auto; }
+  .tipcard .tip-arrow { display: none; }
+}
 .userpop-plus { font-weight: 600; }
 /* --gold-deep, not --gold: --gold (#d6a62e) is only 2.25:1 on the light menu bg (#ffffff),
    under the 3:1 non-text-contrast floor (WCAG SC 1.4.11) this file measures every accent
@@ -8519,6 +8564,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 <body>
 <!-- #1553: shown from the first frame, removed by revealBoot() only after the
      first-run gate resolves, so no view is painted and then retracted. -->
+<!-- #3574: the help card and the tour's dim + numbered pins, painted by the tips module. -->
+<div class="tipdim" id="tipdim" hidden></div>
+<div id="tippins"></div>
+<div class="tipcard" id="tipcard" role="dialog" aria-modal="false" aria-labelledby="tipcard-title" hidden></div>
 <div id="boot-cover"><div class="boot-spin" aria-hidden="true"></div></div>
 <!-- #2066 build marker: "which build am I on", present in a screenshot on every tab.
      A fixed body corner, NOT Settings: a problem screenshot is not of Settings, and a
@@ -8668,6 +8717,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          (<960px) visibility media gates are class-based, so they travel with the markup.
          The avatar+name is painted by paintRailMe (single-source with the consolidated
          #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
+    <!-- #3574: the way back to every tip. Beside the name rather than inside its menu, because a
+         tip you cannot find again did not happen. -->
+    <div class="helpq" id="helpq">
+      <button class="helpq-btn" id="helpq-btn" type="button" aria-label="Help" aria-expanded="false" aria-controls="helpq-menu" aria-haspopup="true">?</button>
+      <div class="userpop-menu" id="helpq-menu" hidden>
+        <button class="userpop-item" type="button" data-help="screen">Show tips for this screen</button>
+        <button class="userpop-item" type="button" data-help="tour">Take the welcome tour again</button>
+        <button class="userpop-item" type="button" data-help="ring">What does the ring mean?</button>
+      </div>
+    </div>
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -13664,6 +13723,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <p class="dhint" style="margin:0 0 12px;">The welcome walkthrough that runs the first time you open Kosmos. You can open it again whenever you like.</p>
       <div class="dstack">
         <button class="btn-quiet" type="button" id="set-rerun-setup" style="font-size:.875rem;">Show the guided setup</button>
+      </div>
+    </section>
+
+    <section class="dbox">
+      <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
+      <h3 class="dlab">Tips</h3>
+      <div class="setrow" id="tips-row">
+        <div><b>Show tips</b>
+          <p class="dhint" style="margin:2px 0 0;">A short note the first time you open each screen. The ? beside your name brings any of them back.</p></div>
+        <button class="toggle on" id="tips-toggle" role="switch" aria-checked="true" aria-label="Show tips the first time you open each screen"><i></i></button>
       </div>
     </section>
 
@@ -52430,6 +52499,222 @@ function revealBoot() {
   if (c) c.hidden = true;
 }
 
+/* ---- #3574 (Josh, 2026-09-24, for 0.6.93): first-run help and first-visit tips ----
+   One card does the welcome tour and every screen's first-visit tip. The board remembers what was
+   closed (/api/tips), so a tip shows once per person on this computer. A tip whose screen is not
+   showing never paints; one tip at a time; the tour first. */
+/* The gauge's own classes colour the dots (light and dark); one inline width keeps the three the same size. */
+const TIP_BAND = (cls, label) => '<span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="2.25" fill="none" style="stroke-width:4.5" class="gf' + (cls ? ' ' + cls : '') + '"/></svg>' + label + '</span>';
+const TIPS = [
+  { id: 'tour', tour: true, eb: 'Welcome to Kosmos', title: 'Four places to know',
+    show: () => tipVisible('#boardbar') && !tipVisible('#panel-detail'),
+    pins: ['#new-agent', '#tabs [data-tab="agents"]', '#tabs [data-tab="projects"]', '#userpop-btn'],
+    body: '<ol><li><i>1</i><span><b>New agent</b> is where you make your first agent.</span></li>'
+      + '<li><i>2</i><span><b>Agents</b> shows everyone working for you.</span></li>'
+      + '<li><i>3</i><span><b>Projects</b> is where agents work together on something.</span></li>'
+      + '<li><i>4</i><span><b>Settings</b> live under your name, top right.</span></li></ol>',
+    foot: 'Tips come back from the ? button' },
+  { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#create-name',
+    body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
+  { id: 'ring', title: 'The ring is your agent\'s memory', show: () => tipVisible('#grid .ringwrap'), at: '#grid .ringwrap',
+    body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
+      + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
+      + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },
+  { id: 'agents', title: 'See your agents your way', show: () => tipVisible('#boardbar') && !!document.querySelector('#grid [data-agent]'),
+    at: '.viewtoggle[data-scope="agents"]',
+    body: '<p>Cards, a list, or an org chart that shows who reports to whom. Click any agent to talk to it.</p>' },
+  { id: 'projects', title: 'A project is shared work', show: () => tipVisible('#panel-projects') && !tipVisible('#panel-projects .pj3'),
+    at: '#pj-new',
+    body: '<p>Put a few agents on one project and they work on it together, in one conversation, with one set of files. Show projects as cards or as a roadmap.</p>' },
+  { id: 'project', title: 'Everything about this project, in one place', show: () => tipVisible('#panel-projects .pj3'), at: '#panel-projects .pj3',
+    body: '<ol><li><i>1</i><span><b>Members</b> are the agents on it. Add more any time.</span></li>'
+      + '<li><i>2</i><span><b>Conversation</b> is where you talk to all of them at once.</span></li>'
+      + '<li><i>3</i><span><b>Files</b> collects everything they make.</span></li>'
+      + '<li><i>4</i><span><b>Tasks</b> is the to-do list, and who is on each one.</span></li></ol>' },
+  { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
+    body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
+  { id: 'settings', title: 'Settings for this computer', show: () => tipVisible('#panel-settings'), at: '#panel-settings h1, #panel-settings h2',
+    body: '<p>Your AI accounts, how Kosmos looks, and tips (turn them back on here).</p>' },
+];
+let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
+let TIP_OPEN = null;            // the tip on screen, or null
+let TIP_RETURN = null;          // focus to restore on close
+let TIPS_TIMER = null;
+
+function tipVisible(sel) {
+  const el = document.querySelector(sel);
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && !el.closest('[hidden]');
+}
+
+async function tipsLoad() {
+  try {
+    const r = await (await fetch('/api/tips', { cache: 'no-store' })).json();
+    TIPS_STATE = (r && r.ok === true && Array.isArray(r.seen)) ? { ok: true, seen: r.seen, off: r.off === true } : { ok: false, seen: [], off: true };
+  } catch { TIPS_STATE = { ok: false, seen: [], off: true }; }
+}
+
+async function tipsSave(patch) {
+  try {
+    const res = await fetch('/api/tips', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) });
+    const r = await res.json();
+    if (res.ok && r && r.ok) TIPS_STATE = { ok: true, seen: r.seen, off: r.off === true };
+  } catch { /* the tip still closes; it may show once more next time */ }
+}
+
+/* Periodic, not hooked into every navigation path: a tip reads the screen, so a new route
+   to a screen needs no wiring to get its tip. Cheap: a few querySelector calls a second. */
+function tipsStart() {
+  if (TIPS_TIMER) return;
+  tipsLoad().then(() => { paintTipsToggle(); tipsCheck(); TIPS_TIMER = setInterval(tipsCheck, 1200); });
+}
+
+function tipsCheck() {
+  if (!TIPS_STATE || !TIPS_STATE.ok || TIPS_STATE.off || TIP_OPEN) return;
+  const fr = document.getElementById('firstrun');
+  if (fr && !fr.hidden) return;
+  if (document.querySelector('dialog[open], .modal:not([hidden])')) return;
+  const next = TIPS.find((t) => !TIPS_STATE.seen.includes(t.id) && t.show());
+  if (next) tipShow(next, { auto: true });
+}
+
+function tipShow(t, { auto = false } = {}) {
+  tipClose({ record: false });
+  const card = document.getElementById('tipcard');
+  if (!card) return;
+  TIP_OPEN = t;
+  TIP_RETURN = auto ? null : document.activeElement;
+  card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
+    + '<button class="tip-x" type="button" aria-label="Close">&times;</button>'
+    + '<div class="tip-eb">' + esc(t.eb || 'Tip') + '</div>'
+    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2>' + t.body
+    + '<div class="tip-acts">'
+    + (t.foot ? '<span class="tip-foot">' + esc(t.foot) + '</span>' : '<button class="tip-off" type="button">Stop showing tips</button>')
+    + '<button class="tip-go" type="button">Got it</button></div>';
+  card.hidden = false;
+  card.querySelector('.tip-go').addEventListener('click', () => tipClose({ record: true }));
+  card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
+  const off = card.querySelector('.tip-off');
+  if (off) off.addEventListener('click', () => { tipClose({ record: true }); tipsSave({ off: true }).then(paintTipsToggle); });
+  if (t.tour) {
+    document.getElementById('tipdim').hidden = false;
+    const pins = document.getElementById('tippins');
+    pins.innerHTML = '';
+    t.pins.forEach((sel, i) => {
+      const el = document.querySelector(sel);
+      if (!el || !tipVisible(sel)) return;
+      const r = el.getBoundingClientRect();
+      const pin = document.createElement('span');
+      pin.className = 'tippin';
+      pin.setAttribute('aria-hidden', 'true');
+      pin.textContent = String(i + 1);
+      pin.style.left = Math.round(r.left - 8) + 'px';
+      pin.style.top = Math.round(r.top - 8) + 'px';
+      pins.appendChild(pin);
+    });
+    card.className = 'tipcard flat';
+    card.style.left = Math.round((window.innerWidth - card.offsetWidth) / 2) + 'px';
+    card.style.top = Math.round(Math.max(80, (window.innerHeight - card.offsetHeight) / 2)) + 'px';
+  } else {
+    tipPlace(card, t.at);
+  }
+  if (!auto) card.querySelector('.tip-go').focus();
+}
+
+/* Beside the thing, never over it: below when there is room, above otherwise, clamped to the
+   window; the arrow points at the target's centre. No target on screen: centred, no arrow. */
+function tipPlace(card, sel) {
+  const el = sel ? document.querySelector(sel) : null;
+  const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
+  if (!el || !el.getBoundingClientRect().width) {
+    card.className = 'tipcard flat';
+    card.style.left = Math.round((window.innerWidth - w) / 2) + 'px';
+    card.style.top = Math.round(Math.max(80, (window.innerHeight - h) / 2)) + 'px';
+    return;
+  }
+  const r = el.getBoundingClientRect();
+  const below = r.bottom + 12 + h <= window.innerHeight - pad;
+  /* The page's own width, not innerWidth: innerWidth includes a scrollbar gutter the card would sit under. */
+  const pageW = document.documentElement.getBoundingClientRect().width;
+  const left = Math.min(Math.max(pad, r.left + r.width / 2 - 28), pageW - w - pad);
+  card.className = 'tipcard ' + (below ? 'up' : 'down');
+  card.style.left = Math.round(left) + 'px';
+  card.style.top = Math.round(below ? r.bottom + 12 : Math.max(pad, r.top - 12 - h)) + 'px';
+  card.style.setProperty('--ax', Math.round(Math.min(Math.max(14, r.left + r.width / 2 - left - 7), w - 28)) + 'px');
+}
+
+function tipClose({ record }) {
+  const t = TIP_OPEN;
+  const card = document.getElementById('tipcard');
+  if (card) { card.hidden = true; card.innerHTML = ''; }
+  const dim = document.getElementById('tipdim');
+  if (dim) dim.hidden = true;
+  const pins = document.getElementById('tippins');
+  if (pins) pins.innerHTML = '';
+  TIP_OPEN = null;
+  if (t && record) {
+    if (TIPS_STATE && !TIPS_STATE.seen.includes(t.id)) TIPS_STATE.seen.push(t.id);
+    tipsSave({ seen: [t.id] });
+  }
+  if (TIP_RETURN && TIP_RETURN.focus) TIP_RETURN.focus();
+  TIP_RETURN = null;
+}
+
+/* Escape closes any tip; a click outside closes the tour (a screen tip stays while you work).
+   Closing either way counts as seen. */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && TIP_OPEN) { e.preventDefault(); tipClose({ record: true }); }
+});
+document.addEventListener('pointerdown', (e) => {
+  if (!TIP_OPEN || !TIP_OPEN.tour) return;
+  if (e.target.closest('#tipcard') || e.target.closest('#helpq')) return;
+  tipClose({ record: true });
+}, true);
+window.addEventListener('resize', () => { if (TIP_OPEN) tipShow(TIP_OPEN, { auto: true }); });
+
+/* The ? menu: this screen's tip, the tour, the ring explainer. Reopening never needs the tip to be
+   unseen, and works with tips turned off. */
+function wireHelpq() {
+  const btn = document.getElementById('helpq-btn');
+  const menu = document.getElementById('helpq-menu');
+  if (!btn || !menu) return;
+  const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    if (open) menu.querySelector('.userpop-item')?.focus();
+  });
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-help]');
+    if (!b) return;
+    close();
+    const want = b.dataset.help;
+    let t = null;
+    if (want === 'screen') t = TIPS.find((x) => !x.tour && x.show()) || TIPS.find((x) => x.tour);
+    else t = TIPS.find((x) => x.id === want);
+    if (t) tipShow(t);
+  });
+  document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('#helpq')) close(); });
+  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); btn.focus(); } });
+}
+wireHelpq();
+/* The Settings switch paints from the board's answer and writes the off flag. Hidden when the board
+   could not say, so it never shows a state it did not read. */
+function paintTipsToggle() {
+  const row = document.getElementById('tips-row');
+  if (!row) return;
+  row.hidden = !(TIPS_STATE && TIPS_STATE.ok);
+  if (!row.hidden) paintSwitch('tips-toggle', !TIPS_STATE.off);
+}
+document.getElementById('tips-toggle')?.addEventListener('click', async () => {
+  if (!TIPS_STATE || !TIPS_STATE.ok) return;
+  await tipsSave({ off: !TIPS_STATE.off });
+  paintTipsToggle();
+});
+
 /* #12 (0.6.39): the platform-aware first-run copy (kosmos#2086: frIsMac,
    frFindAppHint, frApplyPlatformCopy) was removed. It existed only to rewrite
    the Success screen's #fr-return-keep line on non-macOS and to word the
@@ -52465,6 +52750,7 @@ async function firstRunBoot(force, step) {
        hand-off is cover -> opaque overlay, never a flash of the board. On the
        done/error paths the cover comes down onto the board, which is correct. */
     revealBoot();
+    tipsStart();   // #3574: the tips read the screen, so they wait out first run by themselves
   }
 }
 

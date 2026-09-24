@@ -17,7 +17,7 @@ const FILE = () => path.join(require('./store').ROOT, 'tips.json');
 
 /* Every tip the page knows. An id not on this list is refused, so a stray
    client cannot grow the file without bound. */
-const TIP_IDS = ['tour', 'newagent', 'ring', 'agents', 'projects', 'project', 'agentpage'];
+const TIP_IDS = ['tour', 'newagent', 'ring', 'agents', 'projects', 'project', 'agentpage', 'settings'];
 
 function read() {
   try {
