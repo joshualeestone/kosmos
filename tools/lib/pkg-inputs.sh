@@ -86,7 +86,7 @@ pkg_input_sha() {
     printf 'section:build-script\n'
     ( cd "$repo" && _pkg_stream_file ./tools/build-installer-pkg.sh )
     printf 'section:signing-identity\n'
-    ( cd "$repo" && _pkg_stream_file ./tools/lib/signing-identity.sh )
+    ( cd "$repo" && _pkg_stream_assignments ./tools/lib/signing-identity.sh )
   } | _pkg_hash | awk '{print $1}'
 }
 # The framed stream of one file: path, x or -, byte count, bytes.
@@ -95,6 +95,15 @@ _pkg_stream_file() {
   [ -x "$f" ] && x='x'
   printf '%s\n%s\n%s\n' "$f" "$x" "$(wc -c < "$f" | tr -d ' ')"
   cat "$f"
+}
+# The signing identity's VALUES only (#3643): its non-comment, non-blank lines, framed like a file
+# but without the x bit. A reworded comment or a chmod must not force a re-notarise; a changed team,
+# identity or notary value must.
+_pkg_stream_assignments() {
+  local f="${1:?}" body
+  body="$(grep -v -E '^[[:space:]]*(#|$)' "$f")"
+  printf '%s\n%s\n' "$f" "$(printf '%s' "$body" | wc -c | tr -d ' ')"
+  printf '%s' "$body"
 }
 # Every non-hidden regular file under the cwd, sorted, framed.
 _pkg_stream_dir() {

@@ -66,6 +66,10 @@ g="$(pkg_input_sha "$T")"
 printf 'KOSMOS_SIGN_TEAM_ID=BBBB\n' > "$T/tools/lib/signing-identity.sh"
 g2="$(pkg_input_sha "$T")"
 [ "$g2" != "$g" ] && ok "CONTROL: changing the signing identity (#3643) changes the sha" || bad "changing tools/lib/signing-identity.sh did NOT change the sha -- a team switch would keep serving the old-signed pkg"
+# ...but a comment, a blank line or a chmod on it must NOT (only its values are hashed).
+printf '# a reworded header comment\n\nKOSMOS_SIGN_TEAM_ID=BBBB\n' > "$T/tools/lib/signing-identity.sh"; chmod +x "$T/tools/lib/signing-identity.sh"
+[ "$(pkg_input_sha "$T")" = "$g2" ] && ok "CONTROL: a comment, blank line or chmod on the signing identity leaves the sha alone" || bad "a comment or chmod on signing-identity.sh moved the sha -- every header reword would re-notarise"
+chmod -x "$T/tools/lib/signing-identity.sh"
 # moving bytes between sections is a change too (a screen is not a script).
 # ⚠️ A FIXTURE WHERE THE MOVE IS ORDER-NEUTRAL, or the control cannot fail:
 # with scripts {a} and resources {c}, the file b moved between them produces

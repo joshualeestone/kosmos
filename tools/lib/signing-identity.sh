@@ -13,8 +13,9 @@
 # of the installer .pkg (lib/pkg-inputs.sh), so changing the team makes the next cut rebuild and
 # re-sign the pkg rather than keep serving one signed by the old team.
 #
-# ⚠️ ANY edit here, even a comment, changes the pkg's input sha and makes the next cut rebuild, sign and
+# ⚠️ Changing any VALUE below changes the pkg's input sha and makes the next cut rebuild, sign and
 # notarise the installer (minutes, and it needs the Installer identity and the notary key on the cut box).
+# Comments and blank lines are not hashed (lib/pkg-inputs.sh), so rewording this header costs nothing.
 #
 # What a team switch changes for people who already have Kosmos: macOS privacy grants are keyed to the
 # signer, so Files and Folders, Automation (Terminal) and Accessibility for the bundled tmux may each
@@ -23,7 +24,8 @@
 # build-installer-pkg.sh) is NOT a signing value and is deliberately left alone: changing it changes
 # installer receipts.
 #
-# Each value stays overridable by its existing environment variable at the call site
+# Each value stays overridable by its existing environment variable at the BUILD call sites (verify-served
+# deliberately ignores KOSMOS_INSTALLER_CERT: it checks which team signed what users download)
 # (KOSMOS_CODESIGN_ID, KOSMOS_INSTALLER_CERT, KOSMOS_NOTARY_KEY_ID, KOSMOS_NOTARY_ISSUER).
 KOSMOS_SIGN_TEAM_NAME="Stone Syndicate LLC"
 KOSMOS_SIGN_TEAM_ID="864QZ69GF2"

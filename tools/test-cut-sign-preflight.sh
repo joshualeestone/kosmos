@@ -101,6 +101,12 @@ else
   _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/tools/test-' | grep -v '\.test\.js$' || true)"
   [ -z "$_team_hits" ] && ok "only lib/signing-identity.sh names the signing team or its notary key" || bad "the signing team or notary key is named outside lib/signing-identity.sh: $_team_hits"
 fi
+# The sweep above looks for the CURRENT values, so right after a team switch it would be blind to a
+# leftover of the OLD team. Pin the Stone Syndicate team id (built from fragments so this file does
+# not match itself) everywhere, tests included: only the lib may carry it.
+_retired="864QZ""69GF2"
+_ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' || true)"
+[ -z "$_ret_hits" ] && ok "the Stone Syndicate team id appears nowhere but the lib, tests included" || bad "the Stone Syndicate team id is named outside lib/signing-identity.sh: $_ret_hits"
 # And KOSMOS_CODESIGN_ID reaches the probe, as it reaches step 4.
 KOSMOS_CODESIGN_ID="Some Other Identity" KOSMOS_CODESIGN_BIN=cs_args kosmos_sign_preflight >/dev/null 2>&1
 grep -qx 'Some Other Identity' "$WORK/cs-args.argv" 2>/dev/null \
