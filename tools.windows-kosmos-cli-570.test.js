@@ -208,6 +208,14 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   assert.equal(control.calls[0].body.text, 'plain words');
 });
 
+test('#2909: post --stdin through the REAL readStandardInput (BOM, chunks, end) composes with the post trim', async () => {
+  const pipe = new PassThrough();
+  setTimeout(() => { pipe.write('\ufeffline one\r\n'); pipe.write('\u001b[1mtwo\u001b[0m\r\n'); pipe.end('\r\n'); }, 10);
+  const r = await run(['post', '--stdin', 'proj-1'], () => ({ body: { delivery: { state: 'placed' } } }), undefined, (ms) => cli.readStandardInput(pipe, ms));
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.calls[0].body.text, 'line one\r\n[1mtwo[0m', 'reader strips the BOM, post drops ESC and the trailing CR/LF run');
+});
+
 test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {
   const r = await run(['react', 'proj-1', 'm3', '🔥'], () => ({ body: { ok: true, op: 'add' } }));
   assert.equal(r.code, 0);

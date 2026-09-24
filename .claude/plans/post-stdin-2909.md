@@ -8,7 +8,9 @@ and non-whitespace control characters such as ESC are dropped), combines with --
 is piped, when stdin is a terminal (bash), when the pipe went quiet without ending (Windows only, same
 guard as feedback write), or when the encoded request body is over the board's 6 MB request-read limit
 (measured after JSON escaping; the room's own, much lower text cap refuses with its own sentence).
-Without --stdin nothing changes. "As written" is about what reaches the board: the room's display still
+Without --stdin the message source is unchanged; the bash escaper's tab/CR/control handling does
+change for argument-mode posts too (see Decisions). With --stdin, bash checks the board is up before
+reading, so a live pipe is not consumed when Kosmos is down. "As written" is about what reaches the board: the room's display still
 collapses tabs and CRs.
 
 Known asymmetries, accepted:

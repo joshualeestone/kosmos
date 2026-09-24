@@ -212,16 +212,26 @@ function hasPython3() {
   try { require('node:child_process').execFileSync('python3', ['-c', 'import pty'], { stdio: 'ignore', timeout: 20000 }); return true; } catch { return false; }
 }
 
-test('#2909: --stdin at a terminal is refused at once instead of waiting on a silent prompt', { skip: !hasPython3() && 'needs python3 for a pseudo-terminal' }, () => new Promise((resolve) => {
-  const env = { ...process.env, KOSMOS_PORT: '1' };
+test('#2909: --stdin at a terminal is refused at once instead of waiting on a silent prompt', { skip: !hasPython3() && 'needs python3 for a pseudo-terminal' }, () => withStubBoard((port, seen) => new Promise((resolve, reject) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port) };
   execFile('python3', ['-c', PTY_HARNESS, '/bin/bash', CLI, 'post', '--stdin', 'proj'], { env, timeout: 40000 }, (err, stdout) => {
-    const code = err && typeof err.code === 'number' ? err.code : 0;
-    assert.notEqual(code, 124, 'still waiting on the terminal after 15 s: ' + stdout);
-    assert.equal(code, 2, stdout);
-    assert.match(stdout, /nothing was piped in/);
-    resolve();
+    try {
+      const code = err && typeof err.code === 'number' ? err.code : 0;
+      assert.notEqual(code, 124, 'still waiting on the terminal after 15 s: ' + stdout);
+      assert.equal(code, 2, stdout);
+      assert.match(stdout, /nothing was piped in/);
+      assert.equal(seen.length, 0);
+      resolve();
+    } catch (e) { reject(e); }
   });
-}));
+})));
+
+test('#2909: with Kosmos not running, --stdin says so WITHOUT reading the pipe', async () => {
+  const env = { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%42' };
+  const out = await runCli(['post', '--stdin', 'proj'], env, 'a message that must not be consumed');
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.match(out.stdout + out.stderr, /not running.*was not read/);
+});
 
 test('#2909: the post usage line is the same sentence in install/kosmos and the Windows CLI', () => {
   const fs = require('node:fs');

@@ -1239,6 +1239,12 @@ cmd_post() {
       exit 2
     fi
     if [ -n "$project" ]; then
+      # Check the board BEFORE reading: a live pipe (gh ... | kosmos post --stdin) cannot be
+      # replayed, so consuming it and then finding Kosmos down would lose the message.
+      if ! healthy; then
+        say "Kosmos is not running, so nothing can be posted (the piped message was not read). Start it with: kosmos start"
+        exit 1
+      fi
       if [ -t 0 ]; then
         text=""
       # Control characters are dropped at the read (before the blank check, so control-only
