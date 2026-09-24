@@ -19,6 +19,7 @@ set -u
 # #3578: prefer the system /usr/bin/python3 (what CI has always used), but fall back to python3 on
 # PATH when that shim cannot run -- on a Mac whose Xcode license is unaccepted it exits 69 on every call.
 PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3
+"$PY3" -c '' >/dev/null 2>&1 || { echo "FAIL  no runnable python3: /usr/bin/python3 and python3 on PATH both failed to start (the /usr/bin shim exits 69 until the Xcode license is accepted, #3578)"; exit 1; }
 
 FAILED=0
 pass() { printf '  ok   %s\n' "$1"; }
