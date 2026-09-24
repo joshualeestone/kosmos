@@ -2394,20 +2394,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    SCOPE: gated with :has() to the TALK section only. When Model / Memory / Terminal
    is the shown section, none of this applies and they keep their content height. The
    tall, variable .dhead sits INSIDE the fill, not in the offset.
-   OFFSET + KNOWN LIMITATION (#2622 follow-up): the offset covers the chrome ABOVE the
-   panel (sticky .apphead + body top padding) plus the body's bottom padding, as a FIXED
-   value. But .apphead grows when a persistent update/offline notice wraps (see the
-   scroll-padding-top note ~1004), most at narrow width. With a definite height a taller
-   .apphead pushes the box down without shrinking it, so in that state the box overshoots
-   the window bottom by the notice's extra height (~8px wide, up to ~59px narrow) and the
-   page scrolls a little -- bounded, and no worse than the pre-change always-scroll. A
-   robust fix would measure .apphead at runtime and set --talk-fill-top (the wide layout no longer
-   uses this offset: see the #3497 block below, which fills without it); deferred rather
-   than add a JS observer to this file here. Measured with
-   docs/browser-checks/render-talk-fill-2622.js at 1100/700/narrow window sizes. Uses
-   100vh to match the sibling #d-window rule (`calc(100vh - 220px)`); a 100dvh follow-up
-   for a mobile URL bar is noted on the card. */
-/* Every rule in this fill block (and the narrow-width one in the 56rem media query) is
+   HEIGHT: set per layout. Wide: the #3497 block below (the body is a flex column and the panel
+   fills what is left under the header). Narrow (56rem block): the page scrolls and the Talk box
+   is its own window-tall block (talk-narrow-fill). The fixed 157px offset below is only the
+   fallback between those two media ranges. */
+/* Every rule in this fill block (and the narrow-width ones in the 56rem media query) is
    :has(#d-sec-talk:not([hidden]))-gated, so the fill applies only when the Talk section is
    the shown one. (No count named on purpose: a fixed count drifts the moment a rule is added.)
    No :not([hidden]) guard on the panel is needed even
@@ -2450,7 +2441,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #panel-detail:has(#d-sec-talk:not([hidden])) > .back { align-self: flex-start; }
 /* #3497 (Josh, 2026-09-23, two screenshots): the Talk box fills to the header rule, the
    window's right edge and the window's bottom, and the composer's bottom margin equals its
-   side margin. Wide layout only; below 56rem the page stacks and keeps the fill above.
+   side margin. Wide layout only; below 56rem the page stacks and scrolls (56rem block).
    The identity column stays where it was: .back comes out of the flow and .dleft is padded
    by what the back row used to occupy. Pinned by docs/browser-checks/render-talk-fill-2622.js. */
 @media (min-width: 56.01rem) {
@@ -2607,17 +2598,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      matching-width request) and needs the same restatement for the same
      reason. */
   #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: minmax(0, 1fr); }
-  /* #2622 part 2, narrow width: when the grid collapses to one column the left column (.dleft, which
-     since #3385 holds .dhead + the snav) and .dsecs stack as two rows. The talk fill gives .dbody a
-     tall definite height, and a single-column grid's default row sizing would stretch BOTH rows
-     equally, ballooning the .dleft row and re-opening the very gap this change closes. Pin the .dleft
-     row to its content (auto) and let only the .dsecs row grow. Talk-scoped, like the wide rule. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { grid-template-rows: auto minmax(0, 1fr); }
   /* Narrow width stacks the identity block and nav (~400px) above the Talk box, so a window-tall
-     panel left the box a sliver and pushed the composer off screen. Here the page scrolls instead
-     and the box itself is window-tall below the nav: scroll to it and the thread and composer fit.
-     render-talk-fill-2622 A2d pins it. */
+     panel would leave the box a sliver. Here the page scrolls and the box is its own window-tall
+     block; the header stops being sticky in this view so it scrolls away and never covers the top
+     of the box, whatever its height. Below ~370px of window height the box (floor 320px) is taller
+     than the window and needs its own scroll to see both ends. render-talk-fill-2622 A2b/A2d/A2e. */
   #panel-detail:has(#d-sec-talk:not([hidden])) { height: auto; }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { padding-bottom: var(--space-8); }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { position: static; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { height: calc(100vh - 2 * var(--space-8)); min-height: 320px; }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
