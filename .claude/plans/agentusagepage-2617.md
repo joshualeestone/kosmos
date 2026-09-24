@@ -11,8 +11,12 @@ This slice shows it on Settings > Token Usage.
   bar, tokens, % total) with an "Agent" column, so the page speaks one visual
   language and needs no new component. Tokens are the four-class total, as
   every other figure on the page.
+- Agents in one neutral ink (`--k-ink-2`), not the model palette: under the
+  model table, the top agent in the top model's gold would read as a link
+  between them. A styling call for Mona's review; a one-constant change.
 - Agents first, ranked by the four-class total the table shows (the engine
-  sends them by output), by shown name. Then "Sessions outside any agent's
+  sends them by output), by shown name, with the agent's own name added when
+  two share a display name. Then "Sessions outside any agent's
   folder" and, when present, "Folders shared by more than one agent", both in
   the muted Other color with a lighter label, so neither reads as an agent.
 - "% total" is of the page's grand total, as in the model table, so unmatched
