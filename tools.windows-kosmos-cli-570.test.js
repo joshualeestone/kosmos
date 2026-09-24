@@ -87,6 +87,27 @@ test('msg: placed -> 0, unconfirmed -> 3 (never 1), could_not -> 1 with the boar
   assert.equal(no.err, 'Not delivered: mara is not running.', 'the board\'s sentence, once, with one period');
 });
 
+test('#2909: msg --stdin sends the piped text as written; refusals send nothing; a declined one is kept', async () => {
+  const placed = () => ({ body: { delivery: { state: 'placed' } } });
+  const r = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: 'run `x` and $y\n', ended: true }));
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.calls[0].body, { to: 'mara', text: 'run `x` and $y', from_pane: '' });
+  const mixed = await run(['msg', '--stdin', 'mara', 'also'], placed, undefined, async () => ({ text: 'x', ended: true }));
+  assert.equal(mixed.code, 2); assert.equal(mixed.calls.length, 0);
+  const trailing = await run(['msg', 'mara', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });
+  assert.equal(trailing.code, 2); assert.equal(trailing.calls.length, 0);
+  const empty = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: '', ended: false }));
+  assert.equal(empty.code, 2); assert.match(empty.err, /nothing was piped in: kosmos msg --stdin <agent>/);
+  const declined = await run(['msg', '--stdin', 'mara'], () => ({ body: { delivery: { state: 'could_not', because: 'mara is not running.' } } }), undefined, async () => ({ text: 'keep this msg', ended: true }));
+  assert.equal(declined.code, 1);
+  const saved = declined.err.match(/saved at (\S+)/);
+  assert.ok(saved, declined.err);
+  assert.equal(fs.readFileSync(saved[1], 'utf8'), 'keep this msg');
+  fs.rmSync(path.dirname(saved[1]), { recursive: true });
+  const control = await run(['msg', 'mara', 'plain'], placed, undefined, async () => { throw new Error('stdin read without --stdin'); });
+  assert.equal(control.code, 0, 'CONTROL: without --stdin, stdin is never read');
+});
+
 test('an unreachable board is exit 1 with the url; a TIMEOUT is exit 3, because the board may already have acted', async () => {
   const down = await run(['msg', 'mara', 'hi'], refusedWith(Object.assign(new Error('ECONNREFUSED'), { name: 'TypeError' })));
   assert.equal(down.code, 1);

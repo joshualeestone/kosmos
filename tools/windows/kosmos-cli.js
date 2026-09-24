@@ -77,7 +77,7 @@ const WRONG_WORLD_STATUS = 421;
 /* install/kosmos's own usage lines, verb for verb. Each verb's text names every
    subcommand it has (the parity test pins that against SUBCOMMANDS). */
 const USAGE = {
-  msg: 'Usage: kosmos msg <agent> <what you want to tell them>',
+  msg: 'Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written)',
   reply: 'Usage: kosmos reply <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955)',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
@@ -231,19 +231,83 @@ const POST_BODY_MAX_BYTES = 6 * 1024 * 1024; /* #2909: the board's request-READ 
 // ── the verbs ───────────────────────────────────────────────────────────────
 // Each handler is (ctx, args) -> exit code. `ctx` is built once per run in main.
 
+/* #2909: read a --stdin message for post / msg. Returns { text } or { code } (a refusal already
+   said). verb = posted|sent; usage = the example named in the refusals. */
+async function readPipedMessage(ctx, verb, usage) {
+  /* The long limit feedback triage uses: a command piped in (gh, git log) can be slow to start. */
+  const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
+  if (piped.overflow) { ctx.err('Nothing was ' + verb + ': the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Send a summary, or split it.'); return { code: 2 }; }
+  /* Drop C0 controls other than tab/LF/CR, and DEL, as install/kosmos does (colored tool
+     output carries ESC); then the trailing CR/LF run. */
+  let text = String(piped.text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '\n' || text[end - 1] === '\r')) end--;
+  text = text.slice(0, end);
+  if (!text.trim()) {
+    ctx.err('--stdin reads the message from a pipe or file, and nothing was piped in: ' + usage);
+    ctx.err(POWERSHELL_PIPE_NOTE);
+    return { code: 2 };
+  }
+  /* Same guard as feedback write: a pipe that went quiet without ending may be cut short, and a
+     partial message is worse than none (it cannot be taken back once it is delivered). */
+  if (!piped.ended) { ctx.err('Nothing was ' + verb + ': the piped message stopped arriving for ' + (CARDS_STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save the output to a file first, then pipe the file in.'); return { code: 2 }; }
+  return { text };
+}
+
+/* #2909: a piped message may have no other copy, so a failure after the read keeps it in a
+   private file and names the path. */
+function keepPipedCopy(ctx, text) {
+  const os = require('os');
+  let dir = '';
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-post-unsent-'));
+    const file = path.join(dir, 'message.txt');
+    fs.writeFileSync(file, text, { mode: 0o600 });
+    ctx.err('The piped message was not sent; it is saved at ' + file);
+  } catch (e) {
+    if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ } }
+    ctx.err('The piped message was not sent, and we could not save a copy of it.');
+  }
+}
+
 async function verbMsg(ctx, args) {
+  /* #2909: --stdin (leading) reads the message from standard input, shared with post via
+     readPipedMessage, and every failure after the read keeps it in a private file. */
+  const fromStdin = args[0] === '--stdin';
+  if (fromStdin) args.shift();
   const to = args.shift();
-  const text = args.join(' ');
+  let text = args.join(' ');
+  if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come before the agent name: kosmos msg --stdin <agent>, with the message piped in.'); return 2; }
+  if (fromStdin) {
+    if (!to) { ctx.err(USAGE.msg); return 2; }
+    if (args.length) { ctx.err('Give the message on stdin OR as arguments, not both: kosmos msg --stdin <agent>, with the message piped in.'); return 2; }
+    const got = await readPipedMessage(ctx, 'sent', 'kosmos msg --stdin <agent>, with the message piped in.');
+    if (got.code !== undefined) return got.code;
+    text = got.text;
+  }
   if (!to || !text) { ctx.err(USAGE.msg); return 2; }
+  const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
   const body = { to, text, from_pane: '' };
+  if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was sent: that message is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/msg', body);
-  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.') : ctx.unreachable('send that');
-  if (ctx.wrongWorld(r)) return ctx.keepForLater('msg', body);
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (!r.reached) {
+    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.');
+    const code = ctx.unreachable('send that');
+    keepPiped();
+    return code;
+  }
+  if (ctx.wrongWorld(r)) {
+    let kept = 1;
+    try { kept = ctx.keepForLater('msg', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
+    if (kept !== 0) keepPiped();
+    return kept;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
   if (d.state === 'placed') { ctx.out('Placed with ' + to + '.'); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');
   ctx.err('Not delivered: ' + (clause(d.because) || 'we could not tell why') + '.');
+  keepPiped();
   return 1;
 }
 
@@ -305,23 +369,9 @@ async function verbPost(ctx, args) {
   if (fromStdin) {
     if (!project) { ctx.err(USAGE.post); return 2; }
     if (args.length) { ctx.err('Give the message on stdin OR as arguments, not both: kosmos post --stdin <project-id>, with the message piped in.'); return 2; }
-    /* The long limit feedback triage uses: a command piped in (gh, git log) can be slow to start. */
-    const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
-    if (piped.overflow) { ctx.err('Nothing was posted: the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Post a summary, or split it.'); return 2; }
-    /* Drop C0 controls other than tab/LF/CR, and DEL, as install/kosmos does (colored tool
-       output carries ESC); then the trailing CR/LF run. */
-    text = String(piped.text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-    let end = text.length;
-    while (end > 0 && (text[end - 1] === '\n' || text[end - 1] === '\r')) end--;
-    text = text.slice(0, end);
-    if (!text.trim()) {
-      ctx.err('--stdin reads the message from a pipe or file, and nothing was piped in: kosmos post --stdin <project-id>, with the message piped in.');
-      ctx.err(POWERSHELL_PIPE_NOTE);
-      return 2;
-    }
-    /* Same guard as feedback write: a pipe that went quiet without ending may be cut short, and a
-       partial post is worse than none (it cannot be taken back once the room has it). */
-    if (!piped.ended) { ctx.err('Nothing was posted: the piped message stopped arriving for ' + (CARDS_STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save the output to a file first, then: kosmos post --stdin <project-id> < file'); return 2; }
+    const got = await readPipedMessage(ctx, 'posted', 'kosmos post --stdin <project-id>, with the message piped in.');
+    if (got.code !== undefined) return got.code;
+    text = got.text;
   }
   if (!project || !text) { ctx.err(USAGE.post); return 2; }
   const body = { project, text, from_pane: '' };
@@ -329,20 +379,7 @@ async function verbPost(ctx, args) {
   if (inReplyTo) body.in_reply_to = inReplyTo;
   /* #2909: a piped message may have no other copy, so a failure after the read keeps it in a
      private file and names the path. A no-op without --stdin. */
-  const keepPiped = () => {
-    if (!fromStdin) return;
-    const fs = require('fs'); const os = require('os'); const path = require('path');
-    let dir = '';
-    try {
-      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-post-unsent-'));
-      const file = path.join(dir, 'message.txt');
-      fs.writeFileSync(file, text, { mode: 0o600 });
-      ctx.err('The piped message was not sent; it is saved at ' + file);
-    } catch (e) {
-      if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ } }
-      ctx.err('The piped message was not sent, and we could not save a copy of it.');
-    }
-  };
+  const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
   /* The board drops a request body over its limit, which would read as unreachable; measured on the
      encoded body, as install/kosmos does. */
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it.'); keepPiped(); return 2; }

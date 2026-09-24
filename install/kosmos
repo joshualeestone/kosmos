@@ -1007,16 +1007,36 @@ cmd_version() {
 # messages -- the transport lesson this port exists to keep.
 
 cmd_msg() {
-  local to text body verdict state because
+  local to text body verdict state because _a
+  # #2909: --stdin (leading) reads the message from standard input, so backticks and $ reach the
+  # agent as written; the shared _read_piped_message does the read. from_stdin also arms
+  # _keep_piped, so every failure after the read keeps the message in a private file.
+  local from_stdin=0 _orig="" _trimmed _keep
+  if [ "${1:-}" = "--stdin" ]; then from_stdin=1; shift; fi
   to="${1:-}"
   shift 2>/dev/null || true
-  text="$*"
+  if [ "$from_stdin" = 1 ]; then
+    if [ -n "$to" ] && [ $# -gt 0 ]; then
+      say "Give the message on stdin OR as arguments, not both: kosmos msg --stdin <agent> < message.md"
+      exit 2
+    fi
+    [ -n "$to" ] && _read_piped_message sent "kosmos msg --stdin <agent> < message.md"
+  else
+    for _a in "$@"; do
+      if [ "$_a" = "--stdin" ]; then
+        say "--stdin must come before the agent name: kosmos msg --stdin <agent> < message.md"
+        exit 2
+      fi
+    done
+    text="$*"
+  fi
   if [ -z "$to" ] || [ -z "$text" ]; then
-    say "Usage: kosmos msg <agent> <what you want to tell them>"
+    say "Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and \$ arrive as written)"
     exit 2
   fi
   if ! healthy; then
     say "Kosmos is not running, so nothing can be delivered. Start it with: kosmos start"
+    _keep_piped
     exit 1
   fi
   # JSON-escaped by hand, because this must run on a clean Mac's bash 3.2
@@ -1053,17 +1073,29 @@ cmd_msg() {
   # the arm that works). Do NOT drop the `$!` guard.
   local esc_to esc_text esc_pane
   esc_to=$(printf '%s' "$to" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+  # #2909: LC_ALL=C so a piped file with bytes that are not UTF-8 cannot make BSD sed/tr abort
+  # (escaping is byte-wise, safe for UTF-8), and a failure keeps a piped message instead of dying.
+  if ! esc_text=$(printf '%s' "$text" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r' '  ' | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g'); then
+    say "Nothing was sent: the message could not be prepared for sending."; _keep_piped; exit 2
+  fi
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # No -f: an HTTP error still carries the server's own sentence, and
   # "could not reach" is a wrong diagnosis for a reachable server that
   # refused. Only a transport failure gets the unreachable sentence.
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   local _data="{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
-  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
+  # #2909: refuse a body over the board's read limit with the real reason, and send it to curl on
+  # stdin (printf is a builtin, so no argv limit applies to a long piped message).
+  if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
+    say "Nothing was sent: that message is too large to send to the board at all. Send a summary, or split it."
+    _keep_piped
+    exit 2
+  fi
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
-    --data "$_data" 2>/dev/null) || {
+    --data-binary @- 2>/dev/null) || {
     say "We could not reach Kosmos to send that. Is it running at $URL?"
+    _keep_piped
     exit 1
   }
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
@@ -1072,6 +1104,7 @@ cmd_msg() {
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
       say "Kosmos refused that request: ${because:-it did not say why}."
+      _keep_piped
       exit 1
       ;;
   esac
@@ -1093,6 +1126,7 @@ cmd_msg() {
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Not delivered: ${because:-we could not tell why}."
+      _keep_piped
       exit 1
       ;;
   esac
@@ -1194,6 +1228,61 @@ _keep_piped() {
 }
 
 POST_BODY_MAX_BYTES=6291456   # #2909: the board's request-READ limit (server.js MAX_UPLOAD), past which it drops the connection; the room's own text cap is far lower and says so itself. Pinned by cli.post-stdin-2909.test.js
+# #2909: read a --stdin message into the caller's `text` (and `_orig`, the as-read copy), shared
+# by cmd_post and cmd_msg. Refuses (exit 2) a terminal, a pipe over the board's limit, and blank
+# input; drops control characters and a leading BOM; trims the trailing CR/LF run in linear time.
+# Uses the caller's locals text/_orig/_trimmed/_keep by bash dynamic scope. $1 = posted|sent,
+# $2 = the usage example named in the refusals.
+_read_piped_message() {
+  local _verb="$1" _usage="$2" _raw _rawn
+  if [ -t 0 ]; then
+    say "--stdin reads the message from a pipe or file, and nothing was piped in: $_usage"
+    exit 2
+  fi
+  # Read at most one byte past the board's limit, raw, into a private file: an accidental huge
+  # pipe is never held whole, and the size is judged on the bytes as sent, before anything is
+  # dropped, so an over-limit message is refused rather than truncated and posted.
+  local _raw _rawn
+  _raw="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-read.XXXXXX")" && chmod 600 "$_raw" || { [ -n "${_raw:-}" ] && rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2; }
+  trap 'rm -f "$_raw"' INT TERM   # a Ctrl-C while waiting on an open pipe must not leave the copy behind
+  if ! LC_ALL=C head -c "$((POST_BODY_MAX_BYTES + 1))" > "$_raw"; then
+    trap - INT TERM; rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2
+  fi
+  trap - INT TERM
+  _rawn="$(LC_ALL=C wc -c < "$_raw" | LC_ALL=C tr -d ' ')" || { rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2; }
+  if [ "$_rawn" -gt "$POST_BODY_MAX_BYTES" ]; then
+    rm -f "$_raw"
+    say "Nothing was $_verb: the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Send a summary, or split it."
+    exit 2
+  fi
+  # Control characters are dropped at the read (before the blank check, so control-only
+  # input is refused), and under LC_ALL=C so bytes that are not UTF-8 pass through instead
+  # of making tr abort; the board decodes them as it decodes any body. NUL is outside the tr
+  # range because bash's $(...) already drops it; reading by another route must drop it too.
+  if ! text="$(LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' < "$_raw")"; then
+    rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2
+  fi
+  rm -f "$_raw"
+  _orig="$text"   # the message as read; a trim step that fails saves this, never a half-processed copy
+  # Drop a leading UTF-8 BOM. Not ${text#...}: under bash 3.2 in a UTF-8 locale that
+  # expansion is quadratic in the text length (measured, 5.6s on 200 KB).
+  case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" || { say "Nothing was $_verb: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; } ;; esac
+  # Drop the trailing CR/LF run in linear time: map CR to LF so the command substitution strips
+  # the whole run, count the bytes left, and cut the original to that length. A ${text%?} loop
+  # is quadratic here (a 60 KB message ending in blank CRLF lines ran for over a minute).
+  _trimmed="$(printf '%s' "$text" | LC_ALL=C tr '\r' '\n')" || { say "Nothing was $_verb: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }
+  _keep="$(printf '%s' "$_trimmed" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" || { say "Nothing was $_verb: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }
+  if [ "$_keep" -gt 0 ]; then text="$(printf '%s' "$text" | { LC_ALL=C head -c "$_keep"; cat >/dev/null; })" || { say "Nothing was $_verb: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }; else text=""; fi   # macOS head refuses -c 0; cat drains the rest so printf never takes SIGPIPE under pipefail
+  _trimmed=
+  case "$text" in
+    *[![:space:]]*) ;;
+    *)
+      say "--stdin reads the message from a pipe or file, and nothing was piped in: $_usage"
+      exit 2
+      ;;
+  esac
+}
+
 cmd_post() {
   local project text body because _a
   # #1955: attaching a FILE to a room post is not supported yet. Detect the
@@ -1257,52 +1346,7 @@ cmd_post() {
       exit 2
     fi
     if [ -n "$project" ]; then
-      if [ -t 0 ]; then
-        say "--stdin reads the message from a pipe or file, and nothing was piped in: kosmos post --stdin <project-id> < message.md"
-        exit 2
-      fi
-      # Read at most one byte past the board's limit, raw, into a private file: an accidental huge
-      # pipe is never held whole, and the size is judged on the bytes as sent, before anything is
-      # dropped, so an over-limit message is refused rather than truncated and posted.
-      local _raw _rawn
-      _raw="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-read.XXXXXX")" && chmod 600 "$_raw" || { [ -n "${_raw:-}" ] && rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2; }
-      trap 'rm -f "$_raw"' INT TERM   # a Ctrl-C while waiting on an open pipe must not leave the copy behind
-      if ! LC_ALL=C head -c "$((POST_BODY_MAX_BYTES + 1))" > "$_raw"; then
-        trap - INT TERM; rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2
-      fi
-      trap - INT TERM
-      _rawn="$(LC_ALL=C wc -c < "$_raw" | LC_ALL=C tr -d ' ')" || { rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2; }
-      if [ "$_rawn" -gt "$POST_BODY_MAX_BYTES" ]; then
-        rm -f "$_raw"
-        say "Nothing was posted: the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Post a summary, or split it."
-        exit 2
-      fi
-      # Control characters are dropped at the read (before the blank check, so control-only
-      # input is refused), and under LC_ALL=C so bytes that are not UTF-8 pass through instead
-      # of making tr abort; the board decodes them as it decodes any body. NUL is outside the tr
-      # range because bash's $(...) already drops it; reading by another route must drop it too.
-      if ! text="$(LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' < "$_raw")"; then
-        rm -f "$_raw"; say "Nothing was posted: the piped message could not be read."; exit 2
-      fi
-      rm -f "$_raw"
-      _orig="$text"   # the message as read; a trim step that fails saves this, never a half-processed copy
-      # Drop a leading UTF-8 BOM. Not ${text#...}: under bash 3.2 in a UTF-8 locale that
-      # expansion is quadratic in the text length (measured, 5.6s on 200 KB).
-      case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" || { say "Nothing was posted: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; } ;; esac
-      # Drop the trailing CR/LF run in linear time: map CR to LF so the command substitution strips
-      # the whole run, count the bytes left, and cut the original to that length. A ${text%?} loop
-      # is quadratic here (a 60 KB message ending in blank CRLF lines ran for over a minute).
-      _trimmed="$(printf '%s' "$text" | LC_ALL=C tr '\r' '\n')" || { say "Nothing was posted: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }
-      _keep="$(printf '%s' "$_trimmed" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" || { say "Nothing was posted: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }
-      if [ "$_keep" -gt 0 ]; then text="$(printf '%s' "$text" | { LC_ALL=C head -c "$_keep"; cat >/dev/null; })" || { say "Nothing was posted: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }; else text=""; fi   # macOS head refuses -c 0; cat drains the rest so printf never takes SIGPIPE under pipefail
-      _trimmed=
-      case "$text" in
-        *[![:space:]]*) ;;
-        *)
-          say "--stdin reads the message from a pipe or file, and nothing was piped in: kosmos post --stdin <project-id> < message.md"
-          exit 2
-          ;;
-      esac
+      _read_piped_message posted "kosmos post --stdin <project-id> < message.md"
     fi
   else
     # #2909: a --stdin AFTER the project would post the literal word and silently drop the
