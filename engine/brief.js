@@ -42,9 +42,9 @@ function goalFrom(text) {
     if (NEXT_SECTION.test(l)) break;
     body.push(l);
   }
-  // Control characters become spaces: the pane refuses them, and a goal that can never be delivered
-  // would be retried for ever.
-  const goal = body.join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().replace(/\s+/g, ' ');
+  // C0 and C1 control characters become spaces (the pane refuses both; the Assigner also checks
+  // the finished line with chat.messageProblem before asking).
+  const goal = body.join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().replace(/\s+/g, ' ');
   if (!goal || goal === projects.BRIEF_GOAL_PLACEHOLDER || goal.includes(projects.BRIEF_GOAL_PLACEHOLDER)) return null;
   const chars = Array.from(goal); // by code point, so a trim never splits an emoji
   return chars.length > GOAL_MAX ? chars.slice(0, GOAL_MAX - 1).join('').trimEnd() + '…' : goal;
@@ -57,7 +57,9 @@ function goalFrom(text) {
  * @returns {string|null}
  */
 function readGoal(folder) {
-  if (typeof folder !== 'string' || !folder) return null;
+  // Absolute only, as projects.briefIsPending / seedBriefStub: a relative path would resolve against
+  // the server's working directory.
+  if (typeof folder !== 'string' || !folder || !path.isAbsolute(folder)) return null;
   const file = path.join(folder, projects.BRIEF_STUB_FILENAME);
   let fd;
   try {

@@ -458,3 +458,44 @@ test('a spent ASSIGNMENT budget never blocks a goal ask (the ask has its own cap
     assert.equal(out.toAsk.length, 1, 'the assignment caps blocked a goal ask');
   } finally { w.restore(); }
 });
+
+test('a goal whose ask the pane would refuse is never asked; the text of every real ask passes the pane check', () => {
+  const w = world([{ name: 'gpane' }]);
+  try {
+    const base = { roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states() };
+    const first = a.step({ prev: undefined, ...base, now: T0 });
+    const bad = a.step({ prev: first.next, ...base, goals: new Map([[w.pid, 'Ship\u0085 it']]), now: T0 + a.IDLE_MS });
+    assert.equal(bad.toAsk.length, 0, 'asked with a line the pane refuses (it would be retried for ever)');
+    const good = a.step({ prev: first.next, ...base, goals: new Map([[w.pid, 'Ship it']]), now: T0 + a.IDLE_MS });
+    assert.equal(good.toAsk.length, 1, 'control: a clean goal was not asked');
+    assert.equal(require('./chat').messageProblem(a.askText(good.toAsk[0])), null, 'a real ask would be refused by the pane');
+  } finally { w.restore(); }
+});
+
+test('after MAX_ASK_FAILS undelivered asks a project is left for the day, and the agent\'s other goal project is asked', () => {
+  const w = world([{ name: 'gfail', member: false }]);
+  try {
+    const ids = [];
+    for (let i = 0; i < 2; i++) {
+      const p = projects.create({ name: 'Goal Fail ' + (++seq) });
+      projects.addAgent(p.id, w.key.gfail, w.cards);
+      fs.writeFileSync(path.join(folderOf(p.id), 'BRIEF.md'), '## Goal\n\nGoal ' + i + '.\n');
+      ids.push(p.id);
+    }
+    // The first project's ask never lands; the second's always would.
+    const calls = [];
+    const run = (prev, now) => a.tick({
+      prev, now, DELIVERY,
+      readSetting: () => ON, readRoster: () => w.cards, readRecords: () => projects.readAll(),
+      readCommitment: (session) => commitments.read(session), readGoal: (p) => brief.readGoal(p.folder),
+      give: () => ({ ok: true }),
+      ask: (session, text) => { const pid = ids.find((id) => text.includes('project ' + id + ' ')); calls.push(pid); return { state: pid === ids[0] ? DELIVERY.COULD_NOT : DELIVERY.PLACED }; },
+    });
+    let out = run(undefined, T0).next;
+    let now = T0 + a.IDLE_MS;
+    for (let i = 0; i < a.MAX_ASK_FAILS; i++) { out = run(out, now).next; now += 61 * 60 * 1000; }
+    assert.deepEqual(calls, Array(a.MAX_ASK_FAILS).fill(ids[0]), 'fixture: the failing project was not the one asked each time');
+    run(out, now);
+    assert.equal(calls[calls.length - 1], ids[1], 'the undeliverable project kept starving the agent\'s other goal project');
+  } finally { w.restore(); }
+});

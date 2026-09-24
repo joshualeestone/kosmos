@@ -34,6 +34,7 @@ test('the Goal section ends at the next heading; blank, missing and comment-only
   assert.equal(brief.goalFrom('# P\n\n## Goal\n\n<!-- write it here -->\n'), null);
   assert.equal(brief.goalFrom('## Goals:\n\nOne clear aim\n'), 'One clear aim', 'the plural/colon heading was missed');
   assert.equal(brief.goalFrom('## Goal\n\nShip\u001b[31m it\u0007 now\n'), 'Ship [31m it now', 'a control character survived into the goal');
+  assert.equal(brief.goalFrom('## Goal\n\nShip\u0085 now\n'), 'Ship now', 'a C1 control character survived into the goal');
   assert.equal(brief.goalFrom(''), null);
   assert.equal(brief.goalFrom(null), null);
 });
@@ -66,4 +67,5 @@ test('readGoal: a real file is read; missing, a symlink, a directory and an over
   fs.writeFileSync(path.join(big, 'BRIEF.md'), '## Goal\n\nBig.\n' + 'y'.repeat(brief.MAX_BYTES));
   assert.equal(brief.readGoal(big), null, 'an oversize brief was read');
   assert.equal(brief.readGoal(''), null);
+  assert.equal(brief.readGoal(path.relative(process.cwd(), dir)), null, 'a relative folder was read against the working directory');
 });

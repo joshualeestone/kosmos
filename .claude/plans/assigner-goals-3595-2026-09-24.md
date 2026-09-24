@@ -41,8 +41,15 @@ so phase 2 gives it the first one on a later tick. No goal means no ask: Kosmos 
 - **Control characters in a goal become spaces**, since the pane refuses them and an undeliverable
   goal would otherwise be retried for ever.
 - **The assignment caps gate assignments only**; a full assignment log never blocks an ask.
-- **It says Kosmos will give the first task**, rather than "take the first": there is no CLI verb
-  for an agent to assign itself, and phase 2 does it on the next tick.
+- **A line the pane would refuse is never asked** (checked with chat.messageProblem, the pane's own
+  rule), and after 3 undelivered asks in a row a project is left for the day, so one undeliverable
+  project cannot hold the fleet's ask budget.
+- **Accepted: the once-a-day memory is in process**, as the Recommender's is: a board restart can
+  ask about a still-empty goal project once more. Restarts are rare and the caps still apply;
+  persisting ask timestamps is more surface than a repeated question is worth.
+- **The ask says Kosmos hands new tasks to idle agents on the project**, not "you will get the
+  first": another idle member may be picked, and the drafting agent's idle clock restarts.
+- **There is no CLI verb for an agent to assign itself**; phase 2 hands the new tasks out.
 - **Same switch as phase 2** (the Assigner). The label "Turn your goals into assigned work" is now
   true; the hint gains one sentence for this behaviour.
 - **An ask that reaches nobody (COULD_NOT) is tried again after 10 minutes**, not a day later and
