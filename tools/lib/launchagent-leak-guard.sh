@@ -59,3 +59,14 @@ launchagent_leak_check() {
   fi
   return 0
 }
+
+# launchagent_leak_origin <plist> -> the plist's WorkingDirectory, i.e. the sandbox the
+# writing test was using. #3605: the leak check above cannot say WHOSE run wrote a plist,
+# only that one appeared while this suite ran. On 2026-09-24 a checkout that predated
+# #3011 leaked five while another branch's suite was running, and that branch was blamed.
+# The sandbox path is the one clue the file carries, so the report prints it. Empty when
+# the plist has no WorkingDirectory or cannot be read.
+launchagent_leak_origin() {
+  [ -r "$1" ] || return 0
+  sed -n 's:.*<key>WorkingDirectory</key><string>\(.*\)</string>.*:\1:p;/<key>WorkingDirectory<\/key>/q' "$1" 2>/dev/null
+}

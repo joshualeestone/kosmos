@@ -246,6 +246,39 @@ function workersDir() { return store.workersRootFor(process.env, homeDir()); }
    real machine with the seam set after require. */
 function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(homeDir(), 'Library', 'LaunchAgents'); }
 
+/* 🛑 #3605: a test must never write a job file into the operator's real
+   ~/Library/LaunchAgents. #3011 sandboxed the one test that did and added a
+   suite-level guard, but that guard only notices AFTER the run and cannot say
+   whose run it was: on 2026-09-24 a suite from a checkout that predates #3011
+   leaked five codex* plists while another branch's suite was running, the
+   other branch's guard fired, and launchd loaded the five at the next login.
+   This refuses at the write instead, so an unsandboxed test fails on its own
+   branch, at the line, before anything lands.
+   "Under test" is NODE_TEST_CONTEXT, which `node --test` sets in every file's
+   process (and which the children those tests spawn inherit); a real board never
+   has it. "Real" is the ACCOUNT's home from the password database, not $HOME or
+   AGENT_WORKFORCE_HOME, so a test that points either seam at its sandbox is left
+   alone and one that forgot both is caught. Exported for its unit test, which
+   exercises it with no write at all. */
+function realLaunchAgentsDir() {
+  let home = '';
+  try { home = os.userInfo().homedir; } catch { home = ''; }
+  return home ? path.join(home, 'Library', 'LaunchAgents') : '';
+}
+function refuseRealLaunchWriteUnderTest(file, env = process.env) {
+  if (!env.NODE_TEST_CONTEXT) return;
+  const real = realLaunchAgentsDir();
+  if (!real || path.resolve(path.dirname(file)) !== path.resolve(real)) return;
+  const msg = `#3605: refused to write ${path.basename(file)} into the real ${real} from a test. ` +
+    'Set process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, "LaunchAgents") before this test creates agents.';
+  try { process.stderr.write(msg + '\n'); } catch { /* the throw still carries it */ }
+  throw new Error(msg);
+}
+function writePlistFile(file, text) {
+  refuseRealLaunchWriteUnderTest(file);
+  fs.writeFileSync(file, text, 'utf8');
+}
+
 /**
  * Where the product keeps things it installs for itself, as opposed to things
  * that belong to an agent.
@@ -1066,7 +1099,7 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
     return null;
   }
   try {
-    fs.writeFileSync(plistPath(clean), plistFor(clean, f.runnerBin, f.tmux, f.model, f.configDir, f.runner), 'utf8');
+    writePlistFile(plistPath(clean), plistFor(clean, f.runnerBin, f.tmux, f.model, f.configDir, f.runner));
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
@@ -3299,7 +3332,7 @@ function installJob(name, opts) {
   try {
     if (!DRY_RUN) {
       fs.mkdirSync(agentsDir(), { recursive: true });
-      fs.writeFileSync(plistPath(clean), plistFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
+      writePlistFile(plistPath(clean), plistFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner));
     }
   } catch {
     return { ok: false, because: 'we could not write the job file' };
@@ -4746,7 +4779,7 @@ function createAgentInner(opts) {
     && (jobPlatform === 'win32' || step('set it up to keep running', () => {
       if (DRY_RUN) return true;
       fs.mkdirSync(agentsDir(), { recursive: true });
-      fs.writeFileSync(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
+      writePlistFile(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner));
     }));
 
   /**
@@ -5233,6 +5266,9 @@ module.exports = {
   isNonClaudeRunner,
   recordedRunner,
   plistPath,
+  refuseRealLaunchWriteUnderTest,
+  writePlistFile,
+  realLaunchAgentsDir,
   plannedModelArg,
   forgetCodexFolder,
   trustCodexFolder,
