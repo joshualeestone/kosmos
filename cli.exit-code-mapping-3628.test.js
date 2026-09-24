@@ -2,8 +2,9 @@
 /**
  * kosmos#3628: the CLI test harnesses turned a killed or unspawnable CLI into an exit code.
  *
- * Ten cli.*.test.js files mapped execFile's error with a numeric-or-<0> fallback, and five
- * more (plus cli.project-create-3388's catch) with a <1> fallback. When execFile's `timeout`
+ * Ten cli.*.test.js files mapped execFile's error with a numeric-or-<0> fallback, five more
+ * (plus cli.project-create-3388's catch) with a <1> fallback, and cli.world-outbox-1704
+ * with <-1>. When execFile's `timeout`
  * fires it kills the child and reports err.code = null, err.signal = 'SIGTERM'; a spawn
  * failure reports err.code = 'ENOENT', a string. So a timed-out run read as 0 (a PASS for a
  * test expecting success) or as 1 (a PASS for a test expecting failure).
@@ -59,9 +60,10 @@ test('#3628 CONTRAST: why the harness rejects rather than returning a sentinel',
 });
 
 test('#3628: no test file defaults a missing exit code to a number', () => {
-  // A 0 or 1 fallback for a missing code: `typeof x.code === 'number' ? x.code : 0`,
-  // `x.code ?? 1`, `x.code || 0` (x = err, e or error).
-  const UNSAFE = /typeof (err|e|error)\.code === 'number'\s*\)?\s*\?\s*\1\.code\s*:\s*[01]\b|\b(?:err|e|error)\.code\s*(?:\?\?|\|\|)\s*[01]\b/;
+  // Any numeric fallback for a missing code (0, 1, -1, ...): `typeof x.code === 'number'
+  // ? x.code : 0`, `x.code ?? 1`, `x.code || -1` (x = err, e or error). Every sentinel
+  // has the notEqual(code, 0) flaw, so none is allowed.
+  const UNSAFE = /typeof (err|e|error)\.code === 'number'\s*\)?\s*\?\s*\1\.code\s*:\s*-?\d+\b|\b(?:err|e|error)\.code\s*(?:\?\?|\|\|)\s*-?\d+\b/;
   // `err ? err.code : 0` is safe ONLY after the reject line: alone, a kill gives null,
   // which passes notEqual(code, 0) just like a sentinel would.
   const BARE = /\berr \? err\.code : 0\b/;
@@ -73,6 +75,7 @@ test('#3628: no test file defaults a missing exit code to a number', () => {
     'err ? (err.code ?? ' + O + ') : 0',
     "(e && typeof e.code === 'number') ? e.code : " + O,
     'error.code || ' + Z,
+    "err ? (typeof err.code === 'number' ? err.code : -" + O + ') : 0',
   ]) assert.match(sample, UNSAFE, sample);
   // Negative control: the guarded harness form is not flagged by UNSAFE.
   assert.doesNotMatch('resolve({ code: err ? err.code : ' + Z + ', stdout });', UNSAFE);
@@ -90,6 +93,6 @@ test('#3628: no test file defaults a missing exit code to a number', () => {
     if (src.includes(REJECTS)) guarded++;
   }
   assert.deepEqual(bad, [], 'these files default a missing exit code to a number');
-  // The scan must actually reach the harnesses it protects (16 at the time of writing).
-  assert.ok(guarded >= 16, 'only ' + guarded + ' test files reject a missing exit code; the scan may be looking in the wrong place');
+  // The scan must actually reach the harnesses it protects (17 at the time of writing).
+  assert.ok(guarded >= 17, 'only ' + guarded + ' test files reject a missing exit code; the scan may be looking in the wrong place');
 });

@@ -11,11 +11,13 @@ The card named two files. The class is wider: 12 copies with a 0 fallback in 10
 cli.*.test.js files, plus 5 files with `err ? (err.code ?? 1) : 0` and
 cli.project-create-3388's catch with a 1 fallback, where a kill reads as a clean failure
 (a PASS for tests expecting exit 1 or `notEqual(code, 0)`). The first sweep only looked
-for 0 fallbacks; the blind review found the 1s. cli.world-outbox-1704 (-1) and
-engine/create.js (production, 1) are unchanged.
+for 0 fallbacks; the blind review found the 1s. cli.world-outbox-1704 mapped a kill to
+-1: not a false pass in its current asserts, but the same sentinel flaw, so it is
+converted too (review pass 2). engine/create.js (production, 1) is unchanged: it is not
+a test harness.
 
 ## Change
-Every harness (16 files, 18 sites) now REJECTS when execFile gives no numeric exit
+Every harness (17 files, 19 sites) now REJECTS when execFile gives no numeric exit
 code, with "the CLI gave no exit code (<signal or error>): killed by the harness timeout
 or never started." Otherwise it resolves `err ? err.code : 0`.
 
@@ -34,10 +36,12 @@ cli.exit-code-mapping-3628.test.js:
   reject; real exit codes 3 and 0 resolve;
 - CONTRAST: on a real kill the old 0 fallback reads 0, the old 1 fallback reads 1, and a
   sentinel passes notEqual(code, 0);
-- guard over root and engine/ test files: no `typeof x.code === 'number' ? x.code : 0|1`,
-  `x.code ?? 0|1`, `x.code || 0|1` (x = err, e, error); any bare `err ? err.code : 0` must
+- guard over root and engine/ test files: no numeric fallback for a missing code
+  (`typeof x.code === 'number' ? x.code : N`, `x.code ?? N`, `x.code || N`, any N
+  including -1; x = err, e, error); any bare `err ? err.code : 0` must
   sit with the reject line; positive controls for every spelling, a negative control for
-  the safe form, and a floor (>= 16 files carry the reject line, excluding this file).
+  the safe form, and a floor (>= 17 files carry the reject line, excluding this file).
+  Restoring world-outbox's -1 reds it too.
   Perturbations: restoring `?? 1` in one file, and deleting the reject line in another,
   each red the guard.
 All 16 harness files: 107/108 pass with the guard at the time, 5/5 guard after tightening.
