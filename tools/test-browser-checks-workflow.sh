@@ -125,29 +125,48 @@ grep -q 'matched no checks at all' "$GATE" \
   || fail "browser-checks.sh has no zero-match guard -- a typo'd/empty allowlist could green from zero checks"
 pass "the gate honors the allowlist and refuses a green from zero checks"
 
-# #2518: the two jobs have different jobs. The allowlist job is the fast DOM-state gate;
-# browser-checks-full runs the WHOLE set as an ADVISORY job. Pinned per job, because a
-# grep over the file cannot tell which job a line belongs to.
+# #2518: pin each job by PARSED YAML, not by grepping the file. The greps above pass on
+# any line in the file, so a second job there would satisfy them for the allowlist job
+# (found in review: delete the allowlist job's run line and they stayed green).
+# The full set runs in its OWN workflow, nightly + on demand, never on pull_request:
+# a red check run on a PR stops /merge-on-green even under continue-on-error.
+WF_FULL="$REPO/.github/workflows/browser-checks-full.yml"
+[ -f "$WF_FULL" ] || fail "browser-checks-full.yml is missing (#2518: the full set's nightly run)"
 if command -v ruby >/dev/null 2>&1; then
   jobs_out="$(ruby -ryaml -e '
-    d = YAML.load_file(ARGV[0]); j = d["jobs"] || {}
-    g = j["browser-checks"] or abort "no browser-checks job"
-    f = j["browser-checks-full"] or abort "no browser-checks-full job"
-    envs = ->(job) { [job["env"] || {}] + (job["steps"] || []).map { |s| s["env"] || {} } }
     runs = ->(job) { (job["steps"] || []).map { |s| s["run"].to_s }.join("\n") }
-    abort "allowlist job is continue-on-error; its red must fail the workflow" if g["continue-on-error"]
-    abort "allowlist job sets no KOSMOS_BC_CI_ALLOWLIST" unless envs.(g).any? { |e| e.key?("KOSMOS_BC_CI_ALLOWLIST") }
-    abort "browser-checks-full is not continue-on-error: true (it must stay advisory)" unless f["continue-on-error"] == true
-    abort "browser-checks-full sets KOSMOS_BC_CI_ALLOWLIST, so it would not run the full set" if envs.(f).any? { |e| e.key?("KOSMOS_BC_CI_ALLOWLIST") } || runs.(f).include?("KOSMOS_BC_CI_ALLOWLIST")
-    abort "browser-checks-full does not run browser-checks.sh with the strict pin" unless runs.(f) =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/
-    abort "browser-checks-full is not on macos-latest" unless f["runs-on"] == "macos-latest"
-    abort "browser-checks-full does not provision Playwright" unless runs.(f).include?("tools/provision-pw.sh")
-    j.each { |k, job| (job["steps"] || []).each { |s| n = s["name"].to_s
-      abort "step name in #{k} was cut short (an unquoted \" #\" starts a YAML comment): #{n}" if n.count("(") != n.count(")") } }
+    envs = ->(job) { [job["env"] || {}] + (job["steps"] || []).map { |s| s["env"] || {} } }
+    d = YAML.load_file(ARGV[0]); g = (d["jobs"] || {})["browser-checks"] or abort "no browser-checks job"
+    abort "the allowlist job is continue-on-error; its red must fail the run" if g["continue-on-error"]
+    abort "the allowlist job sets no KOSMOS_BC_CI_ALLOWLIST" unless envs.(g).any? { |e| e.key?("KOSMOS_BC_CI_ALLOWLIST") }
+    abort "the allowlist job does not run browser-checks.sh with the strict pin" unless runs.(g) =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/
+    abort "the allowlist job does not provision Playwright" unless runs.(g).include?("tools/provision-pw.sh")
+    abort "the allowlist job is not on macos-latest" unless g["runs-on"] == "macos-latest"
+    f = YAML.load_file(ARGV[1])
+    on = f["on"] || f[true] || {}
+    trig = on.is_a?(Hash) ? on.keys.map(&:to_s).sort : Array(on).map(&:to_s).sort
+    abort "browser-checks-full.yml must trigger on exactly schedule + workflow_dispatch, got #{trig.inspect}" unless trig == ["schedule", "workflow_dispatch"]
+    fj = (f["jobs"] || {})["browser-checks-full"] or abort "no browser-checks-full job"
+    abort "browser-checks-full sets KOSMOS_BC_CI_ALLOWLIST, so it would not run the full set" if envs.(fj).any? { |e| e.key?("KOSMOS_BC_CI_ALLOWLIST") } || runs.(fj).include?("KOSMOS_BC_CI_ALLOWLIST")
+    abort "browser-checks-full does not run browser-checks.sh with the strict pin" unless runs.(fj) =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/
+    abort "browser-checks-full does not provision Playwright" unless runs.(fj).include?("tools/provision-pw.sh")
+    abort "browser-checks-full is not on macos-latest" unless fj["runs-on"] == "macos-latest"
     puts "ok"
-  ' "$WF" 2>&1)" || fail "job invariants: $jobs_out"
+  ' "$WF" "$WF_FULL" 2>&1)" || fail "job invariants: $jobs_out"
   [ "$jobs_out" = ok ] || fail "job invariants did not report ok: $jobs_out"
-  pass "the allowlist job gates; browser-checks-full is advisory, allowlist-free, strict-pinned, on macos-latest; no step name is cut short"
+  pass "each job pinned by parsed YAML: the allowlist job gates PRs; browser-checks-full runs every check, nightly/on demand only"
+elif [ -n "${CI:-}" ]; then
+  fail "ruby is missing under CI, so the per-job invariants cannot run"
+else
+  pass "SKIPPED per-job invariants (no ruby on this machine)"
 fi
+
+# An unquoted " #" inside a step name starts a YAML comment and silently truncates it
+# (the allowlist step's name parsed as "... (tools/browser-checks.sh," until #2518).
+for wf in "$WF" "$WF_FULL"; do
+  cut_short="$(grep -nE "^[[:space:]]*-?[[:space:]]*name:[[:space:]]*[^'\"[:space:]].*[[:space:]]#" "$wf" || true)"
+  [ -z "$cut_short" ] || fail "an unquoted step name in $(basename "$wf") contains ' #' and is cut short by YAML: $cut_short"
+done
+pass "no step name is cut short by an unquoted ' #'"
 
 printf 'all browser-checks-workflow invariants hold\n'

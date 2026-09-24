@@ -1,0 +1,56 @@
+# The FULL page-layer set, nightly on main (#2518).
+#
+# 🛑 WHY. browser-checks.yml runs only the headless-robust DOM-state allowlist on PRs.
+# Every other check (render-fields, render-thread, render-push-718, ...) first ran at
+# the release cut's 3b, so a PR that broke one merged green and the break surfaced at
+# the cut, the most expensive place. Measured 2026-09-24: #3493 (a CSS contrast change
+# in web/index.html) broke render-fields on both engines, merged green, and blocked the
+# 0.6.91 staging cut. The surface map (tools/bc-surface-map.sh covering) could not have
+# picked render-fields for that diff: it maps DOM ids, and the change was CSS.
+#
+# 🔑 WHY NIGHTLY ON MAIN, NOT PER PR. A per-PR job was tried in review and rejected:
+# a red check run on a PR stops /merge-on-green even under continue-on-error, the
+# full set is known to false-red on this runner (see browser-checks.yml's header),
+# and a 30-75 minute job per web PR contends for the account's macOS runners. Nightly
+# on main moves first detection from "the next cut" to "the next morning", with no
+# merge friction, and every night on an unchanged tree adds to the runner baseline.
+#
+# workflow_dispatch runs it on demand, on any branch: `gh workflow run
+# browser-checks-full.yml --ref <branch>` before a cut, or on a risky web PR.
+#
+# Same script and pin as the cut's 3b: tools/browser-checks.sh with no
+# KOSMOS_BC_CI_ALLOWLIST runs every check, headless (run_one sets HEADED=0).
+name: browser-checks-full
+
+on:
+  schedule:
+    # 09:30 UTC (04:30 CDT / 03:30 CST): done before the working day's cuts.
+    - cron: '30 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-checks-full-${{ github.ref }}
+  # A nightly run is never superseded by a newer commit mid-run; let it finish.
+  cancel-in-progress: false
+
+jobs:
+  browser-checks-full:
+    runs-on: macos-latest
+    # The cut's 3b render window is ~16 minutes on a dev Mac; a hosted runner is slower.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: which node is this
+        run: |
+          echo "node: $(node --version 2>&1 || echo ABSENT)"
+          echo "npm:  $(npm --version 2>&1 || echo ABSENT)"
+      - name: 'provision the pinned Playwright runtime (#1594)'
+        run: bash tools/provision-pw.sh
+      - name: 'the FULL page layer, headless, every check (tools/browser-checks.sh, #2518)'
+        run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh

@@ -15,30 +15,42 @@ engines, merged green, and blocked the 0.6.91 staging cut.
   (CSS; the map is DOM ids). Control: `pj-alltasks` resolves to render-alltasks.js.
 
 ## Change
-- `.github/workflows/browser-checks.yml`: a second job, `browser-checks-full`, on the same
-  PR trigger. It runs `tools/browser-checks.sh` with no allowlist (the whole set, headless
-  via run_one, the same script and pin as the cut's 3b), with `continue-on-error: true` so
-  it is advisory, and `timeout-minutes: 75`. The allowlist job is unchanged.
-- Both step names quoted: an unquoted ` #` starts a YAML comment, and the existing step's
-  name had been parsing as "... (tools/browser-checks.sh," all along.
-- `tools/test-browser-checks-workflow.sh`: per-job invariants (the allowlist job gates;
-  the full job is advisory, allowlist-free, strict-pinned, on macos-latest) and a guard that
-  no step name is cut short. Red under each of three injected regressions.
+- New `.github/workflows/browser-checks-full.yml`: triggered ONLY by `schedule` (nightly,
+  09:30 UTC) and `workflow_dispatch` (on demand, any branch). It runs `tools/browser-checks.sh`
+  with no allowlist (every check, headless via run_one, the same script and pin as the cut's
+  3b), `timeout-minutes: 75`, and `cancel-in-progress: false`.
+- `browser-checks.yml` is unchanged except for quoting its step name: an unquoted ` #` starts
+  a YAML comment, so the name had been parsing as "... (tools/browser-checks.sh," all along.
+- `tools/test-browser-checks-workflow.sh`: pins the allowlist job by parsed YAML, since the
+  whole-file greps can be satisfied by any job. Pins the full workflow's triggers to exactly
+  schedule + workflow_dispatch, with no allowlist, strict pin, provision and macos-latest.
+  Adds a raw-line guard against unquoted ` #` in step names. Fails under CI without ruby, and
+  prints a visible SKIP elsewhere.
 
 ## Rejected
 - Covering-only (the surface map): misses the CSS class, measured above.
-- Replacing the allowlist job with the full set: the fast DOM-state green means something
-  specific, and the full set has runner-fragile timing/paint checks.
-- Making the full job gating now: its baseline on an unchanged tree is unknown, and a red
-  that is usually noise trains people to ignore red.
+- A per-PR full job (review iteration 1, two blockers): a red check run on a PR stops
+  /merge-on-green even with job-level continue-on-error; the full set false-reds on this
+  runner (browser-checks.yml header, 2026-09-07); a 30-75 minute job on each of about 129
+  weekly runs contends for the account's macOS runners; and cancel-in-progress would kill
+  it on every re-push. Nightly gives up the PR-time signal and moves first detection from
+  "the next cut" to "the next morning".
+- Replacing the allowlist job with the full set: its fast DOM-state green means something
+  specific.
 
 ## Weakest premise
-That the runner false-red set is small and stable. The PR's own run is the first
-baseline (main plus a workflow-only change, so any red there is the runner). It is
-recorded on #2518, and it gets repeated before any check is called runner-fragile, because
-a 1-in-5 flake does not show in one run.
+That a nightly red gets seen before the next cut. GitHub notifies the actor behind a
+scheduled run's failure, not the fleet. The cut preflight does not yet read the last
+nightly result; that is the natural follow-up if nightly reds go unseen.
+Second: the runner false-red set. The 2026-09-07 first full run false-red on timing/paint
+checks. Repeated nightly runs on an unchanged main measure the current set; none is called
+runner-fragile from a single run.
+
+Found, not fixed here (outside this change): browser-checks.yml's header says the cut's 3b
+is "headed", in five places, but the cut runs it headless (run_one sets HEADED=0;
+release.sh labels step 3b "headless").
 
 ## Proof
-- Ruby YAML parse of both jobs; tools/test-browser-checks-workflow.sh green, and red under
-  each injected regression (unquoted step name, continue-on-error false, an allowlist on
-  the full job).
+- tools/test-browser-checks-workflow.sh green, and red under five injected regressions: the
+  allowlist job's run line deleted (the review's repro), its runs-on changed, pull_request
+  added to the full workflow, an allowlist on the full job, and an unquoted step name.
