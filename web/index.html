@@ -2450,6 +2450,25 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the Talk section (this is :has()-gated), so it would visibly jump between sections. Pin it to its
    intrinsic left-aligned width (#2622 iter-4). */
 #panel-detail:has(#d-sec-talk:not([hidden])) > .back { align-self: flex-start; }
+/* #3497 (Josh, 2026-09-23, two screenshots): the Talk box fills to the header rule, the
+   window's right edge and the window's bottom, and the composer's bottom margin equals its
+   side margin. Wide layout only; below 56rem the page stacks and keeps the fill above.
+   The identity column stays where it was: .back comes out of the flow and .dleft is padded
+   by what the back row used to occupy. Pinned by docs/browser-checks/render-talk-fill-2622.js. */
+@media (min-width: 56.01rem) {
+  body:has(#panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { padding-bottom: 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) {
+    position: relative;
+    margin-top: calc(-1 * var(--space-6));
+    margin-right: calc(-1 * var(--space-8));
+    height: calc(100vh - var(--talk-fill-top-wide, 77px)); }
+  #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
+    position: absolute; top: var(--space-6); left: 0; margin: 0; z-index: 1; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { padding-top: 53px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { padding-top: 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { padding-bottom: var(--space-8); }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-say-msg:empty { margin-top: 0; min-height: 0; }
+}
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
 .snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
                border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
