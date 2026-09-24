@@ -105,6 +105,19 @@ test('#2054/#3138/#2619: Automation holds Auto-save, Prompter, Agent Communicati
   // #2619: both new automations carry the same .toggle switch shape as the others.
   assert.match(sec, /id="rec-toggle"[^>]*class="toggle"|class="toggle"[^>]*id="rec-toggle"/, '#2619: the Recommender toggle is missing');
   assert.match(sec, /id="asg-toggle"[^>]*class="toggle"|class="toggle"[^>]*id="asg-toggle"/, '#2619: the Assigner toggle is missing');
+  // #2619 (Splinter, 2026-09-24): the behaviour is a separate build, so these
+  // controls must NOT be an actionable switch that does nothing - they render
+  // DISABLED with a "not active yet" note until the behaviour lands. Pin that: a
+  // future change that re-enables a do-nothing control fails here. The toggles are
+  // <button> elements (a disabled button fires no click); the guards are disabled
+  // checkboxes. If the behaviour PR wires them live, it updates this contract.
+  assert.match(sec, /id="rec-toggle"[^>]*\bdisabled\b/, '#2619: the Recommender toggle must be disabled until the behaviour is wired');
+  assert.match(sec, /id="asg-toggle"[^>]*\bdisabled\b/, '#2619: the Assigner toggle must be disabled until the behaviour is wired');
+  for (const g of ['rec-guard-money', 'rec-guard-public', 'rec-guard-delete']) {
+    assert.match(sec, new RegExp('id="' + g + '"[^>]*\\bdisabled\\b'),
+      '#2619: the guard checkbox ' + g + ' must be disabled until the behaviour is wired');
+  }
+  assert.match(sec, /Not active yet/, '#2619: the automations need a "not active yet" note so a disabled control is explained');
   // #3138: Sounds is now LAST in the This computer (mac) section.
   const macAt = BODY.indexOf('id="s-sec-mac"');
   const macEnd = BODY.indexOf('<section class="dsec"', macAt + 1);
