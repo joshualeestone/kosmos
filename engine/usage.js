@@ -50,6 +50,11 @@ const USAGE_DIR = path.join(store.ROOT, 'usage');
 // re-derived, for the reason above.
 const SYNTHETIC_ROW = /"model":"<[^"]*>"/;
 
+/* The folder Claude Code nests a session's subagent transcripts under
+   (<sess>/subagents/**). The walk descends into it and #2617's launch-folder
+   keying recognises a subagent by it, so both read one name. */
+const SUBAGENTS_DIRNAME = 'subagents';
+
 const BUCKET_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'];
 
 function emptyBuckets() {
@@ -110,7 +115,7 @@ async function walkSubagentsTree(sessionDir, out) {
   let entries;
   try { entries = await fsp.readdir(sessionDir, { withFileTypes: true }); } catch { return; }
   for (const entry of entries) {
-    if (entry.isDirectory() && entry.name === 'subagents') {
+    if (entry.isDirectory() && entry.name === SUBAGENTS_DIRNAME) {
       await walkJsonlRecursive(path.join(sessionDir, entry.name), out);
     }
   }
@@ -192,7 +197,7 @@ async function scanUsage({ sinceDay, untilDay }) {
          or that transcript records no cwd. Searched below the config root only,
          so a root that itself sits under a folder named subagents is not read
          as one. */
-      const sub = file.indexOf(path.sep + 'subagents' + path.sep, root.length);
+      const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
       if (sub !== -1) {
         const parent = launchOf.get(file.slice(0, sub) + '.jsonl');
         if (parent) launch = parent;
@@ -466,12 +471,34 @@ function defaultCanonical(p) {
   return require('./trust').canonicalOnDisk(p);
 }
 
+/**
+ * byAgent() for a request handler: every folder and agent folder is resolved
+ * with the async realpath first, then the split runs on the results, so no
+ * synchronous filesystem call runs on the server's one thread. The number of
+ * distinct folders grows with worktrees and window length, not with agents.
+ * Same fallback as trust.canonicalOnDisk: a folder that is gone resolves to
+ * itself.
+ */
+async function byAgentAsync(result, agents) {
+  const all = new Set();
+  for (const day of Object.keys((result && result.byFolder) || {})) {
+    for (const folder of Object.keys(result.byFolder[day] || {})) if (folder) all.add(folder);
+  }
+  for (const a of Array.isArray(agents) ? agents : []) if (a && typeof a.dir === 'string' && a.dir) all.add(a.dir);
+  const real = new Map();
+  await Promise.all([...all].map(async (p) => {
+    try { real.set(p, await fsp.realpath(p)); } catch { real.set(p, path.resolve(p)); }
+  }));
+  return byAgent(result, agents, (p) => (real.has(p) ? real.get(p) : path.resolve(p)));
+}
+
 module.exports = {
   configRoots, // re-exported so a caller can report roots without a second require
   walkTranscriptsUnder,
   scanUsage,
   dailyUsageByModel,
   byAgent,
+  byAgentAsync,
   utcDay,
   BUCKET_FIELDS,
   USAGE_DIR,

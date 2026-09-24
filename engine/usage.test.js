@@ -459,3 +459,21 @@ test('#2617: a subagent transcript is its parent session\'s work, wherever it st
   assert.equal(folders['2026-08-24']['/work/other'], undefined, 'a depth-2 subagent kept its own folder');
   assert.equal(folders['2026-08-24']['/w/bob'].output_tokens, 4);
 });
+
+test('#2617: byAgentAsync resolves folders without a synchronous realpath and splits the same way', async () => {
+  const real = fs.mkdtempSync(nodePath.join(SANDBOX, 'areal-'));
+  const link = nodePath.join(SANDBOX, 'alink-' + nodePath.basename(real));
+  fs.symlinkSync(real, link);
+  const B = { input_tokens: 0, output_tokens: 13, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 };
+  const result = { byDay: { d: { m: { ...B, output_tokens: 20 } } }, byFolder: { d: { [fs.realpathSync(real)]: B, '/gone/elsewhere': { ...B, output_tokens: 7 } } } };
+  const agents = [{ name: 'ann', dir: link }];
+  const syncWas = fs.realpathSync.native;
+  let syncCalls = 0;
+  fs.realpathSync.native = (...a) => { syncCalls += 1; return syncWas(...a); };
+  let out;
+  try { out = await usage.byAgentAsync(result, agents); } finally { fs.realpathSync.native = syncWas; }
+  assert.equal(syncCalls, 0, 'byAgentAsync made a synchronous realpath call');
+  assert.equal((out.agents[0] || {}).output_tokens, 13, 'the link and its target did not match');
+  assert.equal(out.elsewhere.output_tokens, 7, 'a folder that is gone must still be counted, as elsewhere');
+  assert.deepEqual(out, usage.byAgent(result, agents), 'the async split disagrees with the sync one');
+});

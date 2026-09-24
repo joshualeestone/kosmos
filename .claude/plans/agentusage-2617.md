@@ -39,7 +39,9 @@ restore.
 - **Route.** `/api/usage` adds `byAgent: { agents, elsewhere, shared,
   unattributed, overcount, rosterRead }`, or `null` if the split fails, so the
   per-model page cannot blank. The per-folder split is not sent: it names every
-  project folder a session ran in. The roster is `register.known()` (agents with
+  project folder a session ran in. Folders are resolved with the async
+  realpath (`usage.byAgentAsync`), so the split adds no synchronous filesystem
+  call per folder on the server's thread. The roster is `register.known()` (agents with
   a profile, stopped ones included), folders `create.workerDir()`, names
   `register.shownName()` (now exported).
 
