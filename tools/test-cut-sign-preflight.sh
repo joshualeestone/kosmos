@@ -81,14 +81,19 @@ out="$(run cs_ok)"
 case "$out" in *"NOT codesign"*"not probed"*) ok "a KOSMOS_CODESIGN_BIN pass says the key was NOT probed" ;; *) bad "a stubbed pass reads like a real probe: $out" ;; esac
 
 # --- the identity it probes is the identity step 4 signs with ---
-bundle_id="$(sed -n 's/^_codesign_id="\${KOSMOS_CODESIGN_ID:-\(.*\)}"$/\1/p' "$REPO/tools/build-kosmos-bundle.sh")"
-if [ -z "$bundle_id" ]; then
-  bad "could not read the default identity out of tools/build-kosmos-bundle.sh (the line moved or changed shape)"
-elif [ "$bundle_id" = "$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID" ]; then
-  ok "the preflight's default identity matches step 4's ($bundle_id)"
+# #3643: both read tools/lib/signing-identity.sh, so pin that step 4 signs with the shared default
+# (not a literal of its own) and that the preflight probes the same value.
+bundle_line="$(grep -E '^_codesign_id=' "$REPO/tools/build-kosmos-bundle.sh")"
+if [ "$bundle_line" != '_codesign_id="${KOSMOS_CODESIGN_ID:-$KOSMOS_SIGN_APP_DEFAULT}"' ]; then
+  bad "step 4 no longer signs with the shared default from lib/signing-identity.sh: $bundle_line"
+elif [ -n "$KOSMOS_SIGN_APP_DEFAULT" ] && [ "$KOSMOS_SIGN_APP_DEFAULT" = "$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID" ]; then
+  ok "the preflight's default identity is step 4's shared default ($KOSMOS_SIGN_APP_DEFAULT)"
 else
-  bad "identity drift: preflight probes [$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID], step 4 signs with [$bundle_id]"
+  bad "identity drift: preflight probes [$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID], the shared default is [$KOSMOS_SIGN_APP_DEFAULT]"
 fi
+# And no other shell script names the team: one place, or a partial switch ships two teams (#3643).
+_team_hits="$(grep -rlE "$KOSMOS_SIGN_TEAM_ID|Stone Syndicate LLC" "$REPO/tools" --include='*.sh' | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/tools/test-' || true)"
+[ -z "$_team_hits" ] && ok "only lib/signing-identity.sh names the signing team" || bad "the signing team is named outside lib/signing-identity.sh: $_team_hits"
 # And KOSMOS_CODESIGN_ID reaches the probe, as it reaches step 4.
 KOSMOS_CODESIGN_ID="Some Other Identity" KOSMOS_CODESIGN_BIN=cs_args kosmos_sign_preflight >/dev/null 2>&1
 grep -qx 'Some Other Identity' "$WORK/cs-args.argv" 2>/dev/null \
