@@ -12,52 +12,55 @@ engine/usage.js has keyed by model alone since #854. So this is new work, not a
 restore.
 
 ## Call (this PR: engine + route; the page is the next PR, for Mona's review)
-- scanUsage splits the same deduplicated rows by each transcript's launch
-  folder: the first `cwd` it records. A row's own cwd moves when an agent `cd`s
-  into a worktree (measured: 6 of the 60 newest sessions on this Mac carried
-  more than one cwd, 21% of their rows off the first), and keying per row
-  would move that work out of the agent.
-- A completed day's folder split freezes to `${day}.folders.v1.json` beside the
-  per-model `${day}.v2.json`. The per-model file stays authoritative and is never
-  rewritten: a day frozen before this shipped keeps its total, and only its
-  folder split is filled from the transcripts still on disk.
-- `usage.byAgent()` (no writes; its default folder comparison calls realpath) gives a folder to the agent whose own folder it is,
-  compared after realpath: the exact match status.js requires. Subfolders are
-  not claimed, so an agent recorded on a broad folder (`~`) cannot absorb the
-  person's sessions launched beneath it. Sessions launched in exactly that
-  folder are still its: see Weakest premise. A folder two agents share goes to `shared`, not to
-  whichever name sorts first. Folders no agent owns go to `elsewhere`.
-- Checked per day against the per-model total: `unattributed` (a day's total
-  beyond its folders, from transcripts pruned after the total froze) and
-  `overcount` (the reverse) are both reported, so they cannot cancel.
-- `/api/usage` adds `byAgent: { agents, elsewhere, shared, unattributed,
-  overcount, rosterRead }`, or `null` if the split fails (the per-model page
-  must not blank). The per-folder split is NOT sent: it names every folder a
-  session ran in. The roster comes from `register.known()` (stopped agents
-  included), folders from
-  `create.workerDir()`, names from `register.shownName()` (now exported).
+- **Keying.** scanUsage splits the same deduplicated rows by each transcript's
+  launch folder: the first `cwd` it records. A subagent transcript takes its
+  parent session's launch folder. A row's own cwd moves when an agent `cd`s into
+  a worktree, and a subagent starts wherever its parent stood, so keying per row
+  or per subagent file would move that work out of the agent. Measured on this
+  Mac: 6 of the 60 newest sessions carried more than one cwd, and 6 of 400
+  subagent transcripts started somewhere other than their parent.
+- **Freezing.** A completed day's folder split freezes to
+  `${day}.folders.v1.json` beside the per-model `${day}.v2.json`. Each half is
+  kept if already frozen and only the missing half is taken from a scan, so the
+  per-model total is never re-derived (it could only shrink as transcripts are
+  pruned) and a corrupt half does not discard a good one. First load after this
+  ships rescans every day in the window once, to fill the folder files; a
+  failing freeze is logged, because it would repeat that on every request.
+- **Deterministic dedup.** Transcripts are read in sorted order, so a message
+  that appears in two transcripts is credited to the same folder every scan.
+- **Ownership.** `usage.byAgent()` gives a folder to the agent whose own folder
+  it is, both sides compared after realpath, so a link and its target match.
+  Subfolders are not claimed, so an agent recorded on a broad folder cannot
+  absorb sessions launched beneath it. A folder two agents share goes to
+  `shared`. Folders no agent owns go to `elsewhere`.
+- **Gaps.** Checked per day against the per-model total: `unattributed` (a
+  day's total beyond its folders) and `overcount` (the reverse), so they cannot
+  cancel across days.
+- **Route.** `/api/usage` adds `byAgent: { agents, elsewhere, shared,
+  unattributed, overcount, rosterRead }`, or `null` if the split fails, so the
+  per-model page cannot blank. The per-folder split is not sent: it names every
+  project folder a session ran in. The roster is `register.known()` (agents with
+  a profile, stopped ones included), folders `create.workerDir()`, names
+  `register.shownName()` (now exported).
 
 ## Rejected
 - Bumping the per-model file to v3 with an agent dimension: re-deriving past
   days from today's transcripts would silently shrink totals already shown.
 - Keying on the `projects/<flattened>` directory name: two real paths can
-  flatten to one name; the recorded cwd, canonicalised, cannot.
+  flatten to one name.
+- Containment matching (a folder inside an agent's): a broad recorded folder
+  would claim the person's own sessions.
 
 ## Weakest premise
-An agent is its own folder, exactly. A session an agent ran from a different
-folder, including a subfolder of its own, counts as `elsewhere`, not as that
-agent. Exact matching was chosen over containment so a broad recorded folder
-cannot claim the person's sessions. Residual: an agent whose recorded folder is
-the home folder itself owns every session the person launches in `~`. What would change my mind: a transcript field naming the Kosmos agent.
+An agent is its own folder, exactly. A session launched anywhere else, a
+subfolder of its own included, counts as `elsewhere`. Two residuals: an agent
+recorded on the home folder itself owns every session the person launches in
+`~`, and an agent with no profile (admitted from tmux only) is not in the roster,
+so its work is `elsewhere`. What would change my mind: a transcript field naming
+the Kosmos agent.
 
 ## Tests
-- engine/usage.test.js: folder split dedups like the model total and agrees
-  with it; byAgent ownership (subfolder and prefix sibling not claimed, shared
-  folder, no-folder agent, ordering, elsewhere, unattributed); a short day and
-  an over day do not cancel; a folder recorded through a symlink matches the
-  real path; a frozen per-model day is not rewritten while its folder split is
-  filled and frozen. Perturbed red: identity canonicalisation, first-sharer
-  wins, net-over-window gap, forced model rescan.
-- server.usage.test.js: the route returns byAgent with the agent's tokens and
-  the non-agent session in elsewhere, and no folder path leaves (perturbed red
-  by sending the whole result).
+engine/usage.test.js and server.usage.test.js. Each guard below was perturbed
+and went red: canonicalisation, first-sharer-wins, per-day gaps, forced model
+rescan, folder-half keep, sort order, launch keying, subagent inheritance, and
+the route's folder leak.

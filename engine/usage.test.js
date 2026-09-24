@@ -430,3 +430,24 @@ test('#2617: one message in two transcripts is credited to the same folder on ev
   assert.equal(folders['2026-08-23']['/w/ann'].output_tokens, 9, 'the sorted-first transcript did not win the dedup');
   assert.equal(folders['2026-08-23']['/w/bob'], undefined, 'one message was counted in two folders');
 });
+
+test('#2617: a subagent transcript is its parent session\'s work, wherever it started', async () => {
+  resetSandbox();
+  const dir = projectDir('proj-sub');
+  fs.writeFileSync(nodePath.join(dir, 'sess.jsonl'),
+    cwdRow({ timestamp: '2026-08-24T10:00:00.000Z', id: 'p1', cwd: '/w/ann', output: 2 }) + '\n', 'utf8');
+  const subDir = nodePath.join(dir, 'sess', 'subagents');
+  fs.mkdirSync(subDir, { recursive: true });
+  // The subagent was spawned while the parent stood in a worktree.
+  fs.writeFileSync(nodePath.join(subDir, 'agent-1.jsonl'),
+    cwdRow({ timestamp: '2026-08-24T10:01:00.000Z', id: 's1', cwd: '/work/repo-branch', output: 30 }) + '\n', 'utf8');
+  // A subagent with no parent transcript on disk keeps its own first cwd.
+  const orphan = nodePath.join(dir, 'gone', 'subagents');
+  fs.mkdirSync(orphan, { recursive: true });
+  fs.writeFileSync(nodePath.join(orphan, 'agent-2.jsonl'),
+    cwdRow({ timestamp: '2026-08-24T10:02:00.000Z', id: 's2', cwd: '/w/bob', output: 4 }) + '\n', 'utf8');
+  const { folders } = await usage.scanUsage({ sinceDay: '2026-08-24', untilDay: '2026-08-24' });
+  assert.equal(folders['2026-08-24']['/w/ann'].output_tokens, 32, 'the subagent\'s tokens left its parent\'s agent');
+  assert.equal(folders['2026-08-24']['/work/repo-branch'], undefined);
+  assert.equal(folders['2026-08-24']['/w/bob'].output_tokens, 4);
+});

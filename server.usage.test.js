@@ -84,9 +84,10 @@ test('#2617: GET /api/usage splits the window per agent by the folder each sessi
   assert.ok(ann, 'the agent whose folder the session ran in got no tokens: ' + JSON.stringify(body.byAgent));
   assert.equal(ann.output_tokens, 30);
   assert.equal(body.byAgent.elsewhere.output_tokens, 4, 'a session outside every agent folder must be counted as elsewhere');
-  // The per-folder split names every folder a session ran in; only its per-agent sum leaves.
+  // The per-folder split names every folder a session ran in; only its per-agent
+  // sum leaves. (rootsRead does name the config folders; that predates this.)
   assert.equal(body.byFolder, undefined, 'the route leaked the per-folder split');
-  assert.ok(!JSON.stringify(body).includes(HOME), 'a working folder path reached the response');
+  assert.ok(!JSON.stringify(body).includes(annDir), 'a session working folder reached the response');
 });
 
 test('#2617: a roster that cannot be read says so, and a failing split leaves the per-model page up', async () => {
