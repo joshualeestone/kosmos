@@ -1367,9 +1367,6 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .pj-mode-opt:hover:not(:has(input:checked)) { background: var(--bg-elevated); }
 .pj-mode-opt:has(input:checked) { background: var(--label); color: var(--bg-elevated); border-color: var(--label); }
 .pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: 2px; }
-/* Federation Kosmos+ gate: the "sign up for Kosmos+" prompt shown (via the
-   data-fed-ui="signup" gate) instead of the fed entry points to a non-member. A
-   quiet card, not an alarm: it explains the feature and offers the one action. */
 /* A read-only value line in Join mode (the owner's project name/description, which the receiver
    cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
 .pj-ro { margin: 2px 0 0; color: var(--label); white-space: pre-wrap; }
@@ -18275,7 +18272,7 @@ async function tick() {
     // Prod-by-default (anything but 'staging'), matching the server's default.
     document.documentElement.setAttribute('data-source-channel',
       data.sourceChannel === 'staging' ? 'staging' : 'prod');
-    // Federation Kosmos+ gate: compute the mode (fed UI / sign-up prompt / hidden)
+    // Federation Kosmos+ gate: compute the mode (fed UI / gated with sign-up / hidden)
     // from sourceChannel + the federation-live flip + this viewer's Plus entitlement,
     // and stamp it on <html> for the CSS gate. Fail-safe (see fedGateMode).
     fedGateStamp(data);
@@ -24266,7 +24263,7 @@ function paintBuildLine(version) {
        always treated live (a review surface).
      - plusEntitled: is THIS viewer an authenticated Kosmos+ member? Members get
        the fed UI; everyone else gets a "sign up for Kosmos+" prompt instead.
-   Returns the gate mode: 'show' (fed UI), 'signup' (sign-up prompt), or 'hidden'.
+   Returns the gate mode: 'show' (fed UI), 'signup' (gated; the Plus-gate modal offers sign-up), or 'hidden'.
    MEMBERSHIP signal (ICK, kosmos-relay fed-plus-gate-3311): a boolean `kosmos_plus`
    (== the coordinator's standing == "good"), the SAME field the coordinator's own gate
    reads, so the UI and the API cannot disagree. ⚠️ ENDPOINT still to settle with ICK:
@@ -24287,7 +24284,7 @@ function fedGateMode(sourceChannel, federationLive, kosmosPlus) {
   if (kosmosPlus === true) return 'show';
   // Staging review continuity: while entitlement is not yet wired (neither true nor false),
   // keep showing the fed UI on staging so reviewers are not blocked. On PROD an unknown
-  // entitlement is treated as NOT a member (fail-safe) -> the sign-up prompt.
+  // entitlement is treated as NOT a member (fail-safe) -> gated with sign-up.
   const unknownPlus = kosmosPlus !== true && kosmosPlus !== false;
   if (staging && unknownPlus) return 'show';
   return 'signup';
@@ -24300,15 +24297,20 @@ function fedGateMode(sourceChannel, federationLive, kosmosPlus) {
 function fedShow() {
   return document.documentElement.getAttribute('data-fed-ui') === 'show';
 }
-/* Stamp the computed gate mode on <html> as data-fed-ui; the CSS gate hides
-   whatever the mode does not authorize. Fail-safe: before the first status tick
-   there is no data-fed-ui attribute, so both the fed UI and the sign-up prompt are
-   hidden until a real signal resolves. */
+/* Stamp the computed gate mode on <html> as data-fed-ui (read by the CSS gate and by fedShow),
+   whether the viewer is a member (data-fed-member), and the Add-external doors' hint. */
 function fedGateStamp(data) {
   data = data || {};
   const mode = fedGateMode(data.sourceChannel, data.federationLive, data.kosmos_plus);
   document.documentElement.setAttribute('data-fed-ui', mode);
   document.documentElement.toggleAttribute('data-fed-member', data.kosmos_plus === true);
+  // The gated doors say so before the click (their gray is visual only).
+  for (const [id, who] of [['pj-add-ext-person', 'a person'], ['pj-add-ext-agent', 'an agent']]) {
+    const b = document.getElementById(id);
+    if (b) b.title = mode === 'show'
+      ? 'Invite ' + who + " outside your Kosmos to this project's messages"
+      : 'Inviting ' + who + ' from outside your Kosmos needs Kosmos Plus';
+  }
 }
 /* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
    no hardcoded domain (Josh's ruling: the Plus section owns where sign-up goes). */

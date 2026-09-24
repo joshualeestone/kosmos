@@ -1,28 +1,22 @@
-// Browser-check-surface: data-fed-ui pj-mode pj-add-ext-person pj-add-ext-agent pj-invite-panel pj-join-mode pj-plus-signup plus-gate-modal plus-gate-msg plus-gate-close pj-mode-join
+// Browser-check-surface: data-fed-ui pj-mode pj-add-ext-person pj-add-ext-agent pj-invite-panel pj-join-mode plus-gate-modal plus-gate-msg plus-gate-close pj-mode-join
 'use strict';
 /**
  * fed-plus-gate: the #3312 federation UI gates on the Kosmos+ launch mode (Josh, 2026-09-21).
  *
- * WHAT THIS EXISTS TO CATCH. Federation launches as a Kosmos+ feature: on a LIVE channel a
- * paying member sees the fed UI, everyone else sees a "sign up for Kosmos+" prompt, and before
- * the coordinated flip prod shows nothing. All three are COMPUTED by fedGateMode() and stamped
- * on <html> as data-fed-ui, which the CSS gate reads. A source grep cannot see whether a rule
- * loses to a more specific selector (leaving the not-ready/member-only fed UI on a non-member's
- * prod board while every markup assertion passed), so this drives the REAL fedGateStamp() with
- * fixture /api/status data and reads what a person sees.
+ * WHAT THIS EXISTS TO CATCH. Federation is a Kosmos+ feature. fedGateMode() computes the mode
+ * (show / signup / hidden) and fedGateStamp() stamps it on <html> as data-fed-ui, which the CSS
+ * gate and fedShow() both read. The Create/Join toggle and both Add-external buttons always show;
+ * the Plus-only content (#pj-invite-panel, #pj-join-mode) shows only in "show". A non-"show"
+ * viewer who picks Join or an Add-external door gets the shared #plus-gate-modal (#3495).
  *
- * THE LEAK THIS MUST PREVENT: a non-member / unknown viewer on a live prod seeing federation.
- * That is arm 3 + arm 4 below, and it is the reason the check exists.
+ * THE LEAK THIS MUST PREVENT: a non-member / unknown viewer on a live prod reaching the Plus-only
+ * content. Arms 3 and 4 below.
  *
- * ARMS (each calls the shipped fedGateStamp, then reads computed display):
- *   - prod + NOT flipped        -> fed hidden, sign-up hidden          (ready-to-flip)
- *   - prod + flipped + member   -> fed SHOWN, sign-up hidden
- *   - prod + flipped + none     -> fed hidden, sign-up SHOWN
- *   - prod + flipped + unknown  -> fed hidden, sign-up SHOWN           (FAIL-SAFE, no leak)
- *   - staging + unwired plus    -> fed SHOWN, sign-up hidden           (review continuity)
- *   - default (no stamp)        -> fed hidden, sign-up hidden          (no first-tick flash)
- *   - CONTROL #pj-add-agent (local agent add) is asserted SHOWN in arm 1, proving the gate
- *     hides only the federation surfaces and never the local (non-federation) controls.
+ * ARMS: 1-6 stamp each mode and read computed display (and that the removed standalone
+ * #pj-plus-signup card stays gone; CONTROL #pj-add-agent stays shown). 7: the modal's Sign up
+ * routes to the in-app Plus section. 8: Join and both Add-external doors open the modal with the
+ * right copy, and Escape returns focus. 9: a pre-flip member gets the coming-soon line with no
+ * Sign up (non-member control). 10: a live member is not gated.
  *
  * HERMETIC: loads web/index.html over file://, boots no server; boot fetches stubbed before load.
  *
@@ -197,6 +191,27 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
   check('#3495 selecting Join snaps the toggle back to Create (gated form never shown)', gate.revertedToCreate, 'create checked=' + gate.revertedToCreate);
   check('#3495 clicking a grayed Add-external button opens the Plus-gate modal', gate.connect.open, JSON.stringify({ open: gate.connect.open }));
   check('#3495 the connect gate shows the CONNECT copy', /signed in as a Kosmos Plus user/.test(gate.connect.copy), gate.connect.copy.slice(0, 90));
+  // ARM 8b: the way out is real. Open the Join gate through the handler, press Escape, and the
+  // modal closes with focus back on the selected Create tab (the explicit-opener path).
+  // The file:// boot has no agents, so first-run opens and makes the rest of the page inert; a
+  // person on the Projects screen has already closed it, so close it the same way (frClose).
+  // frClose shows the board, which re-hides the add-project form, so reveal it again the way the
+  // setup at the top does (the opener must be rendered to take focus back).
+  await page.evaluate(() => {
+    if (typeof frClose === 'function') frClose();
+    for (let n = document.getElementById('pj-mode-create').parentElement; n; n = n.parentElement) {
+      n.removeAttribute && n.removeAttribute('hidden');
+      if (getComputedStyle(n).display === 'none') n.style.display = 'block';
+    }
+  });
+  await page.evaluate(() => { const j = document.getElementById('pj-mode-join'); j.checked = true; j.dispatchEvent(new Event('change', { bubbles: true })); });
+  const opened = await page.evaluate(() => document.activeElement && document.activeElement.id);
+  check('#3495 opening the gate moves focus into it (Not now)', opened === 'plus-gate-close', 'focus=' + opened);
+  await page.keyboard.press('Escape');
+  const esc = await page.evaluate(() => ({ closed: document.getElementById('plus-gate-modal').hidden, focus: document.activeElement && document.activeElement.id }));
+  check('#3495 Escape closes the gate and returns focus to the Create tab', esc.closed && esc.focus === 'pj-mode-create', JSON.stringify(esc));
+  const tip = await page.evaluate(() => document.getElementById('pj-add-ext-person').title);
+  check('#3495 a gated Add-external door says it needs Kosmos Plus before the click', /needs Kosmos Plus/.test(tip), tip);
   check('#3495 the grayed Add-external AGENT button opens the same modal with the CONNECT copy',
     gate.connectAgent.open && /signed in as a Kosmos Plus user/.test(gate.connectAgent.copy), JSON.stringify({ open: gate.connectAgent.open }));
 
@@ -245,5 +260,5 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-fed-plus-gate: federation shows only to a Kosmos+ member on a live channel, a non-member/unknown gets the sign-up prompt, prod stays hidden until flipped, and the local agent add is never gated.');
+  console.log('render-fed-plus-gate: all arms passed.');
 })().catch((err) => { console.error('FAIL  render-fed-plus-gate: crashed: ' + (err && err.message ? err.message : err)); process.exit(1); });
