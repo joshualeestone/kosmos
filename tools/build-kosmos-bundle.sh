@@ -196,7 +196,8 @@ _tunnel_staged="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}
 # FAIL LOUD if the identity is absent: a release binds to a machine holding the
 # cert, and a silent ad-hoc fallback would build fine and fail notarisation
 # later -- the same defect one layer down.
-_codesign_id="${KOSMOS_CODESIGN_ID:-Developer ID Application: Stone Syndicate LLC (864QZ69GF2)}"
+. "$REPO/tools/lib/signing-identity.sh"   # the one place the signing team is named (#3643)
+_codesign_id="${KOSMOS_CODESIGN_ID:-$KOSMOS_SIGN_APP_DEFAULT}"
 codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || {
   printf '%s\n' "could not Developer ID sign the Plus connector as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the connector's signature did not verify after signing" >&2; exit 1; }

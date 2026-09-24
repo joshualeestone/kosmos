@@ -10,7 +10,8 @@ cd "$(dirname "$0")/.." || exit 1
 . tools/lib/pkg-inputs.sh
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard.XXXXXX")"; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/install/pkg-scripts" "$T/install/pkg-resources" "$T/tools"
+mkdir -p "$T/install/pkg-scripts" "$T/install/pkg-resources" "$T/tools/lib"
+printf 'KOSMOS_SIGN_TEAM_ID=AAAA\n' > "$T/tools/lib/signing-identity.sh"
 printf '#!/bin/sh\necho hello\n' > "$T/install/pkg-scripts/postinstall"; chmod +x "$T/install/pkg-scripts/postinstall"
 printf '<p>welcome</p>\n' > "$T/install/pkg-resources/welcome.html"
 printf '<p>done</p>\n' > "$T/install/pkg-resources/conclusion.html"
@@ -60,6 +61,15 @@ f="$(pkg_input_sha "$T")"
 printf '#!/bin/bash\n# build, with a changed distribution template\n' > "$T/tools/build-installer-pkg.sh"
 g="$(pkg_input_sha "$T")"
 [ "$g" != "$f" ] && ok "CONTROL: editing the build script (the distribution template lives in it) changes the sha" || bad "editing build-installer-pkg.sh did NOT change the sha"
+# #3643: the signing identity moved out of the build script, so it is an input in its own right: a
+# team switch must make the next cut rebuild and re-sign the pkg.
+printf 'KOSMOS_SIGN_TEAM_ID=BBBB\n' > "$T/tools/lib/signing-identity.sh"
+g2="$(pkg_input_sha "$T")"
+[ "$g2" != "$g" ] && ok "CONTROL: changing the signing identity (#3643) changes the sha" || bad "changing tools/lib/signing-identity.sh did NOT change the sha -- a team switch would keep serving the old-signed pkg"
+# ...but a comment, a blank line or a chmod on it must NOT (only its values are hashed).
+printf '# a reworded header comment\n\nKOSMOS_SIGN_TEAM_ID=BBBB\n' > "$T/tools/lib/signing-identity.sh"; chmod +x "$T/tools/lib/signing-identity.sh"
+[ "$(pkg_input_sha "$T")" = "$g2" ] && ok "CONTROL: a comment, blank line or chmod on the signing identity leaves the sha alone" || bad "a comment or chmod on signing-identity.sh moved the sha -- every header reword would re-notarise"
+chmod -x "$T/tools/lib/signing-identity.sh"
 # moving bytes between sections is a change too (a screen is not a script).
 # ⚠️ A FIXTURE WHERE THE MOVE IS ORDER-NEUTRAL, or the control cannot fail:
 # with scripts {a} and resources {c}, the file b moved between them produces
@@ -68,7 +78,8 @@ g="$(pkg_input_sha "$T")"
 # control passed on a sectionless hasher, measured by mutation: one changed
 # the order, one changed the name.)
 T2="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard-sec.XXXXXX")"
-mkdir -p "$T2/install/pkg-scripts" "$T2/install/pkg-resources" "$T2/tools"
+mkdir -p "$T2/install/pkg-scripts" "$T2/install/pkg-resources" "$T2/tools/lib"
+printf 'I\n' > "$T2/tools/lib/signing-identity.sh"
 printf 'A\n' > "$T2/install/pkg-scripts/a"; printf 'C\n' > "$T2/install/pkg-resources/c"; printf 'B\n' > "$T2/tools/build-installer-pkg.sh"
 printf 'B\n' > "$T2/install/pkg-resources/b"
 h1="$(pkg_input_sha "$T2")"
@@ -103,10 +114,18 @@ rm -f "$T/install/pkg-resources/.DS_Store"
 # missing pkg-scripts dir refuses rather than emitting an empty sha.
 if pkg_input_sha "$T/nope" >/dev/null 2>&1; then bad "a missing pkg-scripts dir did not refuse"; else ok "a missing pkg-scripts dir refuses, not a blank sha"; fi
 # ALL inputs or nothing: a repo with scripts but no screens, or no build script, refuses.
-U="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard-u.XXXXXX")"; mkdir -p "$U/install/pkg-scripts" "$U/tools"; printf 'x\n' > "$U/install/pkg-scripts/postinstall"; printf 'x\n' > "$U/tools/build-installer-pkg.sh"
+U="$(mktemp -d "${TMPDIR:-/tmp}/pkg-input-guard-u.XXXXXX")"; mkdir -p "$U/install/pkg-scripts" "$U/tools/lib"; printf 'x\n' > "$U/install/pkg-scripts/postinstall"; printf 'x\n' > "$U/tools/build-installer-pkg.sh"; printf 'x\n' > "$U/tools/lib/signing-identity.sh"
 if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing pkg-resources dir did not refuse"; else ok "a missing pkg-resources dir refuses, not a sha over less"; fi
 mkdir -p "$U/install/pkg-resources"; rm "$U/tools/build-installer-pkg.sh"
 if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing build script did not refuse"; else ok "a missing build script refuses, not a sha over less"; fi
+printf 'x\n' > "$U/tools/build-installer-pkg.sh"
+pkg_input_sha "$U" >/dev/null 2>&1 && ok "CONTROL: with every input present the sha computes (so the next refusal is about the identity)" || bad "a complete fixture did not compute a sha"
+chmod 000 "$U/tools/lib/signing-identity.sh"
+if [ -r "$U/tools/lib/signing-identity.sh" ]; then ok "SKIP: running as a user that reads mode-000 files, the unreadable arm cannot be exercised here"
+elif pkg_input_sha "$U" >/dev/null 2>&1; then bad "an unreadable signing identity did not refuse"; else ok "an unreadable signing identity (#3643) refuses, not a sha over less"; fi
+chmod 644 "$U/tools/lib/signing-identity.sh"
+rm "$U/tools/lib/signing-identity.sh"
+if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing signing identity did not refuse"; else ok "a missing signing identity (#3643) refuses, not a sha over less"; fi
 rm -rf "$U"
 
 # The publish decision release.sh step 3c makes, every arm named, and the
