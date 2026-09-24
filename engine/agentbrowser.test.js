@@ -152,6 +152,7 @@ test('a shell that does not answer with its version installs nothing', async () 
   const r = await ab.ensureShell(shellSeams('arm64', { proveShell: async () => 'something else' }));
   assert.equal(r.ok, false);
   assert.equal(ab.shellInstalled('arm64'), false);
+  assert.deepEqual(fs.readdirSync(ab.homeDir()).filter((f) => f.startsWith('.shell-staging')), [], 'staging cleaned up');
 });
 
 test('a proven shell, then a Mac launch gets a flag for a file naming exactly that shell', async () => {
@@ -211,7 +212,7 @@ test('the opt-out file turns the browser off on a Mac, where the supervisor neve
 });
 
 test('one Mac browser install at a time: a live owner\'s lock refuses, a dead owner\'s lock is taken over', async () => {
-  fs.rmSync(ab.shellDir(), { recursive: true, force: true });
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   fs.writeFileSync(ab.lockPath(), String(process.ppid));          // alive: the test runner
   let r = await ab.ensureShell(shellSeams('arm64'));
   assert.equal(r.ok, false);
@@ -222,20 +223,33 @@ test('one Mac browser install at a time: a live owner\'s lock refuses, a dead ow
   r = await ab.ensureShell(shellSeams('arm64'));
   assert.deepEqual(r, { ok: true });
   assert.equal(fs.existsSync(ab.lockPath()), false, 'the lock is released after the install');
+
+  /* A live pid whose heartbeat stopped: a dead owner whose pid was reused. */
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
+  fs.writeFileSync(ab.lockPath(), String(process.ppid));
+  const quiet = new Date(Date.now() - 10 * 60 * 1000);
+  fs.utimesSync(ab.lockPath(), quiet, quiet);
+  r = await ab.ensureShell(shellSeams('arm64'));
+  assert.deepEqual(r, { ok: true }, 'a lock that stopped beating is taken over even though its pid is alive');
 });
 
 test('an install sweeps what interrupted ones left: dead owners\' staging and old versions, never a live owner\'s', async () => {
-  fs.rmSync(ab.shellDir(), { recursive: true, force: true });
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   const home = ab.homeDir();
   const dead = path.join(home, '.shell-staging-999999-1');
   const deadTree = path.join(home, '.staging-999998-1');
   const live = path.join(home, '.shell-staging-' + process.ppid + '-1');
-  const old = path.join(home, 'chrome-headless-shell', '1.0.0');
-  for (const d of [dead, deadTree, live, old]) fs.mkdirSync(d, { recursive: true });
+  const oldest = path.join(home, 'chrome-headless-shell', '1.0.0');
+  const previous = path.join(home, 'chrome-headless-shell', '2.0.0');
+  for (const d of [dead, deadTree, live, oldest, previous]) fs.mkdirSync(d, { recursive: true });
+  const long = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(oldest, long, long);
   assert.deepEqual(await ab.ensureShell(shellSeams('arm64')), { ok: true });
   assert.equal(fs.existsSync(dead), false);
   assert.equal(fs.existsSync(deadTree), false);
-  assert.equal(fs.existsSync(old), false);
+  assert.equal(fs.existsSync(oldest), false, 'versions older than the previous one are removed');
+  assert.equal(fs.existsSync(previous), true, 'the previous version stays for agents still running under it');
+  fs.rmSync(previous, { recursive: true, force: true });
   assert.equal(fs.existsSync(live), true, 'a staging folder whose owner is running is not touched');
   fs.rmSync(live, { recursive: true, force: true });
 });
@@ -255,4 +269,13 @@ test('the board retries a failed install with backoff, says why each time, and s
   assert.equal(lines.length, 2);
   assert.match(lines[0], /no network/);
   assert.match(lines[1], /still no network/);
+});
+
+test('installing one Mac CPU\'s shell never touches another\'s', async () => {
+  assert.equal(ab.shellInstalled('arm64'), true);
+  assert.deepEqual(await ab.ensureShell(shellSeams('x64')), { ok: true });
+  assert.equal(ab.shellInstalled('x64'), true);
+  assert.equal(ab.shellInstalled('arm64'), true, 'the arm64 install survives an x64 install');
+  assert.ok(fs.existsSync(ab.shellExe('arm64')) && fs.existsSync(ab.shellExe('x64')));
+  assert.notEqual(ab.shellDir('arm64'), ab.shellDir('x64'));
 });

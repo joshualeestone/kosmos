@@ -117,12 +117,15 @@ function configPath() { return path.join(homeDir(), 'mcp-config.json'); }
 function outputDir() { return path.join(os.tmpdir(), 'kosmos-agent-browser'); }
 /* The Mac browser, per CPU, beside the server tree. */
 function shellBuild(arch) { return SHELL.builds[arch || process.arch] || null; }
-function shellDir() { return path.join(homeDir(), 'chrome-headless-shell', SHELL.version); }
+/* One folder per version AND per CPU, so installing one CPU's shell can never
+   replace or delete another's. */
+function shellsDir() { return path.join(homeDir(), 'chrome-headless-shell'); }
+function shellDir(arch) { return path.join(shellsDir(), SHELL.version, arch || process.arch); }
 function shellExe(arch) {
   const b = shellBuild(arch);
-  return b ? path.join(shellDir(), b.folder, 'chrome-headless-shell') : null;
+  return b ? path.join(shellDir(arch), b.folder, 'chrome-headless-shell') : null;
 }
-function shellMarkerPath() { return path.join(shellDir(), '.verified'); }
+function shellMarkerPath(arch) { return path.join(shellDir(arch), '.verified'); }
 const shellStamp = (arch) => SHELL.version + ' ' + (arch || process.arch) + ' ' + (shellBuild(arch) || {}).sha256;
 
 /* What the marker vouches for: every package at its pinned version, so a marker
@@ -140,7 +143,7 @@ function isInstalled() {
 function shellInstalled(arch) {
   try {
     const exe = shellExe(arch);
-    return !!exe && fs.readFileSync(shellMarkerPath(), 'utf8').trim() === shellStamp(arch) && fs.existsSync(exe);
+    return !!exe && fs.readFileSync(shellMarkerPath(arch), 'utf8').trim() === shellStamp(arch) && fs.existsSync(exe);
   } catch { return false; }
 }
 
@@ -304,14 +307,19 @@ async function ensureInstalled(opts) {
 }
 
 /* One Mac browser install at a time, across processes: a lock file holding the
-   owner's pid. A lock whose owner is gone, or that is older than LOCK_STALE_MS,
-   is taken over. */
-const LOCK_STALE_MS = 30 * 60 * 1000;
+   owner's pid, which the owner touches every LOCK_BEAT_MS while it works. The
+   lock is taken over only when its owner is gone OR its heartbeat stopped for
+   LOCK_STALE_MS. A slow but live download keeps beating and keeps the lock; a
+   dead owner whose pid was reused by another process stops beating, so its lock
+   cannot stay stuck forever. */
+const LOCK_BEAT_MS = 60 * 1000;
+const LOCK_STALE_MS = 5 * 60 * 1000;
 function lockPath() { return path.join(homeDir(), '.shell-install.lock'); }
 function pidAlive(pid) {
   if (!(pid > 0)) return false;
   try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
 }
+let beat = null;
 function takeLock() {
   fs.mkdirSync(homeDir(), { recursive: true });
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -319,24 +327,28 @@ function takeLock() {
       const fd = fs.openSync(lockPath(), 'wx');
       fs.writeSync(fd, String(process.pid));
       fs.closeSync(fd);
+      beat = setInterval(() => { try { const t = new Date(); fs.utimesSync(lockPath(), t, t); } catch { /* gone */ } }, LOCK_BEAT_MS);
+      if (beat.unref) beat.unref();
       return true;
     } catch (e) {
       if (!e || e.code !== 'EEXIST') return false;
-      let owner = 0; let age = 0;
-      try { owner = parseInt(fs.readFileSync(lockPath(), 'utf8'), 10); age = Date.now() - fs.statSync(lockPath()).mtimeMs; } catch { /* raced away */ }
-      if (pidAlive(owner) && age < LOCK_STALE_MS) return false;
+      let owner = 0; let quiet = 0;
+      try { owner = parseInt(fs.readFileSync(lockPath(), 'utf8'), 10); quiet = Date.now() - fs.statSync(lockPath()).mtimeMs; } catch { /* raced away */ }
+      if (pidAlive(owner) && quiet < LOCK_STALE_MS) return false;
       try { fs.rmSync(lockPath(), { force: true }); } catch { return false; }
     }
   }
   return false;
 }
 function dropLock() {
+  if (beat) { clearInterval(beat); beat = null; }
   try { if (parseInt(fs.readFileSync(lockPath(), 'utf8'), 10) === process.pid) fs.rmSync(lockPath(), { force: true }); } catch { /* not ours or gone */ }
 }
 
 /* Remove what an interrupted install left: staging folders whose owner pid is
-   gone (named `.staging-<pid>-<ms>` and `.shell-staging-<pid>-<ms>`), and shell
-   folders for versions other than the pinned one. */
+   gone (named `.staging-<pid>-<ms>` and `.shell-staging-<pid>-<ms>`). Old shell
+   versions are pruned to the pinned one plus the newest other, so an agent
+   still running under the previous release keeps the browser its config names. */
 function sweepLeftovers() {
   const home = homeDir();
   let names = [];
@@ -347,10 +359,13 @@ function sweepLeftovers() {
       try { fs.rmSync(path.join(home, n), { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }
-  const shells = path.join(home, 'chrome-headless-shell');
+  const shells = shellsDir();
   try {
-    for (const v of fs.readdirSync(shells)) {
-      if (v !== SHELL.version) { try { fs.rmSync(path.join(shells, v), { recursive: true, force: true }); } catch { /* best effort */ } }
+    const others = fs.readdirSync(shells).filter((v) => v !== SHELL.version)
+      .map((v) => ({ v, t: fs.statSync(path.join(shells, v)).mtimeMs }))
+      .sort((x, y) => y.t - x.t);
+    for (const { v } of others.slice(1)) {
+      try { fs.rmSync(path.join(shells, v), { recursive: true, force: true }); } catch { /* best effort */ }
     }
   } catch { /* none yet */ }
 }
@@ -393,11 +408,11 @@ async function ensureShell(opts) {
     const said = await prove(path.join(tree, build.folder, 'chrome-headless-shell'));
     if (!said.includes(SHELL.version)) throw new Error('the browser did not answer with its version');
     fs.writeFileSync(path.join(tree, '.verified'), shellStamp(arch) + '\n');
-    fs.mkdirSync(path.dirname(shellDir()), { recursive: true });
-    /* Under the lock no other install is running, so anything at shellDir() now
-       is a leftover that never got its marker. */
-    fs.rmSync(shellDir(), { recursive: true, force: true });
-    fs.renameSync(tree, shellDir());
+    fs.mkdirSync(path.dirname(shellDir(arch)), { recursive: true });
+    /* Under the lock no other install is running, so anything at this CPU's
+       folder now is a leftover that never got its marker. */
+    fs.rmSync(shellDir(arch), { recursive: true, force: true });
+    fs.renameSync(tree, shellDir(arch));
     return { ok: shellInstalled(arch) };
   } catch (e) {
     if (shellInstalled(arch)) return { ok: true, already: true };
