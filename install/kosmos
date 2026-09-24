@@ -1175,6 +1175,7 @@ require_valid_project_id() {
   esac
 }
 
+POST_BODY_MAX_BYTES=6291456   # #2909: the board's request-READ limit (server.js MAX_UPLOAD), past which it drops the connection; the room's own text cap is far lower and says so itself. Pinned by cli.post-stdin-2909.test.js
 cmd_post() {
   local project text body because _a
   # #1955: attaching a FILE to a room post is not supported yet. Detect the
@@ -1211,14 +1212,20 @@ cmd_post() {
   # recipient reads it in the foreground but is NOT told to answer -- this is what breaks the
   # ack-of-an-ack loop. Leading flag only (kosmos post --no-reply <project> <text>); anywhere else
   # it is treated as message text, the same recoverable tradeoff the --file scan above takes.
-  # #2908 --no-reply and #3224 --in-reply-to are LEADING flags, in any order, the same
-  # recoverable tradeoff as the --file scan: anywhere but the front they are message text.
+  # #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags, in any order, the
+  # same recoverable tradeoff as the --file scan: anywhere but the front they are message text.
   # --in-reply-to <id> binds the answer to the room the cited message came from; the server
   # refuses if the target project differs (the misroute this fix catches).
-  local no_reply=0 in_reply_to=""
+  # --stdin reads the message from standard input instead of the args, so backticks and $
+  # reach the room as written (in a double-quoted arg the shell runs `x` and expands $y
+  # BEFORE Kosmos ever sees the text).
+  # Unlike the Windows CLI there is no quiet-pipe time limit here (same as `feedback write`): an
+  # open pipe nobody writes to blocks until the caller closes it.
+  local no_reply=0 in_reply_to="" from_stdin=0 _trimmed _keep
   while :; do
     case "${1:-}" in
       --no-reply) no_reply=1; shift ;;
+      --stdin)    from_stdin=1; shift ;;
       --in-reply-to) in_reply_to="${2:-}"; shift 2 2>/dev/null || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; case "$in_reply_to" in ''|--*) say "Usage: --in-reply-to needs a message id, like m12"; exit 2 ;; esac ;;
       --in-reply-to=*) in_reply_to="${1#--in-reply-to=}"; [ -n "$in_reply_to" ] || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; shift ;;
       *) break ;;
@@ -1226,19 +1233,61 @@ cmd_post() {
   done
   project="${1:-}"
   shift 2>/dev/null || true
-  text="$*"
+  if [ "$from_stdin" = 1 ]; then
+    if [ -n "$project" ] && [ $# -gt 0 ]; then
+      say "Give the message on stdin OR as arguments, not both: kosmos post --stdin <project-id> < message.md"
+      exit 2
+    fi
+    if [ -n "$project" ]; then
+      if [ -t 0 ]; then
+        text=""
+      # Control characters are dropped at the read (before the blank check, so control-only
+      # input is refused), and under LC_ALL=C so bytes that are not UTF-8 pass through instead
+      # of making tr abort; the board decodes them as it decodes any body. NUL is outside the tr
+      # range because bash's $(...) already drops it; reading by another route must drop it too.
+      elif ! text="$(LC_ALL=C tr -d '\001-\010\013\014\016-\037\177')"; then
+        say "Nothing was posted: the piped message could not be read."
+        exit 2
+      fi
+      # Drop a leading UTF-8 BOM. Not ${text#...}: under bash 3.2 in a UTF-8 locale that
+      # expansion is quadratic in the text length (measured, 5.6s on 200 KB).
+      case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" ;; esac
+      # Drop the trailing CR/LF run in linear time: map CR to LF so the command substitution strips
+      # the whole run, count the bytes left, and cut the original to that length. A ${text%?} loop
+      # is quadratic here (a 60 KB message ending in blank CRLF lines ran for over a minute).
+      _trimmed="$(printf '%s' "$text" | LC_ALL=C tr '\r' '\n')"
+      _keep="$(printf '%s' "$_trimmed" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')"
+      if [ "$_keep" -gt 0 ]; then text="$(printf '%s' "$text" | { LC_ALL=C head -c "$_keep"; cat >/dev/null; })"; else text=""; fi   # macOS head refuses -c 0; cat drains the rest so printf never takes SIGPIPE under pipefail
+      _trimmed=
+      case "$text" in
+        *[![:space:]]*) ;;
+        *)
+          say "--stdin reads the message from a pipe or file, and nothing was piped in: kosmos post --stdin <project-id> < message.md"
+          exit 2
+          ;;
+      esac
+    fi
+  else
+    text="$*"
+  fi
   if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"
+    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955)"
     exit 2
   fi
   if ! healthy; then
     say "Kosmos is not running, so nothing can be posted. Start it with: kosmos start"
     exit 1
   fi
-  # Same hand-rolled JSON escaping as cmd_msg, same bash-3.2 reason.
+  # Hand-rolled JSON escaping, same bash-3.2 reason as cmd_msg (the text escaper below differs).
+  # The tr -d below repeats the --stdin read's control drop on purpose: argument-mode text has not
+  # been through it.
   local esc_project esc_text esc_pane
   esc_project=$(printf '%s' "$project" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+  # #2909: tab and CR are JSON-escaped (not flattened to spaces), and the other C0 controls
+  # plus DEL are dropped, since a raw one makes the body invalid JSON (colored tool output piped
+  # through --stdin carries ESC).
+  local _tab=$'\t' _cr=$'\r'
+  esc_text=$(printf '%s' "$text" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed "s/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g; s/${_tab}/\\\\t/g; s/${_cr}/\\\\r/g" | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # -m 120, not msg's 15: delivery fans out SERIALLY and a wedged tmux
   # can stall ~15s per recipient, so a room-sized timeout has to cover
@@ -1266,9 +1315,17 @@ cmd_post() {
     _irt_field=",\"in_reply_to\":\"$esc_irt\""
   fi
   local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field}"
-  body=$(kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
+  # #2909: the board drops a request body over its limit, which would read below as "could not
+  # reach Kosmos". Measured on the escaped body, since escaping grows quotes, newlines and tabs.
+  if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
+    say "Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it."
+    exit 2
+  fi
+  # #2909: the body goes to curl on stdin (printf is a builtin, so no argv limit applies), not
+  # as a --data argument, so a long piped message cannot make curl fail to start.
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
-    --data "$_data" 2>/dev/null) || rc=$?
+    --data-binary @- 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3

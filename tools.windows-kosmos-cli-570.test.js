@@ -25,13 +25,14 @@ const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () =>
 
 /* Run one command against a scripted board. `answer(route, init)` returns
    { status, body } (an object is sent as JSON) or throws to simulate a failure. */
-async function run(argv, answer, env) {
+async function run(argv, answer, env, readStdin) {
   const calls = [];
   const out = [];
   const err = [];
   const code = await cli.main(argv, {
     env: env || { KOSMOS_AGENT_TOKEN: AGENT },
     hook: hookStub,
+    readStdin,
     out: (s) => out.push(s),
     err: (s) => err.push(s),
     fetch: async (url, init) => {
@@ -161,6 +162,50 @@ test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (fla
   assert.equal(Object.prototype.hasOwnProperty.call(trailing.calls[0].body, 'in_reply_to'), false,
     'a flag AFTER the project must NOT bind (leading-only): the token becomes message text, not the citation');
   assert.match(trailing.calls[0].body.text, /--in-reply-to m5/, 'the trailing flag+id land verbatim in the message text, unbound');
+});
+
+test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines), either flag order; refusals send nothing', async () => {
+  const placed = () => ({ body: { delivery: { state: 'placed' } } });
+  const msg = 'Run `kosmos room p` then check $HOME\n\n- one\n- two';
+  const r = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: msg + '\n', ended: true }));
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.calls[0].body, { project: 'proj-1', text: msg, from_pane: '' }, 'the piped text, trailing newline trimmed, nothing else touched');
+  const both = await run(['post', '--stdin', '--no-reply', 'proj-1'], placed, undefined, async () => ({ text: 'ack', ended: true }));
+  assert.deepEqual(both.calls[0].body, { project: 'proj-1', text: 'ack', from_pane: '', reply_expected: false }, '--stdin and --no-reply combine in either order');
+  const mixed = await run(['post', '--stdin', 'proj-1', 'also', 'args'], placed, undefined, async () => ({ text: 'x', ended: true }));
+  assert.equal(mixed.code, 2);
+  assert.equal(mixed.calls.length, 0, 'args alongside --stdin is ambiguous and must send nothing');
+  const empty = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '', ended: false }));
+  assert.equal(empty.code, 2);
+  assert.equal(empty.calls.length, 0, 'nothing piped in must send nothing');
+  assert.match(empty.err, /nothing was piped in/);
+  assert.match(empty.err, /in PowerShell, pass the text as an argument/, 'kosmos.ps1 never forwards piped input, so the refusal must say so');
+  const crlf = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: 'line one\r\nline two\r\n', ended: true }));
+  assert.equal(crlf.calls[0].body.text, 'line one\r\nline two', 'a CRLF file loses its trailing line ending, not just the \\n');
+  const esc = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\u001b[31mred\u001b[0m\tdone\u0007\n', ended: true }));
+  assert.equal(esc.calls[0].body.text, '[31mred[0m\tdone', 'ESC/BEL dropped and tab kept, matching install/kosmos');
+  const ctl = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\u001b\u0007\n', ended: true }));
+  assert.equal(ctl.code, 2, 'control-only input is nothing piped in');
+  assert.equal(ctl.calls.length, 0);
+  const huge = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '"'.repeat(3.5 * 1024 * 1024), ended: true }));
+  assert.equal(huge.code, 2, 'quotes escape to twice their size; the encoded body is over the board limit');
+  assert.equal(huge.calls.length, 0);
+  assert.match(huge.err, /too large to send to the board/);
+  const t0 = Date.now();
+  const runs = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\n'.repeat(200000) + 'x\n', ended: true }));
+  assert.equal(runs.calls[0].body.text, '\n'.repeat(200000) + 'x', 'inner newline runs are kept, the trailing one trimmed');
+  assert.ok(Date.now() - t0 < 5000, 'trimming stays linear on a long inner run of newlines');
+  const noProject = await run(['post', '--stdin'], placed, undefined, async () => { throw new Error('stdin read with no project'); });
+  assert.equal(noProject.code, 2, 'no project refuses before reading stdin');
+  assert.equal(noProject.calls.length, 0);
+  const cut = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: 'half a mess', ended: false }));
+  assert.equal(cut.code, 2);
+  assert.equal(cut.calls.length, 0, 'a pipe that went quiet without ending may be cut short and must not be posted');
+  const irt = await run(['post', '--in-reply-to', 'm9', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: 'the `answer`\n', ended: true }));
+  assert.deepEqual(irt.calls[0].body, { project: 'proj-1', text: 'the `answer`', from_pane: '', in_reply_to: 'm9' }, '--stdin combines with --in-reply-to (#3224)');
+  const control = await run(['post', 'proj-1', 'plain', 'words'], placed, undefined, async () => { throw new Error('stdin read without --stdin'); });
+  assert.equal(control.code, 0, 'CONTROL: without --stdin the args are the message and stdin is never read');
+  assert.equal(control.calls[0].body.text, 'plain words');
 });
 
 test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {
