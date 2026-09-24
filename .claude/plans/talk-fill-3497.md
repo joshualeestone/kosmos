@@ -34,8 +34,12 @@ The 53px `.dleft` padding is measured from the back row; A1g pins the identity c
 
 ## Verification
 - docs/browser-checks/render-talk-fill-2622.js: new arms A1b-A1e at two window heights (box meets
-  header/right/bottom; composer bottom margin equals sides; no page scroll; back link clear of
-  the box). Negative control: against origin/main's web/index.html all four new arms go red
-  (boxTop=130 vs 77, right 1376 vs 1400, bottom 1036 vs 1100, composer bottom 42 vs 24).
-- A1f re-runs the edge arms with a 60px taller header; A1g pins the identity column's position.
+  header/right/bottom; composer bottom margin equals sides; no page scroll; the back link does not
+  overlap the identity block). Negative control: against origin/main's web/index.html A1b and A1c
+  go red (boxTop=130 vs 77, right 1376 vs 1400, bottom 1036 vs 1100, composer bottom 42 vs 24).
+- A1h: the build marker moves to the bottom-left in this state, clear of the box.
+- A1i: a visible phone-pairing card (#askcard) is not covered; the header's bottom margin is
+  dropped instead of pulling the panel up with a negative margin, which covered it.
+- A1f re-runs the edge arms with a 60px taller header; A1g compares the identity block's distance
+  from the header on Talk and on Model (no jump when switching).
 - Narrow (A2b/A2c), long-thread (A9) and scoping (A6) arms unchanged and green.
