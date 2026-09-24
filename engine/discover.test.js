@@ -69,7 +69,7 @@ test('a folder with instructions we cannot read an identity out of is COUNTED, n
   /**
    * 🛑 THREE SITUATIONS END ON ONE SCREEN AND ONLY THIS ONE IS KNOWABLE HERE.
    * "You have no agents", "you have some that never ran" and "you have some we
-   * could not read" all render as "Create your first agent." The first two are
+   * could not read" all render as the same no-agent first-run ending. The first two are
    * indistinguishable at this layer -- a folder is reached through Claude's own
    * records, so an agent that has never run is invisible before we get here --
    * and this one was being thrown away by a bare `continue`.

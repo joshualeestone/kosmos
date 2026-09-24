@@ -5,7 +5,8 @@
  * Kosmos" rows that created the agent in place. #2497 (Josh, 2026-09-08, watching an external tester)
  * removed the whole found/scan/import list from onboarding: a developer's many tmux Claude Code
  * sessions filled first run with garbage agents. First run now ALWAYS lands on the no-agent
- * no-agent Giddy Up screen (#3575 heading "You're ready to start using Kosmos."), so no import rows render on first-run S9, whatever
+ * Giddy Up screen (#3575 heading "You're ready to start using Kosmos."), so no import rows
+ * render on first-run S9, whatever
  * the disk scan returns.
  *
  * This check now guards the SUPPRESSION: with file access granted and /api/scan-import returning a
