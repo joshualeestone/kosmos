@@ -2401,7 +2401,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    .apphead pushes the box down without shrinking it, so in that state the box overshoots
    the window bottom by the notice's extra height (~8px wide, up to ~59px narrow) and the
    page scrolls a little -- bounded, and no worse than the pre-change always-scroll. A
-   robust fix would measure .apphead at runtime and set --talk-fill-top; deferred rather
+   robust fix would measure .apphead at runtime and set --talk-fill-top (the wide layout no longer
+   uses this offset: see the #3497 block below, which fills without it); deferred rather
    than add a JS observer to this file here. Measured with
    docs/browser-checks/render-talk-fill-2622.js at 1100/700/narrow window sizes. Uses
    100vh to match the sibling #d-window rule (`calc(100vh - 220px)`); a 100dvh follow-up
@@ -2458,10 +2459,16 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      pushing it past the bottom. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; padding-bottom: 0; }
+  /* The header's own bottom gap goes, so the box meets the header rule; a phone-pairing card
+     (#askcard, between the header and the panel) keeps a gap below it instead of being covered. */
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard:not([hidden]) { margin-bottom: var(--space-6); }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
     position: relative; flex: 1 1 auto; min-height: 0; height: auto;
-    margin-top: calc(-1 * var(--space-6));
     margin-right: calc(-1 * var(--space-8)); }
+  /* The build marker moves to the bottom-left corner, over the side column, so it does not sit
+     inside the box under Post. */
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #buildmark { right: auto; left: 10px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
     position: absolute; top: var(--space-6); left: 0; margin: 0; z-index: 1; }
   /* 53px = the back row's space (16 offset + its 15px line + the 16 gap .back keeps below it)

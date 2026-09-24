@@ -141,7 +141,8 @@ async function measure(page) {
     // #3497: the wide layout fills to three edges and the composer's bottom margin equals its
     // side margins. Control: on the pre-#3497 page the box sat 53px below the header, 24px
     // short of the right edge and 64px above the bottom, and the composer's bottom gap was 42
-    // against 24 at the sides, so every arm below reds there.
+    // against 24 at the sides, so A1b and A1c red there. A1d and A1e guard what the fill could
+    // break (a page scroll; the absolutely placed back link overlapping the identity block).
     const edges = (m, tag) => {
       chk(Math.abs(m.boxTop - m.headBottom) <= 1 && Math.abs(m.boxRight - m.viewW) <= 1 && Math.abs(m.boxBottom - m.innerHeight) <= 1,
         'A1b ' + tag + ': the Talk box meets the header rule, the right edge and the bottom edge',
@@ -152,15 +153,31 @@ async function measure(page) {
         'left=' + gl + ' right=' + gr + ' bottom=' + gb);
       chk(m.docScrollH <= m.innerHeight + 1,
         'A1d ' + tag + ': the filled page does not scroll', 'docScrollH=' + m.docScrollH + ' innerHeight=' + m.innerHeight);
-      chk(m.backRight !== null && m.backRight < m.boxLeft,
-        'A1e ' + tag + ': the back link stays in the left column, clear of the box', 'backRight=' + m.backRight + ' boxLeft=' + m.boxLeft);
+      chk(m.backBottom !== null && m.identTop !== null && m.backBottom <= m.identTop,
+        'A1e ' + tag + ': the back link does not overlap the identity block', 'backBottom=' + m.backBottom + ' identTop=' + m.identTop);
     };
     edges(tall, 'tall window');
-    // A1g: the identity column did not move. Pre-#3497 the first .dleft child sat 22px below the
-    // back link (back bottom 108, column content 130 at this size); the fill must keep that gap.
-    chk(tall.identTop !== null && tall.backBottom !== null && Math.abs((tall.identTop - tall.backBottom) - 22) <= 3,
-      'A1g the identity column sits where it did, below the back link',
-      'identTop=' + tall.identTop + ' backBottom=' + tall.backBottom);
+    // A1g (checked at the Model visit below): the identity block sits at the same distance from the
+    // header on Talk as on Model, so switching sections does not make it jump.
+    const talkIdentFromHead = tall.identTop - tall.headBottom;
+    // A1h: the build marker is not inside the box (it moves to the bottom-left in this state).
+    const mark = await page.evaluate(() => {
+      const b = document.getElementById('buildmark'); const box = document.getElementById('d-talk-box');
+      if (!b || b.hidden) return null;
+      const r = b.getBoundingClientRect(), x = box.getBoundingClientRect();
+      return { overlaps: r.right > x.left && r.left < x.right && r.bottom > x.top && r.top < x.bottom, left: Math.round(r.left) };
+    });
+    chk(mark === null || !mark.overlaps, 'A1h the build marker does not sit inside the Talk box', JSON.stringify(mark));
+    // A1i: a phone-pairing card between the header and the panel is not covered by the box.
+    const ask = await page.evaluate(() => {
+      const a = document.getElementById('askcard'); if (!a) return null;
+      a.hidden = false; a.textContent = 'Fixture pairing request';
+      const r = a.getBoundingClientRect(), x = document.getElementById('d-talk-box').getBoundingClientRect();
+      const out = { askBottom: Math.round(r.bottom), boxTop: Math.round(x.top), boxBottom: Math.round(x.bottom), innerHeight: window.innerHeight };
+      a.hidden = true; return out;
+    });
+    chk(ask !== null && ask.askBottom <= ask.boxTop && Math.abs(ask.boxBottom - ask.innerHeight) <= 1,
+      'A1i a visible phone-pairing card is not covered, and the box still meets the bottom', JSON.stringify(ask));
     // A1f: a TALLER header (a wrapped update notice, other fonts) must shrink the box, not push it
     // past the bottom. Control: a fixed-offset height would leave boxTop at the header but boxBottom
     // past innerHeight by the added 60px, and the page would scroll.
@@ -306,9 +323,15 @@ async function measure(page) {
       window.scrollTo(0, 0);
       const sec = document.getElementById('d-sec-model');
       const r = sec.getBoundingClientRect();
-      return { innerHeight: window.innerHeight, secBottom: Math.round(r.bottom), secHeight: Math.round(r.height) };
+      const d = document.querySelector('#panel-detail .dleft'); const f = d && d.firstElementChild;
+      const head = document.querySelector('.apphead').getBoundingClientRect().bottom;
+      return { innerHeight: window.innerHeight, secBottom: Math.round(r.bottom), secHeight: Math.round(r.height),
+        identFromHead: f ? Math.round(f.getBoundingClientRect().top - head) : null };
     });
     console.log('MEASURE model section: ' + JSON.stringify(model));
+    chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,
+      'A1g the identity block sits at the same place on Talk as on Model (no jump when switching)',
+      'talk=' + talkIdentFromHead + ' model=' + model.identFromHead);
     chk(model.secBottom < model.innerHeight - 200,
       'A6 scoping: a non-Talk section (Model) stays content-height, NOT stretched to the window',
       'secBottom=' + model.secBottom + ' innerHeight=' + model.innerHeight);
