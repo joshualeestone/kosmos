@@ -17,7 +17,7 @@ The fix shipped (6.67, present in served 0.6.89, content-verified). But — unli
 
 ## Approach (implemented)
 
-- Modeled exactly on `render-consolidated-settings-2842.js`: a self-contained `file://` DOM check driving the shipped `placeProjectsView` + `layoutApply` globals, no live board / no auth (headless-runnable from a launchd session via pw-runtime).
+- Modeled exactly on `render-consolidated-settings-2842.js`: a self-contained `file://` DOM check that enters/leaves the consolidated view through the shipped `showTab` chokepoint (which calls `placeProjectsView`) and sets the tab layout via `layoutApply`, no live board / no auth (headless-runnable from a launchd session via pw-runtime).
 - Registered in the 4 places a browser-check needs: the runner loop in `tools/browser-checks.sh`, the README index, the `// Browser-check-surface:` comment, and the reason-grep/surface-map gate. NOT added to the CI allowlist — the sibling consolidated checks aren't in it either (it's a curated DOM-state subset for CI time budget); this runs in the full local suite.
 
 ## Decisions + rejected alternatives
@@ -28,7 +28,9 @@ The fix shipped (6.67, present in served 0.6.89, content-verified). But — unli
 
 ## Weakest premise
 
-The check drives `placeProjectsView`/`layoutApply` directly rather than clicking the real view-toggle UI (matching the sibling #2842's pattern, which drives `showTab`/`pjView`). If a future change rewired the consolidated chokepoint to bypass `placeProjectsView`, the check would still pass while the behavior broke. Mitigated by the `// Browser-check-surface:` contract, which forces this check to be updated when `placeProjectsView` or the class states change.
+The check enters/leaves the consolidated view through the REAL entry chokepoint (`data-layout` + `showTab('projects')`, which calls `placeProjectsView` at its `cons` gate) rather than calling `placeProjectsView` directly — so an unwiring of that call (the bug class #3052/#2842/#3053 all live at) reds the check, and it asserts the chokepoint actually fired (entered + left the consolidated view). This matches the sibling `render-consolidated-settings-2842.js`, which drives the real `showTab`.
+
+Two residual gaps, both narrower than the fix and covered elsewhere: (1) the tab layout is set via `layoutApply` rather than by clicking the view-toggle BUTTONS, so a regression wiring those buttons to `layoutApply` is a different surface this check does not cover; (2) it is a `file://` DOM/state check, so the consolidated column's pixel/geometry appearance is not verified here — that is #2282's headed-pass territory. The `// Browser-check-surface:` contract forces this check to be updated if `placeProjectsView` or the `#pj-list.asgrid` / `body.pj-roadmap` class tokens change.
 
 ## Out of scope
 

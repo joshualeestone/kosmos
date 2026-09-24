@@ -50,38 +50,56 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const hasRoadmap = () => document.body.classList.contains('pj-roadmap');
       const res = {};
       try {
+        // Drive the REAL entry chokepoint (showTab -> placeProjectsView at the cons gate),
+        // not placeProjectsView directly: a regression that UNWIRED that call -- the exact bug
+        // class #3052/#2842/#3053 live at -- must red this check, so it enters/leaves the
+        // consolidated view the way the app does (data-layout + showTab('projects')), like the
+        // sibling render-consolidated-settings-2842.js. 1280px already clears the 960 cons floor.
+        const enterCons = () => { document.documentElement.setAttribute('data-layout', 'consolidated'); PJ_CURRENT = 'k'; showTab('projects'); };
+        const leaveCons = () => { document.documentElement.setAttribute('data-layout', 'tabs'); showTab('projects'); };
+        const resetTab = () => { document.documentElement.setAttribute('data-layout', 'tabs'); PJ_CURRENT = 'k'; showTab('projects'); };
+
         // ---- GRID tab layout -> consolidated forces LIST -> leaving restores GRID ----
+        resetTab();
         try { localStorage.setItem('kosmos.layout.projects', 'grid'); } catch { /* ignore */ }
         layoutApply('projects', 'grid');
         res.gridSetBefore = hasGrid() === true && hasRoadmap() === false;   // control: tab view IS grid
-        placeProjectsView(true, false);                                     // enter consolidated
-        res.gridForcedToList = hasGrid() === false && hasRoadmap() === false; // THE FIX: forced list
-        placeProjectsView(false, true);                                     // leave consolidated
+        enterCons();
+        res.enteredCons = document.body.classList.contains('consolidated'); // the chokepoint actually fired
+        res.gridForcedToList = hasGrid() === false && hasRoadmap() === false; // THE FIX, THROUGH showTab
+        leaveCons();
+        res.leftCons = document.body.classList.contains('consolidated') === false;
         res.gridRestored = hasGrid() === true;                              // saved grid comes back
 
         // ---- ROADMAP tab layout -> consolidated forces LIST -> leaving restores ROADMAP ----
+        // (roadmapRestored is the discriminating restore assertion: unlike grid -- which is also
+        // LAYOUTS.projects.fallback, so a broken saved-read would still land on grid -- restoring
+        // roadmap REQUIRES reading saved='roadmap' and re-applying it.)
+        resetTab();
         try { localStorage.setItem('kosmos.layout.projects', 'roadmap'); } catch { /* ignore */ }
         layoutApply('projects', 'roadmap');
         res.roadmapSetBefore = hasRoadmap() === true && hasGrid() === false; // control: tab view IS roadmap
-        placeProjectsView(true, false);                                      // enter consolidated
-        res.roadmapForcedToList = hasRoadmap() === false && hasGrid() === false; // THE FIX: forced list
-        placeProjectsView(false, true);                                      // leave consolidated
-        res.roadmapRestored = hasRoadmap() === true;                         // saved roadmap comes back
+        enterCons();
+        res.roadmapForcedToList = hasRoadmap() === false && hasGrid() === false; // THE FIX, THROUGH showTab
+        leaveCons();
+        res.roadmapRestored = hasRoadmap() === true;                         // saved roadmap comes back (read path)
 
         // ---- The consolidated force is DISPLAY-ONLY: it must not write the saved layout ----
+        resetTab();
         try { localStorage.setItem('kosmos.layout.projects', 'grid'); } catch { /* ignore */ }
         layoutApply('projects', 'grid');
-        placeProjectsView(true, false);                                      // in consolidated (list)
+        enterCons();                                                         // in consolidated (list)
         let savedWhileCons = null;
         try { savedWhileCons = localStorage.getItem('kosmos.layout.projects'); } catch { savedWhileCons = null; }
         res.savedUntouchedInCons = savedWhileCons === 'grid';                // still 'grid', not 'list'
-        placeProjectsView(false, true);
+        leaveCons();
         res.err = null;
       } catch (e) { res.err = String(e && e.message || e); }
       return res;
     });
 
     ok(t + ' #3052 CONTROL: the tab GRID layout is set before entering consolidated', out.err === null && out.gridSetBefore === true, JSON.stringify(out));
+    ok(t + ' #3052 the real showTab chokepoint enters AND leaves the consolidated view (wiring, not just the function)', out.err === null && out.enteredCons === true && out.leftCons === true, JSON.stringify(out));
     ok(t + ' #3052 THE FIX: consolidated forces the projects panel to LIST from a GRID tab layout', out.err === null && out.gridForcedToList === true, JSON.stringify(out));
     ok(t + ' #3052 leaving the consolidated view restores the saved GRID layout', out.err === null && out.gridRestored === true, JSON.stringify(out));
     ok(t + ' #3052 CONTROL: the tab ROADMAP layout is set before entering consolidated', out.err === null && out.roadmapSetBefore === true, JSON.stringify(out));
