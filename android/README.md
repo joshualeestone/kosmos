@@ -1,9 +1,10 @@
 # Kosmos for Android (Trusted Web Activity)
 
 This is the Android store shell for Kosmos. It is a **Trusted Web Activity
-(TWA)**: a thin, Google-blessed native app that renders the Kosmos board
-full-screen with no browser chrome. It carries no hand-written app code, only
-a launcher activity from `androidbrowserhelper` and four configuration values.
+(TWA)**: a thin, Google-blessed native app that opens Kosmos full-screen with no
+browser chrome, starting at the Kosmos+ sign-in page (`login.kosmosplus.com`). It
+carries no hand-written app code, only a launcher activity and a notification
+delegation service from `androidbrowserhelper`, plus a few configuration values.
 
 The reasoning for *why a TWA* (rather than a from-scratch native client or a
 naive WebView wrapper) lives in the mobile plan on
@@ -29,11 +30,13 @@ android/
 ├── app/
 │   ├── build.gradle                                   AGP 8.6.1, compile/target SDK 35
 │   └── src/main/
-│       ├── AndroidManifest.xml                        TWA LauncherActivity
+│       ├── AndroidManifest.xml                        LauncherActivity + push delegation
+│       ├── res/drawable/ic_notification.xml           status-bar icon for pushes
 │       └── res/values/strings.xml                     ← the ONLY file to edit to repoint
+│                                                        (origin: login.kosmosplus.com)
 └── tools/
     ├── assetlinks.template.json                       host this at the front-door origin
-    └── print-signing-fingerprint.sh                   fills the fingerprint in that file
+    └── print-signing-fingerprint.sh                   prints a keystore's SHA-256 for that file
 ```
 
 ## Build toolchain (already installed on this box)
@@ -148,32 +151,65 @@ alias `kosmos-upload`, valid to 2054. With **Play App Signing** this upload key 
 resettable by Google if ever lost; it is the upload key, not the distributed
 app-signing key.
 
-## Finishing the app (after the front-door origin is decided)
+## The origin and Digital Asset Links
 
-This skeleton points at the **placeholder** origin `https://app.kosmos.io/`
-(open question #1 on #718). To ship for real:
+The app opens the Kosmos+ coordinator, `https://login.kosmosplus.com/`: the one
+fixed front-door origin picked on #2854 (Liu Kang, 2026-09-24). It is the page
+every user already signs in on, and it already serves the push vapid key and the
+subscribe route. The origin lives in `app/src/main/res/values/strings.xml`
+(`launchUrl`, `hostName`, and the `site` inside `assetStatements`) and nowhere
+else in this module.
 
-1. **Set the real origin.** Edit `app/src/main/res/values/strings.xml`:
-   `launchUrl`, `hostName`, and the `site` inside `assetStatements`. That is the
-   only file to change.
-2. **Confirm `applicationId`.** `io.kosmos.app` in `app/build.gradle` is the
-   permanent Play identity; it cannot change after the first upload.
-3. **Verify with Digital Asset Links.** Build a signed APK, then:
-   ```
-   tools/print-signing-fingerprint.sh            # debug key
-   tools/print-signing-fingerprint.sh <release.keystore> <alias>   # release key
-   ```
-   Put that SHA-256 into `tools/assetlinks.template.json` and host the result at
-   `https://<host>/.well-known/assetlinks.json`. If you use Play App Signing,
-   use the fingerprint Play shows for its signing key, not the local upload key.
-4. **The PWA must exist at that origin first.** The front-door origin has to
-   serve the manifest and a **service worker** (the board does not have one
-   yet, see #718). A TWA can install without one, but push and offline depend
-   on it.
+For the app to open that page full-screen (no URL bar), the coordinator must serve
+`https://login.kosmosplus.com/.well-known/assetlinks.json`. The exact content is
+`tools/assetlinks.template.json`: package `io.kosmos.app` and the SHA-256 of the
+certificate that signed the installed APK. Serving rules Chrome enforces: HTTPS
+with a valid certificate, a 200 with **no redirect**, `Content-Type:
+application/json`, and no auth.
 
-## Push
+Which fingerprints go in that list:
 
-Push is delivered by the PWA's web-push, not by anything in this module. The TWA
-inherits the web notifications the PWA registers. See the push section of the
-#718 plan for the send path (outbound from the user's Mac, so it fits the relay
-architecture without any inbound connection).
+- **The upload key** (`21:4A:61:...:78:E8`, #3447) covers any APK built here with
+  `assembleRelease`, for example one sideloaded for testing.
+- **The Play app-signing key**, added once the app is on Play. With Play App
+  Signing, Play re-signs the app, so a Play install is signed by Google's key, not
+  ours; without that fingerprint in the list every Play install shows a URL bar.
+  Read it from Play Console, App integrity, App signing key certificate.
+- Never the debug key in production: it is per-machine and public.
+
+Re-measure a fingerprint rather than copying it:
+
+```
+tools/print-signing-fingerprint.sh            # debug key
+KEYSTORE_PASS=... tools/print-signing-fingerprint.sh <release.keystore> <alias>
+$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner verify --print-certs <apk>
+```
+
+**Confirm `applicationId` before the first Play upload.** `io.kosmos.app` in
+`app/build.gradle` was chosen to mirror the old placeholder origin. It becomes the
+permanent Play identity at the first upload and cannot change afterwards.
+
+## Push (notification delegation)
+
+Push itself is the coordinator's web push, not anything in this module: the
+coordinator's service worker (`/sw.js`) receives it and shows the notification.
+What this module adds is **notification delegation**: `AndroidManifest.xml`
+declares androidbrowserhelper's `DelegationService` and
+`NotificationPermissionRequestActivity`. With them, Chrome hands web notifications
+from the verified origin to this app, so they appear under **Kosmos's** name and
+status-bar icon (`res/drawable/ic_notification.xml`) and use the app's own
+notification permission on Android 13+. Without them they would show as Chrome
+notifications. Still zero hand-written Java or Kotlin.
+
+**Not yet seen on a device.** What is verified is the build: the release APK's
+manifest carries the service, the activity and the icon. No push has been shown on
+a phone or emulator yet, and delegation cannot work at all until the coordinator
+serves `assetlinks.json` (above).
+
+**Where a tap goes (open, not decided here).** The coordinator's `sw.js` opens
+`https://<mac-name>.kosmosplus.com/` on a tap, the person's own Mac, which is a
+different origin from `login.kosmosplus.com`. Per-Mac origins cannot be listed in
+this app's verified set (one subdomain per user, and Digital Asset Links has no
+wildcards), so that page is expected to open with a URL bar or in a browser tab
+rather than as the bare app. Expected, not yet measured on a device. This is the same undecided half of #2854 as how the board is shown
+after sign-in, and it stays with the relay architecture decision.

@@ -54,6 +54,7 @@ const EXCUSED = {
   setTickInterval: 'test seam (connect pacing)',
   setUnknownGrace: 'test seam (connect pacing)',
   setAbandonedSigninMs: 'test seam (connect pacing, #727 item 4 abandoned-signin bound)',
+  setRefreshExpiryReader: 'test seam (#3326): injects engine/connect.js\'s refreshTokenExpiresAt reader so the forced-login proof (expiryMoved) is asserted without the real macOS keychain; under node --test the default reads nothing.',
   setFreshnessForTests: 'test seam',
   setProbeTtlForTests: 'test seam: ages the willInstall probe cache instead of sleeping 60s (#1556)',
   setUnansweredAfterForTests: 'test seam (#185 unanswered constant)',

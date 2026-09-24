@@ -1,0 +1,80 @@
+# Plan: #3326, sign-up always forces a fresh Claude login, without the 0.6.84 strand
+
+## Ruling
+Josh, 2026-09-24 14:38 CDT, #admin: "on #2, i want to force a fresh login everytime. I have
+seen the other way fail multiple times which was why we switched to always force a fresh login."
+
+## Finished looks like
+Every default sign-up runs a real `claude auth login`, including for someone whose Claude login
+already works, and that login finishes as connected when it lands, even if the brief "Login
+successful" screen is missed. A forced login that did not land still goes stuck, never false-connected.
+
+## Why the old always-force stranded people (read from connect.js)
+For a still-working credential, the live check reads CONNECTED off the OLD credential from the first
+tick, so CONNECTED proves nothing. `claude auth login` exits on success and closes the pane; if
+"Login successful" fell between ticks, every completion gate (`!needsLogin || sawLoginDone`, plus
+`deadCredential` on the pane-death path) was false, and the flow went to becomeStuck: the 0.6.84
+strand. #3367 avoided it by not forcing when the probe said live. Josh has ruled that out.
+
+## Change
+- `engine/connect.js`: `expiryMoved(owner)`, used ONLY at the pane-death gate (the capture-fail
+  rescue), where `claude auth login` has exited so its writes are done. It is true when the
+  credential's `refreshTokenExpiresAt` is later than a baseline read just before the launch. It
+  reads through `loginexpiry.refreshExpiryFor`, which returns only the timestamp, from the entry
+  the launch writes (`CLAUDE_CONFIG_DIR` = launchDir, or unset). **Fails closed:** a null baseline
+  (no entry OR a failed read) disables it for the flow, so a failed read followed by a good one
+  cannot make the old credential look new. Reads are async (`execFile`, 5 s), so a slow keychain
+  never blocks the board. macOS only; never the real keychain under
+  `node --test` (`setRefreshExpiryReader` seam). The gate still also requires checkLive CONNECTED.
+- `server.js`: the default sign-up start forwards `reauth` unconditionally; `reauthDecision`
+  and the liveness probe gate are removed.
+- `web/index.html`: the `st.liveVerified` short-circuit is removed (the server never sends it now).
+- Tests (`engine/connect.test.js` "#3326"): moved expiry finishes CONNECTED (CCD set, and CCD unset
+  as production launches it); unchanged expiry stays STUCK; a null baseline stays STUCK even when a
+  later read succeeds. The reader's config dir is checked against the recorded launch argv.
+  `server.test.js` pins the unconditional forward. `engine.reachable.test.js` excuses the seam.
+
+## Rejected
+- Keep #3367's gate: Josh ruled against it.
+- Treat checkLive CONNECTED as success for a forced login: it reads the old credential, which is
+  the #1937 false success.
+- Compare the access-token expiry (`expiresAt`): it auto-refreshes hourly without a login.
+
+## Weakest premise
+**The observed 0.6.84 symptom is not shown to come from the mechanism fixed here.** #3367 describes
+a forced re-login that "does not complete", after which the agent dead-ends at "choose a login
+method". This change fixes one way that happens, a landed login whose "Login successful" frame was
+missed (read from connect.js's gates). It does NOT fix a forced login the person abandons if
+`claude auth login` has already cleared or replaced the old credential: that person is still logged
+out. Josh's ruling accepts forcing; the real-Mac check must include an ABANDONED forced login, not
+only a completed one.
+
+**Only a real login moves refreshTokenExpiresAt.** The bare `Claude Code-credentials` entry is
+shared by every CCD-unset Claude process, each refreshing its access token about hourly. If such a
+refresh ever rewrote a later `refreshTokenExpiresAt`, an abandoned forced login whose pane then died
+would read as landed. Evidence against a sliding expiry: loginexpiry.js measured bare-entry expiries
+of 09-25 on active agents (fixed date, not sliding). The worst case stays bounded by the checkLive
+CONNECTED requirement. The real-Mac check should include a background agent refreshing during sign-up.
+
+**Agents already running on the credential.** If a fresh `auth login` invalidates the old refresh
+token, agents already running on the same default account could hit "choose a login method" even
+when the new login lands (the 0.6.84 symptom's other possible cause). Unmeasured; the real-Mac check
+must include an agent running on the default account during a forced sign-up.
+
+**macOS only.** expiryMoved reads the macOS keychain; on another platform (a Windows sign-in host)
+the proof is off and a missed login-done frame still goes stuck.
+
+**Keychain consent prompt.** The reads are asynchronous `security` calls (5 s bound), so they never
+stall the board. If macOS shows a consent dialog for one, the read times out, the proof turns off
+(fail closed), and the person sees an unexplained keychain prompt mid sign-up. Probably not triggered if Claude Code's own entry
+is readable by `security`, but unmeasured; include it in the real-Mac check.
+
+A concurrent login elsewhere on the same keychain entry (the bare entry is shared by every
+CCD-unset Claude process) during a forced sign-up whose own login did not land would read as
+landed. The gate also requires checkLive CONNECTED, so the worst case is finishing on a credential
+that works, which is what #3367 did deliberately.
+
+That `claude auth login` over a working credential rewrites the same keychain entry with a later
+`refreshTokenExpiresAt`. #3532's memory measured /login moving it about a month, but not
+`auth login` on a still-valid credential. The real-Mac check (a live-credentialed sign-up
+finishing connected) is the served proof, as #3367 also required.

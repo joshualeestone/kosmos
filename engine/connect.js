@@ -77,6 +77,57 @@ const { execFile } = require('node:child_process');
 const store = require('./store');
 const platformGate = require('./platform');
 const subscription = require('./subscription');
+const loginexpiry = require('./loginexpiry');
+
+/* #3326: PROOF THAT A FORCED LOGIN LANDED, for a credential that was still working.
+   Sign-up always forces a fresh `claude auth login` (Josh, 2026-09-24 14:38: "force a fresh
+   login everytime"). When the old credential still works, the live check reads CONNECTED
+   off it from the first tick, so CONNECTED proves nothing, and if the brief "Login
+   successful" screen falls between ticks the flow could only becomeStuck: the 0.6.84
+   strand #3367 worked around by not forcing. The proof used instead: a real login moves the
+   credential's refreshTokenExpiresAt forward (~1 month), read through loginexpiry, which
+   returns only that timestamp and never a token, from the SAME keychain entry the launch
+   writes (serviceNameFor keys on CLAUDE_CONFIG_DIR set-vs-unset, the #2129 class). */
+let refreshExpiryReader = null;
+/** Tests only: inject the refreshTokenExpiresAt reader (ccd -> number|null). */
+function setRefreshExpiryReader(fn) { refreshExpiryReader = typeof fn === 'function' ? fn : null; }
+/* ASYNC on purpose: loginexpiry's own reader is a synchronous `security` call (5 s bound),
+   fine for its cached advisory but not for a sign-up, where a keychain consent prompt would
+   stall the single-threaded board. The body goes straight into loginexpiry.refreshExpiryFor,
+   which parses it and returns only the timestamp, so the service name, parsing and secret
+   handling stay in one place. */
+function readCredAsync(service) {
+  return new Promise((resolve) => {
+    // Guarded only by readRefreshExpiry's NODE_TEST_CONTEXT check: a harness run under plain
+    // node that drives a reauth would query the real keychain (a sandboxed, suffixed entry).
+    execFile('security', ['find-generic-password', '-s', service, '-w'],
+      { encoding: 'utf8', timeout: 5000 }, (err, stdout) => resolve(err ? null : stdout));
+  });
+}
+async function readRefreshExpiry(ccd) {
+  if (refreshExpiryReader) return refreshExpiryReader(ccd);
+  // The keychain is macOS-only, and `node --test` never reads the real one.
+  if (process.platform !== 'darwin' || process.env.NODE_TEST_CONTEXT) return null;
+  const body = await readCredAsync(loginexpiry.serviceNameFor(ccd));
+  return loginexpiry.refreshExpiryFor(ccd, { readCred: () => body });
+}
+/* The expiry proof, used ONLY at the pane-death gate: `claude auth login` exits on success and
+   that closes its pane, so the strand (a landed login whose "Login successful" frame was missed)
+   happens there, after the CLI's writes are done. A live pane may still be mid-login, so no
+   other gate uses it. The (asynchronous) keychain read runs at most once per pane death, and only
+   after checkLive has already read CONNECTED.
+   FAILS CLOSED: it arms only when the baseline read before the launch returned a real number.
+   A null baseline can mean "no entry" or "the read failed" (timeout, locked keychain), and a
+   failed read followed by a good one would make the OLD credential look new, so null disables
+   the proof for the flow and the gate falls back to its pre-#3326 behaviour (stuck, never a
+   false connected). The gate also requires the live check to read CONNECTED, so a concurrent
+   login elsewhere on the same entry can at worst finish on a credential that works. */
+async function expiryMoved(owner) {
+  const w = owner.renewalWatch;
+  if (!w || typeof w.baseline !== 'number') return false;
+  const latest = await readRefreshExpiry(w.ccd);
+  return typeof latest === 'number' && latest > w.baseline;
+}
 
 
 const PHASE = {
@@ -1783,8 +1834,9 @@ async function start(opts) {
      successful" screen is captured, the #1922 capture-fail rescue needs `deadCredential` to know a
      later checkLive CONNECTED is a real NEW login and not the OLD credential. Compute it here for
      the reauth path. A reauth of a STILL-LIVE credential leaves this false (checkLive CONNECTED at
-     start), so that case still falls to becomeStuck -- it cannot prove the new login landed vs.
-     reading the old live one (the iter-7 BLOCKER guard). This site handles the reauth arm where the
+     start), so checkLive cannot prove the new login landed vs. reading the old live one (the iter-7
+     BLOCKER guard); for that case the pane-death gate uses expiryMoved (#3326) instead, and
+     without it (not macOS, or no readable baseline) the case still falls to becomeStuck. This site handles the reauth arm where the
      binary is usable at start; the arm with no usable binary at start (checkLive is UNKNOWN here --
      nothing on disk, or a launcher that later fails the --version probe) is handled AFTER the
      install, by the `!haveBinary && owner.needsLogin` block in runFlow. Between the two, every
@@ -2627,6 +2679,12 @@ async function launchSignin(owner) {
      the CLI must write where the flow's checker reads or a successful
      login ends in "we cannot see the connection yet". */
   const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  /* #3326: the baseline for expiryMoved, read from the entry this launch will write
+     (CLAUDE_CONFIG_DIR is set to launchDir below, or unset when there is none). */
+  if (owner.needsLogin && !owner.deadCredential) {
+    owner.renewalWatch = { ccd: launchDir || undefined, baseline: await readRefreshExpiry(launchDir || undefined) };
+    if (driver !== owner) return;
+  }
   const made = await host.open({ claudeBin: claudeBinPath(), launchDir: launchDir || null, needsLogin: owner.needsLogin });
   if (!made.ok) {
     /* `because` is the Windows host's sentence for a program that did not start; the
@@ -2725,12 +2783,15 @@ async function tickBody(owner) {
          (we saw "Login successful"), OR deadCredential (the credential was DEAD at start,
          so a now-CONNECTED live check is a dead->live transition only a real login makes
          -- exactly the present-but-dead case #1922 exists for, where the login-done screen
-         was missed between ticks and the pane then closed). A re-auth on a still-live
-         credential has neither, so it falls through to becomeStuck rather than finishing
-         off the old credential. A non-needsLogin flow (fresh first-run) has no stale
+         was missed between ticks and the pane then closed), OR expiryMoved (#3326: the
+         credential's refreshTokenExpiresAt moved past the pre-launch baseline, which a
+         re-auth of a still-live credential can show). With none of the three it falls
+         through to becomeStuck rather than finishing off the old credential. A non-needsLogin flow (fresh first-run) has no stale
          credential to mistake, so checkLive CONNECTED is enough. */
-      if (live.state === subscription.STATE.CONNECTED
-          && (!owner.needsLogin || owner.sawLoginDone || owner.deadCredential)) {
+      const proven = live.state === subscription.STATE.CONNECTED
+          && (!owner.needsLogin || owner.sawLoginDone || owner.deadCredential || await expiryMoved(owner));
+      if (driver !== owner) return;
+      if (proven) {
         await finishConnected(owner, subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined));
         return;
       }
@@ -3452,6 +3513,7 @@ async function cancel() {
 
 /** Tests only: forget everything without touching disk records. */
 function resetForTests() {
+  refreshExpiryReader = null; // #3326: a test's fake keychain reader never leaks into the next
   if (driver && driver.timer) clearInterval(driver.timer);
   driver = null;
   activeRequest = null;
@@ -3470,6 +3532,7 @@ function resetForTests() {
 }
 
 module.exports = {
+  setRefreshExpiryReader, // #3326 test seam
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,
   classifyPane, extractOauthUrl, tailOf, validCode, redirectDowngrades,
