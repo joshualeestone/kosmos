@@ -28,8 +28,8 @@ function agentFile(name, text) {
 }
 const tied = (sessionName) => ({ sessionName, name: sessionName, isNamedOurs: true });
 
-test('#3614: the Files folder is the agent\'s own folder (create.workerDir) plus "Files"', () => {
-  const want = path.join(require('./create').workerDir('writer'), 'Files');
+test('#3614: the Files folder is the folder of the agent\'s own instructions file, plus "Files"', () => {
+  const want = path.join(path.dirname(require('./instructions').fileFor('writer')), 'Files');
   assert.equal(dmfiles.filesDir('writer'), want);
   assert.ok(want.startsWith(process.env.AGENT_WORKFORCE_WORKERS), 'CONTROL: it is inside the sandboxed workers root');
 });

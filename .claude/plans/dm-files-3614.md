@@ -5,9 +5,11 @@ project, so they are hard to find. April builds the folder and the Files list on
 (items 1, 2, 4). This is item 3, the instruction, which is mine.
 
 ## The path (decided, written on #3614 and sent to April)
-`<create.workerDir(name)>/Files`: the agent's own Kosmos folder, the one function Kosmos already uses
-for it (it follows a recorded folder for an agent brought in from elsewhere). April had not posted a
-path, so per Splinter (13:28) I used the card's call and told her; she builds to it or we change both.
+`dmfiles.filesDir(name)`: the folder BESIDE the agent's own instructions file (`dirname(instructions.fileFor(name))`,
+which keys the name through store.safeKey and follows a recorded folder) plus `Files`. It started as
+`create.workerDir(name)/Files`, which named a DIFFERENT folder for any name safeKey changes (`orch.main`,
+`has space`, `Writer`); challenge round 2 caught it. April builds to `dmfiles.filesDir(name)` itself, never a
+rebuilt path, and the correction is posted on #3614.
 
 ## Shape
 A PER-AGENT managed block (`engine/dmfiles.js`, markers `kosmos:dmfiles`), like the reports-to block
@@ -27,8 +29,12 @@ and unlike the constant connections block, because the card says the path is wri
   agent is in a project room when the person asks it for a file in a DM, it still has to choose.
 
 ## Verification
-- `engine/dmfiles.test.js` (7): the path is workerDir + Files; the real path is in the block; a marker in
-  the path cannot close it; lands and is idempotent; each agent gets its OWN path; sibling guards; registry.
+- `engine/dmfiles.test.js` (9): the path is beside the instructions file; the real path is in the block; a
+  marker in the path cannot close it; lands and is idempotent; each agent gets its OWN path; sibling guards;
+  registry; names safeKey changes (orch.main, Writer, has space) end to end; unsafe paths (NUL, newline,
+  backtick) are refused with a control.
+- `server.you-verdicts-1684.test.js` #3614: the About-you side work carries the files block's verdict (a file
+  ambiguous for dmfiles only comes back not-told, naming the block); RED with its row removed.
 - `server.dmfiles-refresh-3614.test.js` (3): a plain board start puts it in an existing agent with that
   agent's own path; no instructions file is invented; a board with an unwritable agent still starts.
   RED with the boot call removed.

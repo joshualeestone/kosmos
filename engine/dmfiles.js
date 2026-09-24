@@ -13,9 +13,10 @@
  * point: an agent told "your Files folder" with no path invents one, and the page
  * that lists the folder then shows nothing. So this block is PER-AGENT, like the
  * reports-to block and unlike the connections block: it names the agent's real
- * resolved folder, `create.workerDir(name)` + `Files`, the one function Kosmos
- * already uses for an agent's own folder (and which follows a recorded folder for
- * an agent brought in from elsewhere).
+ * resolved folder, the folder BESIDE the instructions file this block is written
+ * into (`instructions.fileFor(name)`, which keys the name through store.safeKey and
+ * follows a recorded folder for an agent brought in from elsewhere), plus `Files`.
+ * `filesDir(name)` is the one derivation; nothing else should rebuild it.
  *
  * The folder itself (creating it, listing it on the agent page) is April's half
  * of #3614. This block only tells the agent where it is and to create it if it is

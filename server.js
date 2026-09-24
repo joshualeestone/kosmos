@@ -12401,20 +12401,20 @@ const server = http.createServer((req, res) => {
              IN THE AGENT'S FILE, FOUND LATER. It cannot tell the person who
              just pressed Save that the write did not land, which is the only
              question this route is answering.
-             ⇒ `told` is built from `you.syncEveryone` ALONE, so all three
-             blocks could fail for every agent and this route would still
+             ⇒ `told` is built from `you.syncEveryone` ALONE, so every sibling
+             block could fail for every agent and this route would still
              answer a complete success. Not a missing detail: the wrong answer
              to the one question asked.
              📌 One row per agent is the UI contract, so the sibling verdicts
-             DOWNGRADE a row rather than being concatenated onto it -- three
-             lists would show each agent three times. A row can only ever move
+             DOWNGRADE a row rather than being concatenated onto it -- one list
+             per module would show each agent once per module. A row can only ever move
              TOLD -> not-TOLD here; nothing upgrades.
-             📌 Shapes are identical across the three modules (same guard, same
+             📌 Shapes are identical across the modules (same guard, same
              `isNamedOurs` filter, same `{ agent, ...tellAgent() }`), so this
              merges on `agent` without a mapping step. Measured, not assumed.
-             📌 #3614 added a fourth module (dmfiles, below) with the same shape and the same
-             `isNamedOurs` filter, so the merge takes it unchanged; the "three" above is the
-             count when #1684 was written.
+             📌 Four modules today: you, reports, connections and dmfiles (#3614, with
+             the same shape and the same `isNamedOurs` filter; pinned by
+             server.you-verdicts-1684.test.js).
              📌 A `null` agent is the whole-roster verdict those modules return
              when the roster is unreadable, so it downgrades EVERY row. */
           const sideWork = [
