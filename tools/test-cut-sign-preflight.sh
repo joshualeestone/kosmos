@@ -28,6 +28,13 @@ cs_noid()    { echo "Developer ID Application: X: no identity found" >&2; return
 cs_odd()     { echo "something nobody has seen" >&2; return 3; }
 cs_args()    { printf '%s\n' "$@" > "$WORK/cs-args.argv"; return 0; }
 
+# #3647 seams for the Installer identity and the notary key, as functions (no fresh executables).
+printf 'key\n' > "$WORK/notary.p8"
+sec_ok()   { echo "  1) ABCDEF0123 \"$KOSMOS_SIGN_APP_DEFAULT\""; echo "  2) 0123ABCDEF \"$KOSMOS_SIGN_INSTALLER_DEFAULT\""; }
+sec_noinst() { echo "  1) ABCDEF0123 \"$KOSMOS_SIGN_APP_DEFAULT\""; }
+sm_ok()    { [ "$1" = path ] && [ "$2" = "$KOSMOS_NOTARY_SECRET_TARGET" ] && echo "$WORK/notary.p8"; }
+sm_none()  { return 1; }
+export KOSMOS_SECURITY_BIN=sec_ok KOSMOS_SECRETS_MAP_BIN=sm_ok
 run() { KOSMOS_CODESIGN_BIN="$1" kosmos_sign_preflight 2>&1; }
 
 # --- signs: passes, and the stub was actually invoked ---
@@ -140,5 +147,15 @@ if [ -n "$lbl" ] && [ -n "$entry" ] && [ -n "$call" ] && [ "$entry" -lt "$lbl" ]
   ok "and it sits after the versions gate and before the preflight call ($entry < $lbl < $call)"
 else bad "the 1c label is misplaced (entry-gate=$entry label=$lbl call=$call)"; fi
 
+# --- #3647: the Installer identity and the notary key are probed after a good app test-sign ---
+out="$(KOSMOS_SECURITY_BIN=sec_noinst run cs_ok)"; rc=$?
+case "$rc:$out" in 1:*"Developer ID Installer identity"*"NOT in this session"*) ok "#3647: a box without the Installer identity refuses at 1c" ;; *) bad "#3647: a missing Installer identity did not refuse (rc=$rc): $out" ;; esac
+out="$(KOSMOS_SECRETS_MAP_BIN=sm_none run cs_ok)"; rc=$?
+case "$rc:$out" in 1:*"notary key"*"does not resolve"*) ok "#3647: a box without the notary key refuses at 1c" ;; *) bad "#3647: a missing notary key did not refuse (rc=$rc): $out" ;; esac
+out="$(run cs_ok)"; rc=$?
+case "$rc:$out" in 0:*"Installer identity"*"is in this session"*"notary key"*"resolves"*) ok "#3647 CONTROL: with both present the preflight passes and says so" ;; *) bad "#3647 control: both present did not pass cleanly (rc=$rc): $out" ;; esac
+out="$(KOSMOS_INSTALLER_CERT=0123ABCDEF run cs_ok)"; rc=$?
+[ "$rc" = 0 ] && ok "#3647: KOSMOS_INSTALLER_CERT (a SHA-1) is the Installer identity probed" || bad "#3647: a SHA-1 KOSMOS_INSTALLER_CERT was not honoured (rc=$rc): $out"
+
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 28 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 32 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }

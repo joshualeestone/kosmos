@@ -25,6 +25,29 @@
 . "$(dirname "${BASH_SOURCE[0]}")/signing-identity.sh"
 KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID="$KOSMOS_SIGN_APP_DEFAULT"
 
+# #3647: step 3c productsigns and notarises the installer whenever its inputs changed (always, on the
+# first cut after the signing identity changes), so the Installer identity and the notary key must be
+# reachable too. Without this a box holding only the Application cert passed 1c, ran the whole suite
+# and the page layer, and died at 3c. Seams (tests only): KOSMOS_SECURITY_BIN, KOSMOS_SECRETS_MAP_BIN.
+kosmos_sign_preflight_installer_and_notary() {
+  local inst="${KOSMOS_INSTALLER_CERT:-$KOSMOS_SIGN_INSTALLER_DEFAULT}"
+  local sec="${KOSMOS_SECURITY_BIN:-security}" sm="${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}"
+  local ids key
+  ids="$("$sec" find-identity -v 2>/dev/null || true)"
+  case "$ids" in
+    *"$inst"*) echo "signing preflight: the Installer identity \"$inst\" is in this session's keychains" ;;
+    *) echo "signing preflight: the Developer ID Installer identity \"$inst\" is NOT in this session's keychains. Step 3c signs the installer with it whenever the pkg's inputs changed. Cut on the Mac that holds it (Mortals), or set KOSMOS_INSTALLER_CERT."
+       return 1 ;;
+  esac
+  key="$("$sm" path "$KOSMOS_NOTARY_SECRET_TARGET" 2>/dev/null || true)"
+  if [ -n "$key" ] && [ -r "$key" ]; then
+    echo "signing preflight: the notary key ($KOSMOS_NOTARY_SECRET_TARGET) resolves to a readable file"
+  else
+    echo "signing preflight: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm on this machine. Step 3c notarises the installer with it. File it with /add-secret, or cut on Mortals."
+    return 1
+  fi
+}
+
 kosmos_sign_preflight() {
   local id="${KOSMOS_CODESIGN_ID:-$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID}"
   local cs="${KOSMOS_CODESIGN_BIN:-codesign}"
@@ -50,6 +73,7 @@ kosmos_sign_preflight() {
     else
       echo "signing preflight: PASSED THROUGH KOSMOS_CODESIGN_BIN=$cs, NOT codesign: the key was not probed. Unset it for a real cut."
     fi
+    kosmos_sign_preflight_installer_and_notary || return 1
     return 0
   fi
 
