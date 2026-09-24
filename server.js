@@ -357,6 +357,7 @@ function engineFreshness() {
   return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
 }
 const store = require('./engine/store');
+const communitysite = require('./engine/communitysite'); // #3485: community SITE layer — read + moderation over communitystore
 const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registry
 /* #1704: the registry base is CAPTURED at the top of this file (engine/worldenv.js),
    from the ORIGINAL env BEFORE applyActiveWorldEnv sets any AGENT_WORKFORCE_DATA
@@ -3119,6 +3120,19 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    far below #1946's account-data threat. Read-only; GET/HEAD only. */
 const PUBLIC_WORLD_ROUTES = new Set(['GET /api/worlds/names', 'HEAD /api/worlds/names']);
 
+// #3485: the Kosmos Community feed is OPEN/PUBLIC (Josh: browse it like Reddit
+// with no account), so its READ routes are exempt from the board-token gate —
+// the same low-sensitivity-public-read exemption as PUBLIC_WORLD_ROUTES, kept as
+// its own set because the reason differs (a public product surface, not the
+// post-switch lockout fix). The community MODERATION routes (GET
+// /api/community/moderation, POST /api/community/release) are deliberately NOT
+// here: they expose held/quarantined content + findings and stay board-token
+// gated as the moderator surface.
+const PUBLIC_COMMUNITY_ROUTES = new Set([
+  'GET /api/community/feed', 'HEAD /api/community/feed',
+  'GET /api/community/comments', 'HEAD /api/community/comments',
+]);
+
 /**
  * What makes opening the bind safe (#1112 phase 2).
  *
@@ -3368,7 +3382,11 @@ const server = http.createServer((req, res) => {
     // lockout. Kept as its OWN term, not folded into exemptAgent, because the reason differs:
     // this is a low-sensitivity public read, not an agent-token-authenticated route.
     const exemptPublic = PUBLIC_WORLD_ROUTES.has(`${req.method} ${pathname}`);
-    if (sensitive && !exemptAgent && !exemptPublic && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    // #3485: community feed READS are public (browse with no account). Its own
+    // term, not folded into exemptPublic, because the reason differs: a public
+    // product surface, not the post-switch lockout read.
+    const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -3387,6 +3405,60 @@ const server = http.createServer((req, res) => {
      is not enforcing. */
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
     sendJson(res, 200, { nonce: boardauth.mintNonce() });
+    return;
+  }
+
+  // ── #3485 Kosmos Community SITE (Mikey's slice A) ──────────────────────────
+  // READ routes are PUBLIC (exempt from the board-token gate above). MODERATION
+  // routes are board-token gated by the sensitive-route check. The agent
+  // board->feed WRITE choke is Pete's engine lane; the human-post/comment WRITE
+  // routes (which call Pete's choke primitive and own the author.name scrub) are
+  // a follow-up here once feedguard (#3496) lands. Nothing in THIS block
+  // publishes — reads serve communitystore's already-redacted published rows.
+  if (pathname === '/api/community/feed' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const q = new URL(req.url, ROUTING_BASE).searchParams;
+    const feed = communitysite.feedView({
+      board: q.get('board'), sort: q.get('sort'), limit: q.get('limit'), offset: q.get('offset'),
+    });
+    sendJson(res, 200, { feed });
+    return;
+  }
+
+  if (pathname === '/api/community/comments' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const q = new URL(req.url, ROUTING_BASE).searchParams;
+    sendJson(res, 200, { comments: communitysite.commentsView(q.get('postId')) });
+    return;
+  }
+
+  // Moderation queue — NOT public (held/quarantined + findings). Board-token
+  // gated by the sensitive-route check above.
+  if (pathname === '/api/community/moderation' && req.method === 'GET') {
+    const q = new URL(req.url, ROUTING_BASE).searchParams;
+    const queue = communitysite.moderationList({
+      status: q.get('status'), kind: q.get('kind'), limit: q.get('limit'),
+    });
+    sendJson(res, 200, { queue });
+    return;
+  }
+
+  // Release a held post/comment — moderator action, board-token gated above.
+  if (pathname === '/api/community/release' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || !body.id) {
+          sendJson(res, 400, { error: 'release requires an id' });
+          return;
+        }
+        try {
+          sendJson(res, 200, { released: communitysite.release(body.id) });
+        } catch (e) {
+          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason
+          sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+        }
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
