@@ -19863,7 +19863,7 @@ async function paintAccounts() {
        render an unqualified name. The VISIBLE qualifier tag below is unchanged:
        this is the accessible name only, where the ambiguity is unrecoverable
        because a screen reader user cannot see which group the row sits under. */
-    const qualName = qual || (isOpenai ? 'OpenAI' : isKeyed ? (a.providerName || keyRoute) : 'Claude');
+    const qualName = qual || (isOpenai ? 'OpenAI' : isKeyed ? (a.providerName || switchKeyedWord(acctProvider(a))) : 'Claude');
     const qualTag = qual
       ? '<span class="acct-qual" title="' + esc('Two accounts on this computer ' + (a.email ? 'are signed in as ' + a.email : 'read alike') + '. This one is ' + qual + '.') + '">' + esc(qual) + '</span>'
       : '';
@@ -34625,8 +34625,11 @@ function fillSwitchAccountsSafely() {
   } catch {
     const pmsgX = document.getElementById('d-provider-msg');
     if (pmsgX && !pmsgX.textContent) {
-      pmsgX.textContent = SWITCH_ACCT_BROKEN;
-      SWITCH_ACCT_SAID = SWITCH_ACCT_BROKEN;
+      // #3566: name the provider the picker was for (Gemini/Grok as well as OpenAI).
+      const provX = document.getElementById('d-provider');
+      const brokenLine = SWITCH_ACCT_BROKEN.replace('OpenAI', switchKeyedWord(provX && provX.value));
+      pmsgX.textContent = brokenLine;
+      SWITCH_ACCT_SAID = brokenLine;
     }
   }
 }

@@ -408,7 +408,7 @@ test('#1659: the post-removal focus target carries tabindex, or .focus() is a si
    executed ternary above; this covers the half that feeds it, which is the only
    part a parameterised fixture structurally cannot see. */
 test('#1659: qualName falls back to the PROVIDER, so no row can render an empty parenthetical', () => {
-  assert.match(PAGE, /const qualName = qual \|\| \(isOpenai \? 'OpenAI' : isKeyed \? \(a\.providerName \|\| keyRoute\) : 'Claude'\)/,
+  assert.match(PAGE, /const qualName = qual \|\| \(isOpenai \? 'OpenAI' : isKeyed \? \(a\.providerName \|\| switchKeyedWord\(acctProvider\(a\)\)\) : 'Claude'\)/,
     'the provider fallback is gone, so a row yielding neither an email nor a key tail renders '
     + '"Disconnect <who> ()" and two such rows answer to the same name again');
 });
@@ -920,7 +920,7 @@ const PROVIDER_SITES = {
   groupHead: /const name = a\.providerName \|\| \(a\.provider === 'openai' \? '([^']+)' : '([^']+)'\)/,
   /* #3566: the keyed middle arm (Gemini/Grok name themselves by providerName) sits between
      the two captured short names, which are still the OpenAI | Claude pair this pin compares. */
-  qualName: /const qualName = qual \|\| \(isOpenai \? '([^']+)' : isKeyed \? \(a\.providerName \|\| keyRoute\) : '([^']+)'\)/,
+  qualName: /const qualName = qual \|\| \(isOpenai \? '([^']+)' : isKeyed \? \(a\.providerName \|\| switchKeyedWord\(acctProvider\(a\)\)\) : '([^']+)'\)/,
   provName: /const provName = \(providerOf\(CURRENT\) === 'openai'\) \? '([^']+)' : '([^']+)'/,
 };
 
