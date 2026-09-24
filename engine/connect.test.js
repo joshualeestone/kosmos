@@ -2142,7 +2142,7 @@ function launchCcdFrom(all) {
   return { found: false };
 }
 
-function reauthOnLiveWithExpiry({ baseline = 1790000000000, afterLogin, unsetDir = false }) {
+function reauthOnLiveWithExpiry({ baseline = 1790000000000, afterLogin, unsetDir = false, expectReads }) {
   return async () => {
     const term = fakeTerminal();
     let failCaptures = false;
@@ -2176,6 +2176,8 @@ function reauthOnLiveWithExpiry({ baseline = 1790000000000, afterLogin, unsetDir
       const launch = launchCcdFrom(term.all);
       assert.ok(launch.found, 'the launch argv did not show how CLAUDE_CONFIG_DIR was set: ' + JSON.stringify(term.all.find((a) => a[0] === 'new-session')));
       if (unsetDir) assert.equal(launch.ccd, undefined, 'this arm must launch with CLAUDE_CONFIG_DIR unset');
+      // A null baseline must disable the proof: only the baseline read happens, none at pane death.
+      if (expectReads !== undefined) assert.equal(asked.length, expectReads, `reader asked ${asked.length} times`);
       assert.ok(asked.length >= 1 && asked.every((c) => c === launch.ccd),
         `the expiry reader must read the entry the launch writes (${launch.ccd}); asked ${JSON.stringify(asked)}`);
       return connect.state();
@@ -2208,9 +2210,7 @@ driverTest('#3326 CONTROL: an unchanged refresh expiry is not proof, so it still
 driverTest('#3326 FAIL-CLOSED: a baseline read that failed (null) disables the proof, even if a later read succeeds', async () => {
   // null at the start can mean "the read failed", so a later good read of the OLD credential
   // must not look like a new login.
-  let first = true;
-  const st = await reauthOnLiveWithExpiry({ baseline: null, afterLogin: () => { first = false; return 1790000000000; } })();
-  assert.equal(first, false);
+  const st = await reauthOnLiveWithExpiry({ baseline: null, afterLogin: () => 1790000000000, expectReads: 1 })();
   assert.equal(st.phase, connect.PHASE.STUCK,
     'a failed baseline read must fall back to stuck, never connected: ' + st.because);
 });

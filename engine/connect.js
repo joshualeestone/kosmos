@@ -1819,8 +1819,9 @@ async function start(opts) {
      successful" screen is captured, the #1922 capture-fail rescue needs `deadCredential` to know a
      later checkLive CONNECTED is a real NEW login and not the OLD credential. Compute it here for
      the reauth path. A reauth of a STILL-LIVE credential leaves this false (checkLive CONNECTED at
-     start), so that case still falls to becomeStuck -- it cannot prove the new login landed vs.
-     reading the old live one (the iter-7 BLOCKER guard). This site handles the reauth arm where the
+     start), so checkLive cannot prove the new login landed vs. reading the old live one (the iter-7
+     BLOCKER guard); for that case the pane-death gate uses expiryMoved (#3326) instead, and
+     without it (not macOS, or no readable baseline) the case still falls to becomeStuck. This site handles the reauth arm where the
      binary is usable at start; the arm with no usable binary at start (checkLive is UNKNOWN here --
      nothing on disk, or a launcher that later fails the --version probe) is handled AFTER the
      install, by the `!haveBinary && owner.needsLogin` block in runFlow. Between the two, every
@@ -2665,7 +2666,7 @@ async function launchSignin(owner) {
   const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
   /* #3326: the baseline for expiryMoved, read from the entry this launch will write
      (CLAUDE_CONFIG_DIR is set to launchDir below, or unset when there is none). */
-  if (owner.needsLogin) owner.renewalWatch = { ccd: launchDir || undefined, baseline: readRefreshExpiry(launchDir || undefined) };
+  if (owner.needsLogin && !owner.deadCredential) owner.renewalWatch = { ccd: launchDir || undefined, baseline: readRefreshExpiry(launchDir || undefined) };
   const made = await host.open({ claudeBin: claudeBinPath(), launchDir: launchDir || null, needsLogin: owner.needsLogin });
   if (!made.ok) {
     /* `because` is the Windows host's sentence for a program that did not start; the
@@ -2764,9 +2765,10 @@ async function tickBody(owner) {
          (we saw "Login successful"), OR deadCredential (the credential was DEAD at start,
          so a now-CONNECTED live check is a dead->live transition only a real login makes
          -- exactly the present-but-dead case #1922 exists for, where the login-done screen
-         was missed between ticks and the pane then closed). A re-auth on a still-live
-         credential has neither, so it falls through to becomeStuck rather than finishing
-         off the old credential. A non-needsLogin flow (fresh first-run) has no stale
+         was missed between ticks and the pane then closed), OR expiryMoved (#3326: the
+         credential's refreshTokenExpiresAt moved past the pre-launch baseline, which a
+         re-auth of a still-live credential can show). With none of the three it falls
+         through to becomeStuck rather than finishing off the old credential. A non-needsLogin flow (fresh first-run) has no stale
          credential to mistake, so checkLive CONNECTED is enough. */
       if (live.state === subscription.STATE.CONNECTED
           && (!owner.needsLogin || owner.sawLoginDone || owner.deadCredential || expiryMoved(owner))) {

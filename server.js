@@ -10088,10 +10088,11 @@ const server = http.createServer((req, res) => {
            runs a fresh `claude auth login`. Josh, 2026-09-24 14:38 CDT: "i want to force a fresh
            login everytime. I have seen the other way fail multiple times". This removes #3367's
            probe gate (force only when the credential probed dead). #3367 existed because a
-           forced login over a still-working credential could strand the person: the flow had
-           no proof the new login landed if the "Login successful" screen was missed. That is
-           now fixed where it happened, in connect.js's expiryMoved (at the pane-death gate), which accepts the
-           credential's refreshTokenExpiresAt moving forward as proof. */
+           forced login over a still-working credential could strand the person. One mechanism for
+           that, a landed login whose "Login successful" screen was missed, is addressed on macOS
+           by connect.js's expiryMoved, which assumes a real login moves refreshTokenExpiresAt
+           (not yet measured for `auth login` over a working credential). It does not cover
+           other platforms, or a forced login the person abandons. See the plan's weakest premise. */
         return connect.start({ requireInstallConfirm: true, installConfirmed, reauth });
       })
       .then((st) => { if (st) sendJson(res, 200, st); })
