@@ -14,6 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { execFileSync } = require('node:child_process');
+const { stopBoard } = require('./test-support/board-child');
 
 test('#923: the board process chdirs to $HOME at startup, so a directory it was launched from can be removed without stranding its cwd', async () => {
   const launchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cwd-'));
@@ -46,6 +47,7 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
   });
   let stdout = '';
   child.stdout.on('data', (c) => { stdout += c; });
+  let dead = false;
   try {
     // Wait for the real startup banner ("Kosmos on http://...") rather
     // than a fixed sleep, so this is not a timing guess.
@@ -69,11 +71,11 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
       'the board process is still pinned to the directory it was launched from, which #923 is about removing safely: ' + cwdLine
     );
   } finally {
-    child.kill('SIGKILL');
-    await new Promise((r) => { child.on('exit', r); setTimeout(r, 2000); });
+    dead = await stopBoard(child, { signal: 'SIGKILL' });
     fs.rmSync(launchDir, { recursive: true, force: true });
     fs.rmSync(homeSandbox, { recursive: true, force: true });
   }
+  assert.equal(dead, true, 'the board was still running when its sandbox was deleted');
 });
 
 test('#923: reproduces the precise failure -- a child spawned without an explicit cwd inherits a deleted one from its parent and fails at its OWN startup, the way `claude install` did', async () => {

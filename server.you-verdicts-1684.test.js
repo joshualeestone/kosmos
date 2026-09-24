@@ -43,6 +43,7 @@ const { spawn } = require('node:child_process');
 
 const REPO = __dirname;
 const fleet = require('./test-support/fleet');
+const { stopBoard } = require('./test-support/board-child');
 const reports = require('./engine/reports');
 const projects = require('./engine/projects');
 
@@ -113,6 +114,7 @@ test('#1684: a block that did not land is not reported as told', async () => {
     'precondition: the fixture must be AMBIGUOUS for reports, or nothing is being isolated');
 
   const { child, base } = await boot(sb);
+  let dead = false;
   try {
     const res = await fetch(`${base}/api/you`, {
       method: 'PUT',
@@ -141,7 +143,8 @@ test('#1684: a block that did not land is not reported as told', async () => {
     /* And it must say WHICH block, or the person looks at the wrong thing. */
     assert.match(String(row.because || ''), /who they report to/,
       'the reason must name the block that failed, not just say it failed');
-  } finally { try { child.kill(); } catch {} }
+  } finally { dead = await stopBoard(child); }
+  assert.equal(dead, true, 'the board was still running, so deleting its sandbox now would race it');
   fs.rmSync(sb, { recursive: true, force: true });
 });
 
@@ -151,6 +154,7 @@ test('#1684 CONTROL: an agent whose blocks all land is still reported as told', 
      keeps its `told`. */
   const sb = sandbox({ 'mk-clean-discord': '# An agent\n\nProse.\n' });
   const { child, base } = await boot(sb);
+  let dead = false;
   try {
     const res = await fetch(`${base}/api/you`, {
       method: 'PUT',
@@ -162,6 +166,7 @@ test('#1684 CONTROL: an agent whose blocks all land is still reported as told', 
     assert.ok(row, 'the clean agent must appear in told');
     assert.equal(row.state, projects.TOLD.TOLD,
       'an agent whose blocks all landed must still be reported as told');
-  } finally { try { child.kill(); } catch {} }
+  } finally { dead = await stopBoard(child); }
+  assert.equal(dead, true, 'the board was still running, so deleting its sandbox now would race it');
   fs.rmSync(sb, { recursive: true, force: true });
 });
