@@ -54,6 +54,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         barW: Math.round(r(bar).width), barTop: Math.round(r(bar).top), barBorder: getComputedStyle(bar).borderTopWidth,
         nameW: name && name.getClientRects().length ? Math.round(r(name).width) : null,
         backBottom: Math.round(r(back).bottom),
+        firstTop: (() => { const f = fields[0]; return f ? Math.round(r(f).top) : null; })(),
+        overflow: bar.scrollWidth > bar.clientWidth + 1 || opts.some((o) => o.scrollWidth > o.clientWidth + 1),
         rules: fields.map((f) => getComputedStyle(f).borderTopWidth).filter((w) => parseFloat(w) > 0).length,
         fieldCount: fields.length,
       };
@@ -83,6 +85,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 
     await page.evaluate(() => { document.getElementById('pj-mode-join').checked = true; pjSetAddMode('join'); });
     const j = await read();
+    ok(theme + ': Join starts at the same height as Create (the form does not jump)', c.firstTop !== null && j.firstTop !== null && Math.abs(c.firstTop - j.firstTop) <= 1, 'create=' + c.firstTop + ' join=' + j.firstTop);
+    ok(theme + ': no rule on the join field', j.fieldCount >= 1 && j.rules === 0, 'fields=' + j.fieldCount + ' ruled=' + j.rules);
+    // A narrow window: "Join an external project" wraps inside its half rather than overflowing.
+    await page.setViewportSize({ width: 420, height: 900 });
+    const n = await read();
+    ok(theme + ': at 420px the segments do not overflow and stay equal', !n.overflow && Math.abs(n.segs[0].w - n.segs[1].w) <= 1, JSON.stringify({ overflow: n.overflow, w: n.segs.map((x) => x.w) }));
     ok(theme + ': after Join, Join is the gold segment and Create is not', j.segs.length === 2 && j.segs[1].checked && j.segs[1].bg === j.gold && j.segs[0].bg === 'rgba(0, 0, 0, 0)', JSON.stringify(j.segs));
     await page.close();
   }

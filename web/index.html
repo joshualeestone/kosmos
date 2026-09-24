@@ -1363,7 +1363,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* #3495: the fields below it match Project settings (#750, "just like the new agent"): no bounding
    box and no rule between fields, spacing does the separating. */
 #pj-add-view .field { border-top: 0; padding-top: 0; margin-top: var(--space-6); }
-#pj-add-view .pj-mode + div > .field:first-child { margin-top: 0; }
+#pj-create-mode > .field:first-child, #pj-join-mode > .field:first-child { margin-top: 0; }   /* both modes start at the same height */
 /* A read-only value line in Join mode (the owner's project name/description, which the receiver
    cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
 .pj-ro { margin: 2px 0 0; color: var(--label); white-space: pre-wrap; }
