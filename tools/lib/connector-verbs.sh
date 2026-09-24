@@ -1,17 +1,23 @@
 #!/bin/bash
-# Does the Plus connector the bundle is about to ship know the verbs the board
-# will ask it for? (#718)
+# Does the Plus connector the bundle is about to ship know `mac-request`?
+# (#718, #3626)
 #
-# Turning phone notifications on makes the board run `kosmos-tunnel mac-request`
-# (engine/phonenotify.js through engine/remote.js). A tunnel built before
-# kosmos-relay #103 answers "unrecognized subcommand", and the board then tells
-# the person their Kosmos needs an update. The default input,
+# The board runs `kosmos-tunnel mac-request` (engine/remote.js macRequest) for
+# its Mac-signed coordinator calls: the Plus standing refresh
+# (engine/mac-standing.js), the update announce (engine/updating.js), and
+# turning phone notifications on (engine/phonenotify.js). A tunnel built before
+# kosmos-relay #103 answers "unrecognized subcommand". The default input,
 # ~/work/kosmos-relay/dist/kosmos-tunnel, is a local build that can be that old.
 #
-# The ship gate decides how loud this is. While PHONE_APP_CAN_RECEIVE is false
-# nothing calls mac-request, so an old connector is harmless: one quiet line.
-# Once it is true, bundling an old connector ships a switch that cannot turn
-# on, so the build refuses.
+# The phone-notifications ship gate decides whether that stops the build.
+# - Gate closed: the build goes on with one line. The standing refresh and the
+#   update announce were already refused by the coordinator before #3626 (sent
+#   unsigned, 401), so an old connector breaks nothing that works today; it only
+#   means #3626's fix is not active yet. Shipping a rebuilt connector is the
+#   Josh-gated tunnel release, which a build guard should not force (Liu Kang,
+#   #718).
+# - Gate open: refused, because the bundle would ship a phone-notifications
+#   switch that cannot turn on.
 #
 # Usage: source, then `connector_verbs_check <tunnel-bin> <phonenotify.js>`.
 # Returns 0 to go on (maybe after the one-line note), 1 to refuse, with the
@@ -98,14 +104,14 @@ connector_verbs_check() {
         echo "the Plus connector at $bin does not know 'mac-request', and PHONE_APP_CAN_RECEIVE is true, so this bundle would ship a phone-notifications switch that cannot turn on. Rebuild it with kosmos-relay tools/build-tunnel-release.sh (#103 or later), or set KOSMOS_TUNNEL_BIN to one that does." >&2
         return 1
       fi
-      echo "note: this Plus connector predates mac-request; harmless until PHONE_APP_CAN_RECEIVE opens (docs/phone-push-go-live.md, step 6)." >&2
+      echo "note: this Plus connector predates mac-request, so the Plus standing refresh and update announce stay unsigned-broken as before (#3626) and phone notifications cannot turn on. Rebuild with kosmos-relay tools/build-tunnel-release.sh to activate them (docs/phone-push-go-live.md step 6)." >&2
       return 0 ;;
     *)
       if [ "$gate" = true ]; then
         echo "could not check the Plus connector at $bin for 'mac-request' (${probe#unknown: }), and PHONE_APP_CAN_RECEIVE is true, so refusing. Check the file itself (its exec bit, a quarantine flag, a crash) or the reason above." >&2
         return 1
       fi
-      echo "note: could not check this Plus connector for mac-request (${probe#unknown: }); harmless until PHONE_APP_CAN_RECEIVE opens." >&2
+      echo "note: could not check this Plus connector for mac-request (${probe#unknown: }); if it lacks it, the Plus standing refresh and update announce stay unsigned-broken as before (#3626) and phone notifications cannot turn on." >&2
       return 0 ;;
   esac
 }

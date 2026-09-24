@@ -279,13 +279,16 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 - Remove the testing release in Play Console.
 - Removing the assetlinks route only brings back the URL bar. Nothing breaks.
 
-## Step 6. Rebuild the tunnel with `mac-request` [fleet]
+## Step 6. Rebuild the tunnel with `mac-request` [fleet builds; shipping it is Josh's tunnel release]
 
 This step is required before step 7, not optional housekeeping (Liu Kang posted the release order
 on #718, 2026-09-24).
 
 **Why:** turning notifications on makes the board ask the tunnel binary to sign a request to the
-coordinator (`mac-request`). The tunnel ships inside the Kosmos bundle
+coordinator (`mac-request`). Since kosmos #3626 the Plus standing refresh and the update announce
+use it too. Those two already fail in production today, because 0.6.91 sends them unsigned and the
+coordinator refuses unsigned requests (Raiden measured the 401), so an old tunnel keeps them broken
+rather than breaking them; a rebuilt tunnel is what turns #3626's fix on. The tunnel ships inside the Kosmos bundle
 (`tools/build-kosmos-bundle.sh` takes `KOSMOS_TUNNEL_BIN`, default
 `~/work/kosmos-relay/dist/kosmos-tunnel`).
 
