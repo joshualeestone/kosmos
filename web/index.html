@@ -26860,7 +26860,9 @@ async function paintAgentFiles(sessionName) {
     body = await res.json();
   } catch {
     if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
-    AGENT_FILES_STAMP = null;
+    // A stamp of its own, like a refusal: a read that keeps failing is not re-announced each tick.
+    if (AGENT_FILES_STAMP === 'neterr') return;
+    AGENT_FILES_STAMP = 'neterr';
     list.textContent = '';
     if (more) more.hidden = true;
     msg.textContent = 'We could not read this agent\u2019s files just now.';
@@ -26937,7 +26939,10 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     const b = await res.json().catch(() => ({}));
-    if (!res.ok) failed = asSentence(b.because || 'The folder did not open.');
+    // A 404 is an agent with no folder of its own here: the same sentence as the list, never the
+    // route's "no agent by that name" about the agent the person is looking at.
+    if (res.status === 404) failed = 'This agent has no folder of its own on this computer, so there is no Files folder to open.';
+    else if (!res.ok) failed = asSentence(b.because || 'The folder did not open.');
   } catch {
     failed = 'We could not reach Kosmos to open the folder.';
   }

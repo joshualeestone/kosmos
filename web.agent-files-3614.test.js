@@ -143,6 +143,7 @@ test('the click handlers: agent re-checked after the await, success clears, a fa
   assert.match(revealSrc, /if \(!CURRENT \|\| CURRENT\.sessionName !== who\) return;/, 'the reveal handler writes without re-checking the agent');
   assert.match(revealSrc, /if \(failed\) \{ if \(msg\) msg\.textContent = failed; return; \}/, 'a failed reveal is repainted over');
   assert.ok(revealSrc.indexOf('if (failed)') < revealSrc.indexOf('paintAgentFiles(who)'), 'the repaint runs before the failure is handled');
+  assert.match(revealSrc, /res\.status === 404\) failed = 'This agent has no folder of its own on this computer/, 'a 404 from Open in Finder tells the person their open agent does not exist');
 });
 
 test('an unchanged refusal is not rewritten into the status region on the next tick; a changed one is', async () => {
@@ -159,6 +160,18 @@ test('an unchanged refusal is not rewritten into the status region on the next t
   await h.api.paintAgentFiles('ana');
   assert.ok(writes > 0, 'a changed refusal was not shown');
   assert.match(msg.textContent, /We could not read this folder/);
+});
+
+test('a read that keeps failing on the network is not rewritten into the status region each tick', async () => {
+  const h = harness(() => { throw new Error('offline'); });
+  await h.api.paintAgentFiles('ana');
+  const msg = h.el['d-files-msg'];
+  assert.match(msg.textContent, /could not read this agent/);
+  let writes = 0;
+  const real = Object.getOwnPropertyDescriptor(msg, 'textContent');
+  Object.defineProperty(msg, 'textContent', { get: real.get, set(v) { writes++; real.set.call(this, v); } });
+  await h.api.paintAgentFiles('ana');
+  assert.equal(writes, 0, 'the same network failure was written into the live region again');
 });
 
 test('opening an agent clears the previous agent\'s Files rows before its own arrive', () => {

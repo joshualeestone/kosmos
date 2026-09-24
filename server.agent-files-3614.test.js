@@ -79,7 +79,7 @@ test('files the agent saved are listed newest first with name, size and date; do
 
 test('an unknown agent is 404; a name that cannot be a folder is refused; the list is read-only', async () => {
   assert.equal((await get('/api/agent/nobody/files')).status, 404);
-  assert.equal((await get('/api/agent/..%2F..%2Fetc/files')).status, 404, 'a traversal name reached a folder');
+  assert.equal((await get('/api/agent/..%2F..%2Fetc/files')).status, 404, 'a traversal name was not refused (store.safeKey folds it to a plain name; there is no workers/etc here)');
   assert.equal((await get('/api/agent/%E0%A4%A/files')).status, 400);
   agentDir('cal');
   assert.equal((await post('/api/agent/cal/files', {})).status, 405);
@@ -164,7 +164,11 @@ test('limit is clamped; HEAD answers; a Files that is a plain file is a reason, 
   assert.equal((await get('/api/agent/hal/files?limit=3')).json.files.length, 3);
   assert.equal((await get('/api/agent/hal/files?limit=0')).json.files.length, 20, 'a zero limit was honoured');
   assert.equal((await get('/api/agent/hal/files?limit=-4')).json.files.length, 20, 'a negative limit was honoured');
-  assert.equal((await get('/api/agent/hal/files?limit=100000')).json.total, 25);
+  const all = (await get('/api/agent/hal/files?limit=100000')).json;
+  assert.equal(all.total, 25);
+  assert.equal(all.names, undefined, 'the uncapped list of every name is sent on each poll');
+  for (let i = 25; i < 510; i++) fs.writeFileSync(path.join(d, 'f' + i + '.txt'), 'x');
+  assert.equal((await get('/api/agent/hal/files?limit=100000')).json.files.length, 500, 'the 500 ceiling on ?limit= is gone');
   const head = await fetch(base + '/api/agent/hal/files', { method: 'HEAD' });
   assert.equal(head.status, 200);
   fs.writeFileSync(path.join(agentDir('ivy'), 'Files'), 'a file, not a folder');
