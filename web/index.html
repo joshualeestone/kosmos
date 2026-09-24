@@ -13811,6 +13811,46 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
       <p class="dhint" id="feedback-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
+    <!-- #2619: Recommender automation. When on, blocked agents work to a consensus
+         recommendation, document it, and implement it - bounded by three guards.
+         NOT ACTIVE YET (Splinter, 2026-09-24): the consensus-and-implement
+         behaviour is a separate build, so we do NOT present a switch a person can
+         turn on that does nothing. The control renders DISABLED with a "not active
+         yet" note; the persistence (engine/recommender-setting.js + the routes) is
+         in place behind the scenes as the contract that behaviour will read. The
+         guards render in their safe default (all on) but disabled, so the person
+         can SEE the irreversible-consequence carve-outs that will apply. The
+         behaviour PR enables the controls, wires the paint/save JS, and flips the
+         default in one honest change. -->
+    <section class="dbox">
+      <h3 class="dlab">Recommender</h3>
+      <div class="setrow" id="rec-row" style="margin-top:14px;">
+        <div><b>Let blocked agents recommend and act</b>
+          <p class="dhint" style="margin:2px 0 0;">When your agents get stuck on something, they work together to agree on a recommendation, write down why, and carry it out - within the guards below.</p></div>
+        <button class="toggle" id="rec-toggle" role="switch" aria-label="Let blocked agents recommend and act" aria-checked="false" aria-disabled="true" disabled><i></i></button>
+      </div>
+      <fieldset class="frow" id="rec-guards-row" style="margin-top:12px; border:0; padding:0; display:flex; flex-direction:column; gap:8px;">
+        <legend class="dhint" style="margin:0 0 2px;">Never let a recommendation:</legend>
+        <label class="dhint" for="rec-guard-money" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-money" checked disabled> <span>Act on anything that spends money</span></label>
+        <label class="dhint" for="rec-guard-public" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-public" checked disabled> <span>Post anything publicly under my name</span></label>
+        <label class="dhint" for="rec-guard-delete" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-delete" checked disabled> <span>Delete anything that has no other copy</span></label>
+      </fieldset>
+      <p class="dhint" id="rec-msg" style="margin:8px 0 0;">Not active yet. This automation is coming soon; the guards above are the safe defaults that will apply once it is turned on.</p>
+    </section>
+    <!-- #2619: Assigner automation. When on, it turns your goals into assigned
+         work - mapping top goals to prioritized tasks and giving idle agents some.
+         NOT ACTIVE YET, same as the Recommender above: the assignment behaviour is
+         a separate build, so the control renders DISABLED with a "not active yet"
+         note while the persistence stays behind the scenes (recorded on #2619). -->
+    <section class="dbox">
+      <h3 class="dlab">Assigner</h3>
+      <div class="setrow" id="asg-row" style="margin-top:14px;">
+        <div><b>Turn your goals into assigned work</b>
+          <p class="dhint" style="margin:2px 0 0;">Map your top goals to prioritized tasks, and give agents that have nothing to do some work.</p></div>
+        <button class="toggle" id="asg-toggle" role="switch" aria-label="Turn your goals into assigned work" aria-checked="false" aria-disabled="true" disabled><i></i></button>
+      </div>
+      <p class="dhint" id="asg-msg" style="margin:8px 0 0;">Not active yet. This automation is coming soon.</p>
+    </section>
   </section>
   <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
        already existed and is merged (#854); nothing in the product consumed it,
@@ -19191,11 +19231,25 @@ setInterval(() => {
   const panel = document.getElementById('panel-settings');
   if (!document.hidden && panel && panel.offsetParent !== null) paintPrompterNudges();
 }, 15000);
+/* #2619: the Recommender and Assigner automation controls render DISABLED with a
+   "not active yet" note (Splinter, 2026-09-24: do not ship a switch a person can
+   turn on that does nothing). The behaviour (consensus-recommend-implement;
+   goal-to-task / idle-assign) is a separate build; until it lands there is nothing
+   to drive, so there is deliberately NO interactive paint/save JS here - a disabled
+   control cannot be clicked, so the paint-from-server / save-on-change wiring would
+   be dead code. The persistence contract (engine/recommender-setting.js +
+   engine/assigner-setting.js and their GET/PUT routes) stays in place behind the
+   scenes; the behaviour PR re-enables the controls, adds the paint/save wiring, and
+   flips the default in one honest change. The disabled state is static markup:
+   aria-checked="false" + disabled on the toggles, checked + disabled on the guards. */
+
 async function paintSettings() {
   paintYouName();
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
+  /* #2619: no paintRecommender/paintAssigner - those controls are disabled
+     ("not active yet") until the behaviour lands, so there is nothing to paint. */
   paintPrompterNudges();
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */

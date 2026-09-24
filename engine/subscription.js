@@ -505,17 +505,72 @@ let machineCached = null;   // { key, verdict } for checkMachine()
  * Settings-vs-banner disagreement #2130 is about. Deriving the fallback from
  * check() rather than re-stating its sentences keeps one source of truth for the
  * wording. */
+/* #1959: overlay the OBSERVED-liveness verdict onto a raw check() result, per dir.
+ *
+ * check() reads only whether a credential EXISTS (blind to a 401), so a token that
+ * is present on disk but was rejected on a live probe still reads CONNECTED. The
+ * "Check now" route (server.js #3136) records that live outcome per config dir via
+ * observed.sawDir(ANTHROPIC, dir, OK|REJECTED), and observed.verdict() is the one
+ * place that decides what a fresh observation means. Reading it here (engine->engine,
+ * no server plumbing -- the dir-keyed store is what makes this headless, and it did
+ * not exist when #1959 was first deferred) lets the machine banner honour a FRESH
+ * rejection instead of the stale credential-exists signal.
+ *
+ * Freshness and direction are entirely verdict()'s: only a FRESH observation counts,
+ * and absence of any observation -- the common case, an empty dir store -- returns
+ * the raw check UNCHANGED, so this is a strict no-op until "Check now" has actually
+ * seen something. It only ever SUBTRACTS a false positive (a stale connected that a
+ * fresh probe found signed out); it never invents a connection.
+ *
+ * Returns { reachable, verdict }: `reachable` is whether this account can reach a
+ * subscription for the machine banner; `verdict` is the {state,plan,because} to
+ * surface, which differs from the raw only in the fresh-rejected case.
+ */
+function observedReachable(raw, dir) {
+  try {
+    const observed = require('./observed');
+    const o = dir ? observed.readDir(observed.PROVIDER.ANTHROPIC, dir) : null;
+    const badge = observed.verdict({
+      checkLiveState: raw.state,
+      observedOutcome: o ? o.outcome : undefined,
+      observedAt: o ? o.at : undefined,
+    }).badge;
+    if (badge === 'rejected') {
+      /* a FRESH live probe found this account signed out (check-now -> STATE.NONE);
+         it does not count as reachable, so the banner stops claiming a stale
+         "connected" and correctly reads not-connected. STATE.NONE is the user-visible
+         effect: renderConnection shows only its "cannot reach a subscription" headline
+         for NONE and intentionally discards `because` (web/index.html:16375), so the
+         string below is the verdict CONTRACT for non-banner readers, not banner copy. */
+      return { reachable: false, verdict: { state: STATE.NONE, plan: null,
+        because: 'a recent check of this computer\'s Claude account found it signed out, so it needs to sign in again' } };
+    }
+  } catch { /* observed unavailable: fall through to the raw credential-exists signal */ }
+  /* working | signed_in_unverified | (no observed module): reachable iff a credential
+     exists. signed_out | unchecked: not reachable; the raw verdict already says so. */
+  return { reachable: raw.state === STATE.CONNECTED, verdict: raw };
+}
+
 function computeMachine(accts) {
   const base = check();
-  if (base.state === STATE.CONNECTED) return base;
+  const defaultAcct = (accts || []).find((a) => a && a.isDefault && typeof a.dir === 'string' && a.dir);
+  const baseRes = observedReachable(base, defaultAcct ? defaultAcct.dir : null);
+  /* Return baseRes.verdict, not `base`: they are identical whenever reachable is true
+     (only the fresh-rejected branch substitutes a verdict, and it forces
+     reachable=false), so this changes nothing today but keeps the two return paths
+     the same value even if observedReachable's reachable arm later changes. */
+  if (baseRes.reachable) return baseRes.verdict;
   for (const a of (accts || [])) {
     /* the default is already `base`; scoped-check every OTHER signed-in dir. */
     if (a && a.isDefault) continue;
     if (!a || typeof a.dir !== 'string' || !a.dir) continue;
     const v = check({ configDir: a.dir });
-    if (v.state === STATE.CONNECTED) return v;
+    if (observedReachable(v, a.dir).reachable) return v;
   }
-  return base;
+  /* Nothing reachable. Return the base's verdict -- which observedReachable has
+     already corrected to the honest signed-out wording if the default was raw
+     CONNECTED but freshly observed rejected; otherwise it is `base` unchanged. */
+  return baseRes.verdict;
 }
 
 /* Cache key over EVERY account's config file, so an edit/replace/sign-in on any
@@ -535,6 +590,32 @@ function machineStatKey(accts) {
     if (!a || a.isDefault || !acctMod || typeof a.dir !== 'string' || !a.dir) continue;
     addFile(acctMod.configFile(a.dir));
   }
+  /* #1959: computeMachine now also reads the OBSERVED per-dir verdict (via
+   * observed.readDir), which lives in memory and changes on a "Check now" without
+   * touching any config FILE. Fold each dir's observation (outcome:at) into the key
+   * so a fresh rejection/success invalidates the 5s memo -- otherwise the banner
+   * would keep serving the pre-check verdict until an unrelated file's stat moved.
+   * Include the DEFAULT dir too (its observation is the main case). */
+  try {
+    const observed = require('./observed');
+    const now = Date.now();
+    const seen = new Set();
+    for (const a of (accts || [])) {
+      if (!a || typeof a.dir !== 'string' || !a.dir || seen.has(a.dir)) continue;
+      seen.add(a.dir);
+      const o = observed.readDir(observed.PROVIDER.ANTHROPIC, a.dir);
+      /* Fold FRESHNESS, not the raw timestamp: the verdict is time-dependent, so the
+       * key must flip exactly when an observation crosses the fresh->stale boundary
+       * (otherwise a rejection that has since expired would keep being served from the
+       * memo). outcome:fresh is stable while a same-outcome observation stays fresh --
+       * which is precisely when the verdict is stable -- so this adds no spurious
+       * recompute; it changes only on a new outcome or a freshness transition.
+       * observed.isFresh is the SINGLE owner of the fresh/stale rule (#1959): reusing
+       * it here keeps this key from drifting out of sync with the verdict it tracks. */
+      const fresh = o && observed.isFresh(o.at, now);
+      parts.push(`obs:${a.dir}:${o ? `${o.outcome}:${fresh ? 'fresh' : 'stale'}` : 'none'}`);
+    }
+  } catch { /* observed unavailable: the file-stat key alone still invalidates on sign-in */ }
   return parts.join('|');
 }
 
