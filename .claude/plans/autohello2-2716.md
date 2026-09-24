@@ -5,11 +5,14 @@ main as a fresh branch, and fixes the race that kept it in draft.
 
 ## What it does
 After a model switch (changeModelNow) or a provider switch (changeProviderNow)
-restarts an agent, the dialog sends the wake `hello` through #2686's shared
-`autoHelloAfterRestart`. If the hello is placed, the dialog's line changes from
-"Say hello to <agent> to reactivate them on <provider>." to "Reactivated on
-<provider>, and said hello to wake <agent>." Anything short of placed leaves the
-manual line, so the dialog never claims a greeting that did not land.
+restarts an agent, the dialog shows "Restarted on <provider>. Waking them..."
+and sends the wake `hello` through #2686's shared `autoHelloAfterRestart`. The
+line then resolves: to "Reactivated on <provider>, and said hello to wake
+<agent>." if the hello was placed, or to "Say hello to <agent> to reactivate them
+on <provider>." if it was not. So the dialog never claims a greeting that did not
+land, and never tells a person to do by hand what the app is already doing. This
+is the pattern the restart and start flows already use ("Restarted. Waking
+them...", "Started X. Waking them...").
 
 ## The race, and the call
 #2692 raised changeDialog's hold (RESTART_HOLD_MS) to one K-loader loop, 4400ms.
@@ -47,14 +50,20 @@ then the dialog shows today's manual line, not a false claim.
 dialog before the paint", was the wrong premise: the stale-report case above
 was the real gap, and I had not seen it.)
 
-## Deliberately not changed
-While the hello is pending the dialog shows the manual "Say hello to ..." line,
-where the restart and start flows show "Waking them..." first. A person who reads
-it and types hello quickly sends a second, harmless hello. Changing it would
-replace the #768 reduced line Josh approved on this interstitial, so it is left
-as a follow-up option on the card, not done here. In production the report
-usually lands within about a second of the paint (accept at 4000ms or later,
-paint at 4400ms).
+## The waiting line: a reversed call
+I first kept the manual "Say hello to ..." line as what the dialog paints, and
+only replaced it with the confirmation. Two blind reviewers (passes 3 and 5)
+objected, and the second was right on the numbers: my "the report usually lands
+within a second of the paint" used the fastest accept (the second 2000ms poll).
+A real respawn often stays restarting longer, so the common case was: the dialog
+tells the person to say hello, they click Done, the app says hello anyway, and
+nothing on screen admits it (or they type hello too). I kept the manual line
+because it is the #768 reduced line Josh approved; but that line was written
+when there was no auto-hello, and the sibling flows he approved already show a
+waiting line. Copy is reversible, so this is decided, not asked.
+
+What would change my mind: Josh preferring the instruction to stay visible even
+while the app is sending the hello.
 
 ## Merge notes (onto current main)
 - changeProviderNow's provName on main has a keyOnlyProvider branch; kept main's
@@ -66,7 +75,10 @@ paint at 4400ms).
   multi-line), confirmed by browser-checks-reason-grep.test.js.
 
 ## Verification
-- docs/browser-checks/render-autohello-switch-2716.js, 19 checks. The old source
+- docs/browser-checks/render-autohello-switch-2716.js, 19 checks. Arms 1-9 run
+  with a 300ms test hold so no retry outlives its arm; the real-path arms use a
+  1500ms hold (a reviewer measured a 767ms report under 20x CPU throttling).
+  Comparing against the wrong line reds 8 of the 19. The old source
   invariant (2 x poll > hold), which was red by design, is replaced by three
   behavioural arms: an early report still lands once the line is painted;
   nothing is written if the dialog closes first; the wait gives up after the
@@ -83,4 +95,9 @@ paint at 4400ms).
   Arm 9b paints 500ms past the hold, measured from the report, so dropping the
   one-second margin reds it. Arm 11c: a real switch that does not restart
   (outcome partial) sends no hello; dropping `restarted` from the guard reds it.
-- web.change-dialog.test.js (source wiring, run from the repo root): 3 pass.
+- web.change-dialog.test.js (source wiring, run from the repo root): 3 pass. It
+  now expects the waiting line and pins switchWaiting's construction and use.
+- render-model-restart-interstitial.js (#768/#2692) asserted the reduced
+  "Say hello" line after the hold; it now asserts "Restarted on <provider>.
+  Waking them..." and keeps its one-vocabulary check (Anthropic, never Claude).
+  Passes.

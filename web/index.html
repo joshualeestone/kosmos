@@ -35911,8 +35911,12 @@ async function changeProviderNow(say) {
     // string to drift out of byte-identity if the wording is retuned).
     const switchShown = agentShown();
     const switchManual = 'Say hello to ' + switchShown + ' to reactivate them on ' + provName + '.';
-    tell(restarted ? switchManual : (out.because || 'Switched.'), restarted);
-    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual);
+    // While the wake hello is pending the dialog says so, as the restart and start flows
+    // do; the helper resolves it to the confirmation, or to switchManual if the hello
+    // does not land.
+    const switchWaiting = 'Restarted on ' + provName + '. Waking them…';
+    tell(restarted ? switchWaiting : (out.because || 'Switched.'), restarted);
+    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting);
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider
@@ -36656,8 +36660,9 @@ async function changeModelNow(say) {
     // changeProviderNow), so the content check matches exactly what say() painted.
     const switchShown = agentShown();
     const switchManual = 'Say hello to ' + switchShown + ' to reactivate them on ' + provName + '.';
-    if (say) say(restarted ? switchManual : (out.because || 'Changed.'), restarted);
-    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual);
+    const switchWaiting = 'Restarted on ' + provName + '. Waking them…';   // see changeProviderNow
+    if (say) say(restarted ? switchWaiting : (out.because || 'Changed.'), restarted);
+    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting);
     sel.value = '';
     await tick();
     /**
@@ -38854,25 +38859,28 @@ async function autoHelloAfterRestart(name, report, saidText, manualText, deliver
 }
 
 /* #2716: the changeDialog twin of the restart-modal auto-hello. After a model
-   (changeModelNow) or provider (changeProviderNow) switch restarts the agent, send the
-   wake 'hello' via the same helper and, on success, reduce the dialog's line from the
-   "Say hello to reactivate ..." instruction to a confirmation.
+   (changeModelNow) or provider (changeProviderNow) switch restarts the agent, the dialog
+   paints a waiting line ("Restarted on <provider>. Waking them..."), sends the wake
+   'hello' through the same helper, and then resolves the line: to "Reactivated on
+   <provider>, and said hello to wake <agent>." if the hello was placed, or to the manual
+   "Say hello to <agent> to reactivate them on <provider>." if it was not. So the dialog
+   never tells a person to do by hand what the app is already doing, and never claims a
+   greeting that did not land. The restart and start flows already work this way.
 
    The report writes to chg-msg DIRECTLY, not through changeDialog's `say`: `say` is a
    one-shot exit, so a second update has to touch the element itself. It writes only
-   over the exact manual line `say` painted, in a dialog still open for this agent, so a
-   timeout or failure (which reports the manual line itself) changes nothing.
+   over the exact waiting line `say` painted, in a dialog still open for this agent.
 
-   ⚠️ THE REPORT CAN ARRIVE BEFORE THE MANUAL LINE IS PAINTED. changeDialog holds its
+   ⚠️ THE REPORT CAN ARRIVE BEFORE THE WAITING LINE IS PAINTED. changeDialog holds its
    render until RESTART_HOLD_MS (#2692: one K-loader loop, 4400ms), while the readiness
-   wait can accept after two polls (2 x RESTART_READY_POLL_MS = 4000ms). A first version
-   stood down when the line was not there yet, so on a fast respawn the confirmation was
-   lost. So the report now WAITS for the line: it checks every 100ms until the manual
-   line appears, the dialog closes, the agent changes, or the hold plus a second has
-   passed. This leaves changeDialog and its tuned timing untouched.
+   wait can accept after two polls (2 x RESTART_READY_POLL_MS = 4000ms). So the report
+   waits for the line: it checks every 100ms until the line appears, the dialog closes,
+   the agent changes, or the hold plus one second has passed, counted from the report.
+   This leaves changeDialog and its tuned timing untouched.
+
    🛑 THE MATCHING LINE IS NOT PROOF IT IS THIS RESTART'S DIALOG. Switch the same agent
-   twice to the same provider and both dialogs paint the identical manual line, while the
-   first restart's report can still be waiting. Without a check it would write "said
+   twice to the same provider and both dialogs paint the identical waiting line, while
+   the first restart's report can still be waiting. Without a check it would write "said
    hello" into the second dialog, for a hello sent to the session the second switch had
    just replaced. So the report keeps its restart's token (RESTART_HELLO_SEQ, bumped
    synchronously when autoHelloAfterRestart starts) and stands down once a newer restart
@@ -38880,7 +38888,7 @@ async function autoHelloAfterRestart(name, report, saidText, manualText, deliver
    paint, so a stale report never sees that paint. After this dialog, a reopen resets
    chg-msg, the content no longer matches, and it stands down too. */
 const SWITCH_HELLO_RETRY_MS = 100;
-function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine) {
+function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waitingLine) {
   const saidLine = 'Reactivated on ' + provName + ', and said hello to wake ' + shown + '.';
   let mine = null;
   autoHelloAfterRestart(forAgent,
@@ -38893,7 +38901,7 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine) {
         const m = document.getElementById('chg-msg');
         const back = document.getElementById('chg-modal');
         if (!m || !back || back.hidden || !CURRENT || CURRENT.sessionName !== forAgent) return;
-        if (m.textContent === manualLine) { m.textContent = t; return; }
+        if (m.textContent === waitingLine) { m.textContent = t; return; }
         if (Date.now() < until) setTimeout(apply, SWITCH_HELLO_RETRY_MS);
       };
       apply();

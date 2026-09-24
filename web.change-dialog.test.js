@@ -78,10 +78,13 @@ const CURRENT_PAGE = fs.readFileSync('web/index.html', 'utf8');
 
 test('a successful change is said in the dialog with Done; a saved-but-not-restarted one with Close; a refusal with Close', async () => {
   let got = await change(world(CURRENT_PAGE, ok('changed', 'Mara is starting again on Claude Fable 5.')));
-  /* #768-batch: on a real restart the dialog now reduces to the one action left --
-     say hello to reactivate -- naming the provider (Mara has no codex runner -> Claude).
-     The engine's fuller sentence still stands on the section line behind the dialog. */
-  assert.equal(got.msg, 'Say hello to Mara to reactivate them on Claude.');
+  /* #768-batch: on a real restart the dialog reduces to one line naming the provider
+     (Mara has no codex runner -> Claude). #2716: since the app now sends the wake hello
+     itself, that line says so while it is pending ("Waking them..."); the helper, a no-op
+     here, resolves it to the confirmation or to "Say hello to Mara to reactivate them on
+     Claude." The engine's fuller sentence still stands on the section line behind the
+     dialog. */
+  assert.equal(got.msg, 'Restarted on Claude. Waking them…');
   assert.equal(got.keep.textContent, 'Done'); assert.equal(got.keep.hidden, false);
   got = await change(world(CURRENT_PAGE, ok('partial', 'We saved Claude Fable 5, but could not start it again.')));
   assert.match(got.msg, /^We saved/); assert.equal(got.keep.textContent, 'Close'); assert.equal(got.keep.hidden, false);
@@ -134,19 +137,23 @@ test('#2716: both switch dialogs wire autoHelloOnSwitchRestart on a real restart
   /* The behavioural driver above uses a NO-OP stub for autoHelloOnSwitchRestart, so it
      cannot catch a regression that deletes or misorders the wiring at either call site.
      This pins it from source: both changeModelNow and changeProviderNow must call
-     autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual) inside their
+     autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting) inside their
      `if (restarted && say)` branch. `lift` captures each full body (verified: it reaches the call).
      A deleted or argument-swapped call reds here. The runtime guard/race behaviour of the
      helper itself is covered by docs/browser-checks/render-autohello-switch-2716.js. */
   for (const fn of ['changeModelNow', 'changeProviderNow']) {
     const body = lift(page.scriptOf(CURRENT_PAGE), 'async function ' + fn + '(');
     // Both require `say`: with no dialog there is no line to confirm.
-    assert.match(body, /if \(restarted && say\) autoHelloOnSwitchRestart\(forAgent, switchShown, provName, switchManual\);/,
-      fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual) on a real restart');
-    /* And the manual line the helper's content check compares against is the SAME string
-       passed to say/tell -- built once as switchManual and handed to both -- so a reword
-       cannot silently break the content match. Pin that shared construction. */
+    assert.match(body, /if \(restarted && say\) autoHelloOnSwitchRestart\(forAgent, switchShown, provName, switchManual, switchWaiting\);/,
+      fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting) on a real restart');
+    /* And the waiting line the helper's content check compares against is the SAME string
+       passed to say/tell -- built once as switchWaiting and handed to both -- so a reword
+       cannot silently break the content match. Pin both shared constructions. */
     assert.match(body, /const switchManual = 'Say hello to ' \+ switchShown \+ ' to reactivate them on ' \+ provName \+ '\.';/,
-      fn + ' no longer builds the manual line once as switchManual to share with say/tell and the helper');
+      fn + ' no longer builds the manual line once as switchManual for the helper');
+    assert.match(body, /const switchWaiting = 'Restarted on ' \+ provName \+ '\. Waking them…';/,
+      fn + ' no longer builds the waiting line once as switchWaiting to share with say/tell and the helper');
+    assert.match(body, /(?:tell|say)\(restarted \? switchWaiting :/,
+      fn + ' no longer paints switchWaiting on a real restart');
   }
 });
