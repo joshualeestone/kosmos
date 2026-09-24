@@ -4,8 +4,8 @@
  * kosmos#3605 -- preloaded into EVERY test process by tools/run-tests.sh
  * (`node --test --require ./test-support/launch-guard.js`; node forwards the flag
  * to each file's process). It makes the fs calls listed in WRITERS below throw when
- * they would write or delete in the operator's real ~/Library/LaunchAgents (or delete
- * the folder itself). It sees only this process's fs calls: a child process a test
+ * they would write or delete in the operator's real ~/Library/LaunchAgents or under it
+ * (and, for a recursive rm/rmdir/cp, on an ancestor of it). It sees only this process's fs calls: a child process a test
  * spawns (cp, launchctl, a node child without the preload) is not covered.
  *
  * Why here and not only in engine/create.js: most tests that need a job file write
@@ -35,16 +35,24 @@ function realLaunchAgentsDir() {
 
 const REAL = realLaunchAgentsDir();
 
-// True for a path directly inside the real folder, or the folder itself (a recursive
-// delete or copy of the folder is the worst case of the class).
+// macOS volumes are case-insensitive by default, so ~/Library/launchagents is the same folder.
+const norm = process.platform === 'darwin' ? (x) => x.toLowerCase() : (x) => x;
+function resolved(target) {
+  if (target == null || typeof target === 'number') return '';
+  try { return norm(path.resolve(target instanceof URL ? fileURLToPath(target) : String(target))); } catch { return ''; }
+}
+// True for the real folder itself or any path under it.
 function isRealLaunchTarget(target) {
-  if (!REAL || target == null || typeof target === 'number') return false;
-  let p;
-  try { p = path.resolve(target instanceof URL ? fileURLToPath(target) : String(target)); } catch { return false; }
-  const b = path.resolve(REAL);
-  // macOS volumes are case-insensitive by default, so ~/Library/launchagents is the same folder.
-  const same = process.platform === 'darwin' ? (x) => x.toLowerCase() === b.toLowerCase() : (x) => x === b;
-  return same(path.dirname(p)) || same(p);
+  if (!REAL) return false;
+  const p = resolved(target), r = norm(path.resolve(REAL));
+  return !!p && (p === r || p.startsWith(r + path.sep));
+}
+// True for an ANCESTOR of the real folder (~/Library, the home dir, /): a recursive delete
+// or copy onto one reaches every real job file. Checked for the 'tree' kind only.
+function containsRealLaunchDir(target) {
+  if (!REAL) return false;
+  const p = resolved(target), r = norm(path.resolve(REAL));
+  return !!p && r.startsWith(p.endsWith(path.sep) ? p : p + path.sep);
 }
 
 // open/openSync/promises.open write only when their flags say so.
@@ -70,7 +78,8 @@ function refusal(op, target) {
 }
 
 // [module, method, index of the DESTINATION argument, kind]. kind 'open' checks the flags
-// argument (index 1) and refuses only a write open. Only the destination is checked, so a
+// argument (index 1) and refuses only a write open; kind 'tree' (recursive rm, rmdir, cp)
+// also refuses an ancestor of the real folder. Only the destination is checked, so a
 // rename OUT of the folder is allowed. mkdir is included so a missing real folder is not
 // created by a test. Deletes are included: a create
 // that fails on the refusal rolls back by deleting the same path, which may be a real
@@ -84,14 +93,14 @@ const WRITERS = [
   [fs.promises, 'writeFile', 0], [fs.promises, 'appendFile', 0],
   [fs.promises, 'copyFile', 1], [fs.promises, 'rename', 1],
   [fs.promises, 'symlink', 1], [fs.promises, 'link', 1],
-  [fs, 'cpSync', 1], [fs, 'cp', 1], [fs.promises, 'cp', 1],
+  [fs, 'cpSync', 1, 'tree'], [fs, 'cp', 1, 'tree'], [fs.promises, 'cp', 1, 'tree'],
   [fs, 'truncateSync', 0], [fs, 'truncate', 0], [fs.promises, 'truncate', 0],
   [fs, 'createWriteStream', 0],
   [fs, 'openSync', 0, 'open'], [fs, 'open', 0, 'open'], [fs.promises, 'open', 0, 'open'],
-  [fs, 'rmSync', 0], [fs, 'unlinkSync', 0], [fs, 'rm', 0], [fs, 'unlink', 0],
-  [fs, 'rmdirSync', 0], [fs, 'rmdir', 0],
+  [fs, 'rmSync', 0, 'tree'], [fs, 'unlinkSync', 0], [fs, 'rm', 0, 'tree'], [fs, 'unlink', 0],
+  [fs, 'rmdirSync', 0, 'tree'], [fs, 'rmdir', 0, 'tree'],
   [fs, 'mkdirSync', 0], [fs, 'mkdir', 0], [fs.promises, 'mkdir', 0],
-  [fs.promises, 'rm', 0], [fs.promises, 'unlink', 0], [fs.promises, 'rmdir', 0],
+  [fs.promises, 'rm', 0, 'tree'], [fs.promises, 'unlink', 0], [fs.promises, 'rmdir', 0, 'tree'],
 ];
 
 function install() {
@@ -101,7 +110,8 @@ function install() {
     if (typeof orig !== 'function') continue;
     const isPromise = mod === fs.promises;
     mod[name] = function guardedLaunchWrite(...args) {
-      if (isRealLaunchTarget(args[at]) && (kind !== 'open' || opensForWrite(args[1]))) {
+      const hit = isRealLaunchTarget(args[at]) || (kind === 'tree' && containsRealLaunchDir(args[at]));
+      if (hit && (kind !== 'open' || opensForWrite(args[1]))) {
         const err = refusal(name, args[at]);
         if (isPromise) return Promise.reject(err);
         throw err;
@@ -114,4 +124,4 @@ function install() {
 
 install();
 
-module.exports = { isRealLaunchTarget, realLaunchAgentsDir };
+module.exports = { isRealLaunchTarget, containsRealLaunchDir, realLaunchAgentsDir };
