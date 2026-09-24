@@ -168,3 +168,34 @@ test('#3566: a Gemini or Grok model id is never shown as a Claude model', () => 
   assert.ok(gi > -1, 'modelLine has no Gemini/Grok arm');
   assert.ok(pre > gi, 'the Gemini/Grok arm must return before the "Claude " prefix is applied');
 });
+
+test('#3566: moving a Gemini/Grok agent between its accounts does not promise its chat comes with it', () => {
+  const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const m = SERVER.match(/const moveChatWord = wrote\.account\s*&& (\(\{[^}]*\}\)\[String\(wrote\.account\.provider \|\| ''\)\.toLowerCase\(\)\]);/);
+  assert.ok(m, 'the move route no longer derives its chat word from the provider; re-anchor');
+  // eslint-disable-next-line no-new-func
+  const wordFor = new Function('wrote', 'return ' + m[1] + ';');
+  assert.equal(wordFor({ account: { provider: 'google' } }), 'Gemini');
+  assert.equal(wordFor({ account: { provider: 'xai' } }), 'Grok');
+  assert.equal(wordFor({ account: { provider: 'openai' } }), 'Codex');
+  assert.equal(wordFor({ account: { provider: 'anthropic' } }), undefined,
+    'CONTROL: a Claude move must keep the shared-history sentence');
+});
+
+test('#3566: a DEFAULT Gemini/Grok agent joins its own provider\'s default row, never OpenAI\'s', () => {
+  const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const a = SERVER.indexOf('  const foreign = !!(job.runner && job.runner !== \'claude\');');
+  assert.ok(a > -1, 'accountForAgent\'s dir-less match moved; re-anchor');
+  const b = SERVER.indexOf('  if (found) {', a);
+  // eslint-disable-next-line no-new-func
+  const match = new Function('job', 'dir', 'list', SERVER.slice(a, b) + '\nreturn found;');
+  const list = [
+    { dir: '/h/.claude', isDefault: true },
+    { dir: '/h/.codex', provider: 'openai', isDefault: true },
+    { dir: '/h/.gemini', provider: 'google', isDefault: true },
+  ];
+  assert.equal(match({ runner: 'gemini' }, null, list).dir, '/h/.gemini', 'a default Gemini agent joined the wrong row');
+  assert.equal(match({ runner: 'grok' }, null, list), undefined, 'a default Grok agent with no Grok row must join nothing, not OpenAI');
+  assert.equal(match({ runner: 'codex' }, null, list).dir, '/h/.codex', 'CONTROL: codex still joins the OpenAI default');
+  assert.equal(match({ runner: 'claude' }, null, list).dir, '/h/.claude', 'CONTROL: Claude still joins the Claude default');
+});

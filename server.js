@@ -1474,11 +1474,15 @@ function accountForAgent(name, known) {
      at all, so the two lists are separable, and the dir-matched arm needs no gate
      because a codex dir cannot equal a claude row's dir. A caller handed the
      wrong list for the agent now gets NO row rather than a confident wrong one. */
-  const isOpenaiRow = (x) => !!(x && x.provider === 'openai');
   const foreign = !!(job.runner && job.runner !== 'claude');
+  /* #3566: a DEFAULT gemini/grok agent must match its own provider's default row, never
+     OpenAI's: "a codex dir cannot equal a claude row's dir" held while codex was the only
+     foreign runner. Claude rows carry no provider, keyed rows carry theirs. */
+  const wantProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[job.runner] || null;
+  const isKeyedRow = (x) => !!(x && (x.provider === 'openai' || x.provider === 'google' || x.provider === 'xai'));
   const found = dir
     ? list.find((x) => x.dir === dir)
-    : list.find((x) => x.isDefault && (foreign ? isOpenaiRow(x) : !isOpenaiRow(x)));
+    : list.find((x) => x.isDefault && (foreign ? (!!wantProvider && x.provider === wantProvider) : !isKeyedRow(x)));
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
@@ -6819,9 +6823,8 @@ const server = http.createServer((req, res) => {
            (accountForAgent(name, geminiRows) returns null for a null-configDir agent) and
            never crashes. The recording is left in place deliberately -- it is
            forward-compatible, so the badge lights up for default agents for free once the
-           default row lands. WHEN that door lands, accountForAgent's dir-less match
-           (`isOpenaiRow`, server.js ~1475) must be generalized to the searched list's own
-           provider, or a default gemini/grok agent will still fail to join its default row. */
+           default row lands. accountForAgent's dir-less match is keyed on the runner's own
+           provider since #3566, so that join needs no further change here. */
         const obsByGeminiDir = new Map();
         for (const o of observed.all()) {
           if (o.provider !== observed.PROVIDER.GOOGLE) continue;
@@ -8565,7 +8568,12 @@ const server = http.createServer((req, res) => {
            What DOES travel is everything Kosmos owns: the worker folder, its files,
            role, projects and commitments (an account swap rewrites only CODEX_HOME).
            So the codex sentence is honest about the split rather than silent on it. */
-        const isCodexMove = !!(wrote.account && wrote.account.provider === 'openai');
+        /* #3566: Gemini and Grok accounts are per-home too (GEMINI_CLI_HOME / GROK_HOME, no
+           cross-home link), so their chat stays behind exactly as Codex's does. The word
+           names the chat the person would look for. */
+        const moveChatWord = wrote.account
+          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok' })[String(wrote.account.provider || '').toLowerCase()];
+        const isCodexMove = !!moveChatWord;
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           account: wrote.account,
@@ -8578,7 +8586,7 @@ const server = http.createServer((req, res) => {
             ? (isCodexMove
               ? `${name} runs on ${who} now. It is starting again, and it will look idle `
                 + 'until you say something to it. Its files and projects come with it; '
-                + 'its earlier Codex chat stays with the account it was on.'
+                + `its earlier ${moveChatWord} chat stays with the account it was on.`
               : `${name} runs on ${who} now. It is starting again, and it will look idle `
                 + 'until you say something to it. Everything it has done comes with it.')
             : `We saved ${who}, but could not start it again: ${back.because} `
