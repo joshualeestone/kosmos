@@ -263,11 +263,13 @@ const STATE = {
      working chrome while it retries, so an actively-retrying agent stays
      WORKING (the live-working checks precede this); this state is reached only
      once the retries are exhausted and the pane sits with the error, where it
-     used to read UNKNOWN ("Can't tell"). It is RECOVERABLE by a restart when
-     connectivity returns (the self-heal half, #3410 PR 2), which is why it is
-     its own state and not folded into AUTH_FAILED (an auth failure a restart
-     cannot fix) or UNKNOWN (which must never be auto-restarted). The SSL/cert
-     class is deliberately excluded: it needs a CA-trust fix, not a restart. */
+     used to read UNKNOWN ("Can't tell"). It is RECOVERABLE once connectivity
+     returns: the self-heal (#3410 PR 2b, engine/connlost-heal.js) types a short
+     retry nudge into the pane, which keeps the agent's context (a restart would
+     lose it). That is why it is its own state and not folded into AUTH_FAILED
+     (an auth failure a nudge cannot fix) or UNKNOWN (which nothing may type
+     into automatically). The SSL/cert class is deliberately excluded: it needs
+     a CA-trust fix, which retrying cannot give it. */
   CONNECTION_LOST: 'connection_lost',
   IDLE: 'idle',
   STOPPED: 'stopped',
@@ -2018,8 +2020,8 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  *   - StreamSuspended -> "Connection lost while your computer was asleep": rendered
  *     EARLIER (not by this "Connection error." switch), a sleep/wake artifact with
  *     its OWN recovery path (the session resumes when the Mac wakes), not the
- *     DNS/network-down class #3410 targets. Auto-restarting it (PR 2) would abort a
- *     session that resumes on its own.
+ *     DNS/network-down class #3410 targets. The self-heal nudge (PR 2b) would type a
+ *     stray message into a session that resumes on its own.
  *   - StreamNoResponse -> "No response from API": the connection was MADE but no
  *     first byte arrived in the window. The network is not down and the connection
  *     is not lost -- it is a server-side hang, a different symptom from this state,
