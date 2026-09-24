@@ -24,11 +24,27 @@ by the Recommender sweep and server.js).
 3. `server.js`: a 60 s sweep beside the class-1 one, inert under test (live-execution gate), operator
    brake `AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1`, `safeRoster()`, `chat.deliver`.
 
-## Why a live retry cannot be nudged
-PR 2a made the live retry line read WORKING. Retry shapes still unmeasured (a `*` frame, a
-minutes delay) would read connection_lost with the retry line itself as evidence, whose countdown
-changes every second, so "same evidence on 2 consecutive sweeps" rejects them.
+## Why a live retry is not nudged (an assumption, not a guarantee)
+PR 2a made the live retry line read WORKING. A retry shape still unmeasured (a `*` frame) would read
+connection_lost with the retry line itself as evidence, whose seconds countdown changes each sweep, so
+"same evidence on 2 consecutive sweeps" rejects it. A MINUTES-only countdown ("Retrying in 4m") could
+repeat identically across two sweeps a minute apart and be nudged mid-retry. Unmeasured, low odds.
+
+## Loop guard (review finding, fixed)
+A nudge makes Claude Code retry, and the retry reads WORKING. So the history (nudges, escalation) is
+kept while the agent is briefly not lost, and dropped only after 10 minutes not lost. Escalation is
+sticky until then. A test interleaves lost, lost, working for an hour and asserts exactly 3 nudges.
+
+## Limits, stated rather than fixed
+- **A person half-way through typing** in the agent's prompt: the pane still reads connection_lost,
+  and the nudge is pasted after their draft and submitted with it. A draft cannot be told from
+  Claude Code's placeholder text without terminal styling, which the capture does not keep.
+- **The probe dials api.anthropic.com:443 directly.** It ignores the agent's ANTHROPIC_BASE_URL and
+  any HTTPS_PROXY: behind a proxy that blocks direct TCP it never nudges, and with a custom endpoint
+  down but the public host up it nudges in vain (the loop guard then escalates).
+- **Race:** the roster is read before the probe (up to 3 s), and chat.deliver re-checks that the pane
+  is an agent but not its state, so input typed in that window can be overtaken.
 
 ## Weakest premise
-That a delivered message into a wedged Claude Code pane makes it retry and continue. Measure it on
-the probe (closed port, then open the API, then deliver) before relying on it.
+(MEASURED, no longer an assumption) A delivered message into a wedged Claude Code pane makes it retry
+and continue: a probe agent answered its original request after the API came back.

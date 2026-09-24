@@ -2042,7 +2042,7 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * remedy, not reconnecting). The two "Unable to connect to API" arms here match
  * only the PERIOD form ("… API. Check your internet connection") and the PAREN
  * form ("… API (CODE)"), never the colon form -- so an SSL error never reads
- * connection_lost and never triggers the self-heal restart (#3410 PR 2).
+ * connection_lost and never triggers the self-heal nudge (#3410 PR 2b).
  *
  * ⚠️ ONE RESIDUAL, the same one AUTH_FRIENDLY_MESSAGE pins and accepts: a card or
  * message quoting one of these lines verbatim reads connection_lost. It is rare,
@@ -3877,7 +3877,7 @@ function classify(pane, paneText) {
    * `RETRYING_LINES` rule just above) on purpose: Claude Code retries a network
    * error internally and draws a live "· Retrying in Ns · attempt K/N" line while
    * it does, so an agent that is ACTIVELY RETRYING classifies WORKING and is never
-   * touched by the self-heal restart (#3410 PR 2). Only once the retries are exhausted and the
+   * touched by the self-heal nudge (#3410 PR 2b). Only once the retries are exhausted and the
    * error line is sitting on a pane with no live spinner do we reach here -- the
    * exact "wedged, will not recover on its own" state Josh hit, which used to
    * fall through to the idle footer rule or to UNKNOWN ("Can't tell"). It sits
@@ -3893,26 +3893,14 @@ function classify(pane, paneText) {
    * ellipsis and no "(Ns" timer, so WORKING_LINE missed it and all 152 retrying
    * seconds read connection_lost. RETRYING_LINES now catches it
    * (status.connlost-retry-3410.test.js, built from those frames). A future Claude Code
-   * that draws its retry differently would reopen this, and the self-heal restarts on
+   * that draws its retry differently would reopen this, and the self-heal nudges on
    * this state, so re-measure after a Claude Code UI change.
    *
-   * ⚠️ A SECOND STALE-READ, ALSO COSMETIC FOR PR 1 AND LOAD-BEARING FOR PR 2: this
-   * rule sits ABOVE the idle/finished fallbacks, so an agent that ALREADY RECOVERED
-   * and went idle still reads connection_lost while its old error line remains in the
-   * ~25-row capture window (it scrolls out as the recovered agent produces new
-   * output, so PR 1 self-corrects within a few lines -- and a recently-recovered
-   * agent briefly labelled "Connection lost" is stale, not a false calm). Unlike
-   * auth_failed, this state has NO external freshness signal (auth_failed has the
-   * #1930 liveAuth-healthy guard; there is no "is the network back" probe in
-   * classify). ⇒ PR 2 must NOT restart on connection_lost alone: connectivity
-   * returning is necessary but not sufficient, because a recovered pane can show
-   * connectivity-up AND a stale error line at once. PR 2 needs a "still actually
-   * wedged" bound (no new activity since the error / the error is the live tail),
-   * not just a connectivity probe, or it will restart an agent that already healed.
+   * ✅ THE STALE READ IS BOUNDED (PR 2b, measured 2026-09-24): an agent that recovered kept its
+   * old error line on screen above its new turn and read connection_lost, which the auto-recovery
+   * sweep (engine/connlost-heal.js, a nudge, not a restart) would have acted on. connectionLostAtTail
+   * now takes the LAST Claude Code "API Error:" row and ignores it once an agent-output row follows.
    */
-  /* The shared matchedLine helper (as rate_limited uses it): first row matching
-     CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
-     one derivation of "find the evidence line", not a private copy. */
   const connLine = connectionLostAtTail(tail);
   if (connLine !== null) {
     return {
