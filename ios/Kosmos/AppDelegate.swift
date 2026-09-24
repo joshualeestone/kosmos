@@ -9,15 +9,14 @@ import UIKit
 // genuine native client (push registration, notification handling, biometric
 // unlock), not a repackaged web page. The pieces here are wired and buildable;
 // the parts that need external unblocks are marked and stubbed:
-//   - The APNs auth key (.p8) is an external ask, already surfaced to Josh
-//     (#718). Until it lands and the app is provisioned with the aps-environment
-//     entitlement, registerForRemoteNotifications() calls
-//     didFailToRegisterForRemoteNotificationsWithError in development; that is
-//     expected, not a bug.
-//   - The device-token upload endpoint on the coordinator is not decided yet
-//     (the coordinator already carries VAPID/web-push; APNs token registration
-//     is the sibling path). PushNotificationManager.registerTokenWithBoard is the
-//     single place to wire it.
+//   - The APNs auth key (.p8) lives on the coordinator, not in the app (#718).
+//     The app needs only the aps-environment entitlement (ios/Kosmos.entitlements)
+//     and a signing identity with push enabled. Without that identity (an
+//     unsigned build, or no provisioning yet) registerForRemoteNotifications()
+//     ends in didFailToRegisterForRemoteNotificationsWithError; expected.
+//   - The device token goes to the coordinator's POST /v1/push/apns/register
+//     through PushRegistrar, once the sign-in page has handed the app a session
+//     over the kosmosSession bridge (see PushNotificationManager).
 final class AppDelegate: NSObject, UIApplicationDelegate {
 
     // Owns notification authorization, categories/actions, and the
@@ -54,8 +53,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     // A content/silent push arriving while the app is backgrounded or running.
-    // The board is web-rendered, so for now we acknowledge; the real handler
-    // (badge sync, board refresh) lands with the token-upload endpoint.
+    // The board is web-rendered, so for now we acknowledge; a real handler
+    // (badge sync, board refresh) is future work.
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
