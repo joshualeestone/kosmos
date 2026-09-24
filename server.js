@@ -6647,7 +6647,21 @@ const server = http.createServer((req, res) => {
            The `if (o.provider !== GOOGLE) continue;` filter is the join-isolation guard:
            a GOOGLE ok can never resolve against a claude/openai row, nor they against a
            gemini one. GROK is the same slice one provider over, still a follow-on (#3391),
-           so grokRows is left un-overlaid here. */
+           so grokRows is left un-overlaid here.
+
+           🔑 SCOPE BOUNDARY, deliberate: this badges NAMED gemini accounts only. A
+           DEFAULT-account gemini agent (configDir null, e.g. the launcher's default agent)
+           records a GOOGLE observation in status.js, but geminiAccounts.listLive() emits
+           only credentialed NAMED accounts here (no default row -- the default-key door is
+           the connect-UI follow-on, agreed with Splinter 2026-09-23), so there is no row
+           for that observation to badge and accountForAgent's dir-less arm drops it. That
+           is honest, not a leak: a default agent's observation never greens a NAMED row
+           (accountForAgent(name, geminiRows) returns null for a null-configDir agent) and
+           never crashes. The recording is left in place deliberately -- it is
+           forward-compatible, so the badge lights up for default agents for free once the
+           default row lands. WHEN that door lands, accountForAgent's dir-less match
+           (`isOpenaiRow`, server.js ~1475) must be generalized to the searched list's own
+           provider, or a default gemini/grok agent will still fail to join its default row. */
         const obsByGeminiDir = new Map();
         for (const o of observed.all()) {
           if (o.provider !== observed.PROVIDER.GOOGLE) continue;

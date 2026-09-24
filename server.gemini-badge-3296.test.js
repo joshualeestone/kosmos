@@ -139,3 +139,18 @@ test('GREY PRESERVED: a STALE observed GOOGLE ok leaves the gemini row exactly a
     else process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = prev;
   }
 });
+
+test('SCOPE: a DEFAULT-account gemini agent (configDir null) badges nothing and does not leak onto a named row', async () => {
+  // Documented boundary (see the server overlay comment): geminiAccounts.listLive() emits only
+  // NAMED accounts in this slice, so a default-account gemini agent has no row to badge. Its
+  // recorded observation must NOT green a NAMED row -- accountForAgent(name, geminiRows) returns
+  // null for a null-configDir agent, so it joins no gemini row -- and must not crash the route.
+  born('geminidefault', null, 'gemini');
+  observed.saw(observed.PROVIDER.GOOGLE, 'geminidefault', observed.OUTCOME.OK, Date.now());
+  const r = await rows();
+  assert.equal(r.gem.connection.badge, undefined,
+    'a default-account gemini agent observation leaked onto the named account row: ' + JSON.stringify(r.gem.connection));
+  // No default gemini row is emitted, so the accounts list carries no google row but the named one.
+  const googleRows = r.all.filter((a) => a.provider === 'google');
+  assert.equal(googleRows.length, 1, 'exactly the one NAMED gemini row is listed; no default row appears in this slice');
+});
