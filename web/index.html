@@ -6013,6 +6013,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-doc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .pj-doc-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-doc-w { flex: 0 0 auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+/* #3614: the agent page's Files block, under the four-pack. */
+.dfiles { margin-top: 18px; }
+.dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dfiles-head .dlab { margin: 0; }
+.dfiles .pj-docs { margin-top: 8px; }
 /* #pj-one-add sits in a `.frow`, so the shared `select` rule dresses it and
    the named width rule above widths it. ⚠️ NOT `.frow select` — this comment
    said so and that selector does not exist: it was deliberately replaced by an
@@ -9083,6 +9088,19 @@ window.kosmosMeasureScrollbarWidth();
       </button>
     </div>
   </nav>
+  <!-- #3614 (Josh, 2026-09-24): the files this agent makes for you in a Direct Message, under the
+       four-pack. The folder is the agent's own Files folder (engine/dmfiles.js; the agent is told
+       to save there). Rows use the project documents look; a click opens the file. Painted by
+       paintAgentFiles on open and on the 5-second poll while this page is on screen. -->
+  <section class="dfiles" id="d-files" aria-labelledby="d-files-h">
+    <div class="dfiles-head">
+      <h3 class="dlab" id="d-files-h">Files</h3>
+      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+    </div>
+    <p class="dhint" id="d-files-msg" role="status"></p>
+    <div class="pj-docs" id="d-files-list"></div>
+    <p class="dhint" id="d-files-more" hidden></p>
+  </section>
   </div>
   <div class="dsecs">
   <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
@@ -18080,6 +18098,8 @@ async function tick() {
          second find() for the same card is the one-fact-two-derivations habit
          this file keeps paying for. */
       paintBusy(fresh, CURRENT.name);
+      /* #3614: the Files list, on the same tab-and-panel gate as the Talk poll above. */
+      if (!document.hidden && !document.getElementById('panel-detail').hidden) paintAgentFiles(CURRENT.sessionName);
       /* The same tab gate as the poll above, for the same reason: this is a
          capture-pane every five seconds. 🛑 NOT GATED ON THE SWITCH ANY MORE
          (agent-page-nav): the route stopped reading it, the box stopped
@@ -26816,6 +26836,99 @@ function fitDetailName() {
   }
 }
 
+/* #3614: the agent page's Files list. The server lists the agent's own Files folder; a folder
+   not made yet is the empty state. The stamp skips a repaint when nothing changed, and the epoch
+   and agent re-check stop a late answer painting one agent's files under another's name. */
+let AGENT_FILES_EPOCH = 0;
+let AGENT_FILES_STAMP = null;
+async function paintAgentFiles(sessionName) {
+  const list = document.getElementById('d-files-list');
+  const msg = document.getElementById('d-files-msg');
+  const more = document.getElementById('d-files-more');
+  if (!list || !msg) return;
+  const epoch = (AGENT_FILES_EPOCH += 1);
+  let body;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files');
+    body = await res.json();
+  } catch {
+    if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+    AGENT_FILES_STAMP = null;
+    list.textContent = '';
+    if (more) more.hidden = true;
+    msg.textContent = 'We could not read this agent\u2019s files just now.';
+    return;
+  }
+  if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  const ok = Boolean(body && body.ok === true);
+  const stamp = ok ? String(body.stamp || '') : null;
+  if (ok && stamp && stamp === AGENT_FILES_STAMP) return;
+  AGENT_FILES_STAMP = stamp;
+  list.textContent = '';
+  if (more) more.hidden = true;
+  if (!ok) {
+    msg.textContent = (body && body.because) || 'We could not read this agent\u2019s files just now.';
+    return;
+  }
+  const files = Array.isArray(body.files) ? body.files : [];
+  if (!files.length) {
+    msg.textContent = 'Nothing here yet. Files this agent makes for you in a Direct Message show up here.';
+    return;
+  }
+  msg.textContent = '';
+  for (const f of files) {
+    // A BUTTON: it opens a file, so it must be reachable from the keyboard.
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pj-doc';
+    b.dataset.doc = f.name;
+    b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
+    const n = document.createElement('span');
+    n.className = 'pj-doc-n';
+    n.textContent = f.name;
+    const w = document.createElement('span');
+    w.className = 'pj-doc-w';
+    const when = f.modified ? new Date(f.modified) : null;
+    w.textContent = (when && !isNaN(when) ? when.toLocaleDateString() + ' \u00b7 ' : '') + pjSize(f.size);
+    b.append(n, w);
+    list.append(b);
+  }
+  const rest = Number(body.total) - files.length;
+  if (more && rest > 0) {
+    more.textContent = 'And ' + rest + ' more in the folder.';
+    more.hidden = false;
+  }
+}
+document.getElementById('d-files-list') && document.getElementById('d-files-list').addEventListener('click', async (e) => {
+  const row = e.target.closest('.pj-doc');
+  if (!row || !CURRENT) return;
+  const msg = document.getElementById('d-files-msg');
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/files/open', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }),
+    });
+    const b = await res.json().catch(() => ({}));
+    if (res.ok && b.revealedInstead && msg) msg.textContent = b.say || '';
+    else if (!res.ok && msg) msg.textContent = asSentence(b.because || 'That file did not open.');
+  } catch {
+    if (msg) msg.textContent = 'We could not reach Kosmos to open that file.';
+  }
+});
+document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const who = CURRENT.sessionName;
+  const msg = document.getElementById('d-files-msg');
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok && msg) msg.textContent = asSentence(b.because || 'The folder did not open.');
+  } catch {
+    if (msg) msg.textContent = 'We could not reach Kosmos to open the folder.';
+  }
+  AGENT_FILES_STAMP = null;
+  paintAgentFiles(who);
+});
+
 function openDetail(sessionName, section, fromProject) {
   // #3050: opening ANY agent - INCLUDING one no longer in LAST (removed while its
   // Update reload was in flight), which is why this precedes the `if (!a) return`
@@ -26835,6 +26948,8 @@ function openDetail(sessionName, section, fromProject) {
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
+  AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
+  paintAgentFiles(a.sessionName);
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
      settingsGo). Jumping straight to the agent detail from the Plus tab must
