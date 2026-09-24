@@ -9,7 +9,8 @@
  *  - clicking it stores off, read back from the route rather than from the switch; clicking again
  *    stores on,
  *  - a failed read hides the toggle and says so, never a false Off,
- *  - the hint names what ships (idle agents get the next task nobody is on), not goals.
+ *  - the hint names what ships: idle agents get the next task nobody is on, and (phase 3) a
+ *    project with no tasks but a goal in its brief gets its agent asked to draft some.
  *
  * Not part of `npm test` -- it needs a browser, and this repo has no dependencies. See
  * README.md in this directory for the sandboxed recipe.
@@ -85,7 +86,7 @@ const readRow = () => {
       const first = await page.evaluate(readRow);
       chk(first.toggleVisible && first.checked === 'true', `[${theme}] with nothing stored the Assigner is on screen and reads ON`, JSON.stringify(first));
       chk(!first.notActive, `[${theme}] no "not active yet" note is left in the section`, String(first.notActive));
-      chk(/nothing to do for 20 minutes/.test(first.hint) && !/goals/i.test(first.hint), `[${theme}] the hint says what ships`, JSON.stringify(first.hint));
+      chk(/nothing to do for 20 minutes/.test(first.hint) && /its brief states a goal/.test(first.hint), `[${theme}] the hint says what ships (both phases)`, JSON.stringify(first.hint));
 
       const putDone = () => page.waitForResponse((r) => r.url().endsWith('/api/assigner-setting') && r.request().method() === 'PUT', { timeout: 8000 });
       await Promise.all([putDone(), page.click('#asg-toggle')]);

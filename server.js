@@ -709,6 +709,7 @@ const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
 const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's idle-assign behaviour (pure step; the runner is below)
+const brief = require('./engine/brief'); // #3595 phase 3: a project's goal, read safely from its BRIEF.md
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
@@ -14797,8 +14798,10 @@ function start(port = PORT) {
       /* #3595 phase 2: the Assigner runner. Reads assigner-setting every tick. For an agent on the
          board that reads idle, whose commitments read clear and that has no open part of any task,
          for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
-         agent belongs to, through givePart in its assigner mode (see givePart). The tick's
-         composition is assigner.tick, with the reads injected here.
+         agent belongs to, through givePart in its assigner mode (see givePart). Phase 3: with
+         nothing to hand out, it asks the agent (chat.deliver) to draft tasks toward a project's
+         BRIEF.md goal (engine/brief.js). The tick's composition is assigner.tick, with the reads
+         injected here.
          Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
       let assignerPrev;
       const assignerSweep = setInterval(() => {
@@ -14810,10 +14813,14 @@ function start(port = PORT) {
             readRoster: () => safeRoster(),
             readRecords: () => projects.readAll(),
             readCommitment: (session) => commitments.read(session),
+            readGoal: (project) => brief.readGoal(project && project.folder),
             give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
+            ask: (session, text, roster) => chat.deliver(session, text, roster),
+            DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
           for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
+          for (const a of out.asks) process.stdout.write(`assigner: asked ${a.name} (${a.session}) to draft tasks toward ${a.projectId}'s goal: ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only
       if (assignerSweep && typeof assignerSweep.unref === 'function') assignerSweep.unref();

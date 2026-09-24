@@ -13977,14 +13977,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     </section>
     <!-- #2619: Assigner automation. LIVE since #3595 phase 2 (engine/assigner.js + the runner in
          server.js): an agent with nothing to do is given the next unassigned task in one of its
-         projects. DEFAULT ON. Goals-to-tasks is phase 3 and not built, so the hint names only
-         what ships. Same status-control contract as the Recommender: the toggle stays hidden
+         projects, and (phase 3) a project with no tasks but a BRIEF.md goal gets its idle agent
+         asked to draft some. DEFAULT ON. Same status-control contract as the Recommender: the toggle stays hidden
          until the read lands, and a failed read hides it and says so, never a false Off. -->
     <section class="dbox">
       <h3 class="dlab">Assigner</h3>
       <div class="setrow" id="asg-row" style="margin-top:14px;">
         <div><b>Turn your goals into assigned work</b>
-          <p class="dhint" style="margin:2px 0 0;">When an agent has had nothing to do for 20 minutes and has recently said it is holding no work, Kosmos gives it the next task nobody is on in one of its projects, soonest due date first.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">When an agent has had nothing to do for 20 minutes and has recently said it is holding no work, Kosmos gives it the next task nobody is on in one of its projects, soonest due date first. If a project has no tasks but its brief states a goal, Kosmos asks the agent to draft a few toward it.</p></div>
         <button class="toggle" id="asg-toggle" role="switch" aria-label="Turn your goals into assigned work" hidden><i></i></button>
       </div>
       <p class="dhint" id="asg-msg" role="status" style="margin:8px 0 0;"></p>
