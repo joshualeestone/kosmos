@@ -298,6 +298,17 @@ test('#2909: a raw pipe over the board limit is refused at the read, not held wh
   assert.equal(seen.length, 0);
 }));
 
+test('#2909: the dropped control-character range is one fact in both bash copies and the Windows CLI', () => {
+  const fs = require('node:fs');
+  const bash = fs.readFileSync(CLI, 'utf8');
+  const post = bash.slice(bash.indexOf('cmd_post() {'), bash.indexOf('\n}\n', bash.indexOf('cmd_post() {')));
+  const ranges = [...post.matchAll(/tr -d '(\\001[^']*)'/g)].map((m) => m[1]);
+  assert.equal(ranges.length, 2, 'cmd_post drops controls at the --stdin read and in the escaper');
+  assert.deepEqual(ranges, ["\\001-\\010\\013\\014\\016-\\037\\177", "\\001-\\010\\013\\014\\016-\\037\\177"]);
+  const win = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
+  assert.ok(win.includes('/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g'), 'the Windows CLI drops the same range (plus NUL, which bash $() drops on its own)');
+});
+
 test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'plain', 'words'], env, 'this must not be read');
