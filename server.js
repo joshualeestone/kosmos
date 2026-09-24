@@ -10090,7 +10090,7 @@ const server = http.createServer((req, res) => {
            probe gate (force only when the credential probed dead). #3367 existed because a
            forced login over a still-working credential could strand the person: the flow had
            no proof the new login landed if the "Login successful" screen was missed. That is
-           now fixed where it happened, in connect.js's loginLanded, which also accepts the
+           now fixed where it happened, in connect.js's expiryMoved (at the pane-death gate), which accepts the
            credential's refreshTokenExpiresAt moving forward as proof. */
         return connect.start({ requireInstallConfirm: true, installConfirmed, reauth });
       })
