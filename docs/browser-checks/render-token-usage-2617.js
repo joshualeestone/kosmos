@@ -298,6 +298,27 @@ function readUsage(page) {
     // so the per-agent block must stay hidden rather than show an empty table.
     const agentsHidden = await p.evaluate(() => { const el = document.getElementById('usage-agents'); return el ? el.hidden : null; });
     ok(agentsHidden === true, 'the By agent block stays hidden when /api/usage sends no byAgent');
+    // #2617: every token unmatched (all the window's transcripts removed). No rows,
+    // so the table hides, but the block shows because the note is the answer.
+    const Z = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 };
+    const GONE = { ...BIG, byAgent: { agents: [], elsewhere: Z, shared: Z, overcount: Z, rosterRead: true,
+      unattributed: { input_tokens: 0, output_tokens: 5000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } };
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ json: GONE }));
+    await p.reload({ waitUntil: 'networkidle' });
+    await p.evaluate(() => showTab('settings'));
+    await p.click('#s-nav button[data-go="usage"]');
+    await p.waitForSelector('#usage-hero .tv-hero');
+    const gone = await p.evaluate(() => {
+      const el = (id) => document.getElementById(id);
+      return {
+        block: el('usage-agents') ? !el('usage-agents').hidden : null,
+        table: el('usage-atable') ? !el('usage-atable').hidden : null,
+        note: el('usage-agents-note') ? (el('usage-agents-note').textContent || '').trim() : null,
+      };
+    });
+    ok(gone.block === true && gone.table === false && /5K tokens in the totals above/.test(gone.note || ''),
+      `with every token unmatched the block shows its note and no empty table (got ${JSON.stringify(gone)})`);
     ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
     await ctx.close();
   } finally {

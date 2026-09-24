@@ -58,6 +58,7 @@ function bundle() {
     + lift('usageHeroDigits') + '\n'
     + lift('usageHeroHtml') + '\n'
     + lift('usageByModel') + '\n'
+    + lift('usageShareTableHtml') + '\n'
     + lift('usageModelTableHtml') + '\n'
     + lift('usageDonutSvg') + '\n'
     + lift('usageCharts4Html') + '\n'
@@ -408,6 +409,20 @@ test('#2617: the section carries the per-agent block, hidden until painted, and 
   assert.match(CODE, /id="usage-agents-note"/);
   const paint = lift('paintUsage');
   assert.match(paint, /usageAgentTableHtml\(usageAgentRows\(data\.byAgent\), grandTotal\)/, 'paintUsage does not render the per-agent table from byAgent against the grand total');
-  assert.match(paint, /agentsBox\.hidden = !agentHtml/, 'the block is not hidden when there is nothing to show');
+  assert.match(paint, /agentsBox\.hidden = !agentHtml && !agentNote/, 'the block must show when there is a table or a note, and hide only when there is neither');
   assert.match(paint, /if \(agentsBox\) agentsBox\.hidden = true;/, 'clearAll does not hide the per-agent block');
+});
+
+test('#2617: when every token is unmatched there are no rows, and the note is the whole answer', () => {
+  const allGone = { agents: [], elsewhere: Z, shared: Z, unattributed: B(5000, 0), overcount: Z, rosterRead: true };
+  assert.equal(U.usageAgentTableHtml(U.usageAgentRows(allGone), 5001), '', 'no rows, no table');
+  assert.match(U.usageAgentNote(allGone), /5K tokens in the totals above/, 'the note must carry the answer the table cannot');
+});
+
+test('#2617: the model and agent tables are drawn by one share-table renderer', () => {
+  const rows = [{ name: 'x', tok: 30 }, { name: 'y', tok: 10 }];
+  const model = U.usageModelTableHtml(rows, 40);
+  const agent = U.usageAgentTableHtml(rows.map((r) => ({ ...r, muted: false })), 40);
+  // Same rows, same colors by rank, so only the first column's label differs.
+  assert.equal(agent.replace('<div>Agent</div>', '<div>Model</div>'), model, 'the two tables have drifted apart');
 });
