@@ -34,6 +34,9 @@ const MAX_PER_HOUR = 6;
 const MAX_PER_AGENT_PER_HOUR = 2;
 const MAX_PEERS = 2;
 const BECAUSE_MAX = 300;
+/* Pane-delivery retries for an item whose room note already went out. Bounded, so an agent
+   whose pane cannot be reached is not typed at forever. */
+const MAX_DELIVERY_ATTEMPTS = 5;
 
 /* The three guards, in the words Josh chose for the Settings screen (#2619). Keyed like
    recommender-setting's GUARD_KEYS so the playbook names exactly the switches that are on. */
@@ -97,27 +100,40 @@ function step({ prev, roster, setting, members, now }) {
   for (const s of stuck) {
     const key = itemKey(s.session, s.because);
     const was = base.items.get(key);
-    const rec = was ? { ...was } : { firstSeen: now, convened: false, session: s.session };
+    const rec = was ? { ...was } : { firstSeen: now, convened: false, noted: false, attempts: 0, session: s.session };
     items.set(key, rec);
     if (rec.convened) continue;
+    if (rec.noted) {
+      // RETRY: the room note already went out and the pane delivery did not land. Re-deliver
+      // the playbook only (never a second room note), charge no budget, stop after the cap.
+      if (rec.attempts >= MAX_DELIVERY_ATTEMPTS) continue;
+      toConvene.push({ key, ...s, peers: rec.peers || [], retry: true });
+      continue;
+    }
     if (now - rec.firstSeen < GRACE_MS) continue;
     if (log.length >= MAX_PER_HOUR) continue;
     if (log.filter((e) => e.session === s.session).length >= MAX_PER_AGENT_PER_HOUR) continue;
     const peers = peersFor(s.session, members && members.get(s.project), stuckSessions, names);
-    toConvene.push({ key, ...s, peers });
-    // Reserve the budget now so one step cannot exceed the caps; markConvened keeps it, and
-    // an undelivered item releases nothing (a failed pane delivery still spent a room note).
+    rec.peers = peers;
+    toConvene.push({ key, ...s, peers, retry: false });
+    // The budget is charged once per item, when it is first convened (its room note).
     log.push({ at: now, session: s.session });
   }
   // Items no longer stuck are dropped, so a later report of the same text is a new item.
   return { toConvene, next: { items, log } };
 }
 
-/* The runner calls this only after the pane delivery is PLACED. */
-function markConvened(next, key) {
+/* The runner reports each attempt: the room note is out (noted) whatever the pane did, and the
+   item is convened only when the pane delivery was PLACED. */
+function markAttempt(next, key, placed) {
   const rec = next && next.items && next.items.get(key);
-  if (rec) rec.convened = true;
+  if (!rec) return;
+  rec.noted = true;
+  rec.attempts = (rec.attempts || 0) + 1;
+  if (placed) rec.convened = true;
 }
+/* Kept for callers that only know about success. */
+function markConvened(next, key) { markAttempt(next, key, true); }
 
 function activeGuards(setting) {
   const g = (setting && setting.guards) || {};
@@ -152,6 +168,6 @@ function playbookText(item, setting) {
 }
 
 module.exports = {
-  step, markConvened, stuckRow, peersFor, itemKey, activeGuards, roomNoteText, playbookText,
-  GUARD_TEXT, STUCK_STATES, GRACE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, MAX_PEERS,
+  step, markConvened, markAttempt, stuckRow, peersFor, itemKey, activeGuards, roomNoteText, playbookText,
+  GUARD_TEXT, STUCK_STATES, GRACE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, MAX_PEERS, MAX_DELIVERY_ATTEMPTS,
 };
