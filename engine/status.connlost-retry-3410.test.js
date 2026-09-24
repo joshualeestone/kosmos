@@ -59,15 +59,15 @@ test('#3410: the pane left after the retries run out still reads connection_lost
   assert.match(r.evidence, /API Error: Connection refused/);
 });
 
-test('#3410: a retry line hard-wrapped by a narrow pane still reads WORKING', () => {
-  // Split where Claude Code breaks the ~110-column line on a narrow pane; the first
-  // fragment alone matches CONNECTION_LOST_MESSAGE, so without the glue this read connection_lost.
-  const wrapped = RETRYING.replace(
-    '(ECONNREFUSED) · Retrying in 34s · attempt 9/10',
-    '(ECONNREFUSED) · Retrying\n  in 34s · attempt 9/10');
-  const r = status.classify(PANE, wrapped);
+test('#3410: on a narrow pane the retry line is truncated, not wrapped, and still reads WORKING', () => {
+  // Captured at 80 columns (tmux capture-pane -J, as the board reads it): Claude Code cuts the
+  // error text with "…" and keeps the retry suffix on the same row.
+  const narrow = RETRYING.replace(
+    '✻ Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED) · Retrying in 34s · attempt 9/10',
+    '✻ Connection refused — a firewall or proxy ma… · Retrying in 1s · attempt 4/10');
+  const r = status.classify(PANE, narrow);
   assert.equal(r.state, status.STATE.WORKING);
-  assert.match(r.evidence, /Retrying in 34s · attempt 9\/10/);
+  assert.match(r.evidence, /Retrying in 1s · attempt 4\/10/);
 });
 
 test('#3410: a non-network retry (529) reads WORKING, with the error in the evidence and no network claim', () => {
