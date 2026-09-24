@@ -2411,6 +2411,9 @@ function drainOutboxNow(pass) {
     deliverReply: (entry) => {
       const problem = agentReplyProblem(entry.body.text);
       if (problem) return { outcome: 'dropped', because: problem };
+      // #718: no phone notification here, on purpose. This is a reply kept while
+      // its Kosmos was closed, delivered now because the person opened that
+      // Kosmos; they are looking at it, so a buzz would add nothing.
       const kept = keepAgentReply(entry.from, entry.body.text, entry.at);
       return kept.recorded === true ? { outcome: 'delivered' } : { outcome: 'retry', because: kept.because };
     },

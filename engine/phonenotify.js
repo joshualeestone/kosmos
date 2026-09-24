@@ -19,9 +19,11 @@
  * adds the Mac's own address, which is where a tap on the phone opens.
  *
  * The notify-only token is minted at the coordinator's
- * POST /v1/mac/notify-credential through the tunnel binary (remote.macRequest),
- * because only the tunnel holds the Mac's key. It is kept owner-only in the
- * tunnel's state dir and can send events and nothing else.
+ * POST /v1/mac/notify-credential, which requires the Mac's request signature;
+ * the board makes no signatures ("NO CRYPTO HERE", engine/remote.js), so it asks
+ * the tunnel binary to (remote.macRequest, the mac-request verb). A TLS client
+ * certificate alone is not that signature (#3626). The token is kept owner-only
+ * in the tunnel's state dir and can send events and nothing else.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,10 +33,17 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const remote = require('./remote');
 
+// What a phone hears about: an agent needing the person, or answering them.
+// Room posts would buzz constantly and are not sent (the coordinator accepts
+// 'posted' too; this is the board's choice).
 const KINDS = new Set(['needs_you', 'replied']);
+// The coordinator mints "knt1_" + random ids; anything else is not a token and
+// is refused before it is stored or put in a header.
 const TOKEN_SHAPE = /^knt1_[A-Za-z0-9_-]{8,200}$/;
 const NOTIFY_ROUTE = '/v1/mac/notify';
 const CREDENTIAL_ROUTE = '/v1/mac/notify-credential';
+// A notification is fire and forget; after 4 s the socket is dropped, the same
+// bound as engine/mac-standing.js.
 const TIMEOUT_MS = 4000;
 // The coordinator's caps in UTF-8 BYTES (coordinator/src/notify.rs `caps`, Rust
 // String::len); it refuses anything over, so capping by characters would drop a
@@ -47,7 +56,7 @@ const NEEDS_YOU_COOLDOWN_MS = 5 * 60 * 1000;
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
 
 /** A coordinator URL for `route`, keeping a self-hosted path prefix
-    (https://h/kosmos -> https://h/kosmos/<route>). The one derivation. */
+    (https://h/kosmos -> https://h/kosmos/<route>). */
 function coordinatorUrl(route) {
   const base = new URL(remote.coordinator());
   return new URL(base.pathname.replace(/\/+$/, '') + route, base).toString();

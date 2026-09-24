@@ -243,7 +243,7 @@ function tunnelScript(name, body) {
 
 test('a hung tunnel times out: turning on fails in plain words, and the next turn-on is not stuck', async () => {
   enrol();
-  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('hung-tunnel', 'cat >/dev/null; sleep 30');
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('hung-tunnel', 'cat >/dev/null; exec sleep 30');
   process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '500';
   try {
     const t0 = Date.now();

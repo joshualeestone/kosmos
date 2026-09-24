@@ -590,6 +590,8 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
     A POST body goes on stdin, never argv. Resolves to
     { ok: true, data } with the coordinator's parsed JSON, or
     { ok: false, because }. */
+// A signed request is one round trip; 20 s covers a slow network and still
+// frees a caller (a Settings turn-on) stuck on a hung tunnel.
 const MAC_REQUEST_TIMEOUT_MS = 20 * 1000;
 async function macRequest(method, routePath, body) {
   if (!enrolled()) return { ok: false, because: 'this computer is not connected to Kosmos+' };
