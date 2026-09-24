@@ -715,6 +715,7 @@ const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
 const activity = require('./engine/activity');
 const connections = require('./engine/connections');
+const dmfiles = require('./engine/dmfiles');          // #3614: where an agent saves the files it makes in a DM
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
@@ -12422,6 +12423,9 @@ const server = http.createServer((req, res) => {
                is the one write that gives it to every agent created before the
                block existed. */
             ['how to connect a provider', () => connections.syncEveryone(roster)],
+            /* #3614: where to save a file made for the person in a direct message. Per-agent
+               (it names each agent's own folder), and a no-op once an agent has it. */
+            ['where to save the files it makes', () => dmfiles.syncEveryone(roster)],
           ];
           for (const [what, run] of sideWork) {
             let verdicts;
@@ -15296,6 +15300,20 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about connections: ${String(err && err.message)}\n`);
+  }
+  /* #3614: the direct-message files block, refreshed at boot for the reason the two
+     above give (#1649/#1676): a sweep that runs only on an unrelated form save reaches
+     an agent that already exists only by accident. It writes the FILE, not the running
+     agent, and it is never fatal. */
+  try {
+    const told = dmfiles.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh where ${stuck.length} of ${told.length} agent(s) save the files they make; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh where agents save the files they make: ${String(err && err.message)}\n`);
   }
   /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
      hands itself to its headless logon task and leaves, so the launcher is never

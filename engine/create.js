@@ -4666,6 +4666,22 @@ function createAgentInner(opts) {
           steps.push({ label: 'could not add the connections section to its instructions, so it cannot help you connect a provider; edit its instructions or remake it', ok: false });
         }
       }
+      /* #3614: where to save a file it makes for the person in a direct message, with
+         its own folder's REAL path written in. Same gate and non-gating posture as the
+         block above; the boot and profile sweeps compose the same bytes later. */
+      {
+        let filesLanded = false;
+        try {
+          const dmMod = require('./dmfiles');
+          const body = dmMod.blockBody(require('path').join(workerDir(name), dmMod.FOLDER));
+          const spliced = require('./projects').spliceBlock(text, body, dmMod.START, dmMod.END);
+          const { MAX_BYTES } = require('./instructions');
+          if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; filesLanded = true; }
+        } catch { /* reported below rather than swallowed */ }
+        if (!filesLanded) {
+          steps.push({ label: 'could not add the files section to its instructions, so it does not know where to save what it makes for you; edit its instructions or remake it', ok: false });
+        }
+      }
     // The projects block rides from birth too (#323). It used to arrive by
     // `projects.syncAgent` once the board could see the session, which is at
     // least one poll AFTER the session started, so every agent made onto a
