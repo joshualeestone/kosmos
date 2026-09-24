@@ -66,6 +66,7 @@ function enrol() {
 function unenrol() { fs.rmSync(STATE, { recursive: true, force: true }); }
 
 test.before(async () => {
+  phonenotify.setAvailableForTests(true);   // the ship gate is covered in server.phonenotify-gate-718.test.js
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
   boardAuthState.on = false;
@@ -140,7 +141,7 @@ test('turning on mints through mac-request, body on stdin, token never returned'
   assert.equal(on.code, 200, on.text);
   assert.equal(on.json.on, true);
   assert.doesNotMatch(on.text, /knt1_/, 'the token leaked into the response');
-  assert.deepEqual(Object.keys(on.json).sort(), ['connected', 'on'], 'the setting answer carries more than on/connected');
+  assert.deepEqual(Object.keys(on.json).sort(), ['available', 'connected', 'on'], 'the setting answer carries more than it should');
   const log = fs.readFileSync(TUNNEL_LOG, 'utf8');
   assert.match(log, /ARGV: mac-request --coordinator https:\/\/coord\.example\.test\/kosmos --state-dir \S+ --method POST --path \/v1\/mac\/notify-credential\n/);
   const stdin = JSON.parse(log.split('STDIN:')[1]);

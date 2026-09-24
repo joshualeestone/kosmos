@@ -33,6 +33,15 @@ const http = require('node:http');
 const { URL } = require('node:url');
 const remote = require('./remote');
 
+// 🛑 THE SHIP GATE (Liu Kang, 2026-09-24). No phone app can receive these yet, so
+// while this is false the Settings section is hidden, turning on is refused, and
+// nothing is sent even if the switch file says on. It flips to true in the same
+// release that ships a phone app able to receive. A constant, not an env var or a
+// setting, so only a release can open it. Tests use setAvailableForTests.
+const PHONE_APP_CAN_RECEIVE = false;
+let available = PHONE_APP_CAN_RECEIVE;
+function setAvailableForTests(on) { available = on === true; }
+
 // What a phone hears about: an agent needing the person, or answering them.
 // Room posts would buzz constantly and are not sent (the coordinator accepts
 // 'posted' too; this is the board's choice).
@@ -88,10 +97,12 @@ function writeState(next) {
   }
 }
 
-/** What the Settings screen shows. Never the token. */
+/** What the Settings screen shows. Never the token. While the ship gate is
+    closed it is off and unavailable, whatever the file says. */
 function status() {
+  if (!available) return { available: false, on: false, connected: remote.enrolled() };
   const s = readState();
-  return { on: s.on, connected: remote.enrolled() };
+  return { available: true, on: s.on, connected: remote.enrolled() };
 }
 
 /** Turn phone notifications on: mint a fresh notify token (minting replaces
@@ -102,6 +113,7 @@ function status() {
     fails. */
 let turningOn = null;
 function turnOn() {
+  if (!available) return Promise.resolve({ ok: false, because: 'phone notifications are not available yet' });
   if (!turningOn) turningOn = doTurnOn().finally(() => { turningOn = null; });
   return turningOn;
 }
@@ -193,6 +205,7 @@ function defaultSend(url, headers, body) {
     only when on, connected, holding a token, and the kind is one we send. */
 function happened(event) {
   try {
+    if (!available) return;
     if (!event || !KINDS.has(event.kind)) return;
     if (!sender && process.env.NODE_TEST_CONTEXT) return;
     const s = readState();
@@ -214,4 +227,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { KINDS, NEEDS_YOU_COOLDOWN_MS, status, turnOn, turnOff, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastNeedsYou.clear() };
+module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, NEEDS_YOU_COOLDOWN_MS, status, turnOn, turnOff, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastNeedsYou.clear() };
