@@ -228,7 +228,7 @@ function readUsage(page) {
     ok(v.agentMutedCount === 1, `only the non-agent row is muted (got ${v.agentMutedCount})`);
     ok(v.agentBarsPainted, 'every per-agent share bar paints with a width');
     ok(v.agentFits, 'the per-agent table fits the settings column with no horizontal overflow');
-    ok(/2K tokens in the totals above come from transcripts that have since been removed/.test(v.agentNote),
+    ok(/2K tokens in the totals above come from transcripts that have since been removed or can no longer be read/.test(v.agentNote),
       `the note states the tokens that cannot be matched (got ${JSON.stringify(v.agentNote)})`);
     ok(v.agentsAfterWtr === true, 'the By agent block sits under the per-model table and donut');
     if (process.env.SHOTS) {
@@ -242,16 +242,18 @@ function readUsage(page) {
       const fit = (id) => { const el = document.getElementById(id); return el ? el.scrollWidth <= el.clientWidth + 1 : null; };
       const clipped = [...document.querySelectorAll('#usage-atable .tv-num, #usage-mtable .tv-num, #usage-atable .tv-mrow.head > div, #usage-mtable .tv-mrow.head > div')]
         .filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => (e.textContent || '').trim());
-      const name = document.querySelector('#usage-atable .tv-mrow:not(.head) .tv-mnl');
+      const cell = document.querySelector('#usage-atable .tv-mrow:not(.head) .tv-mn');
+      const row = document.querySelector('#usage-atable .tv-mrow:not(.head)');
       const bar = document.querySelector('#usage-atable .tv-mbar');
       return { agentFits: fit('usage-atable'), modelFits: fit('usage-mtable'), clipped,
-        nameW: name ? name.getBoundingClientRect().width : 0, barHidden: bar ? getComputedStyle(bar).display === 'none' : null };
+        nameShare: cell && row ? cell.getBoundingClientRect().width / row.getBoundingClientRect().width : 0,
+        barHidden: bar ? getComputedStyle(bar).display === 'none' : null };
     });
     ok(narrow.modelFits === true, 'at 390 wide the per-model table fits with no horizontal overflow (it did not before #2617)');
     ok(narrow.agentFits === true, 'at 390 wide the per-agent table fits with no horizontal overflow');
     ok(narrow.clipped.length === 0, `at 390 wide no number or header cell is clipped (clipped: ${JSON.stringify(narrow.clipped)})`);
     ok(narrow.barHidden === true, 'at 390 wide the share bar column gives way to the name');
-    ok(narrow.nameW >= 24, `at 390 wide an agent name has room to read (got ${Math.round(narrow.nameW)}px)`);
+    ok(narrow.nameShare >= 0.35, `at 390 wide the name cell takes at least a third of the row (got ${Math.round(narrow.nameShare * 100)}%)`);
     await p.setViewportSize({ width: 1280, height: 1100 });
     // the replaced elements are gone
     ok(v.noCards, 'the old full-number cards are removed (replaced by the approved design)');
@@ -294,10 +296,31 @@ function readUsage(page) {
       return { n: figs.length, clipped, big };
     });
     ok(scale.big.includes('B'), `hero shows the production-scale total in the B band (got ${scale.big})`);
-    // #2617 CONTROL: that fixture has no byAgent (an older board, or a failed split),
-    // so the per-agent block must stay hidden rather than show an empty table.
-    const agentsHidden = await p.evaluate(() => { const el = document.getElementById('usage-agents'); return el ? el.hidden : null; });
-    ok(agentsHidden === true, 'the By agent block stays hidden when /api/usage sends no byAgent');
+    ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
+    // #2617 CONTROL: repaint in the SAME page life, from a painted block to a
+    // response with no byAgent (an older board, a failed split). After a reload
+    // the block is hidden by its markup whatever the code does, so the hide path
+    // is only exercised by painting over a shown block.
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ json: USAGE }));
+    // paintUsage returns early while another paint is in flight (USAGE_BUSY), so
+    // wait for the one the reload started before painting again.
+    await p.waitForFunction(() => !USAGE_BUSY);
+    await p.evaluate(() => paintUsage()); // awaited: the paint has finished
+    const shownFirst = await p.evaluate(() => { const el = document.getElementById('usage-agents'); return el ? !el.hidden : null; });
+    ok(shownFirst === true, 'CONTROL setup: the block is shown before the repaint that must hide it');
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ json: BIG }));
+    await p.waitForFunction(() => !USAGE_BUSY);
+    await p.evaluate(() => paintUsage());
+    const repaint = await p.evaluate(() => {
+      const el = (id) => document.getElementById(id);
+      return { hidden: el('usage-agents') ? el('usage-agents').hidden : null,
+        rows: document.querySelectorAll('#usage-atable .tv-mrow').length,
+        note: el('usage-agents-note') ? el('usage-agents-note').textContent : null };
+    });
+    ok(repaint.hidden === true && repaint.rows === 0 && repaint.note === '',
+      `a repaint with no byAgent hides the block and leaves no stale rows or note (got ${JSON.stringify(repaint)})`);
     // #2617: every token unmatched (all the window's transcripts removed). No rows,
     // so the table hides, but the block shows because the note is the answer.
     const Z = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 };
@@ -319,7 +342,6 @@ function readUsage(page) {
     });
     ok(gone.block === true && gone.table === false && /5K tokens in the totals above/.test(gone.note || ''),
       `with every token unmatched the block shows its note and no empty table (got ${JSON.stringify(gone)})`);
-    ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
     await ctx.close();
   } finally {
     await browser.close();

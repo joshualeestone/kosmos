@@ -27575,7 +27575,7 @@ function usageShareTableHtml(label, rows, grandTotal, colorFor) {
       + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
       + '<div class="tv-num">' + pctStr + '</div></div>';
   }).join('');
-  return '<div class="tv-mrow head"><div>' + label + '</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + body;
+  return '<div class="tv-mrow head"><div>' + esc(label) + '</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + body;
 }
 /* #2617: the per-agent rows from /api/usage's byAgent, as the model table's
    { name, tok } shape plus `muted` for the two rows that are not an agent
@@ -27615,9 +27615,9 @@ function usageAgentNote(byAgent) {
   const out = [];
   if (byAgent.rosterRead === false) out.push('We could not read the list of agents just now, so every session shows as not an agent.');
   const gone = usageRowTokenTotal(byAgent.unattributed || {});
-  if (gone > 0) out.push(usageAbbr(gone) + ' tokens in the totals above come from transcripts that have since been removed, so they cannot be matched to an agent.');
+  if (gone > 0) out.push(usageAbbr(gone) + ' tokens in the totals above come from transcripts that have since been removed or can no longer be read, so they cannot be matched to an agent.');
   const over = usageRowTokenTotal(byAgent.overcount || {});
-  if (over > 0) out.push('On some days the transcripts still here hold ' + usageAbbr(over) + ' more tokens than the totals saved for those days, so this table can add up to a little more.');
+  if (over > 0) out.push('On some days the transcripts still here hold ' + usageAbbr(over) + ' more tokens than the totals saved for those days, so this table can add up to more than the totals above, by up to that much.');
   return out.join(' ');
 }
 /* #2840: the donut -- per-model token SHARE, top 6 + an "Other" bucket, matching
