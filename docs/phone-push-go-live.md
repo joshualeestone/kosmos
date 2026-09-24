@@ -102,7 +102,8 @@ d05a90b). This step fills them in, and adds `KOSMOS_PUSH=log`.
 
 Fill these in, and add `KOSMOS_PUSH`. Each APNs name becomes a real `NAME=value` line, never a
 `#NAME=` line: the deploy reads `#NAME=` as "deliberately unset" and would drop a value already on
-the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names are from `coordinator/src/apns.rs` and `coordinator/src/main.rs`.
+the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names are from
+`coordinator/src/apns.rs` and `coordinator/src/main.rs`.
 
 | Variable | Value | What it does |
 |---|---|---|
