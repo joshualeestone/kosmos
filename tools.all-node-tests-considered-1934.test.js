@@ -74,8 +74,8 @@ test('run-tests.sh keeps the coverage assertion that refuses to run a subset (#1
     'run-tests.sh no longer gathers the test set into a counted variable; the #1934 coverage guard is gone');
   assert.match(runner, /-ne\s+"\$_exist"/,
     'run-tests.sh no longer refuses on a considered-vs-exist mismatch (-ne, both directions); a narrowed glob or a find/glob discrepancy would pass green again (#1934)');
-  // Options may sit between `node --test` and the set (#3605 preloads a guard with
-  // --require), but the counted set must still be what that line runs.
-  assert.match(runner, /^node --test (?:--[\w-]+(?: "[^"\n]*")? )*"\$\{KOSMOS_TEST_FILES\[@\]\}"/m,
+  // Only a preload (--require/--import, #3605) may sit before the set: a filter such as
+  // --test-name-pattern there would narrow the run while this check stayed green.
+  assert.match(runner, /^node --test (?:--(?:require|import) "[^"\n]*" )*"\$\{KOSMOS_TEST_FILES\[@\]\}"/m,
     'run-tests.sh no longer runs the SAME counted set it asserted on, so the count and the run can drift apart (#1934)');
 });

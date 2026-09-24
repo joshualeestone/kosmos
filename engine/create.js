@@ -252,8 +252,7 @@ function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(ho
    whose run it was: on 2026-09-24 a suite from a checkout that predates #3011
    leaked five codex* plists while another branch's suite was running, the
    other branch's guard fired, and launchd loaded the five at the next login.
-   This refuses at the write instead, so an unsandboxed test fails on its own
-   branch, at the line, before anything lands.
+   This refuses at the write instead, and the rollback's delete of the same file.
    "Under test" is NODE_TEST_CONTEXT, which `node --test` sets in every file's
    process (and which the children those tests spawn inherit); a real board never
    has it. "Real" is the ACCOUNT's home from the password database, not $HOME or
@@ -265,10 +264,16 @@ function realLaunchAgentsDir() {
   try { home = os.userInfo().homedir; } catch { home = ''; }
   return home ? path.join(home, 'Library', 'LaunchAgents') : '';
 }
-function refuseRealLaunchWriteUnderTest(file, env = process.env) {
-  if (!env.NODE_TEST_CONTEXT) return;
+function isRealLaunchTargetUnderTest(file, env = process.env) {
+  if (!env.NODE_TEST_CONTEXT) return false;
   const real = realLaunchAgentsDir();
-  if (!real || path.resolve(path.dirname(file)) !== path.resolve(real)) return;
+  if (!real) return false;
+  const a = path.resolve(path.dirname(String(file))), b = path.resolve(real);
+  return process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+function refuseRealLaunchWriteUnderTest(file, env = process.env) {
+  if (!isRealLaunchTargetUnderTest(file, env)) return;
+  const real = realLaunchAgentsDir();
   const msg = `#3605: refused to write ${path.basename(file)} into the real ${real} from a test. ` +
     'Set process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, "LaunchAgents") before this test creates agents.';
   try { process.stderr.write(msg + '\n'); } catch { /* the throw still carries it */ }
@@ -4440,7 +4445,10 @@ function createAgentInner(opts) {
       try { run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]); }
       catch { /* it was probably never registered, which is the common case */ }
     }
-    try { fs.rmSync(plistPath(name), { force: true }); } catch { /* best effort */ }
+    // #3605: under test, never delete a job file in the real LaunchAgents (it may be a real agent's).
+    if (!isRealLaunchTargetUnderTest(plistPath(name))) {
+      try { fs.rmSync(plistPath(name), { force: true }); } catch { /* best effort */ }
+    }
     try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
   }
 
@@ -5267,6 +5275,7 @@ module.exports = {
   recordedRunner,
   plistPath,
   refuseRealLaunchWriteUnderTest,
+  isRealLaunchTargetUnderTest,
   writePlistFile,
   realLaunchAgentsDir,
   plannedModelArg,

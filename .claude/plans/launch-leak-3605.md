@@ -1,8 +1,10 @@
 # Plan: #3605, a test can never write a job file into the real ~/Library/LaunchAgents
 
 ## Finished looks like
-An unsandboxed test that writes a job file goes red on its own line, and the real
-~/Library/LaunchAgents is untouched, whichever code does the writing. When the
+An unsandboxed test cannot write or delete a job file in the real ~/Library/LaunchAgents,
+whichever code does it. A direct fs write from a test throws in the test; a write through
+create.js comes back as that step's failed result plus a #3605 line on stderr, and its
+rollback does not delete the real file. When the
 after-the-suite leak guard does fire, its report says where the leaked file came from.
 
 ## What the card said, and what measurement showed
@@ -23,11 +25,12 @@ set AGENT_WORKFORCE_LAUNCH). That is not it:
    `node --test --require` (node forwards it to every file's process). It wraps the fs
    writers (write, append, copy and rename destinations, link, symlink, callback and
    promise forms) so a write whose target sits directly in the real LaunchAgents throws
-   a named #3605 error BEFORE writing. This is the load-bearing part: about sixty tests
+   a named #3605 error BEFORE writing. Deletes (rm, unlink) are refused the same way. This is the load-bearing part: about sixty tests
    write job files themselves with fs.writeFileSync(create.plistPath(...)), which a guard
    inside create.js never sees (measured: with only (2), the control still leaked).
 2. `engine/create.js`: the three product plist writes go through `writePlistFile`, which
-   refuses the real folder when NODE_TEST_CONTEXT is set. Covers direct
+   refuses the real folder when NODE_TEST_CONTEXT is set, and createAgent's rollback skips
+   deleting a real-folder job file under test (it may be a real agent's). Covers direct
    `node --test <file>` runs without the preload and child processes tests spawn (they
    inherit NODE_TEST_CONTEXT, not the preload).
 3. The leak report in run-tests.sh prints each leaked plist's WorkingDirectory (its test
