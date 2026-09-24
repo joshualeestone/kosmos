@@ -8,6 +8,10 @@
 # is pointed at. The fix: when the served latest-win.json is a REDIRECT, verify the zip the SERVED
 # pointer names, and prove its served .sha256 equals the sha the pointer advertises.
 #
+# #3618/#3610 (A25 on) extend it to the Windows STAGING pointer and the unversioned alias checksum and
+# zip, with more stub hooks in $LIVE_DIR: .probe-codes (per-path un-followed status), .probe-fail-paths
+# (transport failure), .alias-sha-override and .served-staging (what a static file serves).
+#
 # Harness: the same stubbed curl/vercel convention as tools/test-deploy-site-exit0-2791.sh, plus a
 # redirect model. A path matching a glob in $LIVE_DIR/.redirects answers 307 to a fake R2 host
 # (served from $R2_DIR) when curl is run without -L, and is served from R2 when run with -L. That
@@ -636,7 +640,7 @@ fi
 # A28) #3610 today: the alias sidecar is static and stale -> warn, do not red the Mac deploy.
 read -r S L R <<<"$(make_scenario redirect-aliasstatic)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit" && has "$out" "BUT (#3610) the Windows alias checksum is served stale" \
+if [ "$RC" = 0 ] && has "$out" "WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit" && has "$out" "BUT (#3610) the Windows alias checksum is served from the site commit" \
    && [ -n "$(printf '%s\n' "$out" | sed -n '/published and verified/,$p' | grep -F 'BUT (#3610)')" ]; then
   pass "A28: a stale, statically served alias checksum warns (naming the redirect fix), rc=0"
 else

@@ -55,6 +55,13 @@ R2's staging pointer against the stale committed one and exits red.
   alias, but the R2 publish lives outside this repo; if it ever writes the alias on a STAGING
   publish, every Mac deploy goes red. Confirm with Homer alongside the premise below.
 
+## Cost, deliberate
+A healthy Mac deploy now downloads and hashes up to three Windows zips of about 38 MB (the served prod
+zip, the alias zip, and a pending staged zip), each bounded at 300s. The alias and prod zips are the
+same build when all is well, and the second hash is kept on purpose: R2 can hold different bytes under
+the alias name, and that is exactly what A35/A38 catch. Redirect classification uses a one-byte
+ranged GET, so it never downloads a zip and does not depend on the host allowing HEAD.
+
 ## Weakest premise
 
 That R2's staging channel is the one the Windows box reads, so the site copy is merely stale.

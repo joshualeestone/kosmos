@@ -501,19 +501,6 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # trusting any 200 here rather than assuming the alias is still sound. served_verify_host_discriminates
 # refuses if a path that cannot exist returns 200; served_verify_asset_ok also rejects a 200 carrying
 # text/html. (tools/lib/served-verify.sh, sourced above.)
-# #3600: WHICH Windows zip do users actually get? $WINZIP was derived from the COMMITTED
-# latest-win.json, but production does not serve that file: the site's vercel.json redirects
-# /dist/latest-win.json (307) to R2, and the Windows publish to R2 happens outside this repo, WITHOUT a
-# site commit.
-# So the committed pointer goes stale on every Windows promote (0.6.91 Mac promote, 2026-09-24: it
-# still said 0.6.72, R2 said 0.6.89, 0.6.72 was not in R2) and this verify 404'd on a zip nobody is
-# pointed at -- every Mac promote exited red while prod was correct. When the served pointer is a
-# REDIRECT, the served pointer is the truth: verify the zip IT names, and prove its served .sha256
-# describes what the pointer advertises. When it is NOT a redirect, git archive ships the committed
-# pointer, so $WINZIP already is what users get and nothing changes. The redirect is MEASURED (no
-# -L), not read from vercel.json, so a probe that cannot tell falls through to the old check, which
-# still fails loudly on a genuinely unserved zip. An explicit KOSMOS_WIN_ZIP still overrides.
-
 # --- #3618: shared helpers for a Windows pointer served by redirect ------------------------------
 # #3618: read a Windows pointer that prod serves by REDIRECT (to R2). Sets SWP_NAME and SWP_SHA, and
 # refuses a name that is not a bare kosmos-<version>-win-x64.zip (it becomes a URL path below) or a
@@ -522,15 +509,17 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 read_served_win_pointer() {  # <pointer file under dist> <redacted redirect target> <card tag, e.g. #3600>
   _rswj=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1") || { echo "deploy-site: the served $1 redirects ($2) but could not be read through the redirect -- the deploy already ran, investigate ($3)."; exit 1; }
   SWP_NAME=$(ptr_versioned "$_rswj"); SWP_SHA=$(ptr_sha "$_rswj")
+  # Printable-only copies for messages: the values come from outside this repo (R2).
+  _swpn=$(printf '%s' "$SWP_NAME" | tr -cd '[:print:]'); _swps=$(printf '%s' "$SWP_SHA" | tr -cd '[:print:]')
   case "$SWP_NAME" in
     kosmos-[0-9]*-win-x64.zip) : ;;
-    *) echo "deploy-site: the served (redirected) $1 names '${SWP_NAME:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate ($3)."; exit 1 ;;
+    *) echo "deploy-site: the served (redirected) $1 names '${_swpn:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate ($3)."; exit 1 ;;
   esac
   # Second check, not redundant: the glob's * above also matches '/' and '..'.
-  case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$SWP_NAME', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
+  case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$_swpn', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
   [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- the deploy already ran, investigate ($3)."; exit 1; }
-  case "$SWP_SHA" in *[!0-9a-fA-F]*) echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not hex -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
-  [ ${#SWP_SHA} -eq 64 ] || { echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not 64 characters -- the deploy already ran, investigate ($3)."; exit 1; }
+  case "$SWP_SHA" in *[!0-9a-fA-F]*) echo "deploy-site: the served (redirected) $1 advertises sha '$_swps', which is not hex -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
+  [ ${#SWP_SHA} -eq 64 ] || { echo "deploy-site: the served (redirected) $1 advertises sha '$_swps', which is not 64 characters -- the deploy already ran, investigate ($3)."; exit 1; }
 }
 # #3600/#3618: for a zip named by a REDIRECTED pointer, the served .sha256 must describe what the
 # pointer advertises (the Windows updater fetches it FIRST and refuses a mismatch), and the served zip
@@ -544,6 +533,19 @@ check_win_sidecar_and_bytes() {  # <zip name> <sha the pointer advertises> <poin
   _cwgot=$(served_sha256 "$1" 300) || { echo "deploy-site: could not fetch the served $1 to hash it -- the deploy already ran, investigate ($4)."; exit 1; }
   [ "$_cwgot" = "$_cwwant" ] || { echo "deploy-site: the served $1 hashes to '${_cwgot:-nothing}' but its pointer and .sha256 say $_cwwant -- a corrupt or partial R2 upload; $5 would refuse it. The deploy already ran; investigate the R2 publish ($4)."; exit 1; }
 }
+
+# #3600: WHICH Windows zip do users actually get? $WINZIP was derived from the COMMITTED
+# latest-win.json, but production does not serve that file: the site's vercel.json redirects
+# /dist/latest-win.json (307) to R2, and the Windows publish to R2 happens outside this repo, WITHOUT a
+# site commit.
+# So the committed pointer goes stale on every Windows promote (0.6.91 Mac promote, 2026-09-24: it
+# still said 0.6.72, R2 said 0.6.89, 0.6.72 was not in R2) and this verify 404'd on a zip nobody is
+# pointed at -- every Mac promote exited red while prod was correct. When the served pointer is a
+# REDIRECT, the served pointer is the truth: verify the zip IT names, and prove its served .sha256
+# describes what the pointer advertises. When it is NOT a redirect, git archive ships the committed
+# pointer, so $WINZIP already is what users get and nothing changes. The redirect is MEASURED (no
+# -L), not read from vercel.json, so a probe that cannot tell falls through to the old check, which
+# still fails loudly on a genuinely unserved zip. An explicit KOSMOS_WIN_ZIP still overrides.
 WIN_VERIFY=$WINZIP
 WIN_SERVED_SHA=""
 WIN_CLOSING_NOTES=""   # #3618/#3610 warnings repeated after the final success line
@@ -617,8 +619,8 @@ if [ -n "$WIN_SERVED_SHA" ]; then
       ;;
     200)
       if [ "$_was" != "$_wwant" ]; then
-        echo "deploy-site: WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit and says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA. Redirect it to R2 in the site's vercel.json so it stops going stale." >&2
-        WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias checksum is served stale from the site commit.
+        echo "deploy-site: WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit and says '${_was:-nothing}', which disagrees with the served build's $WIN_SERVED_SHA. Redirect it to R2 in the site's vercel.json so the two cannot drift." >&2
+        WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias checksum is served from the site commit and disagrees with the served build.
 "
       fi
       ;;
@@ -637,14 +639,16 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   # R2 since 09-22 while its sidecar was still static. From R2, those bytes are the download button's
   # download, so they must be the build the pointer names. Served statically, git archive shipped the
   # committed alias, which is the site's business, not R2's.
-  # HEAD (-I): classifying the redirect must never download the ~40 MB zip when it is served statically.
-  _waz=$(curl -sSI --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip" 2>/dev/null) || _waz=''
+  # A one-byte ranged GET: classifying the redirect must never download the ~40 MB zip when it is
+  # served statically, and unlike HEAD it cannot be refused by a host that disallows HEAD. The
+  # answer is used ONLY to tell redirect from not (a 206 says nothing about the file otherwise).
+  _waz=$(curl -sS -r 0-0 --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip" 2>/dev/null) || _waz=''
   case "${_waz%% *}" in
     301|302|303|307|308)
       _wag=$(served_sha256 kosmos-win-x64.zip 300) || { echo "deploy-site: could not fetch the served kosmos-win-x64.zip to hash it -- the deploy already ran, investigate (#3610)."; exit 1; }
       [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
       ;;
-    200) : ;;   # served statically: git archive shipped the committed alias
+    200|206) : ;;   # served statically: git archive shipped the committed alias
     '')
       echo "deploy-site: NOTE (#3610): whether kosmos-win-x64.zip is served from R2 could not be probed (transport error or timeout), so its bytes were NOT checked against the served build this run. Re-run the check." >&2
       WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias zip bytes were NOT checked this run (probe failed).
@@ -732,7 +736,7 @@ done
 # Only a staged zip that is itself served by REDIRECT can be missing for that reason. Served
 # statically, git archive shipped the committed zip, so checking it is cheap and a 404 is a real drop.
 if [ -n "$_wsup" ]; then
-  _wsr=$(curl -sSI --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/$WIN_STAGED" 2>/dev/null) || _wsr=''   # HEAD: never download the zip to classify it
+  _wsr=$(curl -sS -r 0-0 --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/$WIN_STAGED" 2>/dev/null) || _wsr=''   # one-byte ranged GET: classify without downloading, no HEAD dependence
   case "${_wsr%% *}" in 301|302|303|307|308) : ;; *) _wsup="" ;; esac
 fi
 if [ -n "$_wsup" ]; then
