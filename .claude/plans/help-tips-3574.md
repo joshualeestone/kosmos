@@ -6,7 +6,7 @@ see how they look". Build the mock as drawn: chaoskosmos-site `design/first-run-
 B (step-through) is a small swap if he asks.
 
 ## Finished looks like
-On a fresh install, the first time the board opens after setup, one help card numbers the four places
+The first time the board opens with this build (a fresh install after setup, and an existing install once after it updates: the tour has not been seen there either, and existing users have not had it), one help card numbers the four places
 (New agent, Agents, Projects, your name) and closes with Got it, the x, Escape or a click outside. It
 never returns on its own. A ? button beside the user's name reopens this screen's tip, the welcome
 tour, or the ring explainer. Each screen named in the mock shows its tip once, the first visit.

@@ -149,7 +149,20 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       chk(shown && !st.dim, 'T9 ' + label + ' shows its tip: ' + title, JSON.stringify(st));
       if (st.shown) { await page.click('#tipcard .tip-go'); await page.waitForTimeout(250); }
     };
-    await visit('New agent', () => page.click('#new-agent'), 'Make an agent');
+    await page.click('#new-agent');
+    chk(await waitTitle(page, 'Make an agent', 5000), 'T9 New agent shows its tip: Make an agent');
+    const na = await page.evaluate(() => {
+      const c = document.getElementById('tipcard').getBoundingClientRect();
+      const over = [...document.querySelectorAll('#panel-create h2, #panel-create input')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && c.left < r.right && c.right > r.left && c.top < r.bottom && c.bottom > r.top; }).length;
+      return { cls: document.getElementById('tipcard').className, over };
+    });
+    chk(na.cls.includes('left') && na.over === 0, 'T9 it sits beside the form\'s heading, over none of its fields', JSON.stringify(na));
+    // T15: a tip that opened by itself, closed from the keyboard, hands focus to the ? rather than dropping it.
+    await page.evaluate(() => document.querySelector('#tipcard .tip-go').focus());
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(250);
+    const fAuto = await page.evaluate(() => document.activeElement && document.activeElement.id);
+    chk(fAuto === 'helpq-btn', 'T15 closing an auto tip from the keyboard moves focus to the ?', 'focus=' + fAuto);
     await visit('Projects', () => page.click('#tabs [data-tab="projects"]'), 'A project is shared work');
     await page.evaluate(async () => {
       const r = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Tips Room' }) });
@@ -169,7 +182,37 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const again2 = await cardState(page);
     chk(!(again2.shown && again2.title === 'A project is shared work'), 'T9 the Projects tip does not return (control: it showed above)', JSON.stringify(again2));
 
-    // T10: on a narrow window the card sits in the page with no arrow.
+    // T13: a dialog opened while a tip is up makes the tip step aside, and it comes back after.
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    // A stand-in dialog: the app's dialogs are .rm-back overlays. Held by reference, not by an id.
+    await page.evaluate(() => { const d = document.createElement('div'); d.className = 'rm-back'; document.body.appendChild(d); window.__tipsStandIn = d; });
+    await page.waitForTimeout(1600);
+    const underDialog = (await cardState(page)).shown;
+    await page.evaluate(() => { window.__tipsStandIn.remove(); delete window.__tipsStandIn; });
+    await page.waitForTimeout(1600);
+    const afterDialog = await cardState(page);
+    chk(underDialog === false && afterDialog.shown && afterDialog.title === 'The ring is your agent\'s memory',
+      'T13 a tip steps aside while a dialog is open and returns when it closes', JSON.stringify({ underDialog, afterDialog }));
+    await page.keyboard.press('Escape');
+
+    // T14: the card follows its target when the page scrolls.
+    await page.setViewportSize({ width: 1280, height: 480 });
+    await page.click('#userpop-btn');
+    await page.click('#userpop-settings');
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="screen"]');
+    const top0 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
+    const scrolled = await page.evaluate(async () => { const y = window.scrollY; window.scrollBy(0, 120); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return window.scrollY - y; });
+    const top1 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
+    chk(scrolled > 0 && Math.round(top0 - top1) === Math.round(scrolled), 'T14 scrolling moves the card with its target', JSON.stringify({ top0, top1, scrolled }));
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.click('#tabs [data-tab="agents"]');
+
+    // T10: on a narrow window the card is pinned 12px from each edge with no arrow.
     await page.click('#tabs [data-tab="agents"]');
     await page.setViewportSize({ width: 390, height: 800 });
     await page.waitForTimeout(300);

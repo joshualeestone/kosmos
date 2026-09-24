@@ -1425,6 +1425,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   border-left: 1px solid var(--gold-edge); border-top: 1px solid var(--gold-edge); }
 .tipcard.up .tip-arrow { top: -8px; left: var(--ax, 28px); transform: rotate(45deg); }
 .tipcard.down .tip-arrow { bottom: -8px; left: var(--ax, 28px); transform: rotate(225deg); }
+.tipcard.left .tip-arrow { left: -8px; top: var(--ay, 22px); transform: rotate(-45deg); }
 .tipcard.flat .tip-arrow { display: none; }
 .tipcard .tip-x { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: 0; background: none; border-radius: 7px;
   color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1; }
@@ -1441,7 +1442,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-bands span { display: flex; align-items: center; gap: 8px; }
 .tipcard .tip-bands svg { flex: none; display: block; }
 .tipcard .tip-acts { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
-.tipcard .tip-off { border: 0; background: none; padding: 0; cursor: pointer; font: var(--text-footnote, .75rem) var(--font-ui); font-size: .75rem;
+.tipcard .tip-off { border: 0; background: none; padding: 0; cursor: pointer; font: .75rem var(--font-ui);
   color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 2px; }
 .tipcard .tip-foot { font-size: .75rem; color: var(--k-ink-2); }
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
@@ -52519,11 +52520,11 @@ const TIPS = [
       { at: ['#userpop-btn'], html: '<b>Settings</b> live under your name, top right.' },
     ],
     foot: 'Tips come back from the ? button' },
-  { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#create-name',
+  { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#panel-create h2', side: true,
     body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
   { id: 'ring', title: 'The ring is your agent\'s memory', /* Only a card that draws the gauge: a filled band (.gf) or the unknown-memory dashed ring (.gu).
        An off or needs-trust card has a face and no ring. */
-    show: () => tipVisible('#grid .agauge .gf, #grid .agauge .gu'), at: '#grid .agauge',
+    show: () => tipVisible('#grid .agauge .gf, #grid .agauge .gu'), at: '#grid .agauge:has(.gf), #grid .agauge:has(.gu)',
     body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
       + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
       + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },
@@ -52540,7 +52541,7 @@ const TIPS = [
       + '<li><i>4</i><span><b>Tasks</b> is the to-do list, and who is on each one.</span></li></ol>' },
   { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
     body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
-  { id: 'settings', title: 'Settings for this computer', show: () => tipVisible('#panel-settings'), at: '#panel-settings h1, #panel-settings h2',
+  { id: 'settings', title: 'Settings for this computer', show: () => tipVisible('#panel-settings'), at: '#panel-settings .dsec:not([hidden]) .dlab',
     body: '<p>Your AI accounts, how Kosmos looks, and tips (turn them back on here).</p>' },
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
@@ -52578,7 +52579,10 @@ async function tipsSave(patch) {
   try {
     const res = await fetch('/api/tips', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) });
     const r = await res.json();
-    if (res.ok && r && r.ok) TIPS_STATE = { ok: true, seen: r.seen, off: r.off === true };
+    if (res.ok && r && r.ok) {
+      const local = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.seen : [];
+      TIPS_STATE = { ok: true, seen: [...new Set([...local, ...r.seen])], off: r.off === true };
+    }
   } catch { /* the tip still closes; it may show once more next time */ }
 }
 
@@ -52591,7 +52595,9 @@ function tipsStart() {
 }
 
 function tipsCheck() {
-  if (!TIPS_STATE || !TIPS_STATE.ok || TIPS_STATE.off || TIP_OPEN) return;
+  /* A dialog opened while a tip is up: the tip steps aside until the dialog closes. */
+  if (TIP_OPEN) { tipSuspend(tipModalOpen()); return; }
+  if (!TIPS_STATE || !TIPS_STATE.ok || TIPS_STATE.off) return;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return;
   if (tipModalOpen()) return;
@@ -52625,12 +52631,22 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   const off = card.querySelector('.tip-off');
   if (off) off.addEventListener('click', () => { tipClose({ record: true, also: { off: true } }).then(paintTipsToggle); });
   const live = document.getElementById('tip-live');
-  if (live) live.textContent = 'Tip: ' + t.title;
+  if (live) { live.textContent = ''; live.textContent = 'Tip: ' + card.querySelector('h2').textContent; }
   tipLayout(t, card, places);
   if (!auto) card.querySelector('.tip-go').focus();
 }
 
-/* Position only; the card's content and focus are left alone, so a resize does not rebuild it. */
+function tipSuspend(on) {
+  const card = document.getElementById('tipcard');
+  if (!card || !TIP_OPEN || card.dataset.suspended === String(on)) return;
+  card.dataset.suspended = String(on);
+  card.hidden = on;
+  document.getElementById('tippins').hidden = on;
+  if (TIP_OPEN.tour) document.getElementById('tipdim').hidden = on;
+  if (!on) tipLayout(TIP_OPEN, card);
+}
+
+/* Position only; the card's content and focus are left alone, so a resize or scroll does not rebuild it. */
 function tipLayout(t, card, places) {
   if (t.tour) {
     document.getElementById('tipdim').hidden = false;
@@ -52652,15 +52668,16 @@ function tipLayout(t, card, places) {
     card.style.left = Math.round((window.innerWidth - card.offsetWidth) / 2) + 'px';
     card.style.top = Math.round(Math.max(80, (window.innerHeight - card.offsetHeight) / 2)) + 'px';
   } else {
-    tipPlace(card, t.at);
+    tipPlace(card, t.at, t.side);
   }
 }
 
 /* Beside the thing, never over it: below when there is room, above otherwise, clamped to the
    window; the arrow points at the target's centre. No target on screen: centred, no arrow. */
-function tipPlace(card, sel) {
+function tipPlace(card, sel, side = false) {
   const el = sel ? document.querySelector(sel) : null;
   const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
+  const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
     card.className = 'tipcard flat';
     card.style.left = Math.round((window.innerWidth - w) / 2) + 'px';
@@ -52668,9 +52685,17 @@ function tipPlace(card, sel) {
     return;
   }
   const r = el.getBoundingClientRect();
+  /* Beside the target when asked and there is room (a form field: the card stays off the fields
+     below it); the page's own width, not innerWidth, which includes a scrollbar gutter. */
+  if (side && r.right + 14 + w <= pageW - pad) {
+    const top = Math.min(Math.max(pad, r.top - 10), window.innerHeight - h - pad);
+    card.className = 'tipcard left';
+    card.style.left = Math.round(r.right + 14) + 'px';
+    card.style.top = Math.round(top) + 'px';
+    card.style.setProperty('--ay', Math.round(Math.min(Math.max(12, r.top + r.height / 2 - top - 7), h - 26)) + 'px');
+    return;
+  }
   const below = r.bottom + 12 + h <= window.innerHeight - pad;
-  /* The page's own width, not innerWidth: innerWidth includes a scrollbar gutter the card would sit under. */
-  const pageW = document.documentElement.getBoundingClientRect().width;
   const left = Math.min(Math.max(pad, r.left + r.width / 2 - 28), pageW - w - pad);
   card.className = 'tipcard ' + (below ? 'up' : 'down');
   card.style.left = Math.round(left) + 'px';
@@ -52681,15 +52706,18 @@ function tipPlace(card, sel) {
 function tipClose({ record, also = null }) {
   const t = TIP_OPEN;
   const card = document.getElementById('tipcard');
+  const hadFocus = !!card && card.contains(document.activeElement);   // read before the card empties
   if (card) { card.hidden = true; card.innerHTML = ''; }
   const dim = document.getElementById('tipdim');
   if (dim) dim.hidden = true;
   const pins = document.getElementById('tippins');
-  if (pins) pins.innerHTML = '';
+  if (pins) { pins.innerHTML = ''; pins.hidden = false; }
   TIP_OPEN = null;
   const ret = TIP_RETURN;
   TIP_RETURN = null;
+  if (card) delete card.dataset.suspended;
   if (ret && ret.focus && ret.isConnected) ret.focus();
+  else if (hadFocus) document.getElementById('helpq-btn')?.focus();
   if (t && record) {
     if (TIPS_STATE && !TIPS_STATE.seen.includes(t.id)) TIPS_STATE.seen.push(t.id);
     /* One write for "closed" and "turn tips off", so two responses cannot race each other. */
@@ -52702,11 +52730,11 @@ function tipClose({ record, also = null }) {
    Closing either way counts as seen. */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !TIP_OPEN || tipModalOpen()) return;
-  /* A screen tip that opened by itself closes on Escape only when the person is in it or nowhere
-     in particular; an Escape meant for a field or a menu is left alone. */
-  const inCard = !!document.activeElement?.closest?.('#tipcard');
-  const nowhere = !document.activeElement || document.activeElement === document.body;
-  if (!TIP_OPEN.tour && !inCard && !nowhere) return;
+  /* A screen tip leaves an Escape meant for something else alone: typing in a field, or an open menu. */
+  const ae = document.activeElement;
+  const inField = !!ae && !ae.closest('#tipcard') && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
+  const inMenu = !!ae && !!ae.closest('[role="menu"], .userpop-menu:not([hidden])');
+  if (!TIP_OPEN.tour && (inField || inMenu)) return;
   e.preventDefault();
   tipClose({ record: true });
 });
@@ -52715,7 +52743,14 @@ document.addEventListener('pointerdown', (e) => {
   if (e.target.closest('#tipcard') || e.target.closest('#helpq')) return;
   tipClose({ record: true });
 }, true);
-window.addEventListener('resize', () => { const c = document.getElementById('tipcard'); if (TIP_OPEN && c) tipLayout(TIP_OPEN, c); });
+let TIP_RELAYOUT = false;
+const tipRelayout = () => {
+  if (!TIP_OPEN || TIP_RELAYOUT) return;
+  TIP_RELAYOUT = true;
+  requestAnimationFrame(() => { TIP_RELAYOUT = false; const c = document.getElementById('tipcard'); if (TIP_OPEN && c && !c.hidden) tipLayout(TIP_OPEN, c); });
+};
+window.addEventListener('resize', tipRelayout);
+document.addEventListener('scroll', tipRelayout, { capture: true, passive: true });
 
 /* The ? menu: this screen's tip, the tour, the ring explainer. Reopening never needs the tip to be
    unseen, and works with tips turned off. */
@@ -52724,16 +52759,10 @@ function wireHelpq() {
   const menu = document.getElementById('helpq-menu');
   if (!btn || !menu) return;
   const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
-  /* The two header menus each stop their click, so each closes the other when it opens. */
-  const closeUser = () => {
-    const um = document.getElementById('userpop-menu');
-    const ub = document.getElementById('userpop-btn');
-    if (um && !um.hidden) { um.hidden = true; ub?.setAttribute('aria-expanded', 'false'); }
-  };
+  /* The ?'s click is left to bubble, so every other popover's outside-click closes it as usual.
+     The user menu stops its own click, so the ? listens for that one in the capture phase. */
   document.getElementById('userpop-btn')?.addEventListener('click', close, true);
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    closeUser();
+  btn.addEventListener('click', () => {
     const open = menu.hidden;
     menu.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
