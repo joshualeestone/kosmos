@@ -256,6 +256,66 @@ function heardBudgetRecord() {
 function resetHeardBudgetForTests() {
   heardBudgetLog.length = 0;
 }
+// `sentence` is explicit, never read off `t`: a part's own sentence is
+// never the task's top-level one (a task with parts drops `who`/keeps one
+// `sentence` at the top, and a part given a `who` must be heard for the
+// part it was actually given, not the parent task's original wording).
+// `roster`: the caller's already-fetched snapshot, never a fresh
+// safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
+// per agent, and every call site here already has one in scope.
+function heardBy(projectId, t, who, sentence, roster) {
+  const name = typeof who === 'string' && who.trim() ? who.trim() : null;
+  if (!name || !t || typeof t.number !== 'number') return undefined;
+  let title = projectId;
+  try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
+  const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
+    + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
+  let sent;
+  try { sent = chat.deliver(name, line, roster); }
+  catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
+  return { who: name, state: sent.state, because: sent.because || null };
+}
+// `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
+// own exactly as before -- only #761's routes, which already have one in
+// scope for `heardBy`, pass it through instead of paying for a second
+// snapshot() in the same request.
+function tellEveryoneOn(t, roster) {
+  const named = tasks.whoOf(t);
+  if (!named.length) return undefined;
+  if (!roster) roster = safeRoster();
+  let last;
+  for (const one of named) {
+    try { last = projects.syncAgent(one, roster); }
+    catch (err2) { last = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
+  }
+  /* The LAST verdict, which is the shape the single-assignee route has
+     always returned. With several agents on a task the screen has no place
+     to show more than one, and inventing a per-agent panel here would be
+     drawing a surface nobody designed. */
+  return last;
+}
+/* #3595: give one part of a task to an agent, and tell it, exactly as the part-assign route
+   does. `screen` false is a process caller: the parts valve applies and the pane line is spent
+   from the heard budget. The route and the Assigner runner both call this, so the sequence
+   (valve, assignPart, heardBy, tellEveryoneOn) exists once. Returns the route's body fields plus
+   `ok`/`status`/`because`; never throws for a refusal. */
+function givePart(projectId, n, partId, who, { screen, roster } = {}) {
+  if (!screen) {
+    const v = tasks.partValve();
+    if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
+  }
+  const out = tasks.assignPart(projectId, n, partId, who, { via: screen ? 'screen' : 'process' });
+  if (!out.ok) return { ok: false, status: 400, because: out.because };
+  const r = roster || safeRoster();
+  let heard;
+  if (out.changed && (screen || heardBudgetAllows())) {
+    const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
+    heard = heardBy(projectId, out.task, who, sentence, r);
+    if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+  }
+  return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard };
+}
 function engineFreshness() {
   const now = Date.now();
   if (now - engineLook.at > 5000) {
@@ -635,6 +695,7 @@ const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
+const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's idle-assign behaviour (pure step; the runner is below)
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
@@ -13530,45 +13591,8 @@ const server = http.createServer((req, res) => {
   // heardBudgetAllows/heardBudgetRecord: module scope, above, beside
   // ENGINE_STARTED_AT -- they must survive across requests, and every name
   // in this handler is redefined fresh per request.
-  // `sentence` is explicit, never read off `t`: a part's own sentence is
-  // never the task's top-level one (a task with parts drops `who`/keeps one
-  // `sentence` at the top, and a part given a `who` must be heard for the
-  // part it was actually given, not the parent task's original wording).
-  // `roster`: the caller's already-fetched snapshot, never a fresh
-  // safeRoster() of our own -- snapshot() fans out a real tmux capture-pane
-  // per agent, and every call site here already has one in scope.
-  function heardBy(projectId, t, who, sentence, roster) {
-    const name = typeof who === 'string' && who.trim() ? who.trim() : null;
-    if (!name || !t || typeof t.number !== 'number') return undefined;
-    let title = projectId;
-    try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
-    const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-      + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
-      + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
-    let sent;
-    try { sent = chat.deliver(name, line, roster); }
-    catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
-    return { who: name, state: sent.state, because: sent.because || null };
-  }
-  // `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
-  // own exactly as before -- only #761's routes, which already have one in
-  // scope for `heardBy`, pass it through instead of paying for a second
-  // snapshot() in the same request.
-  const tellEveryoneOn = (t, roster) => {
-    const named = tasks.whoOf(t);
-    if (!named.length) return undefined;
-    if (!roster) roster = safeRoster();
-    let last;
-    for (const one of named) {
-      try { last = projects.syncAgent(one, roster); }
-      catch (err2) { last = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
-    }
-    /* The LAST verdict, which is the shape the single-assignee route has
-       always returned. With several agents on a task the screen has no place
-       to show more than one, and inventing a per-agent panel here would be
-       drawing a surface nobody designed. */
-    return last;
-  };
+  // heardBy / tellEveryoneOn / givePart: module scope (below heardBudgetRecord), so the
+  // #3595 Assigner runner uses the same assign-and-tell path as the part route.
 
   /* #768/#992: a task's recorded lifecycle events, read-only, so the person can
      "get to it as a user" IN the app, not only by opening the folder. Keyed by
@@ -13791,29 +13815,22 @@ const server = http.createServer((req, res) => {
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
       const verb = partAct[4];
-      /* The parts valve (#803), the move half: a process reassigning parts in
-         a loop is the same runaway as adding them. Close and reopen are not
-         valved: they change a state, not who is commanded. */
-      if (verb === 'who' && !screen) {
-        const v = tasks.partValve();
-        if (v.refused) { res.setHeader('retry-after', String(v.retryAfterSecs)); sendJson(res, 429, { error: v.because, retry_after_secs: v.retryAfterSecs }); return; }
-      }
       try {
-        const out = verb === 'who'
-          ? tasks.assignPart(id, partAct[2], partAct[3], body && body.who, { via: screen ? 'screen' : 'process' })
-          : tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
-        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        // `out.changed`: assignPart reports whether `who` actually moved, so
-        // re-posting the same assignee does not re-type the same pane line
-        // (#304's rule). The budget check mirrors partMake's.
-        const roster = safeRoster();
-        let heard;
-        if (verb === 'who' && out.changed && (screen || heardBudgetAllows())) {
-          const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partAct[3])) || {}).sentence;
-          heard = heardBy(id, out.task, body && body.who, sentence, roster);
-          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+        if (verb === 'who') {
+          // givePart (module scope): the parts valve for a process caller (#803: a process
+          // reassigning parts in a loop is the same runaway as adding them), assignPart, and only
+          // on a real move (#304's rule) the pane line against the heard budget.
+          const g = givePart(id, partAct[2], partAct[3], body && body.who, { screen });
+          if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
+          if (!g.ok) { sendJson(res, 400, { error: g.because }); return; }
+          sendJson(res, 200, { task: g.task, told: g.told, heard: g.heard });
+          return;
         }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
+        // Close and reopen are not valved: they change a state, not who is commanded.
+        const out = tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        const roster = safeRoster();
+        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard: undefined });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -14760,6 +14777,33 @@ function start(port = PORT) {
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
+      /* #3595 phase 2: the Assigner runner. Reads assigner-setting every tick. For an agent on the
+         board that reads idle, whose commitments read clear and that has no open part of any task,
+         for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
+         agent belongs to, through givePart (the part route's own path, as a process: parts valve,
+         heard budget). Commitments are read only for idle cards, since they are not on the card.
+         Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
+      let assignerPrev;
+      const assignerSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
+        try {
+          const setting = assignerSetting.read();
+          const roster = setting.on ? safeRoster() : null;
+          const records = setting.on ? projects.readAll() : [];
+          const states = new Map();
+          for (const a of Array.isArray(roster) ? roster : []) {
+            if (!assigner.idleCard(a)) continue;
+            try { states.set(a.sessionName, commitments.read(a.sessionName).state); } catch { /* unread is not clear */ }
+          }
+          const out = assigner.runOnce({
+            prev: assignerPrev, roster, setting, records, commitments: states, now: Date.now(),
+            give: (projectId, n, partId, who) => givePart(projectId, n, partId, who, { screen: false, roster }),
+          });
+          assignerPrev = out.next;
+          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given' + (a.heard ? ', told ' + a.heard.state : ', not told (budget)') : 'refused: ' + a.because}\n`);
+        } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only
+      if (assignerSweep && typeof assignerSweep.unref === 'function') assignerSweep.unref();
       /* #2037 PR-C1: the daily product-feedback send sweep. The long-lived board
          owns the trigger because the short-lived `kosmos feedback` CLI cannot
          fire-and-forget a send (it exits). sendDailyOnce is opt-in-gated (default

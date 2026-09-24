@@ -13959,19 +13959,19 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <p class="dhint" id="rec-off-note" hidden style="margin:8px 0 0;">Off by default. Your agents will still tell you when they are stuck; they just will not act on it themselves.</p>
       <p class="dhint" id="rec-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
-    <!-- #2619: Assigner automation. When on, it turns your goals into assigned
-         work - mapping top goals to prioritized tasks and giving idle agents some.
-         NOT ACTIVE YET, same as the Recommender above: the assignment behaviour is
-         a separate build, so the control renders DISABLED with a "not active yet"
-         note while the persistence stays behind the scenes (recorded on #2619). -->
+    <!-- #2619: Assigner automation. LIVE since #3595 phase 2 (engine/assigner.js + the runner in
+         server.js): an agent with nothing to do is given the next unassigned task in one of its
+         projects. DEFAULT ON. Goals-to-tasks is phase 3 and not built, so the hint names only
+         what ships. Same status-control contract as the Recommender: the toggle stays hidden
+         until the read lands, and a failed read hides it and says so, never a false Off. -->
     <section class="dbox">
       <h3 class="dlab">Assigner</h3>
       <div class="setrow" id="asg-row" style="margin-top:14px;">
         <div><b>Turn your goals into assigned work</b>
-          <p class="dhint" style="margin:2px 0 0;">Map your top goals to prioritized tasks, and give agents that have nothing to do some work.</p></div>
-        <button class="toggle" id="asg-toggle" role="switch" aria-label="Turn your goals into assigned work" aria-checked="false" aria-disabled="true" disabled><i></i></button>
+          <p class="dhint" style="margin:2px 0 0;">When an agent has had nothing to do for 20 minutes, Kosmos gives it the next task nobody is on in one of its projects, soonest due date first.</p></div>
+        <button class="toggle" id="asg-toggle" role="switch" aria-label="Turn your goals into assigned work" hidden><i></i></button>
       </div>
-      <p class="dhint" id="asg-msg" style="margin:8px 0 0;">Not active yet. This automation is coming soon.</p>
+      <p class="dhint" id="asg-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
   </section>
   <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
@@ -19478,14 +19478,68 @@ for (const k of REC_GUARDS) {
   if (cb) cb.addEventListener('change', recGuardChange);
 }
 
+/* #3595 phase 2: the Assigner control is LIVE (engine/assigner.js acts on it). The Recommender's
+   status contract: hidden until the read lands, a failed read hides it and says so (never a false
+   Off), one change per PUT. It has one control, so there is no checkbox to put back on failure;
+   a failed save repaints from the store. */
+let ASG_EPOCH = 0;
+let ASG_SAVING = false;
+async function paintAssigner() {
+  const mine = ++ASG_EPOCH;
+  const msg = document.getElementById('asg-msg');
+  if (!document.getElementById('asg-toggle')) return;
+  try {
+    const res = await fetch('/api/assigner-setting', { cache: 'no-store' });
+    if (mine !== ASG_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== ASG_EPOCH) return;
+    paintSwitch('asg-toggle', r.on === true);
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine !== ASG_EPOCH) return;
+    paintSwitch('asg-toggle', null);
+    if (msg) msg.textContent = 'We could not read this setting just now.';
+  }
+}
+async function saveAssigner(on) {
+  const msg = document.getElementById('asg-msg');
+  if (ASG_SAVING) { if (msg) msg.textContent = 'Still saving the last change. Try again in a moment.'; return; }
+  ASG_SAVING = true;
+  const mine = ++ASG_EPOCH;
+  let failed = false;
+  try {
+    const res = await fetch('/api/assigner-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) failed = true; // before the epoch check, so a refused save is always repainted
+    if (mine !== ASG_EPOCH) return;
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
+    paintSwitch('asg-toggle', out.on === true);
+    if (msg) msg.textContent = '';
+  } catch {
+    failed = true;
+    if (mine === ASG_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    ASG_SAVING = false;
+    if (failed) paintAssigner();
+  }
+}
+function asgToggleClick() {
+  const tog = document.getElementById('asg-toggle');
+  if (!tog.hasAttribute('aria-checked')) { paintAssigner(); return; } // not loaded: never write over a stored value
+  saveAssigner(tog.getAttribute('aria-checked') !== 'true');
+}
+document.getElementById('asg-toggle') && document.getElementById('asg-toggle').addEventListener('click', asgToggleClick);
+
 async function paintSettings() {
   paintYouName();
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
-  paintRecommender(); // #3595: live. The Assigner stays disabled static markup until phase 2.
-  /* #2619: no paintAssigner - that control is disabled
-     ("not active yet") until the behaviour lands, so there is nothing to paint. */
+  paintRecommender(); // #3595: live.
+  paintAssigner(); // #3595 phase 2: live.
   paintPrompterNudges();
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */

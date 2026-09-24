@@ -114,9 +114,9 @@ test('#3595 PUT recommender is refused to a process caller: tokenless, or an age
 
 /* ---- Assigner ---- */
 
-test('GET assigner defaults: OFF (behaviour pending), ok', async () => {
+test('GET assigner defaults: ON (#3595, the idle-assign behaviour is wired), ok', async () => {
   const r = await getJson('/api/assigner-setting');
-  assert.equal(r.on, false, 'the Assigner ships default OFF until its behaviour lands');
+  assert.equal(r.on, true, 'the Assigner ships default ON with its behaviour (#3595)');
   assert.equal(r.ok, true);
 });
 
