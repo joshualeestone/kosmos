@@ -281,8 +281,9 @@ function refuseRealLaunchWriteUnderTest(file, env = process.env) {
   try { process.stderr.write(msg + '\n'); } catch { /* the throw still carries it */ }
   throw new Error(msg);
 }
-function writePlistFile(file, text) {
+function writePlistFile(file, text, { mkdir = false } = {}) {
   refuseRealLaunchWriteUnderTest(file);
+  if (mkdir) fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text, 'utf8');
 }
 
@@ -3338,8 +3339,7 @@ function installJob(name, opts) {
   const configDir = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
   try {
     if (!DRY_RUN) {
-      fs.mkdirSync(agentsDir(), { recursive: true });
-      writePlistFile(plistPath(clean), plistFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner));
+      writePlistFile(plistPath(clean), plistFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner), { mkdir: true });
     }
   } catch {
     return { ok: false, because: 'we could not write the job file' };
@@ -4788,8 +4788,7 @@ function createAgentInner(opts) {
   const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder)
     && (jobPlatform === 'win32' || step('set it up to keep running', () => {
       if (DRY_RUN) return true;
-      fs.mkdirSync(agentsDir(), { recursive: true });
-      writePlistFile(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner));
+      writePlistFile(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), { mkdir: true });
     }));
 
   /**
