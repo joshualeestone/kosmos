@@ -261,6 +261,7 @@ jobs:
             render-workindicator-2146
             render-build-marker-2066
             render-richtext-2067
+            render-login-expiry-3532
             render-win32-board-copy
             render-fed-plus-gate
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh

@@ -95,6 +95,41 @@ const CASES = [
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
   }
+
+  /* #3532 DARK-MODE escalation guard. The (0,3,0) dark `.utoast { --utone }` override would, without
+     the theme restatement, paint notice+warn the same salmon as urgent -- collapsing the escalation
+     in dark, invisibly to a classList/text assertion. Render notice and urgent in FORCED dark and
+     assert their tones DIFFER (the .udot background resolves --utone). Equal tones = the bug is back. */
+  async function darkTone(sev, adv) {
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 }, colorScheme: 'dark' });
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    await pg.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForFunction((s) => {
+      const el = document.querySelector('#login-adv-slot .login-adv');
+      return el && el.classList.contains(s);
+    }, sev, { timeout: 12000 }).catch(() => {});
+    const tone = await pg.$eval('#login-adv-slot .login-adv .udot', (el) => getComputedStyle(el).backgroundColor).catch(() => '');
+    if (sev === 'notice') { const box = await pg.$('#login-adv-slot'); if (box) await box.screenshot({ path: path.join(OUT, 'login-expiry-dark-notice.png') }); }
+    chk(errs.length === 0, 'dark ' + sev + ': no console errors', errs.join(' | '));
+    await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    await pg.close();
+    return tone;
+  }
+  const noticeDark = await darkTone('notice', [{ agents: ['renettilley'], daysLeft: 4, severity: 'notice', expired: false }]);
+  const urgentDark = await darkTone('urgent', [{ agents: ['leo'], daysLeft: 0, severity: 'urgent', expired: false }]);
+  chk(!!noticeDark && !!urgentDark && noticeDark !== urgentDark,
+    'dark mode: notice tone differs from urgent (escalation survives dark, not all salmon)',
+    'notice=' + noticeDark + ' urgent=' + urgentDark);
+
   await b.close();
   console.log(fail.length ? '\nFAILED: ' + fail.join(', ') : '\nall good');
   process.exit(fail.length ? 1 : 0);

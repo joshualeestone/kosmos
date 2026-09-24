@@ -1127,7 +1127,7 @@ html { scroll-padding-top: 132px; }
    not an alarm; warn (<3d) is amber; urgent (<1d or expired) earns the red. */
 .utoast.login-adv.notice { --utone: var(--label-2); }
 .utoast.login-adv.notice .utxt b { color: var(--label); }
-.utoast.login-adv.warn { --utone: #c77700; }
+.utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
@@ -6651,6 +6651,13 @@ svg { display: block; }
      above is (0,3,0) and a bare `.utoast.stale` is (0,2,0), so without this the
      salmon wins in dark and the neutral state is only neutral in light. */
   :root:not([data-theme="light"]) .utoast.stale { --utone: var(--label-2); }
+  /* #3532: same restatement for the login-expiry severities, for the same reason -- the
+     (0,3,0) dark `.utoast` above would otherwise paint notice+warn salmon and lose the
+     escalation in dark. notice stays neutral, warn uses the theme-aware --warn-ink, urgent
+     keeps the dark danger salmon. */
+  :root:not([data-theme="light"]) .utoast.login-adv.notice { --utone: var(--label-2); }
+  :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
+  :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
 .note  { margin-top: var(--space-4); padding: var(--space-4) var(--space-5);
          font: var(--text-callout) var(--font-ui); color: var(--label);
@@ -8074,6 +8081,13 @@ html:not([data-fed-ui="signup"]) #pj-plus-signup { display: none !important; }
      above is (0,3,0) and a bare `.utoast.stale` is (0,2,0), so without this the
      salmon wins in dark and the neutral state is only neutral in light. */
 :root[data-theme="dark"] .utoast.stale { --utone: var(--label-2); }
+/* #3532: same restatement for the login-expiry severities, for the same reason -- the
+     (0,3,0) dark `.utoast` above would otherwise paint notice+warn salmon and lose the
+     escalation in dark. notice stays neutral, warn uses the theme-aware --warn-ink, urgent
+     keeps the dark danger salmon. */
+:root[data-theme="dark"] .utoast.login-adv.notice { --utone: var(--label-2); }
+:root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
+:root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
 :root[data-theme="dark"] .pcombo-list { box-shadow: 0 8px 24px rgba(0,0,0,.4); }
 

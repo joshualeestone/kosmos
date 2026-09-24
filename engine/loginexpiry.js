@@ -57,8 +57,14 @@ function serviceNameFor(ccd) {
  * NEVER logs it; stderr is discarded so a "not found" is a quiet null. */
 function readCredDefault(service) {
   try {
+    // 🛑 timeout is load-bearing, not tidiness. `security find-generic-password` can raise a
+    // Keychain GUI consent prompt when the calling binary is not yet on the item's ACL, and this
+    // runs SYNCHRONOUSLY inside snapshot() on the single-threaded board; an unanswered prompt would
+    // freeze /api/status for every agent, not just this feature. A bounded wait fails soft to null
+    // instead. Mirrors the ps eww call's timeout in status.js.
     return execFileSync('security', ['find-generic-password', '-s', service, '-w'], {
       encoding: 'utf8',
+      timeout: 5000,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
   } catch {
@@ -89,6 +95,11 @@ function refreshExpiryFor(ccd, { readCred = readCredDefault } = {}) {
  * cannot distinguish the two #2129 arms. The live process env is the only source that captures
  * both set-vs-unset AND the exact value, which is precisely what Claude Code itself keys on. */
 function ccdFromPsEnv(psText) {
+  // (\S*) stops at the first space, so a config-dir path CONTAINING a space would be truncated and
+  // resolve to the wrong credential rather than being skipped. Accepted tradeoff: `ps eww` renders
+  // the env space-separated with no quoting, so a value with spaces cannot be parsed unambiguously
+  // from its output anyway, and every config dir on this fleet is space-free (~/.claude-account-*).
+  // Same limitation as engine/runningas.js's CLAUDE_CONFIG_DIR parse.
   const m = String(psText == null ? '' : psText).match(/(?:^|\s)CLAUDE_CONFIG_DIR=(\S*)/);
   return m ? m[1] : null;
 }

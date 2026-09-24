@@ -6489,15 +6489,20 @@ function paneCcd(target) {
   return require('./loginexpiry').ccdFromPsEnv(env);
 }
 
-function computeLoginAdvisories(panes, nowMs) {
+/* opts is a TEST SEAM (production passes none): opts.readCcd replaces the impure
+ * tmux+ps pane->CCD resolver, opts.readCred is threaded to the keychain read, and opts.cache
+ * replaces the module TTL cache so a test starts cold. The pane-filter (isNamedOurs) + wiring
+ * are exercised for real with either. */
+function computeLoginAdvisories(panes, nowMs, opts = {}) {
   const le = require('./loginexpiry');
+  const readCcd = opts.readCcd || ((a) => paneCcd(a.target));
   // The TTL + last-good-on-failure logic lives in loginexpiry.cachedAdvisories (unit-tested);
   // here we supply the impure compute: filter to our named panes, resolve each one's live CCD.
   return le.cachedAdvisories({
-    cache: loginAdvCache, now: nowMs, ttlMs: LOGIN_ADV_TTL_MS,
+    cache: opts.cache || loginAdvCache, now: nowMs, ttlMs: LOGIN_ADV_TTL_MS,
     compute: () => {
       const agents = panes.filter((p) => isNamedOurs(p)).map((p) => ({ name: p.name, target: p.target }));
-      return le.agentAdvisories({ agents, readCcd: (a) => paneCcd(a.target), now: nowMs });
+      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
     },
   });
 }
@@ -7250,6 +7255,8 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
+  /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
+  computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   codexLastCompletionAt,
   // #3296: the Gemini context-ring reader (wired into snapshot's context ring).
