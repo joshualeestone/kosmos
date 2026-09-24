@@ -163,6 +163,13 @@ test('AVATAR: a file that is not an image is refused by the byte sniff, and the 
   assert.equal(res.avatarCopied, false);
 });
 
+test('AVATAR: the SHIPPED picture of Josh is present and passes the avatar store\'s byte sniff', () => {
+  const shipped = setupAssistant.guideAvatarPath();
+  assert.ok(shipped, 'no web/icons/setup-guide-avatar.* ships with the app');
+  const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk([]), hasConnectedAccount: CONNECTED });
+  assert.equal(res.avatarCopied, true, 'the shipped picture was refused by store.saveAvatar');
+});
+
 test('guideName: null until seeded, then the name the seed recorded', () => {
   assert.equal(setupAssistant.guideName(), null);
   setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });

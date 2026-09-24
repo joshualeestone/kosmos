@@ -13,7 +13,7 @@ Josh, 16:04-16:06 CDT (#admin, relayed on #3034):
    The label that renders with the name is "Josh's AI, Kosmos setup guide"; the opening line says "this is Josh's AI".
 2. **No summary files for `setup`** (`roles.NO_SUMMARY`): it answers questions and has no queue to summarise.
 3. **Seed as Josh, not the user** (`engine/setup-assistant.js`): `GUIDE_NAME = 'Josh'`, `GUIDE_TAG = "Josh's AI"`,
-   and the picture from `web/icons/setup-guide-avatar.<png|jpg|jpeg|gif|webp>` when one ships (initials until then;
+   and the picture from `web/icons/setup-guide-avatar.<png|jpg|jpeg|gif|webp>` (ships as .jpg; initials if absent;
    store.saveAvatar sniffs the bytes). A saved user name is no longer needed. The first-run auto-create stays OFF
    (`FIRSTRUN_AUTOCREATE_ENABLED = false`) until Josh says to switch it on.
 4. **Page context** (`engine/pagecontext.js`, `POST /api/setup-guide/page`): the bubble posts
@@ -37,7 +37,8 @@ Josh, 16:04-16:06 CDT (#admin, relayed on #3034):
 ## Weakest premises
 - That the bubble reports the screen when it opens and on navigation. If it only reports on open, the file can lag
   a navigation; the guide is told to ask when the file is older than the message.
-- There is no picture of Josh in the repo or on this Mac. The slot exists; the photo is his to choose.
+- The picture is Josh's public GitHub headshot (400x400 JPEG), chosen by Splinter at 17:36 as the default; Josh can
+  swap it by replacing `web/icons/setup-guide-avatar.jpg`. A missing or unreadable file falls back to the initial.
 - `SCREENS` is my vocabulary; the web app has no single screen registry. Mona's bubble maps its views onto these
   keys, and a new screen is one line.
 
