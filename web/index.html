@@ -7602,7 +7602,16 @@ html[data-kosmos-platform="win32"] ::-webkit-scrollbar-button { display: none; }
    match and nothing federation-related shows. Verified by render-fed-plus-gate.js.
    The flip is engine-side (federationLive true) -- no web redeploy, Splinter
    coordinates it after slice 3 is e2e-proven. */
-html:not([data-fed-ui="show"]) .pj-mode,html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"]) #pj-add-ext-agent,html:not([data-fed-ui="show"]) #pj-invite-panel,html:not([data-fed-ui="show"]) #pj-join-mode { display: none !important; }
+/* #3495 (Angel, gate-behaviour half): the Create/Join toggle (.pj-mode) and the two
+   Add-external buttons now ALWAYS show (Josh: the toggle is always up, the Join tab and the
+   grayed buttons gate by MESSAGE, not by hiding). Only the Plus-only CONTENT stays hidden for a
+   non-"show" viewer: #pj-invite-panel (the minted-invite flow) and #pj-join-mode (the join form) --
+   a non-Plus viewer who selects Join gets showPlusGate("join") instead (see the change handler),
+   so the form is never reached anyway; this rule is the belt-and-suspenders. */
+html:not([data-fed-ui="show"]) #pj-invite-panel,html:not([data-fed-ui="show"]) #pj-join-mode { display: none !important; }
+/* The Add-external buttons show GRAYED (not hidden) for a non-"show" viewer, and stay CLICKABLE so
+   the click can open showPlusGate("connect"). Visual gray only -- no pointer-events:none. */
+html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"]) #pj-add-ext-agent { opacity: .55; }
 html:not([data-fed-ui="signup"]) #pj-plus-signup { display: none !important; }
 /* The Windows install command and its Copy button (W-14). The command keeps its own
    wrapping rule above; the row only puts the button beside it. */
@@ -24191,6 +24200,14 @@ function fedGateMode(sourceChannel, federationLive, kosmosPlus) {
   const unknownPlus = kosmosPlus !== true && kosmosPlus !== false;
   if (staging && unknownPlus) return 'show';
   return 'signup';
+}
+/* #3495 (Angel): is the viewer an authorized Kosmos+ member on a live channel, i.e. may they
+   actually use the external-collaboration features? The gate mode "show" is the only authorized
+   state (see fedGateMode). Read from the same data-fed-ui stamp the CSS reads, so the behaviour
+   gate and the display gate cannot disagree. Fail-safe: absent attribute (before the first status
+   tick) reads false -> the Plus-gate prompt shows, never a silent pass. */
+function fedShow() {
+  return document.documentElement.getAttribute('data-fed-ui') === 'show';
 }
 /* Stamp the computed gate mode on <html> as data-fed-ui; the CSS gate hides
    whatever the mode does not authorize. Fail-safe: before the first status tick
@@ -46165,15 +46182,25 @@ async function pjJoinSubmit() {
 }
 
 document.getElementById('pj-mode-create').addEventListener('change', () => { if (document.getElementById('pj-mode-create').checked) pjSetAddMode('create'); });
-document.getElementById('pj-mode-join').addEventListener('change', () => { if (document.getElementById('pj-mode-join').checked) pjSetAddMode('join'); });
+/* #3495 (Angel): the Join tab is always selectable, but a non-Plus/not-live viewer gets the
+   Plus-gate MESSAGE instead of the join form (Josh: "when clicked, show a message"). Open the
+   shared modal and snap the toggle back to Create so the gated form is never shown. */
+document.getElementById('pj-mode-join').addEventListener('change', () => {
+  if (!document.getElementById('pj-mode-join').checked) return;
+  if (!fedShow()) { showPlusGate('join'); pjSetAddMode('create'); return; }
+  pjSetAddMode('join');
+});
 // Federation Kosmos+ gate: the sign-up prompt routes into the in-app Kosmos Plus section.
 document.getElementById('pj-plus-signup-go').addEventListener('click', fedPlusSignupGo);
 /* #3495: the shared Plus-gate modal's own controls (Angel's behaviour calls showPlusGate to open it). */
 document.getElementById('plus-gate-close').addEventListener('click', hidePlusGate);
 document.getElementById('plus-gate-go').addEventListener('click', () => { hidePlusGate(); fedPlusSignupGo(); });
 (() => { const b = document.getElementById('plus-gate-modal'); if (b) b.addEventListener('click', (e) => { if (e.target === b) hidePlusGate(); }); })();
-document.getElementById('pj-add-ext-person').addEventListener('click', () => pjMintInvite('person'));
-document.getElementById('pj-add-ext-agent').addEventListener('click', () => pjMintInvite('agent'));
+/* #3495 (Angel): the grayed Add-external buttons stay clickable; a non-Plus/not-live viewer gets
+   the shared Plus-gate modal ("must be signed in as a Kosmos Plus user") instead of minting an
+   invite. A "show" viewer mints as before. */
+document.getElementById('pj-add-ext-person').addEventListener('click', () => { if (!fedShow()) { showPlusGate('connect'); return; } pjMintInvite('person'); });
+document.getElementById('pj-add-ext-agent').addEventListener('click', () => { if (!fedShow()) { showPlusGate('connect'); return; } pjMintInvite('agent'); });
 document.getElementById('pj-invite-copy').addEventListener('click', pjCopyInvite);
 document.getElementById('pj-join-verify').addEventListener('click', pjVerifyCode);
 document.getElementById('pj-join-submit').addEventListener('click', pjJoinSubmit);

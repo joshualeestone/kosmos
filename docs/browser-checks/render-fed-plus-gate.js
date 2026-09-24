@@ -40,7 +40,12 @@ catch {
 }
 
 const PAGE = 'file://' + nodePath.join(__dirname, '..', '..', 'web', 'index.html');
-const FED = ['.pj-mode', '#pj-add-ext-person', '#pj-add-ext-agent', '#pj-invite-panel', '#pj-join-mode'];
+// #3495 (Angel): the Create/Join toggle and the Add-external buttons now ALWAYS show (grayed for a
+// non-"show" viewer, which gates by MESSAGE via showPlusGate, not by hiding). Only the Plus-only
+// CONTENT stays display-gated. So assertions split: ALWAYS shown in every arm, GATED hidden unless "show".
+const ALWAYS = ['.pj-mode', '#pj-add-ext-person', '#pj-add-ext-agent'];
+const GATED = ['#pj-invite-panel', '#pj-join-mode'];
+const FED = ALWAYS.concat(GATED); // union, for the displays() queries below
 const SIGNUP = '#pj-plus-signup';
 const CONTROL = '#pj-add-agent';
 
@@ -117,7 +122,8 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
   // ARM 1: prod, NOT flipped -> both fed UI and sign-up hidden; control shown (ready-to-flip).
   await stamp(page, { sourceChannel: 'prod', federationLive: false, kosmos_plus: true });
   let d = await displays(page, FED.concat([SIGNUP, CONTROL]));
-  check('prod NOT flipped: the federation entry points are hidden', FED.every((s) => d[s] === 'none'), JSON.stringify(d));
+  check('prod NOT flipped: the toggle + Add-external buttons still show (grayed, gate by message)', ALWAYS.every((s) => shown(d[s])), JSON.stringify(d));
+  check('prod NOT flipped: the Plus-only content (invite panel + join form) is hidden', GATED.every((s) => d[s] === 'none'), JSON.stringify(d));
   check('prod NOT flipped: the sign-up prompt is hidden too', d[SIGNUP] === 'none', SIGNUP + ' = ' + d[SIGNUP]);
   check('prod NOT flipped: the local "Add an agent" control is still shown', shown(d[CONTROL]), CONTROL + ' = ' + d[CONTROL]);
 
@@ -130,13 +136,15 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
   // ARM 3: prod, flipped + non-member -> fed UI hidden, sign-up SHOWN.
   await stamp(page, { sourceChannel: 'prod', federationLive: true, kosmos_plus: false });
   d = await displays(page, FED.concat([SIGNUP]));
-  check('prod flipped + NON-MEMBER: the federation entry points are hidden', FED.every((s) => d[s] === 'none'), JSON.stringify(d));
+  check('prod flipped + NON-MEMBER: the toggle + Add-external buttons still show (grayed, gate by message)', ALWAYS.every((s) => shown(d[s])), JSON.stringify(d));
+  check('prod flipped + NON-MEMBER: the Plus-only content (invite panel + join form) is hidden', GATED.every((s) => d[s] === 'none'), JSON.stringify(d));
   check('prod flipped + NON-MEMBER: the sign-up prompt is shown instead', shown(d[SIGNUP]), SIGNUP + ' = ' + d[SIGNUP]);
 
   // ARM 4 (THE LEAK CONTROL): prod, flipped + UNKNOWN entitlement -> fed hidden, sign-up shown.
   await stamp(page, { sourceChannel: 'prod', federationLive: true, kosmos_plus: undefined });
   d = await displays(page, FED.concat([SIGNUP]));
-  check('prod flipped + UNKNOWN: the federation entry points stay hidden (FAIL-SAFE, no leak)', FED.every((s) => d[s] === 'none'), JSON.stringify(d));
+  check('prod flipped + UNKNOWN: the Plus-only content stays hidden (FAIL-SAFE, no leak)', GATED.every((s) => d[s] === 'none'), JSON.stringify(d));
+  check('prod flipped + UNKNOWN: the toggle + Add-external buttons still show (grayed)', ALWAYS.every((s) => shown(d[s])), JSON.stringify(d));
   check('prod flipped + UNKNOWN: the sign-up prompt is shown', shown(d[SIGNUP]), SIGNUP + ' = ' + d[SIGNUP]);
 
   // ARM 5: staging, entitlement unwired -> fed UI shown (review continuity), sign-up hidden.
@@ -148,7 +156,8 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
   // ARM 6 (safe default): no data-fed-ui stamped yet -> both hidden (no first-tick flash).
   await stamp(page, null);
   d = await displays(page, FED.concat([SIGNUP]));
-  check('default (no mode stamped): the federation entry points are hidden', FED.every((s) => d[s] === 'none'), JSON.stringify(d));
+  check('default (no mode stamped): the Plus-only content is hidden (no first-tick flash)', GATED.every((s) => d[s] === 'none'), JSON.stringify(d));
+  check('default (no mode stamped): the toggle + Add-external buttons still show (always-on)', ALWAYS.every((s) => shown(d[s])), JSON.stringify(d));
   check('default (no mode stamped): the sign-up prompt is hidden', d[SIGNUP] === 'none', SIGNUP + ' = ' + d[SIGNUP]);
 
   // ARM 7 (the prompt is an ACTUAL go-sign-up, not dead copy): clicking it routes into the
@@ -162,6 +171,33 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
     return { plusShown: !!plus && !plus.hidden, settingsSec: (typeof SETTINGS_SEC !== 'undefined' ? SETTINGS_SEC : null), settingsTabOn };
   });
   check('the sign-up button routes into the in-app Kosmos Plus section', routed.plusShown && routed.settingsSec === 'plus', JSON.stringify(routed));
+
+  // ARM 8 (#3495 Angel, the message-gate behaviour): a non-"show" viewer who SELECTS Join, or
+  // CLICKS a grayed Add-external button, gets the shared Plus-gate MODAL (Josh's "show a message"),
+  // not the gated form / a minted invite. Drive the REAL handlers (fedShow reads data-fed-ui) and
+  // read the modal open-state + its copy. This is the behaviour this half exists to add.
+  await page.evaluate(() => document.documentElement.setAttribute('data-fed-ui', 'signup')); // live, non-member -> not "show"
+  const gate = await page.evaluate(() => {
+    const modal = document.getElementById('plus-gate-modal');
+    const msg = document.getElementById('plus-gate-msg');
+    const closeBtn = document.getElementById('plus-gate-close');
+    const read = () => ({ open: !!modal && !modal.hidden, copy: (msg && msg.textContent) || '' });
+    if (closeBtn) closeBtn.click();
+    const joinR = document.getElementById('pj-mode-join');
+    joinR.checked = true; joinR.dispatchEvent(new Event('change', { bubbles: true }));
+    const join = read();
+    const revertedToCreate = document.getElementById('pj-mode-create').checked === true;
+    if (closeBtn) closeBtn.click();
+    document.getElementById('pj-add-ext-person').click();
+    const connect = read();
+    if (closeBtn) closeBtn.click();
+    return { join, revertedToCreate, connect };
+  });
+  check('#3495 non-member selecting Join opens the Plus-gate modal, not the join form', gate.join.open, JSON.stringify(gate.join));
+  check('#3495 the Join gate shows the JOIN copy', /must be logged in to access it/.test(gate.join.copy), gate.join.copy.slice(0, 90));
+  check('#3495 selecting Join snaps the toggle back to Create (gated form never shown)', gate.revertedToCreate, 'create checked=' + gate.revertedToCreate);
+  check('#3495 clicking a grayed Add-external button opens the Plus-gate modal', gate.connect.open, JSON.stringify({ open: gate.connect.open }));
+  check('#3495 the connect gate shows the CONNECT copy', /signed in as a Kosmos Plus user/.test(gate.connect.copy), gate.connect.copy.slice(0, 90));
 
   await browser.close();
   if (problems.length) {
