@@ -50,7 +50,7 @@ kosmos_sign_preflight() {
 
   # Print codesign's own words first, whatever the cause, so nothing is inferred.
   echo "signing preflight: a test codesign with \"$id\" FAILED (rc=$rc):"
-  while IFS= read -r _line; do printf '    %s\n' "$_line"; done <<EOF
+  [ -n "$out" ] && while IFS= read -r _line; do printf '    %s\n' "$_line"; done <<EOF
 $out
 EOF
   case "$out" in

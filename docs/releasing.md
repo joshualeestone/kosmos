@@ -24,6 +24,7 @@ improvement it gained would have died with the session that wrote it.
    deliberate -- waiting three seconds for ruled copy is better than spending
    fifteen minutes to be told the same thing -- but it is a loss of a working
    habit and you will meet it on every cut, not only on a slow one.
+
    **1c. Test-sign with the cut's own identity (#3579)**, still before anything is
    bumped or built. Step 4 signs Developer ID. Over a plain SSH session the login
    keychain is **locked**: the identity is listed, but codesign cannot reach the key
