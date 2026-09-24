@@ -30,11 +30,16 @@ cs_args()    { printf '%s\n' "$@" > "$WORK/cs-args.argv"; return 0; }
 
 # #3647 seams for the Installer identity and the notary key, as functions (no fresh executables).
 printf 'key\n' > "$WORK/notary.p8"
-sec_ok()   { echo "  1) ABCDEF0123 \"$KOSMOS_SIGN_APP_DEFAULT\""; echo "  2) 0123ABCDEF \"$KOSMOS_SIGN_INSTALLER_DEFAULT\""; }
-sec_noinst() { echo "  1) ABCDEF0123 \"$KOSMOS_SIGN_APP_DEFAULT\""; }
+# The sec_* stubs answer only 'find-identity -v', so dropping -v (which lets expired
+# identities through) turns every pass arm red.
+_secv()    { [ "$#" = 2 ] && [ "$1" = find-identity ] && [ "$2" = -v ] || { echo "stub: wanted 'find-identity -v', got '$*'" >&2; return 2; }; }
+sec_ok()   { _secv "$@" || return; echo "  1) ABCDEF0123 \"$KOSMOS_SIGN_APP_DEFAULT\""; echo "  2) 0123ABCDEF \"$KOSMOS_SIGN_INSTALLER_DEFAULT\""; }
+sec_noinst() { _secv "$@" || return; echo "  1) ABCDEF0123 \"$KOSMOS_SIGN_APP_DEFAULT\""; }
 sm_ok()    { [ "$1" = path ] && [ "$2" = "$KOSMOS_NOTARY_SECRET_TARGET" ] && echo "$WORK/notary.p8"; }
-sm_none()  { return 1; }
-sec_hashonly() { echo "  1) 0123ABCDEF (identity listed by hash only)"; }
+sm_none()  { echo "secrets-map: no credential for target" >&2; return 1; }
+sec_hashonly() { _secv "$@" || return; echo "  1) 0123ABCDEF (identity listed by hash only)"; }
+sec_broken() { echo "security: SecKeychainSearchCopyNext: boom" >&2; return 1; }
+sm_dir()   { echo "$WORK"; }
 sm_badpath() { echo "$WORK/no-such-notary.p8"; }
 export KOSMOS_SECURITY_BIN=sec_ok KOSMOS_SECRETS_MAP_BIN=sm_ok
 unset KOSMOS_INSTALLER_CERT KOSMOS_CODESIGN_ID   # an operator's exported override must not change what these arms test
@@ -166,6 +171,13 @@ out="$(KOSMOS_SECURITY_BIN=sec_hashonly KOSMOS_INSTALLER_CERT=FFFFFFFFFF run cs_
 # The notary path must be a READABLE file, not just any string the accessor prints.
 out="$(KOSMOS_SECRETS_MAP_BIN=sm_badpath run cs_ok)"; rc=$?
 case "$rc:$out" in 1:*"does not resolve to a readable file"*"no-such-notary.p8"*) ok "#3647: a notary path that is not a readable file refuses" ;; *) bad "#3647: an unreadable notary path passed (rc=$rc): $out" ;; esac
+out="$(KOSMOS_SECRETS_MAP_BIN=sm_dir run cs_ok)"; rc=$?
+case "$rc:$out" in 1:*"does not resolve to a readable file"*) ok "#3647: a notary path that is a directory refuses" ;; *) bad "#3647: a directory passed as the notary key (rc=$rc): $out" ;; esac
+out="$(KOSMOS_SECURITY_BIN=sec_noinst KOSMOS_SECRETS_MAP_BIN=sm_none run cs_ok)"; rc=$?
+case "$rc:$out" in 1:*"Installer identity"*"NOT in this session"*"notary key"*"does not resolve"*"no credential for target"*) ok "#3647: a box missing both is told about both, with the accessor's own words" ;; *) bad "#3647: missing both did not report both (rc=$rc): $out" ;; esac
+out="$(KOSMOS_SECURITY_BIN=sec_broken run cs_ok)"; rc=$?
+case "$rc:$out" in 1:*"find-identity -v' FAILED (rc=1)"*"boom"*) ok "#3647: a failing security command is reported as a failure, with its own error" ;; *) bad "#3647: a failing security command was misreported (rc=$rc): $out" ;; esac
+case "$out" in *"NOT in this session"*) bad "#3647: a failing security command claimed the identity is absent: $out" ;; *) ok "#3647: a failing security command does not claim the identity is absent" ;; esac
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 34 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 38 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
