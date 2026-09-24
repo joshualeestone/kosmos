@@ -643,6 +643,7 @@ const connections = require('./engine/connections');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
+const pushvapid = require('./engine/pushvapid');
 const styles = require('./engine/styles');
 const inflight = require('./engine/inflight');
 
@@ -14443,27 +14444,36 @@ const server = http.createServer((req, res) => {
     sendJson(res, 404, { error: 'no such icon' });
     return;
   }
-  // #718: Web Push proxy routes to coordinator.
-  // Thin proxies: board forwards coordinator session token and VAPID key.
-  // Coordinator owns subscriptions, encryption, and delivery.
-  if (pathname === '/v1/push/subscribe' && req.method === 'POST') {
-    readBody(req)
-      .then((buf) => {
-        // TODO: proxy to coordinator:
-        // - Forward Authorization: Bearer <coordinator session token> from board
-        // - POST to coordinator's /v1/push/subscribe
-        // - Coordinator derives (account_id, device_id) from token, gated on per-Mac acked grant
-        // - Return coordinator response (subscription stored, or 400/403 on validation/deny)
-        sendJson(res, 501, { error: 'TODO: wire coordinator proxy' });
+  // #718 (#3510): Web Push. The coordinator owns the VAPID key pair, the
+  // subscriptions, encryption and delivery (kosmos-relay coordinator/src/push.rs);
+  // the board only hands the push client (#3520) what it asks for same-origin.
+  //
+  // GET /v1/push/vapid-key: the coordinator's PUBLIC key, fetched and cached by
+  // engine/pushvapid.js. Unauthenticated at the coordinator by design (a public
+  // key), so nothing is attached. A failure is a plain-words 502 and is not
+  // cached; the client keeps its button retryable.
+  if (pathname === '/v1/push/vapid-key' && (req.method === 'GET' || req.method === 'HEAD')) {
+    pushvapid.fetchVapidKey()
+      .then((key) => {
+        if (key) sendJson(res, 200, { key });
+        else sendJson(res, 502, { error: 'Kosmos could not reach its notification service just now. Try again in a minute.' });
       })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      .catch(() => sendJson(res, 502, { error: 'Kosmos could not reach its notification service just now. Try again in a minute.' }));
     return;
   }
 
-  if (pathname === '/v1/push/vapid-key' && (req.method === 'GET' || req.method === 'HEAD')) {
-    // TODO: fetch from coordinator's /v1/push/vapid-key, cache, return {key}.
-    // Public, unauthenticated, client uses for PushManager.subscribe(applicationServerKey).
-    sendJson(res, 501, { error: 'TODO: wire coordinator proxy' });
+  // POST /v1/push/subscribe: NOT WIRED, on purpose, and 501 says so rather than
+  // pretending. The coordinator requires Authorization: Bearer <the PHONE's
+  // session token>, and the board never holds one: the tunnel gate forgets the
+  // token the moment the phone is admitted and forwards no device identity
+  // (kosmos-relay crates/tunnel/src/gate.html, proxy.rs). Which path replaces it
+  // (a Mac-cert-authenticated route naming the tunnel-verified device, or
+  // pointing people at the coordinator's own "Notify me on this phone") is a
+  // pending ruling on #3510. Also pending: the Mac-side event sender was deleted
+  // on 2026-09-09 (#2623/#2631), so no push is sent from any Mac today.
+  if (pathname === '/v1/push/subscribe' && req.method === 'POST') {
+    req.resume();
+    sendJson(res, 501, { error: 'Phone notifications cannot be turned on from here yet.' });
     return;
   }
 
