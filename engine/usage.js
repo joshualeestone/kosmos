@@ -161,6 +161,8 @@ async function scanUsage({ sinceDay, untilDay }) {
   const roots = configRoots();
   const days = {};
   const folders = {};
+  // Launch folder per top-level transcript, for its subagents to inherit.
+  const launchOf = new Map();
   for (const root of roots) {
     /* Sorted, so when one message id appears in two transcripts launched in
        different folders (a resumed session), the same file wins the dedup on
@@ -180,6 +182,18 @@ async function scanUsage({ sinceDay, untilDay }) {
         let r;
         try { r = JSON.parse(line); } catch { continue; }
         if (r && typeof r.cwd === 'string' && r.cwd) { launch = r.cwd; break; }
+      }
+      /* A subagent's transcript (<sess>/subagents/**) starts wherever its
+         parent was standing when it spawned it, often a worktree. It is the
+         parent session's work, so it takes the parent's launch folder. The
+         sorted walk visits <sess>.jsonl before <sess>/ ('.' sorts before '/'),
+         so the parent is already known; with no parent, its own first cwd. */
+      const sub = file.lastIndexOf(path.sep + 'subagents' + path.sep);
+      if (sub !== -1) {
+        const parent = launchOf.get(file.slice(0, sub) + '.jsonl');
+        if (parent) launch = parent;
+      } else {
+        launchOf.set(file, launch);
       }
       for (const line of lines) {
         if (!line || SYNTHETIC_ROW.test(line)) continue;
@@ -363,7 +377,12 @@ async function dailyUsageByModel(days = 7) {
           await ensureUsageDir();
           if (!modelFrozen) await fsp.writeFile(frozenDayPath(day), JSON.stringify(byDay[day]), 'utf8');
           if (!folderFrozen) await fsp.writeFile(frozenFolderPath(day), JSON.stringify(byFolder[day]), 'utf8');
-        } catch { /* best effort: a failed freeze just means this day rescans next time */ }
+        } catch (err) {
+          /* Best effort: a failed freeze means this day rescans next time. With
+             two files per day that can now be the whole window on every
+             request (a full disk, a read-only data folder), so say it. */
+          console.error('usage: could not freeze ' + day + ':', (err && err.message) || err);
+        }
       }
     }
   }
@@ -375,8 +394,8 @@ async function dailyUsageByModel(days = 7) {
  * #2617: the window's tokens per agent, from the per-folder split.
  *
  * `agents` is [{ name, shown, dir }]. A folder is an agent's when it is the
- * agent's own folder, compared after `canonical` (realpath), the same exact
- * match status.js requires to read an agent's transcripts. A subfolder is not
+ * agent's own folder, both sides compared after `canonical` (realpath), so a
+ * link and its target match and two identical spellings always do. A subfolder is not
  * claimed, so an agent recorded on a broad folder cannot absorb the person's
  * own sessions beneath it. A folder two agents share goes to `shared`, not to
  * whichever name sorts first. A folder no agent owns goes to `elsewhere`.
