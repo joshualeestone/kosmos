@@ -2,7 +2,7 @@
 
 /**
  * #2497 (Josh, 2026-09-08, watching an external tester): onboarding no longer auto-scans or
- * auto-imports. First run ALWAYS lands on the no-agent "Create your first agent." / "Giddy Up"
+ * auto-imports. First run ALWAYS lands on the one "Giddy Up" ending (SETUP COMPLETE since #3659)
  * screen, whatever the engine's path (adopt/create/unknown) or fleetCount, and fires NO discovery.
  *
  *   node --test web.found-every-path-1493.test.js
@@ -37,7 +37,7 @@ const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') +
 
 /* ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE (Splinter, 2026-09-02): it measures the
    branch logic, not the wired page. The real first-run landing is covered on the actual document
-   by render-first-run.js. `frActions`'s `go` closure (() => frFinish(openCreate)) is created but
+   by render-first-run.js. `frActions`'s `go` closure (() => frFinish(() => showTab('agents')) since #3575) is created but
    never invoked here, so frFinish/openCreate need not be injected. */
 function paint(FR, FR_FOUND, FR_SCAN, FR_SCAN_INFLIGHT) {
   const scan = FR_SCAN === undefined ? { ok: true, candidates: [] } : FR_SCAN;

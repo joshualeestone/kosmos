@@ -270,11 +270,11 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     // Continue SAVES before it advances (a real PUT), so wait for the About-you
     // pane to LEAVE rather than reading the head mid-flight.
     await waitAnchorLeft(page, '#fr-you');
-    // The Your-agents fork (step 9). #2497 (Josh, 2026-09-08): onboarding no longer
+    // The SETUP COMPLETE ending (step 9). #2497 (Josh, 2026-09-08): onboarding no longer
     // auto-scans/auto-imports, so this step ALWAYS lands on the no-agent Giddy Up screen,
     // even on a fleet-present (rich) board. What must be true is it rendered a real
     // heading and a single onward action (Giddy Up).
-    ok((await activeHead(page)).length > 0, 'the Your-agents fork rendered a heading');
+    ok((await activeHead(page)).length > 0, 'the SETUP COMPLETE ending rendered a heading');
     ok((await page.locator('#fr-next').textContent()).trim().length > 0, 'and a single onward action');
     console.log('   ...and out the front door, through the Giddy Up ending');
     await page.click('#fr-next');
