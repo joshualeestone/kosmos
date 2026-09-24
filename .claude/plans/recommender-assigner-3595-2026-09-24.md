@@ -3,7 +3,7 @@
 Author: April, 2026-09-24. Split from #2619 (settings + persistence shipped in PR #3549; UI shows both
 controls disabled with "Not active yet"). UI contract: Mona's spec
 `Josh-Brain/Projects/kosmos-automations-recommender-assigner-2619-spec.md`.
-Status: phase 1 (Recommender) BUILT on this branch; phases 2-3 (Assigner) not started.
+Status: phase 1 (Recommender) MERGED (#3617). Phase 2 (Assigner idle-assign) BUILT on branch assigner-idle-3595. Phase 3 (goals to tasks) not started.
 
 ## What exists (surveyed on origin/main 3e3ed52c; file:line in the card comment)
 - Settings: `engine/recommender-setting.js` `{on, guards:{money,public,delete}}` (on defaults OFF,
@@ -101,14 +101,27 @@ the delivery, and a block written at session start goes stale the moment a guard
 Add it only if agents are seen ignoring the per-item playbook.
 
 ## Assigner design
-**Idle = no work.** An agent is idle-for-assignment when ALL of these hold for 20 min (hysteresis):
-- the roster state is `idle` (screen or reported), not held, not stopped, not blocked or needs_you;
-- commitments are `clear` (a stale `unknown` does NOT count, so no one is handed work mid-task);
-- there are no open tasks assigned to it in any project.
+**Idle = no work.** An agent is idle-for-assignment when ALL of these hold continuously for 20 min
+(one tick that fails any of them restarts the clock):
+- its card is ours (`isNamedOurs`) and reads `idle` (which already excludes stopped, restarting,
+  blocked and needs_you). There is NO "held" state in Kosmos (surveyed 2026-09-24), so the plan's
+  earlier "not held" clause is dropped rather than invented;
+- commitments are `clear` (a stale or never-reported `unknown` does NOT count, so no one is handed
+  work mid-task). Commitments are NOT on the board card, so the runner reads
+  `commitments.read(session)` for idle cards only;
+- it has no open part of any task assigned to it in any live project.
 
-**Assign from existing work first.** Pick the oldest OPEN UNASSIGNED task in a project the agent
-already belongs to. Order: due date soonest, then oldest. Set `who` through the same path as the
-task route, so the agent's instruction file re-syncs and it gets "you were given task N" in the pane.
+**Assign from existing work first.** Pick a task NOBODY is on (no part has a `who`), open, in a
+live project the agent already belongs to; give it the task's first open part. Order: due date
+soonest (a dated task before an undated one), then oldest. Two idle agents never get the same task
+in one step.
+
+**The write goes through the part route's own path.** `heardBy` and `tellEveryoneOn` were closures
+inside the request handler; they are hoisted to module scope unchanged, and one `givePart()` (parts
+valve for a process caller, `tasks.assignPart`, the "you were given task N" pane line against the
+heard budget, the instruction-file re-sync) is now called by BOTH the part-assign route and the
+Assigner runner, so the sequence exists once. A refused give (for example the parts valve) takes
+its charge back off the Assigner's hourly budget.
 
 **Goals to tasks (only when there is nothing to hand out).** If an idle agent's projects have a
 `## Goal` in BRIEF.md and NO open tasks, deliver one request to that agent: "Draft up to 3 tasks
@@ -126,7 +139,8 @@ agent per hour and 10 per hour overall.
 Each automation's controls are enabled in the SAME PR as its behaviour:
 - Recommender: toggle plus the three guards live, paint/save wired to the existing routes, following
   Mona's spec (STATUS contract, could-not-read hides the knob, guards hide while off).
-- Assigner: toggle live.
+- Assigner: toggle live, same status contract; a failed save repaints from the store. The label
+  keeps #2619's wording ("Turn your goals into assigned work"); the hint names only what ships.
 **DECIDED (Splinter, 2026-09-24 11:08 CDT; Josh can override):**
 - **Recommender ships DEFAULT-OFF** until the tool-level guards card lands. Reason: instruction-only
   guards under bypass permissions cannot stop an irreversible action, and real users exist now.
@@ -144,8 +158,13 @@ touched it.
    Settings control live, default OFF (Splinter), with a disclosure that the guards are instructions
    only. Tests: engine/recommender.test.js (every trigger, exclusion and limit, with controls; runOnce
    glue), web.settings-nav.test.js (live Recommender, still-disabled Assigner, the disclosure).
-2. **Assigner idle-assign**: pure `assigner.step`, the idle predicate, the picker, the loop, UI enabled,
-   default on.
+2. **Assigner idle-assign** (BUILT on assigner-idle-3595): pure `step`/`runOnce` in
+   engine/assigner.js, the ~1-min runner in server.js (live-execution gated), `givePart` shared with
+   the route, default flipped ON in engine/assigner-setting.js (missing reads on, corrupt reads off,
+   as heartbeat-setting), Settings control live. Tests: engine/assigner.test.js on real cards,
+   commitments, projects and tasks (every guard proven by removing it); web.assigner-save-3595.test.js
+   on the real lifted page functions; docs/browser-checks/render-assigner-live-3595.js (14/14, both
+   themes).
 3. **Assigner goals to tasks**: the BRIEF.md goal read and the draft request.
 4. (Separate card) tool-level guard enforcement through the PreToolUse hook.
 
