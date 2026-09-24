@@ -4,8 +4,9 @@
  *
  * WHAT IT DOES. When an agent has itself reported that it needs a decision (`kosmos report
  * needs_you`, naming a project) and is still waiting after a grace period, Kosmos convenes
- * help ONCE for that item: a room note in the project asks up to two other members for one
- * reply each, and the stuck agent is handed a short playbook in its pane: take the replies,
+ * help ONCE for that item: up to two other members are asked, in their own panes, for one
+ * reply each in the project room (a room note records the ask), and the stuck agent is handed
+ * a short playbook in its pane: take the replies,
  * decide, write the decision down in the room (the call, what was rejected, the weakest
  * premise, what would change your mind), carry it out, clear the report. Anything that
  * touches an active guard stays with the person.
@@ -17,8 +18,9 @@
  * - It never acts on a report the agent did not make: a by:'auto' report is a hook's (a
  *   permission prompt, a provider outage, an end-of-turn idle) and an operator report is the
  *   person's. Only stateReportedBy === 'agent' is an agent saying "I am stuck on a decision".
- * - It never convenes twice for the same item, and it is capped per hour overall and per
- *   agent, so a flapping report cannot flood a room.
+ * - It never convenes twice for the same item within one board run (the memory is in
+ *   process, so a board restart can convene a still-standing item once more), and it is
+ *   capped per hour overall and per agent, so a flapping report cannot flood a room.
  * - It enforces the three guards at the INSTRUCTION level only (the playbook names the active
  *   ones). Agents run with bypass permissions, so nothing mechanical stops a guarded action;
  *   that is why the Recommender ships default-OFF until tool-level guards land (plan, Splinter
@@ -26,8 +28,7 @@
  *
  * PURE. step() takes the previous memory, the board roster, the setting, the project member
  * lists and a clock, and returns what to convene plus the next memory. The runner (server.js)
- * does the room note and the pane delivery, and marks an item convened ONLY when the pane
- * delivery is PLACED, the same deliver-then-advance rule as the auto-save sweep.
+ * does the effects through runOnce below.
  */
 
 const STUCK_STATES = new Set(['needs_you']);
@@ -107,10 +108,10 @@ function step({ prev, roster, setting, members, now }) {
     items.set(key, rec);
     if (rec.convened) continue;
     if (rec.noted) {
-      // RETRY: the room note already went out and the pane delivery did not land. Re-deliver
-      // the playbook only (never a second room note), charge no budget, stop after the cap.
+      // RETRY: the asks already went out and the playbook reached nothing. Re-deliver the
+      // playbook only (never a second note or ask), charge no budget, stop after the cap.
       if (rec.attempts >= MAX_DELIVERY_ATTEMPTS) continue;
-      toConvene.push({ key, ...s, peers: rec.peers || [], retry: true });
+      toConvene.push({ key, ...s, peers: rec.peers || [], asked: rec.asked || [], retry: true });
       continue;
     }
     if (now - rec.firstSeen < GRACE_MS) continue;
@@ -126,14 +127,17 @@ function step({ prev, roster, setting, members, now }) {
   return { toConvene, next: { items, log } };
 }
 
-/* The runner reports each attempt: the room note is out (noted) whatever the pane did, and the
-   item is convened only when the pane delivery was PLACED. */
-function markAttempt(next, key, placed) {
+/* The runner reports each attempt. `delivered` is the playbook's verdict state: anything but
+   COULD_NOT ends the item, because UNCONFIRMED means text may already be in the pane and a
+   re-send could duplicate it (chat.js DELIVERY). Only COULD_NOT, where nothing reached the
+   pane, is retried. `asked` is the peers whose ask was placed, kept for the retry's wording. */
+function markAttempt(next, key, delivered, DELIVERY, asked) {
   const rec = next && next.items && next.items.get(key);
   if (!rec) return;
   rec.noted = true;
   rec.attempts = (rec.attempts || 0) + 1;
-  if (placed) rec.convened = true;
+  if (Array.isArray(asked)) rec.asked = asked;
+  if (delivered !== DELIVERY.COULD_NOT && delivered !== null && delivered !== undefined) rec.convened = true;
 }
 
 
@@ -143,24 +147,35 @@ function activeGuards(setting) {
   return Object.keys(GUARD_TEXT).filter((k) => g[k] !== false).map((k) => GUARD_TEXT[k]);
 }
 
-/* The room note, in Kosmos's voice (messages.roomNote). */
+/* The room note, in Kosmos's voice (messages.roomNote). A note is a record in the room; it is
+   not delivered to anyone, which is why the asks go to the peers' panes (peerAskText). */
 function roomNoteText(item) {
-  const who = item.peers.length ? item.peers.map((p) => '@' + p.name).join(' ') + ': ' : '';
   const ask = item.peers.length
-    ? 'one reply each, please, with the call you would make and why.'
-    : 'no one else is on this project, so ' + item.name + ' will decide it and note the reasoning here.';
-  return 'Recommender: ' + item.name + ' is stuck on: "' + item.because + '". ' + who + ask;
+    ? 'Kosmos is asking ' + item.peers.map((p) => p.name).join(' and ') + ' for one reply each here, with the call they would make and why.'
+    : 'No one else is on this project, so ' + item.name + ' will decide it and note the reasoning here.';
+  return 'Recommender: ' + item.name + ' is stuck on: "' + item.because + '". ' + ask;
 }
 
-/* The playbook delivered into the stuck agent's pane. */
+/* The ask delivered into one peer's pane. */
+function peerAskText(item) {
+  return 'Recommender (Kosmos): ' + item.name + ' is stuck on a decision in project ' + item.project
+    + ': "' + item.because + '". Reply once in the project room with the call you would make and why: kosmos post '
+    + item.project + ' "..."';
+}
+
+/* The playbook delivered into the stuck agent's pane. It names only the peers whose ask was
+   actually placed, so it never tells the agent to wait for replies nobody was asked for. */
 function playbookText(item, setting) {
   const guards = activeGuards(setting);
-  const peers = item.peers.length ? item.peers.map((p) => p.name).join(' and ') : '';
+  const asked = Array.isArray(item.asked) ? item.asked : [];
+  const peers = asked.length ? asked.map((p) => p.name).join(' and ') : '';
   const lines = [
     'Recommender (Kosmos): you reported being stuck on "' + item.because + '".',
     peers
-      ? 'I asked ' + peers + ' in the project room for one reply each. Give them a few minutes, then decide.'
-      : 'No one else is on this project, so decide it yourself now.',
+      ? 'I asked ' + peers + ' for one reply each in the project room. Give them a few minutes, then decide.'
+      : (item.peers.length
+        ? 'I could not reach the other members of this project, so decide it yourself now.'
+        : 'No one else is on this project, so decide it yourself now.'),
     'Post your decision in the project room with: the call, what you rejected and why, the weakest premise, and what would change your mind. Then carry it out and clear your report (kosmos report working).',
   ];
   if (guards.length) {
@@ -171,25 +186,32 @@ function playbookText(item, setting) {
 
 /**
  * One runner pass over injected effects (the auto-save sweep's shape), so the glue is tested
- * too: the room note goes out ONCE per item (never on a retry), the playbook is delivered, and
- * the attempt is recorded with placed = (verdict is PLACED).
- * @returns {{next: object, acted: Array<{session:string,project:string,noted:boolean,verdict:?string}>}}
+ * too. On first convening: the room note, then one ask per peer (once, never retried), then
+ * the playbook naming the peers who were reached. On a retry: the playbook only.
+ * @returns {{next: object, acted: Array<object>}}
  */
 function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY }) {
   const out = step({ prev, roster, setting, members, now });
   const acted = [];
+  const send = (session, text) => {
+    try { const v = deliver(session, text); return (v && v.state) || null; } catch { return null; }
+  };
   for (const item of out.toConvene) {
-    if (!item.retry) roomNote(item.project, roomNoteText(item));
-    let verdict;
-    try { verdict = deliver(item.session, playbookText(item, setting)); } catch { verdict = null; }
-    const state = verdict && verdict.state;
-    markAttempt(out.next, item.key, state === DELIVERY.PLACED);
-    acted.push({ session: item.session, name: item.name, project: item.project, noted: !item.retry, verdict: state || null });
+    let asked = item.asked || [];
+    let noteLanded = null;
+    if (!item.retry) {
+      try { noteLanded = roomNote(item.project, roomNoteText(item)) !== false; } catch { noteLanded = false; }
+      asked = item.peers.filter((p) => send(p.session, peerAskText(item)) === DELIVERY.PLACED);
+    }
+    const verdict = send(item.session, playbookText({ ...item, asked }, setting));
+    markAttempt(out.next, item.key, verdict, DELIVERY, item.retry ? undefined : asked);
+    acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry,
+      noteLanded, asked: asked.map((p) => p.session), verdict });
   }
   return { next: out.next, acted };
 }
 
 module.exports = {
-  step, runOnce, markAttempt, stuckRow, peersFor, itemKey, activeGuards, roomNoteText, playbookText,
+  step, runOnce, markAttempt, stuckRow, peersFor, itemKey, activeGuards, roomNoteText, peerAskText, playbookText,
   GUARD_TEXT, STUCK_STATES, GRACE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, MAX_PEERS, MAX_DELIVERY_ATTEMPTS,
 };

@@ -36,8 +36,9 @@ Status: DESIGN. No code until this is on the card.
 **Trigger.** An agent whose roster state is `needs_you`, REPORTED BY THE AGENT
 (`stateReportedBy === 'agent'`), with a `stateProject`, sustained past a grace period (default
 10 min, so an agent that unblocks itself is left alone). Excluded: `auto` reports (permission
-prompts; the class-1 handler owns those), `owner` = provider (outages are not decisions), operator
-reports, agents that are held/stopped, and agents with no project (no room to convene in).
+prompts and provider outages arrive by the hook; the class-1 handler owns those), operator
+reports, and agents with no project (no room to convene in). A stopped agent is not `needs_you`,
+so it never matches; there is no separate held/stopped check.
 
 **DECIDED during the challenge loop (April, 2026-09-24): `blocked` is NOT a trigger.** Converting the
 tests to real fleet cards (fixture-discipline) showed that status.js's blocked branch carries neither
@@ -50,17 +51,23 @@ Weakest premise: that agents report decisions as `needs_you` rather than `blocke
 it: rooms showing agents reporting decisions as `blocked`; then add the passthrough and re-add the
 state (engine/recommender.test.js pins the current card shape so that change is visible).
 
-**Convene (once per item).** Item key = agent + hash(because|on). For a new item:
-1. A `roomNote` in the project room, in the product's voice: "Recommender: <agent> is stuck on
-   <because>. @<peer1> @<peer2>: one reply each with the call you would make and why." Peers = up to
-   two OTHER project members, preferring ones not themselves blocked. No peers -> the blocked agent
-   decides alone (step 2 still runs); that is Josh's standing rule anyway.
-2. `chat.deliver` to the blocked agent: the Recommender playbook for THIS item: wait up to N minutes
+**Convene (once per item).** Item key = agent session + the report's `because` (capped at 300
+chars). For a new item:
+1. A `roomNote` in the project room, in the product's voice, recording the ask. A note is a log row
+   only; it is delivered to nobody (challenge loop, iteration 2), so it cannot be the ask itself.
+2. The ask, `chat.deliver`ed into each peer's pane once (never retried): who is stuck, on what, and
+   `kosmos post <project> "..."` to reply in the room. Peers = up to two OTHER project members,
+   preferring ones not themselves stuck. No peers -> the agent decides alone; that is Josh's
+   standing rule anyway.
+3. `chat.deliver` to the stuck agent: the Recommender playbook for THIS item, naming only the peers
+   whose ask was PLACED (none reached says so, never "wait for replies"): wait a few minutes
    for peers, then decide; post the decision to the room with the four required parts (the call,
    what was rejected and why, the weakest premise, what would change your mind); carry it out; clear
    your report (`kosmos report working`). If the item touches an ACTIVE guard, do not act: keep the
    report for the person, post the recommendation anyway, and move to other work.
-   Advance item state only when delivery is PLACED (auto-save pattern).
+   The item ends on a PLACED or UNCONFIRMED playbook; only COULD_NOT (nothing reached the pane) is
+   retried, playbook only, up to 5 times. UNCONFIRMED is not retried because chat.js defines it as
+   "something may have arrived; re-sending may duplicate it".
 
 **Consensus, stated honestly.** v1 is "peers advise, the stuck agent decides and documents". No
 voting engine, no multi-round loop: the per-pair cap and the colleagues rule ("stop after a few
@@ -72,7 +79,9 @@ switches respected. That matches how agents already treat these three limits (de
 Recommender does not widen what an agent can do; it shortens the wait before a reversible decision.
 A tool-level deny (the PreToolUse hook) is a separate card, not v1.
 
-**Limits.** One convening per item. Global cap (default 6 per hour) and a per-agent cap (2 per hour).
+**Limits.** One convening per item within one board run: the memory is in process, so a board
+restart can convene a still-standing item once more (accepted: restarts are rare, the caps still
+apply, and a persisted store is more surface than this is worth in v1). Global cap (default 6 per hour) and a per-agent cap (2 per hour).
 Room notes do not spend the per-pair budget; peer replies do, which is the intended brake.
 
 **Instructions.** Phase 1 carries the whole playbook, active guards included, IN the per-item pane
