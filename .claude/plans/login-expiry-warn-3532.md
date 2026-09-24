@@ -56,11 +56,14 @@ CCD instead:
   /api/status poll. Overlay, does not replace working/idle chrome. Frontend -> needs a browser-check (FOUR
   indices) + a screenshot for Josh.
 
-STATUS 2026-09-23 night: steps 1 (detector), 2 (snapshot wiring), and the server half of 3 are DONE, committed +
-pushed on login-expiry-warn-3532, and verified END TO END on the live fleet (18 agents grouped into 4
-credentials with correct expiries; the 7 explicit-CCD ~/.claude bots resolve to the SUFFIXED 2a1a4199, proving
-the #2129 fix). status.test.js 193/193, loginexpiry.test.js 22/22. NEXT: the web pill (3), then the re-login
-action (4), then browser-check + challenge-loop + PR.
+STATUS 2026-09-23 night: steps 1 (detector), 2 (snapshot wiring), and ALL of 3 (server + WEB PILL) are DONE,
+committed + pushed on login-expiry-warn-3532. Verified: engine tests (status 193/193, loginexpiry 22/22), the
+detector END TO END on the live fleet (18 agents -> 4 credentials, the 7 explicit-CCD ~/.claude bots resolve to
+the SUFFIXED 2a1a4199, #2129 fix holding), AND the pill via a headless browser-check (render-login-expiry-3532,
+17/17: warn/urgent/expired + empty control) on a fully-sandboxed board, with screenshots committed. This is
+Josh's stated MINIMUM (notice per account, tell the user days ahead) COMPLETE.
+NEXT: challenge-loop -> PR for this detection+advisory half (Addresses #3532, non-closing). FOLLOW-ON: step 4
+one-click "Sign in again" action, then step 5 other providers + Windows.
 
 ### 4. Action: one-click "Sign in again" (server + engine) - pane-gated
 - Button -> server primitive that runs the account's login without a terminal. #3532 notes `claude auth login`
