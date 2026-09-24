@@ -159,7 +159,8 @@ function check(name, pass, detail) {
         keyedExpect: (() => {
           const known = typeof CREATE_ACCOUNTS_KNOWN !== 'undefined' && CREATE_ACCOUNTS_KNOWN === true;
           const rows = typeof CREATE_ACCOUNTS !== 'undefined' ? CREATE_ACCOUNTS : [];
-          const has = (p) => rows.some((x) => x && String(x.provider || '').toLowerCase() === p && acctOfferableTarget(x));
+          const has = (p) => rows.some((x) => x && String(x.provider || '').toLowerCase() === p && acctOfferableTarget(x)
+            && (!x.connection || x.connection.state !== 'none') && x.offerable !== false);
           return { known, google: known && has('google'), xai: known && has('xai') };
         })(),
         keyedSeen: { google: !id('create-provider').querySelector('option[value="google"]').disabled,
