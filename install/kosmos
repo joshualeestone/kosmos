@@ -1185,9 +1185,12 @@ require_valid_project_id() {
 _keep_piped() {
   [ "${from_stdin:-0}" = 1 ] || return 0
   local _f
-  _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f" \
-    && say "The piped message was not sent; it is saved at $_f" \
-    || say "The piped message was not sent, and we could not save a copy of it."
+  if _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f"; then
+    say "The piped message was not sent; it is saved at $_f"
+  else
+    [ -n "${_f:-}" ] && rm -f "$_f"
+    say "The piped message was not sent, and we could not save a copy of it."
+  fi
 }
 
 POST_BODY_MAX_BYTES=6291456   # #2909: the board's request-READ limit (server.js MAX_UPLOAD), past which it drops the connection; the room's own text cap is far lower and says so itself. Pinned by cli.post-stdin-2909.test.js
@@ -1258,12 +1261,6 @@ cmd_post() {
         say "--stdin reads the message from a pipe or file, and nothing was piped in: kosmos post --stdin <project-id> < message.md"
         exit 2
       fi
-      # Check the board BEFORE reading: a live pipe (gh ... | kosmos post --stdin) cannot be
-      # replayed, so consuming it and then finding Kosmos down would lose the message.
-      if ! healthy; then
-        say "Kosmos is not running, so nothing can be posted (the piped message was not read). Start it with: kosmos start"
-        exit 1
-      fi
       # Read at most one byte past the board's limit, raw, into a private file: an accidental huge
       # pipe is never held whole, and the size is judged on the bytes as sent, before anything is
       # dropped, so an over-limit message is refused rather than truncated and posted.
@@ -1319,8 +1316,8 @@ cmd_post() {
     say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955)"
     exit 2
   fi
-  # With --stdin this is a second check, on purpose: the first ran before the read, and a slow pipe
-  # leaves time for the board to go away; this one keeps the message if it did.
+  # With --stdin the pipe is read BEFORE this check on purpose: a live pipe (gh ... | kosmos post
+  # --stdin) cannot be replayed, so with Kosmos down the message is read and kept in a file.
   if ! healthy; then
     say "Kosmos is not running, so nothing can be posted. Start it with: kosmos start"
     _keep_piped

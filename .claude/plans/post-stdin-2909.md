@@ -3,14 +3,14 @@
 ## Finished looks like
 `kosmos post --stdin <project>` (mac bash CLI and Windows node CLI) sends the piped text to the board as written
 (backticks, $, quotes, backslashes, newlines, tabs, inner CRs; trailing CR/LF run, a leading BOM
-and non-whitespace control characters such as ESC are dropped), combines with --no-reply in either order, and refuses
+and non-whitespace control characters such as ESC are dropped), combines with --no-reply and --in-reply-to in any order, and refuses
 (exit 2, nothing sent) when args are also given, when nothing (or only whitespace/control characters)
 is piped, when stdin is a terminal, when the pipe went quiet without ending (Windows only, same
 guard as feedback write), or when the encoded request body is over the board's 6 MB request-read limit
 (measured after JSON escaping; the room's own, much lower text cap refuses with its own sentence).
 Without --stdin the message source is unchanged; the bash escaper's tab/CR/control handling does
-change for argument-mode posts too (see Decisions). With --stdin, bash checks the board is up before
-reading; any failure after the read (too large, unreachable, refused, declined, or a wrong-world
+change for argument-mode posts too (see Decisions). With --stdin, both CLIs read the pipe first (a
+live pipe cannot be replayed); any failure after the read (Kosmos not running, too large, unreachable, refused, declined, or a wrong-world
 post the outbox could not keep) saves the message, as it would have been posted, to a mode-600 file
 and names its path, on both CLIs. Not saved, on purpose: the "still delivering" timeout (the post may
 have landed and the sentence says not to re-post) and a Windows pipe that went quiet (refused as
@@ -20,8 +20,6 @@ collapses tabs and CRs.
 Known asymmetries, accepted:
 - The #2710 echo-back of refused argument-mode text exists only in install/kosmos (it predates this
   branch); a refused --stdin message is saved to a file on both CLIs.
-- The Windows CLI reads the pipe before contacting the board (it has no separate health check); a
-  failure then saves the message to a file, so nothing is lost either way.
 - bash has no quiet-pipe time limit (same as `feedback write` there): an open pipe nobody writes to
   blocks until the caller closes it. The Claude Code Bash tool hands commands /dev/null, so agents on
   it are not exposed.
@@ -52,8 +50,8 @@ Known asymmetries, accepted:
 - Capability endpoint (kosmos-room-richtext-v1) stays deferred: nothing consumes it.
 
 ## Weakest premise
-The Windows CLI's --stdin path is tested only with a fake stdin reader; the real readStandardInput
-through the kosmos.sh (Git Bash) shim was not run on a Windows machine.
+The Windows CLI's --stdin path is tested with a fake reader and with the real readStandardInput over a
+PassThrough stream, but never through the kosmos.sh (Git Bash) shim on a Windows machine.
 
 ## Tests
 cli.post-stdin-2909.test.js (real install/kosmos vs stub board, with a /bin/sh control proving the

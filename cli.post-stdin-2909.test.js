@@ -232,11 +232,16 @@ test('#2909: --stdin at a terminal is refused at once instead of waiting on a si
   });
 })));
 
-test('#2909: with Kosmos not running, --stdin refuses before the read and says the message was not read', async () => {
+test('#2909: with Kosmos not running, a piped message is read and kept in a file, not lost', async () => {
   const env = { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%42' };
-  const out = await runCli(['post', '--stdin', 'proj'], env, 'a message that must not be consumed');
+  const out = await runCli(['post', '--stdin', 'proj'], env, 'LIVE-PIPE-BODY');
   assert.equal(out.code, 1, out.stdout + out.stderr);
-  assert.match(out.stdout + out.stderr, /not running.*was not read/);
+  assert.match(out.stdout, /Kosmos is not running/);
+  const saved = out.stdout.match(/saved at (\S+)/);
+  assert.ok(saved, 'a live pipe cannot be replayed, so the message must be kept: ' + out.stdout);
+  const fs = require('node:fs');
+  assert.equal(fs.readFileSync(saved[1], 'utf8'), 'LIVE-PIPE-BODY');
+  fs.rmSync(saved[1]);
 });
 
 test('#2909: the post usage line is the same sentence in install/kosmos and the Windows CLI', () => {
