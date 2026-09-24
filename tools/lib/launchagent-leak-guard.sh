@@ -68,5 +68,5 @@ launchagent_leak_check() {
 # the plist has no WorkingDirectory or cannot be read.
 launchagent_leak_origin() {
   [ -r "$1" ] || return 0
-  sed -n 's:.*<key>WorkingDirectory</key><string>\(.*\)</string>.*:\1:p;/<key>WorkingDirectory<\/key>/q' "$1" 2>/dev/null
+  sed -n '/<key>WorkingDirectory<\/key>/{s:.*<key>WorkingDirectory</key><string>\(.*\)</string>.*:\1:p;q;}' "$1" 2>/dev/null
 }

@@ -256,7 +256,10 @@ function agentsDir() { return process.env.AGENT_WORKFORCE_LAUNCH || path.join(ho
    "Under test" is NODE_TEST_CONTEXT, which `node --test` sets in every file's
    process (and which the children those tests spawn inherit when spawned with the
    parent's env); a real board never
-   has it. "Real" is the ACCOUNT's home from the password database, not $HOME or
+   has it. This parts from live-execution.js (which keys on execArgv so a spawned
+   server may still act) for the reason win32job.js's schtasksMayRunInThisProcess
+   gives: the real LaunchAgents has no sandbox a spawned child could fall back to.
+   "Real" is the ACCOUNT's home from the password database, not $HOME or
    AGENT_WORKFORCE_HOME, so a test that points either seam at its sandbox is left
    alone and one that forgot both is caught. Exported for its unit test, which
    exercises it with no write at all. */
