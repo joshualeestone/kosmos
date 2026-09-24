@@ -1449,8 +1449,6 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-foot { font-size: .75rem; color: var(--k-ink-2); }
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
 .tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.tipdim { position: fixed; inset: 0; z-index: 44; background: rgba(20,22,26,.28); }
-.tipdim[hidden] { display: none; }
 .tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
   box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
@@ -52514,7 +52512,9 @@ const TIPS = [
      names its tab-layout target first and its consolidated-layout one second; a step whose place is
      not on screen is left out, and the count says how many there are. */
   { id: 'tour', tour: true,
-    show: () => tipVisible('#boardbar') && !tipVisible('#panel-detail'),
+    /* On the board: its stats bar in the tab layout, its rail in the consolidated one (which hides
+       the bar at wide widths). */
+    show: () => (tipVisible('#boardbar') || tipVisible('#rail-agents')) && !tipVisible('#panel-detail'),
     steps: [
       { at: ['#new-agent', '#rail-agents-new'], title: 'Make your first agent',
         body: 'Start here. You give it a name, a picture and a job, and it gets to work.' },
@@ -52529,7 +52529,7 @@ const TIPS = [
     body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
   { id: 'ring', title: 'The ring is your agent\'s memory', /* Only a card that draws the gauge: a filled band (.gf) or the unknown-memory dashed ring (.gu).
        An off or needs-trust card has a face and no ring. */
-    show: () => tipVisibleAny('#grid .agauge .gf, #grid .agauge .gu'), at: '#grid .agauge:has(.gf), #grid .agauge:has(.gu)',
+    show: () => tipVisibleAny('#grid .agauge .gf, #grid .agauge .gu, #alist .lring'), at: '#grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring',
     body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
       + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
       + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },
@@ -52593,8 +52593,6 @@ async function tipsSave(patch) {
   } catch { /* the tip still closes; it may show once more next time */ }
 }
 
-/* Periodic, not hooked into every navigation path: a tip reads the screen, so a new route
-   to a screen needs no wiring to get its tip. Cheap: a few querySelector calls a second. */
 /* The card, the tour's dim and pins, and the live region, built once into one container at the end of
    <body>. Built here rather than written into the markup because the consolidated layout makes <body> a
    grid with a fixed count of pre-rail rows (web.consolidated-980): every piece here is position:fixed
@@ -52603,7 +52601,7 @@ function tipLayerEnsure() {
   if (document.getElementById('tiplayer')) return;
   const layer = document.createElement('div');
   layer.id = 'tiplayer';
-  layer.innerHTML = '<div class="tipdim" id="tipdim" hidden></div><div id="tippins"></div>'
+  layer.innerHTML = '<div id="tippins"></div>'
     /* No aria-modal: a role="dialog" is non-modal by default, which this card is, and the modal
        sweep (web.modal-way-out-1316) counts anything carrying aria-modal as a modal. */
     + '<div class="tipcard" id="tipcard" role="dialog" aria-labelledby="tipcard-title" hidden></div>'
@@ -52611,6 +52609,8 @@ function tipLayerEnsure() {
   document.body.appendChild(layer);
 }
 
+/* Periodic, not hooked into every navigation path: a tip reads the screen, so a new route
+   to a screen needs no wiring to get its tip. Cheap: a few querySelector calls a second. */
 function tipsStart() {
   tipLayerEnsure();
   if (TIPS_STARTED) return;
@@ -52645,6 +52645,9 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   TIP_AUTO = auto;
   TIP_RETURN = auto ? null : (returnTo || document.activeElement);
   if (t.tour) {
+    /* The tour dims the page and ends on a click outside, so it takes focus even when it opened by
+       itself, and hands it back when it ends. */
+    if (auto) TIP_RETURN = document.activeElement !== document.body ? document.activeElement : null;
     TIP_PLACES = t.steps.map((st) => ({ ...st, sel: st.at.find((sel) => tipVisible(sel)) })).filter((st) => st.sel);
     TIP_STEP = 0;
     if (!TIP_PLACES.length) { TIP_OPEN = null; return; }
@@ -52661,7 +52664,10 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   card.hidden = false;
   card.querySelector('.tip-go').addEventListener('click', () => tipClose({ record: true }));
   card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
-  card.querySelector('.tip-off').addEventListener('click', () => { tipClose({ record: true, also: { off: true } }).then(paintTipsToggle); });
+  card.querySelector('.tip-off').addEventListener('click', () => {
+    if (TIPS_STATE && TIPS_STATE.ok) TIPS_STATE.off = true;   // before the save, so no tip slips in while it is in flight
+    tipClose({ record: true, also: { off: true } }).then(paintTipsToggle);
+  });
   tipAnnounce(card);
   tipLayout(t, card);
   if (!auto) card.querySelector('.tip-go').focus();
@@ -52697,7 +52703,7 @@ function tipTourRender(card, auto) {
   });
   tipAnnounce(card);
   tipLayout(TIP_OPEN, card);
-  if (!auto) card.querySelector('.tip-go').focus();
+  card.querySelector('.tip-go').focus();
 }
 
 
@@ -52707,7 +52713,6 @@ function tipSuspend(on) {
   card.dataset.suspended = String(on);
   card.hidden = on;
   document.getElementById('tippins').hidden = on;
-  if (TIP_OPEN.tour) document.getElementById('tipdim').hidden = on;
   if (!on) tipLayout(TIP_OPEN, card);
 }
 
@@ -52774,8 +52779,6 @@ function tipClose({ record, also = null }) {
   const card = document.getElementById('tipcard');
   const hadFocus = !!card && card.contains(document.activeElement);   // read before the card empties
   if (card) { card.hidden = true; card.innerHTML = ''; }
-  const dim = document.getElementById('tipdim');
-  if (dim) dim.hidden = true;
   const pins = document.getElementById('tippins');
   if (pins) { pins.innerHTML = ''; pins.hidden = false; }
   TIP_OPEN = null;
@@ -52849,7 +52852,10 @@ function wireHelpq() {
     if (t) tipShow(t, { returnTo: btn });
   });
   document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('#helpq')) closeHelpMenu(); });
-  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeHelpMenu(); btn.focus(); } });
+  /* Escape closes the menu wherever focus is inside the ? (the button after a mouse click, or an item). */
+  document.getElementById('helpq').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !menu.hidden) { e.stopPropagation(); closeHelpMenu(); btn.focus(); }
+  });
 }
 wireHelpq();
 /* The Settings switch paints from the board's answer and writes the off flag. Hidden when the board

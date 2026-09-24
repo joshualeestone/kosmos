@@ -1,4 +1,4 @@
-// Browser-check-surface: tipcard tipdim tippins tippin tip-go tip-off tip-arrow tip-bands helpq helpq-btn helpq-menu data-help tips-toggle tips-row
+// Browser-check-surface: tipcard tippins tiphalo tip-go tip-off tip-skip tip-dots tip-arrow tip-bands helpq helpq-btn helpq-menu data-help tips-toggle tips-box
 'use strict';
 
 /**
@@ -42,7 +42,7 @@ const cardState = (page) => page.evaluate(() => {
   const c = document.getElementById('tipcard');
   const h = c && c.querySelector('h2');
   return { shown: !!c && !c.hidden, title: h ? h.textContent : null,
-    dim: !document.getElementById('tipdim').hidden || !!document.querySelector('#tippins .tiphalo:not([hidden])'),
+    dim: !!document.querySelector('#tippins:not([hidden]) .tiphalo'),
     halo: document.querySelectorAll('#tippins .tiphalo').length,
     step: c ? (c.querySelector('.tip-eb')?.textContent || '') : '', dots: c ? c.querySelectorAll('.tip-dots i').length : 0 };
 });
@@ -72,6 +72,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(tour.dim && tour.halo === 1 && tour.step === '1 of 4' && tour.dots === 4, 'T1 step 1 of 4: one place ringed, the rest dimmed, four dots', JSON.stringify(tour));
     const ringed = await page.evaluate(() => { const h = document.querySelector('#tippins .tiphalo').getBoundingClientRect(); const b = document.getElementById('new-agent').getBoundingClientRect(); return Math.abs(h.left + 4 - b.left) <= 1 && Math.abs(h.top + 4 - b.top) <= 1; });
     chk(ringed, 'T1 the ring sits on the New agent button');
+    // Past a tick of the tips timer the ringed button is still the thing under the pointer (bright,
+    // and a click reaches it), and the tour's Next has focus although it opened by itself.
+    await page.waitForTimeout(1500);
+    const reach = await page.evaluate(() => { const b = document.getElementById('new-agent').getBoundingClientRect(); const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return { onButton: !!hit && !!hit.closest('#new-agent'), focus: document.activeElement && document.activeElement.className }; });
+    chk(reach.onButton && reach.focus === 'tip-go', 'T1 after a tick the ringed button is still under the pointer, and Next has focus', JSON.stringify(reach));
     if (SHOTS) {
       fs.mkdirSync(SHOTS, { recursive: true });
       await page.screenshot({ path: path.join(SHOTS, 'tour-light.png') });
@@ -99,7 +104,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
 
     // T3: the ring tip then shows by itself on the board (a card has a ring), as a screen tip.
     chk(await waitTitle(page, 'The ring is your agent\'s memory', 4000), 'T3 the ring tip shows by itself on the board');
-    const ring = await page.evaluate(() => ({ dim: !document.getElementById('tipdim').hidden, bands: document.querySelectorAll('#tipcard .tip-bands .gf').length }));
+    const ring = await page.evaluate(() => ({ dim: !!document.querySelector('#tippins .tiphalo'), bands: document.querySelectorAll('#tipcard .tip-bands .gf').length }));
     chk(!ring.dim && ring.bands === 3, 'T3 it is a screen tip, with no dim, and the three gauge colours', JSON.stringify(ring));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-light.png') });
     // T16: leaving the screen closes a tip that showed by itself, without recording it, and the next
@@ -287,11 +292,21 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.evaluate(() => applyLayout('consolidated', true));
     await page.waitForTimeout(400);
     await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="tour"]');
+    // Escape with focus still on the ? (a mouse opened it) closes the menu.
+    await page.keyboard.press('Escape');
+    chk(await page.evaluate(() => document.getElementById('helpq-menu').hidden), 'T12 Escape closes the ? menu with focus on the button');
+    // The tour shows by itself under the consolidated layout too (the board's rail, not its stats bar).
+    resetStore({ seen: [], off: false });
+    await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }));
+    await page.reload({ waitUntil: 'networkidle' });
+    const consOn = await page.evaluate(() => document.documentElement.getAttribute('data-layout'));
+    chk(consOn === 'consolidated', 'T12 precondition: the page reloaded in the consolidated layout', 'data-layout=' + consOn);
+    chk(await waitTitle(page, TOUR, 4000), 'T12 under the consolidated layout the tour shows by itself');
     const cons = await cardState(page);
     chk(cons.shown && cons.step === '1 of 4' && cons.dots === 4 && cons.halo === 1,
       'T12 under the consolidated layout the tour still finds all four places (the rail heads)', JSON.stringify(cons));
     await page.keyboard.press('Escape');
+    await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) }));
     await page.evaluate(() => applyLayout('tabs', true));
 
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
