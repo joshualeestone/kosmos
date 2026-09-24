@@ -81,7 +81,7 @@ async function measure(page) {
       boxTop: Math.round(br.top),
       boxLeft: Math.round(br.left),
       boxRight: Math.round(br.right),
-      viewW: document.documentElement.clientWidth,
+      viewW: window.innerWidth, // the WINDOW edge: html's clientWidth hides a reserved scrollbar gutter
       headBottom: Math.round(document.querySelector('.apphead').getBoundingClientRect().bottom),
       backRight: back ? Math.round(back.getBoundingClientRect().right) : null,
       backBottom: back ? Math.round(back.getBoundingClientRect().bottom) : null,
@@ -237,6 +237,14 @@ async function measure(page) {
       'A2 short window: the Talk box still fills to near the viewport bottom',
       'boxBottom=' + short.boxBottom + ' innerHeight=' + short.innerHeight + ' gap=' + short.gapBelowBox);
     edges(short, 'short window');
+    // A1l: Josh's window size (0.6.91 QA, about 1000x660), where a reserved scrollbar gutter left a
+    // 15px strip down the right edge (box right 985 in a 1000 window). A1b above now measures to
+    // window.innerWidth, so it reds on that strip.
+    await page.setViewportSize({ width: 1000, height: 660 });
+    await page.waitForTimeout(200);
+    edges(await measure(page), 'Josh window 1000x660');
+    await page.setViewportSize({ width: 1400, height: 700 });
+    await page.waitForTimeout(150);
 
     // --- Narrow width (<=56rem): the identity block and nav stack above the Talk box, so the page
     // scrolls and the box is its own window-tall block; the header is not sticky in this view.

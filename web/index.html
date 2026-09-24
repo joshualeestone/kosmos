@@ -2457,6 +2457,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
     position: relative; flex: 1 1 auto; min-height: 0; height: auto;
     margin-right: calc(-1 * var(--space-8)); }
+  /* The page never scrolls in this view, so the #1309 scrollbar gutter (reserved on html so long
+     pages do not shift) would only hold an empty strip down the right edge on a Mac that shows
+     scrollbars. Same exemption #1309 gives the consolidated view, for the same reason. */
+  html:has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
   /* The build marker moves to the bottom-left corner, over the side column, so it does not sit
      inside the box under Post. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #buildmark { right: auto; left: 10px; }
