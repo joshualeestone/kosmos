@@ -160,10 +160,14 @@ if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
     # OUR identity, by team id, not any Developer ID Installer's (named once, lib/signing-identity.sh,
     # #3643). The build-time override (KOSMOS_INSTALLER_CERT) is deliberately NOT honoured here: it may be
     # a loose name or a SHA-1, and this check is about which TEAM signed what users download.
-    _vs_inst=""
-    if . "$REPO/tools/lib/signing-identity.sh" 2>/dev/null; then _vs_inst="${KOSMOS_SIGN_INSTALLER_DEFAULT:-}"; fi
-    if [ -z "$_vs_inst" ]; then say "/dist/Kosmos.pkg signature" "NOT checked: could not read the signing identity from $REPO/tools/lib/signing-identity.sh (an older checkout?)"; fail=1
-    elif pkgutil --check-signature "$ptmp" 2>/dev/null | grep -qF "$_vs_inst"; then say "/dist/Kosmos.pkg signature" "$_vs_inst"
+    # The identity of the release being verified ($REPO); if that checkout predates the lib, the one
+    # beside this script.
+    _vs_inst=""; _vs_lib="$REPO/tools/lib/signing-identity.sh"
+    [ -f "$_vs_lib" ] || _vs_lib="$(dirname "$0")/lib/signing-identity.sh"
+    if . "$_vs_lib" 2>/dev/null; then _vs_inst="${KOSMOS_SIGN_INSTALLER_DEFAULT:-}"; fi
+    _vs_sig="$(pkgutil --check-signature "$ptmp" 2>/dev/null || true)"   # captured: no pipe into an early-exiting grep
+    if [ -z "$_vs_inst" ]; then say "/dist/Kosmos.pkg signature" "NOT checked: could not read the signing identity from $_vs_lib"; fail=1
+    elif printf '%s\n' "$_vs_sig" | grep -qF "$_vs_inst"; then say "/dist/Kosmos.pkg signature" "$_vs_inst"
     else say "/dist/Kosmos.pkg signature" "NOT signed by our Developer ID Installer ($_vs_inst)"; fail=1; fi
   else say "/dist/Kosmos.pkg signature" "not checked here (no pkgutil on this machine)"; fi
   if command -v xcrun >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then

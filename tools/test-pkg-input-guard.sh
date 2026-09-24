@@ -116,6 +116,10 @@ mkdir -p "$U/install/pkg-resources"; rm "$U/tools/build-installer-pkg.sh"
 if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing build script did not refuse"; else ok "a missing build script refuses, not a sha over less"; fi
 printf 'x\n' > "$U/tools/build-installer-pkg.sh"
 pkg_input_sha "$U" >/dev/null 2>&1 && ok "CONTROL: with every input present the sha computes (so the next refusal is about the identity)" || bad "a complete fixture did not compute a sha"
+chmod 000 "$U/tools/lib/signing-identity.sh"
+if [ -r "$U/tools/lib/signing-identity.sh" ]; then ok "SKIP: running as a user that reads mode-000 files, the unreadable arm cannot be exercised here"
+elif pkg_input_sha "$U" >/dev/null 2>&1; then bad "an unreadable signing identity did not refuse"; else ok "an unreadable signing identity (#3643) refuses, not a sha over less"; fi
+chmod 644 "$U/tools/lib/signing-identity.sh"
 rm "$U/tools/lib/signing-identity.sh"
 if pkg_input_sha "$U" >/dev/null 2>&1; then bad "a missing signing identity did not refuse"; else ok "a missing signing identity (#3643) refuses, not a sha over less"; fi
 rm -rf "$U"
