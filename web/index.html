@@ -1373,7 +1373,6 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    quiet card, not an alarm: it explains the feature and offers the one action. */
 .pj-plus-signup { margin: 4px 0 24px; padding: 16px 18px; border: 1px solid var(--k-rule);
                   border-radius: 12px; background: var(--k-surface); max-width: 34rem; }
-.pj-plus-signup-t { margin: 0 0 12px; color: var(--label); }
 .pj-plus-signup .btn { margin: 0; }
 /* A read-only value line in Join mode (the owner's project name/description, which the receiver
    cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
@@ -24288,10 +24287,16 @@ const PLUS_GATE_COPY = {
   join: "It's a Kosmos Plus feature and you must be logged in to access it.",
   connect: 'To connect external people or agents, you must be signed in as a Kosmos Plus user.',
 };
+/* The element that opened the gate, so closing returns the keyboard to it (the Join radio or the
+   grayed Add-external button). aria-modal promises focus is held and comes back on close; a new
+   sibling does not inherit that guard by sitting beside one (see the updconfirm note above). */
+let PLUS_GATE_OPENER = null;
 function showPlusGate(kind) {
   const back = document.getElementById('plus-gate-modal');
   const msg = document.getElementById('plus-gate-msg');
   if (!back || !msg) return;
+  PLUS_GATE_OPENER = (document.activeElement && document.activeElement !== document.body)
+    ? document.activeElement : null;
   msg.textContent = PLUS_GATE_COPY[kind] || PLUS_GATE_COPY.join;
   back.hidden = false;
   const close = document.getElementById('plus-gate-close');
@@ -24300,6 +24305,9 @@ function showPlusGate(kind) {
 function hidePlusGate() {
   const back = document.getElementById('plus-gate-modal');
   if (back) back.hidden = true;
+  const opener = (PLUS_GATE_OPENER && document.contains(PLUS_GATE_OPENER)) ? PLUS_GATE_OPENER : null;
+  PLUS_GATE_OPENER = null;
+  if (opener) opener.focus();
 }
 function paintBuildMark(version, sourceChannel) {
   const el = document.getElementById('buildmark');
@@ -46250,6 +46258,28 @@ document.getElementById('pj-plus-signup-go').addEventListener('click', fedPlusSi
 document.getElementById('plus-gate-close').addEventListener('click', hidePlusGate);
 document.getElementById('plus-gate-go').addEventListener('click', () => { hidePlusGate(); fedPlusSignupGo(); });
 (() => { const b = document.getElementById('plus-gate-modal'); if (b) b.addEventListener('click', (e) => { if (e.target === b) hidePlusGate(); }); })();
+/* #3495: the plus-gate modal gets the same .rm-back machinery as its siblings (updconfirm/rm-modal):
+   Escape leaves, and Tab is trapped among its two buttons so focus cannot leak to a control behind
+   the aria-modal backdrop. aria-modal is a promise these two listeners keep. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!document.getElementById('plus-gate-modal').hidden) hidePlusGate();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const back = document.getElementById('plus-gate-modal');
+  if (back.hidden) return;
+  const close = document.getElementById('plus-gate-close');
+  const go = document.getElementById('plus-gate-go');
+  // Intercept at the LAST element in the traversal direction and wrap to the first, so natural
+  // tabbing never exits the dialog (the updconfirm note explains why last, not first).
+  const reachable = [close, go].filter((el) => el && !el.disabled);
+  const order = e.shiftKey ? reachable.slice().reverse() : reachable;
+  if (!order.length) { e.preventDefault(); return; }
+  const inside = back.contains(document.activeElement);
+  if (!inside) { e.preventDefault(); close.focus(); return; }
+  if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
+});
 /* #3495 (Angel): the grayed Add-external buttons stay clickable; a non-Plus/not-live viewer gets
    the shared Plus-gate modal ("must be signed in as a Kosmos Plus user") instead of minting an
    invite. A "show" viewer mints as before. */

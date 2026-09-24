@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 16,
-    `${found.length} modals now, up from 15. A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 17,
+    `${found.length} modals now, up from 16. A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -83,6 +83,10 @@ const ESCAPES_VIA = {
      sweep caught it the moment it did -- the table refused a modal nobody had
      checked. The guard doing its job on its own author. */
   'am-modal':      /am-modal'\)\.hidden\) return;/,
+  /* #3495: the Kosmos+ gate modal (Join tab / grayed Add-external prompts). Its Escape is a global
+     keydown listener that closes it when it is not hidden, matching the updconfirm shape; it also
+     traps Tab among its two buttons and restores focus to the opener on close. */
+  'plus-gate-modal': /Escape[\s\S]{0,300}plus-gate-modal/,
 };
 
 test('every modal has a named way out with Escape, and the table covers them all', () => {
