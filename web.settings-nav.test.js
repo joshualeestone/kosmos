@@ -124,6 +124,16 @@ test('#2054/#3138/#2619: Automation holds Auto-save, Prompter, Agent Communicati
       '#2619: the guard checkbox ' + g + ' must carry the real disabled attribute until the behaviour is wired');
   }
   assert.match(sec, /Not active yet/, '#2619: the automations need a "not active yet" note so a disabled control is explained');
+  // #2619 (a11y, CI named-controls): each guard checkbox needs an accessible name
+  // the named-controls browser check recognizes. That check reads the name from
+  // aria-label / aria-labelledby / own text / title / label[for=id] - it does NOT
+  // read an implicit wrapping <label>. A wrapped-only checkbox reads as unnamed and
+  // fails "every visible control has a name" in CI (caught on PR #3549). Pin the
+  // explicit label[for] association here so the class is caught at the cheap layer.
+  for (const g of ['rec-guard-money', 'rec-guard-public', 'rec-guard-delete']) {
+    assert.match(sec, new RegExp('<label[^>]*\\bfor="' + g + '"'),
+      '#2619: the guard checkbox ' + g + ' needs an explicit <label for="' + g + '"> so it has an accessible name (named-controls CI check)');
+  }
   // #3138: Sounds is now LAST in the This computer (mac) section.
   const macAt = BODY.indexOf('id="s-sec-mac"');
   const macEnd = BODY.indexOf('<section class="dsec"', macAt + 1);
