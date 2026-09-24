@@ -38459,6 +38459,13 @@ function pjView(which) {
      stays beside whichever project view is open. */
   if (document.body.classList.contains('consolidated') && which !== 'list') document.getElementById('pj-list-view').hidden = false;
   PJ_VIEW = which;
+  /* #2922: when the room (View D) becomes visible, re-engage the live-mention mirror. pjMentionPaint
+     is hidden-safe (a no-op while #pj-post is hidden), so it is safe to call on every 'one'
+     navigation. Centralised HERE so every path that shows the room -- openProject, showTab's
+     consolidated toggle, leaving the task/docs detail, docs-back -- re-engages, not only openProject;
+     otherwise a mirror the hidden-state guard stripped on a resize-while-away would stay disengaged
+     (plain text, no blue) until the next keystroke. */
+  if (which === 'one') pjMentionPaint();
   syncUrl();
   /* #2834: close the shared reaction picker on ANY navigation, for the same reason
      the member picker is reset just below. The old per-post picker lived inside the
@@ -42810,12 +42817,7 @@ function openProject(id) {
   }
   pjCloseConfirm();
   paintOneProject();
-  pjView('one');
-  /* #2922: the room is now un-hidden, so re-engage the live-mention mirror for any restored draft.
-     The draft was set into #pj-post above while the room was still hidden (offsetWidth 0), where
-     pjMentionPaint deliberately no-ops; this repaint runs it once the composer is laid out so a
-     restored draft with @mentions shows highlighted instead of waiting for the first keystroke. */
-  pjMentionPaint();
+  pjView('one');   // #2922: pjView('one') re-engages the live-mention mirror for the restored draft
   refreshEngMode();
   loadThread();
   loadRoom();

@@ -176,7 +176,12 @@ test('pjMentionPaint is hidden-safe: it bails when the composer is not laid out 
   const body = PAGE.slice(start, PAGE.indexOf('\nfunction ', start + 1));
   assert.match(body, /if \(!val \|\| !input\.offsetWidth\)/,
     'pjMentionPaint must bail (no .mention-live) when #pj-post is hidden (offsetWidth 0)');
-  // openProject must re-engage the mirror once the room is shown.
-  const op = PAGE.indexOf("pjView('one');\n  /* #2922: the room is now un-hidden");
-  assert.ok(op > 0, "openProject must call pjMentionPaint() right after pjView('one') to re-engage the mirror on show");
+  // pjView('one') must re-engage the mirror when the room is shown. Centralised in pjView (not just
+  // openProject) so EVERY path that shows the room -- showTab, leaving task/docs detail, docs-back --
+  // re-engages after the hidden-state guard stripped .mention-live while the room was away.
+  const vStart = PAGE.indexOf('function pjView');
+  assert.ok(vStart > 0, 'pjView must exist');
+  const vBody = PAGE.slice(vStart, PAGE.indexOf('\nfunction ', vStart + 1));
+  assert.match(vBody, /if \(which === 'one'\) pjMentionPaint\(\)/,
+    "pjView must call pjMentionPaint() for which==='one' so every room-show path re-engages the mirror");
 });

@@ -283,6 +283,12 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         'hi @mona', '@mon', '@mona-', 'cc @mona.', '_@mona_', '(@mona)', '**@mona**', '~@mona~',
         '@renet-tilley, @mona!', '@Mona', 'email a@mona', '@mona_bar', '@ice-cream-kitty done',
         'plain, no mention', '@nobody here', 'two @mona and @renet-tilley', '@mona_', '@mona.-',
+        // Entity-adjacent: the one class where raw (pjMentionHighlightHTML) vs escaped (pjRichSpans)
+        // tokenization walks different bytes to reach the verdict. It cannot change the verdict --
+        // agent keys are [A-Za-z0-9._-] and can never hold &, <, >, ", so a word carrying an entity
+        // char (raw `mona&x` or escaped `mona&amp;x`) fails the key lookup on BOTH sides. These prove
+        // it rather than trusting the argument.
+        '@mona&x', '@mona<b>', '@mona"', '&@mona', '@mona&amp;', 'hi @mona&renet-tilley', '<@mona>',
       ];
       const keysFrom = (html, cls) => {
         const re = new RegExp('class="' + cls + '">@([^<]+)<', 'g');
