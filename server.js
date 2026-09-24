@@ -2193,10 +2193,26 @@ function keepAgentReply(who, text, at) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo }, roster) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
+  /* #3224: if this post ANSWERS a specific message (in_reply_to), bind it to the
+     room that message came from. The answered post's project is a non-circular
+     oracle (recorded when it was posted, independent of this reply). If the target
+     project differs, this is the misroute Josh reported -- refuse and name both
+     rooms rather than land the answer in the wrong one. A citation that has aged out
+     of the record (projectOfPost null) is treated as absent: never block a legit
+     reply over a stale id. A proactive post (no in_reply_to) is unchanged. */
+  const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
+  if (citedId) {
+    const answeredProject = messages.projectOfPost(citedId);
+    if (answeredProject && answeredProject !== found.id) {
+      let answeredName = answeredProject;
+      try { const ap = projects.get(answeredProject, roster); if (ap && ap.name) answeredName = ap.name; } catch { /* keep the id if the name is unresolvable */ }
+      return { state: 'could_not', because: 'that message (' + citedId + ') is in ' + answeredName + ', but you asked to post into ' + found.name + '. To answer it, post into ' + answeredName + '; to post into ' + found.name + ', do not answer that message.' };
+    }
+  }
   // An archived project still accepts posts, a RECORDED trade: the
   // archive hides a project from the list and stops it counting,
   // and nothing else in the app gates behavior on it (an archived
@@ -2286,6 +2302,9 @@ function drainOutboxNow(pass) {
         // during a wrongWorld/421 carries reply_expected:false. Forward it on drain, or the
         // replayed post would be reply-required again and reopen the loop for the kept-agent case.
         replyExpected: entry.body.reply_expected,
+        // #3224: the kept body carries in_reply_to too, so a replayed answer binds to
+        // the same room a live one would (and the mismatch guard applies identically).
+        inReplyTo: entry.body.in_reply_to,
       }, now));
     },
     onExpired: (entry, because) => {
@@ -10995,6 +11014,7 @@ const server = http.createServer((req, res) => {
           project: body.project,
           text: body.text,
           replyExpected: body.reply_expected,
+          inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
         }, roster);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer

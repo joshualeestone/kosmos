@@ -6550,8 +6550,8 @@ test('the post route resolves the project, derives the member list, and fans out
        and that is what this asserts. */
     assert.doesNotMatch(addressed.replace(/ · to answer, run: kosmos post routeroom/g, ''), /routeroom/,
       'the slug reached the sentence an agent reads');
-    assert.match(addressed, /· to answer, run: kosmos post routeroom\]/,
-      'the envelope must carry the command WITH THE SLUG: the name is not a project kosmos post can resolve');
+    assert.match(addressed, /· to answer, run: kosmos post routeroom --in-reply-to m\d+\]/,
+      'the envelope must carry the command WITH THE SLUG (and #3224 --in-reply-to): the name is not a project kosmos post can resolve');
     const rec = messagesEngine.record().rows.filter((m) => m.kind === 'post');
     assert.equal(rec.length, 1);
     assert.equal(rec[0].project, 'routeroom');
@@ -6624,8 +6624,8 @@ test('the room routes: the operator flag is minted only here, and the thread fil
     // the record (asserted at `row.project` a few lines up).
     assert.doesNotMatch(opEnv.replace(/ · to answer, run: kosmos post opsroom/g, ''), /opsroom/,
       'the slug reached the sentence an agent reads');
-    assert.match(opEnv, /· to answer, run: kosmos post opsroom\]/,
-      'an operator arrival must say how to answer it, which is the whole of kosmos#185');
+    assert.match(opEnv, /· to answer, run: kosmos post opsroom --in-reply-to m\d+\]/,
+      'an operator arrival must say how to answer it (with the #3224 --in-reply-to binding), which is the whole of kosmos#185');
 
     // The THREAD, filtered by project alone: a foreign project's post and
     // a room valve row seeded straight into the record.

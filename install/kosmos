@@ -1211,13 +1211,24 @@ cmd_post() {
   # recipient reads it in the foreground but is NOT told to answer -- this is what breaks the
   # ack-of-an-ack loop. Leading flag only (kosmos post --no-reply <project> <text>); anywhere else
   # it is treated as message text, the same recoverable tradeoff the --file scan above takes.
-  local no_reply=0
-  if [ "${1:-}" = "--no-reply" ]; then no_reply=1; shift; fi
+  # #2908 --no-reply and #3224 --in-reply-to are LEADING flags, in any order, the same
+  # recoverable tradeoff as the --file scan: anywhere but the front they are message text.
+  # --in-reply-to <id> binds the answer to the room the cited message came from; the server
+  # refuses if the target project differs (the misroute this fix catches).
+  local no_reply=0 in_reply_to=""
+  while :; do
+    case "${1:-}" in
+      --no-reply) no_reply=1; shift ;;
+      --in-reply-to) in_reply_to="${2:-}"; shift 2 2>/dev/null || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; } ;;
+      --in-reply-to=*) in_reply_to="${1#--in-reply-to=}"; shift ;;
+      *) break ;;
+    esac
+  done
   project="${1:-}"
   shift 2>/dev/null || true
   text="$*"
   if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post [--no-reply] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"
+    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"
     exit 2
   fi
   if ! healthy; then
@@ -1248,7 +1259,13 @@ cmd_post() {
   # route sees the field only in the no-reply case (omitted = current reply-required behavior).
   local _reply_field=""
   [ "$no_reply" -eq 1 ] && _reply_field=',"reply_expected":false'
-  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field}"
+  # #3224: in_reply_to, escaped the same hand-rolled way (bash 3.2), sent only when given.
+  local _irt_field="" esc_irt=""
+  if [ -n "$in_reply_to" ]; then
+    esc_irt=$(printf '%s' "$in_reply_to" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+    _irt_field=",\"in_reply_to\":\"$esc_irt\""
+  fi
+  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field}"
   body=$(kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
     --data "$_data" 2>/dev/null) || rc=$?

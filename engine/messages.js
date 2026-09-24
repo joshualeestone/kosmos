@@ -1390,9 +1390,14 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
        false reply-intent leaves them exactly as before. Default (undefined) and true are the
        existing behavior; the flag never INFERS from prose, it is set only by the caller (#2908's
        kosmos post --no-reply / reply_expected:false). */
+    /* #3224: carry --in-reply-to <this message's id> in the answer command, so the
+       reply binds to the room this message came from. The server resolves the id's
+       project and refuses if the agent's target project differs (the misroute caught),
+       so a wrong project id no longer silently lands the answer in another room. The
+       id already appears in the envelope; this only makes the command consume it. */
     const answerClause = replyExpected === false
       ? ' \u00b7 FYI, no reply requested'
-      : ' \u00b7 to answer, run: kosmos post ' + projectId;
+      : ' \u00b7 to answer, run: kosmos post ' + projectId + ' --in-reply-to ' + id;
     const answer = operator === true
       ? answerClause
       : (mentioned.has(name) ? answerClause : '');
@@ -1790,7 +1795,7 @@ function sweepUnanswered(roster, now) {
         const card = (roster || []).find((c) => c && c.sessionName === name);
         if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
-          + '; to answer, run: kosmos post ' + projectId + ']';
+          + '; to answer, run: kosmos post ' + projectId + ' --in-reply-to ' + postId + ']';
         const sent = chat.deliver(name, line, roster);
         appendLog({ kind: 'nudge', post: postId, to: name, project: projectId,
           at: new Date().toISOString(), outcome: sent.state });
@@ -2050,8 +2055,26 @@ function reopenRoom(project, at) {
   return { ok: true, at: when };
 }
 
+/* #3224: the project a POST belongs to, by its id, or null if no such post is in
+ * the record. This is the NON-CIRCULAR oracle a reply binds to: the project of the
+ * message being answered is a fact recorded when that message was posted (appendLog
+ * carries `project`), independent of the reply now being sent -- unlike stateProject
+ * (#2837), which is produced BY posts and so cannot catch the first misroute. Only a
+ * 'post' record answers; a direct message (kind 'message') has no room and returns
+ * null. Used by sendRoomPostAsAgent to verify a reply's target against the room the
+ * triggering message came from. */
+function projectOfPost(id) {
+  const wanted = String(id == null ? '' : id).trim();
+  if (!wanted) return null;
+  const r = record();
+  if (!r || !r.ok || !Array.isArray(r.parsed)) return null;
+  const m = r.parsed.find((x) => x && x.kind === 'post' && String(x.id) === wanted);
+  return m && typeof m.project === 'string' && m.project ? m.project : null;
+}
+
 module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
+  projectOfPost,
   react, reactionsFor, normalizeReactionEmoji,
   operatorDirect, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
