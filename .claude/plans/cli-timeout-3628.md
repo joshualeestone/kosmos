@@ -53,6 +53,21 @@ positions and err/e/error, because a first unscoped version flagged six non-exit
 (typed error checks, an HTTP status) in four other files; those are negative controls now.
 The reject message names timeout, output-buffer overflow, or spawn failure.
 
+### The guard's weight-bearing rule is positive, not a list of bad spellings
+Review pass 4 (mutation-tested) showed the spelling rules can never be complete:
+`err?.code ?? 0`, a reversed ternary, `err.code === null ? 0 : ...`, a named constant,
+an alias or a renamed variable all read a kill as a number and match none of them.
+So the guard now REQUIRES the good form: every callback `execFile(` in a cli.* test
+must check `x.code !== 'number'` and go straight into `reject` or `throw` (a reversed
+ternary has the same text and still falls back, so the check alone is not enough).
+An unsafe spelling fails by what it lacks. execFileSync throws and promisify(execFile)
+rejects on any error, so they are not call sites; a site that does not read the exit
+code at all carries the marker "exit code not read (#3628)" with its reason (one:
+cli.presents-board-token-1968, which asserts what the stub received). The spelling
+rules stay as a cheap second layer (now including `?.code`). Floor: 19 callback sites
+in 17 files, measured. Perturbations: `err?.code ?? 0` without the check reds both
+layers; a null check to a named constant reds the positive rule alone.
+
 ## Found along the way (not a code defect)
 The CLI tests first failed at exactly 20s on every case. That was the agent1 syspolicyd
 stall (#3582, #3634): the first direct exec of a newly written executable hung 34-41s
