@@ -100,6 +100,13 @@ const FX = {
           minePhotoIsPlain: !!(mine && mine.querySelector('.msg-av img') && !mine.querySelector('.msg-av.mine')),
           mineTimeInsideBubble: !!(mine && mine.querySelector('.msg-bd .msg-t')),
           mineHasName: !!(mine && mine.querySelector('.msg-nm')),
+          // #3498 (Josh, 2026-09-23): the sender name must MATCH body-copy size (13px), not the
+          // old couple-points-larger 15px, and stay bold. .msg-nm is ONE shared class emitted by
+          // both dmRow (this DM) and pjRoomRow (the consolidated + tab project dialogs), so this
+          // single measurement pins the size for all three surfaces Josh named.
+          agentNameFontPx: agent ? Math.round(parseFloat(getComputedStyle(agent.querySelector('.msg-nm')).fontSize)) : null,
+          agentNameWeight: agent ? parseInt(getComputedStyle(agent.querySelector('.msg-nm')).fontWeight, 10) : null,
+          bubbleBodyFontPx: agent ? Math.round(parseFloat(getComputedStyle(agent.querySelector('.msg-bd')).fontSize)) : null,
           labelText: label ? (label.textContent || '') : null,
           labelFontPx: label ? parseFloat(getComputedStyle(label).fontSize) : null,
           searchPlaceholder: (document.getElementById('d-talk-search') || {}).placeholder,
@@ -120,6 +127,11 @@ const FX = {
       chk(m.minePhotoIsPlain, `${t} the user photo avatar is a plain .msg-av, no .mine (matches the room, #3414)`);
       chk(m.mineTimeInsideBubble, `${t} the user timestamp is INSIDE the bubble (.msg-bd .msg-t)`);
       chk(m.mineHasName === false, `${t} the user bubble carries NO name (operator row, #3130)`);
+      // #3498: sender name matches body copy (13px) and stays bold; shared .msg-nm class covers
+      // the consolidated dialog, the tab-view dialog and this DM in one rule.
+      chk(m.agentNameFontPx === 13, `${t} the sender name (.msg-nm) matches body-copy size 13px (#3498)`, `${m.agentNameFontPx}px`);
+      chk(m.agentNameFontPx === m.bubbleBodyFontPx, `${t} the sender name equals the bubble body-copy size (#3498)`, `name=${m.agentNameFontPx} body=${m.bubbleBodyFontPx}`);
+      chk(m.agentNameWeight >= 600, `${t} the sender name stays bold (>=600) (#3498)`, `${m.agentNameWeight}`);
       chk(/^Direct Message to /.test(m.labelText || ''), `${t} the header reads "Direct Message to <agent>"`, JSON.stringify(m.labelText));
       chk(m.labelFontPx >= 20, `${t} the header uses the big project-name font (>= 20px), not the small .dlab`, `${m.labelFontPx}px`);
       chk(m.searchPlaceholder === 'Search', `${t} the search placeholder is just "Search"`, JSON.stringify(m.searchPlaceholder));
