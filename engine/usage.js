@@ -159,6 +159,7 @@ async function scanUsage({ sinceDay, untilDay }) {
   const seenIds = new Set();
   const roots = configRoots();
   const days = {};
+  const folders = {};
   for (const root of roots) {
     for (const file of await walkTranscriptsUnder(root)) {
       let text;
@@ -199,10 +200,19 @@ async function scanUsage({ sinceDay, untilDay }) {
         const bucket = days[day][model];
         for (const field of BUCKET_FIELDS) bucket[field] += Number(usage[field]) || 0;
         bucket.rows += 1;
+        /* #2617: the same row, once more, keyed by the folder the session ran in.
+           The folder is what ties a transcript to an agent (status.js reads an
+           agent's transcripts the same way). A row with no cwd keys to ''. */
+        const folder = typeof row.cwd === 'string' ? row.cwd : '';
+        if (!folders[day]) folders[day] = {};
+        if (!folders[day][folder]) folders[day][folder] = emptyBuckets();
+        const fb = folders[day][folder];
+        for (const field of BUCKET_FIELDS) fb[field] += Number(usage[field]) || 0;
+        fb.rows += 1;
       }
     }
   }
-  return { days, rootsRead: roots };
+  return { days, folders, rootsRead: roots };
 }
 
 async function ensureUsageDir() {
@@ -226,6 +236,15 @@ function frozenDayPath(day) {
      are small JSON and harmless; deleting them is a separate tidy, not a
      correctness step. */
   return path.join(USAGE_DIR, `${day}.v2.json`);
+}
+
+/* #2617: the per-folder split of a completed day, frozen beside the per-model
+   file and never in place of it. The model file stays the day's authoritative
+   total. A day frozen per-model before this shipped gets its folder split from
+   whatever transcripts still exist, which can be fewer than when the total was
+   taken; `byAgent` reports that gap as `unattributed` rather than hiding it. */
+function frozenFolderPath(day) {
+  return path.join(USAGE_DIR, `${day}.folders.v1.json`);
 }
 
 function todayUtc() {
@@ -288,14 +307,22 @@ async function dailyUsageByModel(days = 7) {
   wanted.sort();
 
   const byDay = {};
+  const byFolder = {};
   const missing = [];
   for (const day of wanted) {
     if (day === today) { missing.push(day); continue; }
+    let need = false;
     try {
       byDay[day] = JSON.parse(await fsp.readFile(frozenDayPath(day), 'utf8'));
     } catch {
-      missing.push(day);
+      need = true;
     }
+    try {
+      byFolder[day] = JSON.parse(await fsp.readFile(frozenFolderPath(day), 'utf8'));
+    } catch {
+      need = true;
+    }
+    if (need) missing.push(day);
   }
 
   let rootsRead = configRoots();
@@ -312,18 +339,71 @@ async function dailyUsageByModel(days = 7) {
     const scanResult = await scanUsage({ sinceDay, untilDay });
     rootsRead = scanResult.rootsRead;
     for (const day of missing) {
-      const byModel = scanResult.days[day] || {};
-      byDay[day] = byModel;
+      const scannedFolders = scanResult.folders[day] || {};
+      byFolder[day] = scannedFolders;
+      /* A day whose per-model total is already frozen keeps it: re-deriving it
+         from today's transcripts could only lose what has been pruned since. */
+      const modelFrozen = day !== today && Object.prototype.hasOwnProperty.call(byDay, day);
+      if (!modelFrozen) byDay[day] = scanResult.days[day] || {};
       if (day !== today) {
         try {
           await ensureUsageDir();
-          await fsp.writeFile(frozenDayPath(day), JSON.stringify(byModel), 'utf8');
+          if (!modelFrozen) await fsp.writeFile(frozenDayPath(day), JSON.stringify(byDay[day]), 'utf8');
+          await fsp.writeFile(frozenFolderPath(day), JSON.stringify(scannedFolders), 'utf8');
         } catch { /* best effort: a failed freeze just means this day rescans next time */ }
       }
     }
   }
 
-  return { byDay, rootsRead };
+  return { byDay, byFolder, rootsRead };
+}
+
+/**
+ * #2617: the window's tokens per agent, from the per-folder split.
+ *
+ * `agents` is [{ name, shown, dir }]. A folder belongs to the agent whose
+ * folder contains it (the deepest one, so a nested folder is not claimed by a
+ * parent). Folders no agent owns (the person's own sessions, say) go to
+ * `elsewhere`. `unattributed` is what the per-model totals hold beyond every
+ * folder counted: tokens from transcripts pruned after the total was frozen.
+ * Four buckets, never blended, as everywhere in this module.
+ */
+function byAgent({ byDay, byFolder }, agents, canonical = defaultCanonical) {
+  const owners = (Array.isArray(agents) ? agents : [])
+    .filter((a) => a && typeof a.name === 'string' && typeof a.dir === 'string' && a.dir)
+    .map((a) => ({ name: a.name, shown: typeof a.shown === 'string' && a.shown ? a.shown : a.name, dir: canonical(a.dir) }))
+    .sort((x, y) => y.dir.length - x.dir.length);
+  const totals = new Map();
+  const elsewhere = emptyBuckets();
+  const folderTotal = emptyBuckets();
+  const modelTotal = emptyBuckets();
+  const add = (into, b) => { for (const f of BUCKET_FIELDS) into[f] += Number(b && b[f]) || 0; into.rows += Number(b && b.rows) || 0; };
+  const ownerOf = new Map();
+  for (const day of Object.keys(byFolder || {})) {
+    for (const [folder, b] of Object.entries(byFolder[day] || {})) {
+      add(folderTotal, b);
+      if (!ownerOf.has(folder)) {
+        const c = folder ? canonical(folder) : '';
+        ownerOf.set(folder, c ? owners.find((o) => c === o.dir || c.startsWith(o.dir + path.sep)) || null : null);
+      }
+      const o = ownerOf.get(folder);
+      if (!o) { add(elsewhere, b); continue; }
+      if (!totals.has(o.name)) totals.set(o.name, { name: o.name, shown: o.shown, ...emptyBuckets() });
+      add(totals.get(o.name), b);
+    }
+  }
+  for (const day of Object.keys(byDay || {})) {
+    for (const b of Object.values(byDay[day] || {})) add(modelTotal, b);
+  }
+  const unattributed = emptyBuckets();
+  for (const f of BUCKET_FIELDS) unattributed[f] = Math.max(0, modelTotal[f] - folderTotal[f]);
+  unattributed.rows = Math.max(0, modelTotal.rows - folderTotal.rows);
+  const list = [...totals.values()].sort((x, y) => (y.output_tokens - x.output_tokens) || x.name.localeCompare(y.name));
+  return { agents: list, elsewhere, unattributed };
+}
+
+function defaultCanonical(p) {
+  return require('./trust').canonicalOnDisk(p);
 }
 
 module.exports = {
@@ -331,6 +411,7 @@ module.exports = {
   walkTranscriptsUnder,
   scanUsage,
   dailyUsageByModel,
+  byAgent,
   utcDay,
   BUCKET_FIELDS,
   USAGE_DIR,
