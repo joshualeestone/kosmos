@@ -117,11 +117,14 @@ soonest (a dated task before an undated one), then oldest. Two idle agents never
 in one step.
 
 **The write goes through the part route's own path.** `heardBy` and `tellEveryoneOn` were closures
-inside the request handler; they are hoisted to module scope unchanged, and one `givePart()` (parts
-valve for a process caller, `tasks.assignPart`, the "you were given task N" pane line against the
-heard budget, the instruction-file re-sync) is now called by BOTH the part-assign route and the
-Assigner runner, so the sequence exists once. A refused give (for example the parts valve) takes
-its charge back off the Assigner's hourly budget.
+inside the request handler; they are hoisted to module scope unchanged, and one `givePart()` is now
+called by BOTH the part-assign route and the Assigner runner, so the sequence exists once. The
+Assigner uses its own mode of it: its writes carry provenance `assigner`, so the agents' shared
+12-per-hour parts valve and heard budget are never charged (or blamed) for them; the part must
+still be free at the moment of the write (`onlyIfFree`, checked inside the same write); the pane
+line is always sent, and if it cannot reach the agent at all the assignment is taken back, so
+nobody is left on a task they were never told about. A refused give takes its charge back off the
+Assigner's own hourly budget.
 
 **Goals to tasks (only when there is nothing to hand out).** If an idle agent's projects have a
 `## Goal` in BRIEF.md and NO open tasks, deliver one request to that agent: "Draft up to 3 tasks

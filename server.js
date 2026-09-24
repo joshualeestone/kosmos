@@ -295,24 +295,36 @@ function tellEveryoneOn(t, roster) {
      drawing a surface nobody designed. */
   return last;
 }
-/* #3595: give one part of a task to an agent, and tell it, exactly as the part-assign route
-   does. `screen` false is a process caller: the parts valve applies and the pane line is spent
-   from the heard budget. The route and the Assigner runner both call this, so the sequence
-   (valve, assignPart, heardBy, tellEveryoneOn) exists once. Returns the route's body fields plus
-   `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster } = {}) {
-  if (!screen) {
+/* #3595: give one part of a task to an agent, and tell it. The part-assign route and the
+   Assigner runner both call this, so the sequence (valve, assignPart, heardBy, tellEveryoneOn)
+   exists once. Three callers:
+   - screen: no valve, the pane line always.
+   - process (screen false): the parts valve applies and the pane line is spent from the heard
+     budget, both shared by agents.
+   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither shared agent
+     budget is charged (the Assigner has its own hourly caps); the part must still be free at
+     the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
+     reach the agent at all (COULD_NOT) the assignment is taken back, so nobody is left on a task
+     they were never told about.
+   Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
+function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
+  if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
   }
-  const out = tasks.assignPart(projectId, n, partId, who, { via: screen ? 'screen' : 'process' });
+  const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
+  const out = tasks.assignPart(projectId, n, partId, who, made);
   if (!out.ok) return { ok: false, status: 400, because: out.because };
   const r = roster || safeRoster();
   let heard;
-  if (out.changed && (screen || heardBudgetAllows())) {
+  if (out.changed && (screen || assigner || heardBudgetAllows())) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
     heard = heardBy(projectId, out.task, who, sentence, r);
-    if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord();
+  }
+  if (assigner && out.changed && !(heard && heard.state !== chat.DELIVERY.COULD_NOT)) {
+    const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner' });
+    return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard };
   }
   return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard };
 }
@@ -14780,8 +14792,8 @@ function start(port = PORT) {
       /* #3595 phase 2: the Assigner runner. Reads assigner-setting every tick. For an agent on the
          board that reads idle, whose commitments read clear and that has no open part of any task,
          for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
-         agent belongs to, through givePart (the part route's own path, as a process: parts valve,
-         heard budget). Commitments are read only for idle cards, since they are not on the card.
+         agent belongs to, through givePart in its assigner mode (see givePart). Commitments are
+         read only for idle cards, since they are not on the card.
          Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
       let assignerPrev;
       const assignerSweep = setInterval(() => {
@@ -14797,10 +14809,10 @@ function start(port = PORT) {
           }
           const out = assigner.runOnce({
             prev: assignerPrev, roster, setting, records, commitments: states, now: Date.now(),
-            give: (projectId, n, partId, who) => givePart(projectId, n, partId, who, { screen: false, roster }),
+            give: (projectId, n, partId, who) => givePart(projectId, n, partId, who, { assigner: true, roster }),
           });
           assignerPrev = out.next;
-          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given' + (a.heard ? ', told ' + a.heard.state : ', not told (budget)') : 'refused: ' + a.because}\n`);
+          for (const a of out.acted) process.stdout.write(`assigner: ${a.name} (${a.session}) task ${a.n} of ${a.projectId}: ${a.ok ? 'given, pane line ' + ((a.heard && a.heard.state) || 'none') : 'not given: ' + a.because}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ASSIGNER_MS) : 60 * 1000); // the env is the test seam only
       if (assignerSweep && typeof assignerSweep.unref === 'function') assignerSweep.unref();
@@ -15300,6 +15312,7 @@ function reauthDecision(reauth, fileConnected, live, STATE) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests, reauthDecision,
+  givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the

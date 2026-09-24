@@ -54,6 +54,7 @@ test('a refused save repaints from the store, and says why', async () => {
   await h.api.saveAssigner(false);
   await settle();
   assert.equal(h.tog.getAttribute('aria-checked'), 'true', 'the toggle still shows a value the store does not hold');
+  assert.equal(h.msg.textContent, 'no', 'the repaint wiped the reason the save was refused');
 });
 
 test('an unreachable save repaints from the store', async () => {
@@ -68,6 +69,7 @@ test('an unreachable save repaints from the store', async () => {
   await settle();
   assert.equal(calls, 2, 'no repaint read after the failed save');
   assert.equal(h.tog.getAttribute('aria-checked'), 'true');
+  assert.match(h.msg.textContent, /could not reach Kosmos/, 'the repaint wiped the reason the save failed');
 });
 
 test('a click while a save is in flight is refused and says so', async () => {
