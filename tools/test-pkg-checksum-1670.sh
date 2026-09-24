@@ -27,7 +27,7 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 # --- lift the verification out of the shipped postinstall -------------------
 INNER="$T/inner.sh"
-/usr/bin/python3 - "$REPO/install/pkg-scripts/postinstall" "$INNER" <<'PY'
+python3 - "$REPO/install/pkg-scripts/postinstall" "$INNER" <<'PY'
 import re, sys
 src, out = sys.argv[1], sys.argv[2]
 s = open(src, encoding="utf-8").read()
@@ -45,7 +45,7 @@ WWW="$T/www"; mkdir -p "$WWW"
 printf '#!/bin/sh\ntouch "%s/RAN"\n' "$T" > "$WWW/setup"
 GOOD=$(/usr/bin/shasum -a 256 "$WWW/setup" | /usr/bin/awk '{print $1}')
 cd "$WWW" || exit 1
-/usr/bin/python3 -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
+python3 -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
 SRV=$!
 cd "$REPO" || exit 1
 # ⚠️ POLL, DO NOT SLEEP A FIXED SECOND. A fixed sleep is a race that fails on a
@@ -111,7 +111,7 @@ kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 CNT="$T/sha_hits"; : > "$CNT"
 # bind + report the port, then serve (wrong sha on the 1st fetch, right after)
 FLIPLOG="$T/flip.log"
-/usr/bin/python3 - "$GOOD" "$CNT" "$WWW" "$FLIPLOG" <<'PY' &
+python3 - "$GOOD" "$CNT" "$WWW" "$FLIPLOG" <<'PY' &
 import http.server, sys
 GOOD, CNT, ROOT, LOG = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 BAD = "0"*64
@@ -149,7 +149,7 @@ fi
 # --- CONTROL: the harness can tell a run from a refusal --------------------
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 cd "$WWW" || exit 1
-/usr/bin/python3 -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
+python3 -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
 SRV=$!
 cd "$REPO" || exit 1
 PORT=""

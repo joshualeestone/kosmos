@@ -89,7 +89,7 @@ print("PORT %d" % srv.server_address[1], flush=True)
 srv.serve_forever()
 PY
 
-/usr/bin/python3 -u "$WORK/srv.py" > "$WORK/srv.out" 2>&1 &
+python3 -u "$WORK/srv.py" > "$WORK/srv.out" 2>&1 &
 SRV_PID=$!
 disown "$SRV_PID" 2>/dev/null || true   # keep bash's job control from printing "Terminated" when the EXIT trap kills it
 PORT=""
