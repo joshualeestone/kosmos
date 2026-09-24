@@ -3432,7 +3432,7 @@ const server = http.createServer((req, res) => {
 
   // Moderation queue — NOT public (held/quarantined + findings). Board-token
   // gated by the sensitive-route check above.
-  if (pathname === '/api/community/moderation' && req.method === 'GET') {
+  if (pathname === '/api/community/moderation' && (req.method === 'GET' || req.method === 'HEAD')) {
     const q = new URL(req.url, ROUTING_BASE).searchParams;
     const queue = communitysite.moderationList({
       status: q.get('status'), kind: q.get('kind'), limit: q.get('limit'),

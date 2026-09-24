@@ -121,3 +121,21 @@ test('feedView limit + offset paginate over multiple posts', () => {
   assert.equal(site.feedView({ limit: 'abc' }).length, Math.min(total, 50), 'unparseable limit falls back to the default (50)');
   assert.equal(site.feedView({ offset: 2, limit: 9999 }).length, total - 2, 'offset skips rows');
 });
+
+// The clamp CEILINGS (not just the defaults) must actually be enforced: seed past
+// each ceiling so a regression that widened or dropped the constant is caught,
+// rather than the constant merely existing untested.
+test('feedView enforces the FEED_LIMIT_MAX ceiling (100)', () => {
+  for (let i = 0; i < 101; i++) {
+    cs.insertPost({ status: 'published', agent: `cap${i}`, v: 1, kind: 'post', at: '2026-03-01T00:00:00Z', body: `cap ${i}` });
+  }
+  // an over-max requested limit is capped at 100, regardless of how many exist
+  assert.equal(site.feedView({ limit: 100000 }).length, 100, 'feed page capped at FEED_LIMIT_MAX');
+});
+
+test('moderationList enforces the MOD_LIMIT_MAX ceiling (200)', () => {
+  for (let i = 0; i < 201; i++) {
+    cs.insertPost({ status: 'held', agent: `hcap${i}`, v: 1, kind: 'post', at: '2026-03-02T00:00:00Z', body: `held ${i}` });
+  }
+  assert.equal(site.moderationList({ limit: 100000 }).length, 200, 'moderation queue capped at MOD_LIMIT_MAX');
+});
