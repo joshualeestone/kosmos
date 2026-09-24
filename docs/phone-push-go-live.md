@@ -30,8 +30,9 @@ not the commit or the line.
 - **The board ships with notifications locked off.**
   - `PHONE_APP_CAN_RECEIVE` is `false` in `engine/phonenotify.js`.
   - While it is false the Settings section is hidden, turning on is refused, and nothing is sent.
-- **The iOS app registers for notifications** (kosmos #3635, merged). Opening the right Mac on a
-  tap is in review on branch `ios-tap-718`. Neither has run on a simulator or a phone yet.
+- **The iOS app registers for notifications** (kosmos #3635) **and a tap opens the right Mac**
+  (kosmos #3642), both merged. Neither has run on a simulator or a phone yet; step 4 has the
+  simulator check.
 - **The Android app shows notifications under its own name** (kosmos #3644, Sonya). This
   is NOT merged yet.
 
@@ -205,6 +206,22 @@ No deploy step copies a key file, and the template only holds its path.
     `production`.
   - A TestFlight or App Store install should say `production`. That is reasoned from how Apple
     re-signs those builds, not yet measured.
+
+**Pre-go-live check on the simulator** [fleet, once Josh has installed the iOS simulator
+runtime with `xcodebuild -downloadPlatform iOS`]. The tap handler (kosmos #3642) has been built
+and its address check tested, but the part that loads the board has never run. Run it on a
+simulator before any real phone:
+- Deliver a notification with `xcrun simctl push <device> io.kosmos.app payload.json`, where
+  `payload.json` is `{"aps":{"alert":{"title":"Leo needs you","body":"in Kosmos"}},"address":"<mac>.kosmosplus.com","kind":"needs_you","id":"test:1"}`.
+- Four cases, each landing on `https://<mac>.kosmosplus.com/`:
+  1. a cold launch from the tap (app not running);
+  2. a tap with the app open;
+  3. the same payload pushed and tapped twice in a row, which should load the board both times;
+  4. a tap while the biometric lock shows, which should land on the board after unlocking. This
+     needs a test build with `KosmosConfig.requireBiometricUnlock` set to `true` (a constant,
+     `false` in the shipped app).
+- The device log shows `[Push] tapped notification opens <mac>.kosmosplus.com` for each.
+- A payload whose `address` is not a Mac under `kosmosplus.com` leaves the app where it is.
 
 **Check, on a phone with the TestFlight build:**
 1. Open the app and sign in on the coordinator page.
