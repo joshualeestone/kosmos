@@ -865,13 +865,13 @@ function absorbSession(data) {
   const stage = data && typeof data.stage === 'string' ? data.stage : '';
   if (stage === 'session') {
     const token = data && typeof data.token === 'string' ? data.token : '';
-    if (!token) { signinSession = null; return { ok: false, because: 'the coordinator did not return a usable session' }; }
+    if (!token) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return a usable session' }; }
     signinSession = { token };
     return { ok: true, because: null, data: { stage: 'session' } };
   }
   if (stage === 'second') {
     const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
-    if (!challenge) { signinSession = null; return { ok: false, because: 'the coordinator did not return a phone challenge' }; }
+    if (!challenge) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return a phone challenge' }; }
     signinSession = { challenge };
     return { ok: true, because: null, data: { stage: 'second' } };
   }
@@ -882,7 +882,7 @@ function absorbSession(data) {
     // never returned to the page, exactly like the session token. The wizard gets
     // only what it renders: whether SMS is on, and the "why an authenticator" copy.
     const enrolToken = data && typeof data.token === 'string' ? data.token : '';
-    if (!enrolToken) { signinSession = null; return { ok: false, because: 'the coordinator did not return an enrolment token' }; }
+    if (!enrolToken) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return an enrolment token' }; }
     signinSession = { enrolToken };
     return { ok: true, because: null, data: {
       stage: 'enrol_second_factor',
@@ -1029,10 +1029,10 @@ async function signinEnrol(kind, phone) {
   const str = (v) => (typeof v === 'string' && v !== '' ? v : null);
   const secret = str(d.secret), otpauth = str(d.otpauth), sentTo = str(d.sent_to);
   if (kind === 'totp' && !secret && !otpauth) {
-    return { ok: false, because: 'the coordinator did not return an authenticator secret to set up' };
+    return { ok: false, because: 'Kosmos+ sign-in did not return an authenticator secret to set up' };
   }
   if (kind === 'sms' && !sentTo) {
-    return { ok: false, because: 'the coordinator did not confirm where the code was sent' };
+    return { ok: false, because: 'Kosmos+ sign-in did not confirm where the code was sent' };
   }
   const out = {
     stage: 'enrolment_started',
