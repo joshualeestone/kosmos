@@ -272,10 +272,29 @@ test('the board retries a failed install with backoff, says why each time, and s
 });
 
 test('installing one Mac CPU\'s shell never touches another\'s', async () => {
+  /* The shim test installs this host's CPU, which is x64 on an Intel Mac. */
+  fs.rmSync(ab.shellDir('x64'), { recursive: true, force: true });
   assert.equal(ab.shellInstalled('arm64'), true);
   assert.deepEqual(await ab.ensureShell(shellSeams('x64')), { ok: true });
   assert.equal(ab.shellInstalled('x64'), true);
   assert.equal(ab.shellInstalled('arm64'), true, 'the arm64 install survives an x64 install');
   assert.ok(fs.existsSync(ab.shellExe('arm64')) && fs.existsSync(ab.shellExe('x64')));
   assert.notEqual(ab.shellDir('arm64'), ab.shellDir('x64'));
+});
+
+test('a sandboxed board (AGENT_WORKFORCE_DRY_RUN=1) never starts the browser download', () => {
+  let kicked = 0;
+  ab.installWithRetry({ env: { AGENT_WORKFORCE_DRY_RUN: '1' }, kick: () => { kicked += 1; return Promise.resolve({ ok: true }); } })();
+  assert.equal(kicked, 0);
+});
+
+test('a lock that cannot be written says why, not "another install is running"', async () => {
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
+  fs.rmSync(ab.lockPath(), { force: true });
+  fs.chmodSync(ab.homeDir(), 0o555);                              // the lock file cannot be created
+  try {
+    const r = await ab.ensureShell(shellSeams('arm64'));
+    assert.equal(r.ok, false);
+    assert.match(r.because, /EACCES|permission/i);
+  } finally { fs.chmodSync(ab.homeDir(), 0o755); }
 });

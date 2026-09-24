@@ -16,4 +16,5 @@ try {
   const p = require('./agentbrowser').launchConfig({ install: false, node: process.execPath });
   if (p) process.stdout.write(p + '\n');
 } catch { /* no browser this launch */ }
-process.exit(0);
+/* exitCode, not exit(): a natural exit lets stdout finish writing to the pipe. */
+process.exitCode = 0;

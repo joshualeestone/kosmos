@@ -160,8 +160,8 @@ function disabled(env) {
 
 /**
  * The `--mcp-config` document. PURE, so its exact content is assertable from a
- * Mac. `node` is the node that runs the server (Kosmos's own, in production the
- * runtime's node.exe the supervisor itself runs under).
+ * Mac. `node` is the node that runs the server: Kosmos's own bundled node, the one
+ * the supervisor or its shim runs under.
  */
 function configFor(o) {
   const x = o || {};
@@ -320,7 +320,9 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
 }
 let beat = null;
+let lockError = '';
 function takeLock() {
+  lockError = '';
   fs.mkdirSync(homeDir(), { recursive: true });
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -331,13 +333,18 @@ function takeLock() {
       if (beat.unref) beat.unref();
       return true;
     } catch (e) {
-      if (!e || e.code !== 'EEXIST') return false;
+      if (!e || e.code !== 'EEXIST') { lockError = String((e && e.message) || e); return false; }
       let owner = 0; let quiet = 0;
       try { owner = parseInt(fs.readFileSync(lockPath(), 'utf8'), 10); quiet = Date.now() - fs.statSync(lockPath()).mtimeMs; } catch { /* raced away */ }
-      if (pidAlive(owner) && quiet < LOCK_STALE_MS) return false;
-      try { fs.rmSync(lockPath(), { force: true }); } catch { return false; }
+      if (pidAlive(owner) && quiet < LOCK_STALE_MS) { lockError = 'another browser install is already running'; return false; }
+      /* Take a stale lock by renaming it to a private name first: a rename is
+         atomic, so of two takers only one moves it, and the other cannot delete
+         the winner's new lock by mistake. */
+      const mine = lockPath() + '.stale-' + process.pid;
+      try { fs.renameSync(lockPath(), mine); fs.rmSync(mine, { force: true }); } catch { /* another taker won; try once more */ }
     }
   }
+  lockError = lockError || 'another browser install is already running';
   return false;
 }
 function dropLock() {
@@ -388,7 +395,7 @@ async function ensureShell(opts) {
   const build = shellBuild(arch);
   if (!build) return { ok: false, because: 'no pinned browser for this Mac CPU (' + arch + ')' };
   if (shellInstalled(arch)) return { ok: true, already: true };
-  if (!takeLock()) return { ok: false, because: 'another browser install is already running' };
+  if (!takeLock()) return { ok: false, because: lockError };
   sweepLeftovers();
   const doDownload = o.download || ((url, file) => runners.download(url, file, { receivedBytes: 0 }));
   const hashOf = o.sha256Of || sha256Of;
@@ -439,7 +446,9 @@ function installWithRetry(opts) {
   let delay = o.firstDelayMs || RETRY_FIRST_MS;
   let timer = null; let stopped = false;
   const attempt = () => {
-    if (stopped || disabled(o.env)) return;
+    /* A sandboxed board (the browser-check harness sets AGENT_WORKFORCE_DRY_RUN=1)
+       must not download a browser into the real runners folder. */
+    if (stopped || disabled(o.env) || (o.env || process.env).AGENT_WORKFORCE_DRY_RUN === '1') return;
     const p = kick({ platform: o.platform, arch: o.arch });
     if (!p) return;
     p.then((r) => {

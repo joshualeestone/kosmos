@@ -31,6 +31,11 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   if the install fails (no network at login, a stall, a bad checksum), logs why and retries
   with backoff (1 minute doubling to an hour) until it succeeds or the operator opts out.
   Never fatal, never awaited, timers unref'd.
+- A sandboxed board never downloads: `installWithRetry` does nothing under
+  `AGENT_WORKFORCE_DRY_RUN=1` (what the browser-check harness sets), and tools/browser-checks.sh
+  exports `KOSMOS_AGENT_BROWSER=off`, which also covers its #1573 boards that do not set
+  DRY_RUN. The kick is inside server.js's `require.main === module` block, so a check that
+  starts the server in-process (`srv.start`) never reaches it.
 - Opt-out: `KOSMOS_AGENT_BROWSER=off`, or a file named `off` in the managed
   `playwright-mcp` folder. The file is the Mac's real path: a launchd-started supervisor
   does not inherit the operator's shell env. The boot install honours it too.
@@ -52,11 +57,11 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 - Kayak returns "What is a bot?" to this shell and to installed Chrome in headless mode alike.
 - tools/test-supervisor-agentbrowser-3633.sh: 9 checks pass on this branch; against
   origin/main's supervisor, the three installed-arm checks fail (the control).
-- engine/agentbrowser.test.js: 13 pass (7 new Mac tests).
+- engine/agentbrowser.test.js: see the count below.
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 17 pass. Shell test: 10 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 20 pass (14 of them new for the Mac). Shell test: 10 checks
   across four arms (installed, not installed, env opt-out, file opt-out).
 
 ## Known and left
