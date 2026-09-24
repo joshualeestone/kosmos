@@ -41,16 +41,9 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
 2. `server.js`: `POST /api/accounts/grok/subscription/start`, `GET .../status`, `POST .../cancel`,
    mirroring the openai routes, including the needsRunner answer.
 3. `bin/agent-supervisor.sh` grok arm: it asks `grokaccounts.identityOf` itself (through node) what kind
-   of account the home is (GROK_HOME, or the default's three tiers). A subscription drops every
-   `XAI_API_KEY=` entry from PANE_ENV and launches through `/usr/bin/env -u XAI_API_KEY`, UNLESS the sign-in
-   has provably lapsed (checkLive's offline NONE), in which case the door key is kept and the log says why:
-   stripping it would restart a working agent into a dead sign-in (challenge iteration 12). Only a
-   positive CONNECTED strips; UNKNOWN (no refresh token and no readable expiry, or a failed check) keeps the
-   key too (iteration 13). An ambient GROK_HOME cannot reach a default agent's supervisor: launchd starts it
-   with exactly the plist's EnvironmentVariables (create.js plistFor: HOME, PATH, LANG, the account var only
-   for a per-account agent, port, socket, world), so the default's dir is the three tiers, as the engine's. The
-   per-account leader socket is added only when this grok's `--help` lists the flag (an older grok would
-   exit rc 2 and crash-loop).
+   of account the home is (GROK_HOME, or the default's three tiers, exported as GROK_HOME). A subscription
+   drops every `XAI_API_KEY=` entry from PANE_ENV and launches through `/usr/bin/env -u XAI_API_KEY`,
+   WHATEVER the sign-in's state. No engine or node: the key is kept and the log says so.
 
 ## Decided, and why
 - Device mode only: the board is headless-friendly and the measured flow is device auth. `--oauth`
@@ -72,18 +65,19 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
 - A connected subscription row carries badge signed_in_unverified from the /api/accounts overlay
   (added in challenge iteration 6: before it, the row had no badge and the page drew the green legacy
   pill, so a file alone DID read green, contrary to what this plan said).
-- EVERY PER-ACCOUNT agent, key or subscription, launches with its own
-  `--leader-socket ~/.grok/leader-<hash12>.sock`, keyed on its dir AND the identity in it (widened in
-  challenge iteration 10; before that it was subscription agents only). Only the DEFAULT keeps the default
-  leader. grok's leader is its relay to xAI (`grok leader info` names wss://code.grok.com); whether a
-  leader carries the sign-in of whoever started it is UNMEASURED (it needs two real subscriptions), and
-  the premise cuts both ways, so it is applied to both kinds. Cheap and reversible.
-  ⚠️ SCOPE: this changes how EXISTING per-account Grok API-key agents launch (their own leader instead
-  of the shared one), which predates #3391. Named in the PR description for that reason.
-  MEASURED (iteration 8, throwaway GROK_HOME): top-level `grok --leader-socket <p> models` runs (rc 0),
-  and an unknown flag is rejected (rc 2, "unexpected argument"), so the launch flag is accepted.
-  `grok login --device-auth --leader-socket <p>` created NO socket and started NO leader: one process,
-  gone after SIGTERM, `grok leader list` empty. So a cancelled or timed-out sign-in leaves nothing behind.
+- NO per-account leader socket at launch (REMOVED in challenge iteration 14). Rounds 6 to 13 isolated each
+  per-account agent's grok leader on an UNMEASURED premise (that a leader carries its starter's sign-in). It
+  needed a version gate, then wanted a --help timeout, a leader-lifecycle measurement and orphan cleanup, and
+  it changed how EXISTING per-account API-key agents launch, which is outside #3391. Launch is back to
+  exactly what main does. If it is ever wanted, it is its own card, with the lifecycle measured first.
+  The sign-in's own `grok login` still gets a temp-dir socket (measured: login starts no leader).
+- ONE RULE for the key (challenge iteration 14, reversing 12 and 13): a subscription account's agent runs
+  on its OWN sign-in whatever the sign-in's state. Rounds 12 and 13 kept the door key for a lapsed or
+  uncertain sign-in ("do not restart a working agent into a dead sign-in"). Round 14 showed the cost: a
+  NAMED subscription agent silently billing the machine's door key, and create refusing a default agent the
+  supervisor would have run. The row, the create gate and the runtime now always name one credential; a
+  lapsed sign-in fails visibly and the row says expired. Weakest premise: a machine whose default relied on
+  the door key and has a stale ~/.grok sign-in now has default agents that stop until someone signs in again.
 - The page (web/index.html, the only web change): a keyed row's unverified tooltip no longer says "Use
   Check now" (keyed rows have no Check now), and a Grok subscription row's Disconnect / Delete titles say
   sign-in, not key. Pinned by docs/browser-checks/render-account-badge-1921.js (a Grok subscription row),

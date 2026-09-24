@@ -640,8 +640,8 @@ if [ -z "$adopt" ]; then
     # measured), so no auth pre-seed file is needed. GROK_CLAUDE_HOOKS_ENABLED=0 keeps
     # the grok agent from ALSO running the fleet's ~/.claude Claude-Code hooks via
     # grok's claude-compat -- it runs only its own report hooks (measured: our
-    # ~/.grok/hooks report hook still fires with this set). Default account reads
-    # ~/.grok (no GROK_HOME set).
+    # ~/.grok/hooks report hook still fires with this set). The default account reads
+    # ~/.grok, exported below as GROK_HOME (#3391).
     # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
     # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600
     # file engine/grokaccounts.js wrote at $GROK_HOME/.kosmos-grok-apikey; read it and
@@ -658,51 +658,38 @@ if [ -z "$adopt" ]; then
     # (measured), so the variable is REMOVED: every `-e XAI_API_KEY=...` pair the
     # secrets/env door added is dropped from PANE_ENV, and the pane runs grok through
     # `env -u XAI_API_KEY` so a server-global value cannot reach it either.
+    # ONE RULE, whatever the sign-in's state (challenge iteration 14): a subscription
+    # account's agent runs on its OWN sign-in, named or default, so the board's row, the
+    # create gate and the runtime always describe the same credential. A lapsed sign-in
+    # therefore fails visibly (the row says expired) rather than quietly running on the
+    # machine's door key, which for a named account would also bill somebody else.
     # WHICH DIR: GROK_HOME for a per-account agent; for a default one, the three tiers of
     # engine/grokaccounts.js defaultDir(), EXPORTED into the pane as GROK_HOME the way the
     # codex arm exports EFFECTIVE_CODEX_HOME, so the dir judged here is the dir grok reads.
+    # (An ambient GROK_HOME cannot reach a default agent here: launchd starts this script
+    # with exactly the plist's EnvironmentVariables, which carry GROK_HOME only for a
+    # per-account agent; see create.js plistFor.)
     # WHAT KIND: grokaccounts.identityOf ITSELF, asked through node, so there is one copy
-    # of the rule (the board lists what it says, and this strips on what it says). With no
-    # engine or no node the key is kept, and the log says so.
+    # of the rule. With no engine or no node the key is kept, and the log says so.
     _GROK_PREFIX=()
-    _GROK_LEADER=()
     _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
     [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
-    _GROK_ID=""
+    _GROK_KIND=""
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
-      # "<authMode>\t<email or key tail>\t<ok|lapsed|unknown|>" or nothing; never the key. The
-      # third field is grokaccounts.checkLive's OFFLINE verdict, asked for a subscription only
-      # (an api-key check would reach the network): "ok" ONLY for a positive CONNECTED.
-      # "lapsed" is a provable NONE, and "unknown" is anything else, a failed check included.
-      # (A function, so its early returns are legal: `node -e` runs a script, where a
-      # top-level return is a SyntaxError that would leave this empty and silently keep the key.)
-      _GROK_ID="$("$NODE_BIN" -e '
+      # The account's authMode, or nothing. A function, so its early return is legal:
+      # `node -e` runs a script, where a top-level return is a SyntaxError.
+      _GROK_KIND="$("$NODE_BIN" -e '
         (function () {
           try {
-            const g = require(process.argv[1]);
-            const w = g.identityOf(process.argv[2]);
-            if (!w) return;
-            const say = (flag) => process.stdout.write(w.authMode + "\t" + (w.email || w.keyTail || "") + "\t" + flag);
-            if (w.authMode !== "subscription") { say(""); return; }
-            g.checkLive(process.argv[2]).then((v) => say(v && v.state === "connected" ? "ok" : v && v.state === "none" ? "lapsed" : "unknown"), () => say("unknown"));
+            const w = require(process.argv[1]).identityOf(process.argv[2]);
+            if (w) process.stdout.write(String(w.authMode));
           } catch (e) { /* an unreadable answer keeps the key */ }
         })();
       ' "$_eng/grokaccounts.js" "$_GROK_ACCT" 2>/dev/null || true)"
     elif [ -e "${_GROK_ACCT}/auth.json" ]; then
       echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
     fi
-    # "<authMode>\t<who>" (the verdict field cut off), for the leader key: a lapse or a
-    # recovery does not move an agent to a different leader.
-    _GROK_WHO="${_GROK_ID%	*}"
-    # The key is stripped ONLY for a sign-in positively judged good (fail toward the key
-    # that works, never toward a sign-in we cannot vouch for). A provable lapse, or a
-    # verdict we could not read, keeps any door key, and the log says why. With no door
-    # key at all, grok uses the sign-in either way.
-    if [ "${_GROK_ID%%	*}" = subscription ] && [ "${_GROK_ID##*	}" = lapsed ]; then
-      echo "grok: the sign-in in ${_GROK_ACCT} has expired, so this agent keeps any XAI_API_KEY rather than a dead sign-in" >&2
-    elif [ "${_GROK_ID%%	*}" = subscription ] && [ "${_GROK_ID##*	}" != ok ]; then
-      echo "grok: we could not tell whether the sign-in in ${_GROK_ACCT} is still good, so this agent keeps any XAI_API_KEY" >&2
-    elif [ "${_GROK_ID%%	*}" = subscription ]; then
+    if [ "$_GROK_KIND" = subscription ]; then
       _kept=()
       _i=0
       _n=${#PANE_ENV[@]}
@@ -722,30 +709,11 @@ if [ -z "$adopt" ]; then
       unset _kept _i _n
       _GROK_PREFIX=(/usr/bin/env -u XAI_API_KEY)
     fi
-    # EVERY per-account agent gets its OWN leader socket, keyed on its dir AND the identity
-    # in it (so a slot later refilled with another account gets another leader). grok's
-    # leader is its relay to xAI (`grok leader info` names wss://code.grok.com) and its
-    # default socket is the machine's ~/.grok/leader.sock. Whether a leader carries the
-    # sign-in of whoever started it is NOT measured; isolating every non-default agent is
-    # the cheap, reversible answer in both directions. The default keeps the default leader.
-    # The name is short (macOS limits a socket path to 104 bytes) and matches the
-    # leader-*.sock pattern `grok leader list` finds.
-    # ⚠️ Only when THIS grok knows the flag (measured on grok 1.0.41; an unknown flag is rc 2,
-    # which would crash-loop every per-account agent on an older grok). grok is a native
-    # binary, so asking its --help is not subject to the #! exec stall.
-    if [ -n "${GROK_HOME:-}" ] && "$CLAUDE" --help 2>/dev/null | grep -q -- '--leader-socket'; then
-      _hash="$(printf '%s\t%s' "$GROK_HOME" "$_GROK_WHO" | /usr/bin/shasum 2>/dev/null | cut -c1-12)"
-      if [ -n "$_hash" ]; then
-        _GROK_LEADER=(--leader-socket "${HOME}/.grok/leader-${_hash}.sock")
-        mkdir -p "${HOME}/.grok" 2>/dev/null || true
-      fi
-      unset _hash
-    fi
-    unset _GROK_ACCT _GROK_ID _GROK_WHO
+    unset _GROK_ACCT _GROK_KIND
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
-      ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" ${_GROK_LEADER[@]+"${_GROK_LEADER[@]}"} --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
+      ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs
