@@ -2751,18 +2751,25 @@ test('#1889: the background-wait flag survives EVERY report arm, including the s
 
 test('#1889: a decayed report on a background wait is not a broken reporter', () => {
   /**
-   * 🛑 THE ONE PLACE THIS DIFF COULD MAKE THE BOARD LESS TRUTHFUL, and it shipped
-   * with no coverage until this row existed.
+   * ⚠️ THIS DOCSTRING DESCRIBES HISTORY. #3529 (Josh, 2026-09-23) removed the
+   * "reporter may be broken" sentence from rule 5 ENTIRELY, so the accusation no
+   * longer fires for ANY decayed working scrape, not just the background-wait
+   * one. The test below now pins that removal (see the control block); the
+   * framing here is kept because it records why the background-wait exemption
+   * once existed and why dropping the accusation outright was safe.
    *
-   * `reconcileReport` rule 5 says "its reports stopped arriving while its screen
-   * still shows work, so the reporter may be broken" whenever a stale report
-   * meets a scraped WORKING. On a background wait that sentence is false BY
+   * 🛑 THE ONE PLACE THIS DIFF COULD ONCE HAVE MADE THE BOARD LESS TRUTHFUL, and
+   * it shipped with no coverage until this row existed.
+   *
+   * `reconcileReport` rule 5 USED TO say "its reports stopped arriving while its
+   * screen still shows work, so the reporter may be broken" whenever a stale
+   * report met a scraped WORKING. On a background wait that sentence was false BY
    * CONSTRUCTION: the report hook fires on PreToolUse, no tools fire while only a
    * background agent runs, so a healthy reporter cannot heartbeat and any wait
    * past REPORT_WORKING_DECAY_MS decays. Live example while writing this: a wait
    * held for 9m 48s.
    *
-   * ⚠️ The gate is keyed on a STRUCTURAL flag, not on the `because` prose. Keyed
+   * ⚠️ The gate was keyed on a STRUCTURAL flag, not on the `because` prose. Keyed
    * on the string, rewording either end left the suite green while the gate
    * stopped firing and the false sentence came back.
    */
@@ -2786,14 +2793,21 @@ test('#1889: a decayed report on a background wait is not a broken reporter', ()
   assert.equal(got.conflict, null,
     'a healthy reporter was accused of being broken on a wait it cannot heartbeat through');
 
-  /* CONTROL: the accusation must still fire for any OTHER scraped working state,
-     which is what the rule is for. */
+  /* #3529 (Josh, 2026-09-23): the reporter-broken accusation ("its reports
+     stopped arriving... the reporter may be broken") is now removed for EVERY
+     decayed working scrape, not just the background-wait one -- Josh asked for
+     that message gone from the app. So the case this exemption used to single
+     out and the "other" working case now agree: no conflict, state still
+     working. This asserts that the accusation no longer fires anywhere (what was
+     once the control now pins the removal), while the state precedence is
+     unchanged. */
   const other = classify(pane, '· Improvising… (35s · ↓ 1.5k tokens)' + footer);
   assert.equal(other.state, 'working');
   assert.notEqual(other.backgroundWait, true);
   const accused = reconcileReport(stale, other, now);
-  assert.match(String(accused.conflict), /reporter may be broken/,
-    'the reporter-fault sentence stopped firing where it is still correct');
+  assert.equal(accused.state, 'working', 'the decayed working scrape must still read working');
+  assert.equal(accused.conflict, null,
+    'the removed reporter-broken accusation is firing again (#3529)');
 });
 
 test('#1889: the full shape contract for the background-agent wait reader', () => {
@@ -4197,11 +4211,17 @@ test('reconcile: a stale working decays to UNKNOWN, never to idle -- nobody inve
   assert.match(got.because, /could not check/);
 });
 
-test('reconcile: a stale working reaches the comparison first -- a screen still mid-task means the REPORTER is broken, and says so', () => {
+test('reconcile: a stale working reaches the comparison first -- the live screen wins, and #3529 drops the reporter-broken note', () => {
+  /* The comparison still happens before the decay, so a stale working report
+     meeting a scraped WORKING keeps the WORKING state (the live screen is
+     authoritative). #3529 (Josh, 2026-09-23) removed the "its reports stopped
+     arriving... the reporter may be broken" note this branch used to attach:
+     it read as broken/uncertain to a user. State unchanged; only the display
+     sentence is gone. */
   const got = reconcileReport(rep('working'), scr(STATE.WORKING, CONFIDENCE.SCRAPED, 'it is mid-task'),
     T0 + REPORT_WORKING_DECAY_MS + 60_000);
   assert.equal(got.state, STATE.WORKING, 'the live screen was thrown away before the comparison');
-  assert.match(got.conflict, /reporter may be broken/);
+  assert.equal(got.conflict, null, 'the removed reporter-broken accusation is firing again (#3529)');
 });
 
 test('reconcile: a dead process outranks any report -- a crash\'s last word is working forever and must not win', () => {

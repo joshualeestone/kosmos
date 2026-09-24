@@ -145,20 +145,30 @@ test('leaving the page and coming back paints it again, not an empty bar', () =>
     'the banner was shown with nothing in it: an amber bar with no sentence and no Restart button');
 });
 
-test('the unreadable branch was never at risk, because it writes through the helper', () => {
-  /* 📌 THIS ONE CANNOT FAIL ON THE DEFECT ABOVE, and saying so is the point of
-     keeping it. The unreadable branch replaces the banner by WRITING a different
-     sentence through the same helper, which updates the helper's record on the
-     way past -- so the next stale paint compares against that sentence, differs,
-     and writes. The bug only ever lived on the path that emptied the node
-     directly. This pins that this branch keeps doing it the safe way. */
+test('#3529: the unknown arm shows nothing, and still clears through the helper so the banner returns', () => {
+  /* #3529 (Josh, 2026-09-23): the unknown staleness banner ("This might not be
+     what the agent is actually running. Agents read this file when they start.
+     We cannot tell when this agent last started.") is removed from the app on
+     BOTH platforms -- it reads as broken/uncertain to a user. The arm now says
+     nothing, exactly like `told`.
+
+     📌 BUT IT MUST STILL CLEAR THROUGH setLive, which is why this test stays
+     rather than being deleted. The record-safety defect this whole file guards
+     against would come straight back if the unknown arm emptied the node any
+     other way: a later genuine stale paint would compare against a stale record
+     and write nothing, leaving an empty amber bar. So this pins both halves --
+     the unknown message is gone, and a stale banner shown after it still
+     paints. */
   const { el, render } = panel();
   render(STALE);
   const first = el.innerHTML;
   render({ state: 'unknown', because: 'we cannot tell when this agent last started' });
-  assert.match(el.innerHTML, /might not be what the agent is actually running/i);
+  assert.equal(el.hidden, true, 'the removed unknown staleness banner is showing again (#3529)');
+  assert.doesNotMatch(el.innerHTML, /might not be what the agent is actually running/i,
+    'the removed "might not be what the agent is actually running" message is back');
   render(STALE);
-  assert.equal(el.innerHTML, first, 'the banner came back empty after an unreadable reading');
+  assert.equal(el.hidden, false, 'the stale banner did not repaint after the unknown arm cleared it');
+  assert.equal(el.innerHTML, first, 'the banner came back empty after the unknown arm cleared it');
 });
 
 test('#655: the updated-itself line lives in the header\'s notice slot in the toast\'s shape, and the row has no Not-running tile (#653)', () => {
