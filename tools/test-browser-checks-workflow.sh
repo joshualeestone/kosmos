@@ -166,6 +166,11 @@ if command -v ruby >/dev/null 2>&1; then
     abort "file-red-card must hold exactly issues: write, got #{cj["permissions"].inspect}" unless cj["permissions"] == { "issues" => "write" }
     abort "browser-checks-full.yml must run steps as bash -eo pipefail (defaults.run.shell: bash); without it a pipeline reports its last command, got #{f["defaults"].inspect}" unless ((f["defaults"] || {})["run"] || {})["shell"] == "bash"
     abort "browser-checks-full.yml must never cancel a nightly run in progress (concurrency cancel-in-progress false), got #{(f["concurrency"] || {}).inspect}" unless (f["concurrency"] || {})["cancel-in-progress"] == false
+    # The red-check list crosses jobs: collector step (id failed) -> job output "failed" ->
+    # RED in the card step. A break anywhere turns every card into "(none captured)".
+    abort "no collector step with id failed" unless (fj["steps"] || []).any? { |st| st["id"] == "failed" && st["run"].to_s.include?("labels=") }
+    abort "browser-checks-full must export steps.failed.outputs.labels as outputs.failed, got #{fj["outputs"].inspect}" unless (fj["outputs"] || {})["failed"].to_s.gsub(/\s+/, "") == "${{steps.failed.outputs.labels}}"
+    abort "the card step must read RED from needs.browser-checks-full.outputs.failed" unless (cj["steps"] || []).any? { |st| (st["env"] || {})["RED"].to_s.gsub(/\s+/, "") == "${{needs.browser-checks-full.outputs.failed}}" }
     abort "the card step has no GH_TOKEN, so gh cannot file anything" unless (cj["steps"] || []).any? { |st| (st["env"] || {})["GH_TOKEN"].to_s.include?("github.token") }
     # The PR workflow never holds issues: write, at the top or in any job.
     abort "the PR workflow must not hold issues: write" if ((d["permissions"] || {})["issues"]).to_s == "write" || (d["jobs"] || {}).values.any? { |jb| ((jb["permissions"] || {})["issues"]).to_s == "write" }
