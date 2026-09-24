@@ -73,6 +73,10 @@
 #   A40 CONTROL for A28: a static alias .sha256 that DOES carry the served build's sha -> no #3610
 #       warning, so A28's warning is gated on the mismatch, not on "served statically"
 #   A41 a redirected pointer sha that is hex but 63 characters -> refuse on the LENGTH check
+#   A42 the alias-ZIP probe fails -> rc 0, and a BUT line says its bytes were not checked
+#   A43 the alias .sha256 probe answers 500 while it disagrees -> rc 0, a BUT line, no site claim
+#   A44 no committed staging pointer and its route 404s -> nothing staged: no BUT line, rc 0
+#   A45 no committed staging pointer and its probe answers 500 -> a BUT line that it was not verified
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -122,6 +126,10 @@ case "$url" in
     if [ "$rel" = dist/latest-win.json ] && [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-fail" ]; then
       [ -n "$wfmt" ] && printf '000 '
       exit 7   # curl's "failed to connect": the real transport-error shape
+    fi
+    if [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-codes" ]; then
+      _pc=$(awk -v r="$rel" '$1==r {print $2; exit}' "$LIVE_DIR/.probe-codes")
+      if [ -n "$_pc" ]; then [ -n "$wfmt" ] && printf '%s ' "$_pc"; exit 0; fi
     fi
     if [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-fail-paths" ] && grep -qx "$rel" "$LIVE_DIR/.probe-fail-paths"; then
       [ -n "$wfmt" ] && printf '000 '
@@ -201,6 +209,9 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-stagedr2-probefail - as stagedr2, but the un-followed probe of the staging pointer fails
 #   redirect-badshasha - as redirect, but R2's pointer sha is not 64 hex characters
 #   redirect-shortsha - as redirect, but R2's pointer sha is 63 hex characters
+#   redirect-aliaszipprobefail - as redirect, but the un-followed probe of the alias ZIP fails
+#   redirect-aliassha500 - as redirect, but the alias .sha256 probe answers 500 (and it is stale)
+#   redirect-staged404 / redirect-staged500 - no committed staging pointer; its probe answers 404 / 500
 #   redirect-aliasstatic-ok - the alias .sha256 is static but carries the served build's sha
 #   redirect-aliasstatic-badbytes - today's prod shape (alias zip on R2, its .sha256 static) with the
 #                        R2 alias zip being another build
@@ -307,10 +318,14 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         # The STATIC staging pointer serves other bytes than the committed one (deploy drift).
         write_win_ptr "$live/.served-staging" 0.6.44 "$newsha"
       fi
-      if [ "$mode" = redirect-aliasstatic ] || [ "$mode" = redirect-aliasprobefail ] || [ "$mode" = redirect-aliasstatic-badbytes ]; then
+      if [ "$mode" = redirect-aliasstatic ] || [ "$mode" = redirect-aliasprobefail ] || [ "$mode" = redirect-aliasstatic-badbytes ] || [ "$mode" = redirect-aliassha500 ]; then
         # Today's prod: the alias sidecar is NOT redirected, so the stale site copy is served.
         printf '%s\n' 'dist/latest-win.json' 'dist/kosmos-*win-x64.zip' 'dist/kosmos-[0-9]*-win-x64.zip.sha256' > "$live/.redirects"
       fi
+      [ "$mode" = redirect-aliaszipprobefail ] && printf '%s\n' 'dist/kosmos-win-x64.zip' > "$live/.probe-fail-paths"
+      [ "$mode" = redirect-aliassha500 ] && printf '%s\n' 'dist/kosmos-win-x64.zip.sha256 500' > "$live/.probe-codes"
+      [ "$mode" = redirect-staged404 ] && printf '%s\n' 'dist/latest-win-staging.json 404' > "$live/.probe-codes"
+      [ "$mode" = redirect-staged500 ] && printf '%s\n' 'dist/latest-win-staging.json 500' > "$live/.probe-codes"
       [ "$mode" = redirect-aliasprobefail ] && printf '%s\n' 'dist/kosmos-win-x64.zip.sha256' > "$live/.probe-fail-paths"
       if [ "$mode" = redirect-aliasstatic-ok ]; then
         # The alias .sha256 is static, but the site commit carries the RIGHT sha (R2's).
@@ -621,7 +636,8 @@ fi
 # A28) #3610 today: the alias sidecar is static and stale -> warn, do not red the Mac deploy.
 read -r S L R <<<"$(make_scenario redirect-aliasstatic)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit" && has "$out" "BUT (#3610) the Windows alias checksum is served stale"; then
+if [ "$RC" = 0 ] && has "$out" "WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit" && has "$out" "BUT (#3610) the Windows alias checksum is served stale" \
+   && [ -n "$(printf '%s\n' "$out" | sed -n '/published and verified/,$p' | grep -F 'BUT (#3610)')" ]; then
   pass "A28: a stale, statically served alias checksum warns (naming the redirect fix), rc=0"
 else
   bad "A28: a stale static alias checksum did not warn cleanly (rc=$RC); out=$out"
@@ -744,5 +760,41 @@ else
   bad "A41: a 63-character served sha was not refused on its length (rc=$RC); out=$out"
 fi
 
+# A42) the alias-zip probe fails: nothing refused, but the tail says the bytes went unchecked.
+read -r S L R <<<"$(make_scenario redirect-aliaszipprobefail)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "BUT (#3610) the Windows alias zip bytes were NOT checked this run"; then
+  pass "A42: a failed alias-zip probe is carried to the tail as a BUT line, rc=0"
+else
+  bad "A42: a failed alias-zip probe was not reported after the success line (rc=$RC); out=$out"
+fi
+
+# A43) the alias .sha256 probe answers 500 and the (static, stale) checksum disagrees.
+read -r S L R <<<"$(make_scenario redirect-aliassha500)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "answer '500'" && has "$out" "BUT (#3610) the Windows alias checksum disagrees" && ! has "$out" "is served from the site commit"; then
+  pass "A43: a 500 alias-checksum probe gives a NOTE and a BUT line, and no site-commit claim, rc=0"
+else
+  bad "A43: a 500 alias-checksum probe was misreported (rc=$RC); out=$out"
+fi
+
+# A44) nothing committed, nothing staged (the route 404s): no caveat at all.
+read -r S L R <<<"$(make_scenario redirect-staged404)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "published and verified" && ! has "$out" "BUT (#3618)" && ! has "$out" "NOTE (#3618)"; then
+  pass "A44: no committed staging pointer and a 404 route is 'nothing staged', with no caveat, rc=0"
+else
+  bad "A44: a correctly-404ing empty staging route raised a caveat or failed (rc=$RC); out=$out"
+fi
+
+# A45) nothing committed and the staging probe answers 500: the tail says it was not verified.
+read -r S L R <<<"$(make_scenario redirect-staged500)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "BUT (#3618) the staged Windows build was NOT verified this run (probe answered 500"; then
+  pass "A45: a 500 staging probe with nothing committed is carried to the tail, rc=0"
+else
+  bad "A45: a 500 staging probe with nothing committed was not reported (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 41 arms passed"
+echo "test-deploy-site-served-win-3600: all 45 arms passed"

@@ -526,6 +526,7 @@ read_served_win_pointer() {  # <pointer file under dist> <redacted redirect targ
     kosmos-[0-9]*-win-x64.zip) : ;;
     *) echo "deploy-site: the served (redirected) $1 names '${SWP_NAME:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate ($3)."; exit 1 ;;
   esac
+  # Second check, not redundant: the glob's * above also matches '/' and '..'.
   case "$SWP_NAME" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served $1 names '$SWP_NAME', which is not a bare file name -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
   [ -n "$SWP_SHA" ] || { echo "deploy-site: the served (redirected) $1 names $SWP_NAME but no sha256 -- the deploy already ran, investigate ($3)."; exit 1; }
   case "$SWP_SHA" in *[!0-9a-fA-F]*) echo "deploy-site: the served (redirected) $1 advertises sha '$SWP_SHA', which is not hex -- the deploy already ran, investigate ($3)."; exit 1 ;; esac
@@ -636,7 +637,8 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   # R2 since 09-22 while its sidecar was still static. From R2, those bytes are the download button's
   # download, so they must be the build the pointer names. Served statically, git archive shipped the
   # committed alias, which is the site's business, not R2's.
-  _waz=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip" 2>/dev/null) || _waz=''
+  # HEAD (-I): classifying the redirect must never download the ~40 MB zip when it is served statically.
+  _waz=$(curl -sSI --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip" 2>/dev/null) || _waz=''
   case "${_waz%% *}" in
     301|302|303|307|308)
       _wag=$(served_sha256 kosmos-win-x64.zip 300) || { echo "deploy-site: could not fetch the served kosmos-win-x64.zip to hash it -- the deploy already ran, investigate (#3610)."; exit 1; }
@@ -703,6 +705,10 @@ case "${_wsp%% *}" in
     WIN_STAGED=$SWP_NAME; WIN_STAGED_SERVED_SHA=$SWP_SHA
     ;;
   200) : ;;   # served statically: git archive shipped the committed staging pointer
+  404)
+    # Nothing committed and nothing served is simply "nothing staged": no caveat. With a committed
+    # pointer, the strict served-verify below refuses the 404 on its own.
+    ;;
   '')
     [ -n "$WIN_STAGED" ] || WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3618) the staged Windows build was NOT verified this run (probe failed, none committed).
 "
