@@ -483,10 +483,24 @@ async function measure(page) {
       window.dispatchEvent(new Event('resize'));
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const afterResize = root.style.getPropertyValue('--scrollbar-width');
+      // A press inside the wide Talk view does not measure; on Model it does.
       root.style.setProperty('--scrollbar-width', '99px');
       await new Promise((r) => setTimeout(r, 1100)); // the press re-measure runs at most once a second
       window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      const pressInTalk = root.style.getPropertyValue('--scrollbar-width');
+      document.querySelector('#panel-detail .snav button[data-go="model"]').click();
+      await new Promise((r) => setTimeout(r, 1100));
+      root.style.setProperty('--scrollbar-width', '99px');
+      window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
       const afterPress = root.style.getPropertyValue('--scrollbar-width');
+      document.querySelector('#panel-detail .snav button[data-go="talk"]').click();
+      await new Promise((r) => setTimeout(r, 150));
+      root.style.setProperty('--scrollbar-width', '99px');
+      window.dispatchEvent(new Event('focus'));
+      const afterFocus = root.style.getPropertyValue('--scrollbar-width');
+      root.style.setProperty('--scrollbar-width', '99px');
+      document.dispatchEvent(new Event('visibilitychange'));
+      const afterVisible = root.style.getPropertyValue('--scrollbar-width');
       // The Windows stamp: a served win32 meta, and applyPlatformCopy on a DETACHED root so no copy
       // on the page is swapped; it stamps html and must re-measure. Then everything is put back.
       root.style.setProperty('--scrollbar-width', '99px');
@@ -499,12 +513,15 @@ async function measure(page) {
       meta.remove(); if (prevMeta) document.head.appendChild(prevMeta);
       root.removeAttribute('data-kosmos-platform');
       window.kosmosMeasureScrollbarWidth();
-      return { before, afterResize, afterPress, afterStamp, restored: root.style.getPropertyValue('--scrollbar-width') };
+      return { before, afterResize, pressInTalk, afterPress, afterFocus, afterVisible, afterStamp, restored: root.style.getPropertyValue('--scrollbar-width') };
     });
     const px = (v) => /^\d+px$/.test(v);
-    chk(px(remeasure.afterResize) && remeasure.afterResize !== '99px' && px(remeasure.afterPress) && remeasure.afterPress !== '99px' && px(remeasure.afterStamp) && remeasure.afterStamp !== '99px'
+    const fresh = (v) => px(v) && v !== '99px';
+    chk(fresh(remeasure.afterResize) && fresh(remeasure.afterPress) && fresh(remeasure.afterFocus) && fresh(remeasure.afterVisible) && fresh(remeasure.afterStamp)
       && remeasure.restored === remeasure.before,
-      'A1p the scrollbar width is re-measured on resize, on a pointer press and when the Windows stamp is applied (the measurer runs; the Windows width itself is unverified headless)', JSON.stringify(remeasure));
+      'A1p the scrollbar width is re-measured on resize, a pointer press off Talk, window focus, return to the tab and the Windows stamp (the measurer runs; the Windows width itself is unverified headless)', JSON.stringify(remeasure));
+    chk(remeasure.pressInTalk === '99px',
+      'A1p a pointer press inside the wide Talk view does not force a re-measure (control: the same press on Model does)', JSON.stringify(remeasure));
     chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,
       'A1g the identity block stays where it was (within 1px of Model; the 1px is the pre-existing Talk/Model line-box difference)',
       'talk=' + talkIdentFromHead + ' model=' + model.identFromHead);
@@ -575,8 +592,8 @@ async function measure(page) {
         const sModel = await sHead();
         // Real scrollbars: Model scrolls and gives up 15px in both engines. The measured reservation of a
         // page that does not scroll is 15px in Chromium and 0 in Playwright's WebKit, which reserves none.
-        chk(sModel.given === 15 && (sBoard.sbw === '0px' || sBoard.sbw === '15px'),
-          'A1n ' + engine + ' precondition: a scrolling page gives up 15px and the measured reservation is 0 or 15px (Playwright\'s WebKit reserves none on a page that does not scroll)', JSON.stringify({ sBoard, sModel }));
+        chk(sModel.given === 15 && (engine === 'chromium' ? sBoard.sbw === '15px' : (sBoard.sbw === '0px' || sBoard.sbw === '15px')),
+          'A1n ' + engine + ' precondition: a scrolling page gives up 15px and the measured reservation is ' + (engine === 'chromium' ? '15px (so the edge arm is a control that reds on main)' : '0 or 15px (Playwright\'s WebKit reserves none on a page that does not scroll)'), JSON.stringify({ sBoard, sModel }));
         chk(sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
           'A1n ' + engine + ': the board keeps the #1309 gutter and Talk drops it', JSON.stringify({ sBoard, sTalk }));
         chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,

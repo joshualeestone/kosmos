@@ -8519,7 +8519,7 @@ window.kosmosMeasureScrollbarWidth = function () {
     vw = document.createElement('div');
     vw.style.cssText = 'position:absolute;top:-999px;left:0;width:100vw;height:1px';
     root.appendChild(vw);
-    var vwMatches = Math.round(vw.getBoundingClientRect().width) === Math.round(window.innerWidth);
+    var vwMatches = Math.abs(vw.getBoundingClientRect().width - window.innerWidth) <= 1; /* 1px: zoom lays 100vw out fractionally */
     root.style.scrollbarGutter = prevGutter;
     root.style.overflow = prevOverflow;
     if (!vwMatches) { root.removeAttribute('data-scrollbar-measured'); return; }
@@ -8550,6 +8550,10 @@ window.kosmosMeasureScrollbarWidth();
   window.addEventListener('pointerdown', function () {
     var now = Date.now();
     if (now - lastPress < SCROLLBAR_REMEASURE_MIN_MS) return;
+    /* Not while the wide Talk view is open: forcing its gutter back reflows the whole thread at a
+       second width, and leaving Talk (or a resize) re-measures anyway (A1p). */
+    if (window.matchMedia('(min-width: 56.01rem)').matches
+      && document.querySelector('body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])')) return;
     lastPress = now;
     window.kosmosMeasureScrollbarWidth();
   }, { capture: true, passive: true });
