@@ -441,13 +441,19 @@ test('#2617: a subagent transcript is its parent session\'s work, wherever it st
   // The subagent was spawned while the parent stood in a worktree.
   fs.writeFileSync(nodePath.join(subDir, 'agent-1.jsonl'),
     cwdRow({ timestamp: '2026-08-24T10:01:00.000Z', id: 's1', cwd: '/work/repo-branch', output: 30 }) + '\n', 'utf8');
+  // A subagent's own subagent (spawnDepth 2) is still the top-level session's.
+  const deep = nodePath.join(subDir, 'agent-1', 'subagents');
+  fs.mkdirSync(deep, { recursive: true });
+  fs.writeFileSync(nodePath.join(deep, 'agent-1a.jsonl'),
+    cwdRow({ timestamp: '2026-08-24T10:03:00.000Z', id: 's3', cwd: '/work/other', output: 100 }) + '\n', 'utf8');
   // A subagent with no parent transcript on disk keeps its own first cwd.
   const orphan = nodePath.join(dir, 'gone', 'subagents');
   fs.mkdirSync(orphan, { recursive: true });
   fs.writeFileSync(nodePath.join(orphan, 'agent-2.jsonl'),
     cwdRow({ timestamp: '2026-08-24T10:02:00.000Z', id: 's2', cwd: '/w/bob', output: 4 }) + '\n', 'utf8');
   const { folders } = await usage.scanUsage({ sinceDay: '2026-08-24', untilDay: '2026-08-24' });
-  assert.equal(folders['2026-08-24']['/w/ann'].output_tokens, 32, 'the subagent\'s tokens left its parent\'s agent');
+  assert.equal(folders['2026-08-24']['/w/ann'].output_tokens, 132, 'a subagent\'s tokens, at depth 1 or 2, left its session\'s agent');
   assert.equal(folders['2026-08-24']['/work/repo-branch'], undefined);
+  assert.equal(folders['2026-08-24']['/work/other'], undefined, 'a depth-2 subagent kept its own folder');
   assert.equal(folders['2026-08-24']['/w/bob'].output_tokens, 4);
 });
