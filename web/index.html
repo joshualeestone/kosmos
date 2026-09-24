@@ -52757,7 +52757,11 @@ setInterval(ageCheckedStamp, 1000);
      breaks every one of them. Self-contained: no dependency on the app's state.
      The worker (/sw.js) is registered for the offline shell and shows a push when
      one arrives. The control reads and sets /api/phone-notify, a setting of this
-     Mac; a phone subscribes on the Kosmos+ sign-in page, not here. -->
+     computer; a phone subscribes on the Kosmos+ sign-in page, not here (option C
+     on #3510). The board-origin subscribe flow that lived here came in with PR
+     #3520 and was removed on #3510; restore it from #3520 if a subscribe must
+     happen on the board's own origin (option A, or an Android app whose origin
+     is the board's). -->
 <script id="push-client">
 (function () {
   'use strict';
