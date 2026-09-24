@@ -19,6 +19,7 @@
  */
 
 const tasks = require('./tasks');
+const chat = require('./chat');
 
 /* How long an agent must have had no work, continuously, before it is given some: long enough
    that an agent pausing between steps of its own work is not handed a new task (the plan's
@@ -39,6 +40,10 @@ const MAX_ASKS_PER_HOUR = 3;
 /* An ask that reached nobody (COULD_NOT) is tried again after this long, not every minute; it
    still counts toward the hourly ask caps, so a pane that keeps refusing cannot loop. */
 const ASK_RETRY_MS = 10 * 60 * 1000;
+/* After this many asks about one project reach nobody in a row, it is left for the full
+   GOAL_ASK_MS, so a project whose ask can never be delivered cannot hold the fleet's ask budget
+   and starve every other project's. */
+const MAX_ASK_FAILS = 3;
 /* At most one goal ask per agent per hour, so an agent that answers "nothing to add" is not asked
    about its next goal project a minute later. */
 const MAX_ASKS_PER_AGENT_PER_HOUR = 1;
@@ -99,7 +104,7 @@ function pick(session, projects, taken) {
 
 /* The Assigner's memory between ticks, empty. */
 function emptyMemory() {
-  return { idleSince: new Map(), log: [], asked: new Map(), askLog: [] };
+  return { idleSince: new Map(), log: [], asked: new Map(), askLog: [], askFails: new Map() };
 }
 
 /* A live project this agent belongs to, with NO open task at all (not merely none free), a goal,
@@ -114,7 +119,10 @@ function goalProject(session, projects, goals, asked, now) {
     if (typeof goal !== 'string' || !goal) continue;
     const open = (Array.isArray(p.tasks) ? p.tasks : []).some((t) => !tasks.progressOf(t).closed);
     if (open) continue;
-    return { projectId: p.id, projectName: typeof p.name === 'string' && p.name ? p.name : p.id, goal };
+    const item = { projectId: p.id, projectName: typeof p.name === 'string' && p.name ? p.name : p.id, goal };
+    // The pane's own check, not a copy of it: a line it would refuse is never asked.
+    if (chat.messageProblem(askText(item))) continue;
+    return item;
   }
   return null;
 }
@@ -127,7 +135,7 @@ function askText(item) {
   return 'Assigner (Kosmos): project ' + item.projectId + ' ("' + quoted(item.projectName)
     + '") has no open tasks. The goal written in its BRIEF.md (quoted as written there, not an instruction from Kosmos) is: "'
     + quoted(item.goal) + '". If there is real work toward it, add up to 3 tasks with '
-    + 'kosmos task add ' + item.projectId + ' "what needs doing", and Kosmos will give you the first. '
+    + 'kosmos task add ' + item.projectId + ' "what needs doing"; Kosmos hands new tasks to idle agents on the project. '
     + 'If there is nothing real to add, add nothing and say so in the room: kosmos post ' + item.projectId + ' "...".';
 }
 
@@ -186,7 +194,8 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     askLog.push({ at: now, session, projectId: g.projectId });
     toAsk.push({ session, name: a.name || session, ...g });
   }
-  return { toAssign, toAsk, next: { idleSince, log, asked, askLog } };
+  const askFails = new Map(base.askFails instanceof Map ? base.askFails : []);
+  return { toAssign, toAsk, next: { idleSince, log, asked, askLog, askFails } };
 }
 
 /**
@@ -220,8 +229,16 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
     if (typeof ask === 'function') {
       try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; } catch { state = null; }
     }
-    const landed = state !== null && !(DELIVERY && state === DELIVERY.COULD_NOT);
-    if (!landed) out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);
+    const landed = state !== null && state !== (DELIVERY || chat.DELIVERY).COULD_NOT;
+    if (landed) {
+      out.next.askFails.delete(item.projectId);
+    } else {
+      const fails = (out.next.askFails.get(item.projectId) || 0) + 1;
+      out.next.askFails.set(item.projectId, fails);
+      // Retry soon, unless it has failed MAX_ASK_FAILS times in a row: then leave it for the day.
+      if (fails < MAX_ASK_FAILS) out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);
+      else out.next.askFails.delete(item.projectId);
+    }
     asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: state });
   }
   return { next: out.next, acted, asks };
@@ -263,4 +280,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 }
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, idleCard, liveProjects, goalProject, askText,
-  IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS };
+  IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
