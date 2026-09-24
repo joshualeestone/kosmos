@@ -160,11 +160,11 @@ if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
     # OUR identity, by team id, not any Developer ID Installer's (named once, lib/signing-identity.sh,
     # #3643). The build-time override (KOSMOS_INSTALLER_CERT) is deliberately NOT honoured here: it may be
     # a loose name or a SHA-1, and this check is about which TEAM signed what users download.
-    _vs_team=""; _vs_name=""
-    if . "$REPO/tools/lib/signing-identity.sh" 2>/dev/null; then _vs_team="${KOSMOS_SIGN_TEAM_ID:-}"; _vs_name="${KOSMOS_SIGN_TEAM_NAME:-}"; fi
-    if [ -z "$_vs_team" ] || [ -z "$_vs_name" ]; then say "/dist/Kosmos.pkg signature" "NOT checked: could not read the signing team from $REPO/tools/lib/signing-identity.sh (an older checkout?)"; fail=1
-    elif pkgutil --check-signature "$ptmp" 2>/dev/null | grep -qF "Developer ID Installer: $_vs_name ($_vs_team)"; then say "/dist/Kosmos.pkg signature" "Developer ID Installer, $_vs_name ($_vs_team)"
-    else say "/dist/Kosmos.pkg signature" "NOT signed by our Developer ID Installer ($_vs_name, $_vs_team)"; fail=1; fi
+    _vs_inst=""
+    if . "$REPO/tools/lib/signing-identity.sh" 2>/dev/null; then _vs_inst="${KOSMOS_SIGN_INSTALLER_DEFAULT:-}"; fi
+    if [ -z "$_vs_inst" ]; then say "/dist/Kosmos.pkg signature" "NOT checked: could not read the signing identity from $REPO/tools/lib/signing-identity.sh (an older checkout?)"; fail=1
+    elif pkgutil --check-signature "$ptmp" 2>/dev/null | grep -qF "$_vs_inst"; then say "/dist/Kosmos.pkg signature" "$_vs_inst"
+    else say "/dist/Kosmos.pkg signature" "NOT signed by our Developer ID Installer ($_vs_inst)"; fail=1; fi
   else say "/dist/Kosmos.pkg signature" "not checked here (no pkgutil on this machine)"; fi
   if command -v xcrun >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then
     if xcrun stapler validate "$ptmp" >/dev/null 2>&1; then say "/dist/Kosmos.pkg staple" "notarisation ticket stapled"
