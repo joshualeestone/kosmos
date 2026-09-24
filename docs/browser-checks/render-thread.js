@@ -745,10 +745,13 @@ async function main() {
     /* #3419 (cites Josh directly: "no play-by-play about the agent's internal
        state") made a PLACED row's says-line SILENT -- placedWords returns ''. So
        there is deliberately no size assertion here (the row is empty by design) and
-       no "waiting on an answer when this was sent" assertion (that clause was never
-       shipped; it lived only in this check). Splinter ruling 2026-09-24: Josh's
-       ruling already exists in #3419, so update the check to the shipped silent
-       behaviour rather than author the clause. What survives are the ABSENCE checks:
+       no "waiting on an answer when this was sent" assertion. That clause IS real and
+       shipped (engine/chat.js waitingNote's NEEDS_YOU case, tested in chat.test.js),
+       but it is scoped to the unconfirmed/could-not verdict arms; placedWords() ignores
+       it unconditionally for the PLACED state this room row exercises, so a placed row
+       can never carry it. Splinter ruling 2026-09-24: Josh's ruling already exists in
+       #3419, so update the check to the shipped silent behaviour rather than assert a
+       clause the placed arm cannot produce. What survives are the ABSENCE checks:
        a placed row must never say "Placed into ..." (the clause Josh removed) nor
        claim the agent "answered"; a silent row satisfies both, and they still catch
        a regression that makes the row speak wrongly. */

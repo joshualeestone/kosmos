@@ -7,7 +7,8 @@ fixes the `render-thread` red, per Splinter's ruling of 2026-09-24.
 
 render-thread was red on three assertions: (1) focus-to-composer, (2) says-line has size,
 (3) verdict says "waiting on an answer when this was sent." I investigated and found the
-verdict clause was never in the product (not in web/index.html, not in git history), and
+verdict clause is real and shipped (engine/chat.js waitingNote, tested in chat.test.js) but is
+scoped to the unconfirmed/could-not verdict arms - it never reaches a PLACED row, because
 `placedWords` was deliberately made to return '' by #3419, which cites Josh directly: "no
 play-by-play about the agent's internal state; the message landed, the row under it says so
 by existing." So the shipped behaviour is SILENT placed rows.
@@ -17,7 +18,9 @@ CHECK to the shipped behaviour. Placed rows are silent.
 
 ## What this changes
 
-- Drop the "waiting on an answer when this was sent" verdict assertion (never shipped).
+- Drop the "waiting on an answer when this was sent" verdict assertion. The clause is real
+  (engine/chat.js waitingNote, tested) but scoped to the unconfirmed/could-not arms;
+  placedWords() ignores it for the placed state this row exercises, so it never appears here.
 - Drop the says-line size assertion (a placed row's says-line is empty by design, so no size).
 - Keep the focus-to-composer assertion but SKIP it (logged, NOT deleted). NOTE: the
   original co-land-on-#3455 reason was WRONG - a blind review proved #3455 (f6105c40f) is
