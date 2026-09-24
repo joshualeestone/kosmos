@@ -484,6 +484,52 @@ const now = () => new Date().toISOString();
       }
     }
 
+    /* #3493 (Josh, 2026-09-23): the TAB-view conversation column (.pjcol.pjmid) left its
+       var(--k-surface) fill (#17191c in dark) as a gray seam around the blacked thread and
+       composer. It is now blacked to #000 in dark, matching the consolidated view. The gray comes
+       from the .pjcol BASE rule, so the fixture must carry BOTH classes (a bare .pjmid would never
+       show it and the arm would pass vacuously). Three scenarios, no consolidated layout:
+         - light (control): the column is the light surface, so the dark #000 arm is not vacuous.
+         - dark: the column is #000 -- one uniform ground, no gray seam.
+         - dark + body.plus-active: the paid Plus tier is EXCLUDED (:not(.plus-active)), so its
+           navy column is NOT blacked -- the regression guard mirroring the four rules below. */
+    for (const sc of [{ theme: 'light', plus: false }, { theme: 'dark', plus: false }, { theme: 'dark', plus: true }]) {
+      const tabPage = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: sc.theme });
+      try {
+        await tabPage.addInitScript(() => {
+          window.setInterval = () => 0;
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.fetch = async () => enc({});
+        });
+        await tabPage.goto(PAGE);
+        const tv = await tabPage.evaluate(({ ts, plus }) => {
+          document.body.classList.remove('consolidated');
+          document.documentElement.removeAttribute('data-layout');
+          if (plus) document.body.classList.add('plus-active');
+          const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+          const pjmid = document.createElement('div'); pjmid.className = 'pjcol pjmid';
+          const thread = document.createElement('div'); thread.className = 'thread';
+          thread.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'on it.' }, p);
+          const composer = document.createElement('div'); composer.className = 'composer';
+          pjmid.appendChild(thread); pjmid.appendChild(composer); document.body.appendChild(pjmid);
+          const out = { pjmidBg: getComputedStyle(pjmid).backgroundColor };
+          pjmid.remove(); document.body.classList.remove('plus-active');
+          return out;
+        }, { ts: now(), plus: sc.plus });
+        const pj = parse(tv.pjmidBg);
+        const isBlack = (c) => c[3] > 0 && c[0] <= 8 && c[1] <= 8 && c[2] <= 8;
+        if (sc.plus) {
+          chk(!isBlack(pj), `[dark/tab/plus] the Plus navy column (.pjcol.pjmid) is NOT blacked (:not(.plus-active) holds) (#3493)`, tv.pjmidBg);
+        } else if (sc.theme === 'dark') {
+          chk(isBlack(pj), `[dark/tab] the conversation column (.pjcol.pjmid) is black -- no gray seam around the dialogue (#3493)`, tv.pjmidBg);
+        } else {
+          chk(pj[0] >= 200 && pj[1] >= 200 && pj[2] >= 200, `[light/tab] the column is the light surface (control: the dark #000 arm is not vacuous) (#3493)`, tv.pjmidBg);
+        }
+      } finally {
+        await tabPage.close();
+      }
+    }
+
     /* #3340: the TAB-view Plus exclusion, the common code path. All four tab night-mode rules
        (.msg text, .thread ground, .composer, .msg-bd::after mask) carry :not(.plus-active); this
        arm proves the guard by entering dark + body.plus-active WITHOUT the consolidated layout and

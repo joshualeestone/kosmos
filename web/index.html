@@ -5166,6 +5166,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) body:not(.plus-active) .msg p, :root:not([data-theme="light"]) body:not(.plus-active) .msg.you p { color: #ffffff; }
   :root:not([data-theme="light"]) body:not(.consolidated):not(.plus-active) .pjmid .thread { background: #000000; }
+  /* #3493 (Josh, 2026-09-23): the tab-view conversation column (.pjmid, a .pjcol whose
+     var(--k-surface) fill is #17191c in dark) left a gray seam around and behind the blacked
+     thread and composer. Black the column itself so the dialogue area is one #000 ground,
+     matching the consolidated view (which already blacks its .pjmid in dark). Tab view only
+     (consolidated is handled separately) and not the paid Plus navy. The input keeps its
+     distinct #17191c field (#3369); only the fill BETWEEN the dialogue and the input goes black. */
+  :root:not([data-theme="light"]) body:not(.consolidated):not(.plus-active) .pjmid { background: #000000; }
   :root:not([data-theme="light"]) body:not(.plus-active) .pjmid .composer { background: #000000; }
   /* Josh, 2026-09-21: in dark mode the two project composers (the room post box
      and the agent-say box) read cleaner as a distinct dark field the black
@@ -8043,6 +8050,13 @@ html:not([data-fed-ui="signup"]) #pj-plus-signup { display: none !important; }
 
 :root[data-theme="dark"] body:not(.plus-active) .msg p, :root[data-theme="dark"] body:not(.plus-active) .msg.you p { color: #ffffff; }
 :root[data-theme="dark"] body:not(.consolidated):not(.plus-active) .pjmid .thread { background: #000000; }
+/* #3493 (Josh, 2026-09-23): the tab-view conversation column (.pjmid, a .pjcol whose
+     var(--k-surface) fill is #17191c in dark) left a gray seam around and behind the blacked
+     thread and composer. Black the column itself so the dialogue area is one #000 ground,
+     matching the consolidated view (which already blacks its .pjmid in dark). Tab view only
+     (consolidated is handled separately) and not the paid Plus navy. The input keeps its
+     distinct #17191c field (#3369); only the fill BETWEEN the dialogue and the input goes black. */
+:root[data-theme="dark"] body:not(.consolidated):not(.plus-active) .pjmid { background: #000000; }
 :root[data-theme="dark"] body:not(.plus-active) .pjmid .composer { background: #000000; }
 /* Josh, 2026-09-21: in dark mode the two project composers (the room post box
      and the agent-say box) read cleaner as a distinct dark field the black
