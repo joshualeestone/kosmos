@@ -283,3 +283,28 @@ test('#3566 store: a reused slot does not hand the new account an earlier accoun
   assert.equal(b.account.dir, spot.dir, 'CONTROL: the reused slot must be the one taken, or this proves nothing');
   assert.equal(geminiAccounts.readName(b.account.dir), null, 'the new account inherited an old name');
 });
+
+test('#3566 store: an explicitly-labelled add cannot take a slot an unnamed add has claimed and is still checking', async () => {
+  let release; const gate = new Promise((r) => { release = r; });
+  let entered = 0;
+  grokAccounts.setFetcher(async () => { entered += 1; await gate; return { status: 200, body: {} }; });
+  const claimedBefore = new Set(fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.grok-work')
+    && fs.existsSync(nodePath.join(SANDBOX, n, '.kosmos-claim'))));
+  const p1 = post('/api/accounts/grok/apikey', { key: 'xai-unnamed-inflight-key-1111' });
+  for (let i = 0; i < 100 && entered < 1; i += 1) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(entered, 1, 'CONTROL: the unnamed add must be inside its live check');
+  // The slot it ACTUALLY claimed: the one whose claim appeared since (earlier arms leave claims).
+  const mine = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.grok-work')
+    && fs.existsSync(nodePath.join(SANDBOX, n, '.kosmos-claim')) && !claimedBefore.has(n));
+  assert.equal(mine.length, 1, 'CONTROL: exactly one new claim must exist: ' + JSON.stringify(mine));
+  const spot = { label: mine[0].replace(/^\.grok-/, ''), dir: nodePath.join(SANDBOX, mine[0]) };
+  const r2 = await post('/api/accounts/grok/apikey', { label: spot.label, key: 'xai-named-racer-key-2222' });
+  assert.equal(r2.status, 400, 'the named add was let into a claimed slot');
+  assert.match((await r2.json()).error, /being added under that name right now/);
+  release();
+  const r1 = await p1;
+  assert.equal(r1.status, 200);
+  const b1 = await r1.json();
+  assert.equal(b1.account.dir, spot.dir);
+  assert.equal(fs.readFileSync(grokAccounts.keyFile(spot.dir), 'utf8'), 'xai-unnamed-inflight-key-1111', 'the unnamed add\'s key was overwritten');
+});

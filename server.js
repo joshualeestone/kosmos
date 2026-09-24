@@ -1745,6 +1745,26 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
         }
       } else {
         named = mod.dirForLabel(body.label);
+        /* An explicit label takes the SAME claim, or it could land on a work slot an unnamed
+           add has claimed and is still checking, and overwrite that key. A symlinked slot is
+           refused before anything is written into it. */
+        if (named.ok) {
+          let isLink = false;
+          try { isLink = fs.lstatSync(named.dir).isSymbolicLink(); } catch { /* absent: fine */ }
+          if (isLink) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; }
+          const claimFile = path.join(named.dir, CLAIM_FILE);
+          try {
+            fs.mkdirSync(named.dir, { recursive: true, mode: 0o700 });
+            try { if (Date.now() - fs.statSync(claimFile).mtimeMs > CLAIM_STALE_MS) fs.unlinkSync(claimFile); } catch { /* none, or gone */ }
+            fs.closeSync(fs.openSync(claimFile, 'wx', 0o600));
+            claimed = named.dir;
+          } catch (err) {
+            sendJson(res, 400, { error: err && err.code === 'EEXIST'
+              ? `another ${providerLabel} account is being added under that name right now; try again in a moment`
+              : `we could not make a place for this ${providerLabel} account on this computer` });
+            return;
+          }
+        }
       }
       if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
       // Drop the claim file; rmdir then removes the slot only if it is EMPTY, so giving a

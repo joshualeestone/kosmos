@@ -33997,7 +33997,7 @@ function acctMoveWorld(a, accounts) {
   const keyedProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
   const isCodex = keyedProvider === 'openai';
   const isKeyed = !!keyedProvider;
-  const isOpenaiRow = (x) => !!(x && keyedProvider && String(x.provider || '').toLowerCase() === keyedProvider);
+  const isOwnProviderRow = (x) => !!(x && keyedProvider && String(x.provider || '').toLowerCase() === keyedProvider);
   const acct = a && a.account;
   /* An OpenAI row is only a valid MOVE destination when it is BOTH offerable and
      signed in -- the same two gates the sibling create/switch OpenAI picker applies
@@ -34013,7 +34013,7 @@ function acctMoveWorld(a, accounts) {
          (matches the sibling, and does not empty the menu against an older server).
      The Claude branch's `memoryShared` is its own equivalent gate. */
   const movable = isKeyed
-    ? rows.filter((x) => isOpenaiRow(x) && (!x.connection || x.connection.state !== 'none') && x.offerable !== false)
+    ? rows.filter((x) => isOwnProviderRow(x) && (!x.connection || x.connection.state !== 'none') && x.offerable !== false)
     : rows.filter((x) => x && x.memoryShared);
   const currentDir = isKeyed
     ? ((acct && acct.dir) || ((movable.find((x) => x.isDefault) || {}).dir) || null)
