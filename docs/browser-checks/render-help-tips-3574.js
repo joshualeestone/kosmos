@@ -152,6 +152,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const upg = await cardState(page);
     const hasCard = await page.evaluate(() => !!document.querySelector('#grid [data-agent="beatrix"]'));
     chk(hasCard && !upg.shown, 'T23 with an agent on the board and nothing seen, no tip shows by itself', JSON.stringify({ hasCard, upg }));
+    chk(!(await api('GET')).seen.includes('tour'), 'T23 and the tour is not recorded for a board that already had agents (control: T24, a met tour, is)');
     resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
     await page.reload({ waitUntil: 'networkidle' });
 
@@ -434,7 +435,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.goto(URL, { waitUntil: 'networkidle' });
     chk(await waitTitle(page, TOUR, 4000), 'T24 precondition: the tour shows by itself');
     await page.evaluate(() => document.querySelector('#tabs [data-tab="projects"]').click());   // no pointerdown
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2800);
     const gone24 = await cardState(page);
     chk(!/ of /.test(gone24.step) && !(await api('GET')).seen.includes('tour'), 'T24 precondition: the tour went with its screen, unrecorded', JSON.stringify(gone24));
     // The first save of the met tour fails: it must be tried again, or the next launch is stranded.
