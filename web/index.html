@@ -27267,19 +27267,28 @@ function usageByModel(byDay) {
    past the palette reuse the muted "Other" color. Pure. */
 function usageModelTableHtml(models, grandTotal) {
   const m = Array.isArray(models) ? models : [];
-  if (!m.length) return '';
-  const total = Number(grandTotal) || m.reduce((a, x) => a + (Number(x.tok) || 0), 0) || 1;
-  const max = m.reduce((a, x) => Math.max(a, Number(x.tok) || 0), 0) || 1;
-  const rows = m.map((x, i) => {
-    const color = USAGE_MODEL_COLORS[Math.min(i, USAGE_MODEL_COLORS.length - 1)];
+  return usageShareTableHtml('Model', m, grandTotal, (x, i) => USAGE_MODEL_COLORS[Math.min(i, USAGE_MODEL_COLORS.length - 1)]);
+}
+/* #2617: the share table both the per-model and per-agent tables draw with, so
+   the two cannot drift: the head, the bar scaled to the largest row, tokens,
+   and the share of `grandTotal` (or of the rows when none is given). `colorFor`
+   picks each row's color; a row with `muted` gets the muted class. The name
+   carries a title so a truncated one can still be read. Pure. */
+function usageShareTableHtml(label, rows, grandTotal, colorFor) {
+  const r = Array.isArray(rows) ? rows : [];
+  if (!r.length) return '';
+  const total = Number(grandTotal) || r.reduce((a, x) => a + (Number(x.tok) || 0), 0) || 1;
+  const max = r.reduce((a, x) => Math.max(a, Number(x.tok) || 0), 0) || 1;
+  const body = r.map((x, i) => {
+    const color = colorFor(x, i);
     const pct = (Number(x.tok) || 0) / total * 100;
     const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '&lt;0.1%';
-    return '<div class="tv-mrow"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl">' + esc(x.name) + '</span></div>'
+    return '<div class="tv-mrow' + (x.muted ? ' muted' : '') + '"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl" title="' + esc(x.name) + '">' + esc(x.name) + '</span></div>'
       + '<div class="tv-mbar"><span style="width:' + ((Number(x.tok) || 0) / max * 100).toFixed(1) + '%;background:' + color + '"></span></div>'
       + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
       + '<div class="tv-num">' + pctStr + '</div></div>';
   }).join('');
-  return '<div class="tv-mrow head"><div>Model</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + rows;
+  return '<div class="tv-mrow head"><div>' + label + '</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + body;
 }
 /* #2617: the per-agent rows from /api/usage's byAgent, as the model table's
    { name, tok } shape plus `muted` for the two rows that are not an agent
@@ -27299,28 +27308,16 @@ function usageAgentRows(byAgent) {
   if (shared > 0) rows.push({ name: 'Folders shared by more than one agent', tok: shared, muted: true });
   return rows;
 }
-/* #2617: the per-agent table, the model table's markup with an Agent column.
-   Agents take USAGE_MODEL_COLORS by rank, the seventh and later sharing the
-   sixth (the muted "Other" color is kept for the non-agent rows, so they never
-   read as an agent). "% total" is of the page's grand total, as in the model
-   table, so tokens the note reports as unmatched leave the rows short of 100%.
-   The name carries a title so a truncated one can still be read. Pure. */
+/* #2617: the per-agent table, drawn by the same usageShareTableHtml as the
+   model table. Agents take USAGE_MODEL_COLORS by rank, the seventh and later
+   sharing the sixth; the muted "Other" color is kept for the non-agent rows so
+   they never read as an agent. "% total" is of the page's grand total, as in
+   the model table, so tokens the note reports as unmatched leave the rows short
+   of 100%. Pure. */
 function usageAgentTableHtml(rows, grandTotal) {
-  const r = Array.isArray(rows) ? rows : [];
-  if (!r.length) return '';
-  const total = Number(grandTotal) || r.reduce((a, x) => a + (Number(x.tok) || 0), 0) || 1;
-  const max = r.reduce((a, x) => Math.max(a, Number(x.tok) || 0), 0) || 1;
   let rank = 0;
-  const body = r.map((x) => {
-    const color = x.muted ? USAGE_MODEL_COLORS[6] : USAGE_MODEL_COLORS[Math.min(rank++, 5)];
-    const pct = (Number(x.tok) || 0) / total * 100;
-    const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '&lt;0.1%';
-    return '<div class="tv-mrow' + (x.muted ? ' muted' : '') + '"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl" title="' + esc(x.name) + '">' + esc(x.name) + '</span></div>'
-      + '<div class="tv-mbar"><span style="width:' + ((Number(x.tok) || 0) / max * 100).toFixed(1) + '%;background:' + color + '"></span></div>'
-      + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
-      + '<div class="tv-num">' + pctStr + '</div></div>';
-  }).join('');
-  return '<div class="tv-mrow head"><div>Agent</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + body;
+  return usageShareTableHtml('Agent', rows, grandTotal,
+    (x) => (x.muted ? USAGE_MODEL_COLORS[6] : USAGE_MODEL_COLORS[Math.min(rank++, 5)]));
 }
 /* #2617: the sentence under the per-agent table. Says what the table cannot
    show rather than letting a gap read as zero: an unreadable roster, tokens in
@@ -27581,9 +27578,13 @@ async function paintUsage() {
     /* #2617: byAgent is null when the server could not split the window; the
        block then stays hidden rather than showing an empty or wrong table. */
     const agentHtml = usageAgentTableHtml(usageAgentRows(data.byAgent), grandTotal);
-    if (atable) atable.innerHTML = agentHtml;
-    if (anote) anote.textContent = usageAgentNote(data.byAgent);
-    if (agentsBox) agentsBox.hidden = !agentHtml;
+    const agentNote = usageAgentNote(data.byAgent);
+    if (atable) { atable.innerHTML = agentHtml; atable.hidden = !agentHtml; }
+    if (anote) anote.textContent = agentNote;
+    /* Shown when there is a table OR a sentence: when every token in the window
+       is unmatched (all its transcripts removed) there are no rows, and the
+       note saying so is the whole answer. */
+    if (agentsBox) agentsBox.hidden = !agentHtml && !agentNote;
     if (history) history.innerHTML = historyHtml;
     /* Said plainly rather than implied: this counts what was found on this
        machine, and a config root we could not read is a gap in the number
