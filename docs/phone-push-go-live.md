@@ -15,7 +15,8 @@ Every step also says how to check it worked and how to undo it. Do the steps in 
 that fails stops the list: undo it, fix the cause, and start that step again.
 
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay
-`main` at 50a846b). Line numbers drift, so the file and the name are what to search for.
+`main` at 50a846b). Both repos move on, so treat the file and the name as what to search for,
+not the commit or the line.
 
 ## Where things stand today
 
@@ -100,8 +101,11 @@ Add these. Names are from `coordinator/src/apns.rs` and `coordinator/src/main.rs
 `ProtectHome=yes` and `ProtectSystem=strict` (`deploy/kosmos-coordinator.service`). So the file
 probably cannot sit under `/root` or `/home`, and the service user must be able to read it.
 
-**Check:** the PR's diff, and `DRY=1 INSTALL_ENV=1 bash deploy/deploy-coordinator.sh`, which
-shows the rendered env without touching the box.
+**Check:** review the template diff in the PR.
+- `DRY=1` does not render the env; it only prints what the deploy would do.
+- The real check comes in step 3. `INSTALL_ENV=1` renders the whole env from the template and
+  checks it against the box, before changing anything. It refuses if a var the box has would be
+  dropped.
 
 **Undo:** revert the PR.
 
@@ -110,12 +114,27 @@ shows the rendered env without touching the box.
 This is a production change. Tell Liu Kang before it happens (`.claude/plans/apns-718.md`,
 "Shipping").
 
+**First, put the .p8 on the box** [Josh]. No deploy step copies a key file, and the template
+only holds its path.
+- Copy it to the path set in `KOSMOS_APNS_KEY_PATH`, owned by `kosmos-coordinator` (the unit's
+  `User=`), mode 600.
+- The unit's `ProtectSystem=strict` makes the filesystem read-only to the service, not
+  unreadable, but `ProtectHome=yes` hides `/root` and `/home`. So use a path outside those, for
+  example under `/etc/kosmos-coordinator/` or `/var/lib/kosmos-coordinator/`.
+- **Check:** `sudo -u kosmos-coordinator test -r <path> && echo readable`.
+- **Undo:** delete the file.
+
 - **Command:** `INSTALL_ENV=1 bash deploy/deploy-coordinator.sh`, from a clean kosmos-relay
   `main`.
   - It builds on the box, keeps the previous binary, restarts, and checks health.
   - `DRY=1` previews it without changing anything.
 - **What this turns on:** the registration routes go live, so an app can register. Nothing is
   sent to any phone yet, because `KOSMOS_PUSH=log`.
+- **What this turns off:** browser web push, which is live in production today. Production has no
+  `KOSMOS_PUSH` set, and the coordinator sends web push for real unless it is exactly `log`
+  (`coordinator/src/main.rs`). The board no longer offers the browser sign-up (#3510), and no Mac
+  sends events while the board's lock is closed, so nothing should be using it. It is still a
+  production change, so it is named here.
 
 **Check:**
 - `curl -s https://coordinator.kosmosplus.com/v1/meta` shows the new `build`.
@@ -207,6 +226,9 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 
 ## Step 6. Rebuild the tunnel with `mac-request` [fleet]
 
+This step is required before step 7, not optional housekeeping (Liu Kang posted the release order
+on #718, 2026-09-24).
+
 **Why:** turning notifications on makes the board ask the tunnel binary to sign a request to the
 coordinator (`mac-request`). The tunnel ships inside the Kosmos bundle
 (`tools/build-kosmos-bundle.sh` takes `KOSMOS_TUNNEL_BIN`, default
@@ -220,8 +242,17 @@ needs an update before phone notifications can be turned on" (`engine/phonenotif
 **Command:** in kosmos-relay at `main`, `bash tools/build-tunnel-release.sh`, which writes
 `dist/kosmos-tunnel` plus `.commit` and `.sha256`.
 
-**Check:** `dist/kosmos-tunnel mac-request --help` prints usage, not an error, and
-`dist/kosmos-tunnel.commit` is at or after `b639b9c` (#103).
+**Check:**
+- `dist/kosmos-tunnel mac-request --help` prints usage, not `unrecognized subcommand`.
+- `dist/kosmos-tunnel.commit` contains `e39eeca`, the commit that added `mac-request`:
+  `git -C ~/work/kosmos-relay merge-base --is-ancestor e39eeca "$(cat dist/kosmos-tunnel.commit)"`.
+- Before cutting step 7, run the same `mac-request --help` check against the binary the bundle
+  build will actually use: `KOSMOS_TUNNEL_BIN` if it is set, otherwise the default path above.
+
+**Follow-up card (not built yet):** nothing stops a bundle from being built with an old tunnel. A
+small guard in `tools/build-kosmos-bundle.sh` should refuse, or at least warn, when
+`PHONE_APP_CAN_RECEIVE` is `true` and the tunnel binary lacks `mac-request`. Until then, this
+check is done by hand.
 
 **Undo:** nothing has shipped. The binary only reaches people inside a board release (step 7).
 
@@ -229,8 +260,12 @@ needs an update before phone notifications can be turned on" (`engine/phonenotif
 
 **Code change, one kosmos PR:**
 - Flip `PHONE_APP_CAN_RECEIVE` to `true` in `engine/phonenotify.js`.
-- In the same PR, change `server.phonenotify-gate-718.test.js` ("the gate ships closed in this
-  commit"), which asserts it is `false`.
+- In the same PR, rework `server.phonenotify-gate-718.test.js`. It is not one test:
+  - "the gate ships closed in this commit" asserts the constant is `false`;
+  - the three "gate closed: ..." tests rely on the module's default being closed and never close
+    it themselves.
+  They all fail when the constant flips. Close the gate explicitly in those three
+  (`setAvailableForTests`), and change the first to assert the new shipped value.
 - Only do this once steps 4 and 5 have an app that receives. The lock exists so that no Mac
   sends before a phone can hear it.
 
@@ -247,8 +282,13 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 2. Pressing Turn on succeeds. It mints the Mac's notify credential through the new tunnel.
 3. Run the two staging gates in `docs/staging-channel.md`.
 
-**Promote to everyone:** `tools/promote-channel.sh`, then `bash tools/deploy-site.sh --promote`.
-Josh approves this, because it changes what every Mac downloads.
+**Promote to everyone:** follow steps 4 and 5 of `docs/staging-channel.md` exactly.
+- `tools/promote-channel.sh <site-checkout> <board-port>` rewrites `dist/latest.json` in the site
+  checkout.
+- Commit and push that file.
+- Then run `bash tools/deploy-site.sh --promote`. It refuses if the committed pointer already
+  equals the live one.
+- Josh approves this, because it changes what every Mac downloads.
 
 **Undo:**
 - Point `latest.json` back at the previous release and redeploy the site
@@ -257,16 +297,21 @@ Josh approves this, because it changes what every Mac downloads.
 
 ## Step 8. Let the coordinator send [Josh]
 
-**Command:** remove `KOSMOS_PUSH=log` from the template (or the box's env file), then restart
-`kosmos-coordinator`.
+**Command:** in `deploy/kosmos-coordinator.env.template`, change `KOSMOS_PUSH=log` to
+`#KOSMOS_PUSH=` (declared unset), then redeploy with `INSTALL_ENV=1`.
+- Do not simply delete the line. The coverage check refuses an env that drops a var the box has,
+  unless the template declares it `#KEY=` (`deploy/deploy-coordinator.sh`).
+- Do not edit the box's env file by hand either: that is the drift step 2 exists to avoid.
 - Kano's plan ties this to the same moment as the tunnel release in step 7, not before.
-- With `KOSMOS_PUSH` unset, web push also sends for real (`coordinator/src/main.rs`). Browser
-  web push is no longer a product, and nothing subscribes to it from the apps.
+- This also turns browser web push back on, as it is in production today
+  (`coordinator/src/main.rs`). Browser web push is no longer a product, and nothing subscribes to
+  it from the apps.
 
 **Check:** `journalctl -u kosmos-coordinator` shows `apns: sending with token auth` with
 `bundles=1`.
 
-**Undo:** put `KOSMOS_PUSH=log` back and restart. Sending stops at once.
+**Undo:** put `KOSMOS_PUSH=log` back in the template and redeploy with `INSTALL_ENV=1`. Sending
+stops once the service restarts.
 
 ## Step 9. Prove it end to end [fleet, with a person holding a phone]
 
@@ -287,7 +332,7 @@ Josh approves this, because it changes what every Mac downloads.
    Mac's own sign-in gate appears instead.
 6. Turning notifications off on the Mac stops the next one.
 
-**Undo:** step 8's undo stops all sending at once.
+**Undo:** step 8's undo stops all sending.
 
 ## Step 10. Public app releases [Josh]
 
@@ -305,5 +350,5 @@ Josh approves this, because it changes what every Mac downloads.
   the Mac's page opens with a URL bar. That is the undecided half of #2854 (Splinter and Josh).
 - **iOS has no Approve or Deny buttons on a notification yet.** The Mac does not say whether a
   `needs_you` is a permission prompt.
-- **Two coordinator docs are out of date.** kosmos-relay `docs/coordinator-api.md` still says in
-  two places that web push only logs. `coordinator/src/main.rs` says otherwise.
+- **One coordinator doc is out of date.** kosmos-relay `docs/coordinator-api.md` still says web
+  push goes to "a PushSender that tonight logs". `coordinator/src/main.rs` sends for real.
