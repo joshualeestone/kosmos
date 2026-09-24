@@ -106,8 +106,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
 
     // T3: the ring tip then shows by itself on the board (a card has a ring), as a screen tip.
     chk(await waitTitle(page, 'The ring is your agent\'s memory', 4000), 'T3 the ring tip shows by itself on the board');
-    const ring = await page.evaluate(() => ({ dim: !!document.querySelector('#tippins .tiphalo'), bands: document.querySelectorAll('#tipcard .tip-bands .gf').length }));
-    chk(!ring.dim && ring.bands === 3, 'T3 it is a screen tip, with no dim, and the three gauge colours', JSON.stringify(ring));
+    const ring = await page.evaluate(() => ({ dim: !!document.querySelector('#tippins .tiphalo'),
+      strokes: [...document.querySelectorAll('#tipcard .tip-bands .gf')].map((c) => getComputedStyle(c).stroke) }));
+    chk(!ring.dim && ring.strokes.length === 3 && new Set(ring.strokes).size === 3, 'T3 it is a screen tip, with no dim, and three distinct gauge colours', JSON.stringify(ring));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-light.png') });
     // T16: leaving the screen closes a tip that showed by itself, without recording it, and the next
     // screen's tip can show; coming back shows it again.

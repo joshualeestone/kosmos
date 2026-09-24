@@ -52759,7 +52759,7 @@ const TIPS = [
   { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
     body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
   { id: 'settings', title: 'Settings for this computer', show: () => tipVisible('#panel-settings'), at: '#panel-settings .dsec:not([hidden]) .dlab',
-    body: '<p>Your AI accounts, how Kosmos looks, and tips (turn them back on here).</p>' },
+    body: '<p>Your AI accounts, how Kosmos looks, and tips: turn them back on under This computer.</p>' },
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
 let TIP_OPEN = null;            // the tip on screen, or null
@@ -52804,8 +52804,10 @@ async function tipsSave(patch) {
     if (res.ok && r && r.ok) {
       const local = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.seen : [];
       TIPS_STATE = { ok: true, seen: [...new Set([...local, ...r.seen])], off: r.off === true };
+      return true;
     }
   } catch { /* the tip still closes; it may show once more next time */ }
+  return false;
 }
 
 /* The card, the tour's dim and pins, and the live region, built once into one container at the end of
@@ -52884,7 +52886,11 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
   card.querySelector('.tip-off').addEventListener('click', () => {
     if (TIPS_STATE && TIPS_STATE.ok) TIPS_STATE.off = true;   // before the save, so no tip slips in while it is in flight
-    tipClose({ record: true, also: { off: true } }).then(paintTipsToggle);
+    tipClose({ record: true, also: { off: true } }).then((saved) => {
+      /* A save that did not land is put back, so the switch and the next tips say what the board has. */
+      if (saved === false && TIPS_STATE && TIPS_STATE.ok) TIPS_STATE.off = false;
+      paintTipsToggle();
+    });
   });
   tipAnnounce(card);
   tipLayout(t, card);
@@ -53026,8 +53032,9 @@ function tipClose({ record, also = null }) {
    closes the dialog, not the tip hiding behind it. */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !TIP_OPEN || tipModalOpen()) return;
-  /* An open menu (the burger, the user menu, the ?) takes the Escape. */
-  if (document.querySelector('[aria-haspopup][aria-expanded="true"]')) return;
+  /* An open menu takes the Escape: the ? and the user menu (aria-haspopup), the narrow-width burger
+     and the Kosmos switcher (aria-expanded without aria-haspopup). */
+  if (document.querySelector('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]')) return;
   /* A screen tip leaves an Escape meant for something else alone: typing in a field, an open menu,
      or an open picker (the reaction picker and the project emoji panel close on any Escape). */
   const ae = document.activeElement;
