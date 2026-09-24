@@ -1559,8 +1559,9 @@ function taskMessageValveRecord() {
 // bounds volume. Per-agent deliberately: a single looping agent locks out only
 // ITSELF, never every other agent's ability to post to a participation feature (a
 // fleet-wide counter would turn one agent's bug into an all-agents outage). Its own
-// window so it does not share the task budget. The Map is bounded by fleet size and
-// each agent's list is pruned to the window on every check.
+// window so it does not share the task budget. Each agent's list is pruned to the
+// window on every check, and an agent whose window has fully drained is dropped from
+// the Map, so it does not accumulate an entry per distinct identity ever seen.
 const COMMUNITY_CAP_PER_HOUR = (() => {
   const n = Number(process.env.AGENT_WORKFORCE_COMMUNITY_CAP);
   return Number.isFinite(n) && n >= 0 ? n : 120;
@@ -1570,7 +1571,8 @@ const communitySends = new Map(); // agentId -> [timestamps within the window]
 function communityValveTripped(agentId) {
   const cutoff = Date.now() - COMMUNITY_WINDOW_MS;
   const arr = (communitySends.get(agentId) || []).filter((t) => t >= cutoff);
-  communitySends.set(agentId, arr);
+  if (arr.length) communitySends.set(agentId, arr);
+  else communitySends.delete(agentId); // drop a fully-drained agent, so the Map does not grow with churn
   return arr.length >= COMMUNITY_CAP_PER_HOUR;
 }
 function communityValveRecord(agentId) {

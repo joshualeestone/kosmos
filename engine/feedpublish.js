@@ -82,6 +82,11 @@ function isWellFormed(snapshot) {
 // free text (names, emails, sentences) out of the publicly-served board column.
 const BOARD_SLUG = /^[a-z][a-z0-9-]{0,31}$/;
 
+// A comment id shape (crypto.randomUUID, the store's newId()). parentId must be one
+// of these or absent: like board, parentId is served publicly but never scrubbed, so
+// it must be an id, never free text that could carry a leak.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // The store can throw ONE client-input error the primitive cannot pre-check without
 // duplicating the store's lookup: a comment on a post that does not exist. Every
 // OTHER client precondition (a non-object candidate, missing required fields, a
@@ -196,10 +201,21 @@ function publishComment(candidate, opts = {}) {
   // Pre-check postId PRESENCE here (a clear client error) so the store's throw is not
   // relied on to classify it -- the store's message ("comment requires postId") does
   // not match insertFailure's nonexistent-parent phrase, so leaving it to the store
-  // would 500 a plain client mistake. (Nonexistent-parent still comes from the store,
-  // which insertFailure classifies by its exact phrase.)
-  if (postId == null || postId === '') {
+  // would 500 a plain client mistake. Use the store's own falsy test (`!postId`) so a
+  // 0/false/NaN postId is caught here too, not misclassified as a store 500.
+  // (Nonexistent-parent still comes from the store, classified by its exact phrase.)
+  if (!postId) {
     return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'a comment requires a postId' };
+  }
+  // 🛑 VALIDATE parentId. Like `board`, parentId is a ROUTING key attached AFTER the
+  // feedguard snapshot and served publicly (communitystore PUBLIC_FIELDS), so free-text
+  // parentId would be an un-scrubbed public field on a published comment -- the exact
+  // hole the choke closes, and one feedguard never sees (postId/parentId are stripped
+  // before the guard). postId is safe because the store existence-checks it against a
+  // real post; parentId has no such gate, so it must be a real comment-id shape (a
+  // UUID) here. null/absent/'' means a top-level comment (the store coerces '' -> null).
+  if (parentId != null && parentId !== '' && !UUID_RE.test(String(parentId))) {
+    return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'parentId must be a comment id' };
   }
   const trusted = resolveTrusted(o); // identity is opts-only, never content.agent
   const verdict = feedguard.guard(content, { trusted, denyNames: o.denyNames });
