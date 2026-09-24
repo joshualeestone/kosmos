@@ -11131,6 +11131,31 @@ test('the layout setting (#520): tabs by default, round-trips, and refuses anyth
   assert.equal(JSON.parse(back.body).layout, 'tabs');
 });
 
+test('the tips route (#3574): nothing seen on a fresh board, seen only grows, refusals in words, an unreadable store is an honest 200', async () => {
+  const tipsStore = require('./engine/tips');
+  const put = (body) => req('/api/tips', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+  try { require('node:fs').rmSync(tipsStore.FILE(), { force: true }); } catch { /* not there */ }
+  const fresh = JSON.parse((await req('/api/tips')).body);
+  assert.deepEqual([fresh.ok, fresh.seen, fresh.off], [true, [], false]);
+  const one = await put({ seen: ['tour'] });
+  assert.equal(one.status, 200, one.body);
+  assert.deepEqual(JSON.parse(one.body).seen, ['tour']);
+  assert.deepEqual(JSON.parse((await req('/api/tips')).body).seen, ['tour'], 'a closed tip did not survive a re-read');
+  for (const bad of [['tour'], { seen: 'tour' }, { seen: ['nope'] }, { off: 'yes' }]) {
+    const r = await put(bad);
+    assert.equal(r.status, 400, JSON.stringify(bad) + ' was accepted');
+    assert.ok(JSON.parse(r.body).error, 'a refusal came back with no words');
+  }
+  assert.equal((await put('{ not json')).status, 400);
+  assert.deepEqual(JSON.parse((await req('/api/tips')).body).seen, ['tour'], 'a refused request moved the store');
+  require('node:fs').writeFileSync(tipsStore.FILE(), '{ not json');
+  const broken = await req('/api/tips');
+  assert.equal(broken.status, 200, 'an unreadable store is an answer, not a server error');
+  assert.equal(JSON.parse(broken.body).ok, false);
+  assert.equal((await put({ seen: ['ring'] })).status, 400, 'a write over an unreadable store would forget what was seen');
+  require('node:fs').rmSync(tipsStore.FILE(), { force: true });
+});
+
 test('the Plus switch round-trips and the off state comes back honest', async () => {
   const on = await req('/api/remote', {
     method: 'PUT', headers: { 'content-type': 'application/json' },

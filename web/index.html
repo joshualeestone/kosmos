@@ -8565,11 +8565,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 <body>
 <!-- #1553: shown from the first frame, removed by revealBoot() only after the
      first-run gate resolves, so no view is painted and then retracted. -->
-<!-- #3574: the help card and the tour's dim + numbered pins, painted by the tips module. -->
-<div class="tipdim" id="tipdim" hidden></div>
-<div id="tippins"></div>
-<div class="tipcard" id="tipcard" role="dialog" aria-modal="false" aria-labelledby="tipcard-title" hidden></div>
-<span class="vh" id="tip-live" aria-live="polite"></span>
 <div id="boot-cover"><div class="boot-spin" aria-hidden="true"></div></div>
 <!-- #2066 build marker: "which build am I on", present in a screenshot on every tab.
      A fixed body corner, NOT Settings: a problem screenshot is not of Settings, and a
@@ -13728,10 +13723,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
     </section>
 
-    <section class="dbox">
+    <section class="dbox" id="tips-box" hidden>
       <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
       <h3 class="dlab">Tips</h3>
-      <div class="setrow" id="tips-row" hidden>
+      <div class="setrow" id="tips-row">
         <div><b>Show tips</b>
           <p class="dhint" style="margin:2px 0 0;">A short note the first time you open each screen. The ? beside your name brings any of them back.</p></div>
         <button class="toggle" id="tips-toggle" role="switch" aria-label="Show tips the first time you open each screen"><i></i></button>
@@ -52524,7 +52519,7 @@ const TIPS = [
     body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
   { id: 'ring', title: 'The ring is your agent\'s memory', /* Only a card that draws the gauge: a filled band (.gf) or the unknown-memory dashed ring (.gu).
        An off or needs-trust card has a face and no ring. */
-    show: () => tipVisible('#grid .agauge .gf, #grid .agauge .gu'), at: '#grid .agauge:has(.gf), #grid .agauge:has(.gu)',
+    show: () => tipVisibleAny('#grid .agauge .gf, #grid .agauge .gu'), at: '#grid .agauge:has(.gf), #grid .agauge:has(.gu)',
     body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
       + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
       + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },
@@ -52550,6 +52545,7 @@ let TIP_RETURN = null;          // focus to restore on close
 let TIPS_TIMER = null;
 let TIPS_STARTED = false;
 let TIP_PLACES = [];            // the tour's places as numbered when it opened
+let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
 
 /* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
    takeover (.upd-back) is added while it is up. */
@@ -52560,6 +52556,10 @@ function tipModalOpen() {
 /* The tour's title counts what it numbers: "Four places to know" when all four are on screen. */
 function tipTourTitle(n) {
   return (['', 'One place', 'Two places', 'Three places', 'Four places'][n] || 'Places') + ' to know';
+}
+
+function tipVisibleAny(sel) {
+  return [...document.querySelectorAll(sel)].some((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.closest('[hidden]'); });
 }
 
 function tipVisible(sel) {
@@ -52589,7 +52589,22 @@ async function tipsSave(patch) {
 
 /* Periodic, not hooked into every navigation path: a tip reads the screen, so a new route
    to a screen needs no wiring to get its tip. Cheap: a few querySelector calls a second. */
+/* The card, the tour's dim and pins, and the live region, built once into one container at the end of
+   <body>. Built here rather than written into the markup because the consolidated layout makes <body> a
+   grid with a fixed count of pre-rail rows (web.consolidated-980): every piece here is position:fixed
+   or visually hidden, so none of it takes a grid row, and it adds no static child to that count. */
+function tipLayerEnsure() {
+  if (document.getElementById('tiplayer')) return;
+  const layer = document.createElement('div');
+  layer.id = 'tiplayer';
+  layer.innerHTML = '<div class="tipdim" id="tipdim" hidden></div><div id="tippins"></div>'
+    + '<div class="tipcard" id="tipcard" role="dialog" aria-labelledby="tipcard-title" hidden></div>'
+    + '<span class="vh" id="tip-live" aria-live="polite"></span>';
+  document.body.appendChild(layer);
+}
+
 function tipsStart() {
+  tipLayerEnsure();
   if (TIPS_STARTED) return;
   TIPS_STARTED = true;
   tipsLoad().then(() => { paintTipsToggle(); tipsCheck(); TIPS_TIMER = setInterval(tipsCheck, 1200); });
@@ -52597,7 +52612,14 @@ function tipsStart() {
 
 function tipsCheck() {
   /* A dialog opened while a tip is up: the tip steps aside until the dialog closes. */
-  if (TIP_OPEN) { tipSuspend(tipModalOpen()); return; }
+  if (TIP_OPEN) {
+    /* A tip that showed by itself goes when its screen goes (unrecorded, so it shows when the person
+       comes back); otherwise it steps aside for a dialog and follows its target. */
+    if (TIP_AUTO && !TIP_OPEN.show()) { tipClose({ record: false }); return; }
+    tipSuspend(tipModalOpen());
+    tipRelayout();
+    return;
+  }
   if (!TIPS_STATE || !TIPS_STATE.ok || TIPS_STATE.off) return;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return;
@@ -52607,10 +52629,12 @@ function tipsCheck() {
 }
 
 function tipShow(t, { auto = false, returnTo = null } = {}) {
+  tipLayerEnsure();
   tipClose({ record: false });
   const card = document.getElementById('tipcard');
   if (!card) return;
   TIP_OPEN = t;
+  TIP_AUTO = auto;
   TIP_RETURN = auto ? null : (returnTo || document.activeElement);
   const places = t.tour
     ? t.places.map((pl) => ({ ...pl, sel: pl.at.find((sel) => tipVisible(sel)) })).filter((pl) => pl.sel)
@@ -52676,7 +52700,8 @@ function tipLayout(t, card, places) {
 /* Beside the thing, never over it: below when there is room, above otherwise, clamped to the
    window; the arrow points at the target's centre. No target on screen: centred, no arrow. */
 function tipPlace(card, sel, side = false) {
-  const el = sel ? document.querySelector(sel) : null;
+  let el = null;
+  try { el = sel ? document.querySelector(sel) : null; } catch { el = null; }   // :has() in an older webview
   const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
@@ -52729,8 +52754,12 @@ function tipClose({ record, also = null }) {
 
 /* Escape closes any tip; a click outside closes the tour (a screen tip stays while you work).
    Closing either way counts as seen. */
+/* Capture phase, so this reads the page before an app dialog's own Escape hides it: one Escape
+   closes the dialog, not the tip hiding behind it. */
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || !TIP_OPEN || tipModalOpen()) return;
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !TIP_OPEN || tipModalOpen()) return;
+  /* An open menu (the burger, the user menu, the ?) takes the Escape. */
+  if (document.querySelector('[aria-haspopup][aria-expanded="true"]')) return;
   /* A screen tip leaves an Escape meant for something else alone: typing in a field, or an open menu. */
   const ae = document.activeElement;
   const inField = !!ae && !ae.closest('#tipcard') && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
@@ -52738,7 +52767,7 @@ document.addEventListener('keydown', (e) => {
   if (!TIP_OPEN.tour && (inField || inMenu)) return;
   e.preventDefault();
   tipClose({ record: true });
-});
+}, true);
 document.addEventListener('pointerdown', (e) => {
   if (!TIP_OPEN || !TIP_OPEN.tour) return;
   if (e.target.closest('#tipcard') || e.target.closest('#helpq')) return;
@@ -52759,10 +52788,10 @@ function wireHelpq() {
   const btn = document.getElementById('helpq-btn');
   const menu = document.getElementById('helpq-menu');
   if (!btn || !menu) return;
-  const close = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  const closeHelpMenu = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
   /* The ?'s click is left to bubble, so every other popover's outside-click closes it as usual.
      The user menu stops its own click, so the ? listens for that one in the capture phase. */
-  document.getElementById('userpop-btn')?.addEventListener('click', close, true);
+  document.getElementById('userpop-btn')?.addEventListener('click', () => closeHelpMenu(), true);
   btn.addEventListener('click', () => {
     const open = menu.hidden;
     menu.hidden = !open;
@@ -52772,24 +52801,24 @@ function wireHelpq() {
   menu.addEventListener('click', (e) => {
     const b = e.target.closest('[data-help]');
     if (!b) return;
-    close();
+    closeHelpMenu();
     const want = b.dataset.help;
     let t = null;
     if (want === 'screen') t = TIPS.find((x) => !x.tour && x.show()) || TIPS.find((x) => x.tour);
     else t = TIPS.find((x) => x.id === want);
     if (t) tipShow(t, { returnTo: btn });
   });
-  document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('#helpq')) close(); });
-  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); btn.focus(); } });
+  document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('#helpq')) closeHelpMenu(); });
+  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeHelpMenu(); btn.focus(); } });
 }
 wireHelpq();
 /* The Settings switch paints from the board's answer and writes the off flag. Hidden when the board
    could not say, so it never shows a state it did not read. */
 function paintTipsToggle() {
-  const row = document.getElementById('tips-row');
-  if (!row) return;
-  row.hidden = !(TIPS_STATE && TIPS_STATE.ok);
-  if (!row.hidden) paintSwitch('tips-toggle', !TIPS_STATE.off);
+  const box = document.getElementById('tips-box');
+  if (!box) return;
+  box.hidden = !(TIPS_STATE && TIPS_STATE.ok);
+  if (!box.hidden) paintSwitch('tips-toggle', !TIPS_STATE.off);
 }
 document.getElementById('tips-toggle')?.addEventListener('click', async () => {
   if (!TIPS_STATE || !TIPS_STATE.ok) return;

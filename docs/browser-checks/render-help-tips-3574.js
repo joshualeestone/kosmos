@@ -89,6 +89,14 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const ring = await page.evaluate(() => ({ dim: !document.getElementById('tipdim').hidden, bands: document.querySelectorAll('#tipcard .tip-bands .gf').length }));
     chk(!ring.dim && ring.bands === 3, 'T3 it is a screen tip, with no dim, and the three gauge colours', JSON.stringify(ring));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-light.png') });
+    // T16: leaving the screen closes a tip that showed by itself, without recording it, and the next
+    // screen's tip can show; coming back shows it again.
+    await page.click('#tabs [data-tab="projects"]');
+    chk(await waitTitle(page, 'A project is shared work', 4000), 'T16 leaving the board closes the ring tip and the Projects tip shows');
+    chk(!(await api('GET')).seen.includes('ring'), 'T16 the ring tip was not recorded as seen when its screen went away');
+    await page.click('#tipcard .tip-go');
+    await page.click('#tabs [data-tab="agents"]');
+    chk(await waitTitle(page, 'The ring is your agent\'s memory', 4000), 'T16 coming back to the board shows the ring tip again');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     chk(!(await cardState(page)).shown && (await api('GET')).seen.includes('ring'), 'T3 Escape closes it and counts as seen');
@@ -196,6 +204,22 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       'T13 a tip steps aside while a dialog is open and returns when it closes', JSON.stringify({ underDialog, afterDialog }));
     await page.keyboard.press('Escape');
 
+    // T17: an Escape meant for a dialog closes the dialog, not the tip behind it. The stand-in closes
+    // on Escape from a bubble-phase listener, the way the app's dialogs do.
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.evaluate(() => {
+      const d = document.createElement('div'); d.className = 'rm-back'; document.body.appendChild(d); window.__tipsStandIn = d;
+      document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape' && window.__tipsStandIn) { window.__tipsStandIn.remove(); delete window.__tipsStandIn; document.removeEventListener('keydown', esc); } });
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(1600);
+    const esc17 = await page.evaluate(() => ({ dialogGone: !window.__tipsStandIn, card: !document.getElementById('tipcard').hidden, title: document.querySelector('#tipcard h2')?.textContent }));
+    chk(esc17.dialogGone && esc17.card && esc17.title === 'The ring is your agent\'s memory', 'T17 one Escape closes the dialog and leaves the tip', JSON.stringify(esc17));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    chk(!(await cardState(page)).shown, 'T17 control: with no dialog, the same Escape closes the tip');
+
     // T14: the card follows its target when the page scrolls.
     await page.setViewportSize({ width: 1280, height: 480 });
     await page.click('#userpop-btn');
@@ -258,8 +282,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForTimeout(2800);
     chk(!(await cardState(page)).shown, 'T7 an unreadable tips store shows no tips rather than all of them');
-    const row = await page.evaluate(() => document.getElementById('tips-row')?.hidden);
-    chk(row === true, 'T7 and the Settings switch is hidden rather than showing a state it did not read');
+    const row = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
+    chk(row === true, 'T7 and the Settings Tips box is hidden rather than showing a state it did not read');
 
     chk(errs.length === 0, 'T8 no page errors', errs.join(' | '));
   } finally {
