@@ -109,7 +109,8 @@ Add it only if agents are seen ignoring the per-item playbook.
 - commitments are `clear` (a stale or never-reported `unknown` does NOT count, so no one is handed
   work mid-task). Commitments are NOT on the board card, so the runner reads
   `commitments.read(session)` for idle cards only;
-- it has no open part of any task assigned to it in any live project.
+- it has no open part of any task assigned to it in ANY project, archived included (picking stays
+  live-only).
 
 **Assign from existing work first.** Pick a task NOBODY is on (no part has a `who`), open, in a
 live project the agent already belongs to; give it the task's first open part. Order: due date

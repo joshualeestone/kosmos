@@ -253,3 +253,31 @@ test('runOnce: gives through the injected path; a refusal takes its budget charg
     assert.equal(boom.acted[0].ok, false, 'a throwing give crashed or counted as given');
   } finally { w.restore(); }
 });
+
+test('tick: the runner composition on real reads; off reads nothing but the setting; commitments only for idle cards', () => {
+  const w = world([{ name: 'tkidle' }, { name: 'tkbusy', paneState: 'working' }]);
+  try {
+    addTask(w.pid, 'a task');
+    const reads = { roster: 0, records: 0, commit: [] };
+    const gives = [];
+    const deps = (on) => ({
+      readSetting: () => ({ on }),
+      readRoster: () => { reads.roster++; return w.cards; },
+      readRecords: () => { reads.records++; return projects.readAll(); },
+      readCommitment: (session) => { reads.commit.push(session); return commitments.read(session); },
+      give: (pid, n, part, who, roster) => { gives.push({ pid, n, part, who, roster }); return { ok: true }; },
+    });
+    const off = a.tick({ prev: undefined, now: T0, ...deps(false) });
+    assert.equal(reads.roster + reads.records + reads.commit.length, 0, 'read the fleet while the setting was off');
+    assert.equal(off.acted.length, 0);
+    const seen = a.tick({ prev: undefined, now: T0, ...deps(true) });
+    assert.deepEqual(reads.commit, [w.key.tkidle], 'commitments were read for a card that is not idle, or not for the idle one');
+    const out = a.tick({ prev: seen.next, now: T0 + a.IDLE_MS, ...deps(true) });
+    assert.equal(out.acted.length, 1);
+    assert.equal(gives[0].who, w.key.tkidle);
+    assert.equal(gives[0].roster, w.cards, 'the give was not handed the tick\'s roster');
+    // A commitments read that throws counts as not clear.
+    const boom = a.tick({ prev: seen.next, now: T0 + a.IDLE_MS, ...deps(true), readCommitment: () => { throw new Error('x'); } });
+    assert.equal(boom.acted.length, 0, 'a failed commitments read was treated as clear');
+  } finally { w.restore(); }
+});

@@ -140,6 +140,9 @@ function runOnce({ prev, roster, setting, records, commitments, now, give }) {
     try { res = give(item.projectId, item.n, item.partId, item.session); } catch (err) { res = { ok: false, because: String((err && err.message) || err) }; }
     const ok = Boolean(res && res.ok);
     if (!ok) {
+      // Finds this give's own charge by (now, session): step charges each session at most once
+      // per call, so the pair is unique. If step ever gives one agent more than once a call, key
+      // the refund by the entry step pushed instead.
       const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
       if (i !== -1) out.next.log.splice(i, 1);
     }
@@ -149,4 +152,26 @@ function runOnce({ prev, roster, setting, records, commitments, now, give }) {
   return { next: out.next, acted };
 }
 
-module.exports = { step, runOnce, pick, hasOpenWork, idleCard, liveProjects, IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR };
+/**
+ * One runner tick with every read injected: the composition server.js runs each minute, as a
+ * function so it is tested. Reads nothing but the setting while the setting is off, and reads
+ * commitments only for idle cards (they are not on the board card). A commitments read that
+ * throws counts as not clear.
+ * @param {object} o  prev, now, readSetting, readRoster, readRecords, readCommitment(session)->
+ *   {state}, give(projectId, n, partId, who, roster)
+ * @returns {{next: object, acted: Array<object>}}
+ */
+function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, give }) {
+  const setting = readSetting();
+  const roster = setting && setting.on === true ? readRoster() : null;
+  const records = setting && setting.on === true ? readRecords() : [];
+  const states = new Map();
+  for (const a of Array.isArray(roster) ? roster : []) {
+    if (!idleCard(a)) continue;
+    try { states.set(a.sessionName, readCommitment(a.sessionName).state); } catch { /* unread is not clear */ }
+  }
+  return runOnce({ prev, roster, setting, records, commitments: states, now,
+    give: (projectId, n, partId, who) => give(projectId, n, partId, who, roster) });
+}
+
+module.exports = { step, runOnce, tick, pick, hasOpenWork, idleCard, liveProjects, IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR };
