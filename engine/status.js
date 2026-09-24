@@ -2060,15 +2060,20 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * WORKING read is already an unreliable signal (#2413). A Codex equivalent is a
  * separate change with its own captured strings, not a silent omission here.
  */
-/* #3410: the live retry line, a spinner frame ending in "· Retrying in Ns · attempt K/N".
-   The glyph class is WORKING_LINE's WITHOUT `*`: that sibling keeps `*` because an echo
-   would also need an ellipsis and a live timer, but this anchor is plain text, so a
-   markdown `* ` bullet ending in the suffix would read as a live retry. Anchored at the
-   line end, so a quote followed by more text on the same row does not match. */
-const RETRYING_LINE = /^\s*[·✢✳✶✻✽] .*·\s+Retrying in\s+\d+s\s+·\s+attempt\s+\d+\/\d+\s*$/u;
-
-
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
+
+/* #3410: Claude Code's live retry lines, two layouts, each anchored at both ends.
+   1. "✻ <error> · Retrying in 5s · attempt 4/10": measured 2026-09-24 (2.1.281) in all
+      152 retrying frames, always the ✻ glyph and always at column 0 (the glyph did not
+      animate). Column 0 is required, because agent prose continuation rows are indented.
+      The class is WORKING_LINE's spinner frames WITHOUT `*`, since this anchor is plain
+      text and a markdown "* " bullet ending in the suffix would otherwise match.
+   2. "  └ Retrying in 30 seconds… (attempt 7/10)": the layout captured live on #874
+      (2026-08-25), a sub-row under the error. */
+const RETRYING_LINES = [
+  /^[·✢✳✶✻✽] .*·\s+Retrying in\s+\d+s\s+·\s+attempt\s+\d+\/\d+\s*$/u,
+  /^\s{0,4}└ Retrying in\s+\d+\s+seconds?…\s+\(attempt\s+\d+\/\d+\)\s*$/u,
+];
 
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
@@ -3825,12 +3830,28 @@ function classify(pane, paneText) {
                return closed ? line : line + '…';
              })() };
   }
+  /* #3410: Claude Code's LIVE retry line. Measured 2026-09-24 (Claude Code 2.1.281,
+     API pointed at a closed port): for all 152 seconds of retrying the pane drew
+     "✻ Connection refused — … (ECONNREFUSED) · Retrying in 5s · attempt 4/10", which
+     has no ellipsis and no "(Ns" timer, so WORKING_LINE never matched and every one of
+     those frames read connection_lost. Only after attempt 10/10 did the line become
+     "⏺ API Error: …" with no retry suffix. At 80 columns (measured) Claude Code truncates the
+     error text with "…" and keeps the suffix on the same row, so it did not wrap there;
+     the board's capture-pane -J would also rejoin a wrapped row. An agent that is retrying is mid-turn, so it
+     reads WORKING, which the #3410 self-heal does not act on. Keyed on the retry suffix,
+     not the error wording, so any error Claude Code retries this way matches (the
+     evidence line names the actual error). */
+  const retryLine = matchedLine(tail, RETRYING_LINES);
+  if (retryLine !== null) {
+    return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED,
+             because: 'it is retrying a failed request to the API', evidence: retryLine };
+  }
   /**
    * #3410. A TRANSIENT network error, sitting on the pane with no live activity.
    *
    * 🔑 PLACEMENT IS THE SAFETY. This sits BELOW every working check
    * (`hasLiveInterruptLine`, `backgroundAgentWait`, `WORKING_LINE`, and the
-   * `RETRYING_LINE` rule just below) on purpose: Claude Code retries a network
+   * `RETRYING_LINES` rule just above) on purpose: Claude Code retries a network
    * error internally and draws a live "· Retrying in Ns · attempt K/N" line while
    * it does, so an agent that is ACTIVELY RETRYING classifies WORKING and is never
    * touched by the self-heal restart (#3410 PR 2). Only once the retries are exhausted and the
@@ -3847,7 +3868,7 @@ function classify(pane, paneText) {
    * ✅ THE PRECEDENCE PREMISE WAS MEASURED (2026-09-24, Claude Code 2.1.281, a real
    * captured retry sequence) AND WAS FALSE AS FIRST WRITTEN: the retry line has no
    * ellipsis and no "(Ns" timer, so WORKING_LINE missed it and all 152 retrying
-   * seconds read connection_lost. RETRYING_LINE now catches it
+   * seconds read connection_lost. RETRYING_LINES now catches it
    * (status.connlost-retry-3410.test.js, built from those frames). A future Claude Code
    * that draws its retry differently would reopen this, and the self-heal restarts on
    * this state, so re-measure after a Claude Code UI change.
@@ -3866,22 +3887,6 @@ function classify(pane, paneText) {
    * wedged" bound (no new activity since the error / the error is the live tail),
    * not just a connectivity probe, or it will restart an agent that already healed.
    */
-  /* #3410: Claude Code's LIVE retry line. Measured 2026-09-24 (Claude Code 2.1.281,
-     API pointed at a closed port): for all 152 seconds of retrying the pane drew
-     "✻ Connection refused — … (ECONNREFUSED) · Retrying in 5s · attempt 4/10", which
-     has no ellipsis and no "(Ns" timer, so WORKING_LINE never matched and every one of
-     those frames read connection_lost. Only after attempt 10/10 did the line become
-     "⏺ API Error: …" with no retry suffix. On a narrow pane (80 columns, measured) Claude Code
-     truncates the error text with "…" and keeps the suffix on the same row, so the line
-     never wraps. An agent that is retrying is mid-turn, so it
-     reads WORKING, which the #3410 self-heal does not act on. Keyed on the retry suffix,
-     not the error wording, so any error Claude Code retries this way matches (the
-     evidence line names the actual error). */
-  const retryLine = matchedLine(tail, [RETRYING_LINE]);
-  if (retryLine !== null) {
-    return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED,
-             because: 'it is retrying a failed request to the API', evidence: retryLine };
-  }
   /* The shared matchedLine helper (as rate_limited uses it): first row matching
      CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
      one derivation of "find the evidence line", not a private copy. */
