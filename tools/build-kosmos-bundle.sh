@@ -181,6 +181,11 @@ esac
 # log the old commit beside the new bytes, the very shape #621 closes.
 _connector_provenance_check "$TUNNEL_BIN" || exit 1
 _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
+# The connector must know every verb the board will ask it for (#718). Phone
+# notifications need `mac-request`: refused when PHONE_APP_CAN_RECEIVE is true
+# and the connector predates it, one quiet line while the gate is still closed.
+. "$REPO/tools/lib/connector-verbs.sh"
+connector_verbs_check "$TUNNEL_BIN" "$REPO/engine/phonenotify.js" || exit 1
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
 # The bytes STAGED are the bytes the sidecar vouched for: a relay rebuild landing
