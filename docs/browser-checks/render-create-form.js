@@ -153,6 +153,17 @@ function check(name, pass, detail) {
         reportsValue: id('create-reports').value,
         reportsShown: live(id('create-reports')),
         providers: Array.from(id('create-provider').options).map((o) => [o.textContent, o.disabled]),
+        /* #3566: what the Gemini/Grok gate should have decided, read from the same page
+           state it reads: known only once the accounts answered, then on iff a usable
+           account of that provider is in the list. */
+        keyedExpect: (() => {
+          const known = typeof CREATE_ACCOUNTS_KNOWN !== 'undefined' && CREATE_ACCOUNTS_KNOWN === true;
+          const rows = typeof CREATE_ACCOUNTS !== 'undefined' ? CREATE_ACCOUNTS : [];
+          const has = (p) => rows.some((x) => x && String(x.provider || '').toLowerCase() === p && acctOfferableTarget(x));
+          return { known, google: !known || has('google'), xai: !known || has('xai') };
+        })(),
+        keyedSeen: { google: !id('create-provider').querySelector('option[value="google"]').disabled,
+          xai: !id('create-provider').querySelector('option[value="xai"]').disabled },
         acctShown: live(id('create-account')),
         acctCount: id('create-account').options.length,
         /* #2097: the account ROW hides at fewer than two usable accounts (Josh's
@@ -284,6 +295,12 @@ function check(name, pass, detail) {
         && enabled.some(([t]) => /openai/i.test(t))
         && seen.providers.length === 8,
       `${enabled.length} of ${seen.providers.length} selectable: ${enabled.map((x) => x[0]).join(', ')}`);
+    /* #3566: the loose check above cannot see the gate break (a gate that always offers
+       Gemini/Grok passes it). This one compares each against what the page's own account
+       state says it should be. */
+    check(`[${engine}] Gemini and Grok are offered exactly when an account of theirs is connected`,
+      seen.keyedSeen.google === seen.keyedExpect.google && seen.keyedSeen.xai === seen.keyedExpect.xai,
+      JSON.stringify({ seen: seen.keyedSeen, expect: seen.keyedExpect }));
     /* #245: choosing OpenAI disables the model control WITH WORDS, and
        choosing Anthropic back re-enables it. Driven, not read from source:
        the disabling is a live listener. #540 moved the ACCOUNT menu out of

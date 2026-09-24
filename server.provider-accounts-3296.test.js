@@ -242,3 +242,32 @@ test('#3566 store: a leftover EMPTY slot (a cancelled add) is reused, and no cla
   assert.equal(b.account.dir, spot.dir, 'a free keyless slot was skipped instead of reused');
   assert.equal(fs.existsSync(nodePath.join(spot.dir, '.kosmos-claim')), false, 'the claim marker outlived the add');
 });
+
+test('#3566 store: a whitespace-only label is still REFUSED (only an absent label takes a slot)', async () => {
+  grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const r = await post('/api/accounts/grok/apikey', { label: '   ', key: 'xai-whitespace-label-key-1234' });
+  assert.equal(r.status, 400, 'a whitespace label was quietly turned into a work slot');
+});
+
+test('#3566 store: a STALE claim left by a dead add does not block its slot forever', async () => {
+  grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const spot = grokAccounts.nextWorkDir();
+  fs.mkdirSync(spot.dir, { recursive: true });
+  const claim = nodePath.join(spot.dir, '.kosmos-claim');
+  fs.writeFileSync(claim, '');
+  const old = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(claim, old, old);
+  const r = await post('/api/accounts/grok/apikey', { key: 'xai-stale-claim-key-56565656' });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).account.dir, spot.dir, 'a slot with an hour-old claim was skipped');
+});
+
+test('#3566 store CONTROL: a FRESH claim (an add in flight) is respected, the next slot is taken', async () => {
+  grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const spot = grokAccounts.nextWorkDir();
+  fs.mkdirSync(spot.dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(spot.dir, '.kosmos-claim'), '');
+  const r = await post('/api/accounts/grok/apikey', { key: 'xai-fresh-claim-key-78787878' });
+  assert.equal(r.status, 200);
+  assert.notEqual((await r.json()).account.dir, spot.dir, 'an in-flight claim was taken over');
+});

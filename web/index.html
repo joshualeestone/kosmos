@@ -19455,6 +19455,11 @@ function acctChosenName(a) {
    Everything not listed is a Claude account. */
 const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
 /* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic'. */
+/* #3566: a provider connected only by a pasted key (Gemini, Grok): keyed, and not OpenAI,
+   whose sign-in and model picker are its own. Read from the route table. */
+function keyOnlyProvider(p) {
+  return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
+}
 function acctProvider(a) {
   const p = a && typeof a.provider === 'string' ? a.provider.toLowerCase() : '';
   return Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p) ? p : 'anthropic';
@@ -19473,7 +19478,7 @@ function switchKeyedWord(p) {
 function paintKeyedProviderOptions(sel, accounts, known, current) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
-    if (opt.value !== 'google' && opt.value !== 'xai') continue;
+    if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // the key-only providers (Gemini, Grok)
     const has = (accounts || []).some((x) => x && acctProvider(x) === opt.value && acctOfferableTarget(x));
     const on = has || !known || opt.value === current;
     opt.disabled = !on;
@@ -20184,7 +20189,9 @@ async function paintAccounts() {
              without the misleading comparison. */
           + 'title="' + (!isKeyed && a.apiKey
             ? 'Deletes this account from this computer: its saved API key and its whole folder, including any history in it. This cannot be undone.'
-            : 'Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.')
+            : (isKeyed && !isOpenai)
+              ? 'Deletes this account from this computer: its saved API key and its folder. Unlike Disconnect, this cannot be undone.'
+              : 'Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.')
           + '">Delete and remove</button>')
       + '</div>'
       + '</div>';
@@ -21016,6 +21023,10 @@ function acctPick(which, opts) {
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
+  if (ACCT_APIKEY_PROVIDERS[which]) {
+    // Same as the Claude and OpenAI picks: focus lands on the first thing to fill in.
+    if (!(opts && opts.focus === false)) { const k = document.getElementById('acct-apikey-key'); if (k) k.focus(); }
+  }
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
     if (which === 'claude') {
@@ -34162,7 +34173,14 @@ async function paintAccountPicker(a) {
      arms only when a different account is picked. */
   sel.disabled = !ours;
   go.disabled = !ours || !sel.value;
-  if (msg && !msg.textContent && !ours && !(world.isKeyed && acctLive)) {
+  if (msg && !msg.textContent && !ours && world.isKeyed && !world.isCodex && !acctLive && !ACCOUNTS_UNREADABLE) {
+    /* #3566: a Gemini/Grok agent with no named account runs on the machine's own key (the
+       default door), which the account list has no row for. The list WAS read, so "could
+       not read" would be false; say where it runs and where another account comes from. */
+    const word = switchKeyedWord(world.keyedProvider);
+    msg.textContent = 'It runs on this computer\'s own ' + word + ' key. To move it to another ' + word
+      + ' account, add one in Settings, AI Models.';
+  } else if (msg && !msg.textContent && !ours && !(world.isKeyed && acctLive)) {
     /* #2338: a codex agent IS movable now -- `acctMoveWorld` gives it the OpenAI
        accounts and `setCodexAccount` performs the swap -- so the old "This is a
        Codex agent... cannot be moved from here" dead-end is gone. A codex agent
@@ -35424,7 +35442,7 @@ async function changeProviderNow(say) {
        Anthropic" with "reactivate on Claude" in one dialog would be the last-screen inconsistency
        this branch exists to avoid. */
     const restarted = out.outcome === 'changed';
-    const provName = want === 'openai' ? 'OpenAI' : (want === 'google' || want === 'xai') ? switchKeyedWord(want) : 'Anthropic';
+    const provName = want === 'openai' ? 'OpenAI' : keyOnlyProvider(want) ? switchKeyedWord(want) : 'Anthropic';
     tell(restarted
       ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
       : (out.because || 'Switched.'), restarted);
@@ -35476,7 +35494,9 @@ async function changeProviderNow(say) {
        a deliberate double-press is not a storm, and excluding it would mean
        matching the refusal's wording, a fragile coupling to a sentence the
        engine owns. */
-    if (want === 'openai' && err && err.serverRefused === true) {
+    /* #3566: Gemini/Grok too. Their engine arm refuses a stale account outright (it has no
+       fall-through), so the re-read is what makes the next press work. */
+    if (ACCT_KEYED_ROUTE[want] && err && err.serverRefused === true) {
       accountsDropped();
       try { await paintAccountPicker(CURRENT); }
       catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
@@ -35524,7 +35544,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
   const toOpenai = sel.value === 'openai';
   /* #3566: Gemini and Grok. `fromWord` names the provider the agent is LEAVING, which is
      not always Claude (an OpenAI agent can switch to Gemini). */
-  const toOther = sel.value === 'google' || sel.value === 'xai';
+  const toOther = keyOnlyProvider(sel.value);
   const fromProv = providerOf(CURRENT);
   const fromWord = fromProv === 'anthropic' ? 'Claude' : switchKeyedWord(fromProv);
   const label = toOpenai ? 'OpenAI' : toOther ? switchKeyedWord(sel.value) : 'Anthropic';
@@ -36019,7 +36039,7 @@ function applyCreateProviderUI() {
   /* #3566: Gemini and Grok run their CLI's own default model. Kosmos has no list of
      theirs to offer, so the model row is hidden and NO model is sent (the create body
      sends `model` only when the select has a value), with one line saying who picks. */
-  const other = pv === 'google' || pv === 'xai';
+  const other = keyOnlyProvider(pv);
   const model = document.getElementById('create-model');
   const acct = document.getElementById('create-account');
   /* Remember a Claude pick before the OpenAI (or Gemini/Grok) branch overwrites #create-model. */
@@ -37694,7 +37714,7 @@ async function loadCreateExtras() {
   const pvNow = document.getElementById('create-provider').value;
   if (pvNow === 'openai') {
     paintOpenaiCreateModel();
-  } else if (pvNow === 'google' || pvNow === 'xai') {
+  } else if (keyOnlyProvider(pvNow)) {
     /* #3566: the Claude fill above does not belong under Gemini/Grok; re-apply their
        no-model shape (hidden row, empty value) through the one provider function. */
     applyCreateProviderUI();
@@ -37747,6 +37767,15 @@ async function loadCreateExtras() {
     CREATE_ACCOUNTS = list;
     CREATE_ACCOUNTS_KNOWN = known;
     fillCreateAccounts();
+    /* #3566: Gemini/Grok could be picked while the list was unknown (so offered). If the list
+       now says there is no account for the picked one, the gate has turned it off UNDER the
+       selection; leaving it selected would post a create the engine refuses. Fall back to
+       the default provider through the one provider function. */
+    {
+      const pv = document.getElementById('create-provider');
+      const cur = pv && pv.options[pv.selectedIndex];
+      if (cur && cur.disabled && keyOnlyProvider(cur.value)) { pv.value = 'anthropic'; applyCreateProviderUI(); }
+    }
     /* #2097: resetCreateProvider ran before this with CREATE_ACCOUNTS still empty, so on
        the FIRST create of a page session the provider fell back to the Claude default even
        on an OpenAI-only machine (the array persists, so the openai default only took effect
@@ -37779,7 +37808,7 @@ async function loadCreateExtras() {
         && Array.prototype.some.call(prov.options, (o) => o.value === pref.provider && !o.disabled);
       const prefProviderUsable = provOptOk
         && ((pref.provider === 'openai' && hasOpenai) || (pref.provider === 'anthropic' && hasClaude)
-          || ((pref.provider === 'google' || pref.provider === 'xai') && CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === pref.provider)));
+          || (keyOnlyProvider(pref.provider) && CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === pref.provider)));
       if (prefProviderUsable) {
         // Only re-run the provider UI when the provider actually changes; otherwise the account
         // and model selects filled above are already the right ones to override in place.

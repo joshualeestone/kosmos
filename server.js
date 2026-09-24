@@ -1675,6 +1675,7 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    logged or echoed back -- the response carries the label + the live verdict only. */
 /* #3566: the exclusive-create marker a label-less add holds on its slot while the key is checked. */
 const CLAIM_FILE = '.kosmos-claim';
+const CLAIM_STALE_MS = 10 * 60 * 1000;
 function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
   readBody(req)
     .then(async (raw) => {
@@ -1700,7 +1701,8 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
       let named;
       // The slot this request created, so a failed add can give it back (see the claim below).
       let claimed = null;
-      if (body.label === undefined || body.label === null || String(body.label).trim() === '') {
+      // Only an ABSENT label takes a slot; a whitespace-only label is still refused by dirForLabel.
+      if (body.label === undefined || body.label === null || body.label === '') {
         /* 🛑 CLAIM THE SLOT, do not just pick it. The live key check below awaits the network,
            so two label-less adds racing (two tabs, an API caller) would otherwise both pick
            work1 and the second storeKey would overwrite the first account's key. The claim is
@@ -1710,18 +1712,27 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
            cancelled add) as free, and that dir must stay reusable. A symlinked slot is refused. */
         const exclude = new Set();
         named = null;
-        for (let n = 0; n < 50 && !named; n += 1) {
+        let failed = false;
+        for (let n = 0; n < 50 && !named && !failed; n += 1) {
           const spot = mod.nextWorkDir(exclude);
           if (!spot) break;
+          const claimFile = path.join(spot.dir, CLAIM_FILE);
           try {
             if (fs.existsSync(spot.dir) && fs.lstatSync(spot.dir).isSymbolicLink()) { exclude.add(spot.dir); continue; }
             fs.mkdirSync(spot.dir, { recursive: true, mode: 0o700 });
-            fs.closeSync(fs.openSync(path.join(spot.dir, CLAIM_FILE), 'wx', 0o600));
+            /* A claim older than CLAIM_STALE_MS was left by a process that died mid-add;
+               drop it so the slot is not skipped forever. A live add finishes in seconds. */
+            try { if (Date.now() - fs.statSync(claimFile).mtimeMs > CLAIM_STALE_MS) fs.unlinkSync(claimFile); } catch { /* none, or gone */ }
+            fs.closeSync(fs.openSync(claimFile, 'wx', 0o600));
             claimed = spot.dir;
             named = { ok: true, label: spot.label, dir: spot.dir };
-          } catch (err) { if (err && err.code === 'EEXIST') exclude.add(spot.dir); else break; }
+          } catch (err) { if (err && err.code === 'EEXIST') exclude.add(spot.dir); else failed = true; }
         }
-        if (!named) named = { ok: false, because: `there is no free spot for another ${providerLabel} account on this computer` };
+        if (!named) {
+          named = { ok: false, because: failed
+            ? `we could not make a place for this ${providerLabel} account on this computer`
+            : `there is no free spot for another ${providerLabel} account on this computer` };
+        }
       } else {
         named = mod.dirForLabel(body.label);
       }

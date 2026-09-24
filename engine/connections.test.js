@@ -44,6 +44,13 @@ test('#1034/#3566: it names the providers that can be connected today and says t
   /* And it says plainly that the coming-soon ones cannot be chosen, because
      "it is in the menu" is exactly what would send somebody hunting. */
   assert.match(body, /coming soon and cannot be chosen yet/);
+  /* #3566: Gemini and Grok are connectable with a key, and must not be in the
+     coming-soon list. Read as one line, because the block wraps sentences. */
+  const flat = body.replace(/\s+/g, ' ');
+  assert.match(flat, /Google Gemini and xAI Grok can be connected too, each with an API key/);
+  const soon = flat.match(/[^.]*marked coming soon[^.]*\./);
+  assert.ok(soon, 'CONTROL: the coming-soon sentence must be found, or the next check proves nothing');
+  assert.doesNotMatch(soon[0], /Gemini|Grok/, 'Gemini or Grok is still listed as coming soon: ' + soon[0]);
 });
 
 test('#1034: it carries NO machine state, which is the line between part one and part two', () => {
