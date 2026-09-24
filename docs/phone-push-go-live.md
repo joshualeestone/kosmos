@@ -15,7 +15,8 @@ Every step also says how to check it worked and how to undo it. Do the steps in 
 that fails stops the list: undo it, fix the cause, and start that step again.
 
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay
-`main` at 50a846b). Both repos move on, so treat the file and the name as what to search for,
+`main` at 50a846b; the Android and asset-links facts later that day, kosmos-relay `main` at
+6e2da95). Both repos move on, so treat the file and the name as what to search for,
 not the commit or the line.
 
 ## Where things stand today
@@ -23,8 +24,9 @@ not the commit or the line.
 - **The coordinator already has the code, but production does not run it yet.**
   - The APNs routes, the APNs sender and the sign-in page's session bridge are merged
     (kosmos-relay #104).
+  - The Android app's Digital Asset Links file is merged too (kosmos-relay #109).
   - Production still runs build `2226c9d` (`curl -s https://coordinator.kosmosplus.com/v1/meta`),
-    which has neither #103 nor #104.
+    which has none of #103, #104 or #109.
 - **The tunnel's `mac-request` verb is merged** (kosmos-relay #103). The board needs it to turn
   notifications on. No released Kosmos bundle carries it yet.
 - **The board ships with notifications locked off.**
@@ -68,8 +70,8 @@ on the approval, and development keeps testing against Kano's mock APNs meanwhil
 5. **A Google Play Console developer account.** Sonya has seen no evidence one exists
    (2026-09-24).
 6. **Confirm the Android application id `io.kosmos.app`** (`android/app/build.gradle`). Liu Kang
-   decided to keep it (2026-09-24). Josh can still change it before the first Play upload, and not
-   after.
+   decided to keep it (relayed by Sonya, 2026-09-24). It becomes permanent at the first Play upload,
+   so Josh's yes is still the gate.
    - The Android upload key already exists (RSA-4096, alias `kosmos-upload`). Nothing to make.
    - Its secrets-map targets are `kosmos-android-upload-keystore` and
      `kosmos-android-upload-signing`.
@@ -86,13 +88,13 @@ record and its seller name cannot be undone, which is why item 2 is Josh's decis
 
 ## Step 2. Put the APNs settings into the coordinator's env template [fleet]
 
-A kosmos-relay PR, reviewed like any other. Kano is adding the `KOSMOS_APNS_*` lines to
-`deploy/kosmos-coordinator.env.template` (2026-09-24). This step is to confirm they are there, with
-the values below.
+A kosmos-relay PR, reviewed like any other. The four `KOSMOS_APNS_*` lines are already in
+`deploy/kosmos-coordinator.env.template` as commented placeholders with no values (Kano, kosmos-relay
+d05a90b). This step fills them in, and adds `KOSMOS_PUSH=log`.
 
 - **Why a template change is needed.** The coordinator reads its settings from
   `/etc/kosmos-coordinator.env`, rendered from `deploy/kosmos-coordinator.env.template`, and
-  today that template has no push settings at all.
+  today that template sets no push settings (the APNs lines are commented out).
 - **Why not set the vars by hand on the box.** A var set by hand makes the next
   `INSTALL_ENV=1` deploy refuse, because that deploy will not drop a var the box has
   (`deploy/deploy-coordinator.sh`).
@@ -242,13 +244,16 @@ Sonya owns these facts (her message of 2026-09-24).
 **The coordinator serves the Digital Asset Links file** [code merged; Josh for the deploy]:
 - Where: `https://login.kosmosplus.com/.well-known/assetlinks.json`.
 - How: plain HTTPS, 200 with no redirect, `Content-Type: application/json`, no auth.
-- What it says: package `io.kosmos.app`, relation `delegate_permission/common.handle_all_urls`,
-  with two fingerprints:
+- What it must say before a store release: package `io.kosmos.app`, relation
+  `delegate_permission/common.handle_all_urls`, and two fingerprints (today it lists only the first):
   - the upload key's SHA-256 (`21:4A:61:04:67:09:08:20:B0:05:DC:40:D9:EC:EE:09:65:84:44:2E:40:AB:0F:DC:0F:EF:32:E6:EC:43:78:E8`);
   - the Play app-signing key's SHA-256, read from Play Console after the first upload.
 - Never the debug key.
 - The route is merged (kosmos-relay #109, `coordinator/src/assetlinks.rs`) but not live: production
-  answers 404 until the coordinator is deployed (step 3's deploy carries it).
+  answers 404 until the coordinator is next deployed.
+- It does not have to wait for Apple or for step 3. Any coordinator deploy from `main` carries it
+  [Josh, a production change]. A deploy before step 3 has no `KOSMOS_PUSH=log`, so web push stays
+  live exactly as it is today, and step 3's "what this turns off" still applies when step 3 runs.
 - It serves the upload key only. The fingerprints are a constant in code
   (`CERT_SHA256_FINGERPRINTS`), so adding the Play key after the first upload is a kosmos-relay PR
   and another coordinator deploy [fleet for the PR; Josh for the deploy].
