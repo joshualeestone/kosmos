@@ -151,6 +151,10 @@ if command -v ruby >/dev/null 2>&1; then
     abort "browser-checks-full does not run browser-checks.sh with the strict pin" unless runs.(fj) =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/
     abort "browser-checks-full does not provision Playwright" unless runs.(fj).include?("tools/provision-pw.sh")
     abort "browser-checks-full is not on macos-latest" unless fj["runs-on"] == "macos-latest"
+    fs = (fj["steps"] || []).find { |st| st["name"].to_s.include?("file a scheduled red as a card") } or abort "browser-checks-full has no step filing a scheduled red as a card (nobody would see a nightly red)"
+    abort "the card-filing step must run only on a scheduled failure, got if: #{fs["if"].inspect}" unless fs["if"].to_s.gsub(/\s+/, " ").strip == "failure() && github.event_name == \x27schedule\x27"
+    abort "browser-checks-full.yml lacks issues: write, so it cannot file the card" unless (f["permissions"] || {})["issues"] == "write"
+    abort "the PR workflow must not hold issues: write" if ((d["permissions"] || {})["issues"]).to_s == "write"
     puts "ok"
   ' "$WF" "$WF_FULL" 2>&1)" || fail "job invariants: $jobs_out"
   [ "$jobs_out" = ok ] || fail "job invariants did not report ok: $jobs_out"

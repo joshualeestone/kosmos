@@ -19,6 +19,11 @@ engines, merged green, and blocked the 0.6.91 staging cut.
   09:30 UTC) and `workflow_dispatch` (on demand, any branch). It runs `tools/browser-checks.sh`
   with no allowlist (every check, headless via run_one, the same script and pin as the cut's
   3b), `timeout-minutes: 75`, and `cancel-in-progress: false`.
+- On a SCHEDULED failure only, a last step files the red as a card labelled
+  `nightly-browser-checks-red`, or comments on the one already open. The card lands in the
+  work queue the fleet reads (review iteration 2: GitHub mails a scheduled failure only to
+  the run's actor). `issues: write` is held by this workflow only, and a schedule runs main,
+  never PR code.
 - `browser-checks.yml` is unchanged except for quoting its step name: an unquoted ` #` starts
   a YAML comment, so the name had been parsing as "... (tools/browser-checks.sh," all along.
 - `tools/test-browser-checks-workflow.sh`: pins the allowlist job by parsed YAML, since the
@@ -39,9 +44,8 @@ engines, merged green, and blocked the 0.6.91 staging cut.
   specific.
 
 ## Weakest premise
-That a nightly red gets seen before the next cut. GitHub notifies the actor behind a
-scheduled run's failure, not the fleet. The cut preflight does not yet read the last
-nightly result; that is the natural follow-up if nightly reds go unseen.
+That a card is seen before the next cut. It lands in the same queue as every other card,
+which is the best reach available without a secret; it is not a page.
 Second: the runner false-red set. The 2026-09-07 first full run false-red on timing/paint
 checks. Repeated nightly runs on an unchanged main measure the current set; none is called
 runner-fragile from a single run.
@@ -53,4 +57,7 @@ release.sh labels step 3b "headless").
 ## Proof
 - tools/test-browser-checks-workflow.sh green, and red under five injected regressions: the
   allowlist job's run line deleted (the review's repro), its runs-on changed, pull_request
-  added to the full workflow, an allowlist on the full job, and an unquoted step name.
+  added to the full workflow, an allowlist on the full job, and an unquoted step name. Also
+  red when the card step is ungated (`if: failure()` alone) or `issues: write` is missing.
+- The card step's script, run with `gh` stubbed as a shell function: no open card creates
+  one; a literal `null` from the query also creates one (guarded); an open #7 gets a comment.
