@@ -81,14 +81,35 @@ out="$(run cs_ok)"
 case "$out" in *"NOT codesign"*"not probed"*) ok "a KOSMOS_CODESIGN_BIN pass says the key was NOT probed" ;; *) bad "a stubbed pass reads like a real probe: $out" ;; esac
 
 # --- the identity it probes is the identity step 4 signs with ---
-bundle_id="$(sed -n 's/^_codesign_id="\${KOSMOS_CODESIGN_ID:-\(.*\)}"$/\1/p' "$REPO/tools/build-kosmos-bundle.sh")"
-if [ -z "$bundle_id" ]; then
-  bad "could not read the default identity out of tools/build-kosmos-bundle.sh (the line moved or changed shape)"
-elif [ "$bundle_id" = "$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID" ]; then
-  ok "the preflight's default identity matches step 4's ($bundle_id)"
+# #3643: both read tools/lib/signing-identity.sh, so pin that step 4 signs with the shared default
+# (not a literal of its own) and that the preflight probes the same value.
+bundle_line="$(grep -E '^_codesign_id=' "$REPO/tools/build-kosmos-bundle.sh")"
+if [ "$bundle_line" != '_codesign_id="${KOSMOS_CODESIGN_ID:-$KOSMOS_SIGN_APP_DEFAULT}"' ]; then
+  bad "step 4 no longer signs with the shared default from lib/signing-identity.sh: $bundle_line"
+elif [ -n "$KOSMOS_SIGN_APP_DEFAULT" ] && [ "$KOSMOS_SIGN_APP_DEFAULT" = "$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID" ]; then
+  ok "the preflight's default identity is step 4's shared default ($KOSMOS_SIGN_APP_DEFAULT)"
 else
-  bad "identity drift: preflight probes [$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID], step 4 signs with [$bundle_id]"
+  bad "identity drift: preflight probes [$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID], the shared default is [$KOSMOS_SIGN_APP_DEFAULT]"
 fi
+# And no other shell script names the team: one place, or a partial switch ships two teams (#3643).
+# Fixed strings (-F): a team name like "Inc." or with parentheses must not be read as a regex.
+# The whole repo (not only tools/), minus git internals, dependencies, plans and tests.
+_team_all="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$KOSMOS_SIGN_TEAM_ID" -e "$KOSMOS_SIGN_TEAM_NAME" -e "$KOSMOS_NOTARY_KEY_ID_DEFAULT" -e "$KOSMOS_NOTARY_ISSUER_DEFAULT" "$REPO")"
+if ! printf '%s\n' "$_team_all" | grep -q '/tools/lib/signing-identity.sh$'; then
+  bad "CONTROL: the team sweep did not even find lib/signing-identity.sh, so it cannot see anything"
+else
+  _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/tools/test-' | grep -v '\.test\.js$' || true)"
+  [ -z "$_team_hits" ] && ok "only lib/signing-identity.sh names the signing team or its notary key" || bad "the signing team or notary key is named outside lib/signing-identity.sh: $_team_hits"
+fi
+# The sweep above looks for the CURRENT values, so right after a team switch it would be blind to a
+# leftover of the OLD team. Pin the Stone Syndicate team id (built from fragments so this file does
+# not match itself) everywhere, tests included: only the lib may carry it.
+# Only whole-line comments are unhashed in the pkg input, so a value line must not carry an inline one.
+_inline="$(grep -nE '^[[:space:]]*[A-Z_]+=.*[[:space:]]#' "$REPO/tools/lib/signing-identity.sh" || true)"
+[ -z "$_inline" ] && ok "no value line in lib/signing-identity.sh carries an inline comment (it would be hashed)" || bad "an inline comment on a value line in lib/signing-identity.sh would force a pkg rebuild: $_inline"
+_retired="864QZ""69GF2"; _retired_name="Stone Syndicate"" LLC"; _retired_key="43F2HU""5BT8"; _retired_iss="69a6de7f-a03e-47e3-""e053-5b8c7c11a4d1"
+_ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" -e "$_retired_name" -e "$_retired_key" -e "$_retired_iss" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' || true)"
+[ -z "$_ret_hits" ] && ok "the Stone Syndicate team id, name and notary key appear nowhere but the lib, tests included" || bad "the Stone Syndicate team id is named outside lib/signing-identity.sh: $_ret_hits"
 # And KOSMOS_CODESIGN_ID reaches the probe, as it reaches step 4.
 KOSMOS_CODESIGN_ID="Some Other Identity" KOSMOS_CODESIGN_BIN=cs_args kosmos_sign_preflight >/dev/null 2>&1
 grep -qx 'Some Other Identity' "$WORK/cs-args.argv" 2>/dev/null \

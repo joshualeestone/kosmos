@@ -13,13 +13,17 @@
 # pkg's inputs against what the CURRENT source would build.
 #
 # The input identity is the sha256 of everything the build consumes that
-# decides the pkg's BEHAVIOUR, and since #665 that is three paths, not one:
+# decides the pkg's BEHAVIOUR (and, since #3643, who signs it): four paths.
 #   install/pkg-scripts/**        the postinstall (what runs)
 #   install/pkg-resources/**      the Welcome and Conclusion screens (what the
 #                                 person is told; #662/#663 live here)
 #   tools/build-installer-pkg.sh  the build itself, because the
 #                                 distribution.xml (title, screens, arch,
 #                                 choices) is a template INSIDE it
+#   tools/lib/signing-identity.sh who signs it (#3643): the Installer identity
+#                                 lived in the build script until it moved
+#                                 here, so a team switch must still make the
+#                                 next cut rebuild and re-sign the pkg
 # (The bundle identifier is baked in by the build script, which is hashed, so
 # it is not listed a second time here; a copy could drift from the real one.)
 # NOT the version (metadata, and the pkg is version-independent) and NOT the
@@ -42,10 +46,12 @@ pkg_input_sha() {
   local scripts="$repo/install/pkg-scripts"
   local resources="$repo/install/pkg-resources"
   local build="$repo/tools/build-installer-pkg.sh"
+  local ident="$repo/tools/lib/signing-identity.sh"
   # ALL inputs or nothing: a missing one is a refusal, never a sha over less.
   [ -d "$scripts" ]   || { echo "pkg_input_sha: no pkg-scripts at $scripts" >&2; return 1; }
   [ -d "$resources" ] || { echo "pkg_input_sha: no pkg-resources at $resources" >&2; return 1; }
   [ -f "$build" ]     || { echo "pkg_input_sha: no build script at $build" >&2; return 1; }
+  [ -f "$ident" ]     || { echo "pkg_input_sha: no signing identity at $ident" >&2; return 1; }
   # Deterministic: each input's path and bytes, in sorted order, under a
   # section label so a file moving between sections changes the sha too.
   # ⚠️ DOTFILES AND DOT-DIRECTORIES EXCLUDED. verify-served.sh runs this on the
@@ -59,7 +65,7 @@ pkg_input_sha() {
   # delimited, so a name with a space is checked, not split into two names
   # that do not exist.
   local unreadable
-  unreadable="$( _pkg_first_unreadable "$scripts" "$resources" "$build" )"
+  unreadable="$( _pkg_first_unreadable "$scripts" "$resources" "$build" "$ident" )"
   [ -z "$unreadable" ] || { echo "pkg_input_sha: cannot hash input as it is: $unreadable" >&2; return 1; }
   # Each entry is framed: path, executable bit, byte count, then the bytes, so
   # a file with no trailing newline cannot run into the next path line.
@@ -79,6 +85,8 @@ pkg_input_sha() {
     ( cd "$resources" && _pkg_stream_dir )
     printf 'section:build-script\n'
     ( cd "$repo" && _pkg_stream_file ./tools/build-installer-pkg.sh )
+    printf 'section:signing-identity\n'
+    ( cd "$repo" && _pkg_stream_assignments ./tools/lib/signing-identity.sh )
   } | _pkg_hash | awk '{print $1}'
 }
 # The framed stream of one file: path, x or -, byte count, bytes.
@@ -88,12 +96,24 @@ _pkg_stream_file() {
   printf '%s\n%s\n%s\n' "$f" "$x" "$(wc -c < "$f" | tr -d ' ')"
   cat "$f"
 }
+# The signing identity's VALUES only (#3643): its lines that are not whole-line comments or blank,
+# framed like a file but without the x bit. A reworded whole-line comment or a chmod must not force a
+# re-notarise; a changed team, identity or notary value must. (An inline comment on a value line is
+# hashed; test-cut-sign-preflight refuses one.)
+_pkg_stream_assignments() {
+  local f="${1:?}" body
+  body="$(grep -v -E '^[[:space:]]*(#|$)' "$f" || true)"
+  # All inputs or nothing: a signing identity with no values is a refusal, never a sha over less.
+  [ -n "$body" ] || { echo "pkg_input_sha: $f holds no values" >&2; return 1; }
+  printf '%s\n%s\n' "$f" "$(printf '%s' "$body" | wc -c | tr -d ' ')"
+  printf '%s' "$body"
+}
 # Every non-hidden regular file under the cwd, sorted, framed.
 _pkg_stream_dir() {
   find . -name '.?*' -prune -o -type f -print | LC_ALL=C sort | while IFS= read -r f; do _pkg_stream_file "$f"; done
 }
-# The first input that cannot be hashed as it is, among the two dirs and the
-# build script, or nothing. NUL-delimited so a name with a space is one name.
+# The first input that cannot be hashed as it is, among the two dirs, the build
+# script and the signing identity, or nothing. NUL-delimited so a name with a space is one name.
 # Three shapes, because "all inputs or nothing" has to hold for each:
 #   a file that is not readable        cat would hash it as absent
 #   a directory that is not searchable find cannot enter it, its contents
@@ -130,7 +150,8 @@ _pkg_first_unreadable() {
          done)"
     [ -z "$f" ] || { printf '%s' "$f"; return 0; }
   done
-  [ -r "$3" ] || printf 'unreadable %s' "$3"
+  [ -r "$3" ] || { printf 'unreadable %s' "$3"; return 0; }
+  [ -z "${4:-}" ] || [ -r "$4" ] || printf 'unreadable %s' "$4"
   return 0
 }
 

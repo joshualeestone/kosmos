@@ -1940,9 +1940,15 @@ test('custom instructions are written verbatim with a trailing newline, and the 
     const connections = require('./connections');
     const foundConn = projects.findBlock(text, connections.START, connections.END);
     assert.ok(foundConn && !foundConn.ambiguous, 'the person\'s own agent did not get the connections block at birth');
+    // #3614: the direct-message files block rides from birth too, so it is taken out with its siblings.
+    const dmfiles = require('./dmfiles');
+    assert.ok(projects.findBlock(text, dmfiles.START, dmfiles.END), 'the person\'s own agent did not get the files block at birth');
     const without = projects.removeBlock(
-      projects.removeBlock(text, reports.START, reports.END),
-      connections.START, connections.END,
+      projects.removeBlock(
+        projects.removeBlock(text, reports.START, reports.END),
+        connections.START, connections.END,
+      ),
+      dmfiles.START, dmfiles.END,
     );
   /* #591 changed one premise here, stated rather than deleted: the operating
      defaults DO follow a person's own words now, under their own heading,
@@ -2426,6 +2432,40 @@ test('every agent is born knowing who it reports to, identically on both paths, 
   } finally {
     fs.rmSync(you.FILE, { force: true });
   }
+});
+
+test('#3614: every agent is born knowing where to save the files it makes, with its OWN folder written in', () => {
+  /* The card's point: the path is written in, never left for the agent to guess. Both
+     creation paths (a menu role and the person's own words) carry the block, it names
+     that agent's own create.workerDir(name)/Files, and the later sweep composes the same
+     bytes, so it writes nothing. */
+  const projects = require('./projects');
+  const dmfiles = require('./dmfiles');
+  const instructions = require('./instructions');
+  recorder();
+  create.setDryRun(false);
+  const blockOf = (name) => {
+    const text = fs.readFileSync(create.instructionFile(name), 'utf8');
+    const at = projects.findBlock(text, dmfiles.START, dmfiles.END);
+    assert.ok(at && !at.ambiguous, `${name} has no files block`);
+    return text.slice(at.start, at.end);
+  };
+  const menu = create.createAgent({ ...BINS, name: 'files-menu', role: 'writer', label: 'Business Writer' });
+  assert.equal(menu.outcome, create.OUTCOME.CREATED, menu.because);
+  const own = create.createAgent({ ...BINS, name: 'files-own', role: 'own', label: 'Helper',
+    instructions: 'You are **files-own**, in my own words.\n\nDo the thing.' });
+  assert.equal(own.outcome, create.OUTCOME.CREATED, own.because);
+  for (const name of ['files-menu', 'files-own']) {
+    const want = '`' + nodePath.join(create.workerDir(name), 'Files') + '`';
+    assert.ok(blockOf(name).includes(want), `${name} was born without its own Files path`);
+  }
+  assert.ok(!blockOf('files-menu').includes(nodePath.join(create.workerDir('files-own'), 'Files')), 'CONTROL: not another agent\'s path');
+  // The later sweep composes the same bytes: nothing is rewritten.
+  const before = instructions.read('files-menu').text;
+  // Vouched (the record is ours; the roster gate is not what this checks): the bytes are.
+  const told = dmfiles.tellAgent('files-menu', null, { trusted: true });
+  assert.equal(told.state, projects.TOLD.TOLD, told.because || '');
+  assert.equal(instructions.read('files-menu').text, before, 'the sweep after birth rewrote a block birth had already written');
 });
 
 test('a saved About-you record rides the boot file from birth, and its absence costs nothing', () => {

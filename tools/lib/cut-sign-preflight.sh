@@ -21,9 +21,9 @@
 #
 # Seams (tests only): KOSMOS_CODESIGN_BIN replaces codesign.
 
-# The identity step 4 signs with. tools/test-cut-sign-preflight.sh asserts this
-# default equals the one in tools/build-kosmos-bundle.sh, so the two cannot drift.
-KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID="Developer ID Application: Stone Syndicate LLC (864QZ69GF2)"
+# The identity step 4 signs with, from the same file step 4 reads (#3643), so the two cannot drift.
+. "$(dirname "${BASH_SOURCE[0]}")/signing-identity.sh"
+KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID="$KOSMOS_SIGN_APP_DEFAULT"
 
 kosmos_sign_preflight() {
   local id="${KOSMOS_CODESIGN_ID:-$KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID}"

@@ -32,4 +32,4 @@ file, env var, command and log line it names exists at kosmos `main` 8c4ca1d5 / 
 ## Weakest part
 Three things are reasoned, not measured, and the doc says so where they appear: where the .p8 can
 live under the unit's `ProtectHome`/`ProtectSystem`; TestFlight builds reporting `production`; and
-the Android facts from Sonya's unmerged branch.
+the Android facts from Sonya (now merged as #3644).

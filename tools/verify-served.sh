@@ -157,9 +157,18 @@ if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
   # The signature and the staple, from the downloaded bytes, on a Mac only
   # (elsewhere the tools do not exist and their absence is said, not passed).
   if command -v pkgutil >/dev/null 2>&1; then
-    # OUR identity, by team id, not any Developer ID Installer's.
-    if pkgutil --check-signature "$ptmp" 2>/dev/null | grep -q "Developer ID Installer: Stone Syndicate LLC (864QZ69GF2)"; then say "/dist/Kosmos.pkg signature" "Developer ID Installer, Stone Syndicate LLC (864QZ69GF2)"
-    else say "/dist/Kosmos.pkg signature" "NOT signed by Stone Syndicate's Developer ID Installer (864QZ69GF2)"; fail=1; fi
+    # OUR identity, by team id, not any Developer ID Installer's (named once, lib/signing-identity.sh,
+    # #3643). The build-time override (KOSMOS_INSTALLER_CERT) is deliberately NOT honoured here: it may be
+    # a loose name or a SHA-1, and this check is about which TEAM signed what users download.
+    # The identity of the release being verified ($REPO); if that checkout predates the lib, the one
+    # beside this script.
+    _vs_inst=""; _vs_lib="$REPO/tools/lib/signing-identity.sh"
+    [ -f "$_vs_lib" ] || _vs_lib="$(dirname "$0")/lib/signing-identity.sh"
+    if . "$_vs_lib" 2>/dev/null; then _vs_inst="${KOSMOS_SIGN_INSTALLER_DEFAULT:-}"; fi
+    _vs_sig="$(pkgutil --check-signature "$ptmp" 2>/dev/null || true)"   # captured: no pipe into an early-exiting grep
+    if [ -z "$_vs_inst" ]; then say "/dist/Kosmos.pkg signature" "NOT checked: could not read the signing identity from $_vs_lib"; fail=1
+    elif printf '%s\n' "$_vs_sig" | grep -qF "$_vs_inst"; then say "/dist/Kosmos.pkg signature" "$_vs_inst"
+    else say "/dist/Kosmos.pkg signature" "NOT signed by our Developer ID Installer ($_vs_inst)"; fail=1; fi
   else say "/dist/Kosmos.pkg signature" "not checked here (no pkgutil on this machine)"; fi
   if command -v xcrun >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then
     if xcrun stapler validate "$ptmp" >/dev/null 2>&1; then say "/dist/Kosmos.pkg staple" "notarisation ticket stapled"

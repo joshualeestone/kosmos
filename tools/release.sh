@@ -846,8 +846,8 @@ step "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # same afternoon a hand republish went live beside the previous build's
 # .sha256. This step is the remembering. It is NOT a rebuild every cut: the pkg is payload-free
 # (a postinstall that runs the served /setup), so it changes only when its
-# INPUTS change (pkg-scripts, pkg-resources, the build script, which carries
-# the identifier; tools/lib/pkg-inputs.sh is the one definition). A rebuild
+# INPUTS change (pkg-scripts, pkg-resources, the build script (which carries the identifier), and
+# the signing identity; tools/lib/pkg-inputs.sh is the one definition). A rebuild
 # costs a sign + notarise round trip, minutes, and only when one of those
 # moved. It sits BEFORE step 4 on purpose: step 4 copies the cache-immutable
 # versioned tarball into the site dist, and a notarisation flake after that

@@ -14,17 +14,20 @@ Every step says who can do it:
 Every step also says how to check it worked and how to undo it. Do the steps in order. A step
 that fails stops the list: undo it, fix the cause, and start that step again.
 
-Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay
-`main` at 50a846b). Both repos move on, so treat the file and the name as what to search for,
-not the commit or the line.
+Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay `main` at
+50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (the last commit
+of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. Both repos move on, so treat
+the file and the name as what to search for, not the commit or the line.
 
 ## Where things stand today
 
 - **The coordinator already has the code, but production does not run it yet.**
   - The APNs routes, the APNs sender and the sign-in page's session bridge are merged
     (kosmos-relay #104).
+  - The Digital Asset Links file the coordinator serves for the Android app is merged too
+    (kosmos-relay #109).
   - Production still runs build `2226c9d` (`curl -s https://coordinator.kosmosplus.com/v1/meta`),
-    which has neither #103 nor #104.
+    which has none of #103, #104 or #109.
 - **The tunnel's `mac-request` verb is merged** (kosmos-relay #103). The board needs it to turn
   notifications on. No released Kosmos bundle carries it yet.
 - **The board ships with notifications locked off.**
@@ -33,8 +36,8 @@ not the commit or the line.
 - **The iOS app registers for notifications** (kosmos #3635) **and a tap opens the right Mac**
   (kosmos #3642), both merged. Neither has run on a simulator or a phone yet; step 4 has the
   simulator check.
-- **The Android app shows notifications under its own name** (kosmos #3644, Sonya). This
-  is NOT merged yet.
+- **The Android app shows notifications under its own name** (kosmos #3644, Sonya, merged). It
+  opens `https://login.kosmosplus.com/` and delegates notifications to the app.
 
 ## Step 1. Josh's decisions and keys [Josh]
 
@@ -67,8 +70,9 @@ on the approval, and development keeps testing against Kano's mock APNs meanwhil
 
 5. **A Google Play Console developer account.** Sonya has seen no evidence one exists
    (2026-09-24).
-6. **Confirm the Android application id `io.kosmos.app`** (`android/app/build.gradle`). It is
-   permanent after the first Play upload.
+6. **Confirm the Android application id `io.kosmos.app`** (`android/app/build.gradle`). Liu Kang
+   decided to keep it (relayed by Sonya, 2026-09-24). It becomes permanent at the first Play upload,
+   so Josh's yes is still the gate.
    - The Android upload key already exists (RSA-4096, alias `kosmos-upload`). Nothing to make.
    - Its secrets-map targets are `kosmos-android-upload-keystore` and
      `kosmos-android-upload-signing`.
@@ -85,18 +89,21 @@ record and its seller name cannot be undone, which is why item 2 is Josh's decis
 
 ## Step 2. Put the APNs settings into the coordinator's env template [fleet]
 
-A kosmos-relay PR, reviewed like any other. Kano is adding the `KOSMOS_APNS_*` lines to
-`deploy/kosmos-coordinator.env.template` (2026-09-24). This step is to confirm they are there, with
-the values below.
+A kosmos-relay PR, reviewed like any other. The four `KOSMOS_APNS_*` lines are already in
+`deploy/kosmos-coordinator.env.template` as commented placeholders with no values (Kano, kosmos-relay
+d05a90b). This step fills them in, and adds `KOSMOS_PUSH=log`.
 
 - **Why a template change is needed.** The coordinator reads its settings from
   `/etc/kosmos-coordinator.env`, rendered from `deploy/kosmos-coordinator.env.template`, and
-  today that template has no push settings at all.
+  today that template sets no push settings (the APNs lines are commented out).
 - **Why not set the vars by hand on the box.** A var set by hand makes the next
   `INSTALL_ENV=1` deploy refuse, because that deploy will not drop a var the box has
   (`deploy/deploy-coordinator.sh`).
 
-Add these. Names are from `coordinator/src/apns.rs` and `coordinator/src/main.rs`.
+Fill these in, and add `KOSMOS_PUSH`. Each APNs name becomes a real `NAME=value` line, never a
+`#NAME=` line: the deploy reads `#NAME=` as "deliberately unset" and would drop a value already on
+the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names are from
+`coordinator/src/apns.rs` and `coordinator/src/main.rs`.
 
 | Variable | Value | What it does |
 |---|---|---|
@@ -235,19 +242,24 @@ simulator before any real phone:
 
 Sonya owns these facts (her message of 2026-09-24).
 
-**Before anything:**
-- Sonya's PR #3644 merges. It adds notification delegation and points the app at
-  `https://login.kosmosplus.com/`.
-- On `main` without it, a push would show as a Chrome notification.
+**Already on `main`:** notification delegation and the `https://login.kosmosplus.com/` launch URL
+(kosmos #3644).
 
-**The coordinator serves the Digital Asset Links file** [fleet, kosmos-relay PR; Josh for the deploy]:
+**The coordinator serves the Digital Asset Links file** [code merged; Josh for the deploy]:
 - Where: `https://login.kosmosplus.com/.well-known/assetlinks.json`.
 - How: plain HTTPS, 200 with no redirect, `Content-Type: application/json`, no auth.
-- What it says: package `io.kosmos.app`, relation `delegate_permission/common.handle_all_urls`,
-  with two fingerprints:
+- What it must say before a store release: package `io.kosmos.app`, relation
+  `delegate_permission/common.handle_all_urls`, and two fingerprints (today it lists only the first):
   - the upload key's SHA-256 (`21:4A:61:04:67:09:08:20:B0:05:DC:40:D9:EC:EE:09:65:84:44:2E:40:AB:0F:DC:0F:EF:32:E6:EC:43:78:E8`);
   - the Play app-signing key's SHA-256, read from Play Console after the first upload.
-- Never the debug key. No route for this exists in kosmos-relay today.
+- Never the debug key.
+- The route is merged (kosmos-relay #109, `coordinator/src/assetlinks.rs`) but not live: production
+  answers 404 until the coordinator is next deployed.
+- It does not wait on Apple: the next coordinator deploy from `main` carries it [Josh, a production
+  change]. Step 3 lists what a coordinator deploy turns on and off.
+- It serves the upload key only. The fingerprints are a constant in code
+  (`CERT_SHA256_FINGERPRINTS`), so adding the Play key after the first upload is a kosmos-relay PR
+  and another coordinator deploy [fleet for the PR; Josh for the deploy].
 
 **Build** [fleet, on Mortals, from `android/`]:
 ```
@@ -266,7 +278,7 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 
 **Check:**
 - `keytool -printcert -jarfile app-release.aab` shows the upload key's SHA-256. Sonya built and
-  checked this AAB on the #3644 branch.
+  checked this AAB on the #3644 branch before it merged.
 - `curl -sS -D- https://login.kosmosplus.com/.well-known/assetlinks.json`: read the body, not
   just the 200.
 - Google's checker:
@@ -279,13 +291,16 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 - Remove the testing release in Play Console.
 - Removing the assetlinks route only brings back the URL bar. Nothing breaks.
 
-## Step 6. Rebuild the tunnel with `mac-request` [fleet]
+## Step 6. Rebuild the tunnel with `mac-request` [fleet builds; shipping it is Josh's tunnel release]
 
 This step is required before step 7, not optional housekeeping (Liu Kang posted the release order
 on #718, 2026-09-24).
 
 **Why:** turning notifications on makes the board ask the tunnel binary to sign a request to the
-coordinator (`mac-request`). The tunnel ships inside the Kosmos bundle
+coordinator (`mac-request`). Since kosmos #3626 the Plus standing refresh and the update announce
+use it too. Those two already fail in production today, because 0.6.91 sends them unsigned and the
+coordinator refuses unsigned requests (Raiden measured the 401), so an old tunnel keeps them broken
+rather than breaking them; a rebuilt tunnel is what turns #3626's fix on. The tunnel ships inside the Kosmos bundle
 (`tools/build-kosmos-bundle.sh` takes `KOSMOS_TUNNEL_BIN`, default
 `~/work/kosmos-relay/dist/kosmos-tunnel`).
 
@@ -304,10 +319,14 @@ needs an update before phone notifications can be turned on" (`engine/phonenotif
 - Before cutting step 7, run the same `mac-request --help` check against the binary the bundle
   build will actually use: `KOSMOS_TUNNEL_BIN` if it is set, otherwise the default path above.
 
-**Follow-up card (not built yet):** nothing stops a bundle from being built with an old tunnel. A
-small guard in `tools/build-kosmos-bundle.sh` should refuse, or at least warn, when
-`PHONE_APP_CAN_RECEIVE` is `true` and the tunnel binary lacks `mac-request`. Until then, this
-check is done by hand.
+**The bundle build also checks this** (`tools/lib/connector-verbs.sh`, called from
+`tools/build-kosmos-bundle.sh`).
+- While `PHONE_APP_CAN_RECEIVE` is `false`, an old tunnel gets one line that starts "note: this
+  Plus connector predates mac-request", and the build goes on. A tunnel it could not run to check
+  gets one line that starts "note: could not check this Plus connector", and the build goes on too.
+- Once it is `true`, the build refuses to bundle a tunnel without `mac-request`, and also one it
+  could not run to check (not executable, killed, crashed, or silent for 20 seconds).
+- The hand check above still comes first: a refused build at step 7 costs a release attempt.
 
 **Undo:** nothing has shipped. The binary only reaches people inside a board release (step 7).
 
