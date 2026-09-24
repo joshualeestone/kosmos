@@ -15,8 +15,8 @@ Every step also says how to check it worked and how to undo it. Do the steps in 
 that fails stops the list: undo it, fix the cause, and start that step again.
 
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay
-`main` at 50a846b; the Android and asset-links facts later that day, kosmos-relay `main` at
-6e2da95). Both repos move on, so treat the file and the name as what to search for,
+`main` at 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (#3644
+merged), and the asset-links facts at kosmos-relay `main` 6e2da95. Both repos move on, so treat the file and the name as what to search for,
 not the commit or the line.
 
 ## Where things stand today
@@ -24,7 +24,8 @@ not the commit or the line.
 - **The coordinator already has the code, but production does not run it yet.**
   - The APNs routes, the APNs sender and the sign-in page's session bridge are merged
     (kosmos-relay #104).
-  - The Android app's Digital Asset Links file is merged too (kosmos-relay #109).
+  - The Digital Asset Links file the coordinator serves for the Android app is merged too
+    (kosmos-relay #109).
   - Production still runs build `2226c9d` (`curl -s https://coordinator.kosmosplus.com/v1/meta`),
     which has none of #103, #104 or #109.
 - **The tunnel's `mac-request` verb is merged** (kosmos-relay #103). The board needs it to turn
