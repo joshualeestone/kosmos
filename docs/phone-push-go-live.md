@@ -39,36 +39,46 @@ not the commit or the line.
 
 These have to exist before anything else. None of them is something an agent can create.
 
-**Apple**
-1. **Which developer team publishes Kosmos.** A fleet note records the Stone Syndicate LLC team
-   as `864QZ69GF2` (Josh-Brain `Runbooks/fleet-doctrine-snapshots/memory-2026-08-28/reference_apple_developer_account.md`).
-   Josh confirms it is the right one for Kosmos. The App Store seller name can be set only once,
-   when the first app record is created (same note).
-2. **An App ID `io.kosmos.app` with Push Notifications turned on**, and an App Store Connect app
-   record for it.
+**Apple.** Everything Apple for Kosmos comes from a new Apple Developer organisation,
+**Kosmos Agent Manager, Inc.** (the Kosmos legal entity), which is waiting for Apple's approval
+(Liu Kang, from Splinter and Josh, 2026-09-24). None of it comes from the Stone Syndicate team. That
+covers the team, the App ID, the provisioning profile and the .p8. Nothing else in this list waits
+on the approval, and development keeps testing against Kano's mock APNs meanwhile.
+
+1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Josh confirms it is active and
+   notes its **Team ID**.
+2. **Register the App ID `io.kosmos.app` under that org, with Push Notifications turned on.**
    - The bundle id is fixed in `ios/Kosmos.xcodeproj/project.pbxproj`
-     (`PRODUCT_BUNDLE_IDENTIFIER = io.kosmos.app`).
-   - It becomes permanent once an app record exists.
-3. **An APNs authentication key (.p8)** from the Apple developer site, with its **Key ID** and the
-   **Team ID**.
+     (`PRODUCT_BUNDLE_IDENTIFIER = io.kosmos.app`), and it is what `KOSMOS_APNS_BUNDLE_IDS` allows
+     (step 2).
+   - It becomes permanent once an App Store Connect app record exists. Josh creates that record
+     under the same org. The seller name on it can be set only once.
+3. **Create the APNs authentication key (.p8) under that org.** Note its **Key ID**. The Team ID is
+   the org's, from item 1.
    - It is filed with `/add-secret` by Liu Kang and read by lookup target only, never pasted
      (kosmos-relay `.claude/plans/apns-718.md`).
-   - The existing App Store Connect API key on this machine is scoped to another app (Mission
-     Control Kids, same note). Whether to reuse it for uploads is Josh's call.
+   - These values go into the coordinator's `KOSMOS_APNS_KEY_ID`, `KOSMOS_APNS_TEAM_ID` and
+     `KOSMOS_APNS_KEY_PATH` in steps 2 and 3.
+4. **Create a push-enabled provisioning profile for `io.kosmos.app` under that org**, plus the
+   signing certificate it needs. The team's id is what step 4 sets as `DEVELOPMENT_TEAM`.
 
 **Google**
-4. **A Google Play Console developer account.** Sonya has seen no evidence one exists
+5. **A Google Play Console developer account.** Sonya has seen no evidence one exists
    (2026-09-24).
-5. **Confirm the Android application id `io.kosmos.app`** (`android/app/build.gradle`). It is
+6. **Confirm the Android application id `io.kosmos.app`** (`android/app/build.gradle`). It is
    permanent after the first Play upload.
    - The Android upload key already exists (RSA-4096, alias `kosmos-upload`). Nothing to make.
    - Its secrets-map targets are `kosmos-android-upload-keystore` and
      `kosmos-android-upload-signing`.
 
-**Check:** `secrets-map.sh lookup <target>` finds the APNs key (the target name is whatever
-`/add-secret` records), and Josh has said yes to items 1, 2, 4 and 5.
+**Check:**
+- `secrets-map.sh lookup <target>` finds the APNs key (the target name is whatever `/add-secret`
+  records).
+- The App ID shows Push Notifications enabled in the Kosmos Agent Manager, Inc. account.
+- Josh has said yes to items 1, 2, 5 and 6.
 
-**Undo:** revoke the APNs key on the Apple developer site. Nothing else here has been used yet.
+**Undo:** revoke the APNs key and the profile in the developer account. Nothing else here has been
+used yet.
 
 ## Step 2. Put the APNs settings into the coordinator's env template [fleet]
 
@@ -154,8 +164,9 @@ only holds its path.
 ## Step 4. Get the iOS app onto testers' phones [Josh for signing and upload; fleet for the build]
 
 **Setup (one time):**
-- Set `DEVELOPMENT_TEAM` in `ios/Kosmos.xcodeproj`. It is absent today, and signing is
-  `Automatic`.
+- Set `DEVELOPMENT_TEAM` in `ios/Kosmos.xcodeproj` to the Kosmos Agent Manager, Inc. Team ID
+  [Josh supplies the id; fleet makes the change]. It is absent today, and signing is `Automatic`.
+  Signing under any other team gives device tokens the coordinator's key cannot send to.
 - The entitlement file `ios/Kosmos.entitlements` already asks for push
   (`aps-environment = development`). Xcode switches it to production when the build is
   exported for distribution.
