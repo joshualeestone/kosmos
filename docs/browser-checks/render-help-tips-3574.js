@@ -52,9 +52,13 @@ const waitTitle = (page, title, ms) => page.waitForFunction((t) => { const c = d
 const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(state));
 
 (async () => {
-  fleet.install([
+  /* The tour shows by itself only on a board with no agents (someone new), so the check starts on
+     an empty board and adds Beatrix for the arms about a card, her ring and her page. */
+  const noAgents = () => fleet.install([]);
+  const withAgent = () => fleet.install([
     fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' }),
   ]);
+  noAgents();
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   const api = async (method, body) => (await fetch(URL + '/api/tips', method === 'GET' ? {} : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
@@ -103,6 +107,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // The next first-visit tip may already be up (the timer runs), so the claim is about the tour.
     chk(!closed.dim && !/ of /.test(closed.step), 'T2 Got it closes the tour and its dim', JSON.stringify(closed));
     chk((await api('GET')).seen.includes('tour'), 'T2 the board records the tour as seen');
+    // Her first agent arrives: the screen tips follow the tour.
+    withAgent();
+    await page.reload({ waitUntil: 'networkidle' });
 
     // T3: the ring tip then shows by itself on the board (a card has a ring), as a screen tip.
     chk(await waitTitle(page, 'The ring is your agent\'s memory', 4000), 'T3 the ring tip shows by itself on the board');
@@ -135,6 +142,18 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForTimeout(2800);
     chk(!(await cardState(page)).shown, 'T4 after a reload nothing closed returns on the board');
+
+    // T23: a board that already has agents (an upgrade) shows nothing by itself, even with nothing
+    // seen: not the tour, and not the screen tips that follow it (control: T1 and T22, the same
+    // empty state with no agents, show the tour).
+    resetStore({ seen: [], off: false });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(2800);
+    const upg = await cardState(page);
+    const hasCard = await page.evaluate(() => !!document.querySelector('#grid [data-agent="beatrix"]'));
+    chk(hasCard && !upg.shown, 'T23 with an agent on the board and nothing seen, no tip shows by itself', JSON.stringify({ hasCard, upg }));
+    resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
+    await page.reload({ waitUntil: 'networkidle' });
 
     // T5: the ? menu brings any of it back, closes the user menu, and returns focus to the ?.
     await page.click('#userpop-btn');
@@ -171,6 +190,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const sw = await page.evaluate(() => document.getElementById('tips-toggle')?.getAttribute('aria-checked'));
     chk(sw === 'false', 'T6 the Settings switch reads off', 'aria-checked=' + sw);
     resetStore({ seen: [], off: true });
+    noAgents();
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForTimeout(2800);
     chk(!(await cardState(page)).shown, 'T6 with tips off and nothing seen, no tip shows');
@@ -180,6 +200,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.keyboard.press('Escape');
     await page.waitForTimeout(250);
     resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
+    withAgent();
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
 
@@ -336,6 +357,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(await page.evaluate(() => document.getElementById('helpq-menu').hidden), 'T12 Escape closes the ? menu with focus on the button');
     // The tour shows by itself under the consolidated layout too (the board's rail, not its stats bar).
     resetStore({ seen: [], off: false });
+    noAgents();
     await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }));
     await page.reload({ waitUntil: 'networkidle' });
     const consOn = await page.evaluate(() => document.documentElement.getAttribute('data-layout'));
@@ -373,6 +395,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(kept && gone, 'T20 Escape with a picker open leaves a screen tip; with none open it closes it', JSON.stringify({ kept, gone }));
     await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) }));
     await page.evaluate(() => applyLayout('tabs', true));
+    withAgent();
 
     // T21: a header menu opened over a tip makes the tip step aside at once, and closing it brings the
     // tip back (the header is its own stacking layer, so the tip would otherwise draw over the menu).
@@ -392,6 +415,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // closing the tour: it is recorded and does not come back (control: T1, the same empty state
     // shows it).
     resetStore({ seen: [], off: false });
+    noAgents();
     await page.goto(URL, { waitUntil: 'networkidle' });   // the board (the page may be on a Settings address)
     chk(await waitTitle(page, TOUR, 4000), 'T22 precondition: the tour shows by itself');
     await page.click('#helpq-btn');

@@ -52790,8 +52790,17 @@ function tipsCheck() {
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return;
   if (tipModalOpen()) return;
-  const next = TIPS.find((t) => !TIPS_STATE.seen.includes(t.id) && t.show());
+  const next = TIPS.find((t) => !TIPS_STATE.seen.includes(t.id) && tipAutoOk(t) && t.show());
   if (next) tipShow(next, { auto: true });
+}
+
+/* Tips show by themselves only for someone new. The tour waits for the board's first answer and
+   then shows only when there are no agents: its first step is "Make your first agent", and a board
+   that already has agents (an upgrade) was set up by someone who knows their way round. Screen tips
+   follow the tour, so they never start on their own on such a board. The ? offers all of it anyway. */
+function tipAutoOk(t) {
+  if (t.tour) return LAST_AT > 0 && Array.isArray(LAST) && LAST.length === 0;
+  return TIPS_STATE.seen.includes('tour');
 }
 
 function tipShow(t, { auto = false, returnTo = null } = {}) {
