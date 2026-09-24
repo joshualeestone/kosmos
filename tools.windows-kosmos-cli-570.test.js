@@ -201,6 +201,12 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   assert.ok(refusedSaved, 'a board refusal after the read keeps the piped message too');
   assert.equal(fs.readFileSync(refusedSaved[1], 'utf8'), 'keep me');
   fs.rmSync(path.dirname(refusedSaved[1]), { recursive: true });
+  const declined = await run(['post', '--stdin', 'proj-1'], () => ({ body: { delivery: { state: 'could_not', because: 'there is no project by that name.' } } }), undefined, async () => ({ text: 'declined body', ended: true }));
+  assert.equal(declined.code, 1);
+  const declinedSaved = declined.err.match(/saved at (\S+)/);
+  assert.ok(declinedSaved, 'a declined delivery keeps the piped message too');
+  assert.equal(fs.readFileSync(declinedSaved[1], 'utf8'), 'declined body');
+  fs.rmSync(path.dirname(declinedSaved[1]), { recursive: true });
   const argRefused = await run(['post', 'proj-1', 'typed'], () => ({ status: 403, body: { error: 'no such room' } }));
   assert.doesNotMatch(argRefused.err, /saved at/, 'argument-mode text is still on the command line; nothing is saved');
   const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });

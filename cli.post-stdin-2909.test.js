@@ -35,7 +35,7 @@ function runShell(line, env) {
 }
 
 /** Stub board: answer the health GET, capture the /api/post body, return a placed delivery. */
-function withStubBoard(fn) {
+function withStubBoard(fn, reply) {
   const seen = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url.startsWith('/api/post')) {
@@ -46,7 +46,7 @@ function withStubBoard(fn) {
         try { body = JSON.parse(raw); } catch { body = { _unparsable: raw }; }
         seen.push(body);
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end('{"delivery":{"state":"placed"}}');
+        res.end(reply || '{"delivery":{"state":"placed"}}');
       });
       return;
     }
@@ -262,6 +262,21 @@ test('#2909: a --stdin after the project is refused instead of posting the word 
   assert.match(out.stdout + out.stderr, /--stdin must come before the project id/);
   assert.equal(seen.length, 0);
 }));
+
+test('#2909: a post the board declines keeps a piped message in a file instead of dumping it', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const out = await runCli(['post', '--stdin', 'proj'], env, 'PIPED-BODY-2909');
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /Not posted: there is no project by that name/);
+  assert.doesNotMatch(out.stdout, /PIPED-BODY-2909/, 'the piped text is not dumped to the screen');
+  const saved = out.stdout.match(/saved at (\S+)/);
+  assert.ok(saved, out.stdout);
+  const fs = require('node:fs');
+  assert.equal(fs.readFileSync(saved[1], 'utf8'), 'PIPED-BODY-2909');
+  fs.rmSync(saved[1]);
+  const arg = await runCli(['post', 'proj', 'typed words'], env);
+  assert.match(arg.stdout, /here it is to keep/, 'CONTROL: argument mode still echoes the text (#2710)');
+}, '{"delivery":{"state":"could_not","because":"there is no project by that name."}}'));
 
 test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };

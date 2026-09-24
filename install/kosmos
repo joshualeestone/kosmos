@@ -1175,6 +1175,17 @@ require_valid_project_id() {
   esac
 }
 
+# #2909: a piped message may have no other copy (gh ... | kosmos post --stdin), so every
+# cmd_post failure after the read keeps it in a private file and names the path. Reads
+# cmd_post's from_stdin and text (bash dynamic scope); a no-op without --stdin.
+_keep_piped() {
+  [ "${from_stdin:-0}" = 1 ] || return 0
+  local _f
+  _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f" \
+    && say "The piped message was not sent; it is saved at $_f" \
+    || say "The piped message was not sent, and we could not save a copy of it."
+}
+
 POST_BODY_MAX_BYTES=6291456   # #2909: the board's request-READ limit (server.js MAX_UPLOAD), past which it drops the connection; the room's own text cap is far lower and says so itself. Pinned by cli.post-stdin-2909.test.js
 cmd_post() {
   local project text body because _a
@@ -1290,6 +1301,7 @@ cmd_post() {
   fi
   if ! healthy; then
     say "Kosmos is not running, so nothing can be posted. Start it with: kosmos start"
+    _keep_piped
     exit 1
   fi
   # Hand-rolled JSON escaping, same bash-3.2 reason as cmd_msg (the text escaper below differs).
@@ -1331,15 +1343,6 @@ cmd_post() {
   local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field}"
   # #2909: the board drops a request body over its limit, which would read below as "could not
   # reach Kosmos". Measured on the escaped body, since escaping grows quotes, newlines and tabs.
-  # #2909: a piped message may have no other copy (gh ... | kosmos post --stdin), so every failure
-  # after the read keeps it in a private file and names the path. A no-op without --stdin.
-  _keep_piped() {
-    [ "$from_stdin" = 1 ] || return 0
-    local _f
-    _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-post-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f" \
-      && say "The piped message was not sent; it is saved at $_f" \
-      || say "The piped message was not sent, and we could not save a copy of it."
-  }
   if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
     say "Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it."
     _keep_piped
@@ -1395,8 +1398,13 @@ cmd_post() {
       # scrollback, so a substantive post vanished the moment the agent moved on.
       # Echo it here so it is kept. (An operator clears a loop-guard hold with
       # `kosmos room reopen <project-id>`, after which this text can be re-posted.)
-      say "Your message was not sent, so here it is to keep and re-post when the room is ready:"
-      printf '%s\n' "$text"
+      # #2909: a piped message can be megabytes; it goes to a private file instead of the screen.
+      if [ "$from_stdin" = 1 ]; then
+        _keep_piped
+      else
+        say "Your message was not sent, so here it is to keep and re-post when the room is ready:"
+        printf '%s\n' "$text"
+      fi
       exit 1
       ;;
   esac

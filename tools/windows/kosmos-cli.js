@@ -344,6 +344,7 @@ async function verbPost(ctx, args) {
   if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
   ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
+  keepPiped();
   return 1;
 }
 
