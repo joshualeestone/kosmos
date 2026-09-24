@@ -16,30 +16,43 @@ Rejected:
   existing flat list need no page change and do not block it later.
 
 ## What changes
-1. listFiles walks subfolders: depth <= 3 below the project, skips dot-entries and
-   dependency/build/cache folders (node_modules, venv, env, __pycache__, dist, build, target, Pods,
-   DerivedData), reads at most 2000 directory entries, and sets truncated:true if it stopped early.
-   Subfolder files are named by their RELATIVE path with `/` (Windows too). Symlinked folders are
-   never entered (dirent reports the link), so no loop and no escape; symlinked files stay unlisted.
-2. openFile gate 1 accepts that shape: a bare name or a relative path of plain segments. It refuses
-   absolute (POSIX or Windows), backslash, empty segment, and any segment starting with `.`
-   (covers `.`, `..`, hidden). Gate 3 (resolved target inside resolved folder) is unchanged and is
-   what stops an escape through a link.
-3. Doc comments on both functions updated (the old ones said top-level only / bare filename only).
+1. listFiles walks subfolders breadth-first: depth <= 3 below the project, skips dot-entries
+   and folders that are never output (node_modules, venv, __pycache__, Pods, DerivedData;
+   build/dist/target/env ARE walked because people save real output there). The top level
+   is read in full as before; at most 2000 entries below it are read, and truncated:true is
+   set if the walk stopped early. Subfolder files are named by their RELATIVE path with `/`
+   (Windows too). Symlinked folders are never entered (dirent reports the link), so no loop
+   and no escape; symlinked files stay unlisted. A programming error in the walk throws.
+2. openFile gate 1 accepts that shape: a bare name or a relative path of plain segments. It
+   refuses absolute (POSIX or Windows), backslash, empty segment, and any segment starting
+   with `.` (covers `.`, `..`, hidden). Gate 3 (resolved target inside resolved folder) is
+   unchanged and is what stops an escape through a link.
+3. Page (web/index.html):
+   - Both document views (the rail and View All) show a note when truncated is true.
+   - Citation chips: pjCiteKey matches a cited path on its LONGEST trailing run of segments
+     that is in the list, and the chip opens that listed name. Used by pjLinkPaths and the
+     room's pjRichSpans. Before, both matched the basename only, so a cite of
+     sub/report.pdf opened a top-level report.pdf.
+4. Doc comments updated where they described top-level only / bare filename only.
 
-No page change: the panel renders f.name with textContent and sends dataset.doc back to open-file
-unchanged, so a relative path works end to end. Room citation chips still match only what the
-server lists; a message that cites a subfolder file by basename stays plain text, as today.
+Known residual: a cited file that is NOT listed (deeper than the walk, or skipped) but whose
+basename matches a listed file still chips to the listed one, as every cite did before.
 
-## Tests (engine/projects.test.js)
+## Tests
+engine/projects.test.js:
 - nested files listed by relative path; names == files; no truncated flag on a small folder
-- noise folders, hidden folders and depth 4 not walked; depth 3 is
-- symlinked folder: not entered (out-of-project and self-loop); open through it refused (gate 3)
-- scan budget: 2100 files -> truncated:true, total <= 2000
+- skip folders, hidden folders and depth 4 not walked; depth 3 and build/ are
+- symlinked folder: not entered (out-of-project and self-loop); open through it refused
+- a huge top level lists in full (2100 files, no truncated flag)
+- a huge subfolder sorted first cannot push a top-level file off; truncated is set
 - a listed nested file opens by its relative path
-- the name-gate test now plants sub/ok.txt so every segment attack is refused by the NAME gate
-  (15 bad shapes), with the existing control
-Mutation check: dropping the dot-segment rule turns that test red (and only that test).
+- the name-gate test plants sub/ok.txt so every segment attack is refused by the NAME gate
+server.test.js: chips for a relative cite, an absolute cite and a bare name, in both
+pjLinkPaths and pjRichSpans.
+docs/browser-checks/render-docs-subfolders-2245.js: the real page, 14 assertions; 5 fail
+against origin/main's page.
+Mutations run: dropping the dot-segment rule, counting the top level against the budget, and
+a basename-only pjCiteKey each turn the matching test red.
 
 ## Weakest premise
 That relative paths in a flat list read well enough. Deep paths are long in a narrow rail. If Josh
