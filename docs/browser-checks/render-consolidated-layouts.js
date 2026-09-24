@@ -149,7 +149,7 @@ const path = require('path');
     return t;
   }, [loaded, failed]);
   say(/Open or create a project to get started/.test((await paintAs(true, false)) || ''), 'no projects yet: the centre says to open or create one (#3597)');
-  say(/Open or create a project to get started/.test((await paintAs(false, false)) || ''), 'before the first read: never "No projects yet"');
+  say(/Open or create a project to get started/.test((await paintAs(false, false)) || ''), 'before the first read: the same sentence (#3597)');
   say((await paintAs(true, true)) === null, 'after a failed read, rail open: silence beside the rail\'s own message');
 
   // open a project: the sentence goes
