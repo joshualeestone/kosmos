@@ -83,20 +83,18 @@ run_br "$H"; rc=$?
 [ ! -f "$H/.node-ran" ] && ok "missing runtime: node not started" || bad "missing runtime: node ran"
 rm -rf "$H"
 
-# Start a stub port holder on a port the OS picks (bind 0), and read the port
-# back (#3616). A fixed port collided when two agents ran the suite at once: one
-# run's holder failed to bind, and board-run then met the OTHER run's holder, or
-# nobody, and one of the two went red. Bind 0 cannot collide. The holder writes its
-# port to a file via tmp+rename so a half-written number is never read. Sets
-# HOLDER_PID and HOLDER_PORT; returns non-zero (and kills the holder) if no port
-# was reported, so a holder that never came up FAILS the case rather than letting
-# board-run run against an empty port and pass or fail for the wrong reason.
+# Start a stub port holder on a port the OS picks (bind 0) and read the port back
+# (#3616: fixed ports collided when two agents ran the suite at once). Sets
+# HOLDER_PID and HOLDER_PORT. Returns non-zero, with the holder killed, when no
+# port is reported; callers then FAIL the case and skip board-run, since an empty
+# KOSMOS_PORT would send board-run to the default port. Needs NODE_BIN, which the
+# callers check before calling.
 #   $1 = module (http|net)   $2 = host   $3 = HTTP body (http only)
 start_holder() {
-  local mod="$1" host="$2" body="${3:-}" pf
-  pf="$(mktemp)"; rm -f "$pf"
+  local mod="$1" host="$2" body="${3:-}" dir i
+  dir="$(mktemp -d)"
   HOLDER_PORT=""
-  PF="$pf" BODY="$body" "$NODE_BIN" -e '
+  PF="$dir/port" BODY="$body" "$NODE_BIN" -e '
     const fs = require("fs"), m = process.argv[1], host = process.argv[2];
     const s = m === "http"
       ? require("http").createServer((_, r) => r.end(process.env.BODY))
@@ -106,8 +104,12 @@ start_holder() {
       fs.renameSync(process.env.PF + ".tmp", process.env.PF);
     });' "$mod" "$host" &
   HOLDER_PID=$!
-  for i in $(seq 1 50); do [ -s "$pf" ] && break; sleep 0.1; done
-  HOLDER_PORT="$(cat "$pf" 2>/dev/null)"; rm -f "$pf" "$pf.tmp"
+  for i in $(seq 1 50); do
+    [ -s "$dir/port" ] && break
+    kill -0 "$HOLDER_PID" 2>/dev/null || break   # holder already exited: stop waiting
+    sleep 0.1
+  done
+  HOLDER_PORT="$(cat "$dir/port" 2>/dev/null)"; rm -rf "$dir"
   case "$HOLDER_PORT" in
     ''|*[!0-9]*) kill "$HOLDER_PID" 2>/dev/null; wait "$HOLDER_PID" 2>/dev/null; HOLDER_PORT=""; return 1 ;;
   esac
