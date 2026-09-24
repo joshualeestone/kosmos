@@ -62,7 +62,11 @@ const chk = (ok, label, extra) => {
         window.__accounts.push(account);   // the server keeps an unconfirmed key too
         return enc({ ok: true, account });
       }
-      if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: window.__accounts });
+      if (/\/api\/accounts(\?|$)/.test(u)) {
+        const snap = window.__accounts.slice();   // the list as it was when the read began
+        if (window.__holdRead) await window.__holdRead;
+        return enc({ accounts: snap });
+      }
       return enc({});
     };
   });
@@ -216,6 +220,24 @@ const chk = (ok, label, extra) => {
   chk(more.posted === 1 && more.bubbled === false, 'Enter in the key field adds the key and does not reach the step', JSON.stringify(more));
   chk(more.msgAfterClose === '' && !/Checking/.test(more.msgEnd), 'closing the box mid-Add clears the message and "Checking..." never comes back', JSON.stringify(more));
   chk(more.labelBefore === 'Connect Gemini' && more.labelAfter === 'Gemini is connected', 'the button\'s accessible name follows the state', JSON.stringify(more));
+
+  // A slow account read that began BEFORE an Add must not repaint Connected back to Connect.
+  const slow = await q(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.__accounts = window.__accounts.filter((a) => a.provider !== 'google');
+    await frPaintKeyed();
+    let releaseRead; window.__holdRead = new Promise((r) => { releaseRead = r; });
+    const oldRead = frPaintKeyed();            // the step-entry read, now pending with the pre-Add list
+    window.__holdRead = null;
+    document.getElementById('fr-gemini-connect').click(); await wait(120);
+    document.getElementById('fr-apikey-key').value = 'AIza-slow-read';
+    document.getElementById('fr-apikey-go').click();
+    for (let i = 0; i < 50 && !/connected/.test(document.getElementById('fr-apikey-msg').textContent); i++) await wait(20);
+    const afterAdd = document.getElementById('fr-gemini-connect').textContent.trim();
+    releaseRead(); await oldRead; await wait(50);
+    return { afterAdd, afterOldRead: document.getElementById('fr-gemini-connect').textContent.trim() };
+  });
+  chk(/Connected/.test(slow.afterAdd) && /Connected/.test(slow.afterOldRead), 'a slow read from before an Add does not repaint the row back to Connect', JSON.stringify(slow));
 
   // Entering the step paints a row whose account already connected.
   const entry = await q(async () => {
