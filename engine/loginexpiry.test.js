@@ -153,6 +153,33 @@ test('advisoriesFor: an unreadable account is skipped, does not break the others
   assert.equal(out[0].severity, 'urgent');
 });
 
+test('ccdFromPsEnv: extracts the value when the var is present', () => {
+  const line = ' 1592 ??  Ss  0:12.3 /Users/agent1/.local/bin/claude PATH=/usr/bin CLAUDE_CONFIG_DIR=/Users/agent1/.claude TERM=xterm';
+  assert.equal(le.ccdFromPsEnv(line), '/Users/agent1/.claude');
+});
+
+test('ccdFromPsEnv: returns null when the var is ABSENT (unset)', () => {
+  const line = ' 50915 ??  Ss  0:01.0 /Users/agent1/.local/bin/claude -p PATH=/usr/bin TERM=xterm';
+  assert.equal(le.ccdFromPsEnv(line), null);
+});
+
+test('ccdFromPsEnv: empty value stays empty (serviceNameFor treats it as bare)', () => {
+  assert.equal(le.ccdFromPsEnv('claude CLAUDE_CONFIG_DIR= NEXT=1'), '');
+  assert.equal(le.serviceNameFor(le.ccdFromPsEnv('claude CLAUDE_CONFIG_DIR= NEXT=1')), 'Claude Code-credentials');
+});
+
+test('#2129 tie-in: a default-account bot with explicit CCD resolves to the SUFFIXED entry via process env', () => {
+  // job.configDir would be null for this agent; the process env is the only truthful source.
+  const line = 'claude CLAUDE_CONFIG_DIR=/Users/agent1/.claude';
+  assert.equal(le.serviceNameFor(le.ccdFromPsEnv(line)), 'Claude Code-credentials-2a1a4199');
+});
+
+test('ccdFromPsEnv: null/empty input -> null', () => {
+  assert.equal(le.ccdFromPsEnv(''), null);
+  assert.equal(le.ccdFromPsEnv(null), null);
+  assert.equal(le.ccdFromPsEnv(undefined), null);
+});
+
 test('severityFor thresholds', () => {
   assert.equal(le.severityFor(5), 'notice');
   assert.equal(le.severityFor(4), 'notice');

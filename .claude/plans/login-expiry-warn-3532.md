@@ -34,10 +34,18 @@ classify() precedence arm. Dedup is per config dir (agents share a dir), and one
   (returns a number, not the object), fail-soft, measured hash suffixes, per-account, already-expired.
 
 ### 2. Wire into snapshot() (engine/status.js) - per-account aggregation
-- Group agent panes by their config dir (launch job `configDir`, default when null), collect agent names, and
-  call `advisoriesFor`. Thread the resulting advisories into the snapshot payload the board already consumes.
-  This is additive: it must not touch classify() or any working/idle read.
-- Resolve config dir per agent from the existing job/config resolution; do not re-walk.
+🛑 CORRECTED (create.js:1225,1259): the launch job records `configDir: acct.isDefault ? null : acct.dir`, so a
+DEFAULT-account agent has job.configDir=null EVEN when its launcher exports CLAUDE_CONFIG_DIR=~/.claude
+explicitly -- and that agent reads the SUFFIXED keychain entry (2a1a4199), not the bare one. So job.configDir
+CANNOT pick the credential (it collapses the two #2129 arms Splinter flagged). Resolve each agent's LIVE process
+CCD instead:
+- For each agent pane, find its claude process pid and read the env with `ps eww <pid>`, then `ccdFromPsEnv()`
+  (done, tested) -> the exact CCD value or null (unset). serviceNameFor(that) is the credential it actually reads.
+- Group agents by that service name (the dedup bucket), collect names, call `advisoriesFor`. Thread the result
+  into the snapshot payload the board already consumes. Additive: must not touch classify() or any working/idle read.
+- Cost control: cache the per-service expiry with a short TTL (refresh-token expiry is stable for weeks; a stale
+  read for a few minutes is safe) so snapshot() does not shell out to `security`/`ps eww` on every tick.
+- The pane->claude-pid link: pane_pid is the shell; the claude process is its child. Resolve once per tick.
 
 ### 3. Surface (server + web) - board advisory
 - Server: expose per-account advisories in the snapshot payload.

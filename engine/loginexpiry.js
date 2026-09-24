@@ -71,6 +71,20 @@ function refreshExpiryFor(ccd, { readCred = readCredDefault } = {}) {
   return (typeof ms === 'number' && Number.isFinite(ms)) ? ms : null;
 }
 
+/* Extract CLAUDE_CONFIG_DIR from a `ps eww <pid>` line (macOS appends the process env after
+ * the command). Returns the value if the var is present, or null if it is ABSENT (unset).
+ *
+ * 🛑 WHY THE LIVE PROCESS ENV AND NOT THE LAUNCH JOB: create.js records `configDir:
+ * acct.isDefault ? null : acct.dir`, so a DEFAULT-account agent has job.configDir=null even
+ * when its launcher exports CLAUDE_CONFIG_DIR=~/.claude explicitly -- and that agent reads the
+ * SUFFIXED keychain entry (sha256 of that path), NOT the bare one. job.configDir therefore
+ * cannot distinguish the two #2129 arms. The live process env is the only source that captures
+ * both set-vs-unset AND the exact value, which is precisely what Claude Code itself keys on. */
+function ccdFromPsEnv(psText) {
+  const m = String(psText == null ? '' : psText).match(/(?:^|\s)CLAUDE_CONFIG_DIR=(\S*)/);
+  return m ? m[1] : null;
+}
+
 function severityFor(daysLeft) {
   if (daysLeft <= 1) return 'urgent';   // dies today/tomorrow, or already expired
   if (daysLeft <= 3) return 'warn';
@@ -107,6 +121,6 @@ function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = 5, re
 }
 
 module.exports = {
-  serviceNameFor, refreshExpiryFor, advisoriesFor, severityFor,
+  serviceNameFor, refreshExpiryFor, advisoriesFor, severityFor, ccdFromPsEnv,
   DEFAULT_SERVICE, DAY_MS,
 };
