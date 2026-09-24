@@ -732,7 +732,7 @@ done
 # Only a staged zip that is itself served by REDIRECT can be missing for that reason. Served
 # statically, git archive shipped the committed zip, so checking it is cheap and a 404 is a real drop.
 if [ -n "$_wsup" ]; then
-  _wsr=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/$WIN_STAGED" 2>/dev/null) || _wsr=''
+  _wsr=$(curl -sSI --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/$WIN_STAGED" 2>/dev/null) || _wsr=''   # HEAD: never download the zip to classify it
   case "${_wsr%% *}" in 301|302|303|307|308) : ;; *) _wsup="" ;; esac
 fi
 if [ -n "$_wsup" ]; then
