@@ -61,10 +61,12 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 - The board's retry gives up after 3 failures in a row that happened after a complete download
   (the checksum, the unpack, or the shell not answering its version), and logs why: those do
   not fix themselves, and each try downloads about 100 MB. A body of the wrong size (a cut
-  download) counts as a network problem and keeps retrying. A Mac CPU with no pinned build
+  download) counts as a network problem and keeps retrying, up to a ceiling of 24 attempts per
+  board run whatever the cause (about a day with the backoff). A Mac CPU with no pinned build
   stops at once: it cannot change.
-- The leftover sweep also runs once when the board starts its install loop, so a dead
-  install's staging folder is cleared even when the shell is already installed.
+- The leftover sweep also runs once when the board starts its install loop (behind the same
+  opt-out and DRY_RUN gates), so a dead install's staging folder is cleared even when the
+  shell is already installed.
 - A lock or staging folder carrying the board's own pid that it does not hold is a leftover
   from before a restart (launchd can reuse a pid), and is cleared.
 
@@ -82,7 +84,7 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 31 pass (25 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 32 pass (26 of them new for the Mac), and each Mac test passes run alone; `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
   across five arms (installed, not installed, env opt-out, file opt-out, installed with a
   model); with the model line's flag removed, only the model arm fails.
 

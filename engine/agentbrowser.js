@@ -481,11 +481,15 @@ async function ensureShell(opts) {
 
 /**
  * The board's Mac install: kick it, and if it fails, say why and try again later,
- * backing off from RETRY_FIRST_MS to RETRY_MAX_MS, until it is installed or the
- * operator opts out. A login-time download that meets no network would otherwise
- * leave every agent without a browser until the next board start. Timers are
- * unref'd, so this never keeps a process alive. Returns a stop function. An
- * opt-out ends the loop; removing it takes effect at the next board start.
+ * backing off from RETRY_FIRST_MS to RETRY_MAX_MS. A login-time download that
+ * meets no network would otherwise leave every agent without a browser until the
+ * next board start. Timers are unref'd, so this never keeps a process alive.
+ * Returns a stop function. It stops, until the next board start, at:
+ *   - success;
+ *   - the operator's opt-out, or AGENT_WORKFORCE_DRY_RUN=1 (a sandboxed board);
+ *   - no pinned browser for this Mac's CPU;
+ *   - STUCK_GIVE_UP failures in a row after a complete download;
+ *   - MAX_ATTEMPTS attempts this run, whatever the cause.
  */
 const RETRY_FIRST_MS = 60 * 1000;
 const RETRY_MAX_MS = 60 * 60 * 1000;
@@ -493,12 +497,16 @@ const RETRY_MAX_MS = 60 * 60 * 1000;
    answering its version) will not fix itself, and each try downloads about 100 MB
    again, so give up after this many in a row and say so. */
 const STUCK_GIVE_UP = 3;
+/* A ceiling on attempts per board run whatever the cause (a download that keeps
+   arriving at the wrong size counts as a network problem and never trips the
+   give-up above). With the backoff this is about a day of trying. */
+const MAX_ATTEMPTS = 24;
 function installWithRetry(opts) {
   const o = opts || {};
   const log = o.log || ((line) => console.log(line));
   const kick = o.kick || kickInstall;
   let delay = o.firstDelayMs || RETRY_FIRST_MS;
-  let timer = null; let stopped = false; let stuck = 0; let retried = false;
+  let timer = null; let stopped = false; let stuck = 0; let retried = false; let attempts = 0; let swept = false;
   const schedule = o.schedule || ((fn, ms) => { const t = setTimeout(fn, ms); if (t.unref) t.unref(); return t; });
   const attempt = () => {
     if (stopped) return;
@@ -506,6 +514,15 @@ function installWithRetry(opts) {
     /* A sandboxed board (the browser-check harness sets AGENT_WORKFORCE_DRY_RUN=1)
        must not download a browser into the real runners folder. */
     if ((o.env || process.env).AGENT_WORKFORCE_DRY_RUN === '1') return;
+    /* Once, behind the same gates: a server-tree staging folder left by a killed
+       install is otherwise only swept when a shell install actually runs. Only dead
+       owners' folders and old versions go, so it needs no lock. */
+    if (!swept) { swept = true; try { sweepLeftovers(); } catch { /* never fatal */ } }
+    if (attempts >= (o.maxAttempts || MAX_ATTEMPTS)) {
+      log('agent browser: ' + attempts + ' attempts this run without an install; not trying again until the board restarts');
+      return;
+    }
+    attempts += 1;
     const p = kick({ platform: o.platform, arch: o.arch });
     if (!p) return;
     p.then((r) => {
@@ -527,10 +544,6 @@ function installWithRetry(opts) {
       log('agent browser: install did not finish (' + ((r && r.because) || 'unknown') + '); trying again in ' + Math.round(wait / 1000) + 's');
     }).catch(() => { /* a throwing log must not become an unhandled rejection */ });
   };
-  /* Once at board start: a server-tree staging folder left by a killed install is
-     otherwise only swept when a shell install actually runs. Only dead owners'
-     folders and old versions go, so it needs no lock. */
-  try { sweepLeftovers(); } catch { /* never fatal */ }
   try { attempt(); } catch { /* a throwing log must not escape the board's call */ }
   return () => { stopped = true; if (timer) clearTimeout(timer); };
 }

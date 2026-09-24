@@ -117,6 +117,7 @@ const shellSeams = (arch, over) => Object.assign({
 
 /* Fixtures, so each Mac test makes the state it needs rather than leaning on an
    earlier test's leftovers. Idempotent: a no-op when the state is already there. */
+const ensureHome = () => fs.mkdirSync(ab.homeDir(), { recursive: true });
 const ensureTree = async () => { if (!ab.isInstalled()) assert.equal((await ab.ensureInstalled(fakeSeams())).ok, true); };
 const ensureShellFor = async (arch) => {
   await ensureTree();
@@ -229,6 +230,7 @@ test('the opt-out file turns the browser off on a Mac, where the supervisor neve
 });
 
 test('one Mac browser install at a time: a live owner\'s lock refuses, a dead owner\'s lock is taken over', { skip: process.platform !== 'darwin' ? 'uses 999999 as a pid that cannot exist, true only on macOS' : false }, async () => {
+  ensureHome();
   fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   fs.writeFileSync(ab.lockPath(), String(process.ppid));          // alive: the test runner
   let r = await ab.ensureShell(shellSeams('arm64'));
@@ -329,6 +331,7 @@ test('a sandboxed board (AGENT_WORKFORCE_DRY_RUN=1) never starts the browser dow
 });
 
 test('a lock that cannot be written says why, not "another install is running"', { skip: process.platform === 'win32' ? 'a read-only folder does not stop file creation on Windows' : (process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder this relies on' : false) }, async () => {
+  ensureHome();
   fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   fs.rmSync(ab.lockPath(), { force: true });
   fs.chmodSync(ab.homeDir(), 0o555);                              // the lock file cannot be created
@@ -432,6 +435,7 @@ test('the retry delay doubles from the first delay and stops at the maximum', as
 
 test('an opted-out board says so in its log', () => {
   const lines = [];
+  ensureHome();
   fs.writeFileSync(ab.optOutPath(), '');
   try { ab.installWithRetry({ env: {}, log: (l) => lines.push(l), kick: () => Promise.resolve({ ok: true }) }); }
   finally { fs.rmSync(ab.optOutPath(), { force: true }); }
@@ -462,6 +466,7 @@ test('which step failed decides whether it counts toward giving up', async () =>
 });
 
 test('a lock or staging folder carrying our own pid, not held by us, is a leftover from before a restart', async () => {
+  ensureHome();
   fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   fs.writeFileSync(ab.lockPath(), String(process.pid));
   const mine = path.join(ab.homeDir(), '.shell-staging-' + process.pid + '-1');
@@ -476,4 +481,19 @@ test('the board sweeps a dead install\'s leftovers at start, even when the shell
   fs.mkdirSync(left, { recursive: true });
   ab.installWithRetry({ env: {}, log: () => {}, kick: () => Promise.resolve({ ok: true, already: true }) })();
   assert.equal(fs.existsSync(left), false);
+});
+
+test('the board stops after its attempt ceiling for this run, whatever the cause, and says so', async () => {
+  const lines = [];
+  let calls = 0;
+  await new Promise((resolve) => {
+    ab.installWithRetry({
+      env: {}, maxAttempts: 4, log: (l) => { lines.push(l); if (/attempts this run/.test(l)) resolve(); },
+      schedule: (fn) => { setImmediate(fn); return null; },
+      /* Ends on its own after 10 calls, so a missing ceiling fails below instead of spinning. */
+      kick: () => { calls += 1; if (calls >= 10) setImmediate(resolve); return calls >= 10 ? Promise.resolve({ ok: true }) : Promise.resolve({ ok: false, afterDownload: false, because: 'the browser download was 5 bytes' }); },
+    });
+  });
+  assert.equal(calls, 4);
+  assert.match(lines[lines.length - 1], /4 attempts this run/);
 });

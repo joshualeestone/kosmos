@@ -15226,8 +15226,8 @@ if (require.main === module) {
   } else {
     /* #3633: the Mac half of the agents' own browser. On a Mac the install also
        fetches the pinned browser (about 100 MB, once), so a failure is logged and
-       retried with backoff rather than left until the next board start; it stops
-       at success or at the operator's opt-out. Never fatal and never awaited. */
+       retried with backoff rather than left until the next board start; when it
+       stops is listed on installWithRetry. Never fatal and never awaited. */
     if (process.platform === 'darwin') {
       try { require('./engine/agentbrowser').installWithRetry(); } catch { /* agents start without a browser */ }
     }
