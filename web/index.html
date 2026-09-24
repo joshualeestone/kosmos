@@ -19771,8 +19771,9 @@ function acctChosenName(a) {
    ChatGPT sign-in), mapped to the engine's route word (/api/accounts/<route>).
    Everything not listed is a Claude account. */
 const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
-/* #3566: a provider connected only by a pasted key (Gemini, Grok): keyed, and not OpenAI,
-   whose sign-in and model picker are its own. Read from the route table. */
+/* #3566: a keyed provider other than OpenAI (Gemini, Grok), whose sign-in and model picker
+   are its own. (#3391: a Grok account may also be a subscription sign-in; Kosmos cannot start
+   one from these screens yet.) Read from the route table. */
 function keyOnlyProvider(p) {
   return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
 }
@@ -19812,8 +19813,9 @@ function acctProvider(a) {
 function switchKeyedWord(p) {
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
-/* #3566: an OpenAI sentence re-said for the picker's provider. Gemini and Grok accounts are
-   pasted keys, never a sign-in, so "OpenAI sign-in" becomes "Gemini account" there. */
+/* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
+   "Gemini account" there. (#3391: a Grok account may be a key OR a subscription sign-in;
+   "Grok account" is true of both. Connecting a Grok subscription from this screen is part 2.) */
 function switchKeyedSay(text, p) {
   if (!keyOnlyProvider(p)) return text;
   return String(text).replace(/OpenAI sign-in/g, switchKeyedWord(p) + ' account').replace(/OpenAI/g, switchKeyedWord(p));
@@ -19827,7 +19829,7 @@ function switchKeyedSay(text, p) {
 function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
-    if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // the key-only providers (Gemini, Grok)
+    if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // Gemini and Grok
     /* "Usable" is BOTH rules: the create list's (acctOfferableTarget) and the switch list's
        (a live check that is not 'none', not marked unofferable). Offering the provider when
        either list would come up empty would post with no account. */
@@ -20193,8 +20195,10 @@ async function paintAccounts() {
        does the same. Never the key. */
     const isOpenai = acctProvider(a) === 'openai';
     /* #3566: Gemini and Grok rows are keyed rows like OpenAI's: no Claude history
-       arm, no Check now (a Claude probe), no reauth (there is no sign-in to redo),
-       and Disconnect / Delete go to their own route. `keyRoute` is that route. */
+       arm, no Check now (a Claude probe), no reauth (a Grok subscription's sign-in
+       again is a #3391 follow-up), and Disconnect / Delete go to their own route.
+       `keyRoute` is that route. #3391: a Grok row with authMode 'subscription'
+       holds a sign-in, not a key, and its titles say so. */
     const keyRoute = ACCT_KEYED_ROUTE[acctProvider(a)] || '';
     const isKeyed = !!keyRoute;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
@@ -20337,7 +20341,8 @@ async function paintAccounts() {
     // moves here, into the tooltip, and nudges toward the "Check now" button beside the badge
     // (added with #3145's on-demand probe). Still #874-safe: the dot stays muted, not green --
     // we are NOT claiming the sign-in works, only that it exists and can be verified on demand.
-    const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. Use Check now to verify it, or it confirms itself the next time an agent on it runs.';
+    const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. '
+      + (isKeyed ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
     let connBadge;
     if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
@@ -20492,7 +20497,7 @@ async function paintAccounts() {
              Claude row. Here it is true of the default alone, since `codexsession`
              reads transcripts out of `defaultHome()` only. */
           + 'title="Takes this account off the list. '
-          + (isOpenai ? 'Its sign-in file stays on this computer' : 'Its key is set aside on this computer')
+          + ((isOpenai || a.authMode === 'subscription') ? 'Its sign-in file stays on this computer' : 'Its key is set aside on this computer')
           + ', so nothing is deleted.'
           + (a.isDefault && isOpenai ? ' Kosmos stops looking inside it, so any history kept only '
             + 'there will not appear any more.' : '')
@@ -20552,7 +20557,7 @@ async function paintAccounts() {
              without the misleading comparison. */
           + 'title="' + (!isKeyed && a.apiKey
             ? 'Deletes this account from this computer: its saved API key and its whole folder, including any history in it. This cannot be undone.'
-            : (isKeyed && !isOpenai)
+            : (isKeyed && !isOpenai && a.authMode !== 'subscription')
               ? 'Deletes this account from this computer: its saved API key and its folder. Unlike Disconnect, this cannot be undone.'
               : 'Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.')
           + '">Delete and remove</button>')

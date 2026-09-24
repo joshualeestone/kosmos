@@ -83,8 +83,10 @@ test('the five badge states each render, and only "working" is green', () => {
   assert.match(unver[1], />Signed in</, '#3136: the pill must read a neutral "Signed in"');
   assert.doesNotMatch(unver[1], /not recently checked/, '#3136: "not recently checked" must NOT be in the visible pill -- it reads as "not connected"');
   assert.match(unver[1], /title="'\s*\+\s*esc\(unverifiedWhy\)/, 'the not-verified-live nuance must ride the tooltip (unverifiedWhy), not the visible pill');
-  // and the tooltip itself carries the nuance + nudges to the #3145 Check now button.
-  assert.match(fn, /unverifiedWhy\s*=\s*'[^']*Check now[^']*'/, '#3136: unverifiedWhy should nudge toward Check now');
+  // and the tooltip itself carries the nuance + nudges to the #3145 Check now button,
+  // but ONLY on a row that has one (#3391: keyed rows have no Check now, so their arm must not name it).
+  assert.match(fn, /unverifiedWhy\s*=[^;]*isKeyed\s*\?\s*'[^']*'\s*:\s*'[^']*Check now[^']*'/, '#3136: unverifiedWhy should nudge toward Check now on a non-keyed row');
+  assert.doesNotMatch(fn, /unverifiedWhy\s*=[^;]*isKeyed\s*\?\s*'[^']*Check now/, '#3391: a keyed row\'s tooltip must not point at a Check now it does not have');
 
   assert.match(fn, /badge === 'signed_out'/, "the 'signed_out' branch is missing");
   assert.match(fn, /badge === 'unchecked'/, "the 'unchecked' branch is missing");

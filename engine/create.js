@@ -1839,8 +1839,8 @@ function setProvider(name, provider, opts) {
      failure: their default is the machine-global GEMINI_API_KEY / XAI_API_KEY door,
      which an agent CAN start on. So this mirrors the create path's google/xai arms
      and setGeminiAccount/setGrokAccount instead:
-       - default (no accountDir): the env-key door, constructed directly. It is
-         legitimately ABSENT from list() because rowFor gates on a stored key, so we
+       - default (no accountDir): the env-key door, constructed directly. It is listed
+         only when ~/.grok (or ~/.gemini) holds a key file or, for grok, a sign-in, so we
          do NOT search a row for it; configDir stays null.
        - a NAMED account: resolved in list() (resolved before comparing, #1486),
          REFUSED if unknown -- fail closed, the silent-wrong-account guard the whole
@@ -3584,14 +3584,33 @@ async function accountConnectable({ provider, accountDir } = {}) {
      with its provider, and a positively-rejected key is refused here rather than making an
      agent that 401s on its first turn (the #1315 rule the other two already get). The
      default env-key door (no dir) is not checked: the board cannot see the supervisor's
-     launch environment, the same fail-open createAgentInner documents for it. An unknown
-     dir is createAgentInner's to refuse. */
+     launch environment, the same fail-open createAgentInner documents for it. The one
+     exception is a default Grok subscription, which the board CAN see (#3391, below). An
+     unknown dir is createAgentInner's to refuse. */
   if (prov === 'google' || prov === 'xai') {
-    if (!dir) return { ok: true };
     const failOpenK = (where, err) => {
       console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);
       return { ok: true };
     };
+    // #3391: one sentence for a lapsed subscription, default or named.
+    /* Says what works TODAY: Kosmos cannot sign in to Grok again yet (the sign-in button is #3391
+       part 2, and a default ~/.grok has no in-product path back at all), so it points at the key. */
+    const expiredSignIn = (w) => `That ${w} sign-in has expired, so an agent created on it could not run. Kosmos cannot sign in to ${w} again yet; for now, add a ${w} API key in Settings, AI Models, and choose that account for this agent.`;
+    /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
+       board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
+    if (!dir && prov === 'xai') {
+      const grok = require('./grokaccounts');
+      let def;
+      try { def = grok.list().find((a) => a.isDefault && a.authMode === 'subscription') || null; } catch (err) { return failOpenK('Grok.list (default)', err); }
+      if (!def) return { ok: true };
+      let dlive;
+      try { dlive = await grok.checkLive(def.dir); } catch (err) { return failOpenK('Grok.checkLive (default)', err); }
+      if (dlive && dlive.state === NONE) {
+        return { ok: false, because: expiredSignIn('Grok') };
+      }
+      return { ok: true };
+    }
+    if (!dir) return { ok: true };
     const mod = require(prov === 'google' ? './geminiaccounts' : './grokaccounts');
     const word = prov === 'google' ? 'Gemini' : 'Grok';
     const vendor = prov === 'google' ? 'Google' : 'xAI';
@@ -3600,6 +3619,8 @@ async function accountConnectable({ provider, accountDir } = {}) {
     if (!acct) return { ok: true };
     let live; try { live = await mod.checkLive(acct.dir); } catch (err) { return failOpenK(word + '.checkLive', err); }
     if (live && live.state === mod.STATE.NONE) {
+      /* #3391: a Grok subscription account has no key; its NONE is a lapsed sign-in. */
+      if (acct.authMode === 'subscription') return { ok: false, because: expiredSignIn(word) };
       return { ok: false, because: `${vendor} rejected that ${word} account's key, so an agent created on it could not run. `
         + 'Add a working key in Settings, AI Models.' };
     }

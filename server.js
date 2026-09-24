@@ -1757,8 +1757,7 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    `mod` (geminiaccounts/grokaccounts), so the two cannot drift. The raw key is never
    logged or echoed back -- the response carries the label + the live verdict only. */
 /* #3566: the exclusive-create marker a label-less add holds on its slot while the key is checked. */
-const CLAIM_FILE = '.kosmos-claim';
-const CLAIM_STALE_MS = 10 * 60 * 1000;
+const { CLAIM_FILE, CLAIM_STALE_MS } = require('./engine/accountclaim');
 function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
   readBody(req)
     .then(async (raw) => {
@@ -1802,6 +1801,9 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
         for (let n = 0; n < 50 && !named && !failed; n += 1) {
           const spot = mod.nextWorkDir(exclude);
           if (!spot) break;
+          /* #3391: a slot a Grok subscription sign-in holds is not free: its cleanup would
+             delete a key stored here, and its success would be overridden by it. */
+          if (typeof mod.isSignInPending === 'function' && mod.isSignInPending(spot.dir)) { exclude.add(spot.dir); continue; }
           const claimFile = path.join(spot.dir, CLAIM_FILE);
           try {
             // lstat, not existsSync: a dangling symlink must read as a link, not as absent.
@@ -1834,9 +1836,15 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
           let isLink = false;
           try { isLink = fs.lstatSync(named.dir).isSymbolicLink(); } catch { /* absent: fine */ }
           if (isLink) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; }
-          // An existing account is refused before anything is written into its folder.
-          if (mod.identityOf(named.dir)) {
+          // An existing account is refused before anything is written into its folder. #3391: a
+          // module that can say "credentials of any shape are here" (grok) is asked that instead,
+          // so an auth.json identityOf cannot describe is not stacked on.
+          if (typeof mod.holdsCredentials === 'function' ? mod.holdsCredentials(named.dir) : mod.identityOf(named.dir)) {
             sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+            return;
+          }
+          if (typeof mod.isSignInPending === 'function' && mod.isSignInPending(named.dir)) {
+            sendJson(res, 400, { error: `a sign-in for a ${providerLabel} account by that name is in progress; finish or cancel it first` });
             return;
           }
           const claimFile = path.join(named.dir, CLAIM_FILE);
@@ -1932,6 +1940,9 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
         sendJson(res, 400, { error: 'we could not check which agents are on this account, so nothing was changed', usedBy: [] });
         return;
       }
+      /* #3391: a Grok subscription account holds a sign-in, not a key; say which. */
+      let what = 'key';
+      try { const who = mod.identityOf(dir); if (who && who.authMode === 'subscription') what = 'sign-in'; } catch { /* keep "key" */ }
       const result = remove ? mod.removeAccount(dir, usedBy) : mod.forgetAccount(dir, usedBy);
       if (!result.ok) {
         /* #3566: stopUnavailable -- this route has no disconnect-and-stop (see above), so
@@ -1944,9 +1955,9 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
          without it a Disconnect here read "Removed." against a tooltip saying nothing is deleted. */
       sendJson(res, 200, remove
         ? { removed: !!result.removed, wasDefault: !!result.wasDefault,
-          because: result.removed ? 'That account is deleted. Its key is gone from this computer.' : (result.because || 'That account is already gone from this computer.') }
+          because: result.removed ? `That account is deleted. Its ${what} is gone from this computer.` : (result.because || 'That account is already gone from this computer.') }
         : { forgotten: !!result.forgotten, movedTo: result.movedTo || null, wasDefault: !!result.wasDefault,
-          because: result.forgotten ? 'That account is off the list. Its key is set aside on this computer, so nothing was deleted.' : (result.because || 'That account is already gone from this computer.') });
+          because: result.forgotten ? `That account is off the list. Its ${what} is set aside on this computer, so nothing was deleted.` : (result.because || 'That account is already gone from this computer.') });
     })
     .catch(() => sendJson(res, 400, { error: deleteDoor ? 'we could not delete that account' : 'we could not read that request' }));
 }
@@ -7034,9 +7045,9 @@ const server = http.createServer((req, res) => {
         });
         /* #3391 observability follow-on: the XAI/Grok observed-overlay, the identical sibling
            of the GOOGLE overlay above (positive-only, per-provider filter, per-account join,
-           newest-wins, additive-only). Same documented default-account boundary as gemini:
-           grokAccounts.listLive() emits only NAMED accounts in this slice, so a default-account
-           grok agent's observation is harmlessly orphaned and forward-compatible. */
+           newest-wins, additive-only). grokAccounts.listLive() lists the default ~/.grok only
+           when it holds a key file or a subscription sign-in (#3391); without either there is no
+           default row, and a default-account grok agent's observation has nothing to land on. */
         const obsByGrokDir = new Map();
         for (const o of observed.all()) {
           if (o.provider !== observed.PROVIDER.XAI) continue;
@@ -7045,9 +7056,15 @@ const server = http.createServer((req, res) => {
           const prev = obsByGrokDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByGrokDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
+        /* #3391: a subscription row is CONNECTED on its file alone (grokaccounts.subscriptionVerdict),
+           so without a fresh working observation it must say so: signed_in_unverified, the muted
+           "Signed in" the page draws for a credential that exists but is not confirmed. Without this
+           it had no badge and fell through to the page's green legacy pill. */
+        const unverifiedSub = (a) => (a.authMode === 'subscription' && a.connection && a.connection.state === 'connected'
+          ? { ...a, connection: { ...a.connection, badge: 'signed_in_unverified' } } : a);
         const grok = grokRows.map((a) => {
           const obs = a.dir ? obsByGrokDir.get(a.dir) : null;
-          if (!obs) return a;
+          if (!obs) return unverifiedSub(a);
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
@@ -7055,7 +7072,7 @@ const server = http.createServer((req, res) => {
             now: nowMs,
             freshMs: freshWindow,
           });
-          if (v.badge !== 'working') return a;
+          if (v.badge !== 'working') return unverifiedSub(a);
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grok] });
@@ -7239,6 +7256,52 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/accounts/grok' && req.method === 'DELETE') {
     handleApikeyAccountDelete(req, res, { mod: grokAccounts, runner: 'grok' });
+    return;
+  }
+  /* #3391: connect a Grok account with a SUBSCRIPTION (device sign-in, no key). The
+     grok mirror of /api/accounts/openai/subscription/*: `start` spawns `grok login
+     --device-auth` into a fresh account dir and returns a session; the screen polls
+     `status` for the URL, the code and the outcome; `cancel` ends a pending one. */
+  if (pathname === '/api/accounts/grok/subscription/start' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (body != null && typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        body = body || {};
+        const resolved = runners.resolveBin('grok');
+        if (!resolved.present) {
+          sendJson(res, 400, { error: grokAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'grok' });
+          return;
+        }
+        if (body.label != null && typeof body.label !== 'string') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin });
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        // The URL and code are printed by grok AFTER this returns; read them from status.
+        sendJson(res, 200, { sessionId: out.sessionId });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/accounts/grok/subscription/status' && req.method === 'GET') {
+    let sessionId = '';
+    try { sessionId = new URL(req.url, ROUTING_BASE).searchParams.get('sessionId') || ''; } catch { sessionId = ''; }
+    const out = grokAccounts.grokLoginStatus(sessionId);
+    if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+    sendJson(res, 200, { state: out.state, authUrl: out.authUrl, userCode: out.userCode, account: out.account, error: out.error });
+    return;
+  }
+  if (pathname === '/api/accounts/grok/subscription/cancel' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const sessionId = body && typeof body === 'object' ? String(body.sessionId || '') : '';
+        const out = grokAccounts.cancelGrokLogin(sessionId);
+        if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+        sendJson(res, 200, { cancelled: out.cancelled });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
