@@ -365,7 +365,17 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
      this arm's anchored node.exe being exec'd in the same second. The lock this arm exercises
      is Windows-only (the control below is win32-gated), so elsewhere the anchored file is a
      text stand-in: there is no binary to exec, and the swap path is exercised all the same. */
-  if (process.platform === 'win32') fs.copyFileSync(process.execPath, nodeAt); else fs.writeFileSync(nodeAt, 'the running interpreter, stood in for off Windows', 'utf8');
+  if (process.platform === 'win32') {
+    fs.copyFileSync(process.execPath, nodeAt);
+  } else {
+    fs.writeFileSync(nodeAt, 'the running interpreter, stood in for off Windows', 'utf8');
+    /* The guard for the above, by behaviour rather than by source text: off Windows the anchor
+       must hold no Mach-O (thin 0xfeedfacf/0xcffaedfe or fat 0xcafebabe), so nothing here can
+       exec a binary that the swap then replaces (#3634). Checked before the spawn below. */
+    const magic = fs.readFileSync(nodeAt).subarray(0, 4).toString('hex');
+    assert.ok(!['cffaedfe', 'feedfacf', 'cafebabe', 'bebafeca', 'cefaedfe', 'feedface'].includes(magic),
+      'off Windows the anchored interpreter must not be a real binary (#3634), got magic ' + magic);
+  }
   const src = path.join(dir, 'src-node.exe');
   fs.writeFileSync(src, 'a different Node version, stood in for by a different size', 'utf8');
 
@@ -412,21 +422,4 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
     if (retiredFiles(runtime).length > 0) await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.deepEqual(sideFiles(runtime), [], 'once nothing runs on it, the retired interpreter is removed');
-});
-
-test('#3634 off Windows, no REAL interpreter is ever copied into an anchor (it crashed syspolicyd)', () => {
-  /* Source pin for the fix above. What crashed syspolicyd was a real Mach-O copied into an
-     anchor, exec'd, then swapped. Off Windows the arm now never creates that binary, which makes
-     the crash impossible by construction whatever later edits exec. This pins the construction:
-     every line that copies process.execPath must carry the win32 gate on the same line. A pin,
-     because the failure is machine-wide and must never be reproduced to prove a test. */
-  const code = fs.readFileSync(__filename, 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n').filter((l) => !/^\s*\/\//.test(l));
-  const copies = code.filter((l) => /copyFileSync\(\s*process\.execPath/.test(l));
-  assert.ok(copies.length > 0, 'control: the running-interpreter arm still copies the interpreter on Windows');
-  for (const line of copies) {
-    assert.ok(/process\.platform === 'win32'/.test(line),
-      'a real interpreter is copied without the win32 gate on the same line; off Windows that is the binary that crashed syspolicyd (#3634): ' + line.trim());
-  }
 });

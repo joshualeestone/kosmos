@@ -19,8 +19,11 @@ hangs (the Agent1s stalls, #3582).
 Off Windows the arm never creates the binary: the anchored file is a text stand-in, and the process
 runs on the original `process.execPath`. The lock this arm exercises is Windows-only (its control is
 win32-gated), so no Mac coverage is lost; the swap path still runs. With no Mach-O in the anchor the
-crash is impossible by construction, whatever later edits exec. A source pin keeps every
-`copyFileSync(process.execPath` in this file gated on win32 on the same line. The
+crash is impossible by construction, whatever later edits exec. The arm asserts, before its
+spawn, that off Windows the anchored file is not a Mach-O (thin or fat magic): a behavioural guard,
+not a source-text pin (an earlier same-line pin false-positived on safe refactors). Scope: this arm
+only. The repo's other `copyFileSync(process.execPath` tests are safe because each is skipped off
+Windows, not because of this guard. The
 "old process keeps running" assertion is now Windows-only (off Windows it could not fail).
 
 ## Rejected
