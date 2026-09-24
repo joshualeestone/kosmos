@@ -158,8 +158,9 @@ const ROLES = [
          ping, no task titles or contents lifted out; the three-ping telemetry
          ruling (2026-09-14) still stands. Words in an existing report only. */
       '4. How are tasks going? In your own words: what went well, what was bad or',
-      '   ugly, how tasks are being used, and anything that is stuck. Describe it,',
-      '   do not count it: no numbers, and no task titles or what a task says.',
+      '   ugly, how tasks are being used, and anything that is stuck. Describe',
+      '   tasks, do not count them: no task tallies, and no task titles or what',
+      '   a task says.',
       '',
       'Do not share usernames, agent names, or project names in the report. It is',
       'a note about the product, not about who did what: keep it to what is rough',
