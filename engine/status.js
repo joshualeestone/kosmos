@@ -6465,6 +6465,43 @@ function codexLiveAuthFor(name, readJobFn, verdictFn) {
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
 }
 
+/* #3532: per-account login-expiry advisories, computed from each agent's LIVE process CCD.
+ * Cached with a short TTL -- the refresh-token expiry is stable for weeks, so a few-minute-stale
+ * read is safe and keeps snapshot() off tmux/ps/security on every tick. Fail soft throughout: an
+ * unresolvable pane is skipped, and any error keeps the last good value, never breaking snapshot. */
+const LOGIN_ADV_TTL_MS = 5 * 60 * 1000;
+let loginAdvCache = { at: 0, value: [] };
+
+/* Resolve the CCD an agent's claude process actually reads. pane_pid IS the claude process (tmux
+ * runs it as the pane leader -- measured), so `ps eww <pane_pid>` carries its env. Returns the CCD
+ * string, null (env read, genuinely unset), or undefined (could not resolve -> caller SKIPS it,
+ * never guesses the bare account). See loginexpiry.ccdFromPsEnv for why the job's configDir cannot
+ * be used here (it is null for the default account even when CCD is set: the #2129 class). */
+function paneCcd(target) {
+  const d = shDetail(tmuxBin(), ['display-message', '-p', '-t', target, '#{pane_pid}']);
+  if (!d.ran || d.status !== 0) return undefined;
+  const pid = String(d.out).trim();
+  if (!/^\d+$/.test(pid)) return undefined;
+  let env;
+  try {
+    env = execFileSync('ps', ['eww', pid], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch { return undefined; }
+  return require('./loginexpiry').ccdFromPsEnv(env);
+}
+
+function computeLoginAdvisories(panes, nowMs) {
+  if (nowMs - loginAdvCache.at < LOGIN_ADV_TTL_MS) return loginAdvCache.value;
+  let value;
+  try {
+    const agents = panes.filter((p) => isNamedOurs(p)).map((p) => ({ name: p.name, target: p.target }));
+    value = require('./loginexpiry').agentAdvisories({ agents, readCcd: (a) => paneCcd(a.target), now: nowMs });
+  } catch {
+    value = loginAdvCache.value; // keep last good on any failure
+  }
+  loginAdvCache = { at: nowMs, value };
+  return value;
+}
+
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
@@ -7030,6 +7067,8 @@ function snapshot() {
     checkedAt: new Date().toISOString(),
     counts: countAgents(agents, unreadableLines, unreadableSamples),
     agents,
+    // #3532: per-account login-expiry advisories (advisory overlay, not a per-agent state).
+    loginAdvisories: computeLoginAdvisories(panes, nowMs),
   };
 }
 

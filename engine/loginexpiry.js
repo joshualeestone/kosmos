@@ -120,7 +120,25 @@ function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = 5, re
   return out;
 }
 
+/* Group a roster of agents into per-credential advisories. `readCcd(agent)` returns the agent's
+ * live CLAUDE_CONFIG_DIR value (a string, incl '' for set-but-empty), `null` for genuinely UNSET,
+ * or `undefined` when it could not be resolved -- an unresolvable agent is SKIPPED (fail soft: no
+ * warning beats a wrong-account warning), never bucketed as unset. Agents that resolve to the same
+ * credential (serviceNameFor(ccd)) share one advisory. Pure: inject readCcd + readCred to test. */
+function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, warnWithinDays = 5 } = {}) {
+  const buckets = new Map(); // service -> { ccd, agents: [] }
+  for (const a of agents) {
+    let ccd;
+    try { ccd = readCcd ? readCcd(a) : undefined; } catch { ccd = undefined; }
+    if (ccd === undefined) continue;
+    const service = serviceNameFor(ccd);
+    if (!buckets.has(service)) buckets.set(service, { ccd: ccd == null ? null : String(ccd), agents: [] });
+    buckets.get(service).agents.push(a.name);
+  }
+  return advisoriesFor({ accounts: [...buckets.values()], now, readCred, warnWithinDays });
+}
+
 module.exports = {
-  serviceNameFor, refreshExpiryFor, advisoriesFor, severityFor, ccdFromPsEnv,
+  serviceNameFor, refreshExpiryFor, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
   DEFAULT_SERVICE, DAY_MS,
 };

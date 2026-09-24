@@ -180,6 +180,60 @@ test('ccdFromPsEnv: null/empty input -> null', () => {
   assert.equal(le.ccdFromPsEnv(undefined), null);
 });
 
+test('agentAdvisories: groups agents by credential, one advisory per credential', () => {
+  const now = 1_000_000_000_000;
+  const ccdByAgent = {
+    angel: '/Users/agent1/.claude', mona: '/Users/agent1/.claude',        // -> 2a1a4199
+    raph: '/Users/agent1/.claude-account-d',                               // -> bc18eb8e
+  };
+  const readCcd = (a) => ccdByAgent[a.name];
+  const readCred = (svc) => {
+    if (svc === 'Claude Code-credentials-2a1a4199') return JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
+    if (svc === 'Claude Code-credentials-bc18eb8e') return JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 30 * DAY } });
+    return null;
+  };
+  const out = le.agentAdvisories({
+    agents: [{ name: 'angel' }, { name: 'mona' }, { name: 'raph' }],
+    readCcd, readCred, now, warnWithinDays: 5,
+  });
+  assert.equal(out.length, 1);                       // only the 2a1a4199 credential is within 5d
+  assert.equal(out[0].service, 'Claude Code-credentials-2a1a4199');
+  assert.deepEqual(out[0].agents.sort(), ['angel', 'mona']);   // both bots on that credential
+});
+
+test('agentAdvisories: an UNRESOLVABLE agent (readCcd -> undefined) is SKIPPED, not bucketed as unset', () => {
+  const now = 1_000_000_000_000;
+  const readCcd = (a) => (a.name === 'ghost' ? undefined : '/Users/agent1/.claude');
+  const readCred = (svc) => svc === 'Claude Code-credentials-2a1a4199'
+    ? JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 1 * DAY } })
+    : (() => { throw new Error('bare should never be read here'); })();
+  const out = le.agentAdvisories({
+    agents: [{ name: 'ghost' }, { name: 'angel' }],
+    readCcd, readCred, now,
+  });
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].agents, ['angel']);        // ghost skipped, bare never consulted
+});
+
+test('agentAdvisories: a readCcd that throws skips that agent (fail soft)', () => {
+  const now = 1_000_000_000_000;
+  const readCcd = (a) => { if (a.name === 'boom') throw new Error('ps failed'); return '/Users/agent1/.claude-account-d'; };
+  const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 1 * DAY } });
+  const out = le.agentAdvisories({ agents: [{ name: 'boom' }, { name: 'ok' }], readCcd, readCred, now });
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].agents, ['ok']);
+});
+
+test('agentAdvisories: genuinely-unset agent (readCcd -> null) buckets to the bare credential', () => {
+  const now = 1_000_000_000_000;
+  const readCcd = () => null;   // env read succeeded, no CCD -> unset -> bare
+  const readCred = (svc) => svc === 'Claude Code-credentials'
+    ? JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 1 * DAY } }) : null;
+  const out = le.agentAdvisories({ agents: [{ name: 'automation' }], readCcd, readCred, now });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].service, 'Claude Code-credentials');
+});
+
 test('severityFor thresholds', () => {
   assert.equal(le.severityFor(5), 'notice');
   assert.equal(le.severityFor(4), 'notice');
