@@ -103,6 +103,18 @@ test('a valid board slug is accepted and stored; free-text board is rejected (no
   }
 });
 
+test('insertFailure classifies a client error as input (safe message) and a store failure as server (generic, no raw)', () => {
+  // A client input error (the store's own validation throws) -> 400 with its message.
+  const clientErr = fp.insertFailure(new Error('comment references a nonexistent post'), []);
+  assert.equal(clientErr.reason, 'input');
+  assert.match(clientErr.error, /nonexistent post/);
+  // A server failure (a disk/permission error whose message can embed a local path)
+  // -> 500 with a GENERIC message; the raw is not returned to the caller.
+  const serverErr = fp.insertFailure(new Error('EACCES: permission denied, open /Users/secret/path/posts.json'), []);
+  assert.equal(serverErr.reason, 'store');
+  assert.doesNotMatch(serverErr.error, /Users|EACCES|path/, 'a store failure must not leak the raw error/path to the caller');
+});
+
 test('a malformed candidate is REJECTED, nothing stored', () => {
   const before = cs.moderationQueue().length + cs.publicFeed().length;
   for (const bad of [null, undefined, 'nope', 42, {}]) {

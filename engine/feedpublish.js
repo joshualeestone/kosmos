@@ -82,6 +82,23 @@ function isWellFormed(snapshot) {
 // free text (names, emails, sentences) out of the publicly-served board column.
 const BOARD_SLUG = /^[a-z][a-z0-9-]{0,31}$/;
 
+// The store throws two DIFFERENT classes of error, and a route must treat them
+// differently: a CLIENT input error (a missing/nonexistent postId, a bad status --
+// thrown synchronously, before any write) is a 400 whose message is safe to return;
+// a SERVER failure (disk full, permission, a corrupt-file rename failure -- thrown
+// during the write, and its `err.message` can embed a local filesystem path) is a
+// 500 that must be LOGGED here (the store boundary) and returned as a GENERIC message
+// so no path leaks to the caller. `reason` tells the route which status code to use.
+const CLIENT_STORE_ERR = /required|must be|nonexistent/i;
+function insertFailure(err, findings) {
+  const raw = String((err && err.message) || err);
+  if (CLIENT_STORE_ERR.test(raw)) {
+    return { ok: false, reason: 'input', status: 'rejected', findings, error: raw };
+  }
+  console.error('feedpublish: community store write failed: ' + raw);
+  return { ok: false, reason: 'store', status: 'error', findings, error: 'the submission could not be stored' };
+}
+
 // Resolve the trust flag from an AUTHENTICATED identity ONLY.
 // 🛑 NEVER FROM THE CANDIDATE'S OWN `agent` FIELD. That field is caller-supplied
 // content; deriving trust from it would let any caller who reaches the route publish
@@ -118,39 +135,40 @@ function resolveTrusted(opts) {
  */
 function publishPost(candidate, opts = {}) {
   const o = (opts && typeof opts === 'object') ? opts : {};
+  // Validate `board` FIRST, before any content processing. 🛑 board is attached AFTER
+  // the feedguard snapshot and is served publicly (communitystore PUBLIC_FIELDS), so
+  // free-text board would be an un-scrubbed public field -- the exact hole the choke
+  // closes. board is NOT free content: it is a CONTROLLED taxonomy slug (the site's
+  // category inventory), validated here by FORMAT (a kebab slug: no spaces/@/uppercase/
+  // sentences, so it cannot carry a name/email/free text); the semantic gate is the
+  // caller's taxonomy allowlist. Checking it up front (not after the guard) means a bad
+  // board is a clean request rejection and never DISCARDS an already-computed leak
+  // verdict. (The agent route in this branch does not pass board at all.)
+  let boardSlug;
+  if (o.board != null) {
+    boardSlug = String(o.board);
+    if (!BOARD_SLUG.test(boardSlug)) {
+      return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'board must be a lowercase kebab-case slug (a controlled category), not free text' };
+    }
+  }
   const trusted = resolveTrusted(o); // identity is opts-only, never candidate.agent
   const verdict = feedguard.guard(candidate, { trusted, denyNames: o.denyNames });
   if (!isWellFormed(verdict.post)) {
     // Not an object, or missing required fields: junk, not a leak. Reject rather
     // than insert an empty/incomplete quarantined row.
-    return { ok: false, status: 'rejected', findings: verdict.findings, error: 'candidate is not a well-formed post (not an object or missing required fields)' };
+    return { ok: false, reason: 'input', status: 'rejected', findings: verdict.findings, error: 'candidate is not a well-formed post (not an object or missing required fields)' };
   }
   const status = statusFor(verdict);
   const rec = { ...verdict.post, status };
-  if (o.board != null) {
-    // 🛑 `board` is attached AFTER the feedguard snapshot and is served publicly
-    // (communitystore PUBLIC_FIELDS), so free-text board would be an un-scrubbed
-    // public field -- the exact hole the choke exists to close. board is NOT free
-    // content: it is a CONTROLLED taxonomy slug (the site's category inventory), so
-    // it is validated by FORMAT here (a kebab slug: no spaces/@/uppercase/sentences,
-    // so it cannot carry a name/email/free text). The semantic gate is the caller's
-    // taxonomy allowlist; this is the structural floor. A non-slug is rejected, never
-    // stored. (The agent route in this branch does not pass board at all.)
-    const slug = String(o.board);
-    if (!BOARD_SLUG.test(slug)) {
-      return { ok: false, status: 'rejected', findings: [], error: 'board must be a lowercase kebab-case slug (a controlled category), not free text' };
-    }
-    rec.board = slug;
-  }
+  if (boardSlug != null) rec.board = boardSlug;
   if (o.author != null) rec.author = o.author;
   if (status !== PUBLISHED) rec.findings = verdict.findings;
   let stored;
   try {
     stored = communitystore.insertPost(rec);
   } catch (err) {
-    // Honour the never-throws contract symmetrically with publishComment: a store
-    // write failure is ok:false, never an exception the caller must catch.
-    return { ok: false, status: 'rejected', findings: verdict.findings, error: String(err && err.message || err) };
+    // never-throws: classify + log a store failure, never leak its raw message.
+    return insertFailure(err, verdict.findings);
   }
   return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
 }
@@ -172,7 +190,7 @@ function publishComment(candidate, opts = {}) {
   const trusted = resolveTrusted(o); // identity is opts-only, never content.agent
   const verdict = feedguard.guard(content, { trusted, denyNames: o.denyNames });
   if (!isWellFormed(verdict.post)) {
-    return { ok: false, status: 'rejected', findings: verdict.findings, error: 'comment content is not a well-formed submission (not an object or missing required fields)' };
+    return { ok: false, reason: 'input', status: 'rejected', findings: verdict.findings, error: 'comment content is not a well-formed submission (not an object or missing required fields)' };
   }
   const status = statusFor(verdict);
   const rec = { ...verdict.post, postId, parentId, status };
@@ -182,11 +200,11 @@ function publishComment(candidate, opts = {}) {
   try {
     stored = communitystore.insertComment(rec);
   } catch (err) {
-    // A missing or nonexistent postId is a client error, not a scrub failure --
-    // surface it as ok:false so the route returns a 400, never a 500.
-    return { ok: false, status: 'rejected', findings: verdict.findings, error: String(err && err.message || err) };
+    // A missing/nonexistent postId is a client error (400, safe message); a store
+    // write failure is a server error (500, generic, logged). insertFailure classifies.
+    return insertFailure(err, verdict.findings);
   }
   return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
 }
 
-module.exports = { publishPost, publishComment, statusFor, resolveTrusted };
+module.exports = { publishPost, publishComment, statusFor, resolveTrusted, insertFailure };

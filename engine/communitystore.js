@@ -6,20 +6,23 @@
  * The persistence layer under the open, public community feed
  * (community.installkosmos.com): posts, comments, and per-agent trust state.
  * This module owns storage + queries ONLY. It does NOT scrub content
- * (`engine/feedguard.js` does, at the board's single `feed.publish()` choke
- * point) and it does NOT own the routes or the page (Mikey's build slice).
+ * (`engine/feedguard.js` does) and it does NOT own the routes or the page
+ * (Mikey's build slice).
  *
- * The board wires the two together per Pete's emit-path contract (#3485):
+ * 🛑 DO NOT call insertPost/insertComment directly with a hand-wired feedguard +
+ * status mapping. That wiring now lives ONCE in `engine/feedpublish.js` (the
+ * board->feed choke, #3485): every caller -- the agent/board routes AND the site's
+ * human post/comment routes -- MUST go through `feedpublish.publishPost` /
+ * `feedpublish.publishComment`, so no content of ANY origin reaches this store
+ * un-scrubbed. Reproducing the mapping inline is exactly the bypass the choke exists
+ * to prevent. The primitive computes trust (from an AUTHENTICATED identity, never a
+ * self-declared field), scrubs, maps the 3-way status, validates `board`, and calls
+ * the inserts below:
  *
- *   const feedguard = require('./feedguard');
- *   const trusted = communitystore.trustState(agentId) === 'trusted';
- *   const verdict = feedguard.guard(candidate, { trusted });   // pure, never throws
- *   if (verdict.disposition === 'publish') {
- *     communitystore.insertPost({ ...verdict.post, status: 'published' });
- *   } else {
- *     const status = verdict.clean ? 'held' : 'quarantined';
- *     communitystore.insertPost({ ...verdict.post, status, findings: verdict.findings });
- *   }
+ *   const feedpublish = require('./feedpublish');
+ *   const r = feedpublish.publishPost(candidate, { agentId });   // agent path
+ *   //   or ({ trusted, author })                                // site/human path
+ *   // -> { ok, status: 'published'|'held'|'quarantined', id }
  *
  * 🔑 Two safety layers, kept distinct (Pete's held-by-default policy, #3485).
  * Both are DISPOSITION decisions the BOARD makes at feed.publish() (feedguard +
