@@ -333,6 +333,20 @@ test('#3609: every spelled currency word is letters only (the linear bound depen
   for (const w of SPELLED.words) assert.match(w, /^[A-Za-z]+$/, 'not letters only: ' + JSON.stringify(w));
 });
 
+test('#3609: the spelled currency words are exactly the old alternation, and each one is caught', () => {
+  // Pinned, so dropping a word (a silent false negative) or adding one without
+  // updating SPELLED_REGEX below cannot pass. The equivalence generator alone
+  // missed a dropped 'euro' because it never emits that word.
+  const expected = ['USD', 'EUR', 'GBP', 'dollars', 'dollar', 'euros', 'euro', 'pounds', 'pound'];
+  assert.deepEqual([...SPELLED.words], expected);
+  for (const w of expected) {
+    for (const s of ['1,234 ' + w, '1,234.56' + w.toUpperCase(), '9,999,999\u00a0' + w.toLowerCase()]) {
+      assert.equal(SPELLED(s), true, 'missed ' + JSON.stringify(s));
+      assert.equal(SPELLED_REGEX.test(s), true, 'the old regex copy disagrees on ' + JSON.stringify(s));
+    }
+  }
+});
+
 test('#3609: the spelled grouped-currency check is linear on long inputs', () => {
   const chain = '9' + ',999'.repeat(16384); // 65537 chars; the old regex took seconds
   const inputs = [
