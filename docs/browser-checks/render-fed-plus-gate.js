@@ -1,4 +1,4 @@
-// Browser-check-surface: data-fed-ui pj-mode pj-add-ext-person pj-add-ext-agent pj-invite-panel pj-join-mode pj-plus-signup
+// Browser-check-surface: data-fed-ui pj-mode pj-add-ext-person pj-add-ext-agent pj-invite-panel pj-join-mode pj-plus-signup plus-gate-modal plus-gate-msg
 'use strict';
 /**
  * fed-plus-gate: the #3312 federation UI gates on the Kosmos+ launch mode (Josh, 2026-09-21).

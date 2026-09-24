@@ -27,12 +27,14 @@ test('the words: Name, Description; no folder sentence, no folder door, no "skip
   assert.match(VIEW, /id="pj-will-be" hidden/, 'the folder sentence can still show');
 });
 
-test('#3312: the top toggle offers Create New Project vs Join External Project (native radios, Mona Lisa #178)', () => {
+test('#3312/#3495: the top toggle offers Create a project vs Join an external project (native radios, Mona Lisa #178)', () => {
   // Native radios grouped by name in a fieldset -- the browser owns arrow-key movement and the
   // `checked` source of truth, with no hand-rolled aria-checked desync (the roles-picker ruling).
+  // #3495 (Josh) relabelled the two options and dropped the "or" span for a segmented look; the
+  // native-radio structure below is unchanged.
   assert.match(VIEW, /<fieldset class="pj-mode">/);
-  assert.match(VIEW, /<label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create New Project<\/label>/);
-  assert.match(VIEW, /<label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join External Project<\/label>/);
+  assert.match(VIEW, /<label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-create" value="create" checked> Create a project<\/label>/);
+  assert.match(VIEW, /<label class="pj-mode-opt"><input type="radio" name="pj-add-mode" id="pj-mode-join" value="join"> Join an external project<\/label>/);
   assert.doesNotMatch(VIEW, /pj-mode-opt[^>]*role="radio"[^>]*aria-checked/, 'the hand-rolled role=radio + aria-checked anti-pattern is back');
 });
 
