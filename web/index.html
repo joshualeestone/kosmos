@@ -50801,11 +50801,11 @@ function frPaintFleet() {
 
   /* 🛑 #2497: ONBOARDING NEVER AUTO-SCANS OR AUTO-IMPORTS. Josh, 2026-09-08, watching an external
      tester: a developer's many tmux Claude Code sessions filled first run with garbage
-     throwaway agents. First run ALWAYS lands on the no-agent Giddy Up screen (#3575: headed
-     "You're ready to start using Kosmos."), exactly as if the machine had no agents, whatever the real path (adopt/create/
+     throwaway agents. First run ALWAYS lands on the no-agent Giddy Up screen, exactly as if the
+     machine had no agents, whatever the real path (adopt/create/
      unknown) or fleetCount. Real agents are pulled in LATER via the manual Import Agent (#1652)
      on the Create Agent screen (openCreate -> pickMode('import') -> /api/scan-import), a separate
-     flow this does not touch. Force the create empty state here and fire NO discovery
+     flow this does not touch. Force the Giddy Up ending here and fire NO discovery
      (frFindAgents / frScanAgents), so the auto /api/scan-agents walk never runs on first launch.
      ⚠️ The action is this block's own "Giddy Up" (#3575: -> Agents dashboard), NOT frForkActions,
      which honors the real FR.path and would render "Take me to my agents" on an adopt machine -
@@ -50823,13 +50823,14 @@ function frPaintFleet() {
   // already runs agents in Claude Code or Codex that onboarding deliberately no longer scoops up.
   // One quiet POINTER (not a scan: it lists nothing, finds nothing) tells that user Kosmos is
   // choosing not to import them and where manual Import lives, so "where are my agents?" does not
-  // reappear one screen later. #3575: Import is now two clicks from the dashboard, not the next
-  // screen, so the pointer names the real path: the empty state's "Create your first agent"
-  // button, then the Import option ("Import an agent you already have").
+  // reappear one screen later. #3575: Import is now reached from the dashboard, not the next
+  // screen. The pointer names "New agent" (#new-agent in the boardbar, #rail-agents-new in the
+  // consolidated rail), which shows on an empty AND a populated board; the empty state's "Create
+  // your first agent" button does not exist on an adopt machine's populated board.
   box.innerHTML = '<p>Let\u2019s get started. Giddy Up takes you to your Agents dashboard, '
     + 'home base for everything you do in Kosmos.</p>'
     + '<p class="dhint" style="margin:6px 0 0;">Already have agents in Claude Code or Codex on this computer? '
-    + 'On the dashboard, choose Create your first agent, then pick the Import option.</p>';
+    + 'On the dashboard, choose New agent, then pick the Import option.</p>';
   frActions({ label: 'Giddy Up', go: () => frFinish(() => showTab('agents')) });
   return;
 
@@ -51431,10 +51432,9 @@ async function frFinish(then) {
   /**
    * ⚠️ ONE FLAG, NOT A DISABLED BUTTON. The first version guarded re-entry by
    * disabling Continue -- which does nothing about Escape, which calls this
-   * too. Clicking "Make my first agent" and then pressing
-   * Escape while the POST was in flight ran TWO completions: two writes, two
-   * closes, and BOTH callbacks, so `openCreate()` opened the create panel and
-   * `showTab('agents')` immediately took it away again.
+   * too. Clicking the ending's button and then pressing Escape while the POST
+   * was in flight ran TWO completions: two writes, two closes, and BOTH
+   * callbacks (the button's and Escape's).
    */
   if (FR_FINISHING) return;
   FR_FINISHING = true;

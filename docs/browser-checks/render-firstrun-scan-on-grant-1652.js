@@ -5,12 +5,12 @@
  * grant, re-scan via /api/scan-import and load the found agents onto the screen ("it just pulls
  * them in"). #2497 (Josh, 2026-09-08, watching an external tester) removed ALL auto-scan/auto-import
  * from onboarding: a developer's many tmux Claude Code sessions filled first run with garbage
- * agents. First run now ALWAYS lands on the no-agent "Create your first agent." / Giddy Up screen,
+ * agents. First run now ALWAYS lands on the no-agent Giddy Up screen (#3575 heading "You're ready to start using Kosmos."),
  * so it fires no disk scan on entry and arms no grant-flip poll, whatever the grant or the disk.
  *
  * This check now guards the SUPPRESSION: with file access GRANTED and /api/scan-import holding
  * candidates (exactly the input that used to load agents onto S9), first-run S9 must land on the
- * create / Giddy Up screen, render NO scan rows, and NEVER auto-fetch /api/scan-import (the
+ * Giddy Up screen, render NO scan rows, and NEVER auto-fetch /api/scan-import (the
  * onboarding granted-scan route) from the onboarding flow, even after a wait long enough that a
  * grant-flip poll would have fired. (The bare /api/scan-agents IS still fetched -- by the
  * DASHBOARD's own kept disk-scan poll (paintScanBoard #1938) loading underneath the overlay, which
@@ -86,7 +86,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       scanRows: document.querySelectorAll('#fr-fleet .fr-scanrow, #fr-fleet .fr-foundrow, #fr-fleet .fr-adoptrow').length,
     }));
 
-    if (/create your first agent/i.test(view.title)) ok('first run lands on the create heading even with a grant + candidates'); else bad('create heading', JSON.stringify(view.title));
+    if (/ready to start using Kosmos/i.test(view.title)) ok('first run lands on the Giddy Up heading even with a grant + candidates'); else bad('Giddy Up heading', JSON.stringify(view.title));
     if (/let’s get started/i.test(view.box)) ok('the Giddy Up copy is present'); else bad('Giddy Up copy', view.box.slice(0, 160));
     if (view.scanRows === 0) ok('no scan/found rows render on first run'); else bad('scan/found rows still render', String(view.scanRows));
     // The onboarding granted-scan is /api/scan-import (frScanAgents uses it when granted), so

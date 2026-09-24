@@ -5,11 +5,11 @@
  * no-instruction-file folders discovery offered for adoption. #2497 (Josh, 2026-09-08, watching
  * an external tester) removed ALL auto-scan/auto-import from onboarding: a developer's many tmux
  * Claude Code sessions filled first run with garbage agents. First run now ALWAYS lands on the
- * no-agent "Create your first agent." / Giddy Up screen, so the adopt prompt (frPaintFound /
+ * no-agent Giddy Up screen (#3575 heading "You're ready to start using Kosmos."), so the adopt prompt (frPaintFound /
  * adoptRowsHtml) never renders during onboarding, even when discovery HAS adoptable folders.
  *
  * This check now guards the SUPPRESSION: fed a payload with adoptable folders (exactly the input
- * that used to raise the prompt), first-run S9 must show the create / Giddy Up screen and NOT the
+ * that used to raise the prompt), first-run S9 must show the Giddy Up screen and NOT the
  * adopt prompt. The adopt/found engine is kept-but-bypassed (per the card); a user pulls real
  * agents in later via the manual Import Agent (#1652) on the Create Agent screen.
  *
@@ -86,9 +86,9 @@ const FOUND = {
     };
   });
 
-  // 1. First run lands on the create / Giddy Up screen, even with adoptable folders discovered.
-  check('first run shows the create heading (not an adopt prompt)',
-    /create your first agent/i.test(view.title), JSON.stringify(view.title));
+  // 1. First run lands on the Giddy Up screen, even with adoptable folders discovered.
+  check('first run shows the Giddy Up heading (not an adopt prompt)',
+    /ready to start using Kosmos/i.test(view.title), JSON.stringify(view.title));
   check('the Giddy Up copy is present', /let’s get started/i.test(view.box), view.box.slice(0, 120));
 
   // 2. The adopt prompt and any found/scan rows are suppressed.

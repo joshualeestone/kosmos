@@ -15,7 +15,7 @@
  * grant (which is an operator fresh-install pass, #2243); everything ELSE is exercised.
  *
  *   GRANTED: 1..9 all advance on a Next click (no stuck transition), and S9 lands on the
- *            no-agent "Create your first agent." / Giddy Up screen with NO found/scan rows,
+ *            no-agent Giddy Up screen (#3575 heading "You're ready to start using Kosmos.") with NO found/scan rows,
  *            even though the machine is granted and the scan has an agent to load -- #2497
  *            removed the onboarding auto-import, so first run never surfaces found agents.
  *   NOT-GRANTED: the S2 file-access gate BLOCKS (Next disabled) and the flow cannot
@@ -118,7 +118,7 @@ const readStep = (page) => page.evaluate(() => (typeof FR_STEP !== 'undefined') 
       const finalStep = await readStep(page);
       if (finalStep === 9 && stuck === null) ok('GRANTED: every Next advances -- the flow reaches S9 with no stuck transition'); else bad('GRANTED flow reaches S9', 'stopped at step ' + (stuck || finalStep));
 
-      // #2497: S9 lands on the no-agent create / Giddy Up screen with NO auto-scan and NO found
+      // #2497: S9 lands on the no-agent Giddy Up screen with NO auto-scan and NO found
       // rows, even here where the machine is GRANTED and routeFlow's scan-import HAS an agent to
       // load -- the old flow surfaced it on S9; onboarding no longer does. Settle briefly (any
       // async scan the old flow ran would have painted a row by now) then assert the suppression.
@@ -133,7 +133,7 @@ const readStep = (page) => page.evaluate(() => (typeof FR_STEP !== 'undefined') 
           rows: box ? box.querySelectorAll('.fr-scanrow, .fr-foundrow, .fr-adoptrow').length : 0,
         };
       });
-      if (/ready to start using Kosmos/i.test(s9.title) && s9.giddy && s9.rows === 0) ok('GRANTED: S9 lands on the no-agent create / Giddy Up screen with no found/scan rows (#2497)'); else bad('GRANTED S9 lands on Giddy Up (#2497)', JSON.stringify(s9));
+      if (/ready to start using Kosmos/i.test(s9.title) && s9.giddy && s9.rows === 0) ok('GRANTED: S9 lands on the no-agent Giddy Up screen with no found/scan rows (#2497)'); else bad('GRANTED S9 lands on Giddy Up (#2497)', JSON.stringify(s9));
 
       // The terminal step: clicking the S9 primary completes first-run. Poll the
       // node-side completeHit counter (the route records the POST) rather than a fixed
