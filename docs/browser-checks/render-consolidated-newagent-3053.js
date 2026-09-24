@@ -67,7 +67,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         // Fills the display column: its left sits just past the list's right edge, wide, not a
         // centered content-width island offset into the column.
         const pc = rect(panelCreate); const lv = rect(listView); const pp = rect(panelProjects);
-        res.leftGapPastList = pc.left - lv.right;
+        res.leftGapPastList = pc.left - lv.right;   // gap between the list's right rule and the form's left edge
+        res.rightGap = pp.right - pc.right;         // gap between the form's right edge and the display column's right edge
         res.createWidth = pc.w;
         res.col2Width = pp.w - lv.w;
         res.onRoleStep = document.getElementById('cstep-role') && document.getElementById('cstep-role').hidden === false;
@@ -93,11 +94,17 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3053 THE FIX: New Agent stays in the consolidated view (no kick-out to tab view)', out.err === null && out.stillConsolidated === true, JSON.stringify(out));
     ok(t + ' #3053 the create panel opens visible in the display column, on the role step', out.err === null && out.createVisible === true && out.createInDisplay === true && out.onRoleStep === true, JSON.stringify(out));
     ok(t + ' #3053 the projects list stays visible beside the create panel', out.err === null && out.listStillVisible === true && out.projectViewHidden === true, JSON.stringify(out));
-    // The create panel is a 34rem FORM, not a full-width fill like settings: it must sit at the
-    // top-LEFT of the display column (small gap past the list, not offset ~180 into it) at its real
-    // form width (~34rem/544px), never collapsed to a narrow content-width island (~193px was the
-    // pre-CSS-fix bug). Range excludes both the slammed-narrow and the accidental full-fill outcomes.
-    ok(t + ' #3053 the create form sits at the top-left of the display column at its form width, not a narrow island', out.err === null && out.leftGapPastList < 40 && out.createWidth >= 400 && out.createWidth <= 640, JSON.stringify(out));
+    // The create panel is a 34rem FORM, not a full-width fill like settings. Josh, 2026-09-23
+    // (#chaoskosmos-design): "the margin issue for viewing Add an Agent on the consolidated view.
+    // Its touching the vertical rule and should be centered." So at this wide (1280px) viewport the
+    // form is CENTRED in the display column, its left gap past the list matching its right gap to the
+    // column edge, at its real form width (~34rem/544px). The three arms are a positive control
+    // against the outcomes this must not be: leftGap > 40 rejects the OLD left-flush position (it was
+    // < 40); |leftGap - rightGap| small rejects any off-centre offset; and the 400..640 width band
+    // rejects both the narrow-island (~193px was the pre-#3053 bug) and the accidental full-fill.
+    // Gaps are compared relatively, not to an absolute pixel target, so the check does not depend on
+    // the exact column arithmetic at this viewport.
+    ok(t + ' #3053 the create form is centred in the display column at its form width (Josh 2026-09-23), not left-flush or a narrow island', out.err === null && out.leftGapPastList > 40 && Math.abs(out.leftGapPastList - out.rightGap) <= 24 && out.createWidth >= 400 && out.createWidth <= 640, JSON.stringify(out));
     ok(t + ' #3053 navigating to a project hides create and shows the project (the exit path)', out.err === null && out.createHiddenAfterNav === true && out.projectShownAfterNav === true, JSON.stringify(out));
     ok(t + ' #3053 leaving the consolidated view restores the create panel to the top level', out.err === null && out.restoredToTopLevel === true, JSON.stringify(out));
     ok(t + ' #3053 CONTROL: in the tab view New Agent does not enter the consolidated view (full-page create)', out.err === null && out.tabViewNotConsolidated === true && out.tabViewCreateShown === true, JSON.stringify(out));

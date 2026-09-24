@@ -3947,11 +3947,20 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dbody { grid-template-columns: minmax(120px, 30%) minmax(0, 1fr); justify-content: stretch; column-gap: 18px; }
   /* #3053: the relocated New Agent create panel gets the same display-column placement #2842 gave
-     settings -- grid-column 2, top of the display area beside the projects list -- but it stays a
-     34rem FORM (inherited max-width), NOT a full-width fill: `margin: 0` overrides the tab-view
-     `margin: 0 auto` so it sits at the LEFT of the wide column instead of collapsing to a narrow
-     centered island, and `width: 100%` (capped by the 34rem max-width) gives it its real form width. */
-  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-create { grid-column: 2; grid-row: 1; margin: 0; width: 100%; padding: 24px 24px 0 0; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+     settings -- grid-column 2, top of the display area beside the projects list -- and stays a 34rem
+     FORM (inherited max-width), NOT a full-width fill.
+     Josh, 2026-09-23 (#chaoskosmos-design): "the margin issue for viewing Add an Agent on the
+     consolidated view. Its touching the vertical rule and should be centered." The earlier #3053
+     choice (`margin: 0`, left-flush) put the panel's left edge and its zero left-padding against the
+     projects-list vertical rule -- the same zero-gap #3505 fixed for settings -- and left the form
+     stranded at the far left of a wide column. Restore the tab-view centering here too (Josh's
+     original 2026-08-22 ruling for this panel: "I want it to be centered"): `margin: 0 auto` centres
+     the 34rem box in the wide column, and a symmetric horizontal inset keeps content off the rule at
+     the narrow consolidated floor (960px), where width:100% makes the box fill a sub-34rem column and
+     margin:auto has no room to work. Padding, not margin (border-box + width:100% in a grid cell).
+     The centred position is asserted by docs/browser-checks/render-consolidated-newagent-3053.js
+     (its position arm was rewritten from the old top-left assertion to a centred one alongside this). */
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-create { grid-column: 2; grid-row: 1; margin: 0 auto; width: 100%; padding: 24px 24px 0 24px; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-create::-webkit-scrollbar { display: none; }
   /* 🔑 THESE PANES HIDE THEIR SCROLLBAR LIKE EVERY OTHER SCROLLER IN THIS VIEW
      (kosmos#1196). Josh: "The project settings tab itself is quite a mess. It has
