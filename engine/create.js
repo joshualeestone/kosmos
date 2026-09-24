@@ -1839,8 +1839,8 @@ function setProvider(name, provider, opts) {
      failure: their default is the machine-global GEMINI_API_KEY / XAI_API_KEY door,
      which an agent CAN start on. So this mirrors the create path's google/xai arms
      and setGeminiAccount/setGrokAccount instead:
-       - default (no accountDir): the env-key door, constructed directly. It is
-         legitimately ABSENT from list() because rowFor gates on a stored key, so we
+       - default (no accountDir): the env-key door, constructed directly. It is listed
+         only when ~/.grok (or ~/.gemini) holds a key file or, for grok, a sign-in, so we
          do NOT search a row for it; configDir stays null.
        - a NAMED account: resolved in list() (resolved before comparing, #1486),
          REFUSED if unknown -- fail closed, the silent-wrong-account guard the whole
@@ -3587,6 +3587,19 @@ async function accountConnectable({ provider, accountDir } = {}) {
      launch environment, the same fail-open createAgentInner documents for it. An unknown
      dir is createAgentInner's to refuse. */
   if (prov === 'google' || prov === 'xai') {
+    /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
+       board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
+    if (!dir && prov === 'xai') {
+      let def = null;
+      try { def = require('./grokaccounts').list().find((a) => a.isDefault && a.authMode === 'subscription') || null; } catch { def = null; }
+      if (!def) return { ok: true };
+      let dlive = null;
+      try { dlive = await require('./grokaccounts').checkLive(def.dir); } catch { return { ok: true }; }
+      if (dlive && dlive.state === 'none') {
+        return { ok: false, because: 'That Grok sign-in has expired, so an agent created on it could not run. Sign in again in Settings, AI Models.' };
+      }
+      return { ok: true };
+    }
     if (!dir) return { ok: true };
     const failOpenK = (where, err) => {
       console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);

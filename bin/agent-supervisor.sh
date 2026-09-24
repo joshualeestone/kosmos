@@ -670,6 +670,7 @@ if [ -z "$adopt" ]; then
     # grep cannot check; a file with one entry that does not parse is the one case where
     # the two can still disagree).
     _GROK_PREFIX=()
+    _GROK_LEADER=()
     _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
     _GROK_KEYF="${_GROK_ACCT}/.kosmos-grok-apikey"
     _GROK_SUB=0
@@ -701,12 +702,23 @@ if [ -z "$adopt" ]; then
       PANE_ENV=(${_kept[@]+"${_kept[@]}"})
       unset _kept _i _n
       _GROK_PREFIX=(/usr/bin/env -u XAI_API_KEY)
+      # A PER-ACCOUNT subscription agent also gets its OWN leader socket. grok's leader is
+      # its relay to xAI (`grok leader info` names wss://code.grok.com), and its default
+      # socket is the machine's ~/.grok/leader.sock, which a default-account agent may have
+      # started. Whether a leader carries its starter's sign-in is NOT measured; isolating
+      # it per account is the cheap, reversible answer. The name is short (macOS limits a
+      # socket path to 104 bytes) and matches the leader-*.sock pattern `grok leader list` finds.
+      if [ -n "${GROK_HOME:-}" ]; then
+        _hash="$(printf '%s' "$GROK_HOME" | /usr/bin/shasum 2>/dev/null | cut -c1-12)"
+        [ -n "$_hash" ] && _GROK_LEADER=(--leader-socket "${HOME}/.grok/leader-${_hash}.sock") && mkdir -p "${HOME}/.grok" 2>/dev/null
+        unset _hash
+      fi
     fi
     unset _GROK_ACCT _GROK_KEYF _GROK_SUB
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
-      ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
+      ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" ${_GROK_LEADER[@]+"${_GROK_LEADER[@]}"} --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs

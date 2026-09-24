@@ -7051,9 +7051,15 @@ const server = http.createServer((req, res) => {
           const prev = obsByGrokDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByGrokDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
+        /* #3391: a subscription row is CONNECTED on its file alone (grokaccounts.subscriptionVerdict),
+           so without a fresh working observation it must say so: signed_in_unverified, the muted
+           "Signed in" the page draws for a credential that exists but is not confirmed. Without this
+           it had no badge and fell through to the page's green legacy pill. */
+        const unverifiedSub = (a) => (a.authMode === 'subscription' && a.connection && a.connection.state === 'connected'
+          ? { ...a, connection: { ...a.connection, badge: 'signed_in_unverified' } } : a);
         const grok = grokRows.map((a) => {
           const obs = a.dir ? obsByGrokDir.get(a.dir) : null;
-          if (!obs) return a;
+          if (!obs) return unverifiedSub(a);
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
@@ -7061,7 +7067,7 @@ const server = http.createServer((req, res) => {
             now: nowMs,
             freshMs: freshWindow,
           });
-          if (v.badge !== 'working') return a;
+          if (v.badge !== 'working') return unverifiedSub(a);
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grok] });

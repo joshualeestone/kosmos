@@ -263,3 +263,13 @@ test('grok: a WHITESPACE-only key file beside a sign-in is a subscription (ident
 test('grok: an UNREADABLE key file beside a sign-in describes nothing, so nothing is stripped', () => {
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', keyIsDir: true, authJson: true })));
 });
+
+test('grok: a PER-ACCOUNT subscription agent gets its own short leader socket; a key account and the default do not', () => {
+  const sub = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true });
+  const m = sub.match(/--leader-socket (\S+)/);
+  assert.ok(m, 'a per-account subscription agent is launched with its own --leader-socket');
+  assert.match(m[1], /\/\.grok\/leader-[0-9a-f]{12}\.sock$/, 'named leader-<hash>.sock so `grok leader list` finds it');
+  assert.ok(Buffer.byteLength(m[1]) < 104, 'short enough for the socket path limit');
+  assert.ok(!/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', keyFile: 'peraccountvalue', authJson: true })), 'CONTROL: a key-file account keeps the default leader');
+  assert.ok(!/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, defaultHome: true })), 'CONTROL: the default account IS the default leader');
+});

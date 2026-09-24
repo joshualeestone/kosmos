@@ -137,3 +137,18 @@ test('a key add during a pending sign-in never lands on its slot; a named one is
     grokAccounts.setFetcher(null);
   }
 });
+
+/* Iteration-6 review: a subscription row is CONNECTED on its file alone, so /api/accounts must
+   badge it signed_in_unverified (the page's muted "Signed in"), never leave it badge-less, which
+   the page draws as the green legacy pill. An API-key row is untouched by this. */
+test('GET /api/accounts badges a connected subscription row signed_in_unverified, not green', async () => {
+  const sub = nodePath.join(SANDBOX, '.grok-badged');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(nodePath.join(sub, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::b': { email: 'badge@example.com', refresh_token: 'r' } }), { mode: 0o600 });
+  const all = (await (await fetch(`${base}/api/accounts`)).json()).accounts;
+  const row = all.find((a) => a.dir === sub);
+  assert.ok(row, 'the subscription row is listed');
+  assert.equal(row.connection.state, 'connected');
+  assert.equal(row.connection.badge, 'signed_in_unverified', 'a file alone is not a confirmed sign-in');
+  fs.rmSync(sub, { recursive: true, force: true });
+});

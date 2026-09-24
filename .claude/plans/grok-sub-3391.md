@@ -60,7 +60,21 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
 - The leader socket goes in the temp dir under a short per-sign-in name, not in the account dir: a long
   account name could pass macOS's 104-byte socket path limit there.
 - A lapsed subscription is NONE (a local, provable lapse), and create refuses it with sign-in words,
-  not "xAI rejected the key".
+  not "xAI rejected the key". The same holds for a lapsed DEFAULT subscription, which create now checks
+  because it is listed.
+- A connected subscription row carries badge signed_in_unverified from the /api/accounts overlay
+  (added in challenge iteration 6: before it, the row had no badge and the page drew the green legacy
+  pill, so a file alone DID read green, contrary to what this plan said).
+- A PER-ACCOUNT subscription agent launches with its own `--leader-socket ~/.grok/leader-<hash12>.sock`.
+  grok's leader is its relay to xAI (`grok leader info` names wss://code.grok.com); whether a leader
+  carries the sign-in of whoever started it is UNMEASURED (it needs two real subscriptions). Isolating
+  it per account is cheap and reversible; a key account and the default keep the default leader.
+- MONEY, recorded before merge (challenge iteration 6 raised it). Moving a DEFAULT agent from the door
+  key to the subscription changes what it bills against. Measured 2026-09-24 on this box: there is NO
+  XAI_API_KEY door file (every secrets/env location is empty or absent), so no running agent's billing
+  changes here. It changes only on a machine with both a door key and a ~/.grok sign-in, and there it
+  follows Josh's ruling of 2026-09-23 20:00 (via Splinter): the Grok connect is the subscription, the key
+  is the fallback. It is named in the PR description too.
 - Reauth of an existing subscription account is a follow-up (remove and add again works today).
 
 ## Verification

@@ -266,3 +266,22 @@ test('#3391: a lapsed Grok subscription is refused as an expired sign-in; a rene
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('#3391: a lapsed DEFAULT Grok subscription is refused at create too (the default is listed, so it is checked)', async () => {
+  const def = nodePath.join(HOME, '.grok');
+  const had = fs.existsSync(def);
+  fs.mkdirSync(def, { recursive: true });
+  const f = nodePath.join(def, 'auth.json');
+  try {
+    fs.writeFileSync(f, JSON.stringify({ 'https://auth.x.ai::d': { email: 'd@example.com', expires_at: '2000-01-01T00:00:00.000000Z' } }), { mode: 0o600 });
+    const bad = await create.accountConnectable({ provider: 'xai' });
+    assert.equal(bad.ok, false, 'a lapsed default sign-in was accepted');
+    assert.match(bad.because, /sign-in has expired/);
+    fs.writeFileSync(f, JSON.stringify({ 'https://auth.x.ai::d': { email: 'd@example.com', refresh_token: 'r' } }), { mode: 0o600 });
+    assert.equal((await create.accountConnectable({ provider: 'xai' })).ok, true, 'CONTROL: a renewable default passes');
+    fs.rmSync(f, { force: true });
+    assert.equal((await create.accountConnectable({ provider: 'xai' })).ok, true, 'CONTROL: a default with no sign-in is the door, not checked');
+  } finally {
+    if (had) fs.rmSync(f, { force: true }); else fs.rmSync(def, { recursive: true, force: true });
+  }
+});

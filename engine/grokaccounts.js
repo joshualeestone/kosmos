@@ -28,7 +28,8 @@
  * (.kosmos-grok-apikey), the SAME discipline claudeaccounts uses for its own
  * apiKeyHelper file, and bin/agent-supervisor.sh reads that file for a
  * per-account grok agent and exports XAI_API_KEY into the pane env. The DEFAULT
- * account keeps the machine-global secrets/env door (unchanged).
+ * account keeps the machine-global secrets/env door unless ~/.grok holds a
+ * subscription sign-in (#3391), in which case the supervisor removes the key.
  *
  * 🛑 THE KEY IS NEVER RETURNED, LOGGED, OR PASSED AS AN ARGUMENT. It is written
  * to a mode-600 file on the person's own Mac and read from there; identity for an
@@ -307,8 +308,9 @@ async function checkLive(dir, _opts) {
    live check: grok has no `login status`, `grok models` lists models even with an
    empty key, and refreshing a person's token from a probe is not ours to do. So a
    sign-in grok can renew (a refresh token) or one still inside its expiry is
-   CONNECTED, which the observed overlay shows as signed_in_unverified until a real
-   grok session succeeds on it. NONE only for a sign-in that has provably lapsed. */
+   CONNECTED; the /api/accounts overlay in server.js badges it signed_in_unverified
+   until a real grok session succeeds on it. NONE only for a sign-in that has
+   provably lapsed. */
 function subscriptionVerdict(dir) {
   const auth = readAuth(dir);
   if (auth.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'nobody has connected this account yet' };
@@ -429,7 +431,7 @@ function forgetAccount(dir, usedBy) {
      never ours to move. Refusing it closes the rm-your-whole-CLI-home
      path a manually-placed key file could otherwise open on the remove sibling. A deliberate
      DIVERGENCE from openaiaccounts, whose default IS disconnectable/deletable (#2684) because it is
-     a codex-only home Kosmos manages; grok's default is the unmanaged machine-global key door. */
+     a codex-only home Kosmos manages; grok's default is the machine's own home (the key door or its own sign-in). */
   if (clean === path.resolve(defaultDir())) {
     return { ok: false, forgotten: false, because: 'the default Grok account is your computer\'s own Grok home; Kosmos does not manage it here, so it cannot be disconnected' };
   }
@@ -621,7 +623,9 @@ function resolveFreshGrokDir(label) {
   if (label != null && String(label).trim()) {
     const got = dirForLabel(label);
     if (!got.ok) return { error: got.because };
-    if (identityOf(got.dir)) return { error: 'there is already a Grok account by that name on this computer' };
+    /* Refuse on the FILES, not on identityOf: an auth.json we cannot describe (two entries,
+       bad JSON) is still someone's credentials, and a failed sign-in's cleanup would delete it. */
+    if (fs.existsSync(authFile(got.dir)) || fs.existsSync(keyFile(got.dir))) return { error: 'there is already a Grok account by that name on this computer' };
     if (activeGrokDirs.has(got.dir)) return { error: 'a sign-in for that name is already in progress' };
     if (accountclaim.claimHeld(got.dir)) return { error: 'another Grok account is being added under that name right now; try again in a moment' };
     spot = { label: got.label, dir: got.dir };

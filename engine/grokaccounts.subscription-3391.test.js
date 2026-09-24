@@ -316,3 +316,13 @@ test('an UNREADABLE key file beside a valid sign-in is not described as a subscr
   assert.equal(grok.list().find((a) => a.dir === d), undefined, 'not listed');
   assert.equal((await grok.checkLive(d)).state, grok.STATE.UNKNOWN);
 });
+
+test('a NAMED sign-in refuses a dir whose auth.json we cannot describe, so a failed sign-in cannot delete it', () => {
+  const d = fresh('.grok-twoentries');
+  writeAuth(d, { 'https://auth.x.ai::a': { email: 'a@x' }, 'https://auth.x.ai::b': { email: 'b@x' } });
+  assert.equal(grok.identityOf(d), null, 'CONTROL: it is not described as an account');
+  const out = grok.startGrokLogin({ label: 'twoentries', grokBin: FAKE });
+  assert.equal(out.ok, false);
+  assert.match(out.because, /already a Grok account/);
+  assert.ok(fs.existsSync(nodePath.join(d, 'auth.json')), 'the credentials are untouched');
+});
