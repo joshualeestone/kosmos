@@ -181,8 +181,9 @@ function check(name, pass, detail) {
      (2026-09-24), SKIPPED not deleted: restore this check() when #3510 lands.
      Logged as SKIP so it is neither pass nor fail (not pushed to `results`), same
      pattern as render-thread's #3557 focus SKIP. */
-  console.log(`SKIP  the delivered coordinator push produced the mapped notification `
-    + `(pending on #3510: push proxy path still open; shown=${JSON.stringify(shown).slice(0, 200)})`);
+  process.stdout.write(`  SKIP  the delivered coordinator push produced the mapped notification `
+    + `(pending on #3510: push proxy path still open; shown=${JSON.stringify(shown).slice(0, 200)}; `
+    + `derived-match=${!!hit})\n`);
 
   check('no page errors', errors.length === 0, errors.join(' | ').slice(0, 160));
   await browser.close();
