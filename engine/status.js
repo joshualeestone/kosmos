@@ -6083,7 +6083,13 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
-      /* 🛑 EXCEPT WHEN THE SCREEN SAYS IT IS WAITING ON A BACKGROUND AGENT, where
+      /* 🛑 SUBSUMED BY #3529 (Josh, 2026-09-23): the reporter-broken accusation
+         this exemption used to withhold has now been removed for EVERY decayed
+         working scrape (see the collapsed return below), so the special-case
+         branch is gone. The rationale is kept because it explains why the
+         exemption ever existed and why dropping the accusation outright is safe
+         rather than a regression -- accusing a background wait was always false.
+         🛑 EXCEPT WHEN THE SCREEN SAYS IT IS WAITING ON A BACKGROUND AGENT, where
          a decayed report is CORRECT rather than suspicious (#1889). The report
          hook fires on PreToolUse; while the turn is over and only a background
          agent runs, no tools fire, so a healthy reporter cannot heartbeat and any
@@ -6143,10 +6149,26 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          so a stale naming never attributes (which is the correct behaviour: a
          stale report must not attribute today's work). Kept as `workingProject`
          rather than a bare literal so all working returns share one shape. */
-      if (scraped.backgroundWait === true) {
-        return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
-      }
-      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken', ...workingProject(true) };
+      /* #3529 (Josh, 2026-09-23): this return once carried the "its reports
+         stopped arriving while its screen still shows work, so the reporter may
+         be broken" note. It is internal telemetry-staleness hedging that reads as
+         broken/uncertain to a user, and Josh asked for it gone from the app on
+         BOTH Mac and Windows. Removed at the SOURCE (conflict: null) rather than
+         suppressed per-string in the render, so no surface -- the agent card, the
+         agent-page #d-conflict slot, or the Windows client, all of which read
+         this shared field -- ever shows it, and no empty placeholder is left
+         (conflictNote returns '' and both slots hide). The verdict is unchanged
+         (still reported:false, working); only the display sentence is dropped.
+         The other stateConflict messages (the sign-in rejection loop, "reported
+         stopping but still running") are genuine actionable conflicts Josh did
+         not name, and they stay.
+         🔑 This collapses the #1889 background-wait branch documented above. That
+         branch existed ONLY to withhold this one accusation on a wait a healthy
+         reporter cannot heartbeat through; with the accusation gone for every
+         decayed working scrape, the two returns were byte-identical, so they are
+         now one. `backgroundWait` still rides out on `...scraped` for any
+         downstream reader (e.g. chat.waitingNote). */
+      return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
     }
     return {
       state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE,

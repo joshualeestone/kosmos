@@ -112,7 +112,12 @@ const TOLD = { ...BASE, state: 'told', wroteBy: KOSMOS_EDIT,
 const EXPECTED = {
   current: { banner: 'silent', member: 'silent', badge: 'silent' },
   stale:   { banner: 'stale',  member: 'silent', badge: 'mark'   },
-  unknown: { banner: 'unknown', member: 'cannot-tell', badge: 'silent' },
+  /* #3529 (Josh, 2026-09-23): the unknown BANNER is now silent -- the "This
+     might not be what the agent is actually running... we cannot tell when this
+     agent last started" message was removed from the app on both platforms.
+     The member cell and card badge are a separate display element owned by
+     #3501 (PigeonPete) and are untouched here. */
+  unknown: { banner: 'silent', member: 'cannot-tell', badge: 'silent' },
   /* It knows. Nothing to say and nothing to do; see the renderer's comment for
      why this is silence rather than a calmer sentence. */
   told:    { banner: 'silent', member: 'silent', badge: 'silent' },
@@ -136,11 +141,14 @@ test('the instruments are reading the real page and the real vocabulary', () => 
   for (const known of ['current', 'stale', 'unknown', 'told']) {
     assert.ok(Object.values(instructions.STALENESS).includes(known), `STALENESS lost ${known}`);
   }
-  /* And the loud arm really is reachable, so "silent" means something. */
+  /* And a loud banner really is reachable, so "silent" means something. #3529:
+     the unknown arm no longer produces a banner, so the reachable-banner control
+     is now the hand-edited stale case ("[name] needs to be restarted"), which is
+     the loudest banner renderStale still draws. */
   const { el, render } = panel();
-  render(sampleFor('unknown'));
-  assert.match(el.innerHTML, /This might not be what the agent is actually running/,
-    'the alarming banner could not be produced at all, so no test here could show its absence');
+  render({ ...BASE, state: 'stale' });
+  assert.match(el.innerHTML, /needs to be restarted/,
+    'no banner could be produced at all, so no test here could show a banner\'s absence');
 });
 
 test('every staleness state has a decided outcome on every surface (#1213)', () => {
@@ -193,8 +201,12 @@ test('the stale surfaces still work: Kosmos-made is the reports section, unknown
   assert.match(reportsText.innerHTML, /updated working rules/, 'the reports section lost its wording');
   assert.doesNotMatch(reportsText.innerHTML, /Kosmos put it on Test 10/, 'the raw engine edit reached the detail surface');
   assert.equal(reportsGo.dataset.restartAgent, CARD.sessionName, 'the reports button is not pointed at the agent');
+  /* #3529: the unknown arm now says nothing -- the banner is gone, and it still
+     offers no remedy and leaves the reports section clear. */
   render(sampleFor('unknown'));
-  assert.match(el.innerHTML, /This might not be what the agent is actually running/);
+  assert.equal(el.hidden, true, 'the removed unknown staleness banner is showing again (#3529)');
+  assert.doesNotMatch(el.innerHTML, /might not be what the agent is actually running/i,
+    'the removed "might not be what the agent is actually running" message is back');
   assert.doesNotMatch(el.innerHTML, /data-restart-agent/, 'the unknown arm must not offer a remedy');
   assert.equal(reports.hidden, true, 'the reports section stayed up on an unknown reading');
   render(sampleFor('current'));

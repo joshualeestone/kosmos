@@ -28425,36 +28425,26 @@ function renderStale(s) {
     return;
   }
 
-  // unknown. Say which kind of not-knowing it is, rather than implying fine.
-  // Sentence-cased and terminated here rather than in the engine: the reasons
-  // are written as clause fragments so they can also be read as "... because
-  // <reason>", and rendering one straight after a full stop produced "running
-  // on. its instruction file is not UTF-8 text".
+  // unknown. #3529 (Josh, 2026-09-23): SAY NOTHING. The banner this arm used to
+  // render -- "This might not be what the agent is actually running. Agents read
+  // this file when they start. We cannot tell when this agent last started." --
+  // is exactly the internal telemetry-staleness / "we can't tell" hedging Josh
+  // asked to remove from the app on BOTH Mac and Windows. It reads as
+  // broken/uncertain to a user. So the unknown arm now behaves like the `told`
+  // arm above: it shows nothing, for EVERY unknown reason (cannot-date-last-
+  // start, unreadable file, bad mtime) -- Josh named the headline itself, which
+  // is shared across all of them, so the whole banner goes rather than only the
+  // last-start clause.
+  //
+  // ⚠️ CLEARED THROUGH setLive, NOT AROUND IT -- the same reason the `current`
+  // and `told` arms do (see the `current` arm's comment): setLive keeps a record
+  // of the last string it WROTE, so emptying the node any other way leaves that
+  // record stale and the banner blank the next time it is genuinely needed. No
+  // empty placeholder is left behind. The engine's `unknown` verdict is
+  // untouched; only its on-screen display is dropped.
   hideReports(); // #1841: reports section is the Kosmos-made-stale case only
-  const why = String(s.because || '');
-  const sentence = why ? `${why.charAt(0).toUpperCase()}${why.slice(1)}${/[.!?]$/.test(why) ? '' : '.'}` : '';
-  /**
-   * ⚠️ REWORDED 2026-08-11 after Josh read it on screen and could not parse it.
-   * It said "We cannot tell whether this is what it is running on", which is
-   * three pronouns deep and asks the reader to hold two nouns the sentence
-   * never names.
-   *
-   * ⚠️ The STATE stays exactly as it was, and that is the point of the change
-   * rather than a caveat on it. This is the honest "we cannot see" that this
-   * whole codebase exists to keep — the alternative is a screen implying the
-   * agent is running what you are looking at when nobody checked. Only the
-   * words changed.
-   *
-   * What it has to convey, and what the old wording assumed you already knew:
-   * an agent reads this file ONCE, when it starts. So the text on screen and
-   * the text the agent is actually running can differ, and here we could not
-   * work out which. Saying "agents read this file when they start" is what
-   * makes the reason that follows mean anything — without it, "we cannot tell
-   * when this agent last started" reads as an unrelated complaint.
-   */
-  setLive(el, '<b>This might not be what the agent is actually running.</b> '
-    + `Agents read this file when they start. ${esc(sentence)}`);
-  el.hidden = false;
+  if (!el.hidden) { el.hidden = true; setLive(el, ''); }
+  return;
 }
 
 document.getElementById('d-instr-save').addEventListener('click', async () => {
