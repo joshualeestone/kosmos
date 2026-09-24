@@ -96,6 +96,9 @@ test('a network error with a CURLY apostrophe still classifies connection_lost',
 // draws a live spinner; that must read WORKING, never connection_lost, so the
 // self-heal restart never touches an agent that may recover on its own. The
 // spinner sits ON SCREEN with the error line still in the tail.
+// ⚠️ This fixture's spinner is COMPOSED. The real Claude Code 2.1.281 retry line (measured
+// 2026-09-24) has no ellipsis or timer, so WORKING_LINE does not match it; that case is
+// status.connlost-retry-3410.test.js, built from captured frames.
 test('an actively-retrying agent (live spinner) reads working, NOT connection_lost', () => {
   const tail = "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)\n· Reconnecting… (4s · esc to interrupt)\n";
   const r = classify(pane(), tail);
