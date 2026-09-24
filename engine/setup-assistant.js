@@ -16,11 +16,15 @@
  * onboarding -- see the decisions below.
  *
  * DECISIONS (mine, per Josh's make-your-best-call ruling; adjust freely):
- * - NAME = the user's own name (Josh: "we would name it My Name (Josh)"). If the
- *   About-you step was skipped so there is no saved name, we SKIP the assistant
- *   rather than invent a name -- a nameless helper is worse than none.
- * - AVATAR = the user's own picture, copied onto the agent, best-effort. No
- *   picture -> the agent keeps the default initials avatar. Never fatal.
+ * - NAME and AVATAR are JOSH'S, not the user's. Josh, 2026-09-24 16:05: "I think
+ *   i want to use my avatar and play off the fact that I built it and will help
+ *   them." The first version (#3153) read the 09-14 note ("give it my avatar")
+ *   as the USER'S picture and name; his 09-24 ruling settles it the other way. So
+ *   the guide is GUIDE_NAME, carries GUIDE_TAG so nobody mistakes it for him
+ *   typing live, and wears the bundled picture at GUIDE_AVATAR_BASE when one is
+ *   shipped (no picture -> the initials avatar; never fatal). The role's own text
+ *   (engine/roles.js, `setup`) says the same, so the words and the face agree.
+ *   A saved user name is therefore no longer needed to seed.
  * - MODEL/ACCOUNT = the user's default connected account (createAgent with no
  *   model/account). Josh: runs on the user's own model, quota-burn accepted.
  * - CONNECTED-ACCOUNT GATE (the correctness crux). The wizard's model step is
@@ -45,12 +49,23 @@
 
 const fs = require('fs');
 const path = require('path');
-const you = require('./you');
 const store = require('./store');
 const accounts = require('./accounts');
 const create = require('./create');
 
 const SETUP_ROLE_KEY = 'setup';
+
+/* The guide's name, and the words that say it is an AI (#3034, Josh 2026-09-24).
+   GUIDE_TAG is for every surface that shows the guide's name, so the label
+   travels with it; the role's label says the same. */
+const GUIDE_NAME = 'Josh';
+const GUIDE_TAG = "Josh's AI";
+
+/* Where the bundled picture of Josh lives: web/icons/setup-guide-avatar.<ext>,
+   inside web/ so the app bundle ships it (tools/build-kosmos-bundle.sh copies web/
+   whole). Absent until the photo is chosen; the seed then uses the initials. */
+const GUIDE_AVATAR_DIR = path.join(__dirname, '..', 'web', 'icons');
+const GUIDE_AVATAR_BASE = 'setup-guide-avatar';
 
 /* #3034 (Josh, 2026-09-16): the first-run auto-create is GATED OFF. Josh's words:
  * "I don't know why this was set up as complete or indicated it was complete
@@ -100,19 +115,38 @@ const MIME_BY_EXT = {
   '.gif': 'image/gif', '.webp': 'image/webp',
 };
 
-/* Copy the user's own picture onto the freshly-created agent. Best-effort and
+/* The bundled picture of Josh, or null when none is shipped. `dir` is injectable
+   so a test can point it at a sandbox. */
+function guideAvatarPath(dir = GUIDE_AVATAR_DIR) {
+  for (const ext of Object.keys(MIME_BY_EXT)) {
+    const f = path.join(dir, GUIDE_AVATAR_BASE + ext);
+    try { if (fs.statSync(f).isFile()) return f; } catch { /* not this one */ }
+  }
+  return null;
+}
+
+/* Copy the guide's picture onto the freshly-created agent. Best-effort and
  * fully isolated: any failure leaves the agent with its default avatar and never
- * affects the create outcome or onboarding. */
-function copyUserAvatar(agentName) {
+ * affects the create outcome or onboarding. store.saveAvatar sniffs the bytes, so
+ * a mislabelled file is refused there rather than trusted by its extension. */
+function copyGuideAvatar(agentName, dir) {
   try {
-    const pic = you.picturePath();           // null when the user has no picture
+    const pic = guideAvatarPath(dir);
     if (!pic) return false;
     const type = MIME_BY_EXT[path.extname(pic).toLowerCase()];
-    if (!type) return false;                 // an extension we do not serve -> skip
-    const buf = fs.readFileSync(pic);
-    store.saveAvatar(agentName, type, buf);
+    if (!type) return false;
+    store.saveAvatar(agentName, type, fs.readFileSync(pic));
     return true;
   } catch { return false; }
+}
+
+/* The guide's agent name as recorded when it was seeded, or null (never seeded,
+ * or a flag we cannot read). The page-context route writes only for this agent. */
+function guideName() {
+  try {
+    const rec = JSON.parse(fs.readFileSync(flagPath(), 'utf8'));
+    return rec && typeof rec.name === 'string' && rec.name ? rec.name : null;
+  } catch { return null; }
 }
 
 /*
@@ -124,18 +158,11 @@ function copyUserAvatar(agentName) {
  * succeeded, and a helper is a nicety that must not turn a done onboarding into
  * an error. The caller writes the once-ever flag on `seeded: true`.
  */
-function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount } = {}) {
+function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
   if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
-  // Name after the user; skip (do not invent a name) if there is none saved.
-  let name;
-  try {
-    const rec = you.read();
-    name = rec && rec.state === 'saved' && rec.you && typeof rec.you.name === 'string'
-      ? rec.you.name.trim() : '';
-  } catch { name = ''; }
-  if (!name) return { seeded: false, reason: 'no saved user name to name the assistant after' };
+  const name = GUIDE_NAME;
 
   // A live agent needs a model. Gate on a connected account rather than create a
   // KeepAlive agent that would loop on auth failure (see the header note).
@@ -149,7 +176,7 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
       name,
       role: SETUP_ROLE_KEY,
       createdBy: 'kosmos',
-      purpose: 'default Kosmos setup assistant (auto-created on first-run, #3034)',
+      purpose: `default Kosmos setup guide, ${GUIDE_TAG} (auto-created on first-run, #3034)`,
     });
   } catch (err) {
     // createAgent is not expected to throw (it returns a refusal outcome), but
@@ -163,12 +190,17 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
     return { seeded: false, reason: 'not created: ' + ((out && out.because) || (out && out.outcome) || 'unknown') };
   }
 
-  const avatarCopied = copyUserAvatar(out.name || name);
+  const avatarCopied = copyGuideAvatar(out.name || name, avatarDir);
   return { seeded: true, name: out.name || name, avatarCopied };
 }
 
 module.exports = {
   SETUP_ROLE_KEY,
+  GUIDE_NAME,
+  GUIDE_TAG,
+  GUIDE_AVATAR_BASE,
+  guideAvatarPath,
+  guideName,
   FIRSTRUN_AUTOCREATE_ENABLED,
   flagPath,
   setupAssistantSeeded,

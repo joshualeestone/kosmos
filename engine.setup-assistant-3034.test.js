@@ -8,9 +8,10 @@
  * `hasConnectedAccount` (so the account gate is exercised without real config).
  * The load-bearing controls are the DANGEROUS answers: it must NOT seed when
  * there is no connected account (a live agent would churn under KeepAlive), no
- * saved user name, the runner refuses, or it was already seeded -- and it must
- * NOT throw or double-create. The positive case proves it DOES create, names the
- * agent after the user, uses the `setup` role, and copies the avatar.
+ * the runner refuses, or it was already seeded -- and it must NOT throw or
+ * double-create. The positive case proves it DOES create, as Josh (#3034, his
+ * 2026-09-24 ruling: his name and picture, labelled as his AI), in the `setup`
+ * role, with the bundled picture when one ships and never the user's.
  *
  *   node --test engine.setup-assistant-3034.test.js
  */
@@ -59,18 +60,20 @@ test('the setup role exists, is menu:false, and is NOT offered in the normal cre
   const inMenu = roles.ROLES.filter((r) => r.menu !== false).some((r) => r.key === 'setup');
   assert.equal(inMenu, false, 'the setup role leaked into the create menu');
   const brief = roles.instructionsFor('setup', 'Dana');
-  assert.match(brief, /You are \*\*Dana\*\*, the Kosmos setup guide\./);
+  assert.match(brief, /You are \*\*Dana\*\*, the Kosmos setup guide: an AI version of Josh/);
 });
 
-test('POSITIVE: saved user name + connected account -> seeds, named after the user, role setup', () => {
+test('POSITIVE: connected account -> seeds as Josh (not the user), role setup, labelled as his AI', () => {
   you.save({ name: 'Testuser', does: 'runs things' });
   const calls = [];
   const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk(calls), hasConnectedAccount: CONNECTED });
   assert.equal(res.seeded, true, res.reason || '');
-  assert.equal(res.name, 'Testuser');
+  assert.equal(setupAssistant.GUIDE_NAME, 'Josh');
+  assert.equal(res.name, 'Josh');
   assert.equal(calls.length, 1, 'createAgent was not called exactly once');
-  assert.equal(calls[0].name, 'Testuser', 'the assistant was not named after the user');
+  assert.equal(calls[0].name, 'Josh', 'the guide was named after the user, not Josh (#3034, 2026-09-24)');
   assert.equal(calls[0].role, 'setup', 'the assistant was not created in the setup role');
+  assert.match(calls[0].purpose, /Josh's AI/);
 });
 
 test('CONTROL: no connected account -> does NOT seed and does NOT call createAgent (no churning dead agent)', () => {
@@ -83,12 +86,11 @@ test('CONTROL: no connected account -> does NOT seed and does NOT call createAge
   assert.equal(setupAssistant.setupAssistantSeeded(), false, 'a skipped seed must leave NO flag');
 });
 
-test('CONTROL: no saved user name -> does NOT seed and does NOT call createAgent', () => {
+test('no saved user name no longer blocks the seed: the guide is Josh either way', () => {
   const calls = [];
   const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk(calls), hasConnectedAccount: CONNECTED });
-  assert.equal(res.seeded, false);
-  assert.match(res.reason, /user name/);
-  assert.equal(calls.length, 0, 'createAgent must not be called with no name to give the assistant');
+  assert.equal(res.seeded, true, res.reason || '');
+  assert.equal(calls[0].name, 'Josh');
 });
 
 test('CONTROL: the runner refuses (Claude Code absent) -> does NOT seed and writes NO flag', () => {
@@ -128,23 +130,45 @@ test('ONCE-EVER: once the flag is written, a second seed is a no-op (createAgent
   assert.equal(calls.length, 1, 'the second seed must not attempt another create');
 });
 
-test('AVATAR: the user picture is copied onto the created agent (best-effort)', () => {
-  you.save({ name: 'Picuser', does: 'has a photo' });
-  const saved = you.savePicture('image/png', PNG_1x1);
-  assert.ok(saved.ok, 'the test fixture picture was not accepted: ' + (saved.because || ''));
+function avatarDirWith(file, bytes) {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'guide-avatar-'));
+  if (file) fs.writeFileSync(path.join(dir, file), bytes);
+  return dir;
+}
+
+test('AVATAR: the bundled picture of Josh is copied onto the guide (best-effort)', () => {
+  const dir = avatarDirWith(setupAssistant.GUIDE_AVATAR_BASE + '.png', PNG_1x1);
+  assert.equal(setupAssistant.guideAvatarPath(dir), path.join(dir, setupAssistant.GUIDE_AVATAR_BASE + '.png'));
   const calls = [];
-  const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk(calls), hasConnectedAccount: CONNECTED });
+  const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk(calls), hasConnectedAccount: CONNECTED, avatarDir: dir });
   assert.equal(res.seeded, true, res.reason || '');
-  assert.equal(res.avatarCopied, true, 'the user avatar should have been copied');
-  assert.ok(store.avatarPath('Picuser'), 'the created agent has no avatar on disk after the copy');
+  assert.equal(res.avatarCopied, true, 'the bundled picture should have been copied');
+  assert.ok(store.avatarPath('Josh'), 'the guide has no avatar on disk after the copy');
 });
 
-test('AVATAR: no user picture -> still seeds, avatarCopied is false (not fatal)', () => {
-  you.save({ name: 'Nopicuser', does: 'no photo' });
+test('AVATAR: the USER\'s picture is never used, and no bundled picture -> initials (not fatal)', () => {
+  you.save({ name: 'Picuser', does: 'has a photo' });
+  assert.ok(you.savePicture('image/png', PNG_1x1).ok, 'CONTROL: the user has a picture to (wrongly) copy');
   const calls = [];
-  const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk(calls), hasConnectedAccount: CONNECTED });
+  const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk(calls), hasConnectedAccount: CONNECTED, avatarDir: avatarDirWith(null) });
   assert.equal(res.seeded, true, res.reason || '');
-  assert.equal(res.avatarCopied, false, 'there was no picture, so nothing should have been copied');
+  assert.equal(res.avatarCopied, false, 'the user\'s picture was put on Josh\'s guide');
+  assert.equal(store.avatarPath('Josh'), null);
+});
+
+test('AVATAR: a file that is not an image is refused by the byte sniff, and the seed still succeeds', () => {
+  const dir = avatarDirWith(setupAssistant.GUIDE_AVATAR_BASE + '.png', Buffer.from('not a picture at all'));
+  const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk([]), hasConnectedAccount: CONNECTED, avatarDir: dir });
+  assert.equal(res.seeded, true);
+  assert.equal(res.avatarCopied, false);
+});
+
+test('guideName: null until seeded, then the name the seed recorded', () => {
+  assert.equal(setupAssistant.guideName(), null);
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  assert.equal(setupAssistant.guideName(), 'Josh');
+  fs.writeFileSync(setupAssistant.flagPath(), '{not json');
+  assert.equal(setupAssistant.guideName(), null, 'an unreadable flag names no guide');
 });
 
 test('GATE (#3034, Josh 2026-09-16): first-run auto-create is OFF pending Josh direction', () => {
