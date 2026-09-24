@@ -292,8 +292,9 @@ test('#2617: the scan splits the same rows by folder, once per message', async (
   fs.writeFileSync(nodePath.join(dir, 's.jsonl'), [
     cwdRow({ timestamp: '2026-08-21T10:00:00.000Z', id: 'a', cwd: '/w/ann', output: 10 }),
     cwdRow({ timestamp: '2026-08-21T10:00:01.000Z', id: 'a', cwd: '/w/ann', output: 10 }), // the same message restated
-    cwdRow({ timestamp: '2026-08-21T11:00:00.000Z', id: 'b', cwd: '/w/bob', output: 7 }),
   ].join('\n') + '\n', 'utf8');
+  fs.writeFileSync(nodePath.join(dir, 't.jsonl'),
+    cwdRow({ timestamp: '2026-08-21T11:00:00.000Z', id: 'b', cwd: '/w/bob', output: 7 }) + '\n', 'utf8');
   const { days, folders } = await usage.scanUsage({ sinceDay: '2026-08-21', untilDay: '2026-08-21' });
   assert.equal(folders['2026-08-21']['/w/ann'].output_tokens, 10, 'a restated message was counted twice in the folder split');
   assert.equal(folders['2026-08-21']['/w/bob'].output_tokens, 7);
@@ -365,7 +366,8 @@ test('#2617: a day already frozen per model keeps its total; its folder split is
   const r = await usage.dailyUsageByModel(2);
   assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 99, 'the frozen per-model total was overwritten by a rescan');
   assert.equal(r.byFolder[day]['/w/ann'].output_tokens, 7);
-  assert.ok(fs.existsSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`)), 'the folder split was not frozen');
+  const frozenFolders = JSON.parse(fs.readFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), 'utf8'));
+  assert.equal(frozenFolders['/w/ann'].output_tokens, 7, 'the folder split was not frozen with its contents');
   assert.equal(JSON.parse(fs.readFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), 'utf8'))['claude-sonnet-5'].output_tokens, 99,
     'the frozen per-model file on disk was rewritten');
   const a = usage.byAgent(r, [{ name: 'ann', dir: '/w/ann' }], (p) => p);
@@ -384,4 +386,17 @@ test('#2617: an unreadable frozen file is rescanned, not fatal', async () => {
   const r = await usage.dailyUsageByModel(2);
   assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 5, 'a malformed frozen total was not rescanned');
   assert.equal(r.byFolder[day]['/w/ann'].output_tokens, 5, 'a malformed frozen folder split was not rescanned');
+});
+
+test('#2617: a session that cd-s into a worktree stays with the folder it was launched in', async () => {
+  resetSandbox();
+  const dir = projectDir('proj-cd');
+  fs.writeFileSync(nodePath.join(dir, 's.jsonl'), [
+    JSON.stringify({ type: 'summary', summary: 'no cwd on this line' }),
+    cwdRow({ timestamp: '2026-08-22T10:00:00.000Z', id: 'c1', cwd: '/w/ann', output: 3 }),
+    cwdRow({ timestamp: '2026-08-22T10:05:00.000Z', id: 'c2', cwd: '/work/repo-branch', output: 8 }),
+  ].join('\n') + '\n', 'utf8');
+  const { folders } = await usage.scanUsage({ sinceDay: '2026-08-22', untilDay: '2026-08-22' });
+  assert.equal(folders['2026-08-22']['/w/ann'].output_tokens, 11, 'work after a cd left the agent it belongs to');
+  assert.equal(folders['2026-08-22']['/work/repo-branch'], undefined);
 });
