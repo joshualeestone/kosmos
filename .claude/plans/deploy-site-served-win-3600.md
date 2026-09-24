@@ -52,7 +52,7 @@ The pre-deploy committed-pointer vs committed-bytes agreement (#2571) still runs
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Six arms with a redirect-aware
+`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Eleven arms with a redirect-aware
 curl stub: the card's shape (A1) with a control pinning the old semantics (A2), an unserved served
 zip (A3), a pointer/sidecar disagreement (A4), the static path unchanged (A5) and its control (A6),
 a superseded staged build skipped (A7), a newer served staged build verified (A8) and its control
