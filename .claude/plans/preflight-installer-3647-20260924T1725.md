@@ -32,6 +32,11 @@ Two valid Installer identities matching the same name (an ambiguous match) pass 
 3c would then fail. build-installer-pkg.sh's own pre-check has the same limit. A real productsign
 test at 1c would cover it and was rejected above as unnecessary for presence.
 
+The match is a substring, like 3c's own `grep -qF` and like productsign, which also
+accepts a partial identity name. So an override that is a fragment of a DIFFERENT
+listed identity (a truncated SHA-1, say) passes 1c. Kept on purpose: an exact match at
+1c would refuse fragments that 3c accepts, and the default is a full name.
+
 ## Weakest premise
 That a present Installer identity is usable whenever the Application one just signed (same keychain,
 same unlock). A separately locked or partitioned Installer key would still fail at 3c.

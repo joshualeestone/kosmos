@@ -39,6 +39,7 @@ sm_ok()    { [ "$1" = path ] && [ "$2" = "$KOSMOS_NOTARY_SECRET_TARGET" ] && ech
 sm_none()  { echo "secrets-map: no credential for target" >&2; return 1; }
 sec_hashonly() { _secv "$@" || return; echo "  1) 0123ABCDEF (identity listed by hash only)"; }
 sec_broken() { echo "security: SecKeychainSearchCopyNext: boom" >&2; return 1; }
+sec_listfail() { _secv "$@" || return; echo "  1) 0123ABCDEF \"$KOSMOS_SIGN_INSTALLER_DEFAULT\""; echo "security: partial enumeration" >&2; return 1; }
 sm_dir()   { echo "$WORK"; }
 sm_badpath() { echo "$WORK/no-such-notary.p8"; }
 export KOSMOS_SECURITY_BIN=sec_ok KOSMOS_SECRETS_MAP_BIN=sm_ok
@@ -178,6 +179,8 @@ case "$rc:$out" in 1:*"Installer identity"*"NOT in this session"*"notary key"*"d
 out="$(KOSMOS_SECURITY_BIN=sec_broken run cs_ok)"; rc=$?
 case "$rc:$out" in 1:*"find-identity -v' FAILED (rc=1)"*"boom"*) ok "#3647: a failing security command is reported as a failure, with its own error" ;; *) bad "#3647: a failing security command was misreported (rc=$rc): $out" ;; esac
 case "$out" in *"NOT in this session"*) bad "#3647: a failing security command claimed the identity is absent: $out" ;; *) ok "#3647: a failing security command does not claim the identity is absent" ;; esac
+out="$(KOSMOS_SECURITY_BIN=sec_listfail run cs_ok)"; rc=$?
+case "$rc:$out" in 1:*"FAILED (rc=1)"*"partial enumeration"*) ok "#3647: a security command that lists the identity but exits non-zero refuses" ;; *) bad "#3647: a non-zero security exit passed on a listed identity (rc=$rc): $out" ;; esac
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
 [ "$fails" = 0 ] && [ "$passes" -ge 38 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
