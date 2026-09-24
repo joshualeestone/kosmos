@@ -33,11 +33,14 @@ event's own timestamp). groksession.read already handles this; grokCompletionAt 
 The test fixture therefore sets the completion time via `fs.utimesSync` on signals.json.
 
 ## Scope boundary (documented, identical to gemini)
-Badges NAMED grok accounts only. A default-account grok agent records an XAI observation that is
-harmlessly orphaned (grokAccounts.listLive() emits only named accounts in this slice; no default
-grok row; the default-key door is a follow-on). The observation never leaks onto a named row and
-never crashes; it is forward-compatible. accountForAgent's dir-less `isOpenaiRow` arm must be
-generalized when the default-account door lands (specced in the server overlay comment).
+Badges NAMED grok accounts only. A default-account grok agent (configDir null) records an XAI
+observation that is harmlessly orphaned. The scope-safety does NOT rest on "there is no default
+grok row" - grokaccounts.list() DOES surface a default row when the default dir holds a key. It
+rests on accountForAgent returning null for a configDir-null agent, so a default agent's
+observation has no row to join and is dropped, whether or not a default row is present. The
+observation never leaks onto a named row and never crashes; it is forward-compatible. The
+default-key door is a follow-on: accountForAgent's dir-less `isOpenaiRow` arm must be generalized
+when it lands (specced in the server overlay comment).
 
 ## What I rejected / did NOT do
 - Negative/red badges: POSITIVE-ONLY (no rejected/red until an observed on-pane grok auth-failure
@@ -45,10 +48,21 @@ generalized when the default-account door lands (specced in the server overlay c
 - No web/ change; no new session plumbing (groksession already returns contextUsedAt).
 
 ## Weakest premise
-grok's completion signal is signals.json's mtime, a slightly weaker anchor than a content timestamp
-(groksession.read's own header notes this). If grok rewrote signals.json without a completed turn,
-a false-fresh window could open; but grok writes it once per completed turn, and the freshness gate
-self-heals. Worst case is under-badge (grey), never a false green.
+grok's completion signal is signals.json's mtime, a genuinely weaker anchor than the CONTENT
+timestamp codex and gemini read (groksession.read's own header notes this). The two failure
+directions are not symmetric, and it matters which the mtime protects:
+- STALE (an old completion): the 5-minute freshness gate drops it, and the badge self-heals to
+  grey. This direction is closed by the gate.
+- FALSE-FRESH (a fresh mtime with no real completed turn): the freshness gate does NOT close this
+  one, because the mtime IS fresh. What holds it shut is the premise that grok writes signals.json
+  exactly once, at the completion of an authenticated turn. If that premise failed (a spurious
+  rewrite bumping the mtime inside the window without a real auth'd completion), the failure would
+  be a false GREEN, not grey.
+
+So the load-bearing premise is "one signals.json write per completed authenticated turn", NOT the
+freshness gate. Real-world risk is low (the write is positive-only and turn-coupled) and it still
+self-heals once the mtime ages past the window, but this is the honest weakest premise: the badge
+is only as trustworthy as that once-per-turn write, which is weaker than codex/gemini's anchor.
 
 ## Tests (all green)
 - `engine/status.grok-observed-3391.test.js` (4): completion-timestamp resolve/null (mtime, ~tolerance);
