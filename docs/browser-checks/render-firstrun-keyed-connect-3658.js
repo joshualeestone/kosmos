@@ -59,7 +59,7 @@ const chk = (ok, label, extra) => {
         if (window.__hold) await window.__hold;
         const provider = m[1] === 'gemini' ? 'google' : 'xai';
         const account = { provider, connection: { state: window.__unknown ? 'unknown' : 'connected' } };
-        if (!window.__unknown) window.__accounts.push(account);
+        window.__accounts.push(account);   // the server keeps an unconfirmed key too
         return enc({ ok: true, account });
       }
       if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: window.__accounts });
@@ -96,7 +96,7 @@ const chk = (ok, label, extra) => {
     return { posts: window.__posts.slice(), boxHidden: document.getElementById('fr-apikey-flow').hidden,
       msg: document.getElementById('fr-apikey-msg').textContent, expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded') };
   });
-  chk(miss.posts.length === 1 && !miss.posts[0].body.key && miss.boxHidden && /`gemini`/.test(miss.msg) && /not installed/.test(miss.msg) && miss.expanded === 'false',
+  chk(miss.posts.length === 1 && !miss.posts[0].body.key && miss.boxHidden && /"gemini"/.test(miss.msg) && /not installed/.test(miss.msg) && miss.expanded === 'false',
     'a missing runner is found BEFORE the key box: the box stays shut and the tool is named', JSON.stringify(miss));
 
   const g = await q(async () => {
@@ -156,12 +156,17 @@ const chk = (ok, label, extra) => {
     window.__unknown = false;
     const b = document.getElementById('fr-gemini-connect');
     return { last: window.__posts[window.__posts.length - 1], msg: document.getElementById('fr-apikey-msg').textContent,
-      boxHidden: document.getElementById('fr-apikey-flow').hidden, btn: b.textContent.trim(), expanded: b.getAttribute('aria-expanded'),
+      boxHidden: document.getElementById('fr-apikey-flow').hidden, btn: b.textContent.trim(), disabled: b.disabled, expanded: b.getAttribute('aria-expanded'),
       focused: document.activeElement && document.activeElement.id };
   });
   chk(unk.last && unk.last.route === 'gemini' && unk.last.body.key === 'AIza-secret', 'Add POSTs the trimmed key to the Gemini route', JSON.stringify(unk.last));
-  chk(unk.boxHidden && /key is saved/.test(unk.msg) && unk.btn === 'Connect', 'an unconfirmed key is said to be saved, not connected, and the row stays Connect', JSON.stringify(unk));
+  chk(unk.boxHidden && /key is saved/.test(unk.msg) && unk.btn === 'Key saved' && unk.disabled, 'an unconfirmed key is said to be saved, not connected, and Connect is not offered again (no duplicate)', JSON.stringify(unk));
   chk(unk.expanded === 'false' && unk.focused === 'fr-apikey-msg', 'after Add the button is no longer expanded and focus lands on the result', JSON.stringify(unk));
+  // Reset: forget the unconfirmed Gemini account so the arms below start from Connect.
+  await q(async () => {
+    window.__accounts = window.__accounts.filter((a) => a.provider !== 'google');
+    await frPaintKeyed();
+  });
 
   // Away and back: a Gemini Add lands after the person closed the box and reopened it (Grok is
   // already connected by now, so its disabled Connect cannot be the way away).
