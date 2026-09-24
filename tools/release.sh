@@ -647,6 +647,16 @@ trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/nu
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD"
 
+step "== 2c. the signing key answers, before the gated steps (#3579) =="
+# Step 4 signs Developer ID. A locked login keychain (any plain SSH session) made
+# 0.6.91's first cut die THERE, after ~22 minutes of suite and page layer, and a cut
+# does not resume. One throwaway test-sign here costs about a second. Placed after
+# the freeze, not before step 2, because tools.release-gate.test.js drives a sandbox
+# to step 2 with no signing identity; a stop here leaves only the step-2 bump, which
+# the re-cut's step 2 treats as already done.
+. "$REPO/tools/lib/cut-sign-preflight.sh"
+kosmos_sign_preflight || exit 1
+
 # #2017: do not run the gated steps (the suite here AND the browser layer at 3b)
 # into a box some OTHER heavy job is saturating. #1962 reserves the box against
 # agent SUITES but not arbitrary background load, and a gate on a loaded box
