@@ -76,12 +76,13 @@ chars). For a new item:
 voting engine, no multi-round loop: the per-pair cap and the colleagues rule ("stop after a few
 rounds") both argue against it, and a single documented decision is what Josh asked for.
 
-**Who can change the setting.** Only the person's screen: `PUT /api/recommender-setting` refuses
-a process caller (tokenless, or presenting an agent token), because the guards are the feature's
-only protection and an agent under bypass permissions must not be able to switch them off.
+**Who can change the setting.** `PUT /api/recommender-setting` refuses a caller `isViaScreen` reads
+as a process (a presented agent token, or no browser header). This is ADVISORY, not a protection:
+a local process can send the header, and the setting file is on disk. It stops the default CLI
+path only. The real protection is the tool-level guards card.
 
 **Guards, stated honestly.** v1 enforces the three guards at the INSTRUCTION level: they are in the
-convening message and in a managed instruction block, only the ACTIVE ones, with the person's own
+playbook delivered to the stuck agent (the managed instruction block is deferred), only the ACTIVE ones, with the person's own
 switches respected. That matches how agents already treat these three limits (defaults.js). The
 Recommender does not widen what an agent can do; it shortens the wait before a reversible decision.
 A tool-level deny (the PreToolUse hook) is a separate card, not v1.
@@ -173,3 +174,6 @@ Unit tests on the pure step functions (both arms per rule), route tests, a brows
 enabled controls, and a sandboxed end-to-end run: seed a project with 2 agents, report one needs_you,
 and observe the room note and the delivered playbook; seed an idle agent plus an open task, and
 observe the assignment and the pane message. Then served-build eyes-on after a release.
+**Phase 1 as evidenced on the branch:** unit tests on real cards, route tests, a behavioural test of
+the Settings save paths, and a headless browser check. The sandboxed end-to-end pane run was NOT
+done on the branch; it moves to the served-build check after release.

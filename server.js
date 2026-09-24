@@ -6586,10 +6586,9 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        /* #3595: this setting now drives the Recommender, and its guards are the feature's only
-           protection. An agent (a board-token or tokenless process caller, e.g. the CLI under
-           bypass permissions) must not be able to switch them off, so only the person's screen
-           may change it. */
+        /* #3595: refuse a caller isViaScreen reads as a process (a presented agent token, or no
+           browser header). ADVISORY, per isViaScreen's own note: a local process can send the
+           header, and the setting file is on disk. It stops the default CLI path only. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
         // One change per PUT (the UI commits each control on flip): either the
         // on/off toggle, or ONE guard. setGuard merges a single guard so the other
@@ -14749,8 +14748,7 @@ function start(port = PORT) {
         try {
           const setting = recommenderSetting.read();
           const roster = setting.on ? safeRoster() : null;
-          // Archived projects are left out, so their members are never asked.
-          const members = setting.on ? new Map(projects.readAll().filter((p) => p && p.archived !== true).map((p) => [p.id, Array.isArray(p.agents) ? p.agents : []])) : new Map();
+          const members = setting.on ? recommender.membersFrom(projects.readAll()) : new Map();
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
             roomNote: (projectId, text) => messages.roomNote(projectId, text),

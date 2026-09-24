@@ -19432,7 +19432,12 @@ function recUndoGuard(change) {
   if (cb) cb.checked = change.value !== true;
 }
 async function saveRecommender(change) {
-  if (REC_SAVING) { recUndoGuard(change); return; }
+  if (REC_SAVING) {
+    recUndoGuard(change);
+    const busy = document.getElementById('rec-msg');
+    if (busy) busy.textContent = 'Still saving the last change. Try again in a moment.';
+    return;
+  }
   REC_SAVING = true;
   const mine = ++REC_EPOCH;
   const msg = document.getElementById('rec-msg');
@@ -19442,8 +19447,9 @@ async function saveRecommender(change) {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(change),
     });
     const out = await res.json().catch(() => ({}));
+    if (!res.ok) failed = true; // before the epoch check, so a refused save is always undone
     if (mine !== REC_EPOCH) return;
-    if (!res.ok) { failed = true; if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintRecommenderFrom(out);
     if (msg) msg.textContent = '';
   } catch {
