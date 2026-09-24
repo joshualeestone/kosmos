@@ -400,3 +400,33 @@ test('#2617: a session that cd-s into a worktree stays with the folder it was la
   assert.equal(folders['2026-08-22']['/w/ann'].output_tokens, 11, 'work after a cd left the agent it belongs to');
   assert.equal(folders['2026-08-22']['/work/repo-branch'], undefined);
 });
+
+test('#2617: a corrupt frozen total does not throw away a good frozen folder split', async () => {
+  resetSandbox();
+  const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  fs.mkdirSync(usage.USAGE_DIR, { recursive: true });
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), '{not json', 'utf8');
+  const good = { '/w/ann': { input_tokens: 0, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 5 } };
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), JSON.stringify(good), 'utf8');
+  // Only part of that day survives on disk now.
+  const dir = projectDir('proj-part');
+  fs.writeFileSync(nodePath.join(dir, 's.jsonl'),
+    cwdRow({ timestamp: `${day}T10:00:00.000Z`, id: 'p', cwd: '/w/ann', output: 2 }) + '\n', 'utf8');
+  const r = await usage.dailyUsageByModel(2);
+  assert.equal(r.byFolder[day]['/w/ann'].output_tokens, 50, 'the good frozen folder split was replaced by a thinner rescan');
+  assert.equal(JSON.parse(fs.readFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), 'utf8'))['/w/ann'].output_tokens, 50);
+  assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 2, 'the corrupt total was not rescanned');
+});
+
+test('#2617: one message in two transcripts is credited to the same folder on every scan', async () => {
+  resetSandbox();
+  const dir = projectDir('proj-dup');
+  // Written in reverse name order, so creation order cannot be what decides it.
+  fs.writeFileSync(nodePath.join(dir, 'b.jsonl'),
+    cwdRow({ timestamp: '2026-08-23T10:00:00.000Z', id: 'same', cwd: '/w/bob', output: 9 }) + '\n', 'utf8');
+  fs.writeFileSync(nodePath.join(dir, 'a.jsonl'),
+    cwdRow({ timestamp: '2026-08-23T10:00:00.000Z', id: 'same', cwd: '/w/ann', output: 9 }) + '\n', 'utf8');
+  const { folders } = await usage.scanUsage({ sinceDay: '2026-08-23', untilDay: '2026-08-23' });
+  assert.equal(folders['2026-08-23']['/w/ann'].output_tokens, 9, 'the sorted-first transcript did not win the dedup');
+  assert.equal(folders['2026-08-23']['/w/bob'], undefined, 'one message was counted in two folders');
+});
