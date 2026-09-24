@@ -234,8 +234,56 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   return { seeded: true, name: out.name || name, avatarCopied, marked };
 }
 
+/*
+ * The person's switch for the setup assistant bubble (#3034; Josh, 2026-09-24 18:02:
+ * "the first time they hit the X to say close or like a close this forever function
+ * ... a switch in settings somewhere for setup assistance that we tell them where it
+ * is if they want to reactivate it").
+ *
+ * Stored in the board's settings (/api/settings), not the page's storage, for the
+ * reason the tips switch (#3574) gives: page storage can come back empty, and then a
+ * bubble somebody closed forever would come back.
+ *   on     the Settings switch. false = "Don't show this again": no bubble at all.
+ *   asked  the first-X choice (Close for now / Don't show this again) has been offered,
+ *          so later closes just close.
+ * The bubble, the X dialog and the Settings row are Mona's; this is only the state.
+ */
+const SETTING_DEFAULT = Object.freeze({ on: true, asked: false });
+const SETTING_KEYS = Object.keys(SETTING_DEFAULT);
+
+/** The stored setting with defaults filled in; anything malformed reads as the default. */
+function settingFrom(stored) {
+  const a = (stored && typeof stored.setupAssistant === 'object' && stored.setupAssistant) || {};
+  const out = {};
+  for (const k of SETTING_KEYS) out[k] = typeof a[k] === 'boolean' ? a[k] : SETTING_DEFAULT[k];
+  return out;
+}
+
+/** Why a POSTed patch is refused, or null. A patch sets one or both keys, booleans only. */
+function settingPatchProblem(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'that is not a valid setup assistant setting';
+  const keys = Object.keys(patch);
+  if (!keys.length) return 'that is not a valid setup assistant setting';
+  for (const k of keys) {
+    if (!SETTING_KEYS.includes(k)) return 'that is not a valid setup assistant setting';
+    if (typeof patch[k] !== 'boolean') return 'that is not a valid setup assistant setting';
+  }
+  return null;
+}
+
+/** The whole setting after a valid patch, so a write of one key never drops the other. */
+function mergeSetting(stored, patch) {
+  const next = settingFrom(stored);
+  for (const k of SETTING_KEYS) if (k in patch) next[k] = patch[k];
+  return next;
+}
+
 module.exports = {
   SETUP_ROLE_KEY,
+  SETTING_DEFAULT,
+  settingFrom,
+  settingPatchProblem,
+  mergeSetting,
   GUIDE_NAME,
   GUIDE_FALLBACK_NAME,
   GUIDE_TAG,

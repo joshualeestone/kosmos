@@ -24,6 +24,12 @@ Josh, 16:04-16:06 CDT (#admin, relayed on #3034):
    `{ screen, agent?, project?, tab? }`; the server writes `roles.PAGE_FILE` (`kosmos-page.md`) beside the SEEDED
    guide's instructions only.
 
+5. **The bubble's switch** (Josh, 18:02: close-forever on the first X, and a Settings switch to bring it back; Splinter
+   assigned the storage to this branch): `/api/settings` carries `setupAssistant: { on, asked }`, default
+   `{ on: true, asked: false }`. `on` is the Settings switch ("Don't show this again" writes false); `asked` records that
+   the first-X choice was offered. A patch sets either key and keeps the other; non-booleans are a 400. Kept on the board,
+   not in page storage, for the tips switch's reason (#3574): page storage can come back empty.
+
 ## Decided, and why
 - **A file, not a prefix on the message.** The chat route types the person's words into the agent's terminal and
   records exactly those words. A context prefix would put words in the thread the person never typed (or split the

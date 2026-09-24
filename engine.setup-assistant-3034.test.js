@@ -237,3 +237,21 @@ test('WIRING GUARD (#3034): server.js seeds the assistant ONLY behind the flag',
   assert.match(src, /if\s*\(\s*setupAssistant\.FIRSTRUN_AUTOCREATE_ENABLED\s*\)[\s\S]{0,600}?seedSetupAssistant\s*\(/,
     'the seedSetupAssistant() call in server.js is not guarded by FIRSTRUN_AUTOCREATE_ENABLED -- the gate wiring was removed or bypassed');
 });
+
+test('SETTING: defaults to on and not yet asked; anything malformed reads as the default', () => {
+  assert.deepEqual(setupAssistant.settingFrom({}), { on: true, asked: false });
+  assert.deepEqual(setupAssistant.settingFrom(null), { on: true, asked: false });
+  assert.deepEqual(setupAssistant.settingFrom({ setupAssistant: { on: 'no', asked: 1 } }), { on: true, asked: false });
+  assert.deepEqual(setupAssistant.settingFrom({ setupAssistant: { on: false, asked: true } }), { on: false, asked: true });
+});
+
+test('SETTING: a patch sets one or both keys as booleans, and the other key is kept', () => {
+  for (const bad of [null, [], {}, { on: 'false' }, { asked: 0 }, { on: true, extra: true }, 'on']) {
+    assert.ok(setupAssistant.settingPatchProblem(bad), `${JSON.stringify(bad)} was accepted`);
+  }
+  assert.equal(setupAssistant.settingPatchProblem({ on: false }), null);
+  assert.equal(setupAssistant.settingPatchProblem({ asked: true, on: true }), null);
+  const stored = { setupAssistant: { on: false, asked: false } };
+  assert.deepEqual(setupAssistant.mergeSetting(stored, { asked: true }), { on: false, asked: true }, 'setting asked turned the bubble back on');
+  assert.deepEqual(setupAssistant.mergeSetting({}, { on: false }), { on: false, asked: false });
+});

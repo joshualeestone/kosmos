@@ -9139,7 +9139,7 @@ const server = http.createServer((req, res) => {
     /* timezone is null until the operator sets one; the UI then defaults its
        dropdown to the browser's own machine timezone (detected client-side,
        the authoritative source for the operator's machine). */
-    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s) });
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s), setupAssistant: setupAssistant.settingFrom(s) });
     return;
   }
   if (pathname === '/api/settings' && req.method === 'POST') {
@@ -9165,12 +9165,21 @@ const server = http.createServer((req, res) => {
           }
           patch.autohandoff = { enabled: body.autohandoff.enabled, threshold: body.autohandoff.threshold };
         }
+        /* #3034: the setup assistant bubble's switch (on) and whether its first-X
+           choice was offered (asked). A patch may set either key; the other is kept. */
+        if ('setupAssistant' in body) {
+          const problem = setupAssistant.settingPatchProblem(body.setupAssistant);
+          if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+          let had;
+          try { had = store.readSettings(); } catch { had = {}; }
+          patch.setupAssistant = setupAssistant.mergeSetting(had, body.setupAssistant);
+        }
         if (Object.keys(patch).length === 0) {
           sendJson(res, 400, { ok: false, because: 'no known setting to save' });
           return;
         }
         const saved = store.writeSettings(patch);
-        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved) });
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved) });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
