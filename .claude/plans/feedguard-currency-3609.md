@@ -58,6 +58,9 @@ handles `fn` entries (contentFindings and the positive-control test).
   cannot pass. The whitespace picks include U+00A0, U+FEFF and U+2028 (and
   fixed cases pin them), so a skip that only knows ASCII space fails. Red with
   the fraction arm removed, and red with the skip reduced to ASCII space.
+  Fixed cases and the generator's noise also put currency words BEFORE the
+  amount ("Budget in USD: we spent 249,000 USD"), so a scan that stops at the
+  first word fails: red with the loop cut to one word.
 - The generator: the #3608 test's LCG multiplied as floats; past 2^53 the low
   bits were lost and it cycled after 11,000 to 16,000 values in 50,000 draws.
   Both tests now share `seeded()`, which uses Math.imul, and a test asserts

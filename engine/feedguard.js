@@ -96,10 +96,10 @@ function luhn(digits) {
    - With decimals, the digits before the whitespace are the whole fraction, so
      the '.' sits just before that digit run and the grouped part ends there.
    The regions looked at before two different currency words cannot overlap
-   (a currency word is letters), so the whole scan is linear. That is why the
-   words are a list the tests can check: every one must stay letters only. A
-   word with a digit, '$' or a space in it would break both the linear bound and
-   the equivalence argument above. */
+   (a currency word is letters), so the whole scan is linear. The same fact
+   means no amount can end inside a word the scan steps over. Both depend on
+   every word being letters only, which is why the words are a list a test
+   checks. */
 const SPELLED_CURRENCY_WORDS = Object.freeze(['USD', 'EUR', 'GBP', 'dollars', 'dollar', 'euros', 'euro', 'pounds', 'pound']);
 const SPELLED_CURRENCY_SOURCE = '(?:' + SPELLED_CURRENCY_WORDS.join('|') + ')\\b';
 const WHITESPACE = /\s/;

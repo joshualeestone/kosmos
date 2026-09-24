@@ -377,6 +377,8 @@ test('#3609: the spelled grouped-currency check finds exactly what the old regex
     '9,999,999,999 EUR!', 'USD', '', '1,234', ',234 USD', '1,234 US dollars',
     '1,234\ufeffUSD', '1,234\u2028usd', '1,234.5\u00a0\u00a0euros',
     '249,000' + ' '.repeat(60) + 'USD', '1,234.' + '5'.repeat(30) + ' USD',
+    // Several currency words: the amount is only before a later one.
+    'Budget in USD: we spent 249,000 USD', 'USD 1,234 USD', 'dollars and 249,000 euros', '1,23 USD 1,234 USD',
   ];
   for (const s of fixed) assert.equal(SPELLED(s), SPELLED_REGEX.test(s), JSON.stringify(s));
   // Structured strings: noise, a digit-and-separator core, an optional
@@ -389,7 +391,7 @@ test('#3609: the spelled grouped-currency check finds exactly what the old regex
   let matched = 0, fractionMatters = 0;
   for (let i = 0; i < 50000; i++) {
     let s = '';
-    for (let k = Math.floor(rand() * 3); k > 0; k--) s += pick(['x', '.', ',', ' ', '9', '$', 'a,']);
+    for (let k = Math.floor(rand() * 3); k > 0; k--) s += pick(['x', '.', ',', ' ', '9', '$', 'a,', 'USD ', 'euro ', '12 GBP ']);
     s += digits(0, 4);
     for (let k = Math.floor(rand() * 3); k > 0; k--) s += pick([',', ',', ',', '.', ' ']) + digits(1, 4);
     if (rand() < 0.4) s += pick(['.', '.', ',']) + digits(0, 3);
