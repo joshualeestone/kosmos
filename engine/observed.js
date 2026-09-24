@@ -163,12 +163,30 @@ function freshMs() {
  * (server.js:3378, accounts.js:307): a stale or blind signal must never be turned
  * into a confident connected / not-connected. Only a FRESH observation is confident.
  */
+/*
+ * The owner of the fresh/stale DECISION for READ-TIME verdicts. verdict() below and
+ * subscription.machineStatKey's memo key (#1959) both call this rather than
+ * re-deriving `age >= 0 && age <= limit`: a memo key that disagrees with the verdict
+ * it tracks would serve a stale verdict indefinitely, and that pairing is exactly
+ * what this exists to keep in lockstep. New read-time readers should prefer it too.
+ * (status.js's write-time record gates still inline the same test; converting those
+ * is a separate change -- they decide whether to STORE an observation, not how to
+ * read one.) Returns true only for a finite, non-future observedAt within the window.
+ */
+function isFresh(observedAt, now, fm) {
+  const nowN = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+  const limit = typeof fm === 'number' && Number.isFinite(fm) && fm > 0 ? fm : freshMs();
+  if (typeof observedAt !== 'number' || !Number.isFinite(observedAt)) return false;
+  const age = nowN - observedAt;
+  return age >= 0 && age <= limit;
+}
+
 function verdict({ checkLiveState, observedOutcome, observedAt, now, freshMs: fm } = {}) {
   const nowN = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
   const limit = typeof fm === 'number' && Number.isFinite(fm) && fm > 0 ? fm : freshMs();
   const hasAt = typeof observedAt === 'number' && Number.isFinite(observedAt);
   const age = hasAt && nowN - observedAt >= 0 ? nowN - observedAt : null;
-  const fresh = age !== null && age <= limit;
+  const fresh = isFresh(observedAt, nowN, limit);
 
   if (fresh && observedOutcome === OUTCOME.REJECTED) return { badge: 'rejected', observedAt, ageMs: age };
   if (fresh && observedOutcome === OUTCOME.OK) return { badge: 'working', observedAt, ageMs: age };
@@ -178,4 +196,4 @@ function verdict({ checkLiveState, observedOutcome, observedAt, now, freshMs: fm
   return { badge: 'unchecked', observedAt: null, ageMs: null };
 }
 
-module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, freshMs, verdict, _clearForTest };
+module.exports = { OUTCOME, PROVIDER, saw, read, all, sawDir, readDir, freshMs, isFresh, verdict, _clearForTest };
