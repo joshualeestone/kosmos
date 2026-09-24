@@ -1830,14 +1830,13 @@ function setProvider(name, provider, opts) {
       /* 🛑 INTENTIONALLY FAIL-CLOSED, AND DELIBERATELY UNLIKE THE CODEX BLOCK ABOVE.
          codex only refuses a named account when it was PICKED-and-missing and otherwise
          falls through to accounts[0]; that fallback exists because the page began sending
-         the visible row on every switch, so an unpicked stale row must not refuse. This
-         gemini/grok arm has no such caller yet (the account picker is openai-only today,
-         so wantDir is null here and the default door is taken), so it refuses ANY unknown
-         wantDir. Do NOT "align" this with codex's unpicked-fallback when the gemini/grok
-         picker is wired (page lane): fail-closed is the silent-wrong-account guard, and
-         reintroducing a fallback here is the exact regression the switch-account saga
-         (#1373) exists to prevent. If the picker starts sending an unpicked visible row,
-         add the picked-vs-unpicked split codex has, not a bare fall-through. */
+         the visible row on every switch, so an unpicked stale row must not refuse.
+         #3566 wired the gemini/grok picker, and it too sends the visible row, picked or
+         not. This arm STILL refuses any unknown wantDir, picked or unpicked, by decision:
+         the only fall-through available here is the default env-key door, which the board
+         cannot verify, so a stale row would silently land the agent on a key nobody chose.
+         The page re-reads the accounts after this refusal (changeProviderNow), so the stale
+         row is gone on the next try. Do NOT add a bare fall-through here. */
       const acct = mod.list().find((a) => a.dir === wantDir);
       if (!acct) {
         return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(providerName) };
@@ -3528,7 +3527,33 @@ async function accountConnectable({ provider, accountDir } = {}) {
      routing a bogus provider into the Claude arm below would surface a Claude
      sign-in error for what is really a provider mistake. */
   const prov = (provider !== undefined && provider !== null && String(provider) !== '') ? String(provider) : 'anthropic';
-  if (prov !== 'anthropic' && prov !== 'openai') return { ok: true };
+  if (prov !== 'anthropic' && prov !== 'openai' && prov !== 'google' && prov !== 'xai') return { ok: true };
+
+  /* #3566: Gemini and Grok, now creatable from the page. A NAMED account is checked live
+     with its provider, and a positively-rejected key is refused here rather than making an
+     agent that 401s on its first turn (the #1315 rule the other two already get). The
+     default env-key door (no dir) is not checked: the board cannot see the supervisor's
+     launch environment, the same fail-open createAgentInner documents for it. An unknown
+     dir is createAgentInner's to refuse. */
+  if (prov === 'google' || prov === 'xai') {
+    if (!dir) return { ok: true };
+    const failOpenK = (where, err) => {
+      console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);
+      return { ok: true };
+    };
+    const mod = require(prov === 'google' ? './geminiaccounts' : './grokaccounts');
+    const word = prov === 'google' ? 'Gemini' : 'Grok';
+    const vendor = prov === 'google' ? 'Google' : 'xAI';
+    let list; try { list = mod.list(); } catch (err) { return failOpenK(word + '.list', err); }
+    const acct = list.find((a) => a.dir === path.resolve(dir));
+    if (!acct) return { ok: true };
+    let live; try { live = await mod.checkLive(acct.dir); } catch (err) { return failOpenK(word + '.checkLive', err); }
+    if (live && live.state === mod.STATE.NONE) {
+      return { ok: false, because: `${vendor} rejected that ${word} account's key, so an agent created on it could not run. `
+        + 'Add a working key in Settings, AI Models.' };
+    }
+    return { ok: true };
+  }
 
   /* 🛑 THE FAIL-OPEN CLASS, NAMED (#1916) so the next fail-open guard added here
      does not reproduce it. claudeAccountLive / openai.checkLive / *.list() return

@@ -299,8 +299,9 @@ test('#2684: the default row renders a LIVE Disconnect (identity-clear) and keep
   assert.match(onOther, /data-forget-provider="claude"/, 'a NON-default row lost its provider marker');
   assert.match(onOther, /Its sign-in file stays on this computer/, 'a NON-default row lost its secondary title');
 
-  // the OpenAI branch sits outside the extracted expression; pin its provider marker in source.
-  assert.match(PAGE, /data-forget-provider="openai"/, 'the OpenAI Disconnect lost its provider marker');
+  // the keyed branch (OpenAI, and since #3566 Gemini/Grok) sits outside the extracted
+  // expression; pin its provider marker in source. It is the row's own route word.
+  assert.match(PAGE, /data-forget-provider="' \+ keyRoute \+ '"/, 'the keyed Disconnect lost its provider marker');
 });
 
 test('EVERY Disconnect control carries the qualifier, escaped, or one branch keeps the whole defect', () => {
@@ -321,8 +322,12 @@ test('EVERY Disconnect control carries the qualifier, escaped, or one branch kee
    a regression to `a.isDefault ? ''` (suppressing the OpenAI-default Delete, or showing
    one on the Claude default) reds here. */
 test('#2684: the Delete button is suppressed only on the CLAUDE default, not the OpenAI default', () => {
+  /* #3566: still `!isOpenai`, now deliberately. A Gemini/Grok default is the machine's own
+     CLI home, which their engines refuse to delete, so it is suppressed with Claude's. */
   assert.match(PAGE, /\(a\.isDefault && !isOpenai\) \? ''/,
-    'the acct-remove suppression is no longer (a.isDefault && !isOpenai): the OpenAI default may have lost its Delete, or the Claude default gained one');
+    'the acct-remove suppression is no longer (a.isDefault && !isOpenai): the OpenAI default may have lost its Delete, or another default gained one');
+  assert.match(PAGE, /\(isKeyed && a\.isDefault && !isOpenai\) \? '' : isKeyed/,
+    'a default Gemini/Grok row offers a Disconnect its engine always refuses');
 });
 
 /* Angel's review, kept as an arm rather than a comment. The map was keyed on the
@@ -403,7 +408,7 @@ test('#1659: the post-removal focus target carries tabindex, or .focus() is a si
    executed ternary above; this covers the half that feeds it, which is the only
    part a parameterised fixture structurally cannot see. */
 test('#1659: qualName falls back to the PROVIDER, so no row can render an empty parenthetical', () => {
-  assert.match(PAGE, /const qualName = qual \|\| \(isOpenai \? 'OpenAI' : 'Claude'\)/,
+  assert.match(PAGE, /const qualName = qual \|\| \(isOpenai \? 'OpenAI' : isKeyed \? \(a\.providerName \|\| switchKeyedWord\(acctProvider\(a\)\)\) : 'Claude'\)/,
     'the provider fallback is gone, so a row yielding neither an email nor a key tail renders '
     + '"Disconnect <who> ()" and two such rows answer to the same name again');
 });
@@ -493,8 +498,8 @@ test('#1659: the OpenAI tooltip carries the history clause PER ROW, not uncondit
      characters. Rendering cannot: it asks what the person is actually shown. The Claude
      sibling above has done it this way all along, which is why it was never the one that
      broke. */
-  const at = PAGE.indexOf('data-forget-provider="openai"');
-  assert.ok(at > -1, 'the OpenAI Disconnect branch is gone; re-anchor this test');
+  const at = PAGE.indexOf('data-forget-provider="\' + keyRoute + \'"');
+  assert.ok(at > -1, 'the keyed Disconnect branch is gone; re-anchor this test');
   const open = PAGE.lastIndexOf("? '<button", at);
   assert.ok(open > -1 && open < at, 'the OpenAI branch no longer opens the way this extraction expects');
   const close = PAGE.indexOf(">Disconnect</button>'", at);
@@ -502,10 +507,18 @@ test('#1659: the OpenAI tooltip carries the history clause PER ROW, not uncondit
   const body = PAGE.slice(open + 1, close + ">Disconnect</button>'".length);
   const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // eslint-disable-next-line no-new-func
-  const render = new Function('a', 'who', 'qual', 'qualName', 'esc', `return ${body};`);
+  const render0 = new Function('a', 'who', 'qual', 'qualName', 'esc', 'isOpenai', 'keyRoute', `return ${body};`);
+  const render = (a, who, qual, qualName, e) => render0(a, who, qual, qualName, e, true, 'openai');
 
   const onDefault = render({ isDefault: true, dir: '/h/.codex' }, 'main@example.com', '', 'OpenAI', esc);
   const onLabelled = render({ isDefault: false, dir: '/h/.codex-walk' }, 'walk@example.com', '', 'OpenAI', esc);
+  /* #3566: the same branch now serves Gemini/Grok rows. The history clause is a CODEX fact
+     (codexsession reads the default home), so a default Gemini row must not be told it. */
+  const onGeminiDefault = render0({ isDefault: true, dir: '/h/.gemini' }, 'API key ending 1234', '', 'Gemini', esc, false, 'gemini');
+  assert.ok(!onGeminiDefault.includes('stops looking inside it'),
+    'a default Gemini row is told the codex history clause. rendered: ' + onGeminiDefault);
+  assert.ok(onGeminiDefault.includes('data-forget-provider="gemini"'),
+    'a Gemini row does not route its Disconnect to the gemini endpoint. rendered: ' + onGeminiDefault);
 
   const CLAIM = 'stops looking inside it';
   assert.ok(onDefault.includes(CLAIM),
@@ -905,7 +918,9 @@ test('#2612: a row with no provider does not fake a cross-provider group', () =>
    membership list above is the part to check, not the number. */
 const PROVIDER_SITES = {
   groupHead: /const name = a\.providerName \|\| \(a\.provider === 'openai' \? '([^']+)' : '([^']+)'\)/,
-  qualName: /const qualName = qual \|\| \(isOpenai \? '([^']+)' : '([^']+)'\)/,
+  /* #3566: the keyed middle arm (Gemini/Grok name themselves by providerName) sits between
+     the two captured short names, which are still the OpenAI | Claude pair this pin compares. */
+  qualName: /const qualName = qual \|\| \(isOpenai \? '([^']+)' : isKeyed \? \(a\.providerName \|\| switchKeyedWord\(acctProvider\(a\)\)\) : '([^']+)'\)/,
   provName: /const provName = \(providerOf\(CURRENT\) === 'openai'\) \? '([^']+)' : '([^']+)'/,
 };
 

@@ -225,3 +225,24 @@ test('#1903: an OpenAI account OpenAI accepts (200) is accepted, and a scope-res
     assert.deepEqual(await create.accountConnectable({ provider: 'openai', accountDir: DEAD_OPENAI }), { ok: true });
   } finally { openai.setFetcher(null); }
 });
+
+/* #3566: Gemini/Grok named accounts are checked live at create, like Claude and OpenAI. */
+test('#3566: a named Grok account whose key xAI REJECTS is refused at create; an accepted one passes', async () => {
+  const grok = require('./grokaccounts');
+  const dir = nodePath.join(HOME, '.grok-conntest');
+  grok.storeKey(dir, 'xai-conntest-key-12345678');
+  try {
+    grok.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+    const bad = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(bad.ok, false, 'a rejected Grok key was accepted for a create');
+    assert.match(bad.because, /xAI rejected that Grok account's key/);
+    grok.setFetcher(async () => ({ status: 200, body: {} }));
+    const good = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(good.ok, true, 'CONTROL: an accepted key must pass');
+    const def = await create.accountConnectable({ provider: 'google' });
+    assert.equal(def.ok, true, 'the default env-key door is not the board\'s to check');
+  } finally {
+    grok.setFetcher(null);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

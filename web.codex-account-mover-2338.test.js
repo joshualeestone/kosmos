@@ -157,11 +157,15 @@ test('the account route tells a codex move the truth: files/projects travel, Cod
   const i = SERVER.indexOf("const acctRoute = pathname.match(/^\\/api\\/agent\\/([^/]+)\\/account$/);");
   assert.ok(i > -1, 'the account route moved; re-anchor this test');
   const body = SERVER.slice(i, i + 3200);
-  assert.match(body, /const isCodexMove = !!\(wrote\.account && wrote\.account\.provider === 'openai'\)/,
-    'the route no longer distinguishes a codex account move from a Claude one');
+  // #3566: the per-home test now covers Gemini and Grok as well as Codex; it is keyed on
+  // a provider -> chat-word map, and a Claude account (no entry) keeps the Claude sentence.
+  assert.match(body, /\(\{ openai: 'Codex', google: 'Gemini', xai: 'Grok' \}\)\[String\(wrote\.account\.provider \|\| ''\)\.toLowerCase\(\)\]/,
+    'the route no longer distinguishes a per-home (Codex/Gemini/Grok) account move from a Claude one');
+  assert.match(body, /const isPerHomeMove = !!moveChatWord;/,
+    'the per-home sentence is no longer chosen by the chat-word map');
   // Codex: history does NOT come with it (per-CODEX_HOME, no cross-home symlink),
   // so the Claude "Everything it has done comes with it" would be a false promise.
-  assert.match(body, /its earlier Codex chat stays with the account it was on/,
+  assert.match(body, /its earlier \$\{moveChatWord\} chat stays with the account it was on/,
     'the codex move sentence does not disclose that Codex chat history stays behind');
   assert.match(body, /Its files and projects come with it/,
     'the codex move sentence does not say what DOES travel');

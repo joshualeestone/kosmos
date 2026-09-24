@@ -15,6 +15,16 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const SRC = PAGE.match(/function resetCreateProvider\(\) \{[\s\S]*?\n\}/);
 assert.ok(SRC, 'resetCreateProvider moved or was renamed');
 
+/* #3566: the create form reads providers through acctProvider (keyed on ACCT_KEYED_ROUTE),
+   gates Gemini/Grok with paintKeyedProviderOptions and names a keyed fallback with
+   switchKeyedWord. Sliced from the page, not stubbed, so the eval scopes below cannot
+   drift from the source. Each is a value the harness binds by name. */
+const grab3566 = (sig) => { const s = PAGE.indexOf(sig); return PAGE.slice(s, PAGE.indexOf('\n}', s) + 2); };
+const routeLine3566 = PAGE.slice(PAGE.indexOf('const ACCT_KEYED_ROUTE'), PAGE.indexOf('\n', PAGE.indexOf('const ACCT_KEYED_ROUTE')));
+// eslint-disable-next-line no-new-func
+const acctProvider3566 = new Function(routeLine3566 + '\nreturn (' + grab3566('function acctProvider(') + ');')();
+// eslint-disable-next-line no-new-func
+const switchKeyedWord3566 = new Function('return (' + grab3566('function switchKeyedWord(') + ');')();
 function defaultFor(accounts) {
   const prov = { value: null };
   // eslint-disable-next-line no-unused-vars
@@ -37,6 +47,8 @@ function defaultFor(accounts) {
   let CREATE_PREF_OPENAI_MODEL = 'stale';
   // eslint-disable-next-line no-unused-vars
   const applyCreateProviderUI = () => {};
+  // eslint-disable-next-line no-unused-vars
+  const acctProvider = acctProvider3566;
   // eslint-disable-next-line no-eval
   const fn = eval('(' + SRC[0] + ')');
   fn();
@@ -91,6 +103,10 @@ test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at
     // eslint-disable-next-line no-unused-vars
     const CREATE_ACCOUNTS = accounts;
     // eslint-disable-next-line no-unused-vars
+    const CREATE_ACCOUNTS_KNOWN = true;
+    // eslint-disable-next-line no-unused-vars
+    const CREATE_ACCOUNTS_FAILED = false;
+    // eslint-disable-next-line no-unused-vars
     const accountQualifiers = () => new Map();
     // eslint-disable-next-line no-unused-vars
     const esc = (s) => String(s);
@@ -109,6 +125,12 @@ test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at
     const acctChosenName = eval('(' + grab('function acctChosenName(') + ')');
     // eslint-disable-next-line no-eval, no-unused-vars
     const acctPrimaryName = eval('(' + grab('function acctPrimaryName(') + ')');
+    // eslint-disable-next-line no-unused-vars
+    const acctProvider = acctProvider3566;
+    // eslint-disable-next-line no-unused-vars
+    const switchKeyedWord = switchKeyedWord3566;
+    // eslint-disable-next-line no-eval, no-unused-vars
+    const paintKeyedProviderOptions = eval('(' + grab('function paintKeyedProviderOptions(') + ')');
     // eslint-disable-next-line no-eval
     eval('(' + fn + ')')();
     return arow.hidden;

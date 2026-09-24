@@ -1474,11 +1474,15 @@ function accountForAgent(name, known) {
      at all, so the two lists are separable, and the dir-matched arm needs no gate
      because a codex dir cannot equal a claude row's dir. A caller handed the
      wrong list for the agent now gets NO row rather than a confident wrong one. */
-  const isOpenaiRow = (x) => !!(x && x.provider === 'openai');
   const foreign = !!(job.runner && job.runner !== 'claude');
+  /* #3566: a DEFAULT gemini/grok agent must match its own provider's default row, never
+     OpenAI's: "a codex dir cannot equal a claude row's dir" held while codex was the only
+     foreign runner. Claude rows carry no provider, keyed rows carry theirs. */
+  const wantProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[job.runner] || null;
+  const isKeyedRow = (x) => !!(x && (x.provider === 'openai' || x.provider === 'google' || x.provider === 'xai'));
   const found = dir
     ? list.find((x) => x.dir === dir)
-    : list.find((x) => x.isDefault && (foreign ? isOpenaiRow(x) : !isOpenaiRow(x)));
+    : list.find((x) => x.isDefault && (foreign ? (!!wantProvider && x.provider === wantProvider) : !isKeyedRow(x)));
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
@@ -1673,6 +1677,9 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    from it (bin/agent-supervisor.sh). One helper for both providers, parameterized by
    `mod` (geminiaccounts/grokaccounts), so the two cannot drift. The raw key is never
    logged or echoed back -- the response carries the label + the live verdict only. */
+/* #3566: the exclusive-create marker a label-less add holds on its slot while the key is checked. */
+const CLAIM_FILE = '.kosmos-claim';
+const CLAIM_STALE_MS = 10 * 60 * 1000;
 function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
   readBody(req)
     .then(async (raw) => {
@@ -1691,34 +1698,132 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
       if (shape) { sendJson(res, 400, { error: shape }); return; }
       // Taken-label guard BEFORE the live check (so a doomed add does not send the key
       // to the provider) and BEFORE storeKey (never write a key into an EXISTING account).
-      const named = mod.dirForLabel(body.label);
+      /* #3566: the Settings form makes the label optional, the same as OpenAI's: a blank
+         label takes the first free work slot (~/.gemini-work1, ~/.grok-work1, ...), and the
+         human-chosen display name travels separately in `body.name`. An explicit label keeps
+         its old validation, so an API caller naming a slot is unchanged. */
+      let named;
+      // The slot this request created, so a failed add can give it back (see the claim below).
+      let claimed = null;
+      // Only an ABSENT label takes a slot; a whitespace-only label is still refused by dirForLabel.
+      if (body.label === undefined || body.label === null || body.label === '') {
+        /* ⚠️ Both claim paths are SYNCHRONOUS on purpose: the stale-claim stat-then-unlink and
+           the 'wx' create are atomic only because no await runs between them in this one
+           process. Do not add an await inside them.
+           🛑 CLAIM THE SLOT, do not just pick it. The live key check below awaits the network,
+           so two label-less adds racing (two tabs, an API caller) would otherwise both pick
+           work1 and the second storeKey would overwrite the first account's key. The claim is
+           a file created with 'wx' (exclusive) inside the slot: exactly one request creates it,
+           the other sees EEXIST and moves to the next slot. A claim FILE rather than the dir
+           itself, because nextWorkDir deliberately hands out an existing keyless dir (a
+           cancelled add) as free, and that dir must stay reusable. A symlinked slot is refused. */
+        const exclude = new Set();
+        named = null;
+        let failed = false;
+        for (let n = 0; n < 50 && !named && !failed; n += 1) {
+          const spot = mod.nextWorkDir(exclude);
+          if (!spot) break;
+          const claimFile = path.join(spot.dir, CLAIM_FILE);
+          try {
+            // lstat, not existsSync: a dangling symlink must read as a link, not as absent.
+            let isLink = false;
+            try { isLink = fs.lstatSync(spot.dir).isSymbolicLink(); } catch { /* absent: a fresh slot */ }
+            if (isLink) { exclude.add(spot.dir); continue; }
+            fs.mkdirSync(spot.dir, { recursive: true, mode: 0o700 });
+            /* A claim older than CLAIM_STALE_MS was left by a process that died mid-add;
+               drop it so the slot is not skipped forever. A live add finishes in seconds. */
+            try { if (Date.now() - fs.statSync(claimFile).mtimeMs > CLAIM_STALE_MS) fs.unlinkSync(claimFile); } catch { /* none, or gone */ }
+            fs.closeSync(fs.openSync(claimFile, 'wx', 0o600));
+            /* A reused keyless slot may still hold an earlier account's display name; a new
+               account must not inherit it (it gets its own below, or none). */
+            try { fs.unlinkSync(path.join(spot.dir, '.kosmos-name')); } catch { /* none */ }
+            claimed = spot.dir;
+            named = { ok: true, label: spot.label, dir: spot.dir };
+          } catch (err) { if (err && err.code === 'EEXIST') exclude.add(spot.dir); else failed = true; }
+        }
+        if (!named) {
+          named = { ok: false, because: failed
+            ? `we could not make a place for this ${providerLabel} account on this computer`
+            : `there is no free spot for another ${providerLabel} account on this computer` };
+        }
+      } else {
+        named = mod.dirForLabel(body.label);
+        /* An explicit label takes the SAME claim, or it could land on a work slot an unnamed
+           add has claimed and is still checking, and overwrite that key. A symlinked slot is
+           refused before anything is written into it. */
+        if (named.ok) {
+          let isLink = false;
+          try { isLink = fs.lstatSync(named.dir).isSymbolicLink(); } catch { /* absent: fine */ }
+          if (isLink) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; }
+          // An existing account is refused before anything is written into its folder.
+          if (mod.identityOf(named.dir)) {
+            sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+            return;
+          }
+          const claimFile = path.join(named.dir, CLAIM_FILE);
+          try {
+            fs.mkdirSync(named.dir, { recursive: true, mode: 0o700 });
+            try { if (Date.now() - fs.statSync(claimFile).mtimeMs > CLAIM_STALE_MS) fs.unlinkSync(claimFile); } catch { /* none, or gone */ }
+            fs.closeSync(fs.openSync(claimFile, 'wx', 0o600));
+            // Same as the unnamed path: a reused keyless folder must not hand over an old name.
+            try { fs.unlinkSync(path.join(named.dir, '.kosmos-name')); } catch { /* none */ }
+            claimed = named.dir;
+          } catch (err) {
+            sendJson(res, 400, { error: err && err.code === 'EEXIST'
+              ? `another ${providerLabel} account is being added under that name right now; try again in a moment`
+              : `we could not make a place for this ${providerLabel} account on this computer` });
+            return;
+          }
+        }
+      }
       if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
-      if (mod.identityOf(named.dir)) {
-        sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
-        return;
+      // Drop the claim file; rmdir then removes the slot only if it is EMPTY, so giving a
+      // claimed slot back cannot delete anything else.
+      const unclaim = () => { if (claimed) { try { fs.unlinkSync(path.join(claimed, CLAIM_FILE)); } catch { /* best effort */ } } };
+      const giveBack = () => { if (claimed) { unclaim(); try { fs.rmdirSync(claimed); } catch { /* best effort */ } } };
+      // Every exit from here that did not store the key gives a claimed slot back,
+      // including a throw into the outer catch, so cleanup is certain, not time-based.
+      let stored = false;
+      try {
+        if (mod.identityOf(named.dir)) {
+          sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+          return;
+        }
+        // 🛑 A planted symlink account dir (~/.gemini-x -> ~/.gemini) would let storeKey/writeName
+        // write THROUGH it into the real CLI home. Refuse it BEFORE storeKey, so the failed-store
+        // cleanup (forgetKey) never runs through the symlink either. lstat does not follow the link;
+        // an absent path is the normal fresh-account case. storeKey itself also throws on a symlink
+        // (defence in depth for direct callers).
+        try { if (fs.lstatSync(named.dir).isSymbolicLink()) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; } }
+        catch { /* absent = fresh account, fine */ }
+        // #1315 discipline: validate LIVE at add time. Refuse ONLY a positively-rejected
+        // key (STATE.NONE); accept CONNECTED and UNKNOWN (unreachable / a non-attributed
+        // refusal), never blocking a good key on an answer that does not confirm it bad.
+        const live = await mod.validateLive(String(body.key || '').trim());
+        if (live.state === mod.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+        /* Re-checked AFTER the await: an explicitly-labelled add racing another with the same
+           label passes the check above in both requests, and this is the last point before a
+           write that would land in an existing account. */
+        if (mod.identityOf(named.dir)) {
+          // A label-less add was given no name, so do not blame one: another add took the spot.
+          sendJson(res, 400, { error: claimed
+            ? `another ${providerLabel} account was added at the same moment; add this one again`
+            : `there is already a ${providerLabel} account by that name on this computer` });
+          return;
+        }
+        try { mod.storeKey(named.dir, body.key); stored = true; unclaim(); }
+        catch {
+          try { mod.forgetKey(named.dir); } catch { /* best effort: leave no orphaned key file */ }
+          sendJson(res, 400, { error: 'we could not store that key on this computer' });
+          return;
+        }
+        // #2095 sibling: the optional human-chosen display name, best-effort (a failed
+        // name write never fails the add -- the account is fully usable unnamed).
+        if (body.name) { try { mod.writeName(named.dir, body.name); } catch { /* best effort */ } }
+        sendJson(res, 200, { account: { label: named.label, dir: named.dir, connection: { state: live.state } } });
+      } finally {
+        if (!stored) giveBack();
       }
-      // 🛑 A planted symlink account dir (~/.gemini-x -> ~/.gemini) would let storeKey/writeName
-      // write THROUGH it into the real CLI home. Refuse it BEFORE storeKey, so the failed-store
-      // cleanup (forgetKey) never runs through the symlink either. lstat does not follow the link;
-      // an absent path is the normal fresh-account case. storeKey itself also throws on a symlink
-      // (defence in depth for direct callers).
-      try { if (fs.lstatSync(named.dir).isSymbolicLink()) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; } }
-      catch { /* absent = fresh account, fine */ }
-      // #1315 discipline: validate LIVE at add time. Refuse ONLY a positively-rejected
-      // key (STATE.NONE); accept CONNECTED and UNKNOWN (unreachable / a non-attributed
-      // refusal), never blocking a good key on an answer that does not confirm it bad.
-      const live = await mod.validateLive(String(body.key || '').trim());
-      if (live.state === mod.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
-      try { mod.storeKey(named.dir, body.key); }
-      catch {
-        try { mod.forgetKey(named.dir); } catch { /* best effort: leave no orphaned key file */ }
-        sendJson(res, 400, { error: 'we could not store that key on this computer' });
-        return;
-      }
-      // #2095 sibling: the optional human-chosen display name, best-effort (a failed
-      // name write never fails the add -- the account is fully usable unnamed).
-      if (body.name) { try { mod.writeName(named.dir, body.name); } catch { /* best effort */ } }
-      sendJson(res, 200, { account: { label: named.label, dir: named.dir, connection: { state: live.state } } });
     })
     .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
 }
@@ -1750,12 +1855,19 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
       }
       const result = remove ? mod.removeAccount(dir, usedBy) : mod.forgetAccount(dir, usedBy);
       if (!result.ok) {
-        sendJson(res, 400, { error: result.because, usedBy: result.usedBy || [] });
+        /* #3566: stopUnavailable -- this route has no disconnect-and-stop (see above), so
+           the Settings row must not offer "Disconnect and stop X?", a press that could
+           only be refused again. The page reads this flag for exactly that. */
+        sendJson(res, 400, { error: result.because, usedBy: result.usedBy || [], stopUnavailable: true });
         return;
       }
+      /* #3566: the Settings row reports `because`, as it does for the Claude and OpenAI routes;
+         without it a Disconnect here read "Removed." against a tooltip saying nothing is deleted. */
       sendJson(res, 200, remove
-        ? { removed: !!result.removed, wasDefault: !!result.wasDefault }
-        : { forgotten: !!result.forgotten, movedTo: result.movedTo || null, wasDefault: !!result.wasDefault });
+        ? { removed: !!result.removed, wasDefault: !!result.wasDefault,
+          because: result.removed ? 'That account is deleted. Its key is gone from this computer.' : (result.because || 'That account is already gone from this computer.') }
+        : { forgotten: !!result.forgotten, movedTo: result.movedTo || null, wasDefault: !!result.wasDefault,
+          because: result.forgotten ? 'That account is off the list. Its key is set aside on this computer, so nothing was deleted.' : (result.because || 'That account is already gone from this computer.') });
     })
     .catch(() => sendJson(res, 400, { error: deleteDoor ? 'we could not delete that account' : 'we could not read that request' }));
 }
@@ -6782,9 +6894,8 @@ const server = http.createServer((req, res) => {
            (accountForAgent(name, geminiRows) returns null for a null-configDir agent) and
            never crashes. The recording is left in place deliberately -- it is
            forward-compatible, so the badge lights up for default agents for free once the
-           default row lands. WHEN that door lands, accountForAgent's dir-less match
-           (`isOpenaiRow`, server.js ~1475) must be generalized to the searched list's own
-           provider, or a default gemini/grok agent will still fail to join its default row. */
+           default row lands. accountForAgent's dir-less match is keyed on the runner's own
+           provider since #3566, so that join needs no further change here. */
         const obsByGeminiDir = new Map();
         for (const o of observed.all()) {
           if (o.provider !== observed.PROVIDER.GOOGLE) continue;
@@ -6995,7 +7106,7 @@ const server = http.createServer((req, res) => {
   }
 
   /* #3296 accounts slice: add a NAMED Gemini account from a pasted key. Backend
-     route (the connect-UI is the follow-on); the shared helper carries the flow. */
+     route (Settings, AI Models posts here since #3566); the shared helper carries the flow. */
   if (pathname === '/api/accounts/gemini/apikey' && req.method === 'POST') {
     handleApikeyAccountStore(req, res, { mod: geminiAccounts, runner: 'gemini', providerLabel: 'Gemini' });
     return;
@@ -8491,9 +8602,9 @@ const server = http.createServer((req, res) => {
    * Point an agent at a different account of its OWN provider: a Claude agent at a
    * different Claude account, a codex agent at a different OpenAI (CODEX_HOME) account.
    * `create.setAccount` reads the agent's runner and branches to `setCodexAccount` for a
-   * codex job (#2338), so this one handler serves both; the `isCodexMove` branch below
+   * codex job (#2338), so this one handler serves both; the `isPerHomeMove` branch below
    * words the success sentence honestly for each (Claude history is shared and travels;
-   * codex chat lives per-CODEX_HOME and stays with the old account).
+   * Codex, Gemini and Grok chat live per account home and stay with the old account, #3566).
    *
    * 🛑 THE SAME TWO WRITES AS THE MODEL ROUTE, and the second is not optional:
    * launchd reads the startup file when the job is bootstrapped, so without the
@@ -8528,7 +8639,12 @@ const server = http.createServer((req, res) => {
            What DOES travel is everything Kosmos owns: the worker folder, its files,
            role, projects and commitments (an account swap rewrites only CODEX_HOME).
            So the codex sentence is honest about the split rather than silent on it. */
-        const isCodexMove = !!(wrote.account && wrote.account.provider === 'openai');
+        /* #3566: Gemini and Grok accounts are per-home too (GEMINI_CLI_HOME / GROK_HOME, no
+           cross-home link), so their chat stays behind exactly as Codex's does. The word
+           names the chat the person would look for. */
+        const moveChatWord = wrote.account
+          && ({ openai: 'Codex', google: 'Gemini', xai: 'Grok' })[String(wrote.account.provider || '').toLowerCase()];
+        const isPerHomeMove = !!moveChatWord;
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           account: wrote.account,
@@ -8538,10 +8654,10 @@ const server = http.createServer((req, res) => {
                emptiness as the change having failed. The history sentence is
                here because it is the one thing a person is right to worry
                about when moving accounts. */
-            ? (isCodexMove
+            ? (isPerHomeMove
               ? `${name} runs on ${who} now. It is starting again, and it will look idle `
                 + 'until you say something to it. Its files and projects come with it; '
-                + 'its earlier Codex chat stays with the account it was on.'
+                + `its earlier ${moveChatWord} chat stays with the account it was on.`
               : `${name} runs on ${who} now. It is starting again, and it will look idle `
                 + 'until you say something to it. Everything it has done comes with it.')
             : `We saved ${who}, but could not start it again: ${back.because} `

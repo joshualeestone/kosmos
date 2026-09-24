@@ -91,7 +91,13 @@ test('#1488: the page filter EXECUTES, drops non-offerable rows, and keeps its o
   const m = seg.match(/const list = ACCOUNTS\.filter\(\(x\) =>([\s\S]*?)\);/);
   assert.ok(m, 'the switch picker no longer builds `list` with a filter this test can lift');
 
-  const pred = new Function('x', 'return (' + m[1] + ');');
+  /* #3566: the filter now reads the chosen keyed provider (`keyed`) through acctProvider,
+     so the lifted predicate runs with the real helper and the OpenAI arm this test is about. */
+  const routeAt = PAGE.indexOf('const ACCT_KEYED_ROUTE');
+  const routeSrc = PAGE.slice(routeAt, PAGE.indexOf('\n', routeAt));
+  const provAt = PAGE.indexOf('function acctProvider(');
+  const provSrc = PAGE.slice(provAt, PAGE.indexOf('\n}', provAt) + 2);
+  const pred = new Function('x', routeSrc + '\n' + provSrc + '\nconst keyed = \'openai\';\nreturn (' + m[1] + ');');
   const row = (o) => Object.assign({ provider: 'openai', connection: { state: 'ok' } }, o);
 
   assert.equal(pred(row({ offerable: true })), true, 'an offerable row must be offered');

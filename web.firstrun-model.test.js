@@ -158,10 +158,15 @@ test('no disclosure survives: all eleven providers render in the open', () => {
      works via Settings, so first-run stopped saying otherwise. #1040 added four
      more, and #3386 added Grok up front (Josh, 2026-09-21), honouring "show all the
      models"; the sticky footer already removed the fold tension six rows once created. */
+  /* #3566: Gemini and Grok stay at `.llm off` weight (they cannot be connected FROM the
+     wizard) but their pill now reads "After setup", because Settings, AI Models connects
+     them. The other seven still say "Coming soon". */
   assert.equal((STEP.match(/class="llm off"/g) || []).length, 9,
-    'expected exactly the nine coming-soon providers at .llm off weight');
-  assert.equal((STEP.match(/class="soon"/g) || []).length, 9,
-    'expected a "Coming soon" pill on each of the nine still-unavailable providers');
+    'expected exactly the nine not-connectable-here providers at .llm off weight');
+  assert.equal((STEP.match(/class="soon"[^>]*>Coming soon</g) || []).length, 7,
+    'expected a "Coming soon" pill on each of the seven still-unavailable providers');
+  assert.equal((STEP.match(/class="soon"[^>]*>After setup</g) || []).length, 2,
+    'expected an "After setup" pill on Gemini and Grok, which connect in AI Models');
 });
 
 test('every provider carries a real, inlined vendor mark', () => {

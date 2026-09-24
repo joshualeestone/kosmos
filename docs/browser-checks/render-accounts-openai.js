@@ -610,6 +610,56 @@ let failed = 0;
      sentence has to say so. "Removed" and "deleted" are different promises. */
   say('the answer says the sign-in file is still on the computer',
     /still on this computer/.test(after.msg) && /nothing was deleted/.test(after.msg), after.msg);
+
+  /* #3566: the Gemini/Grok API-key step, driven for real. The engine route is stubbed at
+     the browser (page.route), so no key reaches Google or xAI and the board needs no gemini
+     or grok runner; everything on the PAGE side is the shipped code: the reveal on picking
+     the provider, the empty-key refusal, the success box, the field clearing, and the guard
+     that stops a late answer landing under a provider picked since. */
+  await p.evaluate(() => { try { closeAcctAdd(); } catch (e) { /* not open */ } });
+  await p.waitForTimeout(200);
+  await p.click('#acct-add-open');
+  await p.waitForTimeout(300);
+  await p.selectOption('#acct-provider-pick', 'google');
+  await p.waitForTimeout(200);
+  say('#3566 picking Gemini reveals the API-key step, and only it',
+    (await p.isVisible('#acct-apikey-flow')) && (await p.isHidden('#acct-openai-flow')) && (await p.isHidden('#acct-claude-flow')));
+  const head = (await p.innerText('#acct-apikey-head')).trim();
+  say('#3566 the key step names Gemini and Google', /Gemini/.test(head) && /Google/.test(head), head);
+  say('#3566 the key field is a password field', (await p.getAttribute('#acct-apikey-key', 'type')) === 'password');
+  await p.click('#acct-apikey-go');
+  await p.waitForTimeout(150);
+  say('#3566 an empty key is refused on the page, before any request',
+    (await p.innerText('#acct-apikey-msg')).trim() === 'Paste the key first.', await p.innerText('#acct-apikey-msg'));
+  // A late answer must not land under a provider picked since (the stillHere guard).
+  let release; const held = new Promise((r) => { release = r; });
+  await p.route('**/api/accounts/gemini/apikey', async (route) => {
+    await held;
+    await route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ account: { label: 'work1', dir: '/tmp/.gemini-work1', connection: { state: 'connected' } } }) });
+  });
+  await p.fill('#acct-apikey-key', 'AIzaSy-browsercheck-not-a-real-key-0000');
+  await p.click('#acct-apikey-go');
+  await p.waitForTimeout(150);
+  await p.selectOption('#acct-provider-pick', 'xai');
+  await p.waitForTimeout(150);
+  release();
+  await p.waitForTimeout(600);
+  const lateMsg = (await p.innerText('#acct-apikey-msg')).trim();
+  const lateSuccess = await p.isVisible('#acct-success');
+  say('#3566 a Gemini answer that arrives after picking Grok is not shown under Grok',
+    lateMsg === '' && !lateSuccess, JSON.stringify({ lateMsg, lateSuccess }));
+  // And the ordinary path: Gemini picked, key added, the gold box, the field emptied.
+  await p.selectOption('#acct-provider-pick', 'google');
+  await p.waitForTimeout(150);
+  await p.fill('#acct-apikey-key', 'AIzaSy-browsercheck-not-a-real-key-1111');
+  await p.click('#acct-apikey-go');
+  await p.waitForSelector('#acct-success-box', { state: 'visible', timeout: 8000 });
+  const gBox = (await p.innerText('#acct-success-box')).replace(/\s+/g, ' ').trim();
+  say('#3566 a Gemini add shows the gold connected box and never the key',
+    /Gemini is connected/.test(gBox) && !/browsercheck/.test(gBox), gBox);
+  say('#3566 the key field is emptied after the add', (await p.inputValue('#acct-apikey-key')) === '');
+  await p.unroute('**/api/accounts/gemini/apikey');
   await b.close();
   console.log(failed ? failed + ' check(s) failed' : 'all checks passed');
   process.exit(failed ? 1 : 0);
