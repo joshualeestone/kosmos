@@ -11279,10 +11279,9 @@ window.kosmosMeasureScrollbarWidth();
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
                 <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
-                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, grouped with
-                     Gemini (the other cloud provider, connected in Settings, AI Models) before the on-your-
-                     computer tier. xAI has no vendor SVG here, so it uses the same "X" initial-letter
-                     chip the provider combobox falls back to, not a new asset. -->
+                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini; since #3658
+                     both connect here by API key. xAI has no vendor SVG here, so it uses the same
+                     "X" initial-letter chip the provider combobox falls back to, not a new asset. -->
                 <div class="llm on"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
                 <!-- #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE, with the same gold
                      Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
@@ -22980,16 +22979,48 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
 const FR_APIKEY_GETKEY = { google: 'https://aistudio.google.com/app/apikey', xai: 'https://console.x.ai/' };
 let FR_APIKEY_WHICH = null;
 let FR_APIKEY_GEN = 0;
-function frApikeyOpen(which) {
-  FR_APIKEY_GEN += 1;
-  const flow = document.getElementById('fr-apikey-flow');
-  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
-  const same = FR_APIKEY_WHICH === which && !flow.hidden;
+/* The command-line tool each keyed provider runs on. There is no managed installer for
+   either yet (engine/runners.js), so when it is missing the screen names it. */
+const FR_APIKEY_TOOL = { google: 'gemini', xai: 'grok' };
+function frApikeyExpanded(which) {
   for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
     const b = document.getElementById(id);
-    if (b) b.setAttribute('aria-expanded', String(!same && b.dataset.keyed === which));
+    if (b) b.setAttribute('aria-expanded', String(!!which && b.dataset.keyed === which));
   }
-  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; return; }   // a second press closes it
+}
+/* PROBE BEFORE THE BOX (review pass 1): the key route checks for the runner BEFORE it
+   reads the key, so a POST with no key answers needsRunner when the runner is missing,
+   and otherwise refuses the empty key without storing anything. Asking first means a
+   person is never sent off to make a key for a runner this computer does not have. */
+async function frApikeyOpen(which) {
+  FR_APIKEY_GEN += 1;
+  const mine = FR_APIKEY_GEN;
+  const flow = document.getElementById('fr-apikey-flow');
+  const msg = document.getElementById('fr-apikey-msg');
+  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
+  const same = FR_APIKEY_WHICH === which && !flow.hidden;
+  document.getElementById('fr-apikey-go').disabled = false;   // an Add left pending by a switch must not stay dead
+  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null); return; }   // a second press closes it
+  flow.hidden = true;
+  frApikeyExpanded(null);
+  msg.textContent = 'Checking ' + p.name + ' on this computer…';
+  let missing = false;
+  try {
+    const res = await fetch('/api/accounts/' + p.route + '/apikey', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    const out = await res.json().catch(() => null);
+    missing = !!(out && out.needsRunner);
+  } catch { /* could not ask: open the box and let Add say what is wrong */ }
+  if (mine !== FR_APIKEY_GEN) return;
+  if (missing) {
+    FR_APIKEY_WHICH = null;
+    msg.textContent = p.name + ' runs on its own command-line tool, `' + FR_APIKEY_TOOL[which]
+      + '`, and it is not installed on this computer yet. Kosmos cannot install it for you yet; once it is installed, press Connect again.';
+    return;
+  }
+  msg.textContent = '';
+  frApikeyExpanded(which);
   if (FR_APIKEY_WHICH !== which) {
     const k = document.getElementById('fr-apikey-key'); k.value = '';
     document.getElementById('fr-apikey-msg').textContent = '';
@@ -23048,7 +23079,7 @@ document.getElementById('fr-apikey-go').addEventListener('click', async () => {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
     });
     const out = await res.json().catch(() => null);
-    if (mine !== FR_APIKEY_GEN) return;
+    if (mine !== FR_APIKEY_GEN) { if (res.ok) frPaintKeyed(); return; }   // a key that landed still shows as Connected
     if (!res.ok) {
       if (out && out.needsRunner) throw new Error('The ' + p.name + ' runner is not installed on this computer yet, so there is nothing to connect it to. You can carry on and connect ' + p.name + ' later in Settings, AI Models.');
       throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
@@ -23056,6 +23087,9 @@ document.getElementById('fr-apikey-go').addEventListener('click', async () => {
     keyField.value = '';
     document.getElementById('fr-apikey-flow').hidden = true;
     FR_APIKEY_WHICH = null;
+    frApikeyExpanded(null);
+    msg.setAttribute('tabindex', '-1');
+    msg.focus();   // the box that held focus is hidden now; the result is where it lands
     const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
     msg.textContent = unknown
       ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'

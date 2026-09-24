@@ -33,6 +33,20 @@ kill "Runs on this computer" and show one uninterrupted list.
   Gemini/Grok match GPT. Noted on the card as a separate fix.
 - "an xAI API key": the article follows the vendor (Settings still says "a xAI").
 
+## Review pass 1 (opus): two blockers, fixed
+- DEAD END on a fresh computer: the person was sent for a key before hearing the runner
+  is missing. Connect now PROBES first: POST /api/accounts/{route}/apikey with {} (the
+  route checks the runner before the key, so this answers needsRunner or refuses the
+  empty key, storing nothing). Missing runner: the box stays shut and the screen names
+  the command-line tool (`gemini` / `grok`) and says Kosmos cannot install it yet.
+- A provider switch mid-Add left Add disabled for good: frApikeyOpen resets it.
+- A stale SUCCESS now repaints the row (it was dropped silently).
+- After Add, aria-expanded resets on both buttons and focus lands on the result line.
+- Accepted as is: the shared box sits under Grok's row even when opened for Gemini
+  (one box for both, like one message line; aria-controls ties it to either button).
+- Left: the `.smore-t` CSS rule is now unused on this step; deleting shared CSS is not
+  worth the risk here. The #3386 comment near Grok is rewritten.
+
 ## Tests
 - web.firstrun-model.test.js: 7 not-yet-available rows at .llm off, 4 connectable,
   Gemini's mark live, and the ABSENCE of "After setup" and the tier heading (so a
@@ -41,5 +55,5 @@ kill "Runs on this computer" and show one uninterrupted list.
   #fr-later-models is absent. Control kept: Llama still says Coming soon.
 - render-firstrun-grok-3386.js: Grok is a connectable row right under Gemini, no
   divider, seven not-yet-available tiles.
-- NEW render-firstrun-keyed-connect-3658.js (11 checks). Perturbations: no needsRunner
-  branch reds the missing-runner arm; no repaint after Add reds the Connected arm.
+- NEW render-firstrun-keyed-connect-3658.js (15 checks, entered through the real frGo(5)).
+  Perturbations, each red: no probe, no Add reset, no stale repaint, no step-entry paint.
