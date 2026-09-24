@@ -5,7 +5,13 @@ import UserNotifications
 // notification categories/actions, and foreground/response handling. Kept
 // separate from AppDelegate so the behavior is testable and the delegate stays a
 // thin forwarder.
-final class PushNotificationManager: NSObject {
+final class PushNotificationManager: NSObject, ObservableObject {
+
+    // A board a tapped notification asked to open, waiting for the WebView to load
+    // it. Held here rather than loaded directly because a tap can arrive before
+    // the WebView exists (a cold launch from the notification, or the biometric
+    // lock still showing); the WebView loads it and clears it when it can.
+    @Published var boardToOpen: URL?
 
     // The one notification category the board uses today: an agent asking the
     // user to approve or deny a permission prompt. Additional categories (e.g.
@@ -180,7 +186,17 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         case Action.deny:
             NSLog("[Push] user DENIED an agent permission prompt")
         case UNNotificationDefaultActionIdentifier:
-            NSLog("[Push] user opened the notification -> route to the board")
+            // Only the coordinator's `address` field decides where a tap goes, and
+            // only when it is a plain host under the relay domain (PushBridge.boardURL).
+            let target = PushBridge.boardURL(
+                fromNotification: response.notification.request.content.userInfo,
+                relayDomain: KosmosConfig.relayDomain
+            )
+            if let target = target {
+                DispatchQueue.main.async { self.boardToOpen = target }
+            } else {
+                NSLog("[Push] tapped notification had no usable address; staying put")
+            }
         default:
             break
         }
