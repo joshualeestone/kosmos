@@ -8483,18 +8483,22 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
   } catch (e) { /* private mode, a locked-down profile: the system theme is a fine answer */ }
 })();
-/* #3497: the width a scrollbar takes on this Mac (0 when scrollbars overlay, ~15px when they are
-   always shown), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches the window
-   edge, and pads the header by this much so the header does not move between views. */
-(function () {
+/* #3497: the width a scrollbar takes here (0 when scrollbars overlay, ~15px when a Mac shows them,
+   10px under the Windows scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309
+   gutter so the box reaches the window edge, and pads the header by this much so the header does not
+   move between views. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar
+   rule changes the width), and on resize, which a zoom or a move to another display fires. */
+window.kosmosMeasureScrollbarWidth = function () {
   try {
     var d = document.createElement('div');
-    d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow:scroll';
+    d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow-y:scroll';
     document.documentElement.appendChild(d);
     document.documentElement.style.setProperty('--scrollbar-width', (d.offsetWidth - d.clientWidth) + 'px');
     d.remove();
-  } catch (e) { /* no measurement: --scrollbar-width falls back to 0 and the header may move by a scrollbar's width */ }
-})();
+  } catch (e) { /* no measurement: the header falls back to its unpadded 24px */ }
+};
+window.kosmosMeasureScrollbarWidth();
+window.addEventListener('resize', window.kosmosMeasureScrollbarWidth);
 </script>
 </head>
 <body>
@@ -14942,6 +14946,7 @@ function platformHides(el) {
 function applyPlatformCopy(root) {
   if (!onWindows() || !root || typeof root.querySelectorAll !== 'function') return;
   document.documentElement.setAttribute('data-kosmos-platform', 'win32');
+  if (typeof window !== 'undefined' && typeof window.kosmosMeasureScrollbarWidth === 'function') window.kosmosMeasureScrollbarWidth();
   root.querySelectorAll('[data-win-copy]').forEach((el) => { el.innerHTML = windowsCopy(el.getAttribute('data-win-copy')); });
   root.querySelectorAll('[data-win-only]').forEach((el) => { el.hidden = false; });
   /* An accessible name has to say what the visible label says (the Terminal tab reads

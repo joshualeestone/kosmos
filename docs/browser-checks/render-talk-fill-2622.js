@@ -384,7 +384,7 @@ async function measure(page) {
         'A1n the header controls and tabs do not move between the board, Talk and Model',
         JSON.stringify({ boardHead, talkHead, modelHead }));
     } else {
-      console.log('SKIP  A1n (overlay scrollbars on this runner, --scrollbar-width=' + boardHead.sbw + '); A1o covers the mechanism');
+      console.log('SKIP  A1n (overlay scrollbars on this runner, --scrollbar-width=' + boardHead.sbw + '; headless always hides them, run HEADED on a Mac that shows scrollbars); A1o covers the mechanism');
     }
     // A1o, the mechanism in any scrollbar mode: with a 15px scrollbar the Talk header gains exactly
     // 15px of right padding, and the other views do not.
@@ -408,7 +408,19 @@ async function measure(page) {
       return { model, talk, consTalk };
     });
     chk(parseFloat(pad.talk) - parseFloat(pad.model) === 15,
-      'A1o in Talk the header is padded by the scrollbar width (15px here), and not in other views', JSON.stringify(pad));
+      'A1o in Talk the header is padded by the scrollbar width (15px here), and not in Model (the page is left on Talk)', JSON.stringify(pad));
+    // A1p: the width is re-measured, not fixed at load. A resize (which a zoom or a display move
+    // fires) replaces a planted wrong value with the measured one, and the Windows stamp re-measures
+    // too (its scrollbar rule changes the width).
+    const remeasure = await page.evaluate(() => {
+      const before = document.documentElement.style.getPropertyValue('--scrollbar-width');
+      document.documentElement.style.setProperty('--scrollbar-width', '99px');
+      window.dispatchEvent(new Event('resize'));
+      const after = document.documentElement.style.getPropertyValue('--scrollbar-width');
+      return { before, after, platformHook: /kosmosMeasureScrollbarWidth\(\)/.test(String(applyPlatformCopy)) };
+    });
+    chk(remeasure.after === remeasure.before && remeasure.after !== '99px' && remeasure.platformHook,
+      'A1p the scrollbar width is re-measured on resize and after the Windows stamp', JSON.stringify(remeasure));
     chk(pad.consTalk === pad.model,
       'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header is not padded', JSON.stringify(pad));
     chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,
