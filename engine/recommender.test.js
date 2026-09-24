@@ -144,6 +144,20 @@ test('a report naming no project is not convened (there is no room to ask in)', 
   } finally { b.restore(); }
 });
 
+test('a project carried forward from an earlier report (inferred) is not convened; a named one is', () => {
+  const b = stuckBoard([{ name: 'inferq', report: { state: 'working', because: 'building', project: 'proj-a' } }, { name: 'namedq' }]);
+  try {
+    const cards = b.again('inferq', { state: 'needs_you', because: 'which venue' });
+    selfreport.record(b.key.namedq, { state: 'needs_you', because: 'which venue', project: 'proj-a' });
+    const all = status.snapshot().agents;
+    const inferred = all.find((c) => c.sessionName === b.key.inferq);
+    assert.equal(inferred.stateProject, 'proj-a', 'fixture: the earlier project was not carried forward');
+    assert.equal(inferred.stateProjectInferred, true, 'fixture: the carried project is not marked inferred');
+    assert.ok(cards.length > 0);
+    assert.deepEqual(afterGrace(all, new Map()).toConvene.map((c) => c.session), [b.key.namedq], 'control fired, or an inferred project was convened');
+  } finally { b.restore(); }
+});
+
 test('an item is convened once: PLACED or UNCONFIRMED ends it; COULD_NOT retries the playbook only, capped', () => {
   const b = stuckBoard([{ name: 'once', report: STUCK('which of two layouts to ship') }]);
   try {

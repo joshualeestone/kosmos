@@ -3,7 +3,7 @@
 Author: April, 2026-09-24. Split from #2619 (settings + persistence shipped in PR #3549; UI shows both
 controls disabled with "Not active yet"). UI contract: Mona's spec
 `Josh-Brain/Projects/kosmos-automations-recommender-assigner-2619-spec.md`.
-Status: DESIGN. No code until this is on the card.
+Status: phase 1 (Recommender) BUILT on this branch; phases 2-3 (Assigner) not started.
 
 ## What exists (surveyed on origin/main 3e3ed52c; file:line in the card comment)
 - Settings: `engine/recommender-setting.js` `{on, guards:{money,public,delete}}` (on defaults OFF,
@@ -37,7 +37,8 @@ Status: DESIGN. No code until this is on the card.
 (`stateReportedBy === 'agent'`), with a `stateProject`, sustained past a grace period (default
 10 min, so an agent that unblocks itself is left alone). Excluded: `auto` reports (permission
 prompts and provider outages arrive by the hook; the class-1 handler owns those), operator
-reports, and agents with no project (no room to convene in). A stopped agent is not `needs_you`,
+reports, agents with no project (no room to convene in), and a project carried forward from an
+earlier report (`stateProjectInferred`), which the agent did not name for this question. A stopped agent is not `needs_you`,
 so it never matches; there is no separate held/stopped check.
 
 **DECIDED during the challenge loop (April, 2026-09-24): `blocked` is NOT a trigger.** Converting the
