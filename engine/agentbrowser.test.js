@@ -115,6 +115,14 @@ const shellSeams = (arch, over) => Object.assign({
   proveShell: async () => 'Google Chrome for Testing ' + ab.SHELL.version + '\n',
 }, over || {});
 
+/* Fixtures, so each Mac test makes the state it needs rather than leaning on an
+   earlier test's leftovers. Idempotent: a no-op when the state is already there. */
+const ensureTree = async () => { if (!ab.isInstalled()) assert.equal((await ab.ensureInstalled(fakeSeams())).ok, true); };
+const ensureShellFor = async (arch) => {
+  await ensureTree();
+  if (!ab.shellInstalled(arch)) assert.equal((await ab.ensureShell(shellSeams(arch))).ok, true);
+};
+
 test('the Mac pin: one sha256-pinned headless shell per Mac CPU, at the version the pinned Playwright asks for', () => {
   assert.equal(ab.SHELL.version, '154.0.8037.0');
   for (const arch of ['arm64', 'x64']) {
@@ -159,7 +167,8 @@ test('a shell that does not answer with its version installs nothing', async () 
 });
 
 test('a proven shell, then a Mac launch gets a flag for a file naming exactly that shell', async () => {
-  assert.equal(ab.isInstalled(), true, 'the server tree from the Windows arm above is in place');
+  await ensureTree();
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'arm64', install: false , env: {} }), null,
     'the server alone is not enough on a Mac: no shell, no flag');
   assert.deepEqual(await ab.ensureShell(shellSeams('arm64')), { ok: true });
@@ -204,8 +213,8 @@ test('the supervisor shim prints the path once installed, prints nothing otherwi
   }
 });
 
-test('the opt-out file turns the browser off on a Mac, where the supervisor never sees the operator\'s env', () => {
-  assert.equal(ab.shellInstalled('arm64'), true);
+test('the opt-out file turns the browser off on a Mac, where the supervisor never sees the operator\'s env', async () => {
+  await ensureShellFor('arm64');
   assert.ok(ab.launchConfig({ platform: 'darwin', arch: 'arm64', install: false, env: {} }), 'on before the file');
   fs.writeFileSync(ab.optOutPath(), '');
   try {
@@ -217,7 +226,7 @@ test('the opt-out file turns the browser off on a Mac, where the supervisor neve
   } finally { fs.rmSync(ab.optOutPath(), { force: true }); }
 });
 
-test('one Mac browser install at a time: a live owner\'s lock refuses, a dead owner\'s lock is taken over', async () => {
+test('one Mac browser install at a time: a live owner\'s lock refuses, a dead owner\'s lock is taken over', { skip: process.platform !== 'darwin' ? 'uses 999999 as a pid that cannot exist, true only on macOS' : false }, async () => {
   fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   fs.writeFileSync(ab.lockPath(), String(process.ppid));          // alive: the test runner
   let r = await ab.ensureShell(shellSeams('arm64'));
@@ -294,15 +303,16 @@ test('the board retries a failed install with backoff, says why each time, and s
   });
   await done;
   assert.equal(calls, 3, 'tried until it succeeded, then stopped');
-  assert.equal(lines.length, 2);
+  assert.equal(lines.length, 3);
   assert.match(lines[0], /no network/);
   assert.match(lines[1], /still no network/);
+  assert.match(lines[2], /installed/, 'a success after retries is logged, so the log does not end on failures');
 });
 
 test('installing one Mac CPU\'s shell never touches another\'s', async () => {
   /* The shim test installs this host's CPU, which is x64 on an Intel Mac. */
   fs.rmSync(ab.shellDir('x64'), { recursive: true, force: true });
-  assert.equal(ab.shellInstalled('arm64'), true);
+  await ensureShellFor('arm64');
   assert.deepEqual(await ab.ensureShell(shellSeams('x64')), { ok: true });
   assert.equal(ab.shellInstalled('x64'), true);
   assert.equal(ab.shellInstalled('arm64'), true, 'the arm64 install survives an x64 install');
@@ -432,6 +442,7 @@ test('the CPU default has one source: every shell path defaults to hostArch()', 
   assert.equal(ab.shellDir(), ab.shellDir(a));
   assert.equal(ab.shellExe(), ab.shellExe(a));
   assert.equal(ab.shellInstalled(), ab.shellInstalled(a));
-  const src = fs.readFileSync(path.join(__dirname, 'agentbrowser.js'), 'utf8');
-  assert.equal((src.match(/process\.arch/g) || []).length, 1, 'process.arch is read in exactly one place (hostArch)');
+  const code = fs.readFileSync(path.join(__dirname, 'agentbrowser.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');   // comments do not read anything
+  assert.equal((code.match(/process\.arch/g) || []).length, 1, 'process.arch is read in exactly one place (hostArch)');
 });

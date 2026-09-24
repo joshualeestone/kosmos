@@ -6,18 +6,19 @@
 # drives the real supervisor against a stub tmux that records the `new-session`
 # argv (the test-supervisor-model-2140.sh harness), with the real engine through
 # `engine-path` (test-supervisor-env.sh arm 2) and a sandboxed runners folder, in
-# four states (arm 1 needs a Mac with a pinned build, the host every run of this
-# script has):
+# five states (arms 1 and 5 need a Mac with a pinned build, the host every run of
+# this script has):
 #   - installed  -> `--mcp-config <existing file>` right before --dangerously-skip-permissions
 #   - not installed -> no --mcp-config at all (a flag naming a missing file stops claude)
 #   - KOSMOS_AGENT_BROWSER=off -> no --mcp-config
 #   - the opt-out FILE (the Mac's real path: launchd does not pass the operator's
 #     env to the supervisor) -> no --mcp-config
+#   - installed, with a model -> the model launch line carries it the same way
 # The "installed" state is made by the real ensureInstalled/ensureShell with their
 # download/unpack/prove seams stubbed, so the markers are exactly what the code
 # checks, and no browser is downloaded.
 AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
-trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB1:-}" "${SB2:-}" "${SB3:-}" "${SB4:-}"' EXIT
+trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB1:-}" "${SB2:-}" "${SB3:-}" "${SB4:-}" "${SB5:-}"' EXIT
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -67,9 +68,10 @@ fake_install() {
 
 run_claude() {
   local dir="$1"; shift
+  local model="${MODEL_ARG:-}"
   # The caller's own opt-out must not leak in and turn arm 1 red for no reason.
   env -u KOSMOS_AGENT_BROWSER "$@" STUB_DIR="$dir" AGENT_WORKFORCE_RUNNERS_DIR="$dir/runners" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
-    bash "$dir/bin/agent-supervisor.sh" ab-3633 "$dir/work" /usr/bin/true "$dir/tmux" "$dir/start.log" "" claude \
+    bash "$dir/bin/agent-supervisor.sh" ab-3633 "$dir/work" /usr/bin/true "$dir/tmux" "$dir/start.log" "$model" claude \
     > "$dir/out.log" 2>&1 || true
 }
 
@@ -113,6 +115,17 @@ fake_install "$SB4" || bad "arm 4: the fake install failed"
 run_claude "$SB4"
 A="$SB4/new-session.args"
 if [ -s "$A" ] && ! grep -qx -- '--mcp-config' "$A"; then ok "opt-out file: launched with no --mcp-config"; else bad "opt-out file: $(tr '\n' ' ' < "$A" 2>/dev/null)"; fi
+
+# --- Arm 5: installed, with a model -> the model launch line carries the flag too ---
+SB5="$(mktemp -d)"; make_sandbox "$SB5"
+fake_install "$SB5" || bad "arm 5: the fake install failed"
+MODEL_ARG=sonnet run_claude "$SB5"
+A="$SB5/new-session.args"
+got="$(grep -A4 -x -- '--mcp-config' "$A" | tr '\n' ' ')"
+case "$got" in
+  "--mcp-config /"*" --dangerously-skip-permissions --model sonnet "*) ok "with a model: --mcp-config <file> --dangerously-skip-permissions --model sonnet" ;;
+  *) bad "with a model: the launch was: $(tr '\n' ' ' < "$A" 2>/dev/null)" ;;
+esac
 
 echo
 if [ "$FAILS" -eq 0 ]; then echo "all passed"; exit 0; fi

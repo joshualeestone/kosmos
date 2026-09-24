@@ -76,8 +76,9 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 28 pass (22 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 10 checks
-  across four arms (installed, not installed, env opt-out, file opt-out).
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 28 pass (22 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
+  across five arms (installed, not installed, env opt-out, file opt-out, installed with a
+  model); with the model line's flag removed, only the model arm fails.
 
 ## Known and left
 - Nothing in the app writes the opt-out file yet: an operator creates it by hand. A Settings

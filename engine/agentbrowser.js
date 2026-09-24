@@ -488,7 +488,7 @@ function installWithRetry(opts) {
   const log = o.log || ((line) => console.log(line));
   const kick = o.kick || kickInstall;
   let delay = o.firstDelayMs || RETRY_FIRST_MS;
-  let timer = null; let stopped = false; let badChecksums = 0;
+  let timer = null; let stopped = false; let badChecksums = 0; let retried = false;
   const schedule = o.schedule || ((fn, ms) => { const t = setTimeout(fn, ms); if (t.unref) t.unref(); return t; });
   const attempt = () => {
     if (stopped) return;
@@ -499,7 +499,8 @@ function installWithRetry(opts) {
     const p = kick({ platform: o.platform, arch: o.arch });
     if (!p) return;
     p.then((r) => {
-      if (stopped || (r && r.ok)) return;
+      if (stopped) return;
+      if (r && r.ok) { if (retried) log('agent browser: installed'); return; }
       if (/no pinned browser/.test((r && r.because) || '')) {
         log('agent browser: ' + r.because + '; not trying again');
         return;
@@ -511,6 +512,7 @@ function installWithRetry(opts) {
       }
       const wait = delay;
       delay = Math.min(delay * 2, o.maxDelayMs || RETRY_MAX_MS);
+      retried = true;
       timer = schedule(attempt, wait);   // scheduled before the log, so a throwing log cannot end the retries
       log('agent browser: install did not finish (' + ((r && r.because) || 'unknown') + '); trying again in ' + Math.round(wait / 1000) + 's');
     }).catch(() => { /* a throwing log must not become an unhandled rejection */ });
