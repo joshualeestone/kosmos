@@ -35912,7 +35912,7 @@ async function changeProviderNow(say) {
     const switchShown = agentShown();
     const switchManual = 'Say hello to ' + switchShown + ' to reactivate them on ' + provName + '.';
     tell(restarted ? switchManual : (out.because || 'Switched.'), restarted);
-    if (restarted) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual);
+    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual);
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider

@@ -188,11 +188,14 @@ function initStub() {
     s8.threadCalls === 1 && s8.msg === MANUAL, 'calls=' + s8.threadCalls + ' msg=' + JSON.stringify(s8.msg));
   // 9: the manual line never appears within the bound (RESTART_HOLD_MS + 1s) -> the wait
   // gives up; a line painted after that is left alone. Proves the wait is bounded.
-  const bound = await page.evaluate(() => RESTART_HOLD_MS + 1000);
+  // The helper reads the same hold seam changeDialog does, so a short test hold keeps this
+  // arm fast while still proving the bound (production: RESTART_HOLD_MS + 1s = 5.4s).
+  const bound = await page.evaluate(() => { window.__kosmosRestartHoldMs = 600; return 600 + 1000; });
   // The paint lands 1.5s after the bound, so a report delayed by a loaded machine still
   // has its deadline well before the paint.
   const s9 = await run({ readyAfter: 2, seed: BUSY, settleMs: bound + 2500, mutateArg: bound + 1500,
     mutate: (ms) => { setTimeout(() => { document.getElementById('chg-msg').textContent = 'Say hello to April to reactivate them on OpenAI.'; }, ms); } });
+  await page.evaluate(() => { window.__kosmosRestartHoldMs = undefined; });
   check('early report, line never painted within the bound: the wait gives up (bounded, no late write)',
     s9.threadCalls === 1 && s9.msg === MANUAL, 'bound=' + bound + 'ms calls=' + s9.threadCalls + ' msg=' + JSON.stringify(s9.msg));
 

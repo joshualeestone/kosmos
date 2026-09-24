@@ -47,6 +47,15 @@ then the dialog shows today's manual line, not a false claim.
 dialog before the paint", was the wrong premise: the stale-report case above
 was the real gap, and I had not seen it.)
 
+## Deliberately not changed
+While the hello is pending the dialog shows the manual "Say hello to ..." line,
+where the restart and start flows show "Waking them..." first. A person who reads
+it and types hello quickly sends a second, harmless hello. Changing it would
+replace the #768 reduced line Josh approved on this interstitial, so it is left
+as a follow-up option on the card, not done here. In production the report
+usually lands within about a second of the paint (accept at 4000ms or later,
+paint at 4400ms).
+
 ## Merge notes (onto current main)
 - changeProviderNow's provName on main has a keyOnlyProvider branch; kept main's
   line and added the #2716 lines under it.
