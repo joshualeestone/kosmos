@@ -11603,6 +11603,32 @@ const server = http.createServer((req, res) => {
    * with. (The PLAN for this branch said 404-unknown; that would have hidden a
    * stopped agent's own conversation, which is the thing the file exists for.)
    */
+  /* #3650: the person TOGGLES an emoji reaction on one of an agent's messages in their
+     Direct Message, the DM twin of the room's react route below (same operator surface,
+     same cross-site posture as every POST here). The message is named by its `at`; the
+     engine refuses anything that is not exactly one of this agent's own messages. The
+     response carries the message's fresh pills so the page repaints one row. */
+  const dmReact = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/react$/);
+  if (dmReact && req.method === 'POST') {
+    const name = decodeSegment(dmReact[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        const out = chat.reactDirect(name, body.at, body.emoji);
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   const dm = pathname.match(/^\/api\/agent\/([^/]+)\/thread$/);
   if (dm && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(dm[1]);
@@ -11839,8 +11865,14 @@ const server = http.createServer((req, res) => {
     const servedMessages = Array.isArray(messages)
       ? chat.withQuestionRow(messages, (card && card.sessionName) || name, question)
       : messages;
+    /* #3650: the person's reactions on the agent's messages, in the room's pill shape
+       ({emoji, count, who, mine}) so the page draws them with the room's renderer. */
+    const reactedMessages = Array.isArray(servedMessages)
+      ? servedMessages.map((m) => ((m && m.from === name && Array.isArray(m.reactions))
+        ? { ...m, reactions: chat.dmReactionPills(m) } : m))
+      : servedMessages;
     sendJson(res, 200, {
-      messages: withPreviews(servedMessages),
+      messages: withPreviews(reactedMessages),
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -12089,7 +12121,16 @@ const server = http.createServer((req, res) => {
            operator message rather than having to be instructed to know it. No
            timezone set (or an unreadable id) yields the bare prefix, unchanged. */
         const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
-        const delivery = chat.deliver(name, body.text, roster, opPrefix, attachments.wireNote(files.recs));
+        /* #3650: reactions the person put on the agent's messages since it was last told
+           ride this message as one `[kosmos]` note after the person's words (a reaction
+           is feedback, so it waits for a message rather than waking the agent). Marked
+           told only once the words reached the pane; otherwise they wait for the next. */
+        const reactionNote = chat.dmReactionNote(name);
+        const delivery = chat.deliver(name, body.text, roster, opPrefix,
+          (attachments.wireNote(files.recs) || '') + reactionNote);
+        if (reactionNote && delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.state === chat.DELIVERY.UNCONFIRMED)) {
+          chat.markDmReactionsTold(name);
+        }
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,

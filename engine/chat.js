@@ -2690,9 +2690,154 @@ function dmUnread(agent) {
   return v === undefined ? 0 : v;
 }
 
+/* #3650: emoji REACTIONS in a Direct Message, the DM half of #2255/#3570 (Josh,
+   2026-09-24: "the ability for users to denote emojis on posts, in both their
+   conversations and projects").
+
+   The room keeps reactions as append-only events in the message log. A DM is a
+   different store: one JSON thread file, rewritten whole under its lock on every
+   append. So a DM reaction lives ON the message it reacts to, as `reactions` (the
+   emojis the person currently has on it), and `reactionsTold` (the ones the agent
+   has already been told about). Both ride along untouched when later messages are
+   appended, because appendLocked carries existing rows over whole.
+
+   Only the PERSON reacts here, and only to the AGENT's messages. An agent reacting
+   back in a DM is not built (rooms have `kosmos react`; a DM has no verb for it yet).
+
+   DELIVERY is not a push. A reaction is feedback and needs no reply (the doctrine
+   section "When someone reacts to your post"), so it must not wake the agent into a
+   turn of its own. It is told on the person's NEXT message in the DM, as one
+   `[kosmos]` note after their words, the way the room shows reactions on the next
+   `kosmos room` read. A reaction the person takes back before then is never told. */
+
+/* The emojis the person currently has on message `m`, normalised and de-duplicated.
+   A stored value that is not an array, or an entry that is not a valid emoji, is
+   skipped rather than treated as damage: the thread file is not ours alone to
+   validate, and a stray field must never make a whole conversation unreadable. */
+function dmReactions(m) {
+  const { normalizeReactionEmoji } = require('./messages');   // lazy: messages.js requires this file
+  const out = [];
+  for (const raw of (m && Array.isArray(m.reactions)) ? m.reactions : []) {
+    const e = normalizeReactionEmoji(raw);
+    if (e && !out.includes(e)) out.push(e);
+  }
+  return out;
+}
+
+/* The pill list the page draws, in the room's shape ({emoji, count, who, mine}), so
+   the DM row reuses the room's renderer unchanged. The person is the only reactor. */
+function dmReactionPills(m) {
+  return dmReactions(m).map((emoji) => ({ emoji, count: 1, who: ['you'], mine: true }));
+}
+
+/* Toggle the person's `emoji` on the agent's message sent at `at`. The message is
+   found by its `at` (a DM row has no id; `at` is the key the page's anchor already
+   uses) and must be the AGENT's: a reaction on the person's own message, or on a
+   Kosmos notice, is refused. Two agent rows sharing one `at` are refused too, rather
+   than guessing which was meant. Returns {ok, op, emoji, at, reactions} or
+   {ok:false, because}. */
+function reactDirect(agent, at, emoji) {
+  const { normalizeReactionEmoji } = require('./messages');
+  const name = String(agent == null ? '' : agent).trim();
+  const when = String(at == null ? '' : at).trim();
+  const e = normalizeReactionEmoji(emoji);
+  if (!name) return { ok: false, because: 'we could not tell which conversation this is' };
+  if (!when) return { ok: false, because: 'we could not tell which message to react to' };
+  if (!e) return { ok: false, because: 'that is not an emoji we can react with' };
+  let file;
+  try { file = threadFile(DIRECT, name); }
+  catch (err) { return { ok: false, because: String((err && err.message) || 'we could not find that conversation') }; }
+  let held;
+  try {
+    held = withThreadLock(file, () => {
+      let thread;
+      try { thread = readThread(DIRECT, name); }
+      catch (err) { return { ok: false, because: String((err && err.message) || 'we cannot read this conversation right now') }; }
+      const hits = [];
+      thread.messages.forEach((m, i) => { if (m && m.at === when && m.from === name) hits.push(i); });
+      if (!hits.length) return { ok: false, because: 'there is no message from this agent at that time to react to' };
+      if (hits.length > 1) return { ok: false, because: 'two of this agent\'s messages share that time, so we could not tell which one you meant' };
+      const m = thread.messages[hits[0]];
+      const cur = dmReactions(m);
+      const op = cur.includes(e) ? 'remove' : 'add';
+      const next = op === 'add' ? [...cur, e] : cur.filter((x) => x !== e);
+      const messages = thread.messages.slice();
+      messages[hits[0]] = { ...m, reactions: next };
+      const record = { ...thread, messages };
+      try {
+        const tmp = `${file}.${process.pid}.new`;
+        fs.writeFileSync(tmp, JSON.stringify(record, null, 2));
+        fs.renameSync(tmp, file);
+      } catch {
+        return { ok: false, because: 'we could not write this reaction down on this computer' };
+      }
+      return { ok: true, op, emoji: e, at: when, reactions: dmReactionPills(messages[hits[0]]) };
+    });
+  } catch {
+    return { ok: false, because: 'we could not write this reaction down on this computer' };
+  }
+  if (!held.ok) return { ok: false, because: held.because };
+  return held.value;
+}
+
+/* The `[kosmos]` note for the person's next message: every reaction on the agent's
+   messages the agent has not been told about yet, oldest message first, with the
+   start of each message so the agent can tell which one is meant. '' when there is
+   nothing new. One line, no control characters: it is typed into a pane. */
+const DM_REACTION_SNIPPET = 48;
+function dmReactionNote(agent) {
+  let thread;
+  try { thread = readThread(DIRECT, String(agent)); } catch { return ''; }
+  const parts = [];
+  for (const m of thread.messages) {
+    if (!m || m.from !== String(agent)) continue;
+    const told = new Set(Array.isArray(m.reactionsTold) ? m.reactionsTold : []);
+    const fresh = dmReactions(m).filter((e) => !told.has(e));
+    if (!fresh.length) continue;
+    const words = String(m.text || '').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
+    const snippet = words.length > DM_REACTION_SNIPPET ? words.slice(0, DM_REACTION_SNIPPET).trimEnd() + '…' : words;
+    parts.push(fresh.join(' ') + ' on your message "' + snippet.replace(/"/g, '\'') + '"');
+  }
+  if (!parts.length) return '';
+  return ' [kosmos] reactions from the person since your last message here: ' + parts.join('; ')
+    + '. A reaction is feedback, not a message: it needs no reply.';
+}
+
+/* After a message carrying that note reached the pane, record that the agent has now
+   been told: `reactionsTold` becomes each agent message's current `reactions`. Called
+   only when the delivery placed or was typed (unconfirmed); a send that never reached
+   the pane leaves the news pending for the next one. Best-effort: a failure here means
+   the agent may be told the same reaction twice, never that one is lost. */
+function markDmReactionsTold(agent) {
+  const name = String(agent);
+  let file;
+  try { file = threadFile(DIRECT, name); } catch { return false; }
+  try {
+    const held = withThreadLock(file, () => {
+      const thread = readThread(DIRECT, name);
+      let changed = false;
+      const messages = thread.messages.map((m) => {
+        if (!m || m.from !== name) return m;
+        const now = dmReactions(m);
+        const told = Array.isArray(m.reactionsTold) ? m.reactionsTold : [];
+        if (now.length === told.length && now.every((e) => told.includes(e))) return m;
+        changed = true;
+        return { ...m, reactionsTold: now };
+      });
+      if (!changed) return true;
+      const tmp = `${file}.${process.pid}.new`;
+      fs.writeFileSync(tmp, JSON.stringify({ ...thread, messages }, null, 2));
+      fs.renameSync(tmp, file);
+      return true;
+    });
+    return !!(held && held.ok);
+  } catch { return false; }
+}
+
 module.exports = {
   DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
+  dmReactions, dmReactionPills, reactDirect, dmReactionNote, markDmReactionsTold,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
