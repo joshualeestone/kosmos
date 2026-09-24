@@ -8,8 +8,9 @@
 #
 # It runs in test:shell (test.yml) on EVERY PR, including ones that do not touch the
 # rendered surface -- so a PR that breaks this workflow file is caught even though it
-# does not itself trigger the browser workflow. Static checks only (no run, no
-# network); the workflow is exercised end to end by its own PR run.
+# does not itself trigger the browser workflow. No network. Mostly static checks; the
+# #2518 block also RUNS the two scripts embedded in browser-checks-full.yml, with gh
+# stubbed. The workflows themselves are exercised end to end by their own runs.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 WF="$REPO/.github/workflows/browser-checks.yml"
@@ -156,10 +157,12 @@ if command -v ruby >/dev/null 2>&1; then
     abort "browser-checks-full.yml top-level permissions must be exactly contents: read, got #{f["permissions"].inspect}" unless f["permissions"] == { "contents" => "read" }
     abort "the checks job must not grant itself permissions" if fj.key?("permissions")
     cs = (fj["steps"] || []).find { |st| st["run"].to_s =~ /bash tools\/browser-checks\.sh/ } or abort "no checks step"
-    abort "the checks step needs its own timeout below the job timeout (a JOB timeout is cancelled, which files no card)" unless cs["timeout-minutes"].to_i > 0 && cs["timeout-minutes"].to_i < fj["timeout-minutes"].to_i
+    abort "the checks step needs its own timeout below the job timeout" unless cs["timeout-minutes"].to_i > 0 && cs["timeout-minutes"].to_i < fj["timeout-minutes"].to_i
     cj = (f["jobs"] || {})["file-red-card"] or abort "no file-red-card job (nobody would see a nightly red)"
     abort "file-red-card must need browser-checks-full" unless Array(cj["needs"]).include?("browser-checks-full")
-    abort "file-red-card must run only on a scheduled failure, got if: #{cj["if"].inspect}" unless cj["if"].to_s.gsub(/\s+/, " ").strip == "failure() && github.event_name == \x27schedule\x27"
+    # always(): it must run after a failed, timed-out or cancelled checks job too (a
+    # cancelled job makes failure() false), and on success to close the card.
+    abort "file-red-card must run on every scheduled run and nothing else, got if: #{cj["if"].inspect}" unless cj["if"].to_s.gsub(/\s+/, " ").strip == "always() && github.event_name == \x27schedule\x27"
     abort "file-red-card must hold exactly issues: write, got #{cj["permissions"].inspect}" unless cj["permissions"] == { "issues" => "write" }
     abort "the card step has no GH_TOKEN, so gh cannot file anything" unless (cj["steps"] || []).any? { |st| (st["env"] || {})["GH_TOKEN"].to_s.include?("github.token") }
     # The PR workflow never holds issues: write, at the top or in any job.
@@ -175,10 +178,12 @@ else
 fi
 
 # #2518: the two embedded scripts are behavior, not shape, so RUN them: extracted from
-# the parsed YAML and executed under the runner's own shell flags (-e and pipefail), with
-# gh stubbed as a shell FUNCTION (never a freshly written executable).
+# the parsed YAML and executed under -e and pipefail (the runner's default shell has -e;
+# pipefail is the stricter case), with gh stubbed as a shell FUNCTION (never a freshly
+# written executable).
 if command -v ruby >/dev/null 2>&1; then
   BT="$(mktemp -d)"
+  trap 'rm -rf "$BT"' EXIT
   ruby -ryaml -e '
     j = YAML.load_file(ARGV[0])["jobs"]
     File.write(ARGV[1], j["browser-checks-full"]["steps"].find { |s| s["id"] == "failed" }["run"])
@@ -193,30 +198,43 @@ if command -v ruby >/dev/null 2>&1; then
   RUNNER_TEMP="$BT/log" GITHUB_OUTPUT="$BT/o2" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" >/dev/null 2>&1 || fail "the collector failed on a real log"
   [ "$(cat "$BT/o2")" = "labels=render-fields render-thread" ] || fail "the collector read the wrong labels: $(cat "$BT/o2")"
   pass "the label collector reads only the FAILED: summary, and falls back without aborting when there is no log"
-  # Card script, three states. MODE selects what the stubbed gh answers.
+  # Card script. $1 = the checks job RESULT, $2 = what the stubbed issue list answers
+  # (empty / 7 / null); the open card's last report named render-fields only.
   card() {
-    MODE="$1" RED="render-fields" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+    RESULT="$1" OPEN="$2" RED="render-fields render-thread" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       gh() { case "$1 $2" in
-        "label list") [ "$MODE" = open ] && echo nightly-browser-checks-red; true ;;
+        "label list") true ;;
         "label create") echo "CALL label-create" ;;
-        "issue list") case "$MODE" in open) echo 7 ;; null) echo null ;; *) echo "" ;; esac ;;
+        "issue list") echo "$OPEN" ;;
+        "issue view") printf "%s\n" "Still not green (failure) at old: u" "NEW since the last red night: none" "Red checks: render-fields" ;;
         "issue comment") echo "CALL comment $3 :: $*" ;;
         "issue create") echo "CALL create :: $*" ;;
+        "issue close") echo "CALL close $3 :: $*" ;;
         *) echo "CALL unexpected $*"; return 1 ;;
       esac; }
       . "$1"' _ "$BT/card.sh" 2>&1
   }
-  out="$(card fresh)" || fail "card script failed on a fresh streak: $out"
-  case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields"*) ;; *) fail "fresh streak did not create the label and a card naming the red checks: $out" ;; esac
-  case "$out" in *"CALL comment"*) fail "fresh streak commented instead of creating: $out" ;; esac
-  out="$(card open)" || fail "card script failed with an open card: $out"
-  case "$out" in *"CALL comment 7"*"Red checks: render-fields"*) ;; *) fail "an open card did not get a comment naming the red checks: $out" ;; esac
-  case "$out" in *"CALL create"*|*"CALL label-create"*) fail "an open card streak created again: $out" ;; esac
-  out="$(card null)" || fail "card script failed on a null query result: $out"
+  out="$(card failure "")" || fail "card script failed on a fresh streak: $out"
+  case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields render-thread"*) ;; *) fail "a fresh red streak did not create the label and a card naming the red checks: $out" ;; esac
+  case "$out" in *"CALL comment"*|*"CALL close"*) fail "a fresh red streak commented or closed: $out" ;; esac
+  out="$(card failure 7)" || fail "card script failed with an open card: $out"
+  case "$out" in *"CALL comment 7"*"NEW since the last red night: render-thread"*"Red checks: render-fields render-thread"*) ;; *) fail "an open card did not get a comment leading with the NEW red check: $out" ;; esac
+  case "$out" in *"CALL create"*|*"CALL label-create"*) fail "an open-card streak created again: $out" ;; esac
+  out="$(card cancelled "")" || fail "card script failed on a cancelled run: $out"
+  case "$out" in *"CALL create"*"ended cancelled"*) ;; *) fail "a cancelled (e.g. timed-out) run did not file a card: $out" ;; esac
+  out="$(card failure null)" || fail "card script failed on a null query result: $out"
   case "$out" in *"CALL create"*) ;; *) fail "a literal null from the issue query did not create a card: $out" ;; esac
   case "$out" in *"CALL comment null"*) fail "commented on issue 'null': $out" ;; esac
-  rm -rf "$BT"
-  pass "the card script creates on a fresh streak, comments (naming red checks) on an open card, and treats a null lookup as none"
+  out="$(card success 7)" || fail "card script failed on a green night with an open card: $out"
+  case "$out" in *"CALL close 7"*) ;; *) fail "the first green night did not close the open card: $out" ;; esac
+  case "$out" in *"CALL comment"*|*"CALL create"*) fail "a green night commented or created: $out" ;; esac
+  out="$(card success "")" || fail "card script failed on a green night with no card: $out"
+  case "$out" in *"CALL "*) fail "a green night with no open card did anything: $out" ;; esac
+  pass "the card script: fresh red creates, open red comments leading with NEW checks, a timeout/cancel files, a null lookup is none, green closes, green with no card is a no-op"
+elif [ -n "${CI:-}" ]; then
+  fail "ruby is missing under CI, so the embedded scripts cannot be run"
+else
+  pass "SKIPPED running the embedded scripts (no ruby on this machine)"
 fi
 
 # An unquoted " #" inside a step name starts a YAML comment and silently truncates it
