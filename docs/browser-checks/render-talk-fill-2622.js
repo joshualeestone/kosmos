@@ -10,11 +10,10 @@
  * it's a big empty gap)."
  *
  * This is the Talk-box analog of #2012 (which fixed WIDTH + the Terminal
- * #d-window, never the Talk #d-talk-box). The fix is a definite viewport height on
- * the document-scroll #panel-detail plus a flex chain down to #d-dmthread, with
- * the thread's own `max-height: 15rem` cap lifted (per the #980 lesson: a bare
- * max-height does not grow a short box, and a min-height lets content grow the
- * panel unbounded so the thread never scrolls).
+ * #d-window, never the Talk #d-talk-box). A flex chain runs down to #d-dmthread with the
+ * thread's own `max-height: 15rem` cap lifted. The height comes per layout: wide, the body is a
+ * viewport-tall flex column and the panel fills what is left (#3497); narrow, the page scrolls and
+ * #d-talk-box is its own window-tall block (talk-narrow-fill).
  *
  * 🛑 THE FILL ASSERTIONS ARE CONTROLS, not bare reads. Each would FAIL on the
  * pre-change build: #d-talk-box was content-height (~short), so on a tall window
@@ -51,8 +50,8 @@ const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
-// The dialog box may sit up to TOL px above the viewport bottom and still read
-// as "filled" (A1, A2; the wide layout fills flush, A1b). Pre-change the gap was many hundreds of px, so TOL discriminates.
+// A1/A2 are the loose pre-#3497 controls (the box within TOL of the viewport bottom);
+// A1b is the tight one (flush within 1px). Pre-change the gap was many hundreds of px, so TOL discriminates.
 const TOL = 130;
 
 const fail = [];
@@ -269,6 +268,22 @@ async function measure(page) {
       'A2d narrow width: scrolled to the box, all of it (header row to composer) is on screen and uncovered', JSON.stringify(nEnd));
     chk(onScreen(nMax),
       'A2e narrow width: at the end of the page (where scrolling stops), the whole box is on screen and uncovered', JSON.stringify(nMax));
+    // A2f: focusing the box (the app does, e.g. the paintTalk rescue) keeps its composer on screen,
+    // and at the end of the page the build marker sits below the box, not under Post.
+    const nFocus = await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      const box = document.getElementById('d-talk-box'); box.focus();
+      const c = document.querySelector('#d-talk-box .dmbar.composerbox').getBoundingClientRect();
+      const out = { composerBottom: Math.round(c.bottom), innerHeight: window.innerHeight };
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      const m = document.getElementById('buildmark'); const b = box.getBoundingClientRect();
+      const r = m && !m.hidden ? m.getBoundingClientRect() : null;
+      out.markInBox = r ? (r.top < b.bottom && r.bottom > b.top && r.left < b.right && r.right > b.left) : null;
+      box.blur(); window.scrollTo(0, 0);
+      return out;
+    });
+    chk(nFocus.composerBottom <= nFocus.innerHeight && nFocus.markInBox === false,
+      'A2f narrow width: focusing the box keeps the composer on screen; the build marker is present and clear of the box', JSON.stringify(nFocus));
 
     // --- A long THREAD in a SHORT window: the composer must stay reachable. This
     // guards a failure mode the FILL ITSELF introduces, NOT a pre-change control

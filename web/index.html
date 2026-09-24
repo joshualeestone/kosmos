@@ -2601,12 +2601,17 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   /* Narrow width stacks the identity block and nav (~400px) above the Talk box, so a window-tall
      panel would leave the box a sliver. Here the page scrolls and the box is its own window-tall
      block; the header stops being sticky in this view so it scrolls away and never covers the top
-     of the box, whatever its height. Below ~370px of window height the box (floor 320px) is taller
-     than the window and needs its own scroll to see both ends. render-talk-fill-2622 A2b/A2d/A2e. */
+     of the box, whatever its height (the trade: a header notice, offline or update, is off screen
+     while typing here; scrolling up shows it). The scroll padding that cleared the sticky header
+     goes too, or focusing the box would push the composer off screen. Below 320px of window height
+     the box is taller than the window and the page scroll shows one end at a time.
+     render-talk-fill-2622 A2b/A2d/A2e/A2f. */
+  html:has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scroll-padding-top: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) { height: auto; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { padding-bottom: var(--space-8); }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { position: static; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { height: calc(100vh - 2 * var(--space-8)); min-height: 320px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
+    height: calc(100vh - 2 * var(--space-8)); height: calc(100dvh - 2 * var(--space-8)); min-height: 320px; }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
