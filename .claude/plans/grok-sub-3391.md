@@ -40,10 +40,13 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
    - Header corrected: the "Grok has no such file" paragraph predates `grok login`.
 2. `server.js`: `POST /api/accounts/grok/subscription/start`, `GET .../status`, `POST .../cancel`,
    mirroring the openai routes, including the needsRunner answer.
-3. `bin/agent-supervisor.sh` grok arm: an agent whose account home (GROK_HOME, or ~/.grok for the
-   default) has an auth.json and NO key file drops every `XAI_API_KEY=` entry from PANE_ENV and launches
-   through `/usr/bin/env -u XAI_API_KEY`, so neither the secrets/env door nor a server-global value turns a
-   subscription agent into an API-key one.
+3. `bin/agent-supervisor.sh` grok arm: it asks `grokaccounts.identityOf` itself (through node) what kind
+   of account the home is (GROK_HOME, or the default's three tiers). A subscription drops every
+   `XAI_API_KEY=` entry from PANE_ENV and launches through `/usr/bin/env -u XAI_API_KEY`, UNLESS the sign-in
+   has provably lapsed (checkLive's offline NONE), in which case the door key is kept and the log says why:
+   stripping it would restart a working agent into a dead sign-in (challenge iteration 12). The
+   per-account leader socket is added only when this grok's `--help` lists the flag (an older grok would
+   exit rc 2 and crash-loop).
 
 ## Decided, and why
 - Device mode only: the board is headless-friendly and the measured flow is device auth. `--oauth`

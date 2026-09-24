@@ -179,7 +179,7 @@ test('real tmux resolves a repeated -e to the LAST value (the precedence the per
    (auth.json, no key file) must reach grok with NO XAI_API_KEY at all, or grok runs on the
    key instead of the sign-in. An EMPTY value still counts as set to grok (measured), so the
    supervisor drops every door pair and runs grok through `env -u XAI_API_KEY`. */
-function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome, noEngine, withStderr }) {
+function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome, noEngine, withStderr, oldGrok }) {
   const tree = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-grok-sub-'));
   fs.mkdirSync(nodePath.join(tree, 'bin'), { recursive: true });
   fs.mkdirSync(nodePath.join(tree, 'secrets', 'env'), { recursive: true });
@@ -206,7 +206,11 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
   fs.mkdirSync(nodePath.join(tree, 'data'), { recursive: true });
   const env = { PATH: process.env.PATH, HOME: tree, REC: rec, AGENT_WORKFORCE_HOME: tree, AGENT_WORKFORCE_DATA: nodePath.join(tree, 'data') };
   if (!defaultHome) env.GROK_HOME = acct;
-  const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), 'agent-grok', tree, '/usr/bin/true', fake, '', 'grok-4.6', 'grok'], { env, encoding: 'utf8', timeout: 20000 });
+  /* A fake grok whose --help lists --leader-socket (grok 1.0.41, measured) or, for oldGrok, does not.
+     tmux is fake, so this runner is only ever asked for --help; it is never launched. */
+  const runner = nodePath.join(tree, 'fake-grok.sh');
+  fs.writeFileSync(runner, '#!/bin/bash\n[ "$1" = --help ] && echo "' + (oldGrok ? '--model <M>' : '--leader-socket <PATH>') + '"\nexit 0\n', { mode: 0o755 });
+  const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), 'agent-grok', tree, runner, fake, '', 'grok-4.6', 'grok'], { env, encoding: 'utf8', timeout: 20000 });
   const out = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
   fs.rmSync(tree, { recursive: true, force: true });
   return withStderr ? { rec: out, stderr: r.stderr || '' } : out;
@@ -216,7 +220,7 @@ test('grok SUBSCRIPTION account: the door XAI_API_KEY is dropped and grok runs u
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true });
   assert.ok(rec.includes('new-session'), 'the grok arm launched');
   assert.ok(!/XAI_API_KEY=/.test(rec), 'no XAI_API_KEY value of any kind reaches the pane');
-  assert.match(rec, /GROK_CLAUDE_HOOKS_ENABLED=0 \/usr\/bin\/env -u XAI_API_KEY \/usr\/bin\/true /, 'grok is launched through /usr/bin/env -u XAI_API_KEY');
+  assert.match(rec, /GROK_CLAUDE_HOOKS_ENABLED=0 \/usr\/bin\/env -u XAI_API_KEY \S*fake-grok\.sh /, 'grok is launched through /usr/bin/env -u XAI_API_KEY');
   // The pair structure survived the filter: every -e is still followed by a NAME=value.
   const argv = rec.trim().split(/\s+/);
   argv.forEach((a, i) => { if (a === '-e') assert.match(argv[i + 1] || '', /^[A-Z_][A-Z0-9_]*=/, 'every -e still carries a NAME=value after the filter'); });
@@ -310,4 +314,19 @@ test('grok: the supervisor classifies by identityOf itself, so odd shapes agree 
   // One top-level entry whose value is not an object is not an account (identityOf null): kept.
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': null }) })));
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify([{ 'https://auth.x.ai::a': {} }]) })), 'a top-level array is not an account');
+});
+
+test('grok: a PROVABLY LAPSED sign-in keeps the door key (a working agent is not restarted into a dead sign-in) and says so', () => {
+  const r = runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', expires_at: '2000-01-01T00:00:00.000000Z' } }), withStderr: true });
+  assert.ok(kept(r.rec), 'the key is kept for a lapsed sign-in');
+  assert.match(r.stderr, /the sign-in in \S+ has expired, so this agent keeps any XAI_API_KEY/);
+  // CONTROL: the same shape with a refresh token (renewable) strips as a subscription.
+  assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', refresh_token: 'r', expires_at: '2000-01-01T00:00:00.000000Z' } }) })));
+});
+
+test('grok: an OLDER grok whose --help has no --leader-socket gets no leader flag (it would exit rc 2 and crash-loop)', () => {
+  const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, oldGrok: true });
+  assert.ok(rec.includes('new-session'), 'it still launches');
+  assert.ok(!/--leader-socket/.test(rec), 'the flag is not passed to a grok that does not know it');
+  assert.ok(/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', authJson: true })), 'CONTROL: a grok that knows the flag gets it');
 });

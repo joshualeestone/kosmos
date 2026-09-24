@@ -20,7 +20,8 @@
  *  - SUBSCRIPTION (#3391): `grok login --device-auth` writes GROK_HOME/auth.json,
  *    one object keyed `https://auth.x.ai::<uuid>` holding the sign-in (email,
  *    refresh_token, expires_at, ...), mode 0600. The CLI reads it back itself, so
- *    this module only reads it for identity and never stores a credential of its own.
+ *    this module only reads it (for identity, and for whether it has lapsed) and never
+ *    stores a credential of its own.
  *    An EMPTY XAI_API_KEY still counts as set to grok ("You are using XAI_API_KEY",
  *    measured), which is why the supervisor REMOVES the variable for this kind.
  * For the API-key kind, per-account key delivery is NEW plumbing with no codex
@@ -127,8 +128,8 @@ function authFile(dir) { return path.join(path.resolve(String(dir || '')), AUTH_
 
 /* Read a subscription sign-in: absent (no file), unreadable (cannot read or parse,
    or no auth.x.ai entry), or ok with the ONE auth.x.ai entry. Two entries is
-   `unreadable`: we could not say which one grok will use. Nothing here is ever
-   returned to a caller outside this module except the email. */
+   `unreadable`: we could not say which one grok will use. The entry holds the refresh
+   token, so no caller may hand it to a page or a log: rows carry only the email. */
 function readAuth(dir) {
   let raw;
   try { raw = fs.readFileSync(authFile(dir), 'utf8'); }
@@ -635,6 +636,10 @@ function resolveFreshGrokDir(label) {
     for (;;) {
       spot = nextWorkDir(skip);
       if (!spot) return { error: 'we could not find a free spot for another account' };
+      // A symlinked slot is skipped, not fatal (the unnamed key add does the same).
+      let link = null;
+      try { link = fs.lstatSync(spot.dir); } catch { link = null; }
+      if (link && link.isSymbolicLink()) { skip.add(spot.dir); continue; }
       if (!accountclaim.claimHeld(spot.dir)) break;
       skip.add(spot.dir);
     }

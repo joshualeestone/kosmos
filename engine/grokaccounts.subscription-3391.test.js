@@ -338,3 +338,16 @@ test('driver: the sign-in moves on as soon as the URL is out, even if no separat
   grok.cancelGrokLogin(out.sessionId);
   await waitFor(() => !fs.existsSync(nodePath.join(SANDBOX, '.grok-urlonly')));
 }));
+
+test('driver: a SYMLINKED work slot is skipped, not fatal, for an unnamed sign-in (as the unnamed key add does)', () => withMode('hang', async () => {
+  grok.setGrokTimers({ forceKill: 200 });
+  for (const n of [1, 2, 3]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
+  const target = fs.mkdtempSync(nodePath.join(SANDBOX, 'elsewhere-'));
+  fs.symlinkSync(target, nodePath.join(SANDBOX, '.grok-work1'));
+  const s = grok.startGrokLogin({ grokBin: FAKE });
+  assert.equal(s.ok, true, s.because || '');
+  assert.equal(grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work2')), true, 'it took the next slot');
+  grok.cancelGrokLogin(s.sessionId);
+  await waitFor(() => !grok.isSignInPending(nodePath.join(SANDBOX, '.grok-work2')));
+  fs.rmSync(nodePath.join(SANDBOX, '.grok-work1'), { force: true });
+}));

@@ -670,17 +670,33 @@ if [ -z "$adopt" ]; then
     [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
     _GROK_ID=""
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
-      # "<authMode>\t<email or key tail>" or nothing; never the key.
+      # "<authMode>\t<email or key tail>\t<lapsed|ok|>" or nothing; never the key. The third
+      # field is grokaccounts.checkLive's OFFLINE verdict, asked for a subscription only (an
+      # api-key check would reach the network): a provably lapsed sign-in says "lapsed".
+      # (A function, so its early returns are legal: `node -e` runs a script, where a
+      # top-level return is a SyntaxError that would leave this empty and silently keep the key.)
       _GROK_ID="$("$NODE_BIN" -e '
-        try {
-          const w = require(process.argv[1]).identityOf(process.argv[2]);
-          if (w) process.stdout.write(w.authMode + "\t" + (w.email || w.keyTail || ""));
-        } catch (e) { /* an unreadable answer keeps the key */ }
+        (function () {
+          try {
+            const g = require(process.argv[1]);
+            const w = g.identityOf(process.argv[2]);
+            if (!w) return;
+            const say = (flag) => process.stdout.write(w.authMode + "\t" + (w.email || w.keyTail || "") + "\t" + flag);
+            if (w.authMode !== "subscription") { say(""); return; }
+            g.checkLive(process.argv[2]).then((v) => say(v && v.state === "none" ? "lapsed" : "ok"), () => say("ok"));
+          } catch (e) { /* an unreadable answer keeps the key */ }
+        })();
       ' "$_eng/grokaccounts.js" "$_GROK_ACCT" 2>/dev/null || true)"
     elif [ -e "${_GROK_ACCT}/auth.json" ]; then
       echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
     fi
-    if [ "${_GROK_ID%%	*}" = subscription ]; then
+    _GROK_WHO="${_GROK_ID%	*}"
+    # A sign-in that has PROVABLY lapsed (no refresh token, expiry past) keeps any door key:
+    # stripping it would restart a working agent into a dead sign-in. The board shows the
+    # sign-in as expired, and the log says why the key stayed.
+    if [ "${_GROK_ID%%	*}" = subscription ] && [ "${_GROK_ID##*	}" = lapsed ]; then
+      echo "grok: the sign-in in ${_GROK_ACCT} has expired, so this agent keeps any XAI_API_KEY rather than a dead sign-in" >&2
+    elif [ "${_GROK_ID%%	*}" = subscription ]; then
       _kept=()
       _i=0
       _n=${#PANE_ENV[@]}
@@ -708,15 +724,18 @@ if [ -z "$adopt" ]; then
     # the cheap, reversible answer in both directions. The default keeps the default leader.
     # The name is short (macOS limits a socket path to 104 bytes) and matches the
     # leader-*.sock pattern `grok leader list` finds.
-    if [ -n "${GROK_HOME:-}" ]; then
-      _hash="$(printf '%s\t%s' "$GROK_HOME" "$_GROK_ID" | /usr/bin/shasum 2>/dev/null | cut -c1-12)"
+    # ⚠️ Only when THIS grok knows the flag (measured on grok 1.0.41; an unknown flag is rc 2,
+    # which would crash-loop every per-account agent on an older grok). grok is a native
+    # binary, so asking its --help is not subject to the #! exec stall.
+    if [ -n "${GROK_HOME:-}" ] && "$CLAUDE" --help 2>/dev/null | grep -q -- '--leader-socket'; then
+      _hash="$(printf '%s\t%s' "$GROK_HOME" "$_GROK_WHO" | /usr/bin/shasum 2>/dev/null | cut -c1-12)"
       if [ -n "$_hash" ]; then
         _GROK_LEADER=(--leader-socket "${HOME}/.grok/leader-${_hash}.sock")
         mkdir -p "${HOME}/.grok" 2>/dev/null || true
       fi
       unset _hash
     fi
-    unset _GROK_ACCT _GROK_ID
+    unset _GROK_ACCT _GROK_ID _GROK_WHO
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
