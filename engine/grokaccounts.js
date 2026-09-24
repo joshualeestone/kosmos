@@ -151,6 +151,9 @@ function readAuth(dir) {
 function identityOf(dir) {
   const got = readKey(dir);
   if (got.kind === 'ok' && got.key) return { authMode: 'apikey', email: null, keyTail: got.key.slice(-4) };
+  /* A key file that is there but cannot be read is not "no key": we cannot say what
+     kind of account this is, so it is not described at all (checkLive says UNKNOWN). */
+  if (got.kind === 'unreadable') return null;
   const auth = readAuth(dir);
   if (auth.kind !== 'ok') return null;
   const email = typeof auth.entry.email === 'string' && auth.entry.email ? auth.entry.email : null;
@@ -307,7 +310,7 @@ async function checkLive(dir, _opts) {
    grok session succeeds on it. NONE only for a sign-in that has provably lapsed. */
 function subscriptionVerdict(dir) {
   const auth = readAuth(dir);
-  if (auth.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'no API key is stored for this account' };
+  if (auth.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'nobody has connected this account yet' };
   if (auth.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'we could not read this account\'s Grok sign-in' };
   const e = auth.entry;
   if (typeof e.refresh_token === 'string' && e.refresh_token) {
@@ -562,6 +565,8 @@ async function listLiveNow() {
  *
  * The session lives as long as the server process, as in openaiaccounts. */
 const grokSessions = new Map();
+// What `grok login` writes into GROK_HOME (measured, grok 1.0.41), for reused-slot cleanup.
+const GROK_WRITES = [AUTH_BASENAME, 'docs', 'logs'];
 let grokLoginTimeoutMs = 5 * 60 * 1000;
 let grokSessionTtlMs = 2 * 60 * 1000;
 let grokForceKillMs = 3000;
@@ -596,7 +601,7 @@ function armGrokForceKill(session) {
 function parseGrokLoginOutput(text) {
   const out = {};
   const s = String(text);
-  const url = (s.match(/https:\/\/[^\s'"<>]+/g) || [])
+  const url = (s.match(/https?:\/\/[^\s'"<>]+/g) || [])
     .map((u) => u.replace(/[.,;:!?)\]}'"]+$/, ''))[0];
   if (url) out.authUrl = url;
   const code = s.replace(/https?:\/\/[^\s'"<>]+/g, ' ').match(/\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b/);
@@ -671,11 +676,14 @@ function startGrokLogin({ label, grokBin } = {}) {
   const session = { id: sessionId, child, dir: spot.dir, label: spot.label || null, typedLabel: label, madeDir: spot.madeDir, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false };
   grokSessions.set(sessionId, session);
   /* Anti-litter a sign-in that did not land an account: a dir we made goes whole; a
-     reused slot loses only the auth.json grok may have written. A landed account stays. */
+     reused slot loses only what grok writes there (auth.json, docs/, logs/, measured),
+     never anything else in it. A landed account stays. */
   const dropDirIfOurs = () => {
     if (session.account) return;
-    if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
-    else { try { fs.rmSync(authFile(session.dir), { force: true }); } catch { /* best effort */ } }
+    if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } return; }
+    for (const name of GROK_WRITES) {
+      try { fs.rmSync(path.join(session.dir, name), { recursive: true, force: true }); } catch { /* best effort */ }
+    }
   };
   // Call only once the child is confirmed gone. Idempotent.
   const freeSlotAndDir = () => {

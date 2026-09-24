@@ -135,7 +135,7 @@ fs.writeFileSync(FAKE, [
   'case "$FAKE_MODE" in',
   '  approve) sleep 0.3; printf \'{"https://auth.x.ai::u1":{"email":"sub@example.com","refresh_token":"r"}}\' > "$GROK_HOME/auth.json"; exit 0 ;;',
   '  fail) sleep 0.2; exit 1 ;;',
-  '  noauth) sleep 0.2; exit 0 ;;',
+  '  noauth) mkdir -p "$GROK_HOME/docs" "$GROK_HOME/logs"; sleep 0.2; exit 0 ;;',
   '  hang) exec sleep 30 ;;',
   'esac',
 ].join('\n') + '\n', { mode: 0o755 });
@@ -266,7 +266,7 @@ test('a slot an API-key add has CLAIMED is skipped by an unlabelled sign-in and 
   fs.rmSync(claimed, { recursive: true, force: true }); fs.rmSync(namedDir, { recursive: true, force: true });
 }));
 
-test('anti-litter on a REUSED slot removes only the auth.json, and a reused slot drops the old display name', () => withMode('noauth', async () => {
+test('anti-litter on a REUSED slot removes only what grok writes, and a reused slot drops the old display name', () => withMode('noauth', async () => {
   for (const n of [1, 2]) fs.rmSync(nodePath.join(SANDBOX, `.grok-work${n}`), { recursive: true, force: true });
   const slot = nodePath.join(SANDBOX, '.grok-work1');
   fs.mkdirSync(slot, { recursive: true });
@@ -279,7 +279,9 @@ test('anti-litter on a REUSED slot removes only the auth.json, and a reused slot
   await waitFor(() => grok.grokLoginStatus(s.sessionId).state === 'error');
   await waitFor(() => !fs.existsSync(nodePath.join(slot, 'auth.json')));
   assert.ok(fs.existsSync(slot), 'a dir we did not make is not removed');
-  assert.ok(fs.existsSync(nodePath.join(slot, 'keepme.txt')), 'only the auth.json is taken back');
+  assert.equal(fs.existsSync(nodePath.join(slot, 'docs')), false, 'grok\'s docs/ is taken back');
+  assert.equal(fs.existsSync(nodePath.join(slot, 'logs')), false, 'grok\'s logs/ is taken back');
+  assert.ok(fs.existsSync(nodePath.join(slot, 'keepme.txt')), 'and nothing grok did not write');
   fs.rmSync(slot, { recursive: true, force: true });
 }));
 
@@ -296,4 +298,13 @@ test('checkLive: an EMPTY key file beside a sign-in is judged as the sign-in (th
   fs.mkdirSync(e, { recursive: true });
   fs.writeFileSync(nodePath.join(e, '.kosmos-grok-apikey'), '', { mode: 0o600 });
   assert.equal((await grok.checkLive(e)).state, grok.STATE.UNKNOWN);
+});
+
+test('an UNREADABLE key file beside a valid sign-in is not described as a subscription (row, checkLive agree)', async () => {
+  const d = fresh('.grok-unreadablekey');
+  writeAuth(d, ENTRY({ refresh_token: 'r' }));
+  fs.mkdirSync(nodePath.join(d, '.kosmos-grok-apikey'));   // a directory where the key file should be: unreadable
+  assert.equal(grok.identityOf(d), null, 'not described as a subscription');
+  assert.equal(grok.list().find((a) => a.dir === d), undefined, 'not listed');
+  assert.equal((await grok.checkLive(d)).state, grok.STATE.UNKNOWN);
 });
