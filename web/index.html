@@ -35906,9 +35906,13 @@ async function changeProviderNow(say) {
        this branch exists to avoid. */
     const restarted = out.outcome === 'changed';
     const provName = want === 'openai' ? 'OpenAI' : keyOnlyProvider(want) ? switchKeyedWord(want) : 'Anthropic';
-    tell(restarted
-      ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
-      : (out.because || 'Switched.'), restarted);
+    // #2716: build the manual line ONCE and share it with the auto-hello helper, so the
+    // helper's content check compares against exactly what tell() painted (no triplicated
+    // string to drift out of byte-identity if the wording is retuned).
+    const switchShown = agentShown();
+    const switchManual = 'Say hello to ' + switchShown + ' to reactivate them on ' + provName + '.';
+    tell(restarted ? switchManual : (out.because || 'Switched.'), restarted);
+    if (restarted) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual);
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider
@@ -36648,9 +36652,12 @@ async function changeModelNow(say) {
        is unchanged by a model switch, so it names the agent's current one. */
     const restarted = out.outcome === 'changed';
     const provName = (providerOf(CURRENT) === 'openai') ? 'OpenAI' : 'Claude';
-    if (say) say(restarted
-      ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
-      : (out.because || 'Changed.'), restarted);
+    // #2716: build the manual line ONCE and share it with the auto-hello helper (see
+    // changeProviderNow), so the content check matches exactly what say() painted.
+    const switchShown = agentShown();
+    const switchManual = 'Say hello to ' + switchShown + ' to reactivate them on ' + provName + '.';
+    if (say) say(restarted ? switchManual : (out.because || 'Changed.'), restarted);
+    if (restarted) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual);
     sel.value = '';
     await tick();
     /**
@@ -38844,6 +38851,45 @@ async function autoHelloAfterRestart(name, report, saidText, manualText, deliver
   if (mine !== RESTART_HELLO_SEQ[name]) return;    // a newer restart of this agent superseded us
   if (!ready) { report(manualText); return; }
   await sendWakeHello(name, mine, report, saidText, manualText, deliver);
+}
+
+/* #2716: the changeDialog twin of the restart-modal auto-hello. After a model
+   (changeModelNow) or provider (changeProviderNow) switch restarts the agent, send the
+   wake 'hello' via the same helper and, on success, reduce the dialog's line from the
+   "Say hello to reactivate ..." instruction to a confirmation.
+
+   The report writes to chg-msg DIRECTLY, not through changeDialog's `say`: `say` is a
+   one-shot exit, so a second update has to touch the element itself. It writes only
+   over the exact manual line `say` painted, in a dialog still open for this agent, so a
+   timeout or failure (which reports the manual line itself) changes nothing.
+
+   ⚠️ THE REPORT CAN ARRIVE BEFORE THE MANUAL LINE IS PAINTED. changeDialog holds its
+   render until RESTART_HOLD_MS (#2692: one K-loader loop, 4400ms), while the readiness
+   wait can accept after two polls (2 x RESTART_READY_POLL_MS = 4000ms). A first version
+   stood down when the line was not there yet, so on a fast respawn the confirmation was
+   lost. So the report now WAITS for the line: it checks every 100ms until the manual
+   line appears, the dialog closes, the agent changes, or the hold plus a second has
+   passed. This leaves changeDialog and its tuned timing untouched.
+   It cannot land in the wrong dialog: while the restart interstitial is up there is no
+   way out of the modal (keep is hidden, Escape is gated on the disabled button), so the
+   first time the manual line appears it was painted by this restart's own `say`. After
+   that, a reopen resets chg-msg, the content no longer matches, and it stands down. */
+const SWITCH_HELLO_RETRY_MS = 100;
+function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine) {
+  const saidLine = 'Reactivated on ' + provName + ', and said hello to wake ' + shown + '.';
+  autoHelloAfterRestart(forAgent,
+    (t) => {
+      const until = Date.now() + RESTART_HOLD_MS + 1000;
+      const apply = () => {
+        const m = document.getElementById('chg-msg');
+        const back = document.getElementById('chg-modal');
+        if (!m || !back || back.hidden || !CURRENT || CURRENT.sessionName !== forAgent) return;
+        if (m.textContent === manualLine) { m.textContent = t; return; }
+        if (Date.now() < until) setTimeout(apply, SWITCH_HELLO_RETRY_MS);
+      };
+      apply();
+    },
+    saidLine, manualLine);
 }
 
 /**
