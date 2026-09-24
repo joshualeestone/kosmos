@@ -24,6 +24,7 @@ const { spawnSync, spawn } = require('node:child_process');
 const REPO = __dirname;
 const SOURCE = path.join(REPO, 'bin', 'agent-supervisor.sh');
 const store = require('./engine/store');
+const { runUntilBanner } = require('./test-support/board-child');
 
 function boot(sandbox, extraEnv) {
   /* PORT=0 binds a free port, so a suite run cannot collide with a board the
@@ -44,31 +45,9 @@ function boot(sandbox, extraEnv) {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  return new Promise((resolve) => {
-    let out = '';
-    let err = '';
-    let stopping = false;
-    /* #3607: resolve on 'close' (the child is dead AND its output is drained), not
-       on the kill. The callers delete the sandbox next; resolving on the kill left
-       a live board writing into it, and under load rmSync failed with ENOTEMPTY. */
-    const closed = new Promise((r) => { child.once('close', () => r(true)); child.once('error', () => r(true)); });
-    const done = () => {
-      if (stopping) return;
-      stopping = true;
-      clearTimeout(timer);
-      try { child.kill(); } catch { /* already gone */ }
-      const hard = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } }, 5000);
-      /* A child that never reports back must not hang the suite: node --test has no
-         per-test timeout. */
-      const giveUp = new Promise((r) => { const t = setTimeout(() => r(false), 10000); t.unref(); });
-      Promise.race([closed, giveUp]).then(() => {
-        clearTimeout(hard);
-        resolve({ out, err, dead: child.exitCode !== null || child.signalCode !== null });
-      });
-    };
-    child.stdout.on('data', (b) => { out += b; if (/Kosmos on http/.test(out)) done(); });
-    child.stderr.on('data', (b) => { err += b; });
-    const timer = setTimeout(done, 8000);
+  return runUntilBanner(child).then((r) => {
+    assert.equal(r.dead, true, 'the board was still running when the test went on to delete its sandbox');
+    return r;
   });
 }
 
@@ -76,8 +55,7 @@ test('starting the board puts the current script where the jobs point', async ()
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sup-'));
   const dest = path.join(sb, 'data', store.APP, 'bin', 'agent-supervisor.sh');
   assert.equal(fs.existsSync(dest), false, 'the control is not a control: it was there before we started');
-  const first = await boot(sb);
-  assert.equal(first.dead, true, 'the board was still running when the test went on to delete its sandbox');
+  await boot(sb);
   assert.equal(fs.existsSync(dest), true, 'the board started without installing the script its agents run');
   assert.equal(fs.readFileSync(dest, 'utf8'), fs.readFileSync(SOURCE, 'utf8'));
   assert.equal(fs.statSync(dest).mode & 0o111, 0o111, 'the script is not executable, so every job fails at once');
@@ -91,8 +69,7 @@ test('an old copy is replaced, which is the whole point', async () => {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, '#!/bin/bash\n# a version from before the fix\n', { mode: 0o755 });
   const before = fs.statSync(dest).ino;
-  const second = await boot(sb);
-  assert.equal(second.dead, true, 'the board was still running when the test went on to delete its sandbox');
+  await boot(sb);
   assert.equal(fs.readFileSync(dest, 'utf8'), fs.readFileSync(SOURCE, 'utf8'), 'the old script survived an update');
   /* ⚠️ A NEW INODE, not an overwrite. Every live agent's supervisor is a bash
      process reading that exact file by offset; rewriting it in place can make a
@@ -109,9 +86,8 @@ test('a refresh it cannot do is said, and does not stop the board', async () => 
   const binDir = path.join(sb, 'data', store.APP, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
   fs.chmodSync(binDir, 0o500);
-  const { out, err, dead } = await boot(sb);
+  const { out, err } = await boot(sb);
   fs.chmodSync(binDir, 0o700);
-  assert.equal(dead, true, 'the board was still running when the test went on to delete its sandbox');
   assert.match(out, /Kosmos on http/, 'the board refused to start over a script it could not refresh');
   assert.match(err, /keep the one they have/);
   fs.rmSync(sb, { recursive: true, force: true });

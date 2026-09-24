@@ -35,6 +35,7 @@ const { spawn } = require('node:child_process');
 
 const REPO = __dirname;
 const fleet = require('./test-support/fleet');
+const { runUntilBanner } = require('./test-support/board-child');
 const projects = require('./engine/projects');
 
 /* The wording #1673/#1676 added. Asserted here because it is asserted NOWHERE
@@ -86,12 +87,9 @@ function boot(sb) {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  return new Promise((resolve) => {
-    let out = ''; let err = '';
-    const done = () => { try { child.kill(); } catch { /* already gone */ } resolve({ out, err }); };
-    child.stdout.on('data', (b) => { out += b; if (/Kosmos on http/.test(out)) setTimeout(done, 300); });
-    child.stderr.on('data', (b) => { err += b; });
-    setTimeout(done, 8000);
+  return runUntilBanner(child, { settleMs: 300 }).then((r) => {
+    assert.equal(r.dead, true, 'the board was still running when the test went on to delete its sandbox');
+    return r;
   });
 }
 
