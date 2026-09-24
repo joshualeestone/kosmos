@@ -200,13 +200,21 @@ if command -v ruby >/dev/null 2>&1; then
   pass "the label collector reads only the FAILED-LIST: summary (entries kept whole), and falls back without aborting when there is no log"
   # Card script. $1 = the checks job RESULT, $2 = what the stubbed issue list answers
   # (empty / 7 / null); the open card's last report named render-fields only.
+  # "issue view" answers with fixture JSON run through the script's OWN -q filter (real jq),
+  # so the filter that finds the last report is exercised, not bypassed. VIEWFAIL=1 makes
+  # gh fail there, to check the unreadable-report path.
+  command -v jq >/dev/null 2>&1 || fail "jq is required to run the card script's own filter"
   card() {
-    RESULT="$1" OPEN="$2" RED="render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+    VIEWFAIL="${VIEWFAIL:-}" RESULT="$1" OPEN="$2" RED="render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       gh() { case "$1 $2" in
         "label list") true ;;
         "label create") echo "CALL label-create" ;;
         "issue list") echo "$OPEN" ;;
-        "issue view") printf "%s\n" "Still not green (failure) at old: u" "NEW since the last red night: none" "Red checks: render-fields | regress-a-night (server did not boot)" ;;
+        "issue view")
+          [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
+          f=""; prevarg=""; for a in "$@"; do [ "$prevarg" = "-q" ] && f="$a"; prevarg="$a"; done
+          [ -n "$f" ] || { echo "CALL unexpected issue view without -q"; return 1; }
+          printf "%s" "{\"body\":\"card body\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person commented\"}]}" | jq -r "$f" ;;
         "issue comment") echo "CALL comment $3 :: $*" ;;
         "issue create") echo "CALL create :: $*" ;;
         "issue close") echo "CALL close $3 :: $*" ;;
@@ -224,6 +232,10 @@ if command -v ruby >/dev/null 2>&1; then
   [ "$newline" = "render-thread | render-list-row render-fields (rich board did not boot)" ] \
     || fail "the NEW line is not exactly the two new entries, whole: [$newline] in: $out"
   case "$out" in *"CALL comment 7"*) ;; *) fail "an open card did not get a comment: $out" ;; esac
+  case "$out" in *"could not be read"*) fail "a readable previous report was reported unreadable: $out" ;; esac
+  # The previous report cannot be read: say so, and list every entry as new.
+  out="$(VIEWFAIL=1 card failure 7)" || fail "card script aborted when the previous report could not be read: $out"
+  case "$out" in *"CALL comment 7"*"could not be read"*) ;; *) fail "an unreadable previous report was not stated: $out" ;; esac
   case "$out" in *"CALL create"*|*"CALL label-create"*) fail "an open-card streak created again: $out" ;; esac
   out="$(card cancelled "")" || fail "card script failed on a cancelled run: $out"
   case "$out" in *"CALL create"*"ended cancelled"*) ;; *) fail "a cancelled (e.g. timed-out) run did not file a card: $out" ;; esac

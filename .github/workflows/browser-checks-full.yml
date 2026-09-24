@@ -36,8 +36,8 @@ permissions:
 concurrency:
   group: browser-checks-full-${{ github.ref }}
   # A run in progress is never superseded; let it finish. (A PENDING run can still be
-  # replaced by a newer queued one; that ends as cancelled, which the card job below
-  # also reports.)
+  # replaced by a newer queued one. Such a run starts no jobs at all, so it is not
+  # reported; it needs a third run queued on main, e.g. a dispatch during the nightly.)
   cancel-in-progress: false
 
 jobs:
@@ -115,24 +115,29 @@ jobs:
           # Entries are separated by "|" (they can contain spaces); shown as " | ".
           red=$(printf '%s' "${RED:-(none captured)}" | sed 's/[[:space:]]*|[[:space:]]*/ | /g')
           if [ -n "$open" ]; then
-            # The labels named by this card's most recent report, so only NEW ones lead.
-            prev=$(gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
-              -q '[.body] + [.comments[].body] | map(select(test("Red checks: "))) | last // ""' \
-              | sed -n 's/^.*Red checks: //p' | tail -n 1 || true)
+            # The entries named by this card's most recent report, so only NEW ones lead.
+            # If that report cannot be read, say so rather than calling everything new.
+            unread=""
+            if ! prev=$(gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
+                -q '[.body] + [.comments[].body] | map(select(test("Red checks: "))) | last // ""' \
+                | sed -n 's/^.*Red checks: //p' | tail -n 1); then
+              prev=""; unread=" (the previous report could not be read, so every entry is listed)"
+            fi
             new=""
-            _ifs=$IFS; IFS='|'
+            set -f; _ifs=$IFS; IFS='|'
             for w in $red; do
               w="${w# }"; w="${w% }"; [ -n "$w" ] || continue
               seen=""
               for q in $prev; do q="${q# }"; q="${q% }"; [ "$q" = "$w" ] && seen=1; done
               [ -n "$seen" ] || new="${new:+$new | }$w"
             done
-            IFS=$_ifs
+            IFS=$_ifs; set +f
             gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
-          NEW since the last red night: ${new:-none}
+          NEW since the last red night: ${new:-none}$unread
           Red checks: $red"
           else
-            if ! gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name' | grep -qx "$label"; then
+            have=$(gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name')
+            if ! printf '%s\n' "$have" | grep -qx "$label"; then
               gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
                 --description "The nightly full browser-check run on main is not green (#2518)"
             fi
