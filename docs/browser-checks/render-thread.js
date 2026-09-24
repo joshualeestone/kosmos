@@ -613,27 +613,30 @@ async function main() {
     /* #3419: the needs_you question renders AS A THREAD BUBBLE now (chat.withQuestionRow's
        kind:'question' row, the #3455 engine seam), not the removed #d-qask-text menu box.
        Wait for the bubble carrying the question the button was pressed for, in #d-dmthread.
-       🛑 CO-LAND GATE: this arm needs the ENGINE seam (#3455) present to inject the question
-       row. On the UI branch ALONE the fixture server's engine has no withQuestionRow, so the
-       question does not render and this times out. It goes green once #3455 is merged and this
-       branch merges main in (engine-first co-land) -- browser-checks.yml is advisory, so a red
-       here before co-land does not block the merge. */
+       #3455 (f6105c40f) HAS co-landed (it is an ancestor of main), so this arm now passes;
+       the earlier "co-land gate / advisory red" note here is retired. (The separate
+       focus-to-composer SKIP below is NOT this gate - see #3557.) */
     await page.waitForFunction(() => {
       const t = document.getElementById('d-dmthread');
       return t && /Do you want to proceed\?/.test(t.innerText || '');
     }, null, { timeout: 10000 });
     check(await page.evaluate(() => /Do you want to proceed\?/.test((document.getElementById('d-dmthread').innerText || ''))),
       'the agent’s own page shows the question the button was pressed for, as a thread bubble');
-    /* ⚠️ FOCUS-TO-COMPOSER: SKIPPED, co-land-gated on #3455 (Splinter ruling,
-       2026-09-24), NOT deleted. The answer-in-composer flow (#3419) focuses #d-say
-       via ANSWER_WANTS_FOCUS, but that path is not fully exercised until the #3455
-       engine seam co-lands (same gate as the question-bubble arm above, lines
-       ~613-620). Until then activeElement stays on <body> here, so asserting it
-       would red the cut for a not-yet-co-landed feature. Logged as SKIP so the
-       intent and the live value stay visible; restore the check() once #3455 lands. */
+    /* ⚠️ FOCUS-TO-COMPOSER: SKIPPED, NOT deleted, tracking a real regression (#3557).
+       This is NOT co-land-gated on #3455 - #3455 (f6105c40f) is already an ancestor
+       of main and the question-bubble arm above passes. The focus failure is a genuine
+       flow-dependent regression: in the CLEAN flow (navigate straight to an agent and
+       answer) focus correctly lands on #d-say, but in THIS check's flow (open one
+       agent's detail -> back -> answer a different agent's needs-you card) ANSWER_WANTS_FOCUS
+       is consumed on the first paint (say.focus() runs, activeElement is briefly #d-say)
+       and a LATER repaint then steals focus back to <body>. Filed as #3557 with the repro
+       and mechanism. Skipped (logged, not deleted) to unblock the 0.6.91 cut per Splinter's
+       defer-focus ruling; restore the check() when #3557 is fixed. (Splinter's ruling cited
+       #3455 co-land from this file's now-stale comment below; the ancestry check disproved
+       that, so the SKIP tracks the real bug instead.) */
     const answerFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
     process.stdout.write(`  SKIP  keyboard focus moves to the composer to answer `
-      + `(co-land-gated on #3455; activeElement=${answerFocus || '(body)'})\n`);
+      + `(deferred: real regression #3557, not #3455 co-land; activeElement=${answerFocus || '(body)'})\n`);
 
     /* The room's panel, reached as a person reaches it, for the assertions below
        that are about the room. */
