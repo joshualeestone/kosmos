@@ -3152,7 +3152,7 @@ function installJob(name, opts) {
   const wantRunner = (opts && opts.runner) || recordedRunner(clean);
   if ((wantRunner === 'gemini' || wantRunner === 'grok') && jobPlatform === 'win32') {
     const label = wantRunner === 'gemini' ? 'Gemini' : 'Grok';
-    return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a Windows launch job for yet -- it can be created fresh, but not backfilled, repaired, or imported on Windows` };
+    return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a Windows launch job for it yet -- it can be created fresh, but not backfilled, repaired, or imported on Windows` };
   }
   const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin } = binPaths(opts);
   /* 🛑 THE RUNNER IS DECIDED BEFORE THE BINARY IS CHECKED (#1159). This checked
