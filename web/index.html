@@ -11415,7 +11415,7 @@ window.kosmosMeasureScrollbarWidth();
                 <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
       </div>
 
-      <!-- S9 Your agents (reuse old fr-pane-7 #fr-fleet fork). Mona S9a head + #fr-found-agents; fork picks found(S9a) vs create(S9b). -->
+      <!-- S9 the ending, eyebrow SETUP COMPLETE since #3659 (reuse old fr-pane-7 #fr-fleet fork). Mona S9a head + #fr-found-agents; fork picks found(S9a) vs create(S9b). -->
       <div class="fr-pane" id="fr-pane-9" hidden>
         <!-- ============================================================
              SCREEN 9A - YOUR AGENTS (found)   (new screen; shown ONLY if agents were found)
@@ -48691,7 +48691,7 @@ function frGo(step) {
     // S8 About you: sets its own gated Next and advances to step 9.
     frPaintYou();
   } else {
-    // S9 Your agents: the found/create fork (frPaintFleet), ending in frFinish.
+    // S9 the ending (SETUP COMPLETE since #3659): frPaintFleet, ending in frFinish.
     frPaintFleet();
   }
 
@@ -50580,7 +50580,7 @@ function frEnterSubmit(e) {
     if (tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') return;
     if (t.isContentEditable) return;
     // 🛑 A SEARCH FIELD IS A TYPE-AND-FILTER FIELD, NOT A FILL-AND-CONTINUE ONE.
-    // The "Your agents" ending (#fr-fleet) shows Continue enabled AND carries a
+    // The SETUP COMPLETE ending (#fr-fleet) shows Continue enabled AND carries a
     // live search box (#fr-foundsearch, type=search) whose only handler is an
     // `input` filter -- so Enter there has no field action and would bubble here
     // and fire frFinish, ejecting the person mid-adoption. Before #2186 Enter in
