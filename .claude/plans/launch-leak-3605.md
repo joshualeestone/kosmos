@@ -23,9 +23,10 @@ set AGENT_WORKFORCE_LAUNCH). That is not it:
 ## Change
 1. `test-support/launch-guard.js`, preloaded by `tools/run-tests.sh` with
    `node --test --require` (node forwards it to every file's process). It wraps the fs
-   writers (write, append, copy and rename destinations, link, symlink, callback and
-   promise forms) so a write whose target sits directly in the real LaunchAgents throws
-   a named #3605 error BEFORE writing. Deletes (rm, unlink) are refused the same way. This is the load-bearing part: about sixty tests
+   calls listed in its WRITERS table (write, append, copy, cp, rename and link
+   destinations, truncate, write streams, write-mode opens, and the rm/unlink/rmdir
+   deletes, in sync, callback and promise forms) so one whose target is inside the real
+   LaunchAgents, or is the folder itself, throws a named #3605 error BEFORE the call. This is the load-bearing part: about sixty tests
    write job files themselves with fs.writeFileSync(create.plistPath(...)), which a guard
    inside create.js never sees (measured: with only (2), the control still leaked).
 2. `engine/create.js`: the three product plist writes go through `writePlistFile`, which
@@ -41,13 +42,21 @@ AGENT_WORKFORCE_HOME, so a test that points either seam at its sandbox is left a
 
 ## Rejected
 - Rewriting the ~60 test-side writes to go through a helper: large churn, and the next new
-  test can hand-roll the write again. The preload catches every writer structurally.
+  test can hand-roll the write again. The preload catches the wrapped fs calls wherever they are made.
 - Downgrading the leak guard to a warning when the leak looks foreign: the guard cannot prove
   whose run it was, and a green over a real leak is the worse failure.
 - Deleting the five stale worktrees: they belong to other agents and may hold unpushed work.
   Named on the card instead.
 
 ## Weakest premise
+Coverage has two known edges. (a) The preload sees only in-process fs calls: a child
+process a test spawns (cp, launchctl, a node child without the preload) is not covered,
+except that a node child running create.js still has the NODE_TEST_CONTEXT half.
+(b) A hand run of `node --test <file>` has no preload, and then only create.js's writes
+and its rollback delete are guarded: engine/remove.js and delete-leftover.js can still
+delete a real job file for a test that forgot the sandbox. Under run-tests.sh and CI the
+preload covers those deletes too. Left there rather than threading the check through
+more product files; a follow-up if a hand-run leak is ever seen.
 The preload only arms through run-tests.sh (and CI, which runs it). A developer running
 `node --test file` by hand has only the create.js half, which does not cover test-side
 writes. Nothing in this tree can protect against a checkout that predates it.

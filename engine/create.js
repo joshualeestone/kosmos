@@ -268,8 +268,10 @@ function isRealLaunchTargetUnderTest(file, env = process.env) {
   if (!env.NODE_TEST_CONTEXT) return false;
   const real = realLaunchAgentsDir();
   if (!real) return false;
-  const a = path.resolve(path.dirname(String(file))), b = path.resolve(real);
-  return process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;
+  const b = path.resolve(real);
+  const same = process.platform === 'darwin' ? (x) => x.toLowerCase() === b.toLowerCase() : (x) => x === b;
+  const p = path.resolve(String(file));
+  return same(path.dirname(p)) || same(p);
 }
 function refuseRealLaunchWriteUnderTest(file, env = process.env) {
   if (!isRealLaunchTargetUnderTest(file, env)) return;

@@ -100,9 +100,12 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
   const script = `
     const fs = require('node:fs'); const path = require('node:path'); const { pathToFileURL } = require('node:url');
     const seen = [];
-    const SYNC = ['writeFileSync','appendFileSync','copyFileSync','renameSync','symlinkSync','linkSync','rmSync','unlinkSync'];
-    const CB = ['writeFile','appendFile','copyFile','rename','symlink','link','rm','unlink'];
-    const PR = ['writeFile','appendFile','copyFile','rename','symlink','link','rm','unlink'];
+    const SYNC = ['writeFileSync','appendFileSync','copyFileSync','renameSync','symlinkSync','linkSync','rmSync','unlinkSync',
+      'cpSync','truncateSync','createWriteStream','rmdirSync'];
+    const CB = ['writeFile','appendFile','copyFile','rename','symlink','link','rm','unlink','cp','truncate','rmdir'];
+    const PR = ['writeFile','appendFile','copyFile','rename','symlink','link','rm','unlink','cp','truncate','rmdir'];
+    fs.openSync = (...a) => { seen.push('openSync:' + a[1]); };
+    fs.promises.open = async (...a) => { seen.push('p.open:' + a[1]); };
     for (const n of SYNC) fs[n] = () => { seen.push(n); };
     for (const n of CB) fs[n] = (...a) => { seen.push('cb.' + n); };
     for (const n of PR) fs.promises[n] = async () => { seen.push('p.' + n); };
@@ -112,26 +115,38 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
     const out = {};
     const tryIt = (k, fn) => { try { fn(); out[k] = 'allowed'; } catch (e) { out[k] = /#3605/.test(e.message) ? 'refused' : 'other:' + e.message; } };
     // Destination index per method: the real path goes where that method WRITES.
-    const DEST1 = new Set(['copyFileSync','renameSync','symlinkSync','linkSync','copyFile','rename','symlink','link']);
+    const DEST1 = new Set(['copyFileSync','renameSync','symlinkSync','linkSync','copyFile','rename','symlink','link','cpSync','cp']);
     for (const n of SYNC) tryIt(n, () => DEST1.has(n) ? fs[n]('/nope', R) : fs[n](R, 'x'));
     for (const n of CB) tryIt('cb.' + n, () => DEST1.has(n) ? fs[n]('/nope', R, () => {}) : fs[n](R, () => {}));
+    tryIt('rmFolderItself', () => fs.rmSync(REAL, { recursive: true, force: true }));
+    tryIt('cpIntoFolder', () => fs.cpSync('/nope', REAL, { recursive: true }));
+    tryIt('openWrite', () => fs.openSync(R, 'w'));
+    tryIt('openAppendNum', () => fs.openSync(R, fs.constants.O_WRONLY | fs.constants.O_APPEND));
+    tryIt('openRead', () => fs.openSync(R, 'r'));
+    tryIt('openDefault', () => fs.openSync(R));
     tryIt('caseVariant', () => fs.writeFileSync(path.join(path.dirname(REAL), 'launchagents', 'p.plist'), 'x'));
     tryIt('fileUrl', () => fs.writeFileSync(pathToFileURL(R), 'x'));
     tryIt('renameFromReal', () => fs.renameSync(R, S));
     tryIt('sandbox', () => fs.writeFileSync(S, 'x'));
     Promise.all(PR.map((n) => (DEST1.has(n) ? fs.promises[n]('/nope', R) : fs.promises[n](R, 'x')).then(
       () => { out['p.' + n] = 'allowed'; }, (e) => { out['p.' + n] = /#3605/.test(e.message) ? 'refused' : 'other'; })))
+      .then(() => Promise.all([
+        fs.promises.open(R, 'a').then(() => { out['p.openAppend'] = 'allowed'; }, (e) => { out['p.openAppend'] = /#3605/.test(e.message) ? 'refused' : 'other'; }),
+        fs.promises.open(R, 'r').then(() => { out['p.openRead'] = 'allowed'; }, () => { out['p.openRead'] = 'refused'; }),
+      ]))
       .then(() => process.stdout.write(JSON.stringify({ out, seen })));
   `;
   const env = { ...process.env }; delete env.NODE_OPTIONS;
   const res = JSON.parse(execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
-  const refused = Object.keys(res.out).filter((k) => !['renameFromReal', 'sandbox'].includes(k));
+  const ALLOWED = ['renameFromReal', 'sandbox', 'openRead', 'openDefault', 'p.openRead'];
+  const refused = Object.keys(res.out).filter((k) => !ALLOWED.includes(k));
   if (process.platform !== 'darwin') refused.splice(refused.indexOf('caseVariant'), 1);
   for (const k of refused) assert.equal(res.out[k], 'refused', `${k} must be refused`);
   assert.equal(res.out.renameFromReal, 'allowed', 'moving a file OUT of the real folder is not a write into it');
   assert.equal(res.out.sandbox, 'allowed');
+  for (const k of ['openRead', 'openDefault', 'p.openRead']) assert.equal(res.out[k], 'allowed', `a read-only open (${k}) is not a write`);
   // Only the allowed calls reached the underlying function: every refusal came BEFORE the call.
-  const expectSeen = ['renameSync', 'writeFileSync'];
+  const expectSeen = ['renameSync', 'writeFileSync', 'openSync:r', 'openSync:undefined', 'p.open:r'];
   if (process.platform !== 'darwin') expectSeen.unshift('writeFileSync');
   assert.deepEqual(res.seen.sort(), expectSeen.sort());
 });
@@ -140,7 +155,7 @@ test('#3605: the preload and create.js agree on the real folder and on what is i
   const guard = require('../test-support/launch-guard');
   assert.equal(guard.realLaunchAgentsDir(), create.realLaunchAgentsDir());
   for (const p of [path.join(REAL, 'a.plist'), path.join(REAL, 'sub', 'a.plist'),
-    path.join(SANDBOX, 'LaunchAgents', 'a.plist'), path.join(path.dirname(REAL), 'a.plist')]) {
+    path.join(SANDBOX, 'LaunchAgents', 'a.plist'), path.join(path.dirname(REAL), 'a.plist'), REAL]) {
     assert.equal(guard.isRealLaunchTarget(p), create.isRealLaunchTargetUnderTest(p, UNDER_TEST), p);
   }
 });
