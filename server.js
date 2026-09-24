@@ -2090,6 +2090,12 @@ function withCreatorLock(creator, fn) {
  * headroom); operator override via AGENT_WORKFORCE_CREATOR_AGENT_CAP; hard ceiling
  * 100 that no override may exceed -- same "Kosmos owns the bound, not the prompt"
  * posture as the per-team cap. Reversible; Josh can override. */
+/* #3614: the agent page's Files list. 20 is a glance list under the four-pack ("Open in Finder"
+ * is the way to everything else, and the page says "And N more"); 500 bounds one ?limit= read so
+ * a huge folder cannot make a single poll answer arbitrarily large. Reversible. */
+const AGENT_FILES_DEFAULT_CAP = 20;
+const AGENT_FILES_MAX_CAP = 500;
+
 const CREATOR_AGENT_CAP_DEFAULT = 25;
 const MAX_CREATOR_AGENT_CAP = 100;
 function creatorAgentCap(env) {
@@ -4613,8 +4619,8 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (!verb && (req.method === 'GET' || req.method === 'HEAD')) {
-      let cap = 20;
-      try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) cap = Math.min(Math.floor(l), 500); } catch { cap = 20; }
+      let cap = AGENT_FILES_DEFAULT_CAP;
+      try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) cap = Math.min(Math.floor(l), AGENT_FILES_MAX_CAP); } catch { cap = AGENT_FILES_DEFAULT_CAP; }
       if (projects.folderState(folder).state === projects.FOLDER.MISSING) {
         sendJson(res, 200, { ok: true, missing: true, total: 0, files: [], names: [], stamp: 'missing', folder });
         return;
