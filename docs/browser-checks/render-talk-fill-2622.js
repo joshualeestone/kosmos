@@ -178,7 +178,7 @@ async function measure(page) {
       const srect = snav ? snav.getBoundingClientRect() : null;
       // The nav lives in a .dleft flex-column (identity block + the snav, the snav last), which sits
       // in the `auto` row of the .dbody grid (#3385). Measure whether that row stays content-height by
-      // the signed gap between the snav's bottom and its .dleft's bottom (minus .dleft's padding):
+      // the signed gap between the snav's bottom and its .dleft's bottom (minus .dleft's padding-bottom):
       //   ~0  -> flush, content-height (healthy)
       //   >0  -> empty space below the nav: the row was STRETCHED to fill a tall track
       //   <0  -> the nav OVERFLOWS .dleft: the row was shrunk (the actual #2569 regression)
