@@ -120,8 +120,9 @@ function openTerminal(name) {
     /* -1743 (errAEEventNotPermitted) / "Not authorized to send Apple events" is the macOS
        AUTOMATION-permission denial: Kosmos is not authorized to control Terminal.app. This is a
        SEPARATE TCC grant from the agent-folder trust the "Trust & Restart" button gives --
-       Automation is per-TARGET-app, and onboarding primes System Events (Accessibility), not
-       Terminal (Automation), so the Terminal grant is never asked for. Surfacing the raw
+       Automation is per-TARGET-app, and since #3282 removed the onboarding pre-register, nothing
+       primes the Terminal (Automation) grant ahead of time -- this runtime path is the first thing
+       to request it, which is why the -1743 denial can surface here until the user grants it. Surfacing the raw
        AppleScript code (which is what a user sees today, and cannot act on) is the bug; give the
        one actionable step instead. `needsAutomationGrant` lets the UI offer a direct affordance. */
     if (/-1743|Not authorized to send Apple events/i.test(raw)) {
