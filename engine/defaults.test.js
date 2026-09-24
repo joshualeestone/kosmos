@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'dae349489371dc02' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -378,6 +378,10 @@ test('#3570: the block says how to read a reaction and when to react back', () =
   assert.match(t, /kosmos room/, 'the agent is not told where a reaction shows up');
   assert.match(t, /react back, sparingly/, 'the agent is not given permission to react back');
   assert.match(t, /at most one reaction on any post/, 'the one-per-post limit is missing');
+  // A reaction does not clear messages.unanswered(), so the section must not
+  // offer one as an answer to a message addressed to the agent.
+  assert.match(t, /A reaction never answers a message addressed to you/, 'a reaction is offered as an answer');
+  assert.doesNotMatch(t, /seen a request/, 'the section offers a reaction as acknowledging a request');
   assert.match(t, /never\s+react to your own posts/, 'the no-self-reaction rule is missing');
 });
 

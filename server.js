@@ -12961,10 +12961,17 @@ const server = http.createServer((req, res) => {
              agent reading `kosmos room` learns a person reacted to its post.
              Before this only the web board drew them. The operator reactor
              ('you' in reactionsFor) is named 'operator', as the post line
-             names them. Absent when the post has no live reaction. */
-          const reacted = Array.isArray(m.reactions) && m.reactions.length
+             names them. Absent when the post has no live reaction. The emoji
+             is re-checked and names are flattened here because only react()
+             validates on write: a row that reached the log another way must
+             not break the one-line-per-row contract (#314). */
+          const shown = (Array.isArray(m.reactions) ? m.reactions : [])
+            .map((r) => ({ emoji: messages.normalizeReactionEmoji(r.emoji),
+              who: (Array.isArray(r.who) ? r.who : []).map((w) => (w === 'you' ? 'operator' : String(w).replace(/\s+/g, ' '))) }))
+            .filter((r) => r.emoji && r.who.length);
+          const reacted = shown.length
             ? [when + '  [kosmos] reactions on [' + m.id + ']: '
-              + m.reactions.map((r) => r.emoji + ' ' + r.who.map((w) => (w === 'you' ? 'operator' : w)).join(', ')).join('; ')]
+              + shown.map((r) => r.emoji + ' ' + r.who.join(', ')).join('; ')]
             : [];
           return [line, ...reacted, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });

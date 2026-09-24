@@ -378,8 +378,10 @@ const BLOCK = [
   '**Do not reply to a reaction.** A message that answers a thumbs up is noise.',
   '',
   '**You may react back, sparingly.** React instead of replying only when a reply',
-  'would be noise: to show you have seen a request, or to mark something done.',
-  'Do not react to every post, put at most one reaction on any post, and never',
+  'would be noise: to mark something done, or to acknowledge a post that asked',
+  'nothing of you. **A reaction never answers a message addressed to you**; that',
+  'still needs a post, or the room keeps showing you as not having answered. Do',
+  'not react to every post, put at most one reaction on any post, and never',
   'react to your own posts.',
 ].join('\n');
 
