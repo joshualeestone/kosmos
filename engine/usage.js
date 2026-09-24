@@ -183,12 +183,13 @@ async function scanUsage({ sinceDay, untilDay }) {
         try { r = JSON.parse(line); } catch { continue; }
         if (r && typeof r.cwd === 'string' && r.cwd) { launch = r.cwd; break; }
       }
-      /* A subagent's transcript (<sess>/subagents/**) starts wherever its
-         parent was standing when it spawned it, often a worktree. It is the
-         parent session's work, so it takes the parent's launch folder. The
-         sorted walk visits <sess>.jsonl before <sess>/ ('.' sorts before '/'),
-         so the parent is already known; with no parent, its own first cwd. */
-      const sub = file.lastIndexOf(path.sep + 'subagents' + path.sep);
+      /* A subagent's transcript (<sess>/subagents/**, at any depth) starts
+         wherever its spawner was standing, often a worktree. It is the top-level
+         session's work, so it takes that session's launch folder: the FIRST
+         /subagents/ segment names it. The sorted walk visits <sess>.jsonl before
+         <sess>/ ('.' sorts before '/'), so it is already known; with no
+         top-level transcript on disk, the subagent keeps its own first cwd. */
+      const sub = file.indexOf(path.sep + 'subagents' + path.sep);
       if (sub !== -1) {
         const parent = launchOf.get(file.slice(0, sub) + '.jsonl');
         if (parent) launch = parent;
@@ -278,6 +279,12 @@ function frozenFolderPath(day) {
   return path.join(USAGE_DIR, `${day}.folders.v1.json`);
 }
 
+/* A frozen file's contents, or null when it is missing or unreadable (either
+   way the day is rescanned). */
+function readFrozen(file) {
+  return fsp.readFile(file, 'utf8').then((t) => { try { return JSON.parse(t); } catch { return null; } }, () => null);
+}
+
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -343,8 +350,7 @@ async function dailyUsageByModel(days = 7) {
   const missing = [];
   for (const day of wanted) {
     if (day === today) { missing.push(day); continue; }
-    const [m, f] = await Promise.all([frozenDayPath(day), frozenFolderPath(day)]
-      .map((file) => fsp.readFile(file, 'utf8').then((t) => { try { return JSON.parse(t); } catch { return null; } }, () => null)));
+    const [m, f] = await Promise.all([readFrozen(frozenDayPath(day)), readFrozen(frozenFolderPath(day))]);
     if (m) byDay[day] = m;
     if (f) byFolder[day] = f;
     if (!m || !f) missing.push(day);
