@@ -5738,7 +5738,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
   // screen. Onboarding no longer counts a fleet or offers to import it (Josh, watching an external
   // tester: a dev's tmux Claude Code sessions filled first run with garbage agents). Real agents come in
   // later via the manual Import Agent (#1652) on the Create Agent screen.
-  assert.match(adopt.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(adopt.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
   assert.match(adopt.els['fr-fleet'].innerHTML, /Let’s get started/i);
   assert.ok(!/already have|nothing to import|fr-name/.test(adopt.els['fr-fleet'].innerHTML),
     'onboarding still counts or offers the fleet on the adopt path');
@@ -5746,7 +5746,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
   const create = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
   });
-  assert.match(create.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(create.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
   // The endings ARE this screen's actions now, buttons verbatim from the
   // pack (spec ed29b78): adopt and create carry ONE action each; only the
   // unknown ending gets two, asserted in the broken-payload loop below.
@@ -5795,7 +5795,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
     // #2497: onboarding renders the create / Giddy Up screen for EVERY payload, including a
     // malformed one -- the forced return runs before the path fork, so a bad payload never
     // crashes into a placeholder and never drops the person onto a two-way "we could not see" fork.
-    assert.match(title, /Create your first agent/i,
+    assert.match(title, /ready to start using Kosmos/i,
       `payload ${JSON.stringify(FR)} did not land on the create screen: "${title}"`);
     assert.ok(!/undefined|NaN|null/.test(title + body),
       `payload ${JSON.stringify(FR)} put a placeholder on screen: "${title}"`);
@@ -5854,7 +5854,7 @@ test('#2497: the fleet step makes no machine-state promise (now the unconditiona
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
     FR_MACHINE: { checks: [{ key: 'sleep', state: 'ok', title: 'fine', detail: 'fine' }], attention: 0, unknown: 0 },
   });
-  assert.match(clean.els['fr-fleet-title'].textContent, /create your first agent/i,
+  assert.match(clean.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'the fleet step no longer lands on the Giddy Up screen');
   assert.ok(!/still outstanding|did not get to look/.test(clean.els['fr-fleet'].innerHTML),
     'warned about a machine that checked out clean');
@@ -5871,7 +5871,7 @@ test('#2497: the fleet step makes no machine-state promise (now the unconditiona
     },
   });
   const out = snagged.els['fr-fleet'].innerHTML;
-  assert.match(snagged.els['fr-fleet-title'].textContent, /create your first agent/i,
+  assert.match(snagged.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'a snagged machine no longer lands on the Giddy Up screen (would make the absence checks vacuous)');
   /* 🛑 JOSH OVERRULED THIS ON 2026-08-26 22:05, having read the sentence on his
      own screen: "I'm still seeing this: this computer goes to sleep after 1
@@ -5899,7 +5899,7 @@ test('#2497: the fleet step makes no machine-state promise (now the unconditiona
      claim at all, so there is nothing to caveat. Asserting the absence of the
      claim is the stronger form -- it fails if anyone puts an "everything is
      ready" back, which a confession-shaped test never could. */
-  assert.match(never.els['fr-fleet-title'].textContent, /create your first agent/i,
+  assert.match(never.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'a person who never saw the check screen no longer lands on the Giddy Up screen');
   assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /everything is (connected|in place|ready)/i,
     'a person who never saw the check screen is being told everything is in place');
@@ -10425,7 +10425,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
 
   /* Not looked yet (FR_FOUND null): no "looking" state anymore - onboarding does not scan. */
   const looking = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: null });
-  assert.match(looking.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(looking.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
   assert.doesNotMatch(looking.els['fr-fleet'].innerHTML, /Looking for agents|none on this computer/i,
     'onboarding still shows a looking/empty-claim state instead of the Giddy Up screen');
 
@@ -10434,7 +10434,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
     FR: create,
     FR_FOUND: { ok: true, agents: [{ dir: '/w/mike', name: 'Mike', role: 'copywriter' }] },
   });
-  assert.match(found.els['fr-fleet-title'].textContent, /Create your first agent/i,
+  assert.match(found.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'first run surfaced found agents instead of the create / Giddy Up screen');
   assert.match(found.els['fr-fleet'].innerHTML, /Let’s get started/i);
   assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /found an agent|not in Kosmos yet|<input/i,
@@ -10459,7 +10459,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
     'the screen is reporting on its own search again rather than telling the person what to do');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /Two questions/i,
     'the remnant "two questions" copy is back; Josh: "Those are not the two questions"');
-  assert.match(empty.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(empty.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
 
   /* ⚠️ AND A SEARCH THAT COULD NOT RUN IS NOT AN EMPTY MACHINE. This is the same
      distinction one level down: `ok:false` must not license either sentence.
@@ -10477,7 +10477,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
     'the failed-search confession is back on the create-first-agent step');
   assert.match(blind.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
     'the neutral line is missing on the could-not-look path');
-  assert.match(blind.els['fr-fleet-title'].textContent, /Create your first agent/i,
+  assert.match(blind.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'the way forward is gone on a failed search');
 });
 

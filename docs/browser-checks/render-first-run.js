@@ -125,15 +125,15 @@ const SHOTS = [
   // lands on the no-agent "Create your first agent." / Giddy Up screen, so the adopt count,
   // "could not see", and scan-offer endings that used to render here now all show the create
   // heading. Real agents come in later via the manual Import Agent (#1652) on Create Agent.
-  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
+  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, scan: SCAN_NONE, expect: /ready to start using Kosmos/i },
   // #2497 follow-on (Mona Lisa): the create welcome carries a quiet manual-import POINTER sub-line
   // for the user who already runs agents onboarding no longer scoops up. expectBody asserts it
   // actually RENDERS in the #fr-fleet box (the source-match guard is web.firstrun-panecount-9screen).
-  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i, expectBody: /On the next screen you can import an existing agent\./ },
-  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
+  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /ready to start using Kosmos/i, expectBody: /choose Create your first agent, then pick the Import option\./ },
+  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, expect: /ready to start using Kosmos/i },
   // #2497: even when the disk scan DID find an agent (SCAN_SOME), first run must NOT show the
   // "we found an agent" offer -- it lands on the create heading, proving the offer is suppressed.
-  { name: 'firstrun-fleet-scan-suppressed', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_SOME, expect: /create your first agent/i },
+  { name: 'firstrun-fleet-scan-suppressed', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_SOME, expect: /ready to start using Kosmos/i },
 ];
 
 /**

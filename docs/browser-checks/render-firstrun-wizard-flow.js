@@ -133,7 +133,7 @@ const readStep = (page) => page.evaluate(() => (typeof FR_STEP !== 'undefined') 
           rows: box ? box.querySelectorAll('.fr-scanrow, .fr-foundrow, .fr-adoptrow').length : 0,
         };
       });
-      if (/create your first agent/i.test(s9.title) && s9.giddy && s9.rows === 0) ok('GRANTED: S9 lands on the no-agent create / Giddy Up screen with no found/scan rows (#2497)'); else bad('GRANTED S9 lands on Giddy Up (#2497)', JSON.stringify(s9));
+      if (/ready to start using Kosmos/i.test(s9.title) && s9.giddy && s9.rows === 0) ok('GRANTED: S9 lands on the no-agent create / Giddy Up screen with no found/scan rows (#2497)'); else bad('GRANTED S9 lands on Giddy Up (#2497)', JSON.stringify(s9));
 
       // The terminal step: clicking the S9 primary completes first-run. Poll the
       // node-side completeHit counter (the route records the POST) rather than a fixed
