@@ -295,6 +295,9 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # HERE (before the freeze), so the functions are in memory and unaffected if the shared
 # checkout is fast-forwarded past this cut's sha mid-run.
 . "$REPO/tools/lib/board-shape.sh"
+# #3579: the signing preflight run at step 1c. Sourced with the other libs, before the
+# freeze, for the same reason: loaded from the checkout the operator launched.
+. "$REPO/tools/lib/cut-sign-preflight.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -522,6 +525,13 @@ KOSMOS_ENTRY_FILE="${KOSMOS_ENTRY_FILE:-$REPO/.release-entry.html}"
 kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has been built yet." \
   "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7. Or leave it as an entry file carrying TIMESTAMP (see docs/releasing.md) and the deploy stamps it for you." \
   "$KOSMOS_STEP1_PAST_BOUND" "$KOSMOS_ENTRY_FILE" || exit 1
+
+step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="
+# Step 4 signs Developer ID. A locked login keychain (any plain SSH session, or a cut
+# detached from the session that unlocked it) made 0.6.91's first cuts die THERE, after
+# ~22 minutes of suite and page layer, and a cut does not resume. One throwaway test-sign
+# here costs about a second and mutates nothing, so a refusal leaves no pushed bump.
+kosmos_sign_preflight || exit 1
 
 step "== 2. the version, in one place =="
 node -e "
