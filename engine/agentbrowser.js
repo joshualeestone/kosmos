@@ -118,18 +118,22 @@ function configPath() { return path.join(homeDir(), 'mcp-config.json'); }
    default is `.playwright-mcp` inside the agent's working folder, which on this
    platform can be a person's own project folder -- so they go to temp instead. */
 function outputDir() { return path.join(os.tmpdir(), 'kosmos-agent-browser'); }
-/* The Mac browser, per CPU, beside the server tree. */
-function shellBuild(arch) { return SHELL.builds[arch || process.arch] || null; }
+/* The Mac browser, per CPU, beside the server tree. hostArch() is the ONE place a
+   default CPU comes from: the board that installs and the shim that asks both
+   call it, so they cannot disagree by construction of the code (they run the same
+   bundled node in the installed layout). */
+function hostArch() { return process.arch; }
+function shellBuild(arch) { return SHELL.builds[arch || hostArch()] || null; }
 /* One folder per version AND per CPU, so installing one CPU's shell can never
    replace or delete another's. */
 function shellsDir() { return path.join(homeDir(), 'chrome-headless-shell'); }
-function shellDir(arch) { return path.join(shellsDir(), SHELL.version, arch || process.arch); }
+function shellDir(arch) { return path.join(shellsDir(), SHELL.version, arch || hostArch()); }
 function shellExe(arch) {
   const b = shellBuild(arch);
   return b ? path.join(shellDir(arch), b.folder, 'chrome-headless-shell') : null;
 }
 function shellMarkerPath(arch) { return path.join(shellDir(arch), '.verified'); }
-const shellStamp = (arch) => SHELL.version + ' ' + (arch || process.arch) + ' ' + (shellBuild(arch) || {}).sha256;
+const shellStamp = (arch) => SHELL.version + ' ' + (arch || hostArch()) + ' ' + (shellBuild(arch) || {}).sha256;
 
 /* What the marker vouches for: every package at its pinned version, so a marker
    left by another pin can never vouch for this tree. */
@@ -419,7 +423,7 @@ const sha256Of = (file) => new Promise((resolve, reject) => {
  */
 async function ensureShell(opts) {
   const o = opts || {};
-  const arch = o.arch || process.arch;
+  const arch = o.arch || hostArch();
   const build = shellBuild(arch);
   if (!build) return { ok: false, because: 'no pinned browser for this Mac CPU (' + arch + ')' };
   if (shellInstalled(arch)) return { ok: true, already: true };
@@ -517,6 +521,6 @@ function installWithRetry(opts) {
 
 module.exports = {
   PIN, SHELL, SERVER_NAME, configFor, launchConfig, ensureInstalled, ensureShell, kickInstall, isInstalled,
-  installWithRetry, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir,
+  installWithRetry, hostArch, shellInstalled, shellExe, shellDir, homeDir, treeDir, cliPath, configPath, outputDir,
   optOutPath, lockPath, disabled,
 };

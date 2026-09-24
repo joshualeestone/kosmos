@@ -76,7 +76,7 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 27 pass (21 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 10 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 28 pass (22 of them new for the Mac); `configFor` refuses a Mac config with no shell path. Shell test: 10 checks
   across four arms (installed, not installed, env opt-out, file opt-out).
 
 ## Known and left
@@ -93,10 +93,10 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 - The lock's heartbeat (the owner touching the lock every minute) has no test of its own; the
   takeover rules around it do (live pid refused, dead pid taken, stale heartbeat taken, a lock
   with no readable pid yet treated as live).
-- The shim and the board each pick the Mac CPU from their own node's `process.arch`. In the
-  installed layout both run the bundled node, so they agree. If they ever differ, the shim
-  finds no shell for its CPU and passes no flag; the board's install is untouched (the
-  folders are per CPU).
+- The shim and the board each take the Mac CPU from `hostArch()` (the one place
+  `process.arch` is read, pinned by a test), each in its own process. In the installed layout
+  both run the bundled node, so they agree. If they ever differ, the shim finds no shell for
+  its CPU and passes no flag; the board's install is untouched (the folders are per CPU).
 - `outputDir()` is one temp folder shared by every agent's browser output, as on Windows.
 
 ## Weakest premise

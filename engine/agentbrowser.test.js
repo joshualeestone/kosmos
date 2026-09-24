@@ -212,7 +212,7 @@ test('the opt-out file turns the browser off on a Mac, where the supervisor neve
     assert.equal(ab.disabled({}), true);
     assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'arm64', install: false, env: {} }), null);
     let kicked = 0;
-    ab.installWithRetry({ env: {}, kick: () => { kicked += 1; return Promise.resolve({ ok: true }); } })();
+    ab.installWithRetry({ env: {}, log: () => {}, kick: () => { kicked += 1; return Promise.resolve({ ok: true }); } })();
     assert.equal(kicked, 0, 'an opted-out board does not download anything');
   } finally { fs.rmSync(ab.optOutPath(), { force: true }); }
 });
@@ -424,4 +424,14 @@ test('an opted-out board says so in its log', () => {
   try { ab.installWithRetry({ env: {}, log: (l) => lines.push(l), kick: () => Promise.resolve({ ok: true }) }); }
   finally { fs.rmSync(ab.optOutPath(), { force: true }); }
   assert.match(lines.join('\n'), /off \(opt-out\)/);
+});
+
+test('the CPU default has one source: every shell path defaults to hostArch()', () => {
+  const a = ab.hostArch();
+  assert.equal(a, process.arch);
+  assert.equal(ab.shellDir(), ab.shellDir(a));
+  assert.equal(ab.shellExe(), ab.shellExe(a));
+  assert.equal(ab.shellInstalled(), ab.shellInstalled(a));
+  const src = fs.readFileSync(path.join(__dirname, 'agentbrowser.js'), 'utf8');
+  assert.equal((src.match(/process\.arch/g) || []).length, 1, 'process.arch is read in exactly one place (hostArch)');
 });
