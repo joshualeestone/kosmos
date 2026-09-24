@@ -8464,6 +8464,18 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   font-size: .9rem; text-decoration: none; }
 .plus-signin-pill:hover { border-color: #41C2E3; }
 .plus-signin-pill:focus-visible { outline: 2px solid #41C2E3; outline-offset: 2px; }
+/* #3596 (Josh, 0.6.91 QA): every field in the Kosmos+ pane (the in-app sign-in wizard and
+   the enrol flow) is black text on a white field in EVERY theme. The Kosmos+ skin sets light
+   ink for its navy ground while the light theme keeps a white field, which made typed text
+   white-on-white. -webkit-text-fill-color because WebKit paints an autofilled value with it
+   rather than with color; the inset shadow covers the tint WebKit paints behind an autofill.
+   A button row under a field gets the standard gap (it sat flush against the field). */
+#s-sec-plus .tk-inp:not(select) { background: #ffffff; color: #14161a; -webkit-text-fill-color: #14161a;
+  caret-color: #14161a; border-color: rgba(20, 22, 26, .28); }
+#s-sec-plus .tk-inp::placeholder { color: #6b7280; -webkit-text-fill-color: #6b7280; opacity: 1; }
+#s-sec-plus .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #ffffff inset; }
+#s-sec-plus .field + .frow { margin-top: var(--space-5); }
+#s-sec-plus .tk-inp.bad, #s-sec-plus .tk-inp.bad:focus { border-color: var(--danger); } /* the shared error border still wins */
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
    whole app is already blue via the token override above; this frames the two
    working states as the mock's card. Their wired ids are untouched. */

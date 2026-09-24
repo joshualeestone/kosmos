@@ -119,7 +119,7 @@ const SURFACES = [
   ['projects', 'PROJECTS'],
   // #2054: 'talking' deleted, its block folded into 'automation' -- sweep the section
   // that now holds those controls (same components already covered in sibling sections).
-  ...['you', 'accounts', 'connect', 'automation', 'mac', 'updates', 'advanced'].map((sec) => ['settings: ' + sec, 'SETTINGS:' + sec]),
+  ...['you', 'accounts', 'connect', 'automation', 'mac', 'updates', 'advanced', 'plus'].map((sec) => ['settings: ' + sec, 'SETTINGS:' + sec]),
 ];
 
 (async () => {

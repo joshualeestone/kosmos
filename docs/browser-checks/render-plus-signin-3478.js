@@ -172,6 +172,34 @@ const visible = (page, sel) => page.evaluate((s) => {
 
       // Step: email -> code.
       await page.fill('#plus-signin-email', 'you@example.com');
+      // #3596 (Josh, 0.6.91 QA): every Kosmos+ pane input (the wizard and the enrol flow) is
+      // #14161a on #ffffff in both themes (the Kosmos+ skin once made typed text
+      // white-on-white), and the button row sits a gap below the email field.
+      // Scenario-independent, so once (like "Not now" above).
+      const themeBefore = key === 'existing-2fa' ? await page.evaluate(() => document.documentElement.getAttribute('data-theme')) : null;
+      for (const theme of key === 'existing-2fa' ? ['light', 'dark'] : []) {
+        const r = await page.evaluate((t) => {
+          document.documentElement.setAttribute('data-theme', t);
+          const inputs = [...document.querySelectorAll('#s-sec-plus input.tk-inp')];
+          const f = document.getElementById('plus-signin-email').getBoundingClientRect();
+          const btn = document.getElementById('plus-signin-code').getBoundingClientRect();
+          const probe = document.getElementById('plus-signin-email');
+          probe.classList.add('bad');
+          const badBorder = getComputedStyle(probe).borderTopColor;
+          probe.classList.remove('bad');
+          const okBorder = getComputedStyle(probe).borderTopColor;
+          return { gap: btn.top - f.bottom, n: inputs.length, badBorder, okBorder,
+            bad: inputs.map((i) => { const c = getComputedStyle(i); return { id: i.id, raw: c.color + ' on ' + c.backgroundColor }; })
+              .filter((x) => x.raw !== 'rgb(20, 22, 26) on rgb(255, 255, 255)').map((x) => x.id + ': ' + x.raw) };
+        }, theme);
+        chk(r.n === 10, `[${key}] #3596 CONTROL: the Kosmos+ pane's 10 inputs were found (${theme})`, String(r.n));
+        chk(r.badBorder !== r.okBorder, `[${key}] #3596 a field marked .bad still shows the error border (${theme})`, r.badBorder + ' vs ' + r.okBorder);
+        chk(r.bad.length === 0, `[${key}] #3596 every Kosmos+ input is #14161a on #ffffff (${theme})`, r.bad.join(' | '));
+        chk(r.gap >= 8, `[${key}] #3596 a gap separates the email field from "Email me a code" (${theme})`, String(r.gap));
+      }
+      if (key === 'existing-2fa') {
+        await page.evaluate((v) => { if (v === null) document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', v); }, themeBefore);
+      }
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       chk(true, `[${key}] email step advances to the code step`);
