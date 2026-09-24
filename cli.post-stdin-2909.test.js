@@ -278,6 +278,17 @@ test('#2909: a post the board declines keeps a piped message in a file instead o
   assert.match(arg.stdout, /here it is to keep/, 'CONTROL: argument mode still echoes the text (#2710)');
 }, '{"delivery":{"state":"could_not","because":"there is no project by that name."}}'));
 
+test('#2909: a wrong-world post whose outbox keep fails still keeps the piped message', () => withStubBoard(async (port) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_HOME: '/nonexistent-kosmos-home-2909' };
+  const out = await runCli(['post', '--stdin', 'proj'], env, 'WRONG-WORLD-BODY');
+  const saved = out.stdout.match(/saved at (\S+)/);
+  assert.equal(out.code, 1, 'KOSMOS_HOME points nowhere, so the outbox cannot keep it: ' + out.stdout);
+  assert.ok(saved, 'an outbox that could not keep it must leave the piped message in a file: ' + out.stdout);
+  const fs = require('node:fs');
+  assert.equal(fs.readFileSync(saved[1], 'utf8'), 'WRONG-WORLD-BODY');
+  fs.rmSync(saved[1]);
+}, '{"wrongWorld":true,"world":"other"}'));
+
 test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'plain', 'words'], env, 'this must not be read');

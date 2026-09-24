@@ -207,6 +207,13 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   assert.ok(declinedSaved, 'a declined delivery keeps the piped message too');
   assert.equal(fs.readFileSync(declinedSaved[1], 'utf8'), 'declined body');
   fs.rmSync(path.dirname(declinedSaved[1]), { recursive: true });
+  const big = 'w'.repeat(200 * 1024);
+  const ww = await run(['post', '--stdin', 'proj-1'], () => ({ status: 421, body: { wrongWorld: true } }), undefined, async () => ({ text: big, ended: true }));
+  assert.equal(ww.code, 1, 'an entry over the outbox cap is not kept for later: ' + ww.err.slice(0, 200));
+  const wwSaved = ww.err.match(/saved at (\S+)/);
+  assert.ok(wwSaved, 'the outbox refusal keeps the piped message in a file');
+  assert.equal(fs.readFileSync(wwSaved[1], 'utf8'), big);
+  fs.rmSync(path.dirname(wwSaved[1]), { recursive: true });
   const argRefused = await run(['post', 'proj-1', 'typed'], () => ({ status: 403, body: { error: 'no such room' } }));
   assert.doesNotMatch(argRefused.err, /saved at/, 'argument-mode text is still on the command line; nothing is saved');
   const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });

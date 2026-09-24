@@ -510,20 +510,24 @@ keep_in_outbox() {
   local _node _bf _said _rc=0
   _node="$(kosmos_engine_node)" || {
     say "Your Kosmos is not the one open right now, and we could not find node to keep this for later, so it was not kept. Send it again once your Kosmos is open."
+    _keep_piped   # #2909: a no-op unless a cmd_post --stdin message is being kept
     exit 1
   }
   _bf="$(mktemp "${TMPDIR:-/tmp}/kosmos-outbox.XXXXXX")" || {
     say "Your Kosmos is not the one open right now, and we could not make a file to keep this in, so it was not kept. Send it again once your Kosmos is open."
+    _keep_piped   # #2909: a no-op unless a cmd_post --stdin message is being kept
     exit 1
   }
   if ! { chmod 600 "$_bf" && printf '%s' "$2" > "$_bf"; }; then
     rm -f "$_bf"
     say "Your Kosmos is not the one open right now, and we could not write this down to keep it, so it was not kept. Send it again once your Kosmos is open."
+    _keep_piped   # #2909: a no-op unless a cmd_post --stdin message is being kept
     exit 1
   fi
   _said="$("$_node" "$(kosmos_engine_module outbox).js" keep "$1" "$_bf" 2>&1)" || _rc=$?
   rm -f "$_bf"
   say "${_said:-Your Kosmos is not the one open right now, and keeping this for later said nothing, so it may not have been kept.}"
+  [ "$_rc" -eq 0 ] || _keep_piped   # #2909: the outbox refused it (e.g. too long); keep a piped message
   exit "$_rc"
 }
 

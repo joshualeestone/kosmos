@@ -10,8 +10,11 @@ guard as feedback write), or when the encoded request body is over the board's 6
 (measured after JSON escaping; the room's own, much lower text cap refuses with its own sentence).
 Without --stdin the message source is unchanged; the bash escaper's tab/CR/control handling does
 change for argument-mode posts too (see Decisions). With --stdin, bash checks the board is up before
-reading; any failure after the read (too large, unreachable, refused) saves the piped message to a
-mode-600 file and names its path, on both CLIs. A --stdin after the project id is refused. "As written" is about what reaches the board: the room's display still
+reading; any failure after the read (too large, unreachable, refused, declined, or a wrong-world
+post the outbox could not keep) saves the message, as it would have been posted, to a mode-600 file
+and names its path, on both CLIs. Not saved, on purpose: the "still delivering" timeout (the post may
+have landed and the sentence says not to re-post) and a Windows pipe that went quiet (refused as
+possibly cut short). A --stdin after the project id is refused. "As written" is about what reaches the board: the room's display still
 collapses tabs and CRs.
 
 Known asymmetries, accepted:

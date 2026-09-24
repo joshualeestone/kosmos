@@ -338,7 +338,11 @@ async function verbPost(ctx, args) {
     keepPiped();
     return code;
   }
-  if (ctx.wrongWorld(r)) return ctx.keepForLater('post', body);
+  if (ctx.wrongWorld(r)) {
+    const kept = ctx.keepForLater('post', body);
+    if (kept !== 0) keepPiped();   /* #2909: the outbox refused it (e.g. too long); keep a piped message */
+    return kept;
+  }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
   if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
