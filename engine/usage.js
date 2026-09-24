@@ -147,8 +147,9 @@ function utcDay(isoTimestamp) {
  * (the agent that owns it may be running right now); a truncated last line
  * must not lose every other line in the file.
  *
- * Returns `{ days: { [date]: { [model]: bucketed } }, folders: { [date]:
- * { [cwd]: bucketed } }, rootsRead: [...] }` -- the roots list travels with the result so a caller can say "N of N
+ * Returns `{ days: { [date]: { [model]: bucketed } },
+ * folders: { [date]: { [launchCwd]: bucketed } }, rootsRead: [...] }` --
+ * the roots list travels with the result so a caller can say "N of N
  * config roots read" rather than imply completeness it cannot back up.
  */
 async function scanUsage({ sinceDay, untilDay }) {
@@ -164,7 +165,20 @@ async function scanUsage({ sinceDay, untilDay }) {
     for (const file of await walkTranscriptsUnder(root)) {
       let text;
       try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
-      for (const line of text.split('\n')) {
+      /* #2617: a transcript is keyed by the FIRST cwd it records, the folder
+         the session was launched in. A row's own cwd moves when the agent
+         `cd`s into a worktree; keyed per row, that work would leave the
+         agent. Measured on this Mac, 2026-09-24: 6 of the 60 newest
+         sessions carried more than one cwd, 21% of their rows off the first. */
+      const lines = text.split('\n');
+      let launch = '';
+      for (const line of lines) {
+        if (!line.includes('"cwd"')) continue;
+        let r;
+        try { r = JSON.parse(line); } catch { continue; }
+        if (r && typeof r.cwd === 'string' && r.cwd) { launch = r.cwd; break; }
+      }
+      for (const line of lines) {
         if (!line || SYNTHETIC_ROW.test(line)) continue;
         let row;
         try { row = JSON.parse(line); } catch { continue; }
@@ -200,9 +214,10 @@ async function scanUsage({ sinceDay, untilDay }) {
         const bucket = days[day][model];
         for (const field of BUCKET_FIELDS) bucket[field] += Number(usage[field]) || 0;
         bucket.rows += 1;
-        /* #2617: the same row, once more, keyed by the folder the session ran in.
-           byAgent() ties a folder to an agent. A row with no cwd keys to ''. */
-        const folder = typeof row.cwd === 'string' ? row.cwd : '';
+        /* #2617: the same row, once more, keyed by its transcript's launch
+           folder (above). byAgent() ties a folder to an agent. A transcript
+           that records no cwd keys to ''. */
+        const folder = launch;
         if (!folders[day]) folders[day] = {};
         if (!folders[day][folder]) folders[day][folder] = emptyBuckets();
         const fb = folders[day][folder];
@@ -280,8 +295,9 @@ function todayUtc() {
  * scoped to `wanted` isn't wasted on days already cached -- a real, if
  * smaller, saving than skipping the read entirely would be.
  *
- * Returns `{ byDay: { [date]: { [model]: bucketed } }, byFolder: { [date]:
- * { [cwd]: bucketed } }, rootsRead: [...] }` -- `rootsRead` is always the CURRENT config roots (`configRoots()` is
+ * Returns `{ byDay: { [date]: { [model]: bucketed } },
+ * byFolder: { [date]: { [launchCwd]: bucketed } }, rootsRead: [...] }` --
+ * `rootsRead` is always the CURRENT config roots (`configRoots()` is
  * cheap: a readdir per candidate), reported every call, cached or not, so
  * a caller can always say "N of N config roots" rather than only on the
  * calls that happened to scan.

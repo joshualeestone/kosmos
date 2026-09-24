@@ -75,7 +75,8 @@ test('#2617: GET /api/usage splits the window per agent by the folder each sessi
   fs.mkdirSync(dir, { recursive: true });
   const row = (id, cwd, out) => JSON.stringify({ timestamp: `${today}T09:00:00.000Z`, cwd, sessionId: 'sess',
     message: { id, model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
-  fs.writeFileSync(path.join(dir, 'sess.jsonl'), [row('r1', annDir, 30), row('r2', HOME, 4)].join('\n') + '\n', 'utf8');
+  fs.writeFileSync(path.join(dir, 'sess.jsonl'), row('r1', annDir, 30) + '\n', 'utf8');
+  fs.writeFileSync(path.join(dir, 'home.jsonl'), row('r2', HOME, 4) + '\n', 'utf8');
   const body = await (await fetch(base + '/api/usage?days=1')).json();
   assert.ok(body.byAgent, 'byAgent is missing from the response');
   assert.equal(body.byAgent.rosterRead, true);
@@ -86,6 +87,29 @@ test('#2617: GET /api/usage splits the window per agent by the folder each sessi
   // The per-folder split names every folder a session ran in; only its per-agent sum leaves.
   assert.equal(body.byFolder, undefined, 'the route leaked the per-folder split');
   assert.ok(!JSON.stringify(body).includes(HOME), 'a working folder path reached the response');
+});
+
+test('#2617: a roster that cannot be read says so, and a failing split leaves the per-model page up', async () => {
+  const register = require('./engine/register');
+  const usage = require('./engine/usage');
+  const knownWas = register.known;
+  const splitWas = usage.byAgent;
+  try {
+    register.known = () => ({ ok: false, names: [] });
+    let body = await (await fetch(base + '/api/usage?days=1')).json();
+    assert.equal(body.byAgent.rosterRead, false, 'an unread roster was not stated');
+    assert.deepEqual(body.byAgent.agents, []);
+    register.known = knownWas;
+    usage.byAgent = () => { throw new Error('boom'); };
+    const res = await fetch(base + '/api/usage?days=1');
+    assert.equal(res.status, 200, 'a failing per-agent split took the whole route down');
+    body = await res.json();
+    assert.equal(body.byAgent, null);
+    assert.ok(body.byDay && Object.keys(body.byDay).length, 'the per-model totals went with the split');
+  } finally {
+    register.known = knownWas;
+    usage.byAgent = splitWas;
+  }
 });
 
 test('GET /api/usage?days= with a hostile value does not crash the route', async () => {
