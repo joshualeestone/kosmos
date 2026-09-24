@@ -324,3 +324,35 @@ test('grok store: a named key add refuses a folder holding an undescribable auth
   assert.equal(fs.existsSync(grokAccounts.keyFile(dir)), false, 'no key was written beside the sign-in');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+/* #3658: first run's Connect PROBES this route with an empty body before it opens the key
+   box, and relies on the probe changing nothing. Runner present: the empty key is refused
+   by keyProblem before any slot is claimed or any file written. Runner missing: needsRunner,
+   also before anything is written. Pinned here so a refactor that claims a slot earlier
+   cannot turn every Connect click into a new account directory. */
+test('#3658: an empty-body probe of the gemini/grok key routes writes nothing, runner present or not', async () => {
+  const snapshot = () => fs.readdirSync(SANDBOX).sort().join('|');
+  for (const route of ['gemini', 'grok']) {
+    const before = snapshot();
+    const present = await post('/api/accounts/' + route + '/apikey', {});
+    assert.equal(present.status, 400, route + ': an empty key must be refused');
+    const pb = await present.json();
+    assert.notEqual(pb.needsRunner, true, route + ': the runner is present in this test');
+    assert.equal(snapshot(), before, route + ': the probe (runner present) created something');
+    runners.resolveBin = () => ({ present: false, bin: null });
+    try {
+      const missing = await post('/api/accounts/' + route + '/apikey', {});
+      assert.equal(missing.status, 400);
+      assert.equal((await missing.json()).needsRunner, true, route + ': a missing runner must answer needsRunner to an empty probe');
+      assert.equal(snapshot(), before, route + ': the probe (runner missing) created something');
+    } finally {
+      runners.resolveBin = (p) => ({ present: true, bin: `/mock/${p}` });
+    }
+  }
+  // CONTROL: the snapshot can see a write. A real add changes it, so the equalities above mean something.
+  const before = snapshot();
+  geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const real = await post('/api/accounts/gemini/apikey', { key: 'AIzaSy-probe-control-12345678' });
+  assert.equal(real.status, 200, 'the control add failed, so it proves nothing');
+  assert.notEqual(snapshot(), before, 'a real add did not change the snapshot, so the probe equalities prove nothing');
+});

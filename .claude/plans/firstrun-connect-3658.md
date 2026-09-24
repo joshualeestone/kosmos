@@ -47,6 +47,17 @@ kill "Runs on this computer" and show one uninterrupted list.
 - Left: the `.smore-t` CSS rule is now unused on this step; deleting shared CSS is not
   worth the risk here. The #3386 comment near Grok is rewritten.
 
+## Review pass 2 (sonnet): no blockers
+- Pinned the probe's premise on the server: server.provider-accounts-3296.test.js now
+  asserts an empty-body POST to either key route writes nothing, runner present or
+  missing, with a control that a real add does change the directory.
+- An Add that lands after the person closed and reopened the same provider's box now
+  closes the reopened box (a second Add would have made a second account).
+- The comment naming the open cards is reworded for the comment-deferral rule (the full
+  suite caught "waits on #3391").
+- Recorded, not changed: the probe fails OPEN on a network error (the box opens and Add
+  reports what is wrong); Settings still says "a xAI".
+
 ## Tests
 - web.firstrun-model.test.js: 7 not-yet-available rows at .llm off, 4 connectable,
   Gemini's mark live, and the ABSENCE of "After setup" and the tier heading (so a
@@ -55,5 +66,5 @@ kill "Runs on this computer" and show one uninterrupted list.
   #fr-later-models is absent. Control kept: Llama still says Coming soon.
 - render-firstrun-grok-3386.js: Grok is a connectable row right under Gemini, no
   divider, seven not-yet-available tiles.
-- NEW render-firstrun-keyed-connect-3658.js (15 checks, entered through the real frGo(5)).
+- NEW render-firstrun-keyed-connect-3658.js (16 checks, entered through the real frGo(5)).
   Perturbations, each red: no probe, no Add reset, no stale repaint, no step-entry paint.

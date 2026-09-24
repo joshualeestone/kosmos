@@ -163,6 +163,26 @@ const chk = (ok, label, extra) => {
   chk(unk.boxHidden && /key is saved/.test(unk.msg) && unk.btn === 'Connect', 'an unconfirmed key is said to be saved, not connected, and the row stays Connect', JSON.stringify(unk));
   chk(unk.expanded === 'false' && unk.focused === 'fr-apikey-msg', 'after Add the button is no longer expanded and focus lands on the result', JSON.stringify(unk));
 
+  // Away and back: a Gemini Add lands after the person closed the box and reopened it (Grok is
+  // already connected by now, so its disabled Connect cannot be the way away).
+  // The reopened box must close (a second Add would make a second account) and the row show Connected.
+  const back = await q(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    document.getElementById('fr-gemini-connect').click(); await wait(120);
+    document.getElementById('fr-apikey-key').value = 'AIza-away-and-back';
+    let release; window.__hold = new Promise((r) => { release = r; });
+    document.getElementById('fr-apikey-go').click(); await wait(30);
+    document.getElementById('fr-gemini-connect').click(); await wait(120);   // away: closes the box
+    document.getElementById('fr-gemini-connect').click(); await wait(120);   // back: reopens it
+    const reopened = !document.getElementById('fr-apikey-flow').hidden;
+    release(); window.__hold = null; await wait(200);
+    const b = document.getElementById('fr-gemini-connect');
+    return { reopened, boxHidden: document.getElementById('fr-apikey-flow').hidden, btn: b.textContent.trim(),
+      msg: document.getElementById('fr-apikey-msg').textContent };
+  });
+  chk(back.reopened && back.boxHidden && /Connected/.test(back.btn) && back.msg === 'Gemini is connected.',
+    'an Add that lands after switching away and back closes the reopened box and shows Connected', JSON.stringify(back));
+
   // Entering the step paints a row whose account already connected.
   const entry = await q(async () => {
     window.__accounts.push({ provider: 'google', connection: { state: 'connected' } });
