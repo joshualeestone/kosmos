@@ -124,8 +124,8 @@ test('#3659: the final setup page is Josh\'s copy: SETUP COMPLETE, one body line
   assert.match(reach, /and start building your next big idea\./);
   assert.match(reach, /eyebrow\.textContent = 'Setup complete'/, 'the eyebrow is not set to Setup complete');
   assert.match(PAGE, /<p class="fc-eyebrow" id="fr-fleet-eyebrow">Setup complete<\/p>/, 'the pre-JS eyebrow still says something else');
-  const render = reach.slice(reach.indexOf('box.innerHTML = '));
   assert.ok(reach.indexOf('box.innerHTML = ') !== -1, 'could not find the rendered body statement');
+  const render = reach.slice(reach.indexOf('box.innerHTML = '));
   assert.doesNotMatch(render, /get started|Already have agents|Import option/, 'an old paragraph is still rendered');
 });
 

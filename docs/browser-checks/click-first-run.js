@@ -380,8 +380,8 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     ok(await page.isHidden('#firstrun'), 'the overlay got out of the way');
     ok(await page.isVisible('.tab[data-tab="agents"].on'), 'on the Agents dashboard (#3575)');
     ok(await page.isHidden('#panel-create'), 'not dropped into Create Agent (#3575)');
-    // The ending's pointer tells the person "choose New agent" on the dashboard; prove that
-    // control is there on the empty board too and leads into a usable create flow.
+    // The ending sends the person to the dashboard to create or import agents (#3659); prove
+    // New agent is there on the empty board too and leads into a usable create flow.
     const newAgent = (await page.isVisible('#new-agent')) ? page.locator('#new-agent') : page.locator('#rail-agents-new');
     ok(await newAgent.isVisible(), 'the empty dashboard offers New agent, as the ending says');
     await newAgent.click();
