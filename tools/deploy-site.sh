@@ -260,7 +260,7 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
     echo "deploy-site: no committed dist/latest-win.json -- using the fallback \$WINZIP=$WINZIP, which may be stale (#2008/#2571). Land latest-win.json (tools/publish-kosmos-windows.sh) so the current name is derived." >&2
   fi
 else
-  echo "deploy-site: KOSMOS_WIN_ZIP=$WINZIP overrides the derivation from latest-win.json (the operator escape hatch)." >&2
+  echo "deploy-site: KOSMOS_WIN_ZIP=$WINZIP overrides the derivation from latest-win.json (the operator escape hatch). It also turns off the #3600 served-pointer check after deploy, so the post-deploy verify checks exactly this name." >&2
 fi
 # The STAGED Windows build. Every Windows cut goes to staging first (Josh, 2026-09-12), so a
 # committed latest-win-staging.json names a versioned zip that must SHIP with its sidecar and the
@@ -490,7 +490,8 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # text/html. (tools/lib/served-verify.sh, sourced above.)
 # #3600: WHICH Windows zip do users actually get? $WINZIP was derived from the COMMITTED
 # latest-win.json, but production does not serve that file: the site's vercel.json redirects
-# /dist/latest-win.json (307) to R2, which publish-kosmos-windows.sh updates WITHOUT a site commit.
+# /dist/latest-win.json (307) to R2, and the Windows publish to R2 happens outside this repo, WITHOUT a
+# site commit.
 # So the committed pointer goes stale on every Windows promote (0.6.91 Mac promote, 2026-09-24: it
 # still said 0.6.72, R2 said 0.6.89, 0.6.72 was not in R2) and this verify 404'd on a zip nobody is
 # pointed at -- every Mac promote exited red while prod was correct. When the served pointer is a
@@ -501,6 +502,9 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # still fails loudly on a genuinely unserved zip. An explicit KOSMOS_WIN_ZIP still overrides.
 WIN_VERIFY=$WINZIP
 WIN_SERVED_SHA=""
+# The prod Windows version users get, for the staged block below: the committed one unless the
+# served pointer is a redirect, in which case the served one.
+WIN_PROD_VERSION=$(ptr_version "$(git -C "$SITE" show "$H:dist/latest-win.json" 2>/dev/null)")
 if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   _wr=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$HOST/dist/latest-win.json" 2>/dev/null) || _wr=''
   case "${_wr%% *}" in
@@ -512,12 +516,16 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
         kosmos-*-win-x64.zip) : ;;
         *) echo "deploy-site: the served (redirected) latest-win.json names '${_swv:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate (#3600)."; exit 1 ;;
       esac
-      case "$_swv" in */*|*..*) echo "deploy-site: the served latest-win.json names '$_swv', which is not a bare file name -- investigate (#3600)."; exit 1 ;; esac
+      case "$_swv" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served latest-win.json names '$_swv', which is not a bare file name -- investigate (#3600)."; exit 1 ;; esac
       [ -n "$WIN_SERVED_SHA" ] || { echo "deploy-site: the served (redirected) latest-win.json names $_swv but no sha256 -- investigate (#3600)."; exit 1; }
       WIN_VERIFY=$_swv
+      WIN_PROD_VERSION=$(ptr_version "$_swj")
       if [ "$WIN_VERIFY" != "$WINZIP" ]; then
         echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's COMMITTED latest-win.json names $WINZIP and is stale. Verifying what users get ($WIN_VERIFY). This is expected after a Windows promote and is not a deploy failure." >&2
       fi
+      ;;
+    '')
+      echo "deploy-site: NOTE (#3600): could not probe whether latest-win.json is served by redirect (transport error or timeout), so verifying the committed $WINZIP. If that 404s while prod redirects to R2, it is this probe, not the deploy; re-run the check." >&2
       ;;
   esac
 fi
@@ -542,6 +550,18 @@ fi
 # The STAGED Windows build, served whole: the Windows box verifies it from these served copies
 # before any promote. The pointer is also compared BY CONTENT with the committed one, so a served
 # staging pointer that names some other build fails here rather than misdirecting the verification.
+# #3600: a staging pointer whose version is NOT newer than the prod Windows build users get names a
+# superseded build. The zip wildcard redirects it to R2, where an old staged build is often absent
+# (2026-09-24: staging said 0.6.81, prod 0.6.89, 0.6.81 404'd), so verifying it would exit red on
+# every Mac deploy for a build nobody will promote. Warn and skip it. A NEWER staged build is still
+# verified in full, because the Windows box verifies that one from these served copies.
+WIN_STAGED_VERSION=""
+[ -z "$WIN_STAGED" ] || WIN_STAGED_VERSION=$(ptr_version "$(git -C "$SITE" show "$H:dist/latest-win-staging.json" 2>/dev/null)")
+if [ -n "$WIN_STAGED" ] && [ -n "$WIN_STAGED_VERSION" ] && [ -n "$WIN_PROD_VERSION" ] \
+   && [ "$(printf '%s\n%s\n' "$WIN_STAGED_VERSION" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$WIN_PROD_VERSION" ]; then
+  echo "deploy-site: WARNING (#3600): the committed latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $WIN_PROD_VERSION. It is superseded, so it is not served-verified. The next Windows staging publish replaces it." >&2
+  WIN_STAGED=""
+fi
 if [ -n "$WIN_STAGED" ]; then
   served_verify_asset_ok "$HOST/dist/$WIN_STAGED" "the staged Windows zip $WIN_STAGED" || { echo "deploy-site: the staged Windows zip $WIN_STAGED failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
   served_verify_asset_ok "$HOST/dist/$WIN_STAGED.sha256" "the staged Windows zip checksum $WIN_STAGED.sha256" || { echo "deploy-site: the staged Windows zip checksum $WIN_STAGED.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }

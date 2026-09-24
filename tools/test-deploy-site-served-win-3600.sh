@@ -20,6 +20,12 @@
 #   A4  redirect, R2's sidecar disagrees with R2's pointer sha -> refuse (the updater would)
 #   A5  NO redirect (pointer served statically) -> the committed zip is verified, no NOTE
 #   A6  CONTROL for A5: no redirect and the committed zip not served -> refuse
+#   A7  a committed staging pointer OLDER than the served prod build (superseded, absent from R2)
+#       -> warned about and skipped, rc 0 (the live 0.6.81-staged / 0.6.89-prod state)
+#   A8  a staging pointer NEWER than prod and present in R2 -> verified, rc 0, no warning
+#   A9  CONTROL for A7: a NEWER staging pointer absent from R2 -> refuse (not skipped)
+#   A10 the served pointer names a path, not a bare file name -> refuse
+#   A11 the served pointer carries no sha256 -> refuse
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -82,7 +88,10 @@ case "$url" in
     ;;
 esac
 if [ -n "$wfmt" ]; then
-  if [ -f "$served_file" ]; then [ -n "$dest" ] && [ "$dest" != /dev/null ] && cp "$served_file" "$dest"; printf '200'; else printf '404'; fi
+  if [ -f "$served_file" ]; then
+    [ -n "$dest" ] && [ "$dest" != /dev/null ] && cp "$served_file" "$dest"
+    case "$wfmt" in *content_type*) printf '200 application/octet-stream';; *) printf '200';; esac
+  else printf '404'; fi
   exit 0
 fi
 [ -f "$served_file" ] || exit 22
@@ -111,8 +120,11 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-badsum  - as redirect, but R2's WZ_NEW.sha256 disagrees with R2's pointer sha
 #   static           - no redirect: the committed pointer and zip are served as-is
 #   static-nozip     - no redirect, and the committed zip is missing from what is served
-make_scenario() {  # <mode> ; echoes "SITE LIVE R2"
-  local mode="$1" s live r2 realsha oldsha newsha
+#   redirect-badname - as redirect, but R2's pointer names a path rather than a bare file name
+#   redirect-nosha   - as redirect, but R2's pointer carries no sha256
+# $2 (optional) staged: "" none | old (0.6.45, absent from R2) | new (0.6.55, in R2) | new-missing
+make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
+  local mode="$1" staged="${2:-}" s live r2 realsha oldsha newsha sv sz
   s="$(mktemp -d "$T/site.XXXXXX")"; live="$(mktemp -d "$T/live.XXXXXX")"; r2="$(mktemp -d "$T/r2.XXXXXX")"
   mkdir -p "$s/dist" "$live/dist"
 
@@ -144,6 +156,14 @@ make_scenario() {  # <mode> ; echoes "SITE LIVE R2"
   write_win_ptr "$s/dist/latest-win.json" "$WV_OLD" "$oldsha"
   printf 'WINALIAS\n' > "$s/dist/kosmos-win-x64.zip"
   ( cd "$s/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
+  if [ -n "$staged" ]; then
+    case "$staged" in old) sv=0.6.45 ;; *) sv=0.6.55 ;; esac
+    sz="kosmos-$sv-win-x64.zip"
+    printf 'STAGED-%s\n' "$sv" > "$s/dist/$sz"
+    ( cd "$s/dist" && shasum -a 256 "$sz" > "$sz.sha256" )
+    write_win_ptr "$s/dist/latest-win-staging.json" "$sv" "$(sha_of "$s/dist/$sz")"
+    if [ "$staged" = new ]; then cp "$s/dist/$sz" "$s/dist/$sz.sha256" "$r2/"; fi
+  fi
   git -C "$s" add -A && git -C "$s" commit -q -m "site at $V"
   mkdir -p "$s/.vercel"; printf '{"projectId":"p"}\n' > "$s/.vercel/project.json"
 
@@ -159,6 +179,8 @@ make_scenario() {  # <mode> ; echoes "SITE LIVE R2"
       ( cd "$r2" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
       # R2 does NOT carry the stale committed build: that is the card.
       [ "$mode" = redirect-nozip ] && rm -f "$r2/$WZ_NEW"
+      [ "$mode" = redirect-badname ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW/../x" "$newsha"
+      [ "$mode" = redirect-nosha ] && printf '{"version":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$WV_NEW" "$WZ_NEW" > "$r2/latest-win.json"
       [ "$mode" = redirect-badsum ] && printf '%s  %s\n' 1111111111111111111111111111111111111111111111111111111111111111 "$WZ_NEW" > "$r2/$WZ_NEW.sha256"
       ;;
     static-nozip)
@@ -172,7 +194,7 @@ make_scenario() {  # <mode> ; echoes "SITE LIVE R2"
 
 run_deploy() {  # <site> <live> <r2> [KOSMOS_WIN_ZIP value or ""] ; sets RC + out
   local s="$1" live="$2" r2="$3" wz="${4:-}"
-  out="$(env PATH="$BIN:$PATH" LIVE_DIR="$live" R2_DIR="$r2" HOST_URL="$HOSTURL" R2_URL="$R2URL" \
+  out="$(env -u KOSMOS_WIN_ZIP PATH="$BIN:$PATH" LIVE_DIR="$live" R2_DIR="$r2" HOST_URL="$HOSTURL" R2_URL="$R2URL" \
     KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" \
     ${wz:+KOSMOS_WIN_ZIP="$wz"} bash "$DEPLOY" --publish 2>&1)"
   RC=$?
@@ -235,5 +257,51 @@ else
   bad "A6-CONTROL: an unserved committed zip on the static path did not refuse (rc=$RC); out=$out"
 fi
 
+# A7) a superseded staging pointer (older than the served prod build, absent from R2) is skipped.
+read -r S L R <<<"$(make_scenario redirect old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "published and verified" && has "$out" "kosmos-0.6.45-win-x64.zip (0.6.45), which is not newer than the prod Windows build $WV_NEW"; then
+  pass "A7: a superseded staged build (0.6.45 < prod $WV_NEW) is warned about and skipped, rc=0"
+else
+  bad "A7: a superseded staged build was not skipped with the warning (rc=$RC); out=$out"
+fi
+
+# A8) a newer staged build that R2 serves is verified, with no superseded warning.
+read -r S L R <<<"$(make_scenario redirect new)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "published and verified" && ! has "$out" "not newer than the prod Windows build"; then
+  pass "A8: a newer staged build (0.6.55) present in R2 is verified, rc=0"
+else
+  bad "A8: a newer, served staged build did not verify cleanly (rc=$RC); out=$out"
+fi
+
+# A9) CONTROL for A7: a NEWER staged build absent from R2 must refuse, so A7's skip is gated on the
+# version compare and not a blanket skip of the staged block.
+read -r S L R <<<"$(make_scenario redirect new-missing)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the staged Windows zip kosmos-0.6.55-win-x64.zip failed served-verify"; then
+  pass "A9-CONTROL: a newer staged build absent from R2 refuses (rc=$RC) -- A7's skip is version-gated"
+else
+  bad "A9-CONTROL: a newer, unserved staged build did not refuse (rc=$RC); out=$out"
+fi
+
+# A10) a served pointer naming a path (it becomes a URL) refuses.
+read -r S L R <<<"$(make_scenario redirect-badname)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "which is not a bare file name"; then
+  pass "A10: a served pointer naming a path refuses (rc=$RC)"
+else
+  bad "A10: a path-shaped served pointer name did not refuse on the name guard (rc=$RC); out=$out"
+fi
+
+# A11) a served pointer with no sha256 refuses (the sidecar check would otherwise be skipped).
+read -r S L R <<<"$(make_scenario redirect-nosha)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "but no sha256"; then
+  pass "A11: a served pointer with no sha256 refuses (rc=$RC)"
+else
+  bad "A11: a served pointer with no sha256 did not refuse (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 6 arms passed"
+echo "test-deploy-site-served-win-3600: all 11 arms passed"
