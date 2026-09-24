@@ -118,10 +118,9 @@ function configPath() { return path.join(homeDir(), 'mcp-config.json'); }
    default is `.playwright-mcp` inside the agent's working folder, which on this
    platform can be a person's own project folder -- so they go to temp instead. */
 function outputDir() { return path.join(os.tmpdir(), 'kosmos-agent-browser'); }
-/* The Mac browser, per CPU, beside the server tree. hostArch() is the ONE place a
-   default CPU comes from: the board that installs and the shim that asks both
-   call it, so they cannot disagree by construction of the code (they run the same
-   bundled node in the installed layout). */
+/* The Mac browser, per CPU, beside the server tree. hostArch() is the one place a
+   default CPU comes from: the board that installs and the shim that asks both call
+   it, so they agree when both run the same node (the bundled one, installed). */
 function hostArch() { return process.arch; }
 function shellBuild(arch) { return SHELL.builds[arch || hostArch()] || null; }
 /* One folder per version AND per CPU, so installing one CPU's shell can never
@@ -508,7 +507,10 @@ function installWithRetry(opts) {
   let delay = o.firstDelayMs || RETRY_FIRST_MS;
   let timer = null; let stopped = false; let stuck = 0; let retried = false; let attempts = 0; let swept = false;
   const schedule = o.schedule || ((fn, ms) => { const t = setTimeout(fn, ms); if (t.unref) t.unref(); return t; });
-  const attempt = () => {
+  /* Every run of the body is guarded, the first and the scheduled retries alike: a
+     throwing log must not escape the board's call or a timer. */
+  const attempt = () => { try { attemptOnce(); } catch { /* never fatal */ } };
+  const attemptOnce = () => {
     if (stopped) return;
     if (disabled(o.env)) { log('agent browser: off (opt-out); not installing'); return; }
     /* A sandboxed board (the browser-check harness sets AGENT_WORKFORCE_DRY_RUN=1)
@@ -544,7 +546,7 @@ function installWithRetry(opts) {
       log('agent browser: install did not finish (' + ((r && r.because) || 'unknown') + '); trying again in ' + Math.round(wait / 1000) + 's');
     }).catch(() => { /* a throwing log must not become an unhandled rejection */ });
   };
-  try { attempt(); } catch { /* a throwing log must not escape the board's call */ }
+  attempt();
   return () => { stopped = true; if (timer) clearTimeout(timer); };
 }
 

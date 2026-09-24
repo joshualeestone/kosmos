@@ -22,6 +22,11 @@ trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB1:-}" "${SB2:-}" "${SB3:-}" "${SB4:-}"
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
+# Arms 1 and 5 need a Mac whose CPU has a pinned browser build; say so and stop elsewhere.
+case "$(uname -s)/$(uname -m)" in
+  Darwin/arm64|Darwin/x86_64) ;;
+  *) echo "SKIP  not a Mac with a pinned browser build ($(uname -s)/$(uname -m))"; exit 0 ;;
+esac
 FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
@@ -70,8 +75,10 @@ run_claude() {
   local dir="$1"; shift
   local model="${MODEL_ARG:-}"
   # The caller's own opt-out must not leak in and turn arm 1 red for no reason.
+  # Bounded: a shim that regressed to installing would otherwise hold the launch on a
+  # real download, and the arm would hang instead of going red.
   env -u KOSMOS_AGENT_BROWSER "$@" STUB_DIR="$dir" AGENT_WORKFORCE_RUNNERS_DIR="$dir/runners" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
-    bash "$dir/bin/agent-supervisor.sh" ab-3633 "$dir/work" /usr/bin/true "$dir/tmux" "$dir/start.log" "$model" claude \
+    /usr/bin/perl -e 'alarm 60; exec @ARGV' bash "$dir/bin/agent-supervisor.sh" ab-3633 "$dir/work" /usr/bin/true "$dir/tmux" "$dir/start.log" "$model" claude \
     > "$dir/out.log" 2>&1 || true
 }
 

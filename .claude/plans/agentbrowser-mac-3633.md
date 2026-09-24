@@ -22,7 +22,9 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 ## Wiring
 - engine/agentbrowser.js: `SHELL` pin, `ensureShell`, `shellInstalled`, Mac arm of
   `configFor`/`launchConfig`. `kickInstall` runs the shell step after the tree on a Mac.
-  The Windows output is unchanged (its existing tests pass as they were).
+  The Windows output is unchanged. Its existing tests were edited only to pass `env: {}` (so an
+  operator's own opt-out cannot decide them) and to reverse the "a Mac launch is untouched"
+  assertion to "no flag until installed".
 - engine/agent-browser-config.js: prints the config path or nothing, never installs
   (`install: false`), always exits 0.
 - bin/agent-supervisor.sh, Claude arm: runs the shim with Kosmos's node and adds
@@ -30,7 +32,8 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   `--dangerously-skip-permissions`.
 - server.js: on darwin the board calls `installWithRetry`: it kicks the install at boot and,
   if the install fails (no network at login, a stall, a bad checksum), logs why and retries
-  with backoff (1 minute doubling to an hour) until it succeeds or the operator opts out.
+  with backoff (1 minute doubling to an hour); when it stops is listed below and on
+  `installWithRetry`.
   Never fatal, never awaited, timers unref'd.
 - A sandboxed board never downloads: `installWithRetry` does nothing under
   `AGENT_WORKFORCE_DRY_RUN=1` (what the browser-check harness sets), and tools/browser-checks.sh
@@ -84,7 +87,7 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 32 pass (26 of them new for the Mac), and each Mac test passes run alone; `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 32 pass (26 of them new for the Mac), and all 32 pass run one at a time (measured); `configFor` refuses a Mac config with no shell path. Shell test: 11 checks
   across five arms (installed, not installed, env opt-out, file opt-out, installed with a
   model); with the model line's flag removed, only the model arm fails.
 

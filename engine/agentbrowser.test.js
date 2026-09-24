@@ -207,7 +207,7 @@ test('the supervisor shim prints the path once installed, prints nothing otherwi
   if (!(process.platform === 'darwin' && ab.SHELL.builds[process.arch])) {
     t.diagnostic('installed arm skipped: this host is not a Mac with a pinned browser build');
   } else {
-    assert.equal((await ab.ensureShell(shellSeams(process.arch))).ok, true);
+    await ensureShellFor(process.arch);
     const got = run({ AGENT_WORKFORCE_RUNNERS_DIR: process.env.AGENT_WORKFORCE_RUNNERS_DIR });
     assert.equal(got.status, 0);
     const printed = got.stdout.trim();
