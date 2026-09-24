@@ -29,7 +29,9 @@ ANSWERED, a fact recorded when that message was posted, independent of the reply
   `install/kosmos` AND the parallel Windows/non-Claude runner `tools/windows/kosmos-cli.js`.
   Keeping the second in parity is load-bearing: the envelope now emits the flag, so a Windows-runner
   agent copying the command would otherwise read `--in-reply-to` as the project id and misroute.
-- The room-arrival envelope's answer command becomes `kosmos post <projectId> --in-reply-to <id>`
+- The room-arrival envelope's answer command becomes `kosmos post --in-reply-to <id> <projectId>`
+  (flag BEFORE the project: both CLIs parse --in-reply-to as leading-only, so a flag after the
+  project is swept into message text and the reply posts unbound -- a round-trip test guards this)
   (the id already appears in the envelope), so an addressed reply carries the binding by
   construction and a wrong project id is caught. The nudge line carries it too.
 - `messages.projectOfPost(id)` is the oracle: the project of a post by id, or null (null for a

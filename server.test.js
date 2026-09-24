@@ -6548,9 +6548,9 @@ test('the post route resolves the project, derives the member list, and fans out
        now sit adjacent, which is the only place in the app that says they are
        one project. What is still forbidden is the slug LOOSE in the sentence,
        and that is what this asserts. */
-    assert.doesNotMatch(addressed.replace(/ · to answer, run: kosmos post routeroom/g, ''), /routeroom/,
+    assert.doesNotMatch(addressed.replace(/ · to answer, run: kosmos post --in-reply-to m\d+ routeroom/g, ''), /routeroom/,
       'the slug reached the sentence an agent reads');
-    assert.match(addressed, /· to answer, run: kosmos post routeroom --in-reply-to m\d+\]/,
+    assert.match(addressed, /· to answer, run: kosmos post --in-reply-to m\d+ routeroom\]/,
       'the envelope must carry the command WITH THE SLUG (and #3224 --in-reply-to): the name is not a project kosmos post can resolve');
     const rec = messagesEngine.record().rows.filter((m) => m.kind === 'post');
     assert.equal(rec.length, 1);
@@ -6622,9 +6622,9 @@ test('the room routes: the operator flag is minted only here, and the thread fil
       'an operator arrival did not carry the operator marker');
     // The same split as the addressed case above: name in the sentence, id in
     // the record (asserted at `row.project` a few lines up).
-    assert.doesNotMatch(opEnv.replace(/ · to answer, run: kosmos post opsroom/g, ''), /opsroom/,
+    assert.doesNotMatch(opEnv.replace(/ · to answer, run: kosmos post --in-reply-to m\d+ opsroom/g, ''), /opsroom/,
       'the slug reached the sentence an agent reads');
-    assert.match(opEnv, /· to answer, run: kosmos post opsroom --in-reply-to m\d+\]/,
+    assert.match(opEnv, /· to answer, run: kosmos post --in-reply-to m\d+ opsroom\]/,
       'an operator arrival must say how to answer it (with the #3224 --in-reply-to binding), which is the whole of kosmos#185');
 
     // The THREAD, filtered by project alone: a foreign project's post and

@@ -119,3 +119,19 @@ test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documen
     'a non-leading --in-reply-to must not be treated as the flag');
   assert.match(seen[0].text, /--in-reply-to/, 'the token stays in the message text when not leading');
 }));
+
+test('#3224 ENVELOPE ROUND-TRIP: the emitted answer-command order (flag BEFORE project) binds; the trailing order does NOT -- the seam that a flag-after-project envelope would silently post unbound', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  // The order the room-arrival / nudge envelope emits: `kosmos post --in-reply-to <id> <project> <text>`.
+  const bound = await runCli(['post', '--in-reply-to', 'm5', 'beta', 'the answer'], env);
+  assert.equal(bound.code, 0, bound.stdout + bound.stderr);
+  assert.equal(seen[0].in_reply_to, 'm5', 'the emitted (leading) order must bind in_reply_to on the body');
+  // The trailing order `kosmos post <project> --in-reply-to <id>` must NOT bind: the project ends
+  // flag parsing, so the flag+id are swept into message text. This is exactly the shape the envelope
+  // must NOT emit -- feeding it here proves the parser would silently post unbound, closing the seam.
+  const unbound = await runCli(['post', 'beta', '--in-reply-to', 'm5', 'the answer'], env);
+  assert.equal(unbound.code, 0, unbound.stdout + unbound.stderr);
+  assert.equal(Object.prototype.hasOwnProperty.call(seen[1], 'in_reply_to'), false,
+    'a flag AFTER the project must NOT bind (leading-only): the token becomes message text, not the citation');
+  assert.match(seen[1].text, /--in-reply-to m5/, 'the trailing flag+id land verbatim in the message text, unbound');
+}));

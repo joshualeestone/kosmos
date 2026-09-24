@@ -1394,10 +1394,14 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
        reply binds to the room this message came from. The server resolves the id's
        project and refuses if the agent's target project differs (the misroute caught),
        so a wrong project id no longer silently lands the answer in another room. The
-       id already appears in the envelope; this only makes the command consume it. */
+       id already appears in the envelope; this only makes the command consume it.
+       The flag is emitted BEFORE the project: both CLIs parse --in-reply-to as a
+       LEADING-only flag (the first non-flag token ends flag parsing), so a flag after
+       the project would be swept into message text and the reply would post unbound.
+       A round-trip test runs this exact emitted command through the CLI parser. */
     const answerClause = replyExpected === false
       ? ' \u00b7 FYI, no reply requested'
-      : ' \u00b7 to answer, run: kosmos post ' + projectId + ' --in-reply-to ' + id;
+      : ' \u00b7 to answer, run: kosmos post --in-reply-to ' + id + ' ' + projectId;
     const answer = operator === true
       ? answerClause
       : (mentioned.has(name) ? answerClause : '');
@@ -1795,7 +1799,7 @@ function sweepUnanswered(roster, now) {
         const card = (roster || []).find((c) => c && c.sessionName === name);
         if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
-          + '; to answer, run: kosmos post ' + projectId + ' --in-reply-to ' + postId + ']';
+          + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
         const sent = chat.deliver(name, line, roster);
         appendLog({ kind: 'nudge', post: postId, to: name, project: projectId,
           at: new Date().toISOString(), outcome: sent.state });

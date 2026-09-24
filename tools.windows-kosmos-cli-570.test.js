@@ -149,6 +149,15 @@ test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (fla
   const emptySpace = await run(['post', '--in-reply-to', '', 'proj-1', 'answer'], ok);
   assert.equal(emptySpace.code, 2, 'an empty --in-reply-to "" (space form) must error too, not silently post unbound (parity with install/kosmos)');
   assert.equal(emptySpace.calls.length, 0, 'nothing must be posted when the citation id is empty');
+  // ENVELOPE ROUND-TRIP (parity with install/kosmos): the emitted order (flag BEFORE project) binds;
+  // the trailing order `post <project> --in-reply-to <id>` must NOT bind (leading-only) -- the seam a
+  // flag-after-project envelope would silently post unbound through.
+  const boundRT = await run(['post', '--in-reply-to', 'm5', 'proj-1', 'the answer'], ok);
+  assert.equal(boundRT.calls[0].body.in_reply_to, 'm5', 'the emitted (leading) order must bind in_reply_to');
+  const trailing = await run(['post', 'proj-1', '--in-reply-to', 'm5', 'the answer'], ok);
+  assert.equal(Object.prototype.hasOwnProperty.call(trailing.calls[0].body, 'in_reply_to'), false,
+    'a flag AFTER the project must NOT bind (leading-only): the token becomes message text, not the citation');
+  assert.match(trailing.calls[0].body.text, /--in-reply-to m5/, 'the trailing flag+id land verbatim in the message text, unbound');
 });
 
 test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {

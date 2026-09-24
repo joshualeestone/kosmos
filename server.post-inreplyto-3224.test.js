@@ -140,6 +140,14 @@ test('#3224 NULL-TOLERATED: an explicit in_reply_to:null is treated as absent (p
     'in_reply_to:null must behave exactly like an omitted citation -- the post proceeds, no binding, no misroute: ' + (r.json.delivery.because || ''));
 });
 
+test('#3224 EMPTY-TOLERATED: an in_reply_to of "" is treated as absent (posts normally), not a 400 -- the CLIs refuse empty before it reaches here (stricter-at-the-CLI split, on the record)', async () => {
+  const a = room('Alpha empty 3224');
+  const r = await post({ project: a.id, text: 'a post whose citation is the empty string', from_pane: '', in_reply_to: '' }, { 'x-kosmos-agent-token': tok() });
+  assert.notEqual(r.status, 400, 'in_reply_to:"" is a string, so it passes the request-shape check and is treated as absent downstream (trimmed to nothing), not refused');
+  assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state),
+    'an empty citation must behave like an omitted one -- the post proceeds with no binding: ' + (r.json.delivery.because || ''));
+});
+
 // LAST test in this file: it makes the message log unreadable, so nothing may run after it.
 test('#3224 FAIL-CLOSED (server path): an unreadable record makes /api/post REFUSE the bound reply, not post blind or 500', async () => {
   const b = room('Beta failclosed 3224');
