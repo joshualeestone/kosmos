@@ -148,6 +148,24 @@ test('a key add during a pending sign-in never lands on its slot; a named one is
 /* Iteration-6 review: a subscription row is CONNECTED on its file alone, so /api/accounts must
    badge it signed_in_unverified (the page's muted "Signed in"), never leave it badge-less, which
    the page draws as the green legacy pill. An API-key row is untouched by this. */
+/* Round 19 raised that the Disconnect/Delete sentence says "key" for a sign-in Kosmos
+   cannot describe (identityOf null). It cannot be reached: forget and remove refuse such a
+   dir before any sentence is built. This pins that refusal, so the deferral stays true. */
+test('a Grok dir holding a sign-in Kosmos cannot describe is refused by Disconnect and Delete, so no "key" sentence is sent', async () => {
+  const dir = nodePath.join(SANDBOX, '.grok-garbled');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), '{not json', { mode: 0o600 });
+  assert.equal(grokAccounts.identityOf(dir), null, 'CONTROL: this is the dir the finding describes');
+  for (const remove of [false, true]) {
+    const r = await fetch(base + '/api/accounts/grok', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir, remove }) });
+    const b = await r.json();
+    assert.equal(r.status, 400, JSON.stringify(b));
+    assert.match(b.error, /not a Grok account/);
+    assert.equal(b.because, undefined);
+  }
+  assert.ok(fs.existsSync(nodePath.join(dir, 'auth.json')), 'the refused request changed the dir');
+});
+
 test('GET /api/accounts badges a connected subscription row signed_in_unverified, not green', async () => {
   const sub = nodePath.join(SANDBOX, '.grok-badged');
   fs.mkdirSync(sub, { recursive: true });
