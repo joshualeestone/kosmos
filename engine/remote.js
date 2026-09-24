@@ -576,6 +576,21 @@ function setupRun(args, stdin = null) {
   });
 }
 
+/** One signed request to a coordinator /v1/mac/ route, through the tunnel's
+    `mac-request` verb (#718): the key stays in the tunnel binary, never here.
+    A POST body goes on stdin, never argv. Resolves to
+    { ok: true, data } with the coordinator's parsed JSON, or
+    { ok: false, because }. */
+async function macRequest(method, routePath, body) {
+  if (!enrolled()) return { ok: false, because: 'this Mac is not connected to Kosmos+' };
+  const args = ['mac-request', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR(),
+    '--method', method, '--path', routePath];
+  const r = await setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}));
+  if (!r.ok) return { ok: false, because: r.because };
+  try { return { ok: true, data: JSON.parse(r.said) }; }
+  catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
+}
+
 /** Forget this Mac (#793): retire it at the coordinator while its key still
  * exists, THEN destroy the key. Order is the whole point: after the state
  * dir is gone the Mac cannot speak for itself and only a signed-in phone
@@ -1127,7 +1142,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { secondReset, forget, macRequest, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

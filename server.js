@@ -717,7 +717,7 @@ const connections = require('./engine/connections');
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
-const pushvapid = require('./engine/pushvapid');
+const phonenotify = require('./engine/phonenotify');
 const styles = require('./engine/styles');
 const inflight = require('./engine/inflight');
 
@@ -6134,6 +6134,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* Phone notifications (#718), engine/phonenotify.js. GET: the switch, whether
+     this Mac is connected to Kosmos+, and the sign-in page a phone subscribes on.
+     PUT {on:true} mints the notify token (once) and turns them on; {on:false}
+     turns them off. Off by default. The token never leaves this route. */
+  if (pathname === '/api/phone-notify' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, phonenotify.status()); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/phone-notify' && req.method === 'PUT') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        const saved = body.on ? await phonenotify.turnOn() : phonenotify.turnOff();
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, phonenotify.status());
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+
   /* The daily product-feedback report (engine/feedback.js, kosmos#2037). The
      LOCAL half: read the reports the user's agent has written, and write one.
      Josh's "store locally regardless of the switch": this route never touches
@@ -10722,6 +10746,13 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
+        // #718: a phone buzzes on the change INTO needs_you, not on every repeat
+        // report, so read what this agent said last before recording this one.
+        let wasNeedsYou = false;
+        try {
+          const prior = selfreport.read(who);
+          wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you');
+        } catch { /* unknown reads as a change */ }
         const kept = selfreport.record(who, {
           state: body.state,
           project: typeof body.project === 'string' ? body.project : undefined,
@@ -10812,9 +10843,15 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { recorded: false, because: kept.because });
           return;
         }
-        /* #2623: the phone seam (engine/notify.js) was deleted. A reported
-           needs_you is recorded on the board as before; it no longer POSTs
-           anything off the Mac. */
+        // #718: phone notifications, only when the person turned them on
+        // (engine/phonenotify.js). Never the report's words.
+        if (body.state === 'needs_you' && !wasNeedsYou) {
+          let projectName = null;
+          if (typeof body.project === 'string' && body.project.trim()) {
+            try { const pj = projects.get(body.project.trim(), roster); projectName = pj ? pj.name : null; } catch { projectName = null; }
+          }
+          phonenotify.happened({ kind: 'needs_you', id: 'report:' + who + ':' + kept.at, agent: sender.card.name || who, session: who, project: projectName });
+        }
         sendJson(res, 200, { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -10872,9 +10909,13 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
-        const kept = keepAgentReply(who, body.text);
-        /* #2623: the phone seam (engine/notify.js) was deleted. The reply is
-           recorded for the person's own thread as before; nothing leaves the Mac. */
+        const replyAt = new Date().toISOString();
+        const kept = keepAgentReply(who, body.text, replyAt);
+        // #718: phone notifications, only when the person turned them on
+        // (engine/phonenotify.js). Never the reply's words.
+        if (kept.recorded === true) {
+          phonenotify.happened({ kind: 'replied', id: 'reply:' + who + ':' + replyAt, agent: sender.card.name || who, session: who, project: null });
+        }
         sendJson(res, 200, {
           kept: kept.recorded === true,
           because: kept.recorded === true ? null : kept.because,
@@ -14478,39 +14519,6 @@ const server = http.createServer((req, res) => {
     sendJson(res, 404, { error: 'no such icon' });
     return;
   }
-  // #718 (#3510): Web Push. The coordinator owns the VAPID key pair, the
-  // subscriptions, encryption and delivery (kosmos-relay coordinator/src/push.rs);
-  // the board only hands the push client (#3520) what it asks for same-origin.
-  //
-  // GET /v1/push/vapid-key: the coordinator's PUBLIC key, fetched and cached by
-  // engine/pushvapid.js. Unauthenticated at the coordinator by design (a public
-  // key), so nothing is attached. A failure is a plain-words 502 and is not
-  // cached; the client keeps its button retryable.
-  if (pathname === '/v1/push/vapid-key' && (req.method === 'GET' || req.method === 'HEAD')) {
-    pushvapid.fetchVapidKey()
-      .then((key) => {
-        if (key) sendJson(res, 200, { key });
-        else sendJson(res, 502, { error: 'Kosmos could not reach its notification service just now. Try again in a minute.' });
-      })
-      .catch(() => sendJson(res, 502, { error: 'Kosmos could not reach its notification service just now. Try again in a minute.' }));
-    return;
-  }
-
-  // POST /v1/push/subscribe: NOT WIRED, on purpose, and 501 says so rather than
-  // pretending. The coordinator requires Authorization: Bearer <the PHONE's
-  // session token>, and the board never holds one: the tunnel gate forgets the
-  // token the moment the phone is admitted and forwards no device identity
-  // (kosmos-relay crates/tunnel/src/gate.html, proxy.rs). Which path replaces it
-  // (a Mac-cert-authenticated route naming the tunnel-verified device, or
-  // pointing people at the coordinator's own "Notify me on this phone") is a
-  // pending ruling on #3510. Also pending: the Mac-side event sender was deleted
-  // on 2026-09-09 (#2623/#2631), so no push is sent from any Mac today.
-  if (pathname === '/v1/push/subscribe' && req.method === 'POST') {
-    req.resume();
-    sendJson(res, 501, { error: 'Phone notifications cannot be turned on from here yet.' });
-    return;
-  }
-
   // /favicon.ico 404s BY DESIGN, matching the site: the icon set is the
   // four explicit PNGs above, and a probe for the .ico must not receive
   // the page dressed as an icon (the silent-success signature again).
