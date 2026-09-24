@@ -5808,6 +5808,29 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .cinput::-webkit-scrollbar { display: none; }
 .cinput:focus { outline: none; }
 .cinput::placeholder { color: var(--k-ink-2); }
+/* #2922 part 2 (Josh 6.59): the LIVE @-mention highlight in the project-room
+   composer. A native <textarea> cannot colour one word, so #pj-post is backed by
+   a mirror (#pj-post-mirror) that renders the same text with recognized @agent
+   mentions in the same bright blue the posted message wears (--pj-mention). The
+   textarea's own text goes transparent while the caret stays inked, so only the
+   mirror is seen. The mirror carries the textarea's exact metrics (font,
+   line-height, padding, wrap) and is sized/positioned to its box at paint time,
+   so the visible text sits where the caret does.
+   ⚠️ The live mention is COLOUR-ONLY, not bold. .pjmention (the posted-message
+   chip) is font-weight 600, but bolding here would widen the glyphs and drift the
+   mirror off the caret, so .pj-live-mention changes colour and nothing else.
+   position:relative is scoped to THIS composerbox (the room post box); it has no
+   absolutely-positioned child today, and the @ picker/emoji panel are siblings
+   OUTSIDE it, so their offset parent is unchanged. */
+.pjmid .composer .composerbox { position: relative; }
+#pj-post { position: relative; z-index: 1; }
+#pj-post.mention-live { color: transparent; caret-color: var(--k-ink); }
+#pj-post-mirror { position: absolute; z-index: 0; overflow: hidden; pointer-events: none;
+  box-sizing: border-box; margin: 0; padding: 0; border: 0; }
+#pj-post-mirror .pj-mirror-in { box-sizing: border-box; font: inherit; font-size: .9375rem;
+  line-height: 1.5; padding: 9px 4px; margin: 0; color: var(--k-ink);
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
+.pj-mirror-in .pj-live-mention { color: var(--pj-mention); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
 /* #761 (Josh, 2026-08-24 21:56: "a little extra space below 'Drop a file
    anywhere'... tighten up that space"): the room's status line sits under
@@ -12246,6 +12269,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <textarea class="cinput" id="pj-post" rows="1" maxlength="2000"
                     placeholder="Write something or @name to message someone&hellip;"
                     aria-label="Post to everyone on this project"></textarea>
+          <!-- #2922 part 2: the live @-mention highlight. A mirror of #pj-post that
+               renders its text with recognized @agent mentions in bright blue; the
+               textarea's own text is transparent (caret stays inked) so only this
+               shows. aria-hidden because the textarea already carries the text and
+               the label for assistive tech. -->
+          <div id="pj-post-mirror" aria-hidden="true"><div class="pj-mirror-in"></div></div>
           <!-- ⚠️ QUIET, NOT GOLD, AND THAT IS A RULING RATHER THAN AN
                ARTEFACT. The pack has `btn-gold cpost`; this build has no
                `.btn-gold` at all, and its gold primary is `.btn.uprime`, worn
@@ -38484,6 +38513,13 @@ function pjView(which) {
      stays beside whichever project view is open. */
   if (document.body.classList.contains('consolidated') && which !== 'list') document.getElementById('pj-list-view').hidden = false;
   PJ_VIEW = which;
+  /* #2922: when the room (View D) becomes visible, re-engage the live-mention mirror. pjMentionPaint
+     is hidden-safe (a no-op while #pj-post is hidden), so it is safe to call on every 'one'
+     navigation. Centralised HERE so every path that shows the room -- openProject, showTab's
+     consolidated toggle, leaving the task or documents detail, the documents back button -- re-engages;
+     otherwise a mirror the hidden-state guard stripped on a resize-while-away would stay disengaged
+     (plain text, no blue) until the next keystroke. */
+  if (which === 'one') pjMentionPaint();
   syncUrl();
   /* #2834: close the shared reaction picker on ANY navigation, for the same reason
      the member picker is reset just below. The old per-post picker lived inside the
@@ -42835,7 +42871,7 @@ function openProject(id) {
   }
   pjCloseConfirm();
   paintOneProject();
-  pjView('one');
+  pjView('one');   // #2922: pjView('one') re-engages the live-mention mirror for the restored draft
   refreshEngMode();
   loadThread();
   loadRoom();
@@ -43002,11 +43038,12 @@ function pjRoomBody(m, p) {
   const words = pjWords(m);
   if (!words) return '';
   /* #2922: the Set of agent keys (sessionNames) on THIS project, so pjRichSpans can highlight an
-     @name that flags an agent here. Same key derivation as mentionCandidates (a member is a string
-     key or a {sessionName} object). Empty/absent -> no highlight, which is the safe default. */
-  const agentNames = new Set(((p && p.agents) || [])
-    .map((a) => (typeof a === 'string' ? a : (a && typeof a.sessionName === 'string' ? a.sessionName : '')))
-    .filter(Boolean));
+     @name that flags an agent here. Derived by pjMentionKeys -- the SAME single source the
+     live-input highlighter (pjMentionPaint) and the @ picker use -- so the posted message and the
+     input can never disagree about what is a real mention (the whole point of #2922 part 2). It
+     returns a fresh Set, so the self-exclusion below can mutate it. Empty/absent -> no highlight,
+     the safe default. */
+  const agentNames = pjMentionKeys(p);
   /* #2922: mirror the backend's recipient filter (engine/messages.js: recipients = operator ?
      members : members.filter(m => m !== from)). A non-operator post never flags its OWN author, so
      an agent's `@<self>` must NOT render blue -- it would falsely promise a message reaching the one
@@ -43667,6 +43704,13 @@ async function pjPostSend(attachment) {
      visibly holds the names. */
   if (!input.value.trim() && pendingIds.length) input.value = attachList(ATTACH_ROOM).map((r) => r.name).join(', ');
   const text = input.value;
+  /* #2922: the attach-only fill above sets #pj-post.value directly with no input event, so repaint
+     the live-mention mirror or it is left stale (blank) under the injected filenames while
+     .mention-live keeps the textarea text transparent -- the composer would look empty while holding
+     real text about to post. pjGrowComposer grows the box AND repaints; cheap and idempotent, and the
+     guard keeps it to attach sends. Placed AFTER `text` is read so the fill stays adjacent to its
+     capture (the room reads its text after the names are substituted in). */
+  if (pendingIds.length) pjGrowComposer(input);
   if (!text.trim()) { msg.textContent = 'Say something first.'; pjRoomAnnounce('Say something first.'); return; }
   /* The flight can outlive the page state (a fan-out is seconds of tmux
      per recipient), so the sibling composer's discipline applies whole:
@@ -43839,6 +43883,97 @@ document.getElementById('pj-mention').addEventListener('mousedown', (e) => {
   const i = [...b.parentNode.querySelectorAll('button[data-key]')].indexOf(b);
   mentionPick(i);
 });
+
+/* ---- #2922 part 2: the live @-mention highlight ----------------------------
+   A native <textarea> cannot colour one word, so #pj-post is backed by a mirror
+   (#pj-post-mirror) that renders the same text with recognized @agent mentions in
+   the room's bright blue, using the SAME recognized-name rule the posted-message
+   highlighter uses (pjRoomBody's tokenizer), so the input and the message never
+   disagree about what is a real mention. The textarea's text is transparent while
+   the caret stays inked, so only the mirror is seen. Josh 6.59: "if I @ and type a
+   name and it recognizes it is an agent name mention, highlight it blue so I know
+   it is going to be a flag to that agent." A partial or unknown name stays plain;
+   it turns blue exactly when it becomes a name the backend would flag. */
+
+/* The recognized @-mention rule, self-contained so the unit test can lift it and
+   run it in isolation (it does its own escaping and shares no helper). Mirrors
+   engine/messages.js and pjRoomBody: leading * ~ ( are peeled (NOT _, which the
+   backend's left boundary keeps), and @word is a mention when the word is a
+   project key, or the word with a trailing run of . _ - stripped is (so `@mona-`
+   flags `mona`). The matched @key wears the blue; the peeled lead, the stripped
+   tail and trailing punctuation stay plain. `keys` may be a Set or an array. */
+function pjMentionHighlightHTML(text, keys) {
+  const has = (k) => !!keys && (typeof keys.has === 'function' ? keys.has(k) : keys.indexOf(k) >= 0);
+  const escOne = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const src = String(text == null ? '' : text);
+  let out = src.split(/(\s+)/).map((tok) => {
+    if (!tok || /^\s+$/.test(tok)) return escOne(tok);
+    const mm = /^(.*?)([.,;:!?)\]*~]*)$/.exec(tok);
+    const core = mm[1], punct = mm[2];
+    const lead = (core.match(/^[*~(]+/) || [''])[0];
+    const afterLead = core.slice(lead.length);
+    if (afterLead.charAt(0) === '@' && afterLead.length > 1) {
+      const word = afterLead.slice(1);
+      let key = null, tail = '';
+      if (has(word)) { key = word; }
+      else { const sm = word.match(/^(.*?)([._-]+)$/); if (sm && sm[1] && has(sm[1])) { key = sm[1]; tail = sm[2]; } }
+      if (key !== null) {
+        return escOne(lead) + '<span class="pj-live-mention">@' + escOne(key) + '</span>' + escOne(tail) + escOne(punct);
+      }
+    }
+    return escOne(tok);
+  }).join('');
+  /* A textarea shows a trailing newline as an empty last line; pre-wrap needs a
+     character there or the mirror falls one line short of the caret. */
+  if (/\n$/.test(src)) out += ' ';
+  return out;
+}
+
+/* The project's own agent keys -- exactly what the @ picker offers and what the
+   matcher accepts (mentionCandidates), as a Set for the highlighter. */
+function pjMentionKeys(project) {
+  return new Set(mentionCandidates(project).map((c) => c.key));
+}
+
+/* Paint the mirror from the textarea's current value and align it to the
+   textarea's box. Cheap and idempotent, so it is safe to over-call. When the box
+   is empty the mirror clears and the transparent-text class comes off, so the
+   placeholder shows normally. */
+function pjMentionPaint() {
+  const input = document.getElementById('pj-post');
+  const mirror = document.getElementById('pj-post-mirror');
+  if (!input || !mirror) return;
+  const inner = mirror.firstElementChild;
+  if (!inner) return;
+  const val = input.value;
+  /* Bail (and un-transparent the textarea) when the box is empty OR not laid out. offsetWidth 0
+     means the composer is hidden, e.g. a project opened from the list restores its room draft BEFORE
+     pjView un-hides the room. Painting then would size the mirror to 0 while .mention-live kept the
+     textarea text transparent, so the draft would look empty until the first keystroke. Falling back
+     to the textarea's own opaque text is the safe state; the room-shown repaint re-engages the mirror. */
+  if (!val || !input.offsetWidth) { input.classList.remove('mention-live'); inner.innerHTML = ''; return; }
+  input.classList.add('mention-live');
+  inner.innerHTML = pjMentionHighlightHTML(val, pjMentionKeys(pjById(PJ_CURRENT)));
+  mirror.style.left = input.offsetLeft + 'px';
+  mirror.style.top = input.offsetTop + 'px';
+  mirror.style.width = input.offsetWidth + 'px';
+  mirror.style.height = input.offsetHeight + 'px';
+  inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
+}
+
+/* No direct 'input' binding on purpose: the existing #pj-post 'input' listener
+   (further down) calls pjGrowComposer on every keystroke, and pjGrowComposer
+   repaints the mirror for #pj-post -- as do the draft/picker/emoji/reset paths
+   that also route through it. A second 'input' listener here would repaint twice
+   per keystroke. These two cover what pjGrowComposer does not: a scroll (translate
+   the mirror to match) and a width change (rewrap and reposition). */
+document.getElementById('pj-post').addEventListener('scroll', () => {
+  const input = document.getElementById('pj-post');
+  const mirror = document.getElementById('pj-post-mirror');
+  const inner = mirror && mirror.firstElementChild;
+  if (input && inner) inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
+});
+window.addEventListener('resize', pjMentionPaint);
 
 /* ---- #2254: the emoji picker ------------------------------------------------
    Josh: "add a card so that the user could add emojis to their input." A curated
@@ -44124,6 +44259,11 @@ function pjGrowComposer(el) {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
+  /* #2922 part 2: repaint the live @-mention mirror on every programmatic
+     value/size change that routes through here (draft restore, @ picker insert,
+     emoji insert, reset) as well as auto-grow while typing. Guarded to the room
+     post box so no other composer pays for it. */
+  if (el.id === 'pj-post') pjMentionPaint();
 }
 
 /**
