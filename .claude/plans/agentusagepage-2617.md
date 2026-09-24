@@ -50,5 +50,7 @@ the same fact as the bar, so nothing is lost.
   both tables, and that the block stays hidden without byAgent. Run in full with
   no board process: a preload gives each browser context routing that serves
   web/index.html (starting a board was refused in my session). All assertions
-  pass on this branch; against origin/main's page, 12 fail, including the
-  per-model 390-wide fit.
+  pass on this branch; against origin/main's page, 14 fail, including the
+  per-model 390-wide fit. The hide path is checked by repainting a shown block
+  in the same page life (a reload would hide it by markup alone), and breaking
+  that path fails the check.

@@ -398,8 +398,10 @@ test('#2617: "% total" is of the page grand total, so unmatched tokens leave the
 test('#2617: the note states what the table cannot show, and says nothing when there is nothing to say', () => {
   assert.equal(U.usageAgentNote(BY_AGENT), '');
   assert.match(U.usageAgentNote({ ...BY_AGENT, rosterRead: false }), /could not read the list of agents/);
-  assert.match(U.usageAgentNote({ ...BY_AGENT, unattributed: B(2000, 0) }), /2K tokens in the totals above come from transcripts that have since been removed/);
-  assert.match(U.usageAgentNote({ ...BY_AGENT, overcount: B(99, 0) }), /add up to a little more/);
+  assert.match(U.usageAgentNote({ ...BY_AGENT, unattributed: B(2000, 0) }), /2K tokens in the totals above come from transcripts that have since been removed or can no longer be read/);
+  const over = U.usageAgentNote({ ...BY_AGENT, overcount: B(99, 0) });
+  assert.match(over, /hold 100 more tokens/, 'the overcount note must state the amount');
+  assert.doesNotMatch(over, /a little/, 'the overcount note claims a size nothing measures');
   assert.equal(U.usageAgentNote(null), '');
 });
 
