@@ -1,12 +1,13 @@
 'use strict';
 /* #2619: the persisted setting for the Assigner automation (Settings >
- * Automation). When on, the Assigner turns the person's goals into assigned work
- * - mapping top goals to prioritized tasks, and giving agents with no work some.
+ * Automation). When on, an idle agent is given the next unassigned task in one of
+ * its projects, or asked to draft tasks toward a project's BRIEF.md goal when the
+ * project has none (#3595 phases 2 and 3).
  *
  * SCOPE (this module is the SETTING, not the behaviour): it persists on/off the
  * same way engine/heartbeat-setting.js does (atomic tmp + rename, safe defaults,
  * a write failure returns a reason and never throws). The behaviour that reads it
- * is engine/assigner.js (idle-assign, #3595 phase 2); goals-to-tasks is phase 3.
+ * is engine/assigner.js.
  *
  * ON BY DEFAULT since #3595 phase 2 wired the idle-assign behaviour (engine/assigner.js):
  * the flip landed WITH the behaviour, as recorded on the card. Its limits are structural (it only

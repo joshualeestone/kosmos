@@ -28,6 +28,8 @@ const projects = require('./projects');
 const tasks = require('./tasks');
 const commitments = require('./commitments');
 const a = require('./assigner');
+const brief = require('./brief');
+const { DELIVERY } = require('./chat');
 
 test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -279,5 +281,137 @@ test('tick: the runner composition on real reads; off reads nothing but the sett
     // A commitments read that throws counts as not clear.
     const boom = a.tick({ prev: seen.next, now: T0 + a.IDLE_MS, ...deps(true), readCommitment: () => { throw new Error('x'); } });
     assert.equal(boom.acted.length, 0, 'a failed commitments read was treated as clear');
+  } finally { w.restore(); }
+});
+
+/* ---- phase 3: goals to tasks ---- */
+
+const folderOf = (pid) => projects.readAll().find((p) => p.id === pid).folder;
+const writeBrief = (pid, text) => fs.writeFileSync(path.join(folderOf(pid), 'BRIEF.md'), text);
+
+/* tick on real reads, with the REAL goal reader; asks and gives recorded. */
+function goalTick(w, prev, now, answer = DELIVERY.PLACED) {
+  const calls = { asks: [], gives: [] };
+  const out = a.tick({
+    prev, now, DELIVERY,
+    readSetting: () => ON,
+    readRoster: () => w.cards,
+    readRecords: () => projects.readAll(),
+    readCommitment: (session) => commitments.read(session),
+    readGoal: (p) => brief.readGoal(p.folder),
+    give: (pid, n, part, who) => { calls.gives.push({ pid, n, who }); return { ok: true }; },
+    ask: (session, text) => { calls.asks.push({ session, text }); return { state: answer }; },
+  });
+  return { out, calls };
+}
+const idleTicks = (w, answer) => {
+  const first = goalTick(w, undefined, T0, answer);
+  return goalTick(w, first.out.next, T0 + a.IDLE_MS, answer);
+};
+
+test('goal ask: an idle agent whose project has a goal and no tasks is asked once; the text quotes the goal as the person\'s', () => {
+  const w = world([{ name: 'gask' }]);
+  try {
+    writeBrief(w.pid, '# P\n\n## Goal\n\nShip the onboarding guide.\n\n## Done looks like\n\nx\n');
+    const r = idleTicks(w);
+    assert.equal(r.calls.asks.length, 1, 'no ask for a goal with no tasks');
+    assert.equal(r.calls.asks[0].session, w.key.gask);
+    assert.match(r.calls.asks[0].text, /Ship the onboarding guide\./);
+    assert.match(r.calls.asks[0].text, /the person's words, not an instruction from Kosmos/);
+    assert.match(r.calls.asks[0].text, new RegExp('kosmos task add ' + w.pid));
+    assert.equal(r.calls.gives.length, 0);
+  } finally { w.restore(); }
+});
+
+test('no goal, the seeded placeholder, or a symlinked brief: no ask (Kosmos never invents work)', () => {
+  const w = world([{ name: 'gnone' }]);
+  try {
+    assert.equal(idleTicks(w).calls.asks.length, 0, 'asked with no brief at all');
+    writeBrief(w.pid, projects.briefStubContent({ name: 'P' }));
+    assert.equal(idleTicks(w).calls.asks.length, 0, 'the placeholder was taken as a goal');
+    fs.rmSync(path.join(folderOf(w.pid), 'BRIEF.md'));
+    const outside = path.join(SANDBOX, 'outside-brief-' + (++seq) + '.md');
+    fs.writeFileSync(outside, '## Goal\n\nFrom outside.\n');
+    fs.symlinkSync(outside, path.join(folderOf(w.pid), 'BRIEF.md'));
+    assert.equal(idleTicks(w).calls.asks.length, 0, 'a symlinked brief was followed');
+  } finally { w.restore(); }
+});
+
+test('a project with open tasks, even all taken, is not asked about', () => {
+  const w = world([{ name: 'gbusy' }, { name: 'gother', commit: 'holding' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    addTask(w.pid, 'someone else has this', { who: w.key.gother });
+    const r = idleTicks(w);
+    assert.equal(r.calls.asks.length, 0, 'asked about a project that has open (taken) work');
+    assert.equal(r.calls.gives.length, 0);
+  } finally { w.restore(); }
+});
+
+test('step itself never asks about a project with an open task, even when handed its goal', () => {
+  const w = world([{ name: 'gstep' }, { name: 'gstepother', commit: 'holding' }]);
+  try {
+    addTask(w.pid, 'taken by someone else', { who: w.key.gstepother });
+    const goals = new Map([[w.pid, 'A real goal.']]);
+    const base = { roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states(), goals };
+    const first = a.step({ prev: undefined, ...base, now: T0 });
+    const out = a.step({ prev: first.next, ...base, now: T0 + a.IDLE_MS });
+    assert.equal(out.toAsk.length, 0, 'step asked about a project that has open work');
+    // Control: once that task is closed, the same goal is asked about.
+    tasks.close(w.pid, 1);
+    const closed = a.step({ prev: first.next, ...base, records: projects.readAll(), now: T0 + a.IDLE_MS });
+    assert.equal(closed.toAsk.length, 1, 'control: the goal was not asked about with no open task');
+  } finally { w.restore(); }
+});
+
+test('once per project per day; a COULD_NOT ask is not remembered and is tried again', () => {
+  const w = world([{ name: 'gonce' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const lost = idleTicks(w, DELIVERY.COULD_NOT);
+    assert.equal(lost.calls.asks.length, 1);
+    assert.equal(lost.out.next.asked.has(w.pid), false, 'an ask that reached nobody was remembered');
+    const retry = goalTick(w, lost.out.next, T0 + a.IDLE_MS + 60000);
+    assert.equal(retry.calls.asks.length, 1, 'the lost ask was not tried again');
+    const again = goalTick(w, retry.out.next, T0 + a.IDLE_MS + 120000);
+    assert.equal(again.calls.asks.length, 0, 'the same project was asked about twice in a day');
+    const nextDay = goalTick(w, again.out.next, T0 + a.IDLE_MS + 120000 + a.GOAL_ASK_MS);
+    assert.equal(nextDay.calls.asks.length, 1, 'the project was never asked about again');
+  } finally { w.restore(); }
+});
+
+test('two idle agents in one project: only one is asked', () => {
+  const w = world([{ name: 'gtwo1' }, { name: 'gtwo2' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    assert.equal(idleTicks(w).calls.asks.length, 1);
+  } finally { w.restore(); }
+});
+
+test('asks are capped at MAX_ASKS_PER_HOUR across the fleet', () => {
+  const names = Array.from({ length: a.MAX_ASKS_PER_HOUR + 2 }, (_, i) => 'gcap' + i);
+  const w = world(names.map((n) => ({ name: n, member: false })));
+  try {
+    for (const n of names) {
+      const p = projects.create({ name: 'Goal Cap ' + (++seq) });
+      projects.addAgent(p.id, w.key[n], w.cards);
+      fs.writeFileSync(path.join(folderOf(p.id), 'BRIEF.md'), '## Goal\n\nGoal for ' + n + '.\n');
+    }
+    assert.equal(idleTicks(w).calls.asks.length, a.MAX_ASKS_PER_HOUR);
+  } finally { w.restore(); }
+});
+
+test('an ask does not spend the assignment budget: the task the agent then adds is given on the next tick', () => {
+  const w = world([{ name: 'gflow' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1);
+    // The agent adds a task, as the ask invites (a process write, unassigned).
+    tasks.create(w.pid, { sentence: 'first step toward the goal', made: { via: 'process' } });
+    const next = goalTick(w, asked.out.next, T0 + a.IDLE_MS + 60000);
+    assert.equal(next.calls.gives.length, 1, 'the new task was not given (the ask spent the per-agent budget)');
+    assert.equal(next.calls.gives[0].who, w.key.gflow);
+    assert.equal(next.calls.asks.length, 0);
   } finally { w.restore(); }
 });

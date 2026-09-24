@@ -3,7 +3,7 @@
 Author: April, 2026-09-24. Split from #2619 (settings + persistence shipped in PR #3549; UI shows both
 controls disabled with "Not active yet"). UI contract: Mona's spec
 `Josh-Brain/Projects/kosmos-automations-recommender-assigner-2619-spec.md`.
-Status: phase 1 (Recommender) MERGED (#3617). Phase 2 (Assigner idle-assign) BUILT on branch assigner-idle-3595. Phase 3 (goals to tasks) not started.
+Status: phase 1 (Recommender) MERGED (#3617). Phase 2 (Assigner idle-assign) MERGED (#3627). Phase 3 (goals to tasks) BUILT on branch assigner-goals-3595; sub-plan .claude/plans/assigner-goals-3595-2026-09-24.md.
 
 ## What exists (surveyed on origin/main 3e3ed52c; file:line in the card comment)
 - Settings: `engine/recommender-setting.js` `{on, guards:{money,public,delete}}` (on defaults OFF,
@@ -169,7 +169,10 @@ touched it.
    commitments, projects and tasks (every guard proven by removing it); web.assigner-save-3595.test.js
    on the real lifted page functions; docs/browser-checks/render-assigner-live-3595.js (14/14, both
    themes).
-3. **Assigner goals to tasks**: the BRIEF.md goal read and the draft request.
+3. **Assigner goals to tasks** (BUILT on assigner-goals-3595; see its sub-plan): engine/brief.js reads
+   the `## Goal` section safely; with nothing to hand out, an idle agent whose project has no open
+   task and a goal is asked once to draft up to 3 tasks, with its own memory and caps (once per
+   project per day, 3 asks per hour), so the ask never blocks the assignment it sets up.
 4. (Separate card) tool-level guard enforcement through the PreToolUse hook.
 
 ## Rejected

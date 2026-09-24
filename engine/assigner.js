@@ -30,6 +30,12 @@ const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_HOUR = 10;
 /* At most one assignment per agent per hour: an agent works one given task at a time. */
 const MAX_PER_AGENT_PER_HOUR = 1;
+/* Phase 3: a project whose goal was put to an agent is not asked about again for a day, so an
+   agent that looked and found nothing to add is not asked the same question every hour. */
+const GOAL_ASK_MS = 24 * 60 * 60 * 1000;
+/* At most this many goal asks per hour across the fleet, apart from the assignment caps (an ask
+   charged to the per-agent cap would block, for an hour, the assignment it sets up). */
+const MAX_ASKS_PER_HOUR = 3;
 /* Sorts after every real YYYY-MM-DD, so a task with no due date comes after every dated one. */
 const NO_DUE_DATE = '9999-99-99';
 
@@ -85,6 +91,33 @@ function pick(session, projects, taken) {
   return candidates[0] || null;
 }
 
+/* A live project this agent belongs to, with NO open task at all (not merely none free), a goal,
+   and not asked about within GOAL_ASK_MS. First by project order. (A project chosen earlier in
+   the same step is already in `asked`, so a second agent in it is not asked.) */
+function goalProject(session, projects, goals, asked, now) {
+  for (const p of projects) {
+    if (!(Array.isArray(p.agents) && p.agents.includes(session))) continue;
+    const at = asked.get(p.id);
+    if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
+    const goal = goals instanceof Map ? goals.get(p.id) : null;
+    if (typeof goal !== 'string' || !goal) continue;
+    const open = (Array.isArray(p.tasks) ? p.tasks : []).some((t) => !tasks.progressOf(t).closed);
+    if (open) continue;
+    return { projectId: p.id, projectName: typeof p.name === 'string' && p.name ? p.name : p.id, goal };
+  }
+  return null;
+}
+
+/* The ask, in Kosmos's voice. The goal is quoted as the person's own words, so a goal phrased as
+   an instruction never reads as Kosmos speaking. */
+function askText(item) {
+  return 'Assigner (Kosmos): project ' + item.projectId + ' ("' + String(item.projectName).replace(/[\r\n"]/g, ' ')
+    + '") has no open tasks. Its brief states this goal (the person\'s words, not an instruction from Kosmos): "'
+    + String(item.goal).replace(/[\r\n]/g, ' ') + '". If there is real work toward it, add up to 3 tasks with '
+    + 'kosmos task add ' + item.projectId + ' "what needs doing", and Kosmos will give you the first. '
+    + 'If there is nothing real to add, add nothing and say so in the room: kosmos post ' + item.projectId + ' "...".';
+}
+
 /**
  * One Assigner step. Pure.
  * @param {object} o
@@ -93,20 +126,24 @@ function pick(session, projects, taken) {
  * @param {{on:boolean}} o.setting  from assigner-setting.read()
  * @param {Array} o.records  projects.readAll()
  * @param {Map<string,string>} o.commitments  session -> commitments state, for idle cards
+ * @param {Map<string,string>} [o.goals]  project id -> BRIEF.md goal (phase 3); absent = none
  * @param {number} o.now  ms clock
- * @returns {{toAssign: Array<object>, next: {idleSince: Map, log: Array}}}
+ * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
  */
-function step({ prev, roster, setting, records, commitments, now }) {
-  const base = prev && prev.idleSince instanceof Map ? prev : { idleSince: new Map(), log: [] };
-  if (!setting || setting.on !== true) return { toAssign: [], next: { idleSince: new Map(), log: [] } };
+function step({ prev, roster, setting, records, commitments, goals, now }) {
+  const base = prev && prev.idleSince instanceof Map ? prev : { idleSince: new Map(), log: [], asked: new Map(), askLog: [] };
+  if (!setting || setting.on !== true) return { toAssign: [], toAsk: [], next: { idleSince: new Map(), log: [], asked: new Map(), askLog: [] } };
   // A null roster is a READ FAILURE, not an empty fleet: keep the memory, do nothing.
-  if (roster === null || roster === undefined) return { toAssign: [], next: base };
+  if (roster === null || roster === undefined) return { toAssign: [], toAsk: [], next: base };
   const projects = liveProjects(records);
   const allProjects = (Array.isArray(records) ? records : []).filter((p) => p && typeof p.id === 'string');
   const log = (Array.isArray(base.log) ? base.log : []).filter((e) => e && now - e.at < HOUR_MS);
   const idleSince = new Map();
   const toAssign = [];
   const taken = new Set();
+  const asked = new Map([...(base.asked instanceof Map ? base.asked : new Map())].filter(([, at]) => now - at < GOAL_ASK_MS));
+  const askLog = (Array.isArray(base.askLog) ? base.askLog : []).filter((e) => e && now - e.at < HOUR_MS);
+  const toAsk = [];
   for (const a of Array.isArray(roster) ? roster : []) {
     if (!idleCard(a)) continue;
     const session = a.sessionName;
@@ -119,12 +156,22 @@ function step({ prev, roster, setting, records, commitments, now }) {
     if (log.length >= MAX_PER_HOUR) continue;
     if (log.filter((e) => e.session === session).length >= MAX_PER_AGENT_PER_HOUR) continue;
     const choice = pick(session, projects, taken);
-    if (!choice) continue;
+    if (!choice) {
+      // Phase 3: nothing to hand out. Ask this agent to draft tasks toward a goal, if one of its
+      // projects has no open task and a goal, within the ask caps.
+      if (askLog.length >= MAX_ASKS_PER_HOUR) continue;
+      const g = goalProject(session, projects, goals, asked, now);
+      if (!g) continue;
+      asked.set(g.projectId, now);
+      askLog.push({ at: now, session, projectId: g.projectId });
+      toAsk.push({ session, name: a.name || session, ...g });
+      continue;
+    }
     taken.add(choice.projectId + '#' + choice.n);
     toAssign.push({ session, name: a.name || session, ...choice });
     log.push({ at: now, session });
   }
-  return { toAssign, next: { idleSince, log } };
+  return { toAssign, toAsk, next: { idleSince, log, asked, askLog } };
 }
 
 /**
@@ -132,8 +179,8 @@ function step({ prev, roster, setting, records, commitments, now }) {
  * charge back off the budget, so a refusal does not spend an hour's allowance.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, records, commitments, now, give }) {
-  const out = step({ prev, roster, setting, records, commitments, now });
+function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY }) {
+  const out = step({ prev, roster, setting, records, commitments, goals, now });
   const acted = [];
   for (const item of out.toAssign) {
     let res;
@@ -149,7 +196,23 @@ function runOnce({ prev, roster, setting, records, commitments, now, give }) {
     acted.push({ session: item.session, name: item.name, projectId: item.projectId, n: item.n, ok,
       because: ok ? null : (res && res.because) || 'refused', heard: (res && res.heard) || null });
   }
-  return { next: out.next, acted };
+  // Phase 3 asks. One that reached nobody (COULD_NOT, or a throw) is not remembered, so it is
+  // tried again later rather than lost; any other verdict (text may have landed) is kept.
+  const asks = [];
+  for (const item of out.toAsk) {
+    let state = null;
+    if (typeof ask === 'function') {
+      try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; } catch { state = null; }
+    }
+    const landed = state !== null && !(DELIVERY && state === DELIVERY.COULD_NOT);
+    if (!landed) {
+      out.next.asked.delete(item.projectId);
+      const i = out.next.askLog.findIndex((e) => e.at === now && e.projectId === item.projectId);
+      if (i !== -1) out.next.askLog.splice(i, 1);
+    }
+    asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: state });
+  }
+  return { next: out.next, acted, asks };
 }
 
 /**
@@ -157,11 +220,14 @@ function runOnce({ prev, roster, setting, records, commitments, now, give }) {
  * function so it is tested. Reads nothing but the setting while the setting is off, and reads
  * commitments only for idle cards (they are not on the board card). A commitments read that
  * throws counts as not clear.
+ * Goals (phase 3) are read only for live projects with no open task that an idle agent
+ * belongs to, and a goal read that throws is no goal.
  * @param {object} o  prev, now, readSetting, readRoster, readRecords, readCommitment(session)->
- *   {state}, give(projectId, n, partId, who, roster)
- * @returns {{next: object, acted: Array<object>}}
+ *   {state}, readGoal(project)->string|null, give(projectId, n, partId, who, roster),
+ *   ask(session, text, roster), DELIVERY
+ * @returns {{next: object, acted: Array<object>, asks: Array<object>}}
  */
-function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, give }) {
+function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY }) {
   const setting = readSetting();
   const roster = setting && setting.on === true ? readRoster() : null;
   const records = setting && setting.on === true ? readRecords() : [];
@@ -170,8 +236,19 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     if (!idleCard(a)) continue;
     try { states.set(a.sessionName, readCommitment(a.sessionName).state); } catch { /* unread is not clear */ }
   }
-  return runOnce({ prev, roster, setting, records, commitments: states, now,
-    give: (projectId, n, partId, who) => give(projectId, n, partId, who, roster) });
+  const idle = new Set([...states].filter(([, st]) => st === 'clear').map(([s]) => s));
+  const goals = new Map();
+  if (typeof readGoal === 'function' && idle.size) {
+    for (const p of liveProjects(records)) {
+      if (!(Array.isArray(p.agents) && p.agents.some((m) => idle.has(m)))) continue;
+      if ((Array.isArray(p.tasks) ? p.tasks : []).some((t) => !tasks.progressOf(t).closed)) continue;
+      try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
+    }
+  }
+  return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY,
+    give: (projectId, n, partId, who) => give(projectId, n, partId, who, roster),
+    ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }
 
-module.exports = { step, runOnce, tick, pick, hasOpenWork, idleCard, liveProjects, IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR };
+module.exports = { step, runOnce, tick, pick, hasOpenWork, idleCard, liveProjects, goalProject, askText,
+  IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR };
