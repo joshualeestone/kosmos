@@ -46,7 +46,7 @@ function runAgents(tmuxBin) {
   return new Promise((resolve) => {
     const env = { ...process.env, AGENT_WORKFORCE_TMUX_BIN: tmuxBin };
     execFile(CLI, ['agents'], { env, timeout: 15000 }, (err, stdout, stderr) => {
-      resolve({ code: err && typeof err.code === 'number' ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0, stdout: stdout || '', stderr: stderr || '' });
     });
   });
 }

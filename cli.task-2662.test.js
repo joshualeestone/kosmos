@@ -35,7 +35,7 @@ const TOKEN = 'feedfacecafe4242'; // distinctive hex, so a substring hit is unam
 function runCli(args, env) {
   return new Promise((resolve) => {
     execFile(CLI, args, { env, timeout: 20000 }, (err, stdout, stderr) => {
-      resolve({ code: err && typeof err.code === 'number' ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0, stdout: stdout || '', stderr: stderr || '' });
     });
   });
 }

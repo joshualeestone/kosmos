@@ -19,7 +19,7 @@ const CLI = path.join(__dirname, 'install', 'kosmos');
 function runCli(args, env, input) {
   return new Promise((resolve) => {
     const child = execFile(CLI, args, { env, timeout: 20000 }, (err, stdout, stderr) => {
-      resolve({ code: err && typeof err.code === 'number' ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0, stdout: stdout || '', stderr: stderr || '' });
     });
     child.stdin.end(input === undefined ? '' : input);
   });
@@ -28,7 +28,7 @@ function runCli(args, env, input) {
 function runShell(line, env) {
   return new Promise((resolve) => {
     const child = execFile('/bin/sh', ['-c', line], { env, timeout: 20000 }, (err, stdout, stderr) => {
-      resolve({ code: err && typeof err.code === 'number' ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0, stdout: stdout || '', stderr: stderr || '' });
     });
     child.stdin.end('');
   });
@@ -222,7 +222,7 @@ test('#2909: --stdin at a terminal is refused at once instead of waiting on a si
   const env = { ...process.env, KOSMOS_PORT: String(port) };
   execFile('python3', ['-c', PTY_HARNESS, '/bin/bash', CLI, 'post', '--stdin', 'proj'], { env, timeout: 40000 }, (err, stdout) => {
     try {
-      const code = err && typeof err.code === 'number' ? err.code : 0;
+      const code = err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0;
       assert.notEqual(code, 124, 'still waiting on the terminal after 15 s: ' + stdout);
       assert.equal(code, 2, stdout);
       assert.match(stdout, /nothing was piped in/);
