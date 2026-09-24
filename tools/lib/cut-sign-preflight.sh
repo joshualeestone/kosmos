@@ -44,7 +44,7 @@ kosmos_sign_preflight() {
   rm -rf "$dir"
 
   if [ "$rc" = 0 ]; then
-    if [ "$cs" = codesign ]; then
+    if [ "${cs##*/}" = codesign ]; then
       echo "signing preflight: test-signed with \"$id\" (the key is reachable from this session)"
     else
       echo "signing preflight: PASSED THROUGH KOSMOS_CODESIGN_BIN=$cs, NOT codesign: the key was not probed. Unset it for a real cut."
@@ -62,7 +62,6 @@ EOF
       echo "The identity is here but this session cannot use its key: the login keychain is LOCKED, which is normal over SSH."
       echo "Step 4 would fail the same way AFTER the suite and the page layer. In the SAME session that will run the cut:"
       echo "    security unlock-keychain \"$kc\"          # prompts for the login password"
-      echo "    security set-keychain-settings -t 7200 \"$kc\"    # auto-lock after 2h idle, not sooner; this PERSISTS past the cut"
       echo "then run the cut in that session, not detached (nohup) from it: an unlock in one session did not reach a cut detached into another."
       echo "If the keychain is already unlocked in this session, the key's partition list may not allow codesign:"
       echo "    security set-key-partition-list -S apple-tool:,apple:,codesign: -s \"$kc\""

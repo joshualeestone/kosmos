@@ -31,9 +31,19 @@ plain SSH session (Mortals) the login keychain is locked, so codesign fails with
 - Probing productsign separately: same login keychain, so one probe finds the lock. A
   missing or expired Installer cert is not probed (stated in the lib header).
 
+- Recommending `security set-keychain-settings` in the remedy (review iterations 3-4):
+  with no arguments it removes the auto-lock for good, and with `-t` it still leaves a
+  lasting posture change on a signing box with nothing to revert it. Mortals reads
+  `no-timeout` (measured 09-24 from an unlocked session), so an unlock in the live cut
+  session is enough. The remedy is unlock-only.
+
 ## Weakest premise
 That the failure strings (`errSecInternalComponent`, "User interaction is not allowed")
 are stable. If they change, the preflight still refuses, but with the generic message.
+
+Second: that the signing box's login keychain has no idle timeout. If one is set shorter
+than a cut, the keychain can re-lock mid-cut and step 4 fails the old way; the 1c probe
+passes at the start and cannot see that.
 
 ## Proof
 - Agent1s (GUI session): real codesign, rc=0.

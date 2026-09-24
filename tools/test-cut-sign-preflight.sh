@@ -68,6 +68,10 @@ out="$(KOSMOS_CODESIGN_BIN="no_such_codesign_$$" kosmos_sign_preflight 2>&1)"; r
 [ "$rc" = 1 ] && ok "no codesign refuses" || bad "no codesign should refuse (rc=$rc)"
 case "$out" in *"no codesign on this machine"*) ok "it says codesign is missing (not another refusal)" ;; *) bad "wrong refusal for no codesign: $out" ;; esac
 
+# --- a real codesign named by absolute path is a real probe, not a stub ---
+out="$(KOSMOS_CODESIGN_BIN=/no/such/dir/codesign kosmos_sign_preflight 2>&1)"
+case "$out" in *"NOT codesign"*) bad "a path ending in codesign was called a stub" ;; *) ok "a path ending in /codesign is treated as codesign" ;; esac
+
 # --- a seam left set in a real shell must not read as a real probe ---
 out="$(run cs_ok)"
 case "$out" in *"NOT codesign"*"not probed"*) ok "a KOSMOS_CODESIGN_BIN pass says the key was NOT probed" ;; *) bad "a stubbed pass reads like a real probe: $out" ;; esac
@@ -103,4 +107,4 @@ fi
 [ "$ncalls" = 1 ] && ok "release.sh calls the preflight exactly once" || bad "release.sh calls the preflight $ncalls times"
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 23 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 24 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
