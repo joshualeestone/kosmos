@@ -17,8 +17,8 @@ any window size.
 - The empty `#d-say-msg` status line under the composer takes no space in the talk view, so the
   composer's bottom gap is the box padding (24px) like its sides. It stays rendered (not
   display:none) so its alert live region still announces.
-- Header height is taken as 77px (`--talk-fill-top-wide`), the same fixed-offset approach and the
-  same known limitation as #2622's 157px: a wrapped update notice makes the box overshoot slightly.
+- No fixed header height: in the talk view the body is a viewport-tall flex column and the panel
+  takes what is left under the header, so a taller header shrinks the box instead of overshooting.
 
 ## Rejected
 - Moving `.back` into `.dleft` in the markup: a template move touching the detail panel's
@@ -26,12 +26,16 @@ any window size.
 - `display:none` on the empty status line: would drop the live region from the accessibility tree.
 
 ## Weakest premise
-The 77px header height. It is measured, not derived; a header change needs the variable updated.
-render-talk-fill-2622 A1b fails if the box top stops meeting the header rule, so drift is caught.
+Turning the body into a flex column while the talk view shows. Any visible body-level sibling now
+shares the height with the panel (correct: the box fills what is left), but a future body-level
+element that is visible on the agent page would shrink the box. A1b/A1d catch a box that stops
+meeting the bottom or starts scrolling.
+The 53px `.dleft` padding is measured from the back row; A1g pins the identity column's position.
 
 ## Verification
 - docs/browser-checks/render-talk-fill-2622.js: new arms A1b-A1e at two window heights (box meets
   header/right/bottom; composer bottom margin equals sides; no page scroll; back link clear of
   the box). Negative control: against origin/main's web/index.html all four new arms go red
   (boxTop=130 vs 77, right 1376 vs 1400, bottom 1036 vs 1100, composer bottom 42 vs 24).
+- A1f re-runs the edge arms with a 60px taller header; A1g pins the identity column's position.
 - Narrow (A2b/A2c), long-thread (A9) and scoping (A6) arms unchanged and green.
