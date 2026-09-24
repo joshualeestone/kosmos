@@ -834,6 +834,14 @@ if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page g
 # that ships, refusing otherwise: an accepted red the served page does not mention is
 # exactly what this lever must not enable.
 if [ -n "${KOSMOS_BC_ACCEPT_KNOWN:-}" ] && grep -q 'ACCEPTED KNOWN-FAILING' "$_page_log" 2>/dev/null; then
+  # #1398b: this lever is STAGING-ONLY. CUT_CHANNEL defaults to prod (line 33), and a
+  # PROD cut must never ship past a named failing page check to real users -- prod is
+  # promoted deliberately by the operator. Refuse a non-staging cut that leaned on it.
+  if [ "$CUT_CHANNEL" != staging ]; then
+    echo "accept-known: KOSMOS_BC_ACCEPT_KNOWN accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but this is a '$CUT_CHANNEL' cut."
+    echo "  This lever is STAGING-ONLY. Re-run with KOSMOS_CUT_CHANNEL=staging; refusing to ship a $CUT_CHANNEL build past a known-failing check. Page output left at: $_page_log"
+    exit 1
+  fi
   printf '%s version=%s accepted_known="%s" reason="%s"\n' \
     "$(date -u +%FT%TZ)" "$V" "${KOSMOS_BC_ACCEPT_KNOWN}" "${KOSMOS_BC_ACCEPT_REASON:-}" \
     >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
@@ -842,7 +850,10 @@ if [ -n "${KOSMOS_BC_ACCEPT_KNOWN:-}" ] && grep -q 'ACCEPTED KNOWN-FAILING' "$_p
   # HTML-special chars (& < >) that get escaped when written into the entry HTML would
   # not substring-match and would REFUSE the cut -- annoying, never a silent ship. Keep
   # the reason in the entry's <p> as plain prose to avoid it.
-  if [ -z "${KOSMOS_BC_ACCEPT_REASON:-}" ] || ! grep -qF "${KOSMOS_BC_ACCEPT_REASON}" "$KOSMOS_ENTRY_FILE" 2>/dev/null; then
+  # The reason is guaranteed non-empty and meaningful here: the ACCEPTED banner this
+  # block keys on is printed by the lib only AFTER the >=10-non-space-char reason check
+  # passed, so we only verify it reached the served entry.
+  if ! grep -qF "${KOSMOS_BC_ACCEPT_REASON}" "$KOSMOS_ENTRY_FILE" 2>/dev/null; then
     echo "accept-known: this run accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but its reason is not written in the versions entry ($KOSMOS_ENTRY_FILE)."
     echo "  Put the accept reason into the entry's <p> so the SERVED versions page names what shipped un-verified, then re-cut."
     echo "  A cut that leans on accept-known MUST say so in the artifact users see; refusing to ship it silently. Page output left at: $_page_log"
