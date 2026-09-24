@@ -4591,10 +4591,13 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(agentFiles[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
     // The folder is dmfiles.filesDir (beside the agent's own instructions file), and the agent's
-    // folder is its PARENT, so the existence check and the folder can never name two places.
+    // folder is its PARENT, so the existence check and the folder can never name two places. The
+    // parent is FOLLOWED (statSync): an agent folder that is a link is where the instructions are
+    // written and where the agent is told to save, so refusing it here would disagree with them.
+    // Only Files itself being a link is refused, below.
     const folder = dmfiles.filesDir(name);
     let ownIsDir = false;
-    try { ownIsDir = Boolean(folder) && fs.lstatSync(path.dirname(folder)).isDirectory(); } catch { ownIsDir = false; }
+    try { ownIsDir = Boolean(folder) && fs.statSync(path.dirname(folder)).isDirectory(); } catch { ownIsDir = false; }
     if (!folder || !ownIsDir) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
     const verb = agentFiles[2] || null;
     // A Files that is a LINK would list and open whatever it points at (listFiles and openFile

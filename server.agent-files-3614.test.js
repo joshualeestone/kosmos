@@ -99,6 +99,16 @@ test('a Files that is a link to somewhere else is not listed, opened or revealed
   assert.equal(calls.length, before, 'a linked Files reached the opener');
 });
 
+test('an agent folder that is itself a link is listed, like the instructions written through it', async () => {
+  const real = fs.mkdtempSync(path.join(SANDBOX, 'linked-agent-'));
+  fs.mkdirSync(path.join(real, 'Files'));
+  fs.writeFileSync(path.join(real, 'Files', 'kept.md'), 'k');
+  fs.symlinkSync(real, path.join(SANDBOX, 'workers', 'lin'));
+  const r = await get('/api/agent/lin/files');
+  assert.equal(r.status, 200, 'a linked agent folder read as "no folder of its own"');
+  assert.deepEqual(r.json.files.map((f) => f.name), ['kept.md']);
+});
+
 test('open: a real file opens once; a name escaping the folder is refused by the engine; another site is refused', async () => {
   const d = path.join(agentDir('eve'), 'Files');
   fs.mkdirSync(d);
