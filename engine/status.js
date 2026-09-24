@@ -6509,6 +6509,48 @@ function codexLiveAuthFor(name, readJobFn, verdictFn) {
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
 }
 
+/* #3532: per-account login-expiry advisories, computed from each agent's LIVE process CCD.
+ * Cached with a short TTL -- the refresh-token expiry is stable for weeks, so a few-minute-stale
+ * read is safe and keeps snapshot() off tmux/ps/security on every tick. Fail soft throughout: an
+ * unresolvable pane is skipped, and any error keeps the last good value, never breaking snapshot. */
+const LOGIN_ADV_TTL_MS = 5 * 60 * 1000;
+const loginAdvCache = { at: 0, value: [] }; // mutated in place by loginexpiry.cachedAdvisories
+
+/* Resolve the CCD an agent's claude process actually reads. pane_pid IS the claude process (tmux
+ * runs it as the pane leader -- measured), so `ps eww <pane_pid>` carries its env. Returns the CCD
+ * string, null (env read, genuinely unset), or undefined (could not resolve -> caller SKIPS it,
+ * never guesses the bare account). See loginexpiry.ccdFromPsEnv for why the job's configDir cannot
+ * be used here (it is null for the default account even when CCD is set: the #2129 class). */
+function paneCcd(target) {
+  const d = shDetail(tmuxBin(), ['display-message', '-p', '-t', target, '#{pane_pid}']);
+  if (!d.ran || d.status !== 0) return undefined;
+  const pid = String(d.out).trim();
+  if (!/^\d+$/.test(pid)) return undefined;
+  let env;
+  try {
+    env = execFileSync('ps', ['eww', pid], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch { return undefined; }
+  return require('./loginexpiry').ccdFromPsEnv(env);
+}
+
+/* opts is a TEST SEAM (production passes none): opts.readCcd replaces the impure
+ * tmux+ps pane->CCD resolver, opts.readCred is threaded to the keychain read, and opts.cache
+ * replaces the module TTL cache so a test starts cold. The pane-filter (isNamedOurs) + wiring
+ * are exercised for real with either. */
+function computeLoginAdvisories(panes, nowMs, opts = {}) {
+  const le = require('./loginexpiry');
+  const readCcd = opts.readCcd || ((a) => paneCcd(a.target));
+  // The TTL + last-good-on-failure logic lives in loginexpiry.cachedAdvisories (unit-tested);
+  // here we supply the impure compute: filter to our named panes, resolve each one's live CCD.
+  return le.cachedAdvisories({
+    cache: opts.cache || loginAdvCache, now: nowMs, ttlMs: LOGIN_ADV_TTL_MS,
+    compute: () => {
+      const agents = panes.filter((p) => isNamedOurs(p)).map((p) => ({ name: p.name, target: p.target }));
+      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
+    },
+  });
+}
+
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
@@ -7090,6 +7132,8 @@ function snapshot() {
     checkedAt: new Date().toISOString(),
     counts: countAgents(agents, unreadableLines, unreadableSamples),
     agents,
+    // #3532: per-account login-expiry advisories (advisory overlay, not a per-agent state).
+    loginAdvisories: computeLoginAdvisories(panes, nowMs),
   };
 }
 
@@ -7271,6 +7315,8 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
+  /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
+  computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   codexLastCompletionAt,
   // #3296 observability follow-on: the Gemini completion-time helper (wired into

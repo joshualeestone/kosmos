@@ -1107,6 +1107,9 @@ if boot_board "$sb7" "$P8"; then
   # win32-update-check: the Windows manual offer, the staging tag and the could-not-check states on
   # the same Settings card. It stubs every update answer at the network edge, so any board serves.
   run_one "render-update-win32-manual" env KOSMOS_URL="$B8" node docs/browser-checks/render-update-win32-manual.js "$sb7/shots-updates"
+  # #3532: the login-expiry advisory pill. Stubs data.loginAdvisories at the network
+  # edge (warn/urgent/expired + an empty control), so any board serves; headless-fine.
+  run_one "render-login-expiry-3532" env KOSMOS_URL="$B8" node docs/browser-checks/render-login-expiry-3532.js "$sb7/shots-login-expiry"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   # #2020/#2047: the two restored telemetry opt-out switches are 403-safe (a gated
   # read draws could-not-read, never a false Off). The 403 arm is simulated with
@@ -1148,7 +1151,7 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-orgchart-import-1280 render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-token-usage-2617 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-orgchart-import-1280 render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-login-expiry-3532 render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-token-usage-2617 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those
