@@ -18,7 +18,7 @@ restore.
   per-model `${day}.v2.json`. The per-model file stays authoritative and is never
   rewritten: a day frozen before this shipped keeps its total, and only its
   folder split is filled from the transcripts still on disk.
-- `usage.byAgent()` (pure) gives a folder to the agent whose own folder it is,
+- `usage.byAgent()` (no writes; its default folder comparison calls realpath) gives a folder to the agent whose own folder it is,
   compared after realpath: the exact match status.js requires. Subfolders are
   not claimed, so an agent recorded on a broad folder (`~`) cannot absorb the
   person's own sessions. A folder two agents share goes to `shared`, not to

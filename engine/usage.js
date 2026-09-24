@@ -310,18 +310,11 @@ async function dailyUsageByModel(days = 7) {
   const missing = [];
   for (const day of wanted) {
     if (day === today) { missing.push(day); continue; }
-    let need = false;
-    try {
-      byDay[day] = JSON.parse(await fsp.readFile(frozenDayPath(day), 'utf8'));
-    } catch {
-      need = true;
-    }
-    try {
-      byFolder[day] = JSON.parse(await fsp.readFile(frozenFolderPath(day), 'utf8'));
-    } catch {
-      need = true;
-    }
-    if (need) missing.push(day);
+    const [m, f] = await Promise.all([frozenDayPath(day), frozenFolderPath(day)]
+      .map((file) => fsp.readFile(file, 'utf8').then((t) => { try { return JSON.parse(t); } catch { return null; } }, () => null)));
+    if (m) byDay[day] = m;
+    if (f) byFolder[day] = f;
+    if (!m || !f) missing.push(day);
   }
 
   let rootsRead = configRoots();
