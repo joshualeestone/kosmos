@@ -40,6 +40,22 @@ strand. #3367 avoided it by not forcing when the probe said live. Josh has ruled
 - Compare the access-token expiry (`expiresAt`): it auto-refreshes hourly without a login.
 
 ## Weakest premise
+**The observed 0.6.84 symptom is not shown to come from the mechanism fixed here.** #3367 describes
+a forced re-login that "does not complete", after which the agent dead-ends at "choose a login
+method". This change fixes one way that happens, a landed login whose "Login successful" frame was
+missed (read from connect.js's gates). It does NOT fix a forced login the person abandons if
+`claude auth login` has already cleared or replaced the old credential: that person is still logged
+out. Josh's ruling accepts forcing; the real-Mac check must include an ABANDONED forced login, not
+only a completed one.
+
+**macOS only.** expiryMoved reads the macOS keychain; on another platform (a Windows sign-in host)
+the proof is off and a missed login-done frame still goes stuck.
+
+**Keychain consent prompt.** The baseline is a synchronous `security` read (5 s bound). If macOS
+shows a consent dialog for it, the read times out, the proof turns off (fail closed), and the person
+sees an unexplained keychain prompt mid sign-up. Probably not triggered if Claude Code's own entry
+is readable by `security`, but unmeasured; include it in the real-Mac check.
+
 A concurrent login elsewhere on the same keychain entry (the bare entry is shared by every
 CCD-unset Claude process) during a forced sign-up whose own login did not land would read as
 landed. The gate also requires checkLive CONNECTED, so the worst case is finishing on a credential
