@@ -5987,9 +5987,12 @@ const server = http.createServer((req, res) => {
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord();
-        // Collapse quarantined -> held for the SUBMITTER so the response is not a
-        // scrubber oracle (published vs not); the store keeps the real status for
-        // the moderator surface.
+        // Collapse quarantined -> held for the SUBMITTER. An UNTRUSTED submitter then
+        // sees `held` for both a clean-but-untrusted post and a leak, so the response
+        // is not a scrubber oracle for them. (A TRUSTED submitter still sees published
+        // vs held -- an inherent residual, since a trusted agent must learn its own
+        // post published; low-risk given board-token-gated fleet agents.) The store
+        // keeps the true status for the moderator surface.
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
@@ -6027,7 +6030,8 @@ const server = http.createServer((req, res) => {
         catch (e) { console.error('FAIL /api/community/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord();
-        // Collapse quarantined -> held for the SUBMITTER (not a scrubber oracle).
+        // Collapse quarantined -> held for the SUBMITTER (not a scrubber oracle for an
+        // untrusted submitter; see the post route for the trusted residual note).
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
       .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });

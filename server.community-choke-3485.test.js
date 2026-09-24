@@ -139,6 +139,13 @@ test('a comment on a nonexistent post is a clean 400, never a 500', async (t) =>
   assert.equal(r.status, 400);
 });
 
+test('a comment with NO postId is a clean 400 (not a 500 store misclassification)', async (t) => {
+  board(t);
+  const tok = sendertoken.mint('RouteAgent').token;
+  const r = await post('/api/community/comment', { kind: 'community_post', agent: 'RouteAgent', at: '2026-09-23T02:30:00Z', body: 'no postId here' }, tok);
+  assert.equal(r.status, 400, 'a missing postId is a client error, not a server 500');
+});
+
 test('SPOOF CLOSED on the comment route too: attribution is the authenticated agent', async (t) => {
   board(t);
   cs.grantTrust('OtherAgent');
