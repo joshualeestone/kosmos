@@ -515,15 +515,24 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
       _swv=$(ptr_versioned "$_swj"); WIN_SERVED_SHA=$(ptr_sha "$_swj")
       # The name becomes a URL path below, so accept only the shape publish-kosmos-windows.sh writes.
       case "$_swv" in
-        kosmos-*-win-x64.zip) : ;;
+        kosmos-[0-9]*-win-x64.zip) : ;;
         *) echo "deploy-site: the served (redirected) latest-win.json names '${_swv:-nothing}', not a kosmos-<version>-win-x64.zip -- the deploy already ran, investigate (#3600)."; exit 1 ;;
       esac
       case "$_swv" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served latest-win.json names '$_swv', which is not a bare file name -- the deploy already ran, investigate (#3600)."; exit 1 ;; esac
       [ -n "$WIN_SERVED_SHA" ] || { echo "deploy-site: the served (redirected) latest-win.json names $_swv but no sha256 -- investigate (#3600)."; exit 1; }
       WIN_VERIFY=$_swv
-      WIN_PROD_VERSION=$(ptr_version "$_swj")
+      # The version of the build users get, read from the name just checked (not the pointer's
+      # separate `version` field, which nothing here checks against the name).
+      WIN_PROD_VERSION=$(printf '%s' "$WIN_VERIFY" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
+      _wcv=$(printf '%s' "$WINZIP" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
       if [ "$WIN_VERIFY" != "$WINZIP" ]; then
-        echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's COMMITTED latest-win.json names $WINZIP and is stale. Verifying what users get ($WIN_VERIFY). This is expected after a Windows promote and is not a deploy failure." >&2
+        if [ -n "$_wcv" ] && [ "$(printf '%s\n%s\n' "$_wcv" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$_wcv" ]; then
+          # The site's Windows name is NEWER than what prod serves: a Windows promote was committed
+          # but R2 was not updated, so users did NOT get it. Not a Mac deploy failure, but loud.
+          echo "deploy-site: WARNING (#3600): the site's Windows name $WINZIP is NEWER than what prod serves by redirect ($WIN_VERIFY). R2 was not updated, so users do NOT have that Windows build. Verifying what they do get ($WIN_VERIFY); publish the build to R2 to finish the Windows promote." >&2
+        else
+          echo "deploy-site: NOTE (#3600): prod serves latest-win.json by redirect (${_wr#* }) and it names $WIN_VERIFY; the site's committed Windows name $WINZIP is older, so the committed pointer is stale. Verifying what users get ($WIN_VERIFY). This is expected after a Windows publish to R2 and is not a deploy failure." >&2
+        fi
       fi
       ;;
     200) : ;;   # served statically: git archive shipped the committed pointer, so $WINZIP is it

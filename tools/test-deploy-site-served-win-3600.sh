@@ -33,6 +33,9 @@
 #   A15 redirected, and the served pointer names the SAME zip as the committed one -> rc 0, no NOTE
 #   A16 KOSMOS_WIN_ZIP names the prod build: the staged compare uses ITS version, not the stale
 #       committed pointer's, so a staged build older than the override is still superseded
+#   A17 the committed Windows build is NEWER than what R2 serves (a promote R2 never got) -> a loud
+#       WARNING that users do not have it, not the "stale, expected" NOTE; rc 0
+#   A18 the redirect probe gets no status at all (transport error) -> a NOTE, strict fallback
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -137,6 +140,8 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-badshape - as redirect, but R2's pointer names evil.zip
 #   redirect-same     - as redirect, but R2 serves the committed build (pointer names WZ_OLD)
 #   redirect-stagedrift - as redirect, and latest-win-staging.json is served from R2 with other bytes
+#   redirect-behind   - as redirect, but R2 serves an OLDER build (0.6.30) than the committed 0.6.40
+#   redirect-probenone - as redirect, but the un-followed probe gets no status (transport error)
 # $2 (optional) staged: "" none | old (0.6.45, absent from R2) | new (0.6.55, in R2) | new-missing
 #    | old-withnew (old, and the site ALSO commits WZ_NEW so KOSMOS_WIN_ZIP can name it)
 make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
@@ -202,6 +207,12 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
       [ "$mode" = redirect-badname ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW/../x" "$newsha"
       [ "$mode" = redirect-nosha ] && printf '{"version":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$WV_NEW" "$WZ_NEW" > "$r2/latest-win.json"
       [ "$mode" = redirect-probe500 ] && printf '500' > "$live/.probe-status"
+      [ "$mode" = redirect-probenone ] && : > "$live/.probe-status"
+      if [ "$mode" = redirect-behind ]; then
+        printf 'WINZIP-0.6.30\n' > "$r2/kosmos-0.6.30-win-x64.zip"
+        ( cd "$r2" && shasum -a 256 kosmos-0.6.30-win-x64.zip > kosmos-0.6.30-win-x64.zip.sha256 )
+        write_win_ptr "$r2/latest-win.json" 0.6.30 "$(sha_of "$r2/kosmos-0.6.30-win-x64.zip")"
+      fi
       [ "$mode" = redirect-badshape ] && printf '{"version":"x","sha256":"%s","versioned":"evil.zip"}\n' "$newsha" > "$r2/latest-win.json"
       if [ "$mode" = redirect-same ]; then
         cp "$s/dist/$WZ_OLD" "$s/dist/$WZ_OLD.sha256" "$r2/"
@@ -233,7 +244,7 @@ run_deploy() {  # <site> <live> <r2> [KOSMOS_WIN_ZIP value or ""] ; sets RC + ou
 # A1) the card's shape: a correct deploy with a stale committed Windows pointer must exit 0.
 read -r S L R <<<"$(make_scenario redirect)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "published and verified" && has "$out" "names $WZ_NEW" && has "$out" "names $WZ_OLD and is stale"; then
+if [ "$RC" = 0 ] && has "$out" "published and verified" && has "$out" "names $WZ_NEW" && has "$out" "committed Windows name $WZ_OLD is older"; then
   pass "A1: redirected latest-win.json -> verified the SERVED $WZ_NEW, noted the stale committed $WZ_OLD, rc=0"
 else
   bad "A1: expected rc=0 + the #3600 NOTE naming both builds (rc=$RC); out=$out"
@@ -381,5 +392,24 @@ else
   bad "A16: the staged compare did not use the override's version (rc=$RC); out=$out"
 fi
 
+# A17) committed 0.6.40 is newer than R2's 0.6.30: users do not have the committed build. Warn loudly
+# (not the "expected" NOTE), verify what IS served, and do not fail the Mac deploy for it.
+read -r S L R <<<"$(make_scenario redirect-behind)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" = 0 ] && has "$out" "is NEWER than what prod serves by redirect (kosmos-0.6.30-win-x64.zip)" && ! has "$out" "is older, so the committed pointer is stale"; then
+  pass "A17: committed newer than served -> the loud 'users do NOT have' WARNING, not the stale NOTE, rc=0"
+else
+  bad "A17: a committed build newer than R2 was not flagged as unpublished (rc=$RC); out=$out"
+fi
+
+# A18) no status from the probe: named, then the strict fallback on the committed name (refuses here).
+read -r S L R <<<"$(make_scenario redirect-probenone)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "could not probe whether latest-win.json is served by redirect" && has "$out" "$WZ_OLD is NOT served"; then
+  pass "A18: a probe with no status is named, and the strict fallback on $WZ_OLD refuses (rc=$RC)"
+else
+  bad "A18: a status-less probe was not named or did not fall back strictly (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 16 arms passed"
+echo "test-deploy-site-served-win-3600: all 18 arms passed"

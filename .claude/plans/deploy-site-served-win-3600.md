@@ -46,6 +46,15 @@ checked against the committed one (A12).
 A newer staged build is still verified in full (the Windows box verifies it from the served copies).
 Rejected: dropping the staged block (loses the real check for a pending staged build).
 
+## Committed newer than served (found in challenge iteration 5)
+
+If the site's committed Windows build is NEWER than what R2 serves, a Windows promote was committed
+but never reached R2, so users do not have it. Call: a loud WARNING saying so, and verify what is
+served; the Mac deploy still exits 0. Rejected: refusing. The Mac deploy did its job, and failing it
+on a pending Windows R2 upload is the red-as-noise failure #3600 exists to remove. Weakest premise:
+nobody reads a warning on a green deploy. What would change my mind: a Windows promote flow that
+deploys the site and uploads to R2 in one step, where a mismatch would then mean a real failure.
+
 ## Pre-deploy side, left alone
 
 The pre-deploy committed-pointer vs committed-bytes agreement (#2571) still runs. It passes today
@@ -53,14 +62,15 @@ The pre-deploy committed-pointer vs committed-bytes agreement (#2571) still runs
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Sixteen arms with a redirect-aware
+`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Eighteen arms with a redirect-aware
 curl stub: the card's shape (A1) with a control pinning the old semantics (A2), an unserved served
 zip (A3), a pointer/sidecar disagreement (A4), the static path unchanged (A5) and its control (A6),
 a superseded staged build skipped (A7), a newer served staged build verified (A8) and its control
 (A9), a path-shaped served name (A10), a served pointer with no sha256 (A11), the staging-pointer
 check kept for a superseded build (A12), a 500 probe falling back to the strict check (A13), a
 wrong-shaped served name (A14), a redirect naming the committed build (A15), and the staged compare
-using the KOSMOS_WIN_ZIP override's version (A16).
+using the KOSMOS_WIN_ZIP override's version (A16), a committed build newer than R2 flagged as
+unpublished (A17), and a status-less probe falling back strictly (A18).
 Red-capability: against origin/main's deploy-site.sh, A1 fails with the exact prod message.
 
 ## Status
