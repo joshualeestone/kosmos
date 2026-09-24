@@ -3998,19 +3998,21 @@ test('#3296 accounts slice: a Gemini create on a KNOWN account routes to that pe
   assert.match(bad.because, /do not know that Gemini account/);
 });
 
-test('#3296: installJob refuses a gemini agent at the root, so backfill/repair/import never mis-launch it as claude', () => {
+test('#3296: installJob backfills a gemini agent as a GEMINI job on Mac (not claude), the runner read from its profile', () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, geminiBin: GEMINI_BIN, name: 'g-backfill', role: 'pm', provider: 'google' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   // Simulate the missing-job state installJob (backfill/repair) exists for: remove the
-  // plist so jobPresence is 'no' and the guard is reached.
+  // plist so jobPresence is 'no' and the backfill path is reached. recordedRunner then
+  // falls to profile.provider=google, so the agent's TRUE runner is gemini.
   fs.rmSync(create.plistPath('g-backfill'), { force: true });
-  const r = create.installJob('g-backfill');
-  assert.equal(r.ok, false, 'installJob must refuse a gemini agent, not reinstall it as a claude job');
-  assert.match(r.because, /Gemini/, 'the refusal must name the runner, proving the root guard fired (recordedRunner read provider=google)');
-  // The control: it must NOT have written a plist (a claude one would be the bug).
-  assert.ok(!fs.existsSync(create.plistPath('g-backfill')), 'installJob wrote a job for a gemini agent it should have refused');
+  const r = create.installJob('g-backfill', { ...BINS, geminiBin: GEMINI_BIN });
+  assert.equal(r.ok, true, 'installJob must backfill a gemini agent on Mac: ' + r.because);
+  assert.ok(fs.existsSync(create.plistPath('g-backfill')), 'installJob did not write the backfilled job');
+  // THE anti-mis-launch assertion: the plist names gemini, NOT claude (writing a claude
+  // job for a gemini agent was the exact bug the old root refusal guarded against).
+  assert.equal(create.readJob('g-backfill').runner, 'gemini', 'installJob backfilled a gemini agent as the WRONG runner');
 });
 
 test('#3296: trustAgentFolder and setAccount guard a gemini agent out of the CLAUDE account path', () => {
@@ -4160,16 +4162,16 @@ test('#3391 accounts slice: a Grok create on a KNOWN account routes to that per-
   assert.match(bad.because, /do not know that Grok account/);
 });
 
-test('#3391: installJob refuses a grok agent at the root, so backfill/repair/import never mis-launch it as claude', () => {
+test('#3391: installJob backfills a grok agent as a GROK job on Mac (not claude), the runner read from its profile', () => {
   recorder();
   create.setDryRun(false);
   const made = create.createAgent({ ...BINS, grokBin: GROK_BIN, name: 'gk-backfill', role: 'pm', provider: 'xai' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   fs.rmSync(create.plistPath('gk-backfill'), { force: true });
-  const r = create.installJob('gk-backfill');
-  assert.equal(r.ok, false, 'installJob must refuse a grok agent, not reinstall it as a claude job');
-  assert.match(r.because, /Grok/, 'the refusal must name the runner, proving the root guard fired (recordedRunner read provider=xai)');
-  assert.ok(!fs.existsSync(create.plistPath('gk-backfill')), 'installJob wrote a job for a grok agent it should have refused');
+  const r = create.installJob('gk-backfill', { ...BINS, grokBin: GROK_BIN });
+  assert.equal(r.ok, true, 'installJob must backfill a grok agent on Mac: ' + r.because);
+  assert.ok(fs.existsSync(create.plistPath('gk-backfill')), 'installJob did not write the backfilled job');
+  assert.equal(create.readJob('gk-backfill').runner, 'grok', 'installJob backfilled a grok agent as the WRONG runner');
 });
 
 test('#3391: trustAgentFolder and setAccount guard a grok agent out of the CLAUDE account path', () => {

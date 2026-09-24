@@ -512,9 +512,19 @@ function stopWorldAgents(names, worldId, opts = {}) {
  * the entry stays so the next pass starts it through the enable-and-start path.
  */
 function firstStartOfImport(entry, platform) {
-  const runner = entry.runner === 'codex' ? 'codex' : 'claude';
+  /* #3296/#3391: pass the imported entry's REAL runner through. This used to
+     collapse anything but codex to claude, so a gemini/grok entry was installed as
+     a claude job -- the mis-launch installJob's old root refusal guarded against.
+     A recognised runner (codex/gemini/grok) is passed to installJob explicitly;
+     anything else floors at claude, the historical default. */
+  const runner = create.isNonClaudeRunner(entry.runner) ? entry.runner : 'claude';
   const configDir = typeof entry.configDir === 'string' && entry.configDir ? entry.configDir : null;
-  if (runner !== 'codex') {
+  /* The folder-trust pre-answer is a CLAUDE `.claude.json` concept, so it runs for
+     claude only. codex was already excluded; gemini/grok are excluded for the same
+     reason -- they clear their own folder-trust at launch (agent-supervisor.sh,
+     #3296/#3391), and writing a Claude trust file into a gemini/grok agent's folder
+     is the wrong-tool's-config class createAgentInner guards at birth. */
+  if (runner === 'claude') {
     try {
       require('./trust').trustFolder(create.workerDir(entry.name), { configDir, createIfAbsent: true, agentDefaultAccount: !configDir });
     } catch (err) {
@@ -528,7 +538,7 @@ function firstStartOfImport(entry, platform) {
   try {
     out = create.installJob(entry.name, {
       platform,
-      ...(runner === 'codex' ? { runner: 'codex' } : {}),
+      ...(runner !== 'claude' ? { runner } : {}),
       ...(entry.model ? { model: entry.model } : {}),
       ...(configDir ? { configDir } : {}),
     });
