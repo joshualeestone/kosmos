@@ -101,8 +101,8 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
     const fs = require('node:fs'); const path = require('node:path'); const { pathToFileURL } = require('node:url');
     const seen = [];
     const SYNC = ['writeFileSync','appendFileSync','copyFileSync','renameSync','symlinkSync','linkSync','rmSync','unlinkSync'];
-    const CB = ['writeFile','appendFile','copyFile','rename','rm','unlink'];
-    const PR = ['writeFile','appendFile','copyFile','rename','rm','unlink'];
+    const CB = ['writeFile','appendFile','copyFile','rename','symlink','link','rm','unlink'];
+    const PR = ['writeFile','appendFile','copyFile','rename','symlink','link','rm','unlink'];
     for (const n of SYNC) fs[n] = () => { seen.push(n); };
     for (const n of CB) fs[n] = (...a) => { seen.push('cb.' + n); };
     for (const n of PR) fs.promises[n] = async () => { seen.push('p.' + n); };
@@ -112,7 +112,7 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
     const out = {};
     const tryIt = (k, fn) => { try { fn(); out[k] = 'allowed'; } catch (e) { out[k] = /#3605/.test(e.message) ? 'refused' : 'other:' + e.message; } };
     // Destination index per method: the real path goes where that method WRITES.
-    const DEST1 = new Set(['copyFileSync','renameSync','symlinkSync','linkSync','copyFile','rename']);
+    const DEST1 = new Set(['copyFileSync','renameSync','symlinkSync','linkSync','copyFile','rename','symlink','link']);
     for (const n of SYNC) tryIt(n, () => DEST1.has(n) ? fs[n]('/nope', R) : fs[n](R, 'x'));
     for (const n of CB) tryIt('cb.' + n, () => DEST1.has(n) ? fs[n]('/nope', R, () => {}) : fs[n](R, () => {}));
     tryIt('caseVariant', () => fs.writeFileSync(path.join(path.dirname(REAL), 'launchagents', 'p.plist'), 'x'));
@@ -134,6 +134,15 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
   const expectSeen = ['renameSync', 'writeFileSync'];
   if (process.platform !== 'darwin') expectSeen.unshift('writeFileSync');
   assert.deepEqual(res.seen.sort(), expectSeen.sort());
+});
+
+test('#3605: the preload and create.js agree on the real folder and on what is inside it', () => {
+  const guard = require('../test-support/launch-guard');
+  assert.equal(guard.realLaunchAgentsDir(), create.realLaunchAgentsDir());
+  for (const p of [path.join(REAL, 'a.plist'), path.join(REAL, 'sub', 'a.plist'),
+    path.join(SANDBOX, 'LaunchAgents', 'a.plist'), path.join(path.dirname(REAL), 'a.plist')]) {
+    assert.equal(guard.isRealLaunchTarget(p), create.isRealLaunchTargetUnderTest(p, UNDER_TEST), p);
+  }
 });
 
 test('#3605 create.js: the rollback delete is skipped for a real-folder job file under test', () => {
