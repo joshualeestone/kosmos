@@ -12,11 +12,11 @@ protocol SessionStore {
 // Decides when to register and unregister this device's APNs token with the
 // coordinator, from the two things that arrive independently: the APNs device
 // token (from UIKit, every launch) and the session (from the sign-in page through
-// the kosmosSession bridge, only at the moment of sign-in or sign-out). Whichever
-// arrives second triggers the register.
+// the kosmosSession bridge, at sign-in, on every load of a signed-in page, and as
+// null at sign-out). Whichever arrives second triggers the register.
 //
 // Threading: every method, and every transport completion, runs on the main
-// thread. The URLSession transport in PushNotificationManager hops back to main.
+// thread (urlSessionTransport below hops back to main).
 //
 // Logging: status codes and outcomes only. Never the session, never the token.
 final class PushRegistrar {
@@ -29,24 +29,28 @@ final class PushRegistrar {
     private let bundleID: String
     private let environment: PushBridge.Environment
     private let store: SessionStore
+    private let pendingStore: SessionStore
     private let transport: Transport
     private let log: (String) -> Void
 
     private(set) var session: String?
     private(set) var deviceToken: String?
-    // The (session, token) pair the coordinator has accepted in this launch, so a
-    // repeated token delivery or a repeated sign-in post does not re-send.
+    // The (session, token) pair the coordinator accepted in this launch, and the
+    // pair currently being sent, so repeated posts do not re-send.
     private var registered: (session: String, token: String)?
-    // A sign-out that happened before APNs delivered the token: the old session is
-    // held in memory (never stored) until the token arrives, so the device can still
-    // be unregistered from the account that signed out.
+    private var inFlight: (session: String, token: String)?
+    // A signed-out session whose unregister could not be sent yet because APNs had
+    // not delivered the token. Persisted in pendingStore so a relaunch still sends it.
     private var pendingUnregister: String?
 
+    // store holds the live session; pendingStore holds a signed-out session that
+    // still owes an unregister. Two Keychain items in the app, memory in tests.
     init(
         coordinator: URL,
         bundleID: String,
         environment: PushBridge.Environment,
         store: SessionStore,
+        pendingStore: SessionStore,
         transport: @escaping Transport,
         log: @escaping (String) -> Void = { NSLog("%@", $0) }
     ) {
@@ -54,17 +58,22 @@ final class PushRegistrar {
         self.bundleID = bundleID
         self.environment = environment
         self.store = store
+        self.pendingStore = pendingStore
         self.transport = transport
         self.log = log
         self.session = store.load()
+        self.pendingUnregister = pendingStore.load()
     }
 
     // APNs handed us this device's token (hex).
     func didReceiveDeviceToken(_ token: String) {
         deviceToken = token
         if let old = pendingUnregister {
-            pendingUnregister = nil
-            unregister(session: old, token: token)
+            unregister(session: old, token: token) { [weak self] sent in
+                guard sent, let self = self, self.pendingUnregister == old else { return }
+                self.pendingUnregister = nil
+                self.pendingStore.delete()
+            }
         }
         registerIfReady()
     }
@@ -73,19 +82,25 @@ final class PushRegistrar {
     func didReceive(_ message: PushBridge.SessionMessage) {
         switch message {
         case .signedIn(let newSession):
-            if !store.save(newSession) {
+            if newSession != session && !store.save(newSession) {
                 // Still usable for this launch; it just will not survive a relaunch.
                 log("[Push] could not store the session in the Keychain; using it for this launch only")
             }
             session = newSession
-            pendingUnregister = nil
+            if pendingUnregister != nil {
+                // The new session's register re-owns the token, so the old unregister
+                // is moot, and sending both could let the unregister land second.
+                pendingUnregister = nil
+                pendingStore.delete()
+            }
             registerIfReady()
         case .signedOut:
             if let old = session {
                 if let token = deviceToken {
-                    unregister(session: old, token: token)
+                    unregister(session: old, token: token) { _ in }
                 } else {
                     pendingUnregister = old
+                    pendingStore.save(old)
                 }
             }
             store.delete()
@@ -97,6 +112,8 @@ final class PushRegistrar {
     private func registerIfReady() {
         guard let session = session, let token = deviceToken else { return }
         if let done = registered, done.session == session, done.token == token { return }
+        if let busy = inFlight, busy.session == session, busy.token == token { return }
+        inFlight = (session, token)
         let req = PushBridge.registerRequest(
             coordinator: coordinator,
             session: session,
@@ -106,14 +123,22 @@ final class PushRegistrar {
         )
         transport(req) { [weak self] status in
             guard let self = self else { return }
-            let outcome = PushBridge.outcome(status: status)
-            switch outcome {
+            if let busy = self.inFlight, busy.session == session, busy.token == token {
+                self.inFlight = nil
+            }
+            switch PushBridge.outcome(status: status) {
             case .ok:
-                // Only record it if nothing changed while the request was in flight.
+                self.log("[Push] APNs token registered with the coordinator (\(self.environment.rawValue))")
                 if self.session == session && self.deviceToken == token {
                     self.registered = (session, token)
+                } else if self.session == nil {
+                    // Signed out while this register was in flight. The sign-out's
+                    // unregister may have reached the coordinator first, leaving this
+                    // register standing, so unregister again now that it has landed.
+                    // Only when nobody is signed in: a newer session's own register
+                    // re-owns the token, and an unregister here could race it.
+                    self.unregister(session: session, token: token) { _ in }
                 }
-                self.log("[Push] APNs token registered with the coordinator (\(self.environment.rawValue))")
             case .sessionRejected:
                 self.log("[Push] register refused: the session is no longer valid; forgetting it")
                 self.forget(ifStill: session)
@@ -122,20 +147,29 @@ final class PushRegistrar {
             case .failed(let code):
                 self.log("[Push] register failed with HTTP \(code)")
             case .unreachable:
-                self.log("[Push] register failed: coordinator unreachable; retries next launch")
+                self.log("[Push] register failed: coordinator unreachable; retries on the next post or launch")
             }
         }
     }
 
-    private func unregister(session: String, token: String) {
+    // done(true) once the coordinator answered at all: it answers 200 either way,
+    // and a 401 means the session is dead, so there is nothing left to retry.
+    private func unregister(session: String, token: String, done: @escaping (Bool) -> Void) {
         let req = PushBridge.unregisterRequest(coordinator: coordinator, session: session, token: token)
         transport(req) { [weak self] status in
-            // 200 either way on the server. Nothing in local state depends on the answer.
             switch PushBridge.outcome(status: status) {
-            case .ok: self?.log("[Push] APNs token unregistered")
-            case .unreachable: self?.log("[Push] unregister failed: coordinator unreachable")
-            default: self?.log("[Push] unregister answered HTTP \(status ?? 0)")
+            case .ok:
+                self?.log("[Push] APNs token unregistered")
+            case .unreachable:
+                self?.log("[Push] unregister failed: coordinator unreachable")
+            case .sessionRejected:
+                self?.log("[Push] unregister answered HTTP 401")
+            case .deviceRefused:
+                self?.log("[Push] unregister answered HTTP 403")
+            case .failed(let code):
+                self?.log("[Push] unregister answered HTTP \(code)")
             }
+            done(status != nil)
         }
     }
 

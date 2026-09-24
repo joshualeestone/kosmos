@@ -63,7 +63,9 @@ final class PushNotificationManager: NSObject {
                 return
             }
             guard granted else {
-                NSLog("[Push] notification authorization denied by user")
+                // No APNs token is requested, so this device is never registered
+                // with the coordinator and receives no pushes.
+                NSLog("[Push] notification authorization denied by user; this device will not be registered for pushes")
                 return
             }
             DispatchQueue.main.async {
@@ -81,7 +83,8 @@ final class PushNotificationManager: NSObject {
         coordinator: KosmosConfig.coordinatorOrigin,
         bundleID: Bundle.main.bundleIdentifier ?? "io.kosmos.app",
         environment: PushNotificationManager.apsEnvironment(),
-        store: SessionKeychain(),
+        store: SessionKeychain.live,
+        pendingStore: SessionKeychain.pendingUnregister,
         transport: PushRegistrar.urlSessionTransport()
     )
 

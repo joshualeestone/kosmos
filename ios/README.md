@@ -95,7 +95,12 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 `PushRegistrar.swift`) for macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those two files (how the suite was
-shown able to fail).
+shown able to fail). CI runs it, plus a simulator-SDK build, in
+`.github/workflows/ios.yml` on any change under `ios/` (advisory, like the
+Android job).
+
+If the person declines notification permission, the app never asks APNs for a
+token, so the device is never registered and receives no pushes. That is logged.
 
 ## Not in scope
 
