@@ -344,8 +344,8 @@ function cleanLabel(label) {
 }
 
 /** The account dir for a label, or a refusal. `default`/empty is refused (the
-    default is not credentialed through this subsystem -- it is the machine-global
-    door). The slug is [a-z0-9-]; a label that slugs to nothing is refused. */
+    default is the machine's own ~/.grok: its key door or its own sign-in, never a
+    named account). The slug is [a-z0-9-]; a label that slugs to nothing is refused. */
 function dirForLabel(label) {
   const slug = cleanLabel(label);
   if (!slug) return { ok: false, because: 'give this account a name using letters, numbers or dashes' };
@@ -625,7 +625,7 @@ function resolveFreshGrokDir(label) {
     if (!got.ok) return { error: got.because };
     /* Refuse on the FILES, not on identityOf: an auth.json we cannot describe (two entries,
        bad JSON) is still someone's credentials, and a failed sign-in's cleanup would delete it. */
-    if (fs.existsSync(authFile(got.dir)) || fs.existsSync(keyFile(got.dir))) return { error: 'there is already a Grok account by that name on this computer' };
+    if (holdsCredentials(got.dir)) return { error: 'there is already a Grok account by that name on this computer' };
     if (activeGrokDirs.has(got.dir)) return { error: 'a sign-in for that name is already in progress' };
     if (accountclaim.claimHeld(got.dir)) return { error: 'another Grok account is being added under that name right now; try again in a moment' };
     spot = { label: got.label, dir: got.dir };
@@ -704,7 +704,8 @@ function startGrokLogin({ label, grokBin } = {}) {
     const parsed = parseGrokLoginOutput(session.buf);
     if (parsed.authUrl && !session.authUrl) session.authUrl = parsed.authUrl;
     if (parsed.userCode && !session.userCode) session.userCode = parsed.userCode;
-    if (session.state === 'starting' && session.userCode) session.state = 'awaiting-code';
+    // Move on at the first thing a person can act on: the code, or the URL that carries it.
+    if (session.state === 'starting' && (session.userCode || session.authUrl)) session.state = 'awaiting-code';
   };
   if (child.stdout) child.stdout.on('data', onData);
   if (child.stderr) child.stderr.on('data', onData);
@@ -752,6 +753,11 @@ function startGrokLogin({ label, grokBin } = {}) {
   return { ok: true, sessionId };
 }
 
+/** Whether this dir already holds credentials of ANY shape: a key file or a sign-in file,
+    readable or not. The named sign-in and the named key add both refuse on this, never on
+    identityOf alone, since an auth.json we cannot describe is still someone's. */
+function holdsCredentials(dir) { return fs.existsSync(authFile(dir)) || fs.existsSync(keyFile(dir)); }
+
 /** Whether a live sign-in holds this dir (the API-key add skips or refuses it). */
 function isSignInPending(dir) { return activeGrokDirs.has(path.resolve(String(dir || ''))); }
 
@@ -786,7 +792,7 @@ module.exports = {
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, grokLoginStatus, cancelGrokLogin, setGrokTimers,
-  isSignInPending, MISSING_RUNNER_SENTENCE,
+  isSignInPending, MISSING_RUNNER_SENTENCE, holdsCredentials,
   readName, writeName,
   get HOME_FOR_TEST() { return homeDir(); },
 };

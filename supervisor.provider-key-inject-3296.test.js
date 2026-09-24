@@ -179,7 +179,7 @@ test('real tmux resolves a repeated -e to the LAST value (the precedence the per
    (auth.json, no key file) must reach grok with NO XAI_API_KEY at all, or grok runs on the
    key instead of the sign-in. An EMPTY value still counts as set to grok (measured), so the
    supervisor drops every door pair and runs grok through `env -u XAI_API_KEY`. */
-function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome, plutil, withStderr }) {
+function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaultHome, noEngine, withStderr }) {
   const tree = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-grok-sub-'));
   fs.mkdirSync(nodePath.join(tree, 'bin'), { recursive: true });
   fs.mkdirSync(nodePath.join(tree, 'secrets', 'env'), { recursive: true });
@@ -187,6 +187,10 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
   const acct = defaultHome ? nodePath.join(tree, '.grok') : nodePath.join(tree, 'acct');
   fs.mkdirSync(acct, { recursive: true });
   fs.symlinkSync(SUP, nodePath.join(tree, 'bin', 'agent-supervisor.sh'));
+  // The supervisor asks engine/grokaccounts.identityOf what kind of account this is, so the
+  // tree carries the real engine (a symlink). The token mint that an engine also enables is
+  // kept in the sandbox by AGENT_WORKFORCE_DATA below, never the real store.
+  if (!noEngine) fs.symlinkSync(nodePath.join(__dirname, 'engine'), nodePath.join(tree, 'engine'));
   if (door) fs.writeFileSync(nodePath.join(tree, 'secrets', 'env', 'XAI_API_KEY'), door);
   if (keyFile !== undefined) fs.writeFileSync(nodePath.join(acct, '.kosmos-grok-apikey'), keyFile, { mode: 0o600 });
   if (authJson) fs.writeFileSync(nodePath.join(acct, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::abc': { email: 'x@example.com', refresh_token: 'r' } }), { mode: 0o600 });
@@ -199,9 +203,9 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
     '  new-session) printf "%s\\n" "$*" >> "$REC"; exit 0 ;;',
     '  has-session) exit 1 ;;', '  *) exit 0 ;;', 'esac',
   ].join('\n') + '\n', { mode: 0o755 });
-  const env = { PATH: process.env.PATH, HOME: tree, REC: rec, AGENT_WORKFORCE_HOME: tree };
+  fs.mkdirSync(nodePath.join(tree, 'data'), { recursive: true });
+  const env = { PATH: process.env.PATH, HOME: tree, REC: rec, AGENT_WORKFORCE_HOME: tree, AGENT_WORKFORCE_DATA: nodePath.join(tree, 'data') };
   if (!defaultHome) env.GROK_HOME = acct;
-  if (plutil) env.KOSMOS_PLUTIL_BIN = plutil;
   const r = spawnSync('/bin/bash', [nodePath.join(tree, 'bin', 'agent-supervisor.sh'), 'agent-grok', tree, '/usr/bin/true', fake, '', 'grok-4.6', 'grok'], { env, encoding: 'utf8', timeout: 20000 });
   const out = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
   fs.rmSync(tree, { recursive: true, force: true });
@@ -275,16 +279,35 @@ test('grok: a PER-ACCOUNT subscription agent gets its own short leader socket; a
      account's name: $HOME is /Users/<name> on a real Mac, and a fixture's mkdtemp HOME is
      longer, so an absolute bound would measure the fixture, not the code. */
   assert.equal(Buffer.byteLength(m[1].slice(m[1].lastIndexOf('/.grok/'))), '/.grok/leader-'.length + 12 + '.sock'.length);
-  assert.ok(!/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', keyFile: 'peraccountvalue', authJson: true })), 'CONTROL: a key-file account keeps the default leader');
+  const keyAcct = runGrokWithAccount({ door: 'globaldoorvalue', keyFile: 'peraccountvalue', authJson: true }).match(/--leader-socket (\S+)/);
+  assert.ok(keyAcct, 'a per-account KEY agent is isolated too (the premise cuts both ways)');
+  assert.notEqual(keyAcct[1], m[1], 'a different account in the same kind of slot gets a different leader');
   assert.ok(!/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, defaultHome: true })), 'CONTROL: the default account IS the default leader');
 });
 
-test('grok: with NO plutil a sign-in keeps the door key AND says so (never a silent keep)', () => {
-  const r = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, plutil: '/nonexistent/plutil', withStderr: true });
+test('grok: with NO engine to ask, a sign-in keeps the door key AND says so (never a silent keep)', () => {
+  const r = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, noEngine: true, withStderr: true });
   assert.ok(kept(r.rec), 'the key is kept (the visible failure)');
-  assert.match(r.stderr, /auth\.json is there but \/nonexistent\/plutil is not, so this agent keeps any XAI_API_KEY/, 'and the supervisor log says why');
-  // CONTROL: the real plutil strips the same fixture, and says nothing.
+  assert.match(r.stderr, /auth\.json is there but this supervisor cannot reach the engine or node/, 'and the supervisor log says why');
+  // CONTROL: with the engine, the same fixture strips and says nothing.
   const c = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, withStderr: true });
   assert.ok(stripped(c.rec));
-  assert.doesNotMatch(c.stderr, /plutil is not/);
+  assert.doesNotMatch(c.stderr, /cannot reach the engine/);
+});
+
+test('grok DEFAULT agent: the dir the supervisor judged is exported as GROK_HOME, so grok reads that dir', () => {
+  const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, defaultHome: true });
+  assert.match(rec, /-e GROK_HOME=\S+\/\.grok(\s|$)/, 'the default home is exported into the pane');
+  const per = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true });
+  const homes = [...per.matchAll(/-e GROK_HOME=(\S+)/g)].map((x) => x[1]);
+  assert.equal(homes.length, 1, 'CONTROL: a per-account agent carries exactly ONE GROK_HOME (its own, forwarded as before), not a second default one');
+  assert.match(homes[0], /\/acct$/, 'and it is the account dir');
+});
+
+test('grok: the supervisor classifies by identityOf itself, so odd shapes agree with the board', () => {
+  // The issuer string repeated INSIDE the entry is still ONE top-level entry: a subscription.
+  assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', note: '"https://auth.x.ai::b' } }) })));
+  // One top-level entry whose value is not an object is not an account (identityOf null): kept.
+  assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': null }) })));
+  assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify([{ 'https://auth.x.ai::a': {} }]) })), 'a top-level array is not an account');
 });

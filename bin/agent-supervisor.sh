@@ -653,43 +653,34 @@ if [ -z "$adopt" ]; then
       [ -n "$_xkey" ] && PANE_ENV+=(-e "XAI_API_KEY=$_xkey")
       unset _xkey
     fi
-    # #3391: a SUBSCRIPTION account (auth.json, no key file) must reach grok with NO
-    # XAI_API_KEY at all, or grok uses the key instead of the sign-in. An EMPTY value
-    # still counts as set to grok (measured), so the variable is REMOVED: every
-    # `-e XAI_API_KEY=...` pair the secrets/env door added is dropped from PANE_ENV, and
-    # the pane runs grok through `env -u XAI_API_KEY` so a server-global value cannot
-    # reach it either. The default follows the same rule, because the board lists it as
-    # the subscription account it holds (engine/grokaccounts.js rowFor).
+    # #3391: a SUBSCRIPTION account must reach grok with NO XAI_API_KEY at all, or grok
+    # uses the key instead of the sign-in. An EMPTY value still counts as set to grok
+    # (measured), so the variable is REMOVED: every `-e XAI_API_KEY=...` pair the
+    # secrets/env door added is dropped from PANE_ENV, and the pane runs grok through
+    # `env -u XAI_API_KEY` so a server-global value cannot reach it either.
     # WHICH DIR: GROK_HOME for a per-account agent; for a default one, the three tiers of
-    # engine/grokaccounts.js defaultDir(), reproduced as the codex arm above reproduces
-    # defaultAgentCodexHome() (in production both tiers are unset and it is $HOME/.grok).
-    # WHAT KIND, the same rules as grokaccounts.identityOf: a key file that is there but
-    # unreadable describes nothing (no strip); a key file with any non-blank character is
-    # an api-key account (no strip); otherwise it is a subscription only if auth.json PARSES
-    # as JSON (/usr/bin/plutil; with no plutil the key is kept) and holds exactly ONE
-    # https://auth.x.ai:: entry, as readAuth requires.
+    # engine/grokaccounts.js defaultDir(), EXPORTED into the pane as GROK_HOME the way the
+    # codex arm exports EFFECTIVE_CODEX_HOME, so the dir judged here is the dir grok reads.
+    # WHAT KIND: grokaccounts.identityOf ITSELF, asked through node, so there is one copy
+    # of the rule (the board lists what it says, and this strips on what it says). With no
+    # engine or no node the key is kept, and the log says so.
     _GROK_PREFIX=()
     _GROK_LEADER=()
     _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
-    _GROK_KEYF="${_GROK_ACCT}/.kosmos-grok-apikey"
-    _GROK_SUB=0
-    # KOSMOS_PLUTIL_BIN is a test seam only (the no-plutil arm is otherwise untestable).
-    _PLUTIL="${KOSMOS_PLUTIL_BIN:-/usr/bin/plutil}"
-    if [ -e "$_GROK_KEYF" ] && { [ -d "$_GROK_KEYF" ] || [ ! -r "$_GROK_KEYF" ]; }; then
-      _GROK_SUB=0
-    elif [ -r "$_GROK_KEYF" ] && grep -q '[^[:space:]]' "$_GROK_KEYF" 2>/dev/null; then
-      _GROK_SUB=0
-    elif [ -r "${_GROK_ACCT}/auth.json" ] && [ ! -x "$_PLUTIL" ]; then
-      # Keep the key (the visible failure), but SAY so: without plutil we cannot tell a
-      # subscription sign-in from a damaged file, and a silent keep would read as a choice.
-      echo "grok: ${_GROK_ACCT}/auth.json is there but ${_PLUTIL} is not, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
-    elif [ -r "${_GROK_ACCT}/auth.json" ] \
-      && "$_PLUTIL" -convert json -o /dev/null -- "${_GROK_ACCT}/auth.json" >/dev/null 2>&1; then
-      _entries="$(grep -o '"https://auth\.x\.ai::' "${_GROK_ACCT}/auth.json" 2>/dev/null | wc -l | tr -d ' ')"
-      [ "$_entries" = 1 ] && _GROK_SUB=1
-      unset _entries
+    [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
+    _GROK_ID=""
+    if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
+      # "<authMode>\t<email or key tail>" or nothing; never the key.
+      _GROK_ID="$("$NODE_BIN" -e '
+        try {
+          const w = require(process.argv[1]).identityOf(process.argv[2]);
+          if (w) process.stdout.write(w.authMode + "\t" + (w.email || w.keyTail || ""));
+        } catch (e) { /* an unreadable answer keeps the key */ }
+      ' "$_eng/grokaccounts.js" "$_GROK_ACCT" 2>/dev/null || true)"
+    elif [ -e "${_GROK_ACCT}/auth.json" ]; then
+      echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
     fi
-    if [ "$_GROK_SUB" = 1 ]; then
+    if [ "${_GROK_ID%%	*}" = subscription ]; then
       _kept=()
       _i=0
       _n=${#PANE_ENV[@]}
@@ -708,19 +699,24 @@ if [ -z "$adopt" ]; then
       PANE_ENV=(${_kept[@]+"${_kept[@]}"})
       unset _kept _i _n
       _GROK_PREFIX=(/usr/bin/env -u XAI_API_KEY)
-      # A PER-ACCOUNT subscription agent also gets its OWN leader socket. grok's leader is
-      # its relay to xAI (`grok leader info` names wss://code.grok.com), and its default
-      # socket is the machine's ~/.grok/leader.sock, which a default-account agent may have
-      # started. Whether a leader carries its starter's sign-in is NOT measured; isolating
-      # it per account is the cheap, reversible answer. The name is short (macOS limits a
-      # socket path to 104 bytes) and matches the leader-*.sock pattern `grok leader list` finds.
-      if [ -n "${GROK_HOME:-}" ]; then
-        _hash="$(printf '%s' "$GROK_HOME" | /usr/bin/shasum 2>/dev/null | cut -c1-12)"
-        [ -n "$_hash" ] && _GROK_LEADER=(--leader-socket "${HOME}/.grok/leader-${_hash}.sock") && mkdir -p "${HOME}/.grok" 2>/dev/null
-        unset _hash
-      fi
     fi
-    unset _GROK_ACCT _GROK_KEYF _GROK_SUB _PLUTIL
+    # EVERY per-account agent gets its OWN leader socket, keyed on its dir AND the identity
+    # in it (so a slot later refilled with another account gets another leader). grok's
+    # leader is its relay to xAI (`grok leader info` names wss://code.grok.com) and its
+    # default socket is the machine's ~/.grok/leader.sock. Whether a leader carries the
+    # sign-in of whoever started it is NOT measured; isolating every non-default agent is
+    # the cheap, reversible answer in both directions. The default keeps the default leader.
+    # The name is short (macOS limits a socket path to 104 bytes) and matches the
+    # leader-*.sock pattern `grok leader list` finds.
+    if [ -n "${GROK_HOME:-}" ]; then
+      _hash="$(printf '%s\t%s' "$GROK_HOME" "$_GROK_ID" | /usr/bin/shasum 2>/dev/null | cut -c1-12)"
+      if [ -n "$_hash" ]; then
+        _GROK_LEADER=(--leader-socket "${HOME}/.grok/leader-${_hash}.sock")
+        mkdir -p "${HOME}/.grok" 2>/dev/null || true
+      fi
+      unset _hash
+    fi
+    unset _GROK_ACCT _GROK_ID
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \

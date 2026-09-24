@@ -3584,8 +3584,9 @@ async function accountConnectable({ provider, accountDir } = {}) {
      with its provider, and a positively-rejected key is refused here rather than making an
      agent that 401s on its first turn (the #1315 rule the other two already get). The
      default env-key door (no dir) is not checked: the board cannot see the supervisor's
-     launch environment, the same fail-open createAgentInner documents for it. An unknown
-     dir is createAgentInner's to refuse. */
+     launch environment, the same fail-open createAgentInner documents for it. The one
+     exception is a default Grok subscription, which the board CAN see (#3391, below). An
+     unknown dir is createAgentInner's to refuse. */
   if (prov === 'google' || prov === 'xai') {
     const failOpenK = (where, err) => {
       console.error('#1916: account liveness precheck errored in ' + where + ' (failing open):', (err && err.stack) || err);

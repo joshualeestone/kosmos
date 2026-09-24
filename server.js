@@ -1834,8 +1834,10 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
           let isLink = false;
           try { isLink = fs.lstatSync(named.dir).isSymbolicLink(); } catch { /* absent: fine */ }
           if (isLink) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; }
-          // An existing account is refused before anything is written into its folder.
-          if (mod.identityOf(named.dir)) {
+          // An existing account is refused before anything is written into its folder. #3391: a
+          // module that can say "credentials of any shape are here" (grok) is asked that instead,
+          // so an auth.json identityOf cannot describe is not stacked on.
+          if (typeof mod.holdsCredentials === 'function' ? mod.holdsCredentials(named.dir) : mod.identityOf(named.dir)) {
             sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
             return;
           }

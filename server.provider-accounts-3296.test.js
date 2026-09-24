@@ -308,3 +308,19 @@ test('#3566 store: an explicitly-labelled add cannot take a slot an unnamed add 
   assert.equal(b1.account.dir, spot.dir);
   assert.equal(fs.readFileSync(grokAccounts.keyFile(spot.dir), 'utf8'), 'xai-unnamed-inflight-key-1111', 'the unnamed add\'s key was overwritten');
 });
+
+/* #3391: a NAMED grok key add refuses a folder that already holds an auth.json of ANY shape,
+   even one identityOf cannot describe (two entries), so a key is never stacked on someone's
+   unrecognised sign-in. The same file-presence rule the named sign-in uses. */
+test('grok store: a named key add refuses a folder holding an undescribable auth.json', async () => {
+  const dir = nodePath.join(SANDBOX, '.grok-hassignin');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::a': { email: 'a@x' }, 'https://auth.x.ai::b': { email: 'b@x' } }), { mode: 0o600 });
+  assert.equal(grokAccounts.identityOf(dir), null, 'CONTROL: identityOf cannot describe it');
+  grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const r = await post('/api/accounts/grok/apikey', { label: 'hassignin', key: 'xai-stack-attempt-1234567890' });
+  assert.equal(r.status, 400, 'refused');
+  assert.match((await r.json()).error, /already a Grok account by that name/);
+  assert.equal(fs.existsSync(grokAccounts.keyFile(dir)), false, 'no key was written beside the sign-in');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
