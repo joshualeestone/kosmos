@@ -164,6 +164,7 @@ if command -v ruby >/dev/null 2>&1; then
     # cancelled job makes failure() false), and on success to close the card.
     abort "file-red-card must run on every scheduled run and nothing else, got if: #{cj["if"].inspect}" unless cj["if"].to_s.gsub(/\s+/, " ").strip == "always() && github.event_name == \x27schedule\x27"
     abort "file-red-card must hold exactly issues: write, got #{cj["permissions"].inspect}" unless cj["permissions"] == { "issues" => "write" }
+    abort "browser-checks-full.yml must never cancel a nightly run in progress (concurrency cancel-in-progress false), got #{(f["concurrency"] || {}).inspect}" unless (f["concurrency"] || {})["cancel-in-progress"] == false
     abort "the card step has no GH_TOKEN, so gh cannot file anything" unless (cj["steps"] || []).any? { |st| (st["env"] || {})["GH_TOKEN"].to_s.include?("github.token") }
     # The PR workflow never holds issues: write, at the top or in any job.
     abort "the PR workflow must not hold issues: write" if ((d["permissions"] || {})["issues"]).to_s == "write" || (d["jobs"] || {}).values.any? { |jb| ((jb["permissions"] || {})["issues"]).to_s == "write" }
@@ -200,20 +201,23 @@ if command -v ruby >/dev/null 2>&1; then
   pass "the label collector reads only the FAILED-LIST: summary (entries kept whole), and falls back without aborting when there is no log"
   # Card script. $1 = the checks job RESULT, $2 = what the stubbed issue list answers
   # (empty / 7 / null); the open card's last report named render-fields only.
-  # "issue view" answers with fixture JSON run through the script's OWN -q filter (real jq),
-  # so the filter that finds the last report is exercised, not bypassed. VIEWFAIL=1 makes
-  # gh fail there, to check the unreadable-report path.
+  # Every stubbed gh read (label list, issue list, issue view) answers with fixture JSON run
+  # through the script's OWN -q filter with real jq, so all three filters are exercised,
+  # not bypassed. An empty issue list makes real jq print "null" for .[0].number, which is
+  # the null path. VIEWFAIL=1 makes issue view fail, to check the unreadable-report path.
   command -v jq >/dev/null 2>&1 || fail "jq is required to run the card script's own filter"
   card() {
-    VIEWFAIL="${VIEWFAIL:-}" RESULT="$1" OPEN="$2" RED="render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+    VIEWFAIL="${VIEWFAIL:-}" RESULT="$1" OPEN="${2#null}" RED="render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+      qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
-        "label list") true ;;
+        "label list") f=$(qarg "$@") || { echo "CALL unexpected label list without -q"; return 1; }
+          printf "%s" "[]" | jq -r "$f" ;;
         "label create") echo "CALL label-create" ;;
-        "issue list") echo "$OPEN" ;;
+        "issue list") f=$(qarg "$@") || { echo "CALL unexpected issue list without -q"; return 1; }
+          if [ -n "$OPEN" ]; then printf "%s" "[{\"number\":$OPEN},{\"number\":3}]"; else printf "%s" "[]"; fi | jq -r "$f" ;;
         "issue view")
           [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
-          f=""; prevarg=""; for a in "$@"; do [ "$prevarg" = "-q" ] && f="$a"; prevarg="$a"; done
-          [ -n "$f" ] || { echo "CALL unexpected issue view without -q"; return 1; }
+          f=$(qarg "$@") || { echo "CALL unexpected issue view without -q"; return 1; }
           printf "%s" "{\"body\":\"card body\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person commented\"}]}" | jq -r "$f" ;;
         "issue comment") echo "CALL comment $3 :: $*" ;;
         "issue create") echo "CALL create :: $*" ;;
