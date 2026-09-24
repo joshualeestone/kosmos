@@ -3510,7 +3510,6 @@ function resetForTests() {
 
 module.exports = {
   setRefreshExpiryReader, // #3326 test seam
-  loginLanded, // #3326: exported for its unit test
   PHASE, SESSION, ACTIVE_PHASES,
   state, publicView, start, submitCode, cancel,
   classifyPane, extractOauthUrl, tailOf, validCode, redirectDowngrades,
