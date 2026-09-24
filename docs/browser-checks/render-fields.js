@@ -565,6 +565,17 @@ async function measure(engine, scheme) {
          design supersedes for THIS one field. Scoped to the exact id and no wider: every OTHER
          field is still held to the rule, so an UNINTENDED flip elsewhere still fails. */
       if (id === '#pj-say') continue;
+      /* #3493-followup (Baron's 0.6.91 bisect, 2026-09-24): #pj-thread-who is the "which agent"
+         SELECT in that same project composer, and #3493 blacked the .pjmid column it sits in to
+         #000 in dark (Josh's intended ground). Its --field-fill (var(--k-bg): #faf9f7 in light,
+         #0c0d0f in dark) then reads recessed against the #fff light column and raised against the
+         #000 dark one. That flip CANNOT be flattened to one direction: nothing is darker than #000,
+         so it cannot stay recessed in dark, and nothing is lighter than #fff, so it cannot stay
+         raised in light. It is the same intended "distinct field the black ground surrounds" case as
+         #pj-say above, so it is exempted for the same reason and no wider - every other field is
+         still held to the cross-theme rule, so an UNINTENDED flip elsewhere still fails. The black
+         column stays (Josh's #3493); this field keeps its depth cue against it. */
+      if (id === '#pj-thread-who') continue;
       const dl = dir(lightById[id]), dd = dir(darkById[id]);
       if (dl !== 'n/a' && dd !== 'n/a' && dl !== dd) {
         flipped += 1;
