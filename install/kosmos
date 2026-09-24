@@ -1037,6 +1037,8 @@ cmd_msg() {
     say "Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and \$ arrive as written)"
     exit 2
   fi
+  # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_post): a live pipe cannot
+  # be replayed, so with Kosmos down the message is read and kept in a file.
   if ! healthy; then
     say "Kosmos is not running, so nothing can be delivered. Start it with: kosmos start"
     _keep_piped
@@ -1252,7 +1254,6 @@ _read_piped_message() {
   # Read at most one byte past the board's limit, raw, into a private file: an accidental huge
   # pipe is never held whole, and the size is judged on the bytes as sent, before anything is
   # dropped, so an over-limit message is refused rather than truncated and posted.
-  local _raw _rawn
   _raw="$(mktemp "${TMPDIR:-/tmp}/kosmos-stdin-read.XXXXXX")" && chmod 600 "$_raw" || { [ -n "${_raw:-}" ] && rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2; }
   trap 'rm -f "$_raw"' INT TERM   # a Ctrl-C while waiting on an open pipe must not leave the copy behind
   if ! LC_ALL=C head -c "$((POST_BODY_MAX_BYTES + 1))" > "$_raw"; then
