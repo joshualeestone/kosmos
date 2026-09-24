@@ -61,14 +61,14 @@ test('the folder is Renet\'s dmfiles.filesDir, and a Files folder that does not 
 });
 
 test('files the agent saved are listed newest first with name, size and date; dotfiles and folders are not', async () => {
-  const dir = path.join(agentDir('ben'), 'Files');
+  const dir = path.join(agentDir('bix'), 'Files');
   fs.mkdirSync(dir);
   fs.writeFileSync(path.join(dir, 'old.txt'), 'old');
   fs.utimesSync(path.join(dir, 'old.txt'), new Date('2026-01-01'), new Date('2026-01-01'));
   fs.writeFileSync(path.join(dir, 'report.pdf'), 'x'.repeat(2048));
   fs.writeFileSync(path.join(dir, '.hidden'), 'h');
   fs.mkdirSync(path.join(dir, 'sub'));
-  const r = await get('/api/agent/ben/files');
+  const r = await get('/api/agent/bix/files');
   assert.equal(r.status, 200);
   assert.deepEqual(r.json.files.map((f) => f.name), ['report.pdf', 'old.txt']);
   assert.equal(r.json.files[0].size, 2048);
