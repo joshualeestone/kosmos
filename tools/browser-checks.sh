@@ -111,6 +111,22 @@ if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ] && [ -z "${KOSMOS_BC_FROZEN_RUNNER
   kosmos_refuse_if_browser_run_live "this page layer" || exit 1
 fi
 
+# #1398: the cut guard was one-directional -- a CUT refuses to start into a running
+# gate (kosmos_refuse_if_cut_live at release.sh's top), but a GATE started while a
+# cut was already running had nothing to stop it, and killing that gate killed the
+# cut with it (three cuts, ~90 min). Mirror the machine-claim consult run-tests.sh
+# already does (kosmos_refuse_if_machine_claimed), which is the self-exclusion-SAFE
+# direction here: the cut's OWN 3b inherits the exported claim cookie
+# (kosmos_claim_machine) and self-excludes, so a cut never refuses its own page
+# layer; only a live, unexpired, FOREIGN claim refuses. Deliberately NOT
+# kosmos_refuse_if_cut_live: that keys on the cut's run-marker, which THIS gate does
+# not carry, so it would make the cut's own 3b refuse itself. `command -v` guards a
+# lib that failed to load (fail-open, like run-tests.sh), and the escape hatch is the
+# same KOSMOS_IGNORE_MACHINE_CLAIM the claim guard uses everywhere else.
+if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
+  kosmos_refuse_if_machine_claimed "this page layer" || exit 1
+fi
+
 # --- freeze against a concurrent merge (#758) --------------------------------
 # Every check below reads CODE straight from $REPO (boot_board only sandboxes
 # DATA dirs), so a merge landing in a shared, mutable checkout WHILE this runs
