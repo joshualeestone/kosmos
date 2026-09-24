@@ -132,6 +132,14 @@ test('#3224 TYPE-CHECK: a non-string in_reply_to is refused with 400 before any 
   assert.match(r.json.error || '', /in_reply_to/, 'the 400 must name the offending field');
 });
 
+test('#3224 NULL-TOLERATED: an explicit in_reply_to:null is treated as absent (posts normally), NOT a 400 -- the one deliberate divergence from reply_expected', async () => {
+  const a = room('Alpha null 3224');
+  const r = await post({ project: a.id, text: 'a post that names no citation', from_pane: '', in_reply_to: null }, { 'x-kosmos-agent-token': tok() });
+  assert.notEqual(r.status, 400, 'in_reply_to:null must NOT be refused: null is the record vocabulary for "no citation", so it is tolerated as absent (unlike reply_expected:null, which is a 400)');
+  assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state),
+    'in_reply_to:null must behave exactly like an omitted citation -- the post proceeds, no binding, no misroute: ' + (r.json.delivery.because || ''));
+});
+
 // LAST test in this file: it makes the message log unreadable, so nothing may run after it.
 test('#3224 FAIL-CLOSED (server path): an unreadable record makes /api/post REFUSE the bound reply, not post blind or 500', async () => {
   const b = room('Beta failclosed 3224');

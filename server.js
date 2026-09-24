@@ -11018,9 +11018,13 @@ const server = http.createServer((req, res) => {
           throw bad;
         }
         /* #3224: in_reply_to, when present, must be a string message id -- validated as
-           a request-shape check before any side-effects, the same discipline as
-           reply_expected above. A non-string is refused rather than String()-coerced
-           into a spurious id. Omitted is the common case (a proactive post). */
+           a request-shape check before any side-effects. An explicit null is tolerated
+           and treated as absent (null is the message-record vocabulary's "no citation",
+           so a client mirroring that shape is not sending a spurious id): this is
+           deliberately MORE lenient than reply_expected above, which refuses null.
+           A non-null non-string is refused rather than String()-coerced into a spurious
+           id. Omitted is the common case (a proactive post). Both arms are pinned by
+           tests (null -> treated as absent; a number -> 400). */
         if ('in_reply_to' in body && body.in_reply_to !== null && typeof body.in_reply_to !== 'string') {
           const bad = new Error('in_reply_to must be a message id like m12');
           bad.status = 400;

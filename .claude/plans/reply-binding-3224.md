@@ -66,11 +66,20 @@ the guard on membership of the answered project; not done, because a legitimate 
 membership and the nameless residual is loopback-only.
 
 ## Tests
-- server.post-inreplyto-3224.test.js (4): mismatch refused + both rooms named, match posts,
-  no-in_reply_to unchanged, aged-out falls through; CONTROL proves membership is not the refusal.
-- cli.post-inreplyto-3224.test.js (5): flag -> body, `=` form, omitted -> no field, combines with
-  --no-reply, leading-only.
-- engine/messages.projectofpost-3224.test.js (5): resolves a post's project, null for
-  unknown/message/empty, trims a padded id.
+(Counts current as of the challenge-loop hardening; the original brief listed 4/5/5 before the
+iter4/iter5 edge-case tests below were added.)
+- server.post-inreplyto-3224.test.js (7): mismatch refused + both rooms named, match posts,
+  no-in_reply_to unchanged, aged-out falls through; a non-string is a 400 request-shape refusal;
+  an explicit `in_reply_to:null` is tolerated as absent (the one deliberate divergence from
+  reply_expected); an unreadable record FAILS CLOSED (could_not, never a blind post or a 500).
+  A CONTROL (poster is a member of BOTH rooms) proves the refusal is the guard, not membership.
+- cli.post-inreplyto-3224.test.js (7): flag -> body, `=` form, omitted -> no field, combines with
+  --no-reply (both orders), leading-only, and an empty citation in BOTH spellings (`--in-reply-to=`
+  and `--in-reply-to ""`) refused rather than silently posted unbound.
+- engine/messages.projectofpost-3224.test.js (6): resolves a post's project, null for
+  unknown/message/empty, trims a padded id, and THROWS on an unreadable record (so the caller can
+  fail closed rather than conflate "could not read" with "no such post").
+- tools.windows-kosmos-cli-570.test.js: parity for the Windows/non-Claude runner across every flag
+  shape (pair, `=`, both empty spellings, both orders, leading-only), so the two CLIs cannot drift.
 - Updated shared assertions in engine/messages.test.js and server.test.js for the new answer
-  command. Full targeted run green; server.test.js 304/304; messages suite green.
+  command. Full suite green via tools/run-tests.sh.
