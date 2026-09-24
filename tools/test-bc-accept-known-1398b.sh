@@ -8,6 +8,8 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/bc-accept-known.sh"
 
+R="accepted for the #3542 headless env issue"   # a meaningful, one-line reason
+
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
@@ -16,43 +18,65 @@ log() { LOGGED="${LOGGED}$*"$'\n'; }                    # capture what the funct
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 reset() { FAILED=(); ACCEPTED_KNOWN=(); LOGGED=""; unset KOSMOS_BC_ACCEPT_KNOWN KOSMOS_BC_ACCEPT_REASON 2>/dev/null || true; }
 
-# accept a named failing check WITH a reason -> leaves FAILED, recorded, reason logged
-reset; FAILED=(render-thread); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="known-flaky env, tracked #3542"
+# accept a named failing check WITH a real reason -> leaves FAILED, recorded, logged
+reset; FAILED=(render-thread); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"
 kosmos_bc_apply_accept_known
-if [ "${#FAILED[@]}" -eq 0 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 1 ] && has "$LOGGED" "ACCEPTED KNOWN-FAILING" && has "$LOGGED" "known-flaky env, tracked #3542"
-then pass "accept + reason: named check leaves FAILED, is recorded, reason is logged"
+if [ "${#FAILED[@]}" -eq 0 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 1 ] && has "$LOGGED" "ACCEPTED KNOWN-FAILING" && has "$LOGGED" "$R"
+then pass "accept + real reason: named check leaves FAILED, is recorded, reason is logged"
 else fail "accept + reason (FAILED='${FAILED[*]:-}' ACCEPTED='${ACCEPTED_KNOWN[*]:-}')"; fi
 
-# no reason -> REFUSE: a failure stays, nothing is accepted
+# no reason -> REFUSE
 reset; FAILED=(render-thread); KOSMOS_BC_ACCEPT_KNOWN="render-thread"
 kosmos_bc_apply_accept_known
-if [ "${#FAILED[@]}" -ge 1 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 0 ] && has "${FAILED[*]}" "without KOSMOS_BC_ACCEPT_REASON"
-then pass "no reason: refused -- a failure stays and nothing is accepted"
+if [ "${#FAILED[@]}" -ge 1 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 0 ] && has "${FAILED[*]}" "needs a real"
+then pass "no reason: refused -- a failure stays, nothing accepted"
 else fail "no reason (FAILED='${FAILED[*]:-}')"; fi
 
+# a TRIVIAL reason (a lone char, or whitespace) is refused -- the #1398b blocker fix
+for _trivial in "x" "   " "   .  "; do
+  reset; FAILED=(render-thread); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$_trivial"
+  kosmos_bc_apply_accept_known
+  if [ "${#ACCEPTED_KNOWN[@]}" -eq 0 ] && has "${FAILED[*]}" "needs a real"
+  then pass "trivial reason '$_trivial' is refused (not enough non-space content)"
+  else fail "trivial reason '$_trivial' was NOT refused (FAILED='${FAILED[*]:-}')"; fi
+done
+
+# an INFRA / board-cascade failure is NOT acceptable even when named -- it keeps gating
+reset; FAILED=("render-thread (server did not boot)"); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"
+kosmos_bc_apply_accept_known
+if [ "${#FAILED[@]}" -eq 1 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 0 ]
+then pass "an infra failure (server did not boot) keeps gating, even when its name is accepted"
+else fail "infra not gated (FAILED='${FAILED[*]:-}')"; fi
+
 # an UN-named failing check still gates; only the named one is accepted
-reset; FAILED=(render-thread render-firstrun-wizard-flow); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="x"
+reset; FAILED=(render-thread render-firstrun-wizard-flow); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"
 kosmos_bc_apply_accept_known
 if [ "${#FAILED[@]}" -eq 1 ] && [ "${FAILED[0]}" = "render-firstrun-wizard-flow" ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 1 ]
 then pass "un-named check still gates -- only the named one is accepted"
 else fail "un-named gates (FAILED='${FAILED[*]:-}')"; fi
 
 # a suffixed FAILED entry ("name (failed twice)") matches by NAME
-reset; FAILED=("render-thread (failed twice)"); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="x"
+reset; FAILED=("render-thread (failed twice)"); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"
 kosmos_bc_apply_accept_known
-if [ "${#FAILED[@]}" -eq 0 ]
-then pass "a suffixed FAILED entry matches by name, not the whole string"
+if [ "${#FAILED[@]}" -eq 0 ]; then pass "a suffixed FAILED entry matches by name, not the whole string"
 else fail "suffix match (FAILED='${FAILED[*]:-}')"; fi
 
-# a named check that did NOT fail -> a prune note, never a gate
-reset; FAILED=(render-thread); KOSMOS_BC_ACCEPT_KNOWN="render-thread,render-recovered"; KOSMOS_BC_ACCEPT_REASON="x"
+# a fully GREEN run with a named check emits a PRUNE note (stale accept list surfaced)
+reset; FAILED=(); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"
 kosmos_bc_apply_accept_known
 if [ "${#FAILED[@]}" -eq 0 ] && has "$LOGGED" "did not fail this run"
+then pass "a green run with a named check prints the prune note (does not silently no-op)"
+else fail "green-run prune note (LOGGED empty=$([ -z "$LOGGED" ] && echo yes || echo no))"; fi
+
+# a named-but-passing check among real failures -> prune note, does not gate
+reset; FAILED=(render-thread); KOSMOS_BC_ACCEPT_KNOWN="render-thread,render-recovered"; KOSMOS_BC_ACCEPT_REASON="$R"
+kosmos_bc_apply_accept_known
+if [ "${#FAILED[@]}" -eq 0 ] && has "$LOGGED" "render-recovered"
 then pass "a named-but-passing check prints a prune note and does not gate"
 else fail "stale note (FAILED='${FAILED[*]:-}')"; fi
 
-# comma AND space separators both parse
-reset; FAILED=(render-thread render-fields); KOSMOS_BC_ACCEPT_KNOWN="render-thread,render-fields"; KOSMOS_BC_ACCEPT_REASON="x"
+# comma AND space separators both parse; a name with a glob char stays literal
+reset; FAILED=(render-thread render-fields); KOSMOS_BC_ACCEPT_KNOWN="render-thread,render-fields"; KOSMOS_BC_ACCEPT_REASON="$R"
 kosmos_bc_apply_accept_known
 if [ "${#FAILED[@]}" -eq 0 ] && [ "${#ACCEPTED_KNOWN[@]}" -eq 2 ]
 then pass "a comma-separated accept list accepts every named check"

@@ -838,10 +838,9 @@ if [ -n "${KOSMOS_BC_ACCEPT_KNOWN:-}" ] && grep -q 'ACCEPTED KNOWN-FAILING' "$_p
     "$(date -u +%FT%TZ)" "$V" "${KOSMOS_BC_ACCEPT_KNOWN}" "${KOSMOS_BC_ACCEPT_REASON:-}" \
     >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
   if [ -z "${KOSMOS_BC_ACCEPT_REASON:-}" ] || ! grep -qF "${KOSMOS_BC_ACCEPT_REASON}" "$KOSMOS_ENTRY_FILE" 2>/dev/null; then
-    rm -f "$_page_log"
     echo "accept-known: this run accepted ${KOSMOS_BC_ACCEPT_KNOWN}, but its reason is not written in the versions entry ($KOSMOS_ENTRY_FILE)."
     echo "  Put the accept reason into the entry's <p> so the SERVED versions page names what shipped un-verified, then re-cut."
-    echo "  A cut that leans on accept-known MUST say so in the artifact users see; refusing to ship it silently."
+    echo "  A cut that leans on accept-known MUST say so in the artifact users see; refusing to ship it silently. Page output left at: $_page_log"
     exit 1
   fi
   echo "   #1398b: accepted known-failing page checks (${KOSMOS_BC_ACCEPT_KNOWN}); recorded in the cut log and named in the versions entry."
