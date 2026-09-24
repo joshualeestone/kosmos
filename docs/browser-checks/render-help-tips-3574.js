@@ -124,6 +124,26 @@ const waitCard = (page, ms) => page.waitForFunction(() => { const c = document.g
     await page.waitForTimeout(300);
     chk((await api('GET')).off === false, 'T6 the Settings switch turns tips back on');
 
+    // T9: each screen shows its own tip, once. Tips are on and nothing is seen, so the first
+    // screen visited that is not the board gets its tip before the tour can.
+    const visit = async (label, go, title) => {
+      await go();
+      const shown = await waitCard(page, 4000);
+      const st = await cardState(page);
+      chk(shown && st.title === title && !st.dim, 'T9 ' + label + ' shows its tip: ' + title, JSON.stringify(st));
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(250);
+    };
+    await visit('Projects', () => page.click('#tabs [data-tab="projects"]'), 'A project is shared work');
+    await visit('Settings', async () => { await page.click('#userpop-btn'); await page.click('#userpop-settings'); }, 'Settings for this computer');
+    await visit('an agent\'s page', async () => { await page.click('#tabs [data-tab="agents"]'); await page.waitForTimeout(300); await page.keyboard.press('Escape'); await page.click('[data-agent="beatrix"]'); }, 'Your agent\'s page');
+    const seenNow = (await api('GET')).seen;
+    chk(['projects', 'settings', 'agentpage'].every((id) => seenNow.includes(id)), 'T9 each closed screen tip is recorded', JSON.stringify(seenNow));
+    await page.click('#tabs [data-tab="projects"]');
+    await page.waitForTimeout(2800);
+    const again2 = await cardState(page);
+    chk(!(again2.shown && again2.title === 'A project is shared work'), 'T9 the Projects tip does not return (control: it showed above)', JSON.stringify(again2));
+
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
     // that let tips through would show the tour here (control: T1, the same empty state).
     fs.writeFileSync(tipsStore.FILE(), JSON.stringify({ seen: [], off: false }));
