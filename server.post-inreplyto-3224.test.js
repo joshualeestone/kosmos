@@ -124,3 +124,29 @@ test('#3224 AGED-OUT: an in_reply_to that names no known post falls through to t
   assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state),
     'an unresolvable in_reply_to must not block a legitimate reply; it should proceed with the explicit project: ' + (r.json.delivery.because || ''));
 });
+
+test('#3224 TYPE-CHECK: a non-string in_reply_to is refused with 400 before any side-effect (parity with reply_expected)', async () => {
+  const a = room('Alpha type 3224');
+  const r = await post({ project: a.id, text: 'x', from_pane: '', in_reply_to: { not: 'a string' } }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(r.status, 400, 'a non-string in_reply_to must be a 400 request-shape refusal, not coerced');
+  assert.match(r.json.error || '', /in_reply_to/, 'the 400 must name the offending field');
+});
+
+// LAST test in this file: it makes the message log unreadable, so nothing may run after it.
+test('#3224 FAIL-CLOSED (server path): an unreadable record makes /api/post REFUSE the bound reply, not post blind or 500', async () => {
+  const b = room('Beta failclosed 3224');
+  const seed = await post({ project: b.id, text: 'seed', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
+  const mB = seed.json.delivery.id;
+  // Force messages.record() to ok:false: replace the log FILE with a directory.
+  const fs2 = require('node:fs');
+  const logPath = messagesEngine.LOG;
+  messagesEngine.resetForTests();
+  fs2.rmSync(logPath, { force: true, recursive: true });
+  fs2.mkdirSync(logPath, { recursive: true });
+  messagesEngine.resetForTests();
+  const r = await post({ project: b.id, text: 'a bound reply while the record is unreadable', from_pane: '', in_reply_to: mB }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(r.status, 200, 'the route must still respond 200 with a delivery verdict, not throw a 500');
+  assert.equal(r.json.delivery.state, 'could_not',
+    'an unreadable record must FAIL CLOSED (refuse), never post blind into a possibly-wrong room: ' + JSON.stringify(r.json.delivery));
+  assert.match(r.json.delivery.because, /could not check/, 'the refusal must say it could not verify the room');
+});

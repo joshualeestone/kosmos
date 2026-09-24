@@ -272,7 +272,12 @@ async function verbPost(ctx, args) {
       continue;
     }
     const eq = /^--in-reply-to=(.*)$/.exec(args[0] || '');
-    if (eq) { inReplyTo = eq[1]; args.shift(); continue; }
+    if (eq) {
+      inReplyTo = eq[1];
+      args.shift();
+      if (!inReplyTo) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
+      continue;
+    }
     break;
   }
   const project = args.shift();

@@ -95,6 +95,14 @@ test('#3224: --in-reply-to combines with --no-reply in EITHER order (both are le
   assert.equal(seen[1].text, 'ack2');
 }));
 
+test('#3224: --in-reply-to= (empty value) is REFUSED, not silently dropped (no unbound post)', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const out = await runCli(['post', '--in-reply-to=', 'beta', 'answer'], env);
+  assert.equal(out.code, 2, 'an empty --in-reply-to= must error, not silently post an unbound reply');
+  assert.equal(seen.length, 0, 'nothing must be posted when the citation id is empty');
+  assert.match(out.stdout + out.stderr, /in-reply-to needs a message id/, 'the error must say what is missing');
+}));
+
 test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documented tradeoff)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'beta', 'please --in-reply-to that thread'], env);

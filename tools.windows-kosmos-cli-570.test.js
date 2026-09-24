@@ -143,6 +143,9 @@ test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (fla
   const mid = await run(['post', 'proj-1', 'please --in-reply-to that thread'], ok);
   assert.equal(Object.prototype.hasOwnProperty.call(mid.calls[0].body, 'in_reply_to'), false,
     'a non-leading --in-reply-to is message text, not the flag (parity with install/kosmos)');
+  const empty = await run(['post', '--in-reply-to=', 'proj-1', 'answer'], ok);
+  assert.equal(empty.code, 2, 'an empty --in-reply-to= must error, not silently post unbound (parity with install/kosmos)');
+  assert.equal(empty.calls.length, 0, 'nothing must be posted when the citation id is empty');
 });
 
 test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {

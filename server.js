@@ -2204,10 +2204,12 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
   // its members). If archive ever comes to mean "closed", this is
   // the line that changes.
   const members = (found.agents || []).map((a) => a.sessionName);
-  // Sender validity FIRST, before the #3224 in_reply_to lookup below, so an invalid
-  // sender is refused uniformly and never reaches a lookup that behaves differently
-  // for an existing vs absent id -- the same id-enumeration precaution react() takes
-  // (membership before the post-id lookup).
+  // Sender validity FIRST, before the #3224 in_reply_to lookup below, so an explicitly
+  // invalid sender is refused uniformly and never reaches the lookup. Note this checks
+  // token/identity validity, NOT project membership (membership is enforced later, in
+  // messages.sendPost). So this does not fully replicate react()'s membership-before-
+  // lookup defense; the residual nameless existence tell is documented and accepted in
+  // the plan (loopback-bounded).
   if (sender && !sender.ok) return { state: 'could_not', because: sender.because };
   /* #3224: if this post ANSWERS a specific message (in_reply_to), bind it to the
      room that message came from. The answered post's project is a non-circular

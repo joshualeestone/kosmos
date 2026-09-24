@@ -2074,8 +2074,13 @@ function projectOfPost(id) {
      readable, genuinely-empty record and correctly falls through to null below. Only a
      real read failure (ok:false) is unverifiable. */
   if (!r || r.ok !== true) throw new Error('the message record could not be read');
-  if (!Array.isArray(r.parsed)) return null;
-  const m = r.parsed.find((x) => x && x.kind === 'post' && String(x.id) === wanted);
+  /* Scan `rows` (the SHAPE-VALIDATED list), not `parsed` (shape-agnostic, kept only for
+     id-reservation of foreign appends), so this "does this post exist, and in which
+     room" oracle agrees with react()'s existence lookup: a malformed post-shaped line
+     resolves to null here exactly as react() would say "no such post", rather than the
+     two oracles disagreeing on the same id. */
+  if (!Array.isArray(r.rows)) return null;
+  const m = r.rows.find((x) => x && x.kind === 'post' && String(x.id) === wanted);
   return m && typeof m.project === 'string' && m.project ? m.project : null;
 }
 
