@@ -6646,8 +6646,9 @@ const server = http.createServer((req, res) => {
            untouched and renders from `connection.state`, the pre-#1921 honest default.
            The `if (o.provider !== GOOGLE) continue;` filter is the join-isolation guard:
            a GOOGLE ok can never resolve against a claude/openai row, nor they against a
-           gemini one. GROK is the same slice one provider over, still a follow-on (#3391),
-           so grokRows is left un-overlaid here.
+           gemini one. The XAI/Grok overlay below (#3391) is the identical sibling, one
+           provider over, with the same positive-only + join-isolation shape and the same
+           default-account boundary.
 
            🔑 SCOPE BOUNDARY, deliberate: this badges NAMED gemini accounts only. A
            DEFAULT-account gemini agent (configDir null, e.g. the launcher's default agent)
@@ -6683,7 +6684,33 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return a;
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grokRows] });
+        /* #3391 observability follow-on: the XAI/Grok observed-overlay, the identical sibling
+           of the GOOGLE overlay above (positive-only, per-provider filter, per-account join,
+           newest-wins, additive-only). Same documented default-account boundary as gemini:
+           grokAccounts.listLive() emits only NAMED accounts in this slice, so a default-account
+           grok agent's observation is harmlessly orphaned and forward-compatible. */
+        const obsByGrokDir = new Map();
+        for (const o of observed.all()) {
+          if (o.provider !== observed.PROVIDER.XAI) continue;
+          const acct = accountForAgent(o.agent, grokRows);
+          if (!acct || !acct.dir) continue;
+          const prev = obsByGrokDir.get(acct.dir);
+          if (!prev || o.at > prev.at) obsByGrokDir.set(acct.dir, { outcome: o.outcome, at: o.at });
+        }
+        const grok = grokRows.map((a) => {
+          const obs = a.dir ? obsByGrokDir.get(a.dir) : null;
+          if (!obs) return a;
+          const v = observed.verdict({
+            checkLiveState: a.connection && a.connection.state,
+            observedOutcome: obs.outcome,
+            observedAt: obs.at,
+            now: nowMs,
+            freshMs: freshWindow,
+          });
+          if (v.badge !== 'working') return a;
+          return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+        });
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grok] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;

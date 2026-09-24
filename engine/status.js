@@ -5031,13 +5031,21 @@ function readGrokContext(agentName, sess) {
   return measuredResult(tokens, sess.contextWindow, false);
 }
 
-/* #2413-analog NOTE: the completion-time helper (grokCompletionAt, the sibling of
-   codexCompletionAt/geminiCompletionAt) belongs with the launcher slice, NOT here --
-   an exported-but-wired-nowhere helper is the #265 dead-code signature. sess.contextUsedAt
-   is already returned by groksession.read (anchored on signals.json mtime, a
-   weaker-than-content signal the badge must GATE on, not assume), so the launcher adds
-   grokCompletionAt + wires it into the snapshot observation arm + the badge together,
-   reachable from the start. */
+/* #3391 observability follow-on: the completion-time helpers, the siblings of
+   codexCompletionAt / geminiCompletionAt (4854/4948). A witnessed Grok turn completion is
+   `sess.contextUsedAt` (groksession.read anchors it on signals.json's mtime -- WHEN the
+   usage was written, one write per completed turn). snapshot()'s XAI observation arm consumes
+   the pure `grokCompletionAt` (session read once per tick); `grokLastCompletionAt` is the
+   read-and-derive convenience for a direct caller/test, exported below and reached by the
+   grok-observed test (its export is what the #265 dead-code guard checks -- same test-only
+   status as codexLastCompletionAt/geminiLastCompletionAt). Best-effort: null on a
+   missing/unread session keeps the badge grey, the safe direction. */
+function grokCompletionAt(sess) {
+  return sess && sess.found && typeof sess.contextUsedAt === 'number' ? sess.contextUsedAt : null;
+}
+function grokLastCompletionAt(agentName) {
+  return grokCompletionAt(readGrokSession(agentName));
+}
 
 /**
  * Model IDs as a person should read them.
@@ -6836,6 +6844,21 @@ function snapshot() {
         if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()) {
           observed.saw(observed.PROVIDER.GOOGLE, pane.name, observed.OUTCOME.OK, at);
         }
+      } else if (isNamedOurs(pane) && isGrokPane) {
+        /* #3391 observability follow-on -- the XAI/Grok arm, the exact sibling of the codex
+           and gemini arms above and positive-only for the same reason. A grok pane also
+           scrapes WORKING during a dead-credential reconnect, so WORKING is not an
+           auth-success signal; the signal that GUARANTEES a turn authenticated is a WITNESSED
+           SESSION COMPLETION (`sess.contextUsedAt`, anchored on signals.json's mtime, written
+           once per completed turn). grokCompletionAt returns when it happened; recording `ok`
+           stamped at that time, freshness-gated, greens a live sign-in from real traffic and
+           greys again on its own. POSITIVE-ONLY: no rejected/red until an observed on-pane
+           grok auth-failure signal exists. The `!isGrokPane` guard on the Claude arm above
+           keeps this pane out of a false ANTHROPIC ok. */
+        const at = grokCompletionAt(grokSess);
+        if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()) {
+          observed.saw(observed.PROVIDER.XAI, pane.name, observed.OUTCOME.OK, at);
+        }
       }
     } catch { /* observation is best-effort; never sink the snapshot */ }
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
@@ -7278,6 +7301,9 @@ module.exports = {
   geminiLastCompletionAt,
   // #3296: the Gemini context-ring reader (wired into snapshot's context ring).
   readGeminiContext,
+  // #3391 observability follow-on: the Grok completion-time helper (wired into snapshot's
+  // XAI observation arm; exported for the direct-caller/test path).
+  grokLastCompletionAt,
   // #3391: the Grok context-ring reader (wired into snapshot's context ring).
   readGrokContext,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
