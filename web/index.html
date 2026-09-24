@@ -1078,6 +1078,7 @@ html { scroll-padding-top: 132px; }
      ⭐ Fixing it here rather than by narrowing the two long panes: narrowing
      treats the symptom and the next Settings row that overflows brings it back. */
   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
+  /* (The wide agent Talk view is exempted from this gutter, and wide headers are padded to match: see the #3497 block.) */
 /* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
    case; the comment above says per width, and the notice changed the
    heights): desktop stays 128 tall so 132 still clears; between 441 and
@@ -2476,6 +2477,21 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
     position: relative; flex: 1 1 auto; min-height: 0; height: auto;
     margin-right: calc(-1 * var(--space-8)); }
+  /* The page does not scroll in this view (the body is a 100vh flex column; A1d), so the #1309 scrollbar gutter (reserved on html so long
+     pages do not shift) would only hold an empty strip down the right edge on a Mac that shows
+     scrollbars. It is dropped here, and the header padding below keeps the header from moving when an
+     agent opens or closes, which is the shift #1309 exists to prevent. Scoped like #1309 itself: with the consolidated layout chosen
+     (data-layout stays on html even on an agent's page) no gutter is ever reserved, so there is
+     nothing to drop or pad for. Both rules wait for data-scrollbar-measured, so if the width
+     cannot be measured the gutter stays (A1q). */
+  html[data-scrollbar-measured]:not([data-layout="consolidated"]):has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) { scrollbar-gutter: auto; }
+  /* On every wide view the header's right padding is --space-8 plus the scrollbar width less the width the page is
+     actually giving up to a gutter or scrollbar there (100vw - 100% - the body's two --space-8
+     sides, which .apphead's negative margins cancel). The controls then sit at one x whether or not
+     an engine reserves the gutter on a page that does not scroll: Playwright's WebKit does not (A1n).
+     The cost there: a page that really scrolls sits its header 15px right of the content edge. */
+  html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
+    padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
   /* The build marker moves to the bottom-left corner, over the side column, so it does not sit
      inside the box under Post. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #buildmark { right: auto; left: 10px; }
@@ -8513,6 +8529,78 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     var t = localStorage.getItem('kosmos-theme');
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
   } catch (e) { /* private mode, a locked-down profile: the system theme is a fine answer */ }
+})();
+/* #3497: the width of the gutter this page's root reserves when it does not scroll (0 with overlay
+   scrollbars or in an engine that reserves none, ~15px when a Mac shows them, 10px under the Windows
+   scrollbar style), as --scrollbar-width. The wide Talk view drops the #1309 gutter so the box reaches
+   the window edge, and wide headers are padded by this less what the page gives up, so the header
+   does not move between views. Read off the root itself, not a scrolling element: a runner that hides
+   scrollbars still reserves the root's gutter, and an element probe then reads 0 against a 15px
+   gutter. Measured at load, again once applyPlatformCopy stamps Windows (its scrollbar rule changes
+   the width), on resize (a zoom, a move to another display), on a pointer press (at most once a
+   second), focus and return to the tab: a Mac set to "Automatic" switches scrollbars when a mouse is
+   plugged in, which fires no resize, and the press that opens an agent then measures first. */
+window.kosmosMeasureScrollbarWidth = function () {
+  var root = document.documentElement;
+  /* The consolidated layout reserves no gutter and neither #3497 rule applies there. */
+  if (root.getAttribute('data-layout') === 'consolidated') return;
+  var prevGutter = root.style.scrollbarGutter, prevOverflow = root.style.overflow;
+  var x = window.scrollX, y = window.scrollY;
+  var thread = document.getElementById('d-dmthread'), threadTop = thread ? thread.scrollTop : 0;
+  var vw = null;
+  try {
+    /* A WebKit older than scrollbar-gutter (the Mac floor is 13.5) never reserved the #1309 gutter,
+       so there is nothing to drop and padding the Talk header would itself move it (A1s). */
+    if (!(window.CSS && CSS.supports && CSS.supports('scrollbar-gutter', 'stable'))) return;
+    /* Forced and read in one task, so nothing paints in between. */
+    root.style.scrollbarGutter = 'stable';
+    root.style.overflow = 'hidden';
+    var gutter = Math.max(0, Math.round(window.innerWidth - root.getBoundingClientRect().width));
+    /* The header padding assumes 100vw includes a reserved gutter. An engine where it does not
+       is never marked measured, so the page keeps the #1309 behaviour (A1t). */
+    vw = document.createElement('div');
+    vw.style.cssText = 'position:absolute;top:-999px;left:0;width:100vw;height:1px';
+    root.appendChild(vw);
+    var vwMatches = Math.abs(vw.getBoundingClientRect().width - window.innerWidth) <= 1; /* 1px: zoom lays 100vw out fractionally */
+    root.style.scrollbarGutter = prevGutter;
+    root.style.overflow = prevOverflow;
+    if (!vwMatches) { root.removeAttribute('data-scrollbar-measured'); return; }
+    root.style.setProperty('--scrollbar-width', gutter + 'px');
+    root.setAttribute('data-scrollbar-measured', '');
+  } catch (e) { /* no measurement: see data-scrollbar-measured in the #3497 CSS */ }
+  finally {
+    if (vw && vw.parentNode) vw.remove();
+    root.style.scrollbarGutter = prevGutter;
+    root.style.overflow = prevOverflow;
+    if (window.scrollX !== x || window.scrollY !== y) window.scrollTo(x, y);
+    if (thread && thread.scrollTop !== threadTop) thread.scrollTop = threadTop;
+  }
+};
+window.kosmosMeasureScrollbarWidth();
+/* A window drag fires resize many times a second; one measurement per frame is plenty. */
+(function () {
+  var queued = false;
+  window.addEventListener('resize', function () {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
+  });
+  /* The fewest ms between two pointer-press re-measures. Each probe forces a layout, and a Mac's
+     scrollbar mode changes when a mouse is plugged in, not between two clicks. */
+  var SCROLLBAR_REMEASURE_MIN_MS = 1000;
+  var lastPress = 0;
+  window.addEventListener('pointerdown', function () {
+    var now = Date.now();
+    if (now - lastPress < SCROLLBAR_REMEASURE_MIN_MS) return;
+    /* Not while the wide Talk view is open: forcing its gutter back reflows the whole thread at a
+       second width, and leaving Talk (or a resize) re-measures anyway (A1p). */
+    if (window.matchMedia('(min-width: 56.01rem)').matches
+      && document.querySelector('body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])')) return;
+    lastPress = now;
+    window.kosmosMeasureScrollbarWidth();
+  }, { capture: true, passive: true });
+  window.addEventListener('focus', window.kosmosMeasureScrollbarWidth);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) window.kosmosMeasureScrollbarWidth(); });
 })();
 </script>
 </head>
@@ -14972,6 +15060,7 @@ function platformHides(el) {
 function applyPlatformCopy(root) {
   if (!onWindows() || !root || typeof root.querySelectorAll !== 'function') return;
   document.documentElement.setAttribute('data-kosmos-platform', 'win32');
+  if (typeof window !== 'undefined' && typeof window.kosmosMeasureScrollbarWidth === 'function') window.kosmosMeasureScrollbarWidth();
   root.querySelectorAll('[data-win-copy]').forEach((el) => { el.innerHTML = windowsCopy(el.getAttribute('data-win-copy')); });
   root.querySelectorAll('[data-win-only]').forEach((el) => { el.hidden = false; });
   /* An accessible name has to say what the visible label says (the Terminal tab reads
@@ -32888,6 +32977,8 @@ function applyLayout(layout, apply) {
      aria-expanded and re-apply (or clear) the folded-descendant hiding. Safe
      before the list exists (it no-ops) and cheap (a class/attr pass). */
   if (typeof applyConsFold === 'function') applyConsFold();
+  /* #3497: the measurer skips the consolidated layout, so leaving it re-measures (A1u). */
+  if (was !== want && typeof window !== 'undefined' && typeof window.kosmosMeasureScrollbarWidth === 'function') window.kosmosMeasureScrollbarWidth();
 }
 /* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25
    10:12 CDT: "still some styling changes... moving the title and

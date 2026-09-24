@@ -24,6 +24,10 @@
  * right edge, and the composer's bottom margin equals its side margins (A1b-A1g), including
  * when the header grows taller (A1f) and without moving the identity column (A1g).
  *
+ * #3497 gutter (0.6.91 QA): A1l-A1q and A1s-A1u cover dropping the #1309 scrollbar gutter in wide Talk and
+ * padding wide headers by the measured scrollbar width. A1n launches its own Chromium (without
+ * --hide-scrollbars) and WebKit, so running this by hand needs both Playwright browsers.
+ *
  * Scoping guard (A6): a non-Talk section (Model) must NOT be forced tall -- the
  * fill is :has()-gated to the Talk section only.
  *
@@ -46,7 +50,7 @@ process.env.AGENT_WORKFORCE_LAUNCH = mkroot('launch-');
 process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
@@ -81,7 +85,7 @@ async function measure(page) {
       boxTop: Math.round(br.top),
       boxLeft: Math.round(br.left),
       boxRight: Math.round(br.right),
-      viewW: document.documentElement.clientWidth,
+      viewW: window.innerWidth, // the WINDOW edge: html's clientWidth hides a reserved scrollbar gutter
       headBottom: Math.round(document.querySelector('.apphead').getBoundingClientRect().bottom),
       backRight: back ? Math.round(back.getBoundingClientRect().right) : null,
       backBottom: back ? Math.round(back.getBoundingClientRect().bottom) : null,
@@ -114,6 +118,16 @@ async function measure(page) {
     await page.goto(URL, { waitUntil: 'networkidle' });
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
     await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
+    // Header positions and gutter on the board, before opening the agent (A1m compares Model to it).
+    const headPos = () => page.evaluate(() => {
+      const r = document.querySelector('.apphead .headright').getBoundingClientRect();
+      const t = document.getElementById('tabs').getBoundingClientRect();
+      return { headRight: Math.round(r.right), tabsLeft: Math.round(t.left),
+        gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+        sbw: getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim(),
+        padRight: getComputedStyle(document.querySelector('.apphead')).paddingRight };
+    });
+    const boardHead = await headPos();
     await page.click('[data-agent="beatrix"]');
     await page.waitForSelector('#panel-detail:not([hidden])');
     await page.waitForTimeout(300);
@@ -155,6 +169,11 @@ async function measure(page) {
         'A1e ' + tag + ': the back link does not overlap the identity block', 'backBottom=' + m.backBottom + ' identTop=' + m.identTop);
     };
     edges(tall, 'tall window');
+    // A1m: the wide Talk view drops the #1309 scrollbar gutter (so the box can reach the window
+    // edge on a Mac that shows scrollbars). A computed-style read, so it holds in any scrollbar
+    // mode; A1b shows the result where the runner's scrollbars take width.
+    const talkHead = await headPos();
+    chk(talkHead.gutter === 'auto', 'A1m the wide Talk view drops the scrollbar gutter', JSON.stringify(talkHead));
     // A1g (checked at the Model visit below): the identity block sits at the same distance from the
     // header on Talk as on Model, so switching sections does not make it jump.
     const talkIdentFromHead = tall.identTop - tall.headBottom;
@@ -237,6 +256,12 @@ async function measure(page) {
       'A2 short window: the Talk box still fills to near the viewport bottom',
       'boxBottom=' + short.boxBottom + ' innerHeight=' + short.innerHeight + ' gap=' + short.gapBelowBox);
     edges(short, 'short window');
+    // A1l: Josh's window size (0.6.91 QA, about 1000x660), where a reserved scrollbar gutter left a
+    // 15px strip down the right edge (box right 985 in a 1000 window). A1b above now measures to
+    // window.innerWidth, so it reds on that strip.
+    await page.setViewportSize({ width: 1000, height: 660 });
+    await page.waitForTimeout(200);
+    edges(await measure(page), 'A1l Josh window 1000x660');
 
     // --- Narrow width (<=56rem): the identity block and nav stack above the Talk box, so the page
     // scrolls and the box is its own window-tall block; the header is not sticky in this view.
@@ -253,7 +278,7 @@ async function measure(page) {
       const h = document.querySelector('.apphead').getBoundingClientRect();
       const out = { boxHeight: Math.round(b.height), boxTop: Math.round(b.top), boxBottom: Math.round(b.bottom),
         headBottom: Math.round(h.bottom), composerTop: Math.round(c.top), composerBottom: Math.round(c.bottom),
-        innerHeight: window.innerHeight };
+        innerHeight: window.innerHeight, gutter: getComputedStyle(document.documentElement).scrollbarGutter };
       window.scrollTo(0, 0);
       return out;
     }, where);
@@ -266,6 +291,7 @@ async function measure(page) {
       'A2b narrow width: the Talk box is a usable, window-fitting height', JSON.stringify(nEnd));
     chk(onScreen(nEnd),
       'A2d narrow width: scrolled to the box, all of it (header row to composer) is on screen and uncovered', JSON.stringify(nEnd));
+    chk(nEnd.gutter === 'stable', 'A1m scope: the narrow Talk view (which scrolls) keeps the scrollbar gutter', 'gutter=' + nEnd.gutter);
     chk(onScreen(nMax),
       'A2e narrow width: at the end of the page (where scrolling stops), the whole box is on screen and uncovered', JSON.stringify(nMax));
     // A2f: focusing the box (the app does, e.g. the paintTalk rescue) keeps its composer on screen,
@@ -320,7 +346,8 @@ async function measure(page) {
       thread.scrollTop = thread.scrollHeight;         // scroll the thread to its foot
       const br = box.getBoundingClientRect();
       const cr = composer.getBoundingClientRect();
-      return { threadOverflows, threadOverflowY: getComputedStyle(thread).overflowY, composerWithinBox: cr.bottom <= br.bottom + 4 };
+      return { threadOverflows, threadOverflowY: getComputedStyle(thread).overflowY, composerWithinBox: cr.bottom <= br.bottom + 4,
+        docScrollH: document.documentElement.scrollHeight, innerHeight: window.innerHeight };
     });
     console.log('MEASURE thread-short(1400x440): ' + JSON.stringify(qask));
     chk(qask.threadOverflows === true,
@@ -329,6 +356,10 @@ async function measure(page) {
     chk(qask.threadOverflowY === 'auto' && qask.composerWithinBox,
       'A9b the thread scrolls internally so the composer stays reachable when it overflows',
       'threadOverflowY=' + qask.threadOverflowY + ' composerWithinBox=' + qask.composerWithinBox);
+    // A9c: the wide Talk view drops the scrollbar gutter because the page never scrolls there
+    // (A1m); a 440-tall window with an overflowing thread must still not scroll the page.
+    chk(qask.docScrollH <= qask.innerHeight + 1,
+      'A9c the wide Talk page does not scroll in a 440-tall window either', 'docScrollH=' + qask.docScrollH + ' innerHeight=' + qask.innerHeight);
 
     // Repaint the thread so the scoping guard below sees a normal talk section
     // (the injected rows are inert markup the next real poll would replace anyway).
@@ -349,6 +380,148 @@ async function measure(page) {
         identFromHead: f ? Math.round(f.getBoundingClientRect().top - head) : null };
     });
     console.log('MEASURE model section: ' + JSON.stringify(model));
+    // A1m scope: every other view keeps the #1309 gutter.
+    const modelHead = await headPos();
+    chk(modelHead.gutter === 'stable' && boardHead.gutter === 'stable',
+      'A1m scope: the board and the Model section keep the scrollbar gutter', JSON.stringify({ boardHead, modelHead }));
+    // A1n (the header does not move, measured with real scrollbars) runs in its own browser below.
+    // A1o, the mechanism in any scrollbar mode: with a 15px scrollbar width, the header's right
+    // padding on Model and on Talk is 24px + 15px less the width the page gives up on that view
+    // (the window width less the header's box). Under the consolidated layout it is the plain 24px.
+    const pad = await page.evaluate(async () => {
+      const bootWidth = document.documentElement.style.getPropertyValue('--scrollbar-width');
+      document.documentElement.style.setProperty('--scrollbar-width', '15px');
+      const root = document.documentElement;
+      const head = document.querySelector('.apphead');
+      const read = () => ({ pad: parseFloat(getComputedStyle(head).paddingRight),
+        given: window.innerWidth - head.getBoundingClientRect().width });
+      const model = read();
+      document.querySelector('#panel-detail .snav button[data-go="talk"]').click();
+      await new Promise((r) => setTimeout(r, 150));
+      const talk = read();
+      // The consolidated layout preference keeps data-layout on html even on an agent's page, and
+      // reserves no gutter anywhere, so the Talk header must NOT gain the padding there.
+      const prevLayout = document.documentElement.getAttribute('data-layout');
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      const consTalk = read().pad;
+      if (prevLayout === null) document.documentElement.removeAttribute('data-layout');
+      else document.documentElement.setAttribute('data-layout', prevLayout);
+      // The unpadded base (the --space-8 token), read rather than written down, in the normal
+      // layout: an unmeasured page carries no #3497 padding at all.
+      root.removeAttribute('data-scrollbar-measured');
+      const base = read().pad;
+      root.setAttribute('data-scrollbar-measured', '');
+      if (bootWidth) document.documentElement.style.setProperty('--scrollbar-width', bootWidth);
+      else document.documentElement.style.removeProperty('--scrollbar-width');
+      return { model, talk, consTalk, base };
+    });
+    chk(pad.base > 0 && Math.abs(pad.model.pad - (pad.base + 15 - pad.model.given)) <= 0.5 && Math.abs(pad.talk.pad - (pad.base + 15 - pad.talk.given)) <= 0.5,
+      'A1o the header padding is the base + the scrollbar width (15px here) less the width given up, on Model and Talk (the page is left on Talk)', JSON.stringify(pad));
+    chk(pad.consTalk === pad.base,
+      'A1o scope: with the consolidated layout chosen (no gutter anywhere), the Talk header keeps the plain base padding', JSON.stringify(pad));
+    // A1q: a measurement that failed leaves no data-scrollbar-measured, and then Talk keeps the #1309
+    // gutter and the header is not padded, so the header cannot move. Control: the same reads with
+    // the attribute present drop the gutter and pad the header.
+    const unmeasured = await page.evaluate(() => {
+      const root = document.documentElement;
+      const bootWidth = root.style.getPropertyValue('--scrollbar-width');
+      root.style.setProperty('--scrollbar-width', '15px');
+      const read = () => ({ gutter: getComputedStyle(root).scrollbarGutter,
+        pad: getComputedStyle(document.querySelector('.apphead')).paddingRight });
+      const measured = read();
+      root.removeAttribute('data-scrollbar-measured');
+      const failed = read();
+      root.setAttribute('data-scrollbar-measured', '');
+      if (bootWidth) root.style.setProperty('--scrollbar-width', bootWidth);
+      else root.style.removeProperty('--scrollbar-width');
+      return { measured, failed };
+    });
+    chk(unmeasured.measured.gutter === 'auto' && unmeasured.failed.gutter === 'stable'
+      && Math.abs(parseFloat(unmeasured.measured.pad) - parseFloat(unmeasured.failed.pad) - 15) <= 0.5,
+      'A1q with no successful measurement, the Talk view keeps the gutter and the header is not padded (control: measured drops it and pads 15px)', JSON.stringify(unmeasured));
+    // A1s: an engine without scrollbar-gutter never reserved the #1309 gutter, so the measurer must
+    // not mark the page measured there (A1q then shows nothing is dropped or padded). Control: with
+    // support reported, the same call marks it.
+    const noGutter = await page.evaluate(() => {
+      const root = document.documentElement;
+      const realSupports = CSS.supports;
+      root.removeAttribute('data-scrollbar-measured');
+      CSS.supports = (p, v) => (p === 'scrollbar-gutter' ? false : realSupports.call(CSS, p, v));
+      window.kosmosMeasureScrollbarWidth();
+      const unsupported = root.hasAttribute('data-scrollbar-measured');
+      CSS.supports = realSupports;
+      window.kosmosMeasureScrollbarWidth();
+      return { unsupported, supported: root.hasAttribute('data-scrollbar-measured') };
+    });
+    chk(noGutter.unsupported === false && noGutter.supported === true,
+      'A1s without scrollbar-gutter support the page is not marked measured (control: with support it is)', JSON.stringify(noGutter));
+    // A1t: an engine whose 100vw leaves out a reserved gutter would break the header padding formula,
+    // so the measurer must not mark the page measured there. innerWidth is stubbed 50px wider than
+    // 100vw lays out. Control: unstubbed, the same call marks it.
+    const vwCheck = await page.evaluate(() => {
+      const root = document.documentElement;
+      const desc = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+      const real = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, get: () => real + 50 });
+      window.kosmosMeasureScrollbarWidth();
+      const mismatched = root.hasAttribute('data-scrollbar-measured');
+      if (desc) Object.defineProperty(window, 'innerWidth', desc); else delete window.innerWidth;
+      window.kosmosMeasureScrollbarWidth();
+      return { mismatched, matched: root.hasAttribute('data-scrollbar-measured'), restored: window.innerWidth === real };
+    });
+    chk(vwCheck.mismatched === false && vwCheck.matched === true && vwCheck.restored,
+      'A1t where 100vw does not match the window width the page is not marked measured (control: where it does, it is)', JSON.stringify(vwCheck));
+    // A1p: the width is re-measured, not fixed at load. It proves the measurer RUNS on these
+    // triggers; headless hides scrollbars, so the value it reads is 0 and the Windows 10px width
+    // itself is not verified here. A resize (which a zoom or a display move
+    // fires) replaces a planted wrong value with the measured one, and the Windows stamp re-measures
+    // too (its scrollbar rule changes the width).
+    const remeasure = await page.evaluate(async () => {
+      const root = document.documentElement;
+      const before = root.style.getPropertyValue('--scrollbar-width');
+      root.style.setProperty('--scrollbar-width', '99px');
+      window.dispatchEvent(new Event('resize'));
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const afterResize = root.style.getPropertyValue('--scrollbar-width');
+      // A press inside the wide Talk view does not measure; on Model it does.
+      root.style.setProperty('--scrollbar-width', '99px');
+      await new Promise((r) => setTimeout(r, 1100)); // the press re-measure runs at most once a second
+      window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      const pressInTalk = root.style.getPropertyValue('--scrollbar-width');
+      document.querySelector('#panel-detail .snav button[data-go="model"]').click();
+      await new Promise((r) => setTimeout(r, 1100));
+      root.style.setProperty('--scrollbar-width', '99px');
+      window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      const afterPress = root.style.getPropertyValue('--scrollbar-width');
+      document.querySelector('#panel-detail .snav button[data-go="talk"]').click();
+      await new Promise((r) => setTimeout(r, 150));
+      root.style.setProperty('--scrollbar-width', '99px');
+      window.dispatchEvent(new Event('focus'));
+      const afterFocus = root.style.getPropertyValue('--scrollbar-width');
+      root.style.setProperty('--scrollbar-width', '99px');
+      document.dispatchEvent(new Event('visibilitychange'));
+      const afterVisible = root.style.getPropertyValue('--scrollbar-width');
+      // The Windows stamp: a served win32 meta, and applyPlatformCopy on a DETACHED root so no copy
+      // on the page is swapped; it stamps html and must re-measure. Then everything is put back.
+      root.style.setProperty('--scrollbar-width', '99px');
+      const meta = document.createElement('meta'); meta.name = 'kosmos-platform'; meta.content = 'win32';
+      const prevMeta = document.querySelector('meta[name="kosmos-platform"]');
+      if (prevMeta) prevMeta.remove();
+      document.head.appendChild(meta);
+      applyPlatformCopy(document.createElement('div'));
+      const afterStamp = root.style.getPropertyValue('--scrollbar-width');
+      meta.remove(); if (prevMeta) document.head.appendChild(prevMeta);
+      root.removeAttribute('data-kosmos-platform');
+      window.kosmosMeasureScrollbarWidth();
+      return { before, afterResize, pressInTalk, afterPress, afterFocus, afterVisible, afterStamp, restored: root.style.getPropertyValue('--scrollbar-width') };
+    });
+    const px = (v) => /^\d+px$/.test(v);
+    const fresh = (v) => px(v) && v !== '99px';
+    chk(fresh(remeasure.afterResize) && fresh(remeasure.afterPress) && fresh(remeasure.afterFocus) && fresh(remeasure.afterVisible) && fresh(remeasure.afterStamp)
+      && remeasure.restored === remeasure.before,
+      'A1p the scrollbar width is re-measured on resize, a pointer press off Talk, window focus, return to the tab and the Windows stamp (the measurer runs; the Windows width itself is unverified headless)', JSON.stringify(remeasure));
+    chk(remeasure.pressInTalk === '99px',
+      'A1p a pointer press inside the wide Talk view does not force a re-measure (control: the same press on Model does)', JSON.stringify(remeasure));
     chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,
       'A1g the identity block stays where it was (within 1px of Model; the 1px is the pre-existing Talk/Model line-box difference)',
       'talk=' + talkIdentFromHead + ' model=' + model.identFromHead);
@@ -356,7 +529,83 @@ async function measure(page) {
       'A6 scoping: a non-Talk section (Model) stays content-height, NOT stretched to the window',
       'secBottom=' + model.secBottom + ' innerHeight=' + model.innerHeight);
 
+    // A1u: leaving the consolidated layout re-measures (the measurer skips that layout, so a
+    // scrollbar change made there would otherwise stay stale). A planted value must be replaced.
+    const relayout = await page.evaluate(() => {
+      const root = document.documentElement;
+      const prev = root.getAttribute('data-layout');
+      root.setAttribute('data-layout', 'consolidated');
+      root.style.setProperty('--scrollbar-width', '99px');
+      applyLayout('tabs', true);
+      const after = root.style.getPropertyValue('--scrollbar-width');
+      if (prev === null) root.removeAttribute('data-layout'); else root.setAttribute('data-layout', prev);
+      window.kosmosMeasureScrollbarWidth();
+      return { after };
+    });
+    chk(/^\d+px$/.test(relayout.after) && relayout.after !== '99px',
+      'A1u leaving the consolidated layout re-measures the scrollbar width', JSON.stringify(relayout));
+
     chk(errs.length === 0, 'A7 no page errors', errs.join(' | '));
+
+    // A1n: the same promises measured with scrollbars that take width, as on a Mac that shows them,
+    // in Chromium and in WebKit (the Mac app's engine). Headless Chromium hides every scrollbar
+    // (--hide-scrollbars, a default flag), so this launches its own browser without it, as
+    // render-win32-board-copy does, and forces a 15px classic bar so a Mac with overlay scrollbars
+    // reserves a real gutter too. At Josh's 1000x660: the box reaches the window edge (control:
+    // before #3497's gutter fix it stopped at 985), and the header controls and tabs sit at the
+    // same x on the board, Talk and Model.
+    for (const [engine, launch] of [
+      ['chromium', () => chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] })],
+      ['webkit', () => webkit.launch({ headless: process.env.HEADED === '0' })],
+    ]) {
+      const sbBrowser = await launch();
+      try {
+        const sp = await sbBrowser.newPage({ viewport: { width: 1000, height: 660 } });
+        const sErrs = [];
+        sp.on('pageerror', (e) => sErrs.push(e.message));
+        await sp.goto(URL, { waitUntil: 'networkidle' });
+        if (await sp.$('#firstrun:not([hidden])')) { await sp.keyboard.press('Escape'); await sp.waitForTimeout(400); }
+        await sp.addStyleTag({ content: '::-webkit-scrollbar { width: 15px; height: 15px; }' });
+        await sp.evaluate(() => window.kosmosMeasureScrollbarWidth());
+        // WebKit does not re-lay out the root's gutter for a scrollbar style added after load until
+        // the viewport changes; a real Mac has its scrollbars from the first paint.
+        await sp.setViewportSize({ width: 1000, height: 661 });
+        await sp.setViewportSize({ width: 1000, height: 660 });
+        await sp.waitForTimeout(100);
+        await sp.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
+        const sHead = () => sp.evaluate(() => {
+          const r = document.querySelector('.apphead .headright').getBoundingClientRect();
+          const t = document.getElementById('tabs').getBoundingClientRect();
+          return { headRight: Math.round(r.right), tabsLeft: Math.round(t.left),
+            gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+            sbw: getComputedStyle(document.documentElement).getPropertyValue('--scrollbar-width').trim(),
+            given: Math.round(window.innerWidth - document.documentElement.getBoundingClientRect().width) };
+        });
+        const sBoard = await sHead();
+        await sp.click('[data-agent="beatrix"]');
+        await sp.waitForSelector('#panel-detail:not([hidden])');
+        await sp.waitForTimeout(300);
+        const sTalk = await sHead();
+        const sBox = await measure(sp);
+        await sp.click('#panel-detail .snav button[data-go="model"]');
+        await sp.waitForTimeout(300);
+        const sModel = await sHead();
+        // Real scrollbars: Model scrolls and gives up 15px in both engines. The measured reservation of a
+        // page that does not scroll is 15px in Chromium and 0 in Playwright's WebKit, which reserves none.
+        chk(sModel.given === 15 && (engine === 'chromium' ? sBoard.sbw === '15px' : (sBoard.sbw === '0px' || sBoard.sbw === '15px')),
+          'A1n ' + engine + ' precondition: a scrolling page gives up 15px and the measured reservation is ' + (engine === 'chromium' ? '15px (so the edge arm is a control that reds on main)' : '0 or 15px (Playwright\'s WebKit reserves none on a page that does not scroll)'), JSON.stringify({ sBoard, sModel }));
+        chk(sBoard.gutter === 'stable' && sTalk.gutter === 'auto',
+          'A1n ' + engine + ': the board keeps the #1309 gutter and Talk drops it', JSON.stringify({ sBoard, sTalk }));
+        chk(Math.abs(sBox.boxRight - sBox.viewW) <= 1,
+          'A1n ' + engine + ': the Talk box reaches the window edge with real scrollbars at 1000x660' + (engine === 'webkit' ? ' (a guard in WebKit, which reserves no gutter on a page that does not scroll; Chromium is the control)' : ''), 'boxRight=' + sBox.boxRight + ' viewW=' + sBox.viewW);
+        chk(sBoard.headRight === sTalk.headRight && sTalk.headRight === sModel.headRight
+          && sBoard.tabsLeft === sTalk.tabsLeft && sTalk.tabsLeft === sModel.tabsLeft,
+          'A1n ' + engine + ': the header controls and tabs do not move between the board, Talk and Model', JSON.stringify({ sBoard, sTalk, sModel }));
+        chk(sErrs.length === 0, 'A1n ' + engine + ': no page errors', sErrs.join(' | '));
+      } finally {
+        await sbBrowser.close();
+      }
+    }
   } finally {
     await browser.close();
     server.close();
