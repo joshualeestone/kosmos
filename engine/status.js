@@ -2062,6 +2062,42 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  */
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
+/* #3531: Claude Code's ahead-of-time login-expiry banner. On-screen it reads
+ * `⚠ Your login expires in N days · run /login to renew`. The two fragments below
+ * are byte-exact from the installed 2.1.281 binary's formatter (pulled from the
+ * bundle, NOT guessed -- same discipline as CONNECTION_LOST_MESSAGE). Both anchors
+ * must appear on ONE line, which keeps a card or message that merely quotes the
+ * phrase from matching (the "run /login to renew" tail is not something prose
+ * carries by accident).
+ *
+ * 🛑 WHY THE BANNER AND NOT THE KEYCHAIN: the credential's `expiresAt` is the
+ * short-lived ACCESS token (hours, auto-refreshes), so a keychain check reads
+ * healthy right up to the day the login dies. This banner is the only ahead-of-time
+ * signal, which is the whole point of the card ("or peoples agents will just die").
+ *
+ * 📌 ADVISORY, NOT A STATE: unlike connection_lost, the agent is still WORKING while
+ * this shows. So loginExpiryFromText is consumed as a per-account OVERLAY, never a
+ * classify() precedence arm -- it must not move working/idle/needs_you.
+ *
+ * 📌 CLAUDE CODE ONLY + FAIL SOFT: these are Claude Code's strings; a Codex pane is
+ * not covered here (its vocabulary was not captured). No match returns null (no
+ * advisory), never a throw, so a future wording change degrades to "no warning",
+ * not a broken board. */
+const LOGIN_EXPIRY_BANNER = /Your login expires in\s+(\d+)\s+days?\b[\s\S]*?run \/login to renew/i;
+
+/* Returns { daysLeft:N } from the soonest banner on the pane, or null. Uses the
+ * matchedLine discipline (per-line, frame/prompt glyphs stripped) so the leading
+ * `⚠ ` and any frame chrome do not defeat the match. */
+function loginExpiryFromText(paneText) {
+  const line = matchedLine(paneText, [LOGIN_EXPIRY_BANNER]);
+  if (!line) return null;
+  const m = line.match(/Your login expires in\s+(\d+)\s+days?\b/i);
+  if (!m) return null;
+  const daysLeft = Number(m[1]);
+  if (!Number.isFinite(daysLeft) || daysLeft < 0) return null;
+  return { daysLeft };
+}
+
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
    marker sets. Whitespace INSIDE the timer group is \s+ too, so a
@@ -7211,6 +7247,8 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
+  /* #3531: login-expiry advisory detector (per-account overlay, not a classify state). */
+  loginExpiryFromText, LOGIN_EXPIRY_BANNER,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   codexLastCompletionAt,
   // #3296: the Gemini context-ring reader (wired into snapshot's context ring).
