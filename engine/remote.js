@@ -40,12 +40,12 @@
  * Env seams, each so tests can run a fake through this module:
  *   AGENT_WORKFORCE_TUNNEL_BIN          the kosmos-tunnel binary
  *   AGENT_WORKFORCE_TUNNEL_RELAY        relay host:port. Default: the real
- *                                       relay, relay.plus.installkosmos.com:8443
- *                                       (the domain was decided 2026-08-23 and
- *                                       the box has served it since 2026-08-24;
- *                                       until then there was no default, so a
- *                                       wrong baked-in one could not dial
- *                                       somewhere nobody chose)
+ *                                       relay, relay.kosmosplus.com:8443
+ *                                       (migrated from relay.plus.installkosmos.com
+ *                                       under kosmos#2550, for naming consistency
+ *                                       with the coordinator; the relay serves a
+ *                                       SAN cert covering both names, so installed
+ *                                       clients on the old name keep working)
  *   AGENT_WORKFORCE_TUNNEL_COORDINATOR  coordinator URL for setup. Default: the
  *                                       real one, https://login.kosmosplus.com
  *                                       (flipped from coordinator.plus.installkosmos.com to the
@@ -101,7 +101,7 @@ const BIN = () => {
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
-const DEFAULT_RELAY = 'relay.plus.installkosmos.com:8443';
+const DEFAULT_RELAY = 'relay.kosmosplus.com:8443';
 const DEFAULT_COORDINATOR = 'https://login.kosmosplus.com';
 const RELAY = () => process.env.AGENT_WORKFORCE_TUNNEL_RELAY || read().relay || DEFAULT_RELAY;
 /* The ONE answer to "is a relay configured on this machine" (#790). The
