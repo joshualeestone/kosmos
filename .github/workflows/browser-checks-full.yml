@@ -28,11 +28,10 @@ on:
     - cron: '30 9 * * *'
   workflow_dispatch:
 
+# Least privilege per job: the checks job (third-party npm installs, every browser
+# check) holds only contents: read. Only the separate card job holds issues: write.
 permissions:
   contents: read
-  # Only for filing a SCHEDULED red as a card (the last step). A schedule runs main,
-  # never PR code, so no untrusted code holds this token.
-  issues: write
 
 concurrency:
   group: browser-checks-full-${{ github.ref }}
@@ -42,10 +41,16 @@ concurrency:
 jobs:
   browser-checks-full:
     runs-on: macos-latest
-    # The cut's 3b render window is ~16 minutes on a dev Mac; a hosted runner is slower.
+    # Backstop only. The checks step has its own shorter timeout, because a STEP timeout
+    # concludes as failure (so the card job runs) while a JOB timeout concludes as
+    # cancelled (so it would not).
     timeout-minutes: 75
+    outputs:
+      failed: ${{ steps.failed.outputs.labels }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -56,28 +61,55 @@ jobs:
       - name: 'provision the pinned Playwright runtime (#1594)'
         run: bash tools/provision-pw.sh
       - name: 'the FULL page layer, headless, every check (tools/browser-checks.sh, #2518)'
-        run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
-      # 🔑 A nightly red must reach the fleet, not just the run's actor (GitHub mails only
-      # them). So a SCHEDULED red becomes a card in the work queue the fleet already
-      # reads: one open card per streak, each further red night a comment on it, which
-      # also makes the card the running log of the runner's false-red baseline. A
-      # workflow_dispatch run on a branch never files anything.
+        id: checks
+        # The cut's 3b render window is ~16 minutes on a dev Mac; a hosted runner is slower.
+        timeout-minutes: 65
+        run: |
+          set -o pipefail
+          KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh 2>&1 | tee "$RUNNER_TEMP/browser-checks.log"
+      # The labels of the checks that went red, for the card: a new name on a card that is
+      # already red is what separates a regression from known runner noise. Read from the
+      # driver's own one-line summary (`FAILED:  <labels>`), not from FAIL lines, which
+      # the individual checks also print for their assertions.
+      - name: 'collect the red check labels (#2518)'
+        id: failed
+        if: always()
+        run: |
+          labels=$(sed -n 's/^FAILED:  //p' "$RUNNER_TEMP/browser-checks.log" 2>/dev/null | tail -n 1)
+          echo "labels=${labels:-(none captured; see the run log)}" >> "$GITHUB_OUTPUT"
+
+  # 🔑 A nightly red must reach the fleet, not just the run's actor (GitHub mails only
+  # them). So a SCHEDULED red becomes a card in the work queue the fleet already reads:
+  # one open card per streak, each further red night a comment naming the red checks.
+  # A workflow_dispatch run never files anything, so branch code never reaches this.
+  file-red-card:
+    needs: browser-checks-full
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
       - name: 'file a scheduled red as a card (#2518)'
-        if: failure() && github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RED: ${{ needs.browser-checks-full.outputs.failed }}
         run: |
           label=nightly-browser-checks-red
-          gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
-            --description "The nightly full browser-check run on main is red (#2518)" 2>/dev/null || true
+          if ! gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name' | grep -qx "$label"; then
+            gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
+              --description "The nightly full browser-check run on main is red (#2518)"
+          fi
           open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number')
           if [ -n "$open" ] && [ "$open" != null ]; then
-            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still red: $RUN_URL (main at $GITHUB_SHA)."
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still red at $GITHUB_SHA: $RUN_URL
+          Red checks: ${RED:-(none captured)}"
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --label "$label" \
               --title "Nightly full browser-check run is red on main" \
               --body "The nightly full page-layer run (browser-checks-full.yml, #2518) failed on main at $GITHUB_SHA: $RUN_URL
 
-          Open the run, find the FAIL lines, and decide per check: a product regression (fix it before the next cut), or runner noise (record it here, with its output, as part of the runner baseline). Close this card when a nightly run is green again."
+          Red checks: ${RED:-(none captured)}
+
+          Decide per check: a product regression (fix it before the next cut), or runner noise (record it here, with its output, as part of the runner baseline). Each further red night comments here with its red checks, so a NEW name is the one to look at. Close this card when a nightly run is green again."
           fi

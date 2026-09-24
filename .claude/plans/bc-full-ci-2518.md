@@ -19,11 +19,17 @@ engines, merged green, and blocked the 0.6.91 staging cut.
   09:30 UTC) and `workflow_dispatch` (on demand, any branch). It runs `tools/browser-checks.sh`
   with no allowlist (every check, headless via run_one, the same script and pin as the cut's
   3b), `timeout-minutes: 75`, and `cancel-in-progress: false`.
-- On a SCHEDULED failure only, a last step files the red as a card labelled
-  `nightly-browser-checks-red`, or comments on the one already open. The card lands in the
-  work queue the fleet reads (review iteration 2: GitHub mails a scheduled failure only to
-  the run's actor). `issues: write` is held by this workflow only, and a schedule runs main,
-  never PR code.
+- Two jobs, least privilege each (review iteration 3). `browser-checks-full` holds only
+  `contents: read` (checkout with persist-credentials false), since third-party npm installs
+  and every check run there. Its checks step has its own 65-minute timeout: a STEP timeout
+  concludes as failure, while a JOB timeout concludes as cancelled and would file nothing.
+  An always() step reads the driver's own `FAILED:  <labels>` summary line into a job output.
+- `file-red-card` (`needs` the checks job, `if: failure() && schedule`, job-level
+  `issues: write` only) files the red as a `nightly-browser-checks-red` card, or comments
+  on the open one. It names the red checks each time, so a NEW name on a known-red card
+  stands out from runner noise. It lands in the work queue the fleet reads (review
+  iteration 2: GitHub mails a scheduled failure only to the run's actor). A dispatch run on a
+  branch never reaches the token.
 - `browser-checks.yml` is unchanged except for quoting its step name: an unquoted ` #` starts
   a YAML comment, so the name had been parsing as "... (tools/browser-checks.sh," all along.
 - `tools/test-browser-checks-workflow.sh`: pins the allowlist job by parsed YAML, since the
@@ -58,6 +64,10 @@ release.sh labels step 3b "headless").
 - tools/test-browser-checks-workflow.sh green, and red under five injected regressions: the
   allowlist job's run line deleted (the review's repro), its runs-on changed, pull_request
   added to the full workflow, an allowlist on the full job, and an unquoted step name. Also
-  red when the card step is ungated (`if: failure()` alone) or `issues: write` is missing.
-- The card step's script, run with `gh` stubbed as a shell function: no open card creates
-  one; a literal `null` from the query also creates one (guarded); an open #7 gets a comment.
+  red under six more: the card step's GH_TOKEN removed, job-level issues: write added to the
+  PR job, the checks step's timeout removed, the card job ungated, issues: write moved to
+  workflow level, and the card job's needs removed.
+- The card script, with `gh` stubbed as a shell function under set -e: a fresh streak creates
+  the label and a card naming the red checks; an open card gets a comment naming them. The
+  label collector, fed a log that also contains assertion-level FAIL lines, returns only the
+  FAILED: summary's labels, and a clean fallback when there is no log.

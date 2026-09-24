@@ -151,10 +151,19 @@ if command -v ruby >/dev/null 2>&1; then
     abort "browser-checks-full does not run browser-checks.sh with the strict pin" unless runs.(fj) =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/
     abort "browser-checks-full does not provision Playwright" unless runs.(fj).include?("tools/provision-pw.sh")
     abort "browser-checks-full is not on macos-latest" unless fj["runs-on"] == "macos-latest"
-    fs = (fj["steps"] || []).find { |st| st["name"].to_s.include?("file a scheduled red as a card") } or abort "browser-checks-full has no step filing a scheduled red as a card (nobody would see a nightly red)"
-    abort "the card-filing step must run only on a scheduled failure, got if: #{fs["if"].inspect}" unless fs["if"].to_s.gsub(/\s+/, " ").strip == "failure() && github.event_name == \x27schedule\x27"
-    abort "browser-checks-full.yml lacks issues: write, so it cannot file the card" unless (f["permissions"] || {})["issues"] == "write"
-    abort "the PR workflow must not hold issues: write" if ((d["permissions"] || {})["issues"]).to_s == "write"
+    # The checks job holds contents: read only (third-party installs run there); the
+    # separate card job alone holds issues: write, and only for a scheduled failure.
+    abort "browser-checks-full.yml top-level permissions must be exactly contents: read, got #{f["permissions"].inspect}" unless f["permissions"] == { "contents" => "read" }
+    abort "the checks job must not grant itself permissions" if fj.key?("permissions")
+    cs = (fj["steps"] || []).find { |st| st["run"].to_s =~ /bash tools\/browser-checks\.sh/ } or abort "no checks step"
+    abort "the checks step needs its own timeout below the job timeout (a JOB timeout is cancelled, which files no card)" unless cs["timeout-minutes"].to_i > 0 && cs["timeout-minutes"].to_i < fj["timeout-minutes"].to_i
+    cj = (f["jobs"] || {})["file-red-card"] or abort "no file-red-card job (nobody would see a nightly red)"
+    abort "file-red-card must need browser-checks-full" unless Array(cj["needs"]).include?("browser-checks-full")
+    abort "file-red-card must run only on a scheduled failure, got if: #{cj["if"].inspect}" unless cj["if"].to_s.gsub(/\s+/, " ").strip == "failure() && github.event_name == \x27schedule\x27"
+    abort "file-red-card must hold exactly issues: write, got #{cj["permissions"].inspect}" unless cj["permissions"] == { "issues" => "write" }
+    abort "the card step has no GH_TOKEN, so gh cannot file anything" unless (cj["steps"] || []).any? { |st| (st["env"] || {})["GH_TOKEN"].to_s.include?("github.token") }
+    # The PR workflow never holds issues: write, at the top or in any job.
+    abort "the PR workflow must not hold issues: write" if ((d["permissions"] || {})["issues"]).to_s == "write" || (d["jobs"] || {}).values.any? { |jb| ((jb["permissions"] || {})["issues"]).to_s == "write" }
     puts "ok"
   ' "$WF" "$WF_FULL" 2>&1)" || fail "job invariants: $jobs_out"
   [ "$jobs_out" = ok ] || fail "job invariants did not report ok: $jobs_out"
@@ -167,6 +176,8 @@ fi
 
 # An unquoted " #" inside a step name starts a YAML comment and silently truncates it
 # (the allowlist step's name parsed as "... (tools/browser-checks.sh," until #2518).
+# It also flags a trailing comment after an unquoted name: quote the name, or put the
+# comment on its own line.
 for wf in "$WF" "$WF_FULL"; do
   cut_short="$(grep -nE "^[[:space:]]*-?[[:space:]]*name:[[:space:]]*[^'\"[:space:]].*[[:space:]]#" "$wf" || true)"
   [ -z "$cut_short" ] || fail "an unquoted step name in $(basename "$wf") contains ' #' and is cut short by YAML: $cut_short"
