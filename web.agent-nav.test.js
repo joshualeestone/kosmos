@@ -64,14 +64,16 @@ test('only Talk is on screen before a click, and every section can be reached fr
   // Memory) and skills under 'instr' (Instructions), so those two sections have no pill of their
   // own but are still reached. Every section must be reachable, every pill must point at a real
   // section, and exactly memory+skills are the folded pair.
-  const FOLD = { memory: 'model', skills: 'instr' };  // a folded section -> the pill that reveals it
+  // #3500: Remove now folds under the Advanced (term) pill too, alongside #2916's memory->model
+  // and skills->instr. A folded section -> the pill that reveals it:
+  const FOLD = { memory: 'model', skills: 'instr', remove: 'term' };
   for (const s of secs) {
     const pill = FOLD[s.key] || s.key;
     assert.ok(gos.includes(pill), s.key + ' is not reachable from any pill (expected pill: ' + pill + ')');
   }
   assert.ok(gos.every((g) => secs.some((s) => s.key === g)), 'a pill points at no section');
-  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k)).sort(), ['memory', 'skills'],
-    'the folded set changed; #2916 folds exactly memory (under Model and Memory) and skills (under Instructions)');
+  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k)).sort(), ['memory', 'remove', 'skills'],
+    'the folded set changed; folds exactly memory + skills (#2916) and remove (#3500, under Advanced)');
   for (const s of secs) {
     assert.match(PANEL, new RegExp('id="d-sec-' + s.key + '" data-sec="' + s.key + '" tabindex="-1"'), s.key + ' cannot take focus, so a click strands the keyboard on the nav');
   }
@@ -118,14 +120,22 @@ test('the agent window no longer answers to the Engineering mode switch on this 
   assert.match(PAGE, /#d-window \{ max-height: calc\(100vh - 220px\); \}/, 'the window cap is viewport-relative and scoped to the agent page box');
 });
 
-test('the nav names the agent in the two places a bare label would be unsafe', () => {
+test('#3500: the DM box reads a fixed "Direct Message"; the agent name lives where a bare label would be unsafe', () => {
   const script = PAGE.slice(PAGE.lastIndexOf('<script>'));
-  assert.match(script, /'Talk to ' \+ n/, 'the Talk pill does not name the agent');
-  assert.match(script, /'Remove ' \+ n/, 'the Remove pill does not name the agent');
+  // #3500: the DM nav box no longer names the agent - the DM header ("Direct Message to <name>")
+  // and the identity column carry it, so the box stays short in its icon+label form.
+  assert.match(script, /getElementById\('d-nav-talk'\)\.textContent = 'Direct Message'/, 'the DM box label is not the fixed "Direct Message"');
+  // The DM BOX no longer takes the "Talk to <name>" form; the talk SECTION aria-label still may
+  // (it names the section for a screen reader), so scope the negative to the box write only.
+  assert.doesNotMatch(script, /getElementById\('d-nav-talk'\)\.textContent = n \?/, 'the old "Talk to <name>" DM box label write survives');
+  // Remove folded into Advanced: no #d-nav-remove button to write to (a stale write would throw null).
+  assert.doesNotMatch(script, /getElementById\('d-nav-remove'\)/, 'a write to the removed #d-nav-remove button survives');
+  // The model button still names the agent, and the remove SECTION (now revealed under Advanced)
+  // names it via its aria-label.
   assert.match(script, /'Change & Restart ' \+ n/, 'the model button does not name the agent');
-  assert.match(script, /detailNavNames\(renameTo\)/, 'a rename leaves the old name on the pills until the page is reopened');
-  // Shipped markup carries the nameless form: a painter that returns early
-  // must not leave the previous agent's name on a button.
-  assert.match(PANEL, /id="d-nav-talk">Talk to this agent</, 'the markup ships a name');
-  assert.match(PANEL, /id="d-nav-remove">Remove this agent</, 'the markup ships a name');
+  assert.match(script, /detailSection\('remove'\)\.setAttribute\('aria-label', n \?/, 'the remove section aria-label no longer names the agent');
+  assert.match(script, /detailNavNames\(renameTo\)/, 'a rename leaves the old name on the nav until the page is reopened');
+  // Shipped markup: the DM box carries the fixed nameless label, and there is no top-level Remove button.
+  assert.match(PANEL, /id="d-nav-talk">Direct Message</, 'the DM box markup is not "Direct Message"');
+  assert.doesNotMatch(PANEL, /id="d-nav-remove"/, 'a top-level Remove nav button survives; #3500 folds it into Advanced');
 });

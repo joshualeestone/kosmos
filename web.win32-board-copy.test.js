@@ -161,11 +161,13 @@ test('applyPlatformCopy: on Windows it stamps <html>, swaps every keyed element 
 test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its tab says, "Live output" on Windows', () => {
   /* The tab's visible label and the section's accessible name are one fact, so they come
      from one key: a screen reader must not announce "Terminal" under a "Live output" tab. */
-  // #2916 (Josh 6.59) renamed this nav PILL's Mac label "Terminal" -> "Advanced". The
-  // data-win-copy="terminalTab" key is kept so the pill still reads "Live output" on Windows,
-  // matching the section below it (the one-key win32 consistency this test guards is preserved;
-  // only the Mac string moved).
-  assert.match(PAGE, /<button type="button" data-go="term" aria-controls="d-sec-term" data-win-copy="terminalTab">Advanced<\/button>/);
+  // #2916 (Josh 6.59) renamed this nav PILL's Mac label "Terminal" -> "Advanced". #3500 made the
+  // pill an icon+label box, so the data-win-copy="terminalTab" key now lives on the .dnav-lab span
+  // (applyPlatformCopy sets the span's innerHTML, leaving the icon intact), and the Advanced pill's
+  // aria-controls gained d-sec-remove because Remove folded under it. The one-key win32 consistency
+  // this test guards (the pill reads "Live output" on Windows, matching the section) is preserved.
+  assert.match(PAGE, /<button type="button" data-go="term" aria-controls="d-sec-term d-sec-remove">/, 'the Advanced pill lost its data-go / aria-controls (with the folded Remove section)');
+  assert.match(PAGE, /<span class="dnav-lab" data-win-copy="terminalTab">Advanced<\/span>/, 'the Advanced label span does not carry the terminalTab win32 copy key');
   assert.match(PAGE, /<section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>/,
     'the Terminal section is not named from the same key as its tab');
   assert.match(page.lift(SCRIPT, 'applyPlatformCopy'),
