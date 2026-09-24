@@ -62,12 +62,17 @@ Josh, 16:04-16:06 CDT (#admin, relayed on #3034):
   switching the first-run auto-create on (Josh).
 
 ## Verification
-- `engine/roles.test.js`: the rhythm test exempts exactly `setup` (RED with the exemption removed); a #3034 test pins
-  the builder voice, the AI disclosure, hands-off, the page file, the ring words, and that the old "cannot see their
-  screen" line is gone.
-- `engine/pagecontext.test.js` (6): vocabulary, refusals incl. `__proto__`/`toString`, quoting, injection (newline,
-  U+2028, backtick, quote, a real marker), bounds, write beside instructions, no folder created. Mutations RED.
-- `engine.setup-assistant-3034.test.js`: seeds as Josh; the user's picture is never used; the bundled picture is;
-  a non-image is refused; guideName. RED with the user's name restored.
-- `server.setup-guide-page-3034.test.js` (4): 404 with no guide; writes only the guide's folder (RED when the body
-  can choose the agent); 400s change nothing; 409 for a missing folder, none created.
+- `engine/roles.test.js`: the rhythm test exempts exactly `setup` (RED with the exemption removed); a #3034 test pins the
+  builder voice, the AI disclosure, the page file and the ten-minute freshness rule, the ring words, that the old "cannot see
+  their screen" line is gone, that the hands-off line follows `SETUP_HANDS_OFF` alone, and that `GUIDE_TAG` has one copy.
+- `engine/pagecontext.test.js` (6): vocabulary, refusals incl. `__proto__`/`toString`, names AND the tab under the
+  not-instructions line, injection (newline, U+2028, backtick, quote, a real marker), bounds by code point, write beside the
+  instructions, no folder created. Mutations RED.
+- `engine.setup-assistant-3034.test.js` (every root sandboxed, and the marker test asserts it resolves inside the sandbox): seeds
+  as Josh; "Josh AI" only on a taken name; the marker; the shipped picture passes the byte sniff; the user's picture is never
+  used; guideName; the `setupAssistant` setting's defaults, validation and merge.
+- `server.setup-guide-page-3034.test.js` (7, real server as a child): 404 with no guide; writes only the guide's folder; 400s
+  change nothing; 409 for a missing folder; 409 for a same-name agent without the marker; 404 for a REMOVED guide and 409 for an
+  unreadable removed list, with a restore control; `/api/settings` round trip keeping other settings. Mutations RED.
+- Not a listing concern: `kosmos-page.md` and `.kosmos-setup-guide` sit beside the agent's instructions, not in its `Files/`
+  folder (#3614), which is what the agent-page Files list shows.

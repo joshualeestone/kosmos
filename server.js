@@ -13456,7 +13456,8 @@ const server = http.createServer((req, res) => {
    * (setupAssistant.guideName()), and only while that agent's folder still carries
    * the seed's marker (isGuideFolder), so it cannot drop a file into any other
    * agent's folder whatever the body says, including a later agent that took the
-   * name of a deleted guide.
+   * name of a deleted guide. A REMOVED guide keeps its folder and marker (removal deletes
+   * nothing), so the route also checks the removed list and answers 404 for it.
    * Until the first-run seed is switched on no install has a guide, so 404 is the
    * normal answer and the bubble treats it as "no guide", not as an error.
    */
@@ -13471,6 +13472,12 @@ const server = http.createServer((req, res) => {
         /* The recorded name is not enough: a guide deleted and a new agent given the same
            name would otherwise receive the reports. Only the folder the seed marked. */
         if (!setupAssistant.isGuideFolder(guide)) { sendJson(res, 409, { error: 'the setup guide is not on this computer any more' }); return; }
+        /* Removing an agent deletes nothing on disk (engine/remove.js), so the marker
+           survives a removal: a REMOVED guide is "no guide" until it is restored. An
+           unreadable removed list refuses rather than write to an agent that may be gone. */
+        const removed = removal.removedNames();
+        if (!removed.ok) { sendJson(res, 409, { error: 'we could not check whether the setup guide was removed' }); return; }
+        if (removed.names.includes(create.cleanName(guide))) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
         const pageContext = require('./engine/pagecontext');
         const out = pageContext.write(guide, body);
         if (out.ok) { sendJson(res, 200, { ok: true }); return; }

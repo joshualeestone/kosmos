@@ -66,8 +66,9 @@ const GUIDE_TAG = require('./roles').GUIDE_TAG;
 const GUIDE_FALLBACK_NAME = 'Josh AI';
 
 /* A file the seed drops in the guide's own folder. The page route writes only where it
-   finds this, so a guide that was deleted (its folder goes with it) never has its page
-   reports land in a later, unrelated agent that happens to take the same name. */
+   finds this, so a guide whose folder was deleted never has its page reports land in a
+   later, unrelated agent that happens to take the same name. A plain REMOVE deletes
+   nothing on disk, so the marker survives it; the route checks the removed list for that. */
 const GUIDE_MARKER = '.kosmos-setup-guide';
 
 /* Where the bundled picture of Josh lives: web/icons/setup-guide-avatar.<ext>,

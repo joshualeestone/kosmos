@@ -150,3 +150,23 @@ test('#3034: the setup assistant switch round-trips through /api/settings and ke
   }
   assert.deepEqual((await get()).setupAssistant, { on: true, asked: true });
 });
+
+test('#3034: a REMOVED guide (removal deletes nothing, so its marker survives) is "no guide", and an unreadable removed list refuses', async () => {
+  const create = require('./engine/create');
+  const dir = folderFor('Josh', { guide: true });
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  // Beside the seed flag: both live in store.ROOT (<data>/Kosmos), which is where remove.js reads its list.
+  const removedFile = path.join(path.dirname(setupAssistant.flagPath()), 'removed.json');
+  fs.rmSync(path.join(dir, roles.PAGE_FILE), { force: true });
+  try {
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: create.cleanName('Josh') }]));
+    const r = await post({ screen: 'board' });
+    assert.equal(r.status, 404, 'a removed guide was still written to');
+    assert.equal(fs.existsSync(path.join(dir, roles.PAGE_FILE)), false);
+    fs.writeFileSync(removedFile, '{not a list');
+    assert.equal((await post({ screen: 'board' })).status, 409, 'an unreadable removed list must refuse, not write');
+    // CONTROL: restored (off the list), the same guide is written again.
+    fs.writeFileSync(removedFile, '[]');
+    assert.equal((await post({ screen: 'board' })).status, 200);
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
