@@ -41,6 +41,14 @@ for _trivial in "x" "   " "   .  "; do
   else fail "trivial reason '$_trivial' was NOT refused (FAILED='${FAILED[*]:-}')"; fi
 done
 
+# a MULTI-LINE reason is refused (a newline would let release.sh's grep -qF match on
+# just one line, weakening the "the reason is in the served entry" guarantee)
+reset; FAILED=(render-thread); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$(printf 'line one is long enough\nsecond line here')"
+kosmos_bc_apply_accept_known
+if [ "${#ACCEPTED_KNOWN[@]}" -eq 0 ] && has "${FAILED[*]}" "needs a real"
+then pass "a multi-line reason is refused (single line required)"
+else fail "multi-line reason not refused (FAILED='${FAILED[*]:-}')"; fi
+
 # an INFRA / board-cascade failure is NOT acceptable even when named -- it keeps gating.
 # Both marked infra shapes: "(server did not boot)" and the 126/127 "(could not run)".
 for _infra in "render-thread (server did not boot)" "render-thread (could not run)"; do
@@ -58,10 +66,13 @@ if [ "${#FAILED[@]}" -eq 1 ] && [ "${FAILED[0]}" = "render-firstrun-wizard-flow"
 then pass "un-named check still gates -- only the named one is accepted"
 else fail "un-named gates (FAILED='${FAILED[*]:-}')"; fi
 
-# a suffixed FAILED entry ("name (failed twice)") matches by NAME
+# name-extraction is robust to a trailing suffix. (A genuine two-strikes red is a BARE
+# label in production -- only infra entries carry a suffix, and those keep gating -- so
+# this is a robustness arm, not a production shape: the filter must key on the name
+# regardless of any suffix a future FAILED entry might carry.)
 reset; FAILED=("render-thread (failed twice)"); KOSMOS_BC_ACCEPT_KNOWN="render-thread"; KOSMOS_BC_ACCEPT_REASON="$R"
 kosmos_bc_apply_accept_known
-if [ "${#FAILED[@]}" -eq 0 ]; then pass "a suffixed FAILED entry matches by name, not the whole string"
+if [ "${#FAILED[@]}" -eq 0 ]; then pass "name-extraction matches by name even with a trailing suffix"
 else fail "suffix match (FAILED='${FAILED[*]:-}')"; fi
 
 # a fully GREEN run with a named check emits a PRUNE note (stale accept list surfaced)

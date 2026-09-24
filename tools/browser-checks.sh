@@ -1629,9 +1629,18 @@ if [ "${#FAILED[@]}" -gt 0 ]; then
   for r in ${REASONS[@]+"${REASONS[@]}"}; do log "  $r"; done
   exit 1
 fi
-# #1398b: after an accept, some named checks did NOT pass -- do not assert they did.
+# #1398b: after an accept, some named checks did NOT pass -- do not assert they did,
+# and preserve their own diagnostic detail (REASONS) in the log, since the FAILED gate
+# above (which normally prints REASONS) does not run once the accepted entries are
+# gone. Without this, a cut's log would carry only the operator's high-level accept
+# reason and lose the "why" from the check's own output that a root-cause chase (e.g.
+# #3542) needs.
 if [ -n "${ACCEPTED_KNOWN+x}" ] && [ "${#ACCEPTED_KNOWN[@]}" -gt 0 ]; then
   log "all OTHER page checks passed; ${#ACCEPTED_KNOWN[@]} named check(s) were ACCEPTED not passed (see the banner above)"
+  if [ -n "${REASONS+x}" ] && [ "${#REASONS[@]}" -gt 0 ]; then
+    log "why the accepted/failed checks reported (from their own output):"
+    for r in ${REASONS[@]+"${REASONS[@]}"}; do log "  $r"; done
+  fi
 else
   log "all page checks passed"
 fi
