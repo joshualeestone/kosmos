@@ -188,12 +188,12 @@ test('the sentence Josh photographed can no longer appear under the not-knowing 
     'a Restart button on a told verdict is the theatre the engine exists to avoid');
 });
 
-test('the stale surfaces still work: Kosmos-made is the reports section, unknown is the header arm (#1841)', () => {
+test('the stale surfaces still work: Kosmos-made is the reports section, unknown is now silent (#1841, #3529)', () => {
   /* #1841: sampleFor('stale') is Kosmos-made (KOSMOS_EDIT), so it now paints the
      Instructions-tab reports section, not the header banner. The raw "Kosmos put
      it on Test 10" wording lives on only in the card badge (staleBadge), pinned
      in the badge test below; the detail surface reads the neutral working-rules
-     line. The unknown arm is unchanged. */
+     line. #3529: the unknown arm is now silent (asserted below). */
   const { el, reports, reportsText, reportsGo, render } = panel();
   render(sampleFor('stale'));
   assert.equal(el.hidden, true, 'the header banner showed for a Kosmos-made change');

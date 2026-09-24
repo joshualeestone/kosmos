@@ -28,7 +28,7 @@ reads as broken/uncertain to a user. Remove the messages (do not just reword), o
 
 ## Where and how
 
-- **Message 1 — removed at the engine SOURCE.** `engine/status.js` `reconcileReport`: the rule-5
+- **Message 1, removed at the engine SOURCE.** `engine/status.js` `reconcileReport`: the rule-5
   branch now returns `conflict: null` instead of the sentence. Removing at the source (not
   string-suppressing in the render) means every consumer drops it: the card renders no `.note` when
   `conflictNote` is empty, and `#d-conflict` sets `hidden = !textContent`, so no empty placeholder
@@ -36,7 +36,7 @@ reads as broken/uncertain to a user. Remove the messages (do not just reword), o
   and the else were byte-identical once the accusation was gone), so the two collapsed into one;
   `backgroundWait` still rides out on `...scraped` for downstream readers.
 
-- **Message 2 — removed at the render.** `renderStale`'s `unknown` arm now says nothing: it hides
+- **Message 2, removed at the render.** `renderStale`'s `unknown` arm now says nothing: it hides
   and clears THROUGH `setLive` (like the `told` arm), preserving the empty-amber-bar record-safety
   invariant this file guards. The engine's `unknown` verdict is untouched; only its on-screen
   display is dropped.

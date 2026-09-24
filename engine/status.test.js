@@ -2751,18 +2751,25 @@ test('#1889: the background-wait flag survives EVERY report arm, including the s
 
 test('#1889: a decayed report on a background wait is not a broken reporter', () => {
   /**
-   * 🛑 THE ONE PLACE THIS DIFF COULD MAKE THE BOARD LESS TRUTHFUL, and it shipped
-   * with no coverage until this row existed.
+   * ⚠️ THIS DOCSTRING DESCRIBES HISTORY. #3529 (Josh, 2026-09-23) removed the
+   * "reporter may be broken" sentence from rule 5 ENTIRELY, so the accusation no
+   * longer fires for ANY decayed working scrape, not just the background-wait
+   * one. The test below now pins that removal (see the control block); the
+   * framing here is kept because it records why the background-wait exemption
+   * once existed and why dropping the accusation outright was safe.
    *
-   * `reconcileReport` rule 5 says "its reports stopped arriving while its screen
-   * still shows work, so the reporter may be broken" whenever a stale report
-   * meets a scraped WORKING. On a background wait that sentence is false BY
+   * 🛑 THE ONE PLACE THIS DIFF COULD ONCE HAVE MADE THE BOARD LESS TRUTHFUL, and
+   * it shipped with no coverage until this row existed.
+   *
+   * `reconcileReport` rule 5 USED TO say "its reports stopped arriving while its
+   * screen still shows work, so the reporter may be broken" whenever a stale
+   * report met a scraped WORKING. On a background wait that sentence was false BY
    * CONSTRUCTION: the report hook fires on PreToolUse, no tools fire while only a
    * background agent runs, so a healthy reporter cannot heartbeat and any wait
    * past REPORT_WORKING_DECAY_MS decays. Live example while writing this: a wait
    * held for 9m 48s.
    *
-   * ⚠️ The gate is keyed on a STRUCTURAL flag, not on the `because` prose. Keyed
+   * ⚠️ The gate was keyed on a STRUCTURAL flag, not on the `because` prose. Keyed
    * on the string, rewording either end left the suite green while the gate
    * stopped firing and the false sentence came back.
    */

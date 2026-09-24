@@ -3706,18 +3706,22 @@ function classify(pane, paneText) {
          can run longer: the durations I sampled live were 4m 2s, 3m 57s and
          3m 48s, all still running and therefore all LOWER BOUNDS rather than
          evidence of crossing 5 minutes; a resolved wait observed separately read
-         `Agent … finished · 8m 49s`, which does cross it. A decayed `working` report plus this scraped `working` now
-         takes the "reporter may be broken" branch, so a HEALTHY agent can be
-         labelled with a reporter fault. Under `origin/main` the same pane scraped
-         `idle` and took the `unknown` branch instead.
-         ⚠️ AND THIS IS THE NORMAL CASE FOR A LONG WAIT, NOT AN EDGE CASE. The
-         report hook fires on PreToolUse; while the turn is over and only a
-         background agent runs, NO TOOLS FIRE, so a healthy agent's report decays
-         on any wait past the 5-minute window. An 8m 49s wait was observed. Every
-         such pane now carries that sentence about a healthy reporter. The STATE is more truthful
-         either way; the accompanying sentence is not, and that is a real cost
-         rather than a neutral one. Recorded here so the next person changing the
-         decay window knows this arm feeds it. */
+         `Agent … finished · 8m 49s`, which does cross it. A decayed `working`
+         report plus this scraped `working` reaches `reconcileReport`'s rule 5.
+         Under `origin/main` the same pane scraped `idle` and took the `unknown`
+         branch instead.
+         ⚠️ THIS IS THE NORMAL CASE FOR A LONG WAIT, NOT AN EDGE CASE. The report
+         hook fires on PreToolUse; while the turn is over and only a background
+         agent runs, NO TOOLS FIRE, so a healthy agent's report decays on any wait
+         past the 5-minute window. An 8m 49s wait was observed.
+         ⚠️ #3529 (Josh, 2026-09-23): rule 5 USED TO attach a "reporter may be
+         broken" sentence here, which labelled a healthy agent on a long wait with
+         a reporter fault. Josh removed that sentence app-wide as user-facing
+         staleness hedging, so rule 5 now returns `conflict: null` for every
+         decayed working scrape and this arm no longer feeds a false accusation.
+         The STATE is unchanged (still `working`, more truthful than `idle`); only
+         the sentence is gone. Recorded here so the next person changing the decay
+         window knows this arm feeds rule 5. */
       because: 'it is waiting on a background agent',
       /* Structural, so `reconcileReport` does not have to match on prose. An
          earlier version keyed that gate on this `because` STRING across 1,700
@@ -5736,10 +5740,13 @@ const CODEX_AUTH_EXPIRED = require('./codexauthprobe').EXPIRED;
  *      finished; an agent mid-task rendered "resting quietly" is the
  *      false-negative this board has paid for repeatedly, because nobody
  *      investigates calm. Before decaying, the pane gets its say: a screen
- *      still visibly mid-task means the agent is alive and the REPORTER is
- *      broken -- a different fault with a different fix, so that renders as
- *      the scraped working with the contradiction surfaced rather than
- *      collapsing to unknown before the comparison can happen.
+ *      still visibly mid-task means the agent is alive, so that renders as
+ *      the scraped working rather than collapsing to unknown before the
+ *      comparison can happen. (Until #3529 this case ALSO surfaced a
+ *      "reporter may be broken" contradiction sentence; Josh removed that
+ *      sentence app-wide as user-facing staleness hedging, so the state is
+ *      unchanged but `conflict` is now null here. See the rule-5 return, and
+ *      the deliberate exception noted under the general `conflict` rule.)
  *   6. `idle`, `needs_you` and `blocked` do NOT decay: an idle agent has no
  *      execution to heartbeat with, and a question keeps standing until it
  *      is answered. Their liveness guard is rule 2, not a clock.
@@ -5747,6 +5754,13 @@ const CODEX_AUTH_EXPIRED = require('./codexauthprobe').EXPIRED;
  * `conflict` on the answer is a sentence when the two witnesses materially
  * disagree, null otherwise. Surfaced, never silently resolved: a silent
  * override is how two sources of truth become one confident lie.
+ * ⚠️ ONE DELIBERATE EXCEPTION (#3529, Josh 2026-09-23): rule 5's
+ * reporter-broken case IS a material disagreement (a stale report against a
+ * live-working screen) yet now returns `conflict: null`. That is a product
+ * decision, not a silent override: Josh ruled the "reporter may be broken"
+ * sentence out as user-facing staleness hedging. The state still reflects the
+ * live screen; only the sentence is withheld. The sign-in-loop and
+ * reported-stopping-but-running conflicts still surface.
  */
 /**
  * What the agent SAID, as a clause to hang off a conflict sentence (#1259).
