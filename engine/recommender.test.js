@@ -87,7 +87,7 @@ test('an item is convened once: a PLACED delivery ends it; an unplaced one retri
 
 test('a resolved item is forgotten, so the same words later are a new item', () => {
   const a = afterGrace([agent()]);
-  r.markConvened(a.next, a.toConvene[0].key);
+  r.markAttempt(a.next, a.toConvene[0].key, true);
   const cleared = r.step({ prev: a.next, roster: [agent({ state: 'working', stateReportedBy: 'agent' })], setting: ON, members, now: T0 + r.GRACE_MS + 1 });
   assert.equal(cleared.next.items.size, 0);
   const back = r.step({ prev: cleared.next, roster: [agent()], setting: ON, members, now: T0 + r.GRACE_MS + 2 });
@@ -133,4 +133,34 @@ test('texts: the playbook names only ACTIVE guards; the room note @-mentions the
   assert.match(r.roomNoteText(item), /@Pete/);
   assert.match(r.roomNoteText({ ...item, peers: [] }), /no one else is on this project/);
   assert.ok(!/—/.test(all + r.roomNoteText(item)), 'em dash in product copy');
+});
+
+test('runOnce: one room note per item, the playbook delivered, retries never re-post the note', () => {
+  const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+  const notes = []; const sent = [];
+  let verdict = 'unconfirmed';
+  const deps = { roomNote: (pid, t) => notes.push([pid, t]), deliver: (s, t) => { sent.push([s, t]); return { state: verdict }; }, DELIVERY };
+  const roster = [agent()];
+  const seen = r.runOnce({ prev: undefined, roster, setting: ON, members, now: T0, ...deps });
+  assert.equal(notes.length + sent.length, 0, 'acted inside the grace period');
+  const first = r.runOnce({ prev: seen.next, roster, setting: ON, members, now: T0 + r.GRACE_MS, ...deps });
+  assert.equal(notes.length, 1, 'no room note on first convening');
+  assert.equal(notes[0][0], 'proj-a');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0], 'april');
+  assert.equal(first.acted[0].noted, true);
+  const retry = r.runOnce({ prev: first.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 60000, ...deps });
+  assert.equal(notes.length, 1, 'a retry posted a SECOND room note');
+  assert.equal(sent.length, 2, 'an unplaced delivery was not retried');
+  assert.equal(retry.acted[0].noted, false);
+  verdict = 'placed';
+  const placed = r.runOnce({ prev: retry.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 120000, ...deps });
+  assert.equal(sent.length, 3);
+  r.runOnce({ prev: placed.next, roster, setting: ON, members, now: T0 + r.GRACE_MS + 180000, ...deps });
+  assert.equal(sent.length, 3, 'delivered again after a PLACED delivery');
+  // A throwing deliver counts as not placed and never crashes the pass.
+  const boom = { ...deps, deliver: () => { throw new Error('x'); } };
+  const b1 = r.runOnce({ prev: undefined, roster: [agent({ because: 'other' })], setting: ON, members, now: T0, ...boom });
+  const b2 = r.runOnce({ prev: b1.next, roster: [agent({ because: 'other' })], setting: ON, members, now: T0 + r.GRACE_MS, ...boom });
+  assert.equal(b2.acted[0].verdict, null);
 });

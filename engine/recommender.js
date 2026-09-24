@@ -132,8 +132,7 @@ function markAttempt(next, key, placed) {
   rec.attempts = (rec.attempts || 0) + 1;
   if (placed) rec.convened = true;
 }
-/* Kept for callers that only know about success. */
-function markConvened(next, key) { markAttempt(next, key, true); }
+
 
 function activeGuards(setting) {
   const g = (setting && setting.guards) || {};
@@ -167,7 +166,27 @@ function playbookText(item, setting) {
   return lines.join(' ');
 }
 
+/**
+ * One runner pass over injected effects (the auto-save sweep's shape), so the glue is tested
+ * too: the room note goes out ONCE per item (never on a retry), the playbook is delivered, and
+ * the attempt is recorded with placed = (verdict is PLACED).
+ * @returns {{next: object, acted: Array<{session:string,project:string,noted:boolean,verdict:?string}>}}
+ */
+function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY }) {
+  const out = step({ prev, roster, setting, members, now });
+  const acted = [];
+  for (const item of out.toConvene) {
+    if (!item.retry) roomNote(item.project, roomNoteText(item));
+    let verdict;
+    try { verdict = deliver(item.session, playbookText(item, setting)); } catch { verdict = null; }
+    const state = verdict && verdict.state;
+    markAttempt(out.next, item.key, state === DELIVERY.PLACED);
+    acted.push({ session: item.session, name: item.name, project: item.project, noted: !item.retry, verdict: state || null });
+  }
+  return { next: out.next, acted };
+}
+
 module.exports = {
-  step, markConvened, markAttempt, stuckRow, peersFor, itemKey, activeGuards, roomNoteText, playbookText,
+  step, runOnce, markAttempt, stuckRow, peersFor, itemKey, activeGuards, roomNoteText, playbookText,
   GUARD_TEXT, STUCK_STATES, GRACE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, MAX_PEERS, MAX_DELIVERY_ATTEMPTS,
 };
