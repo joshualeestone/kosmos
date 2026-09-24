@@ -135,17 +135,35 @@ enum PushBridge {
 
     // The coordinator puts the Mac's address in every push as a top-level
     // `address` ("<mac name>.<relay domain>", kosmos-relay apns.rs payload()), and
-    // a tap opens https://<address>/. A push is not trusted input: only a single
-    // DNS label directly under the relay domain is accepted, so a payload can never
-    // steer the app's WebView to another site, a path, a port or a scheme.
-    static func boardURL(fromNotification userInfo: [AnyHashable: Any], relayDomain: String) -> URL? {
-        guard let raw = userInfo["address"] as? String else { return nil }
+    // a tap opens https://<address>/, the same URL the coordinator's own web-push
+    // tap opens (coordinator sw.js). A push is not trusted input: only a single
+    // ASCII DNS label directly under the relay domain is accepted, so a payload can
+    // never steer the app's WebView to another site, a path, a port or a scheme.
+    // The relay domain is the coordinator's host minus its first label
+    // (login.kosmosplus.com -> kosmosplus.com), and the coordinator's own host is
+    // refused: it is not a Mac.
+    static func boardURL(fromNotification userInfo: [AnyHashable: Any], coordinator: URL) -> URL? {
+        guard let raw = userInfo["address"] as? String,
+              raw.unicodeScalars.allSatisfy({ $0.isASCII }),
+              let coordinatorHost = coordinator.host?.lowercased(),
+              let relayDomain = relayDomain(ofCoordinatorHost: coordinatorHost)
+        else { return nil }
         let address = raw.lowercased()
-        let suffix = "." + relayDomain.lowercased()
+        guard address != coordinatorHost else { return nil }
+        let suffix = "." + relayDomain
         guard address.hasSuffix(suffix) else { return nil }
         let label = String(address.dropLast(suffix.count))
         guard isHostLabel(label) else { return nil }
         return URL(string: "https://\(address)/")
+    }
+
+    // "login.kosmosplus.com" -> "kosmosplus.com". Nil when the host has fewer than
+    // three labels, so a misconfigured origin refuses every tap rather than
+    // accepting everything under a top-level domain.
+    static func relayDomain(ofCoordinatorHost host: String) -> String? {
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 3, labels.allSatisfy({ !$0.isEmpty }) else { return nil }
+        return labels.dropFirst().joined(separator: ".")
     }
 
     // RFC 1123 label: 1 to 63 of a-z, 0-9 and hyphen, not starting or ending with a

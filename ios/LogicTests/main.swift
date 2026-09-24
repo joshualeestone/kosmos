@@ -113,7 +113,7 @@ check(slashed.url?.absoluteString == "https://login.kosmosplus.com/v1/push/apns/
 
 section("notification tap target")
 func tapURL(_ info: [AnyHashable: Any]) -> String? {
-    PushBridge.boardURL(fromNotification: info, relayDomain: "kosmosplus.com")?.absoluteString
+    PushBridge.boardURL(fromNotification: info, coordinator: coordinator)?.absoluteString
 }
 check(tapURL(["address": "hers.kosmosplus.com"]) == "https://hers.kosmosplus.com/", "a Mac address opens that board over https")
 check(tapURL(["address": "Hers.KosmosPlus.com"]) == "https://hers.kosmosplus.com/", "case is normalised")
@@ -143,6 +143,13 @@ check(tapURL(["address": ""]) == nil, "empty string: refused")
 check(tapURL(["address": "hers.kosmosplus.com."]) == nil, "trailing dot: refused")
 check(tapURL(["address": "javascript:alert(1)//.kosmosplus.com"]) == nil, "script scheme smuggled in the label: refused")
 check(tapURL(["address": "hers.kosmosplus.com", "url": "https://evil.example.com/"]) == "https://hers.kosmosplus.com/", "other payload fields never steer navigation")
+check(tapURL(["address": "login.kosmosplus.com"]) == nil, "the coordinator's own host is not a Mac: refused")
+check(tapURL(["address": "\u{212A}ate.kosmosplus.com"]) == nil, "a non-ASCII letter that lowercases to ASCII (Kelvin sign): refused")
+check(PushBridge.relayDomain(ofCoordinatorHost: "login.kosmosplus.com") == "kosmosplus.com", "relay domain is the coordinator host minus its first label")
+check(PushBridge.relayDomain(ofCoordinatorHost: "kosmosplus.com") == nil, "a two-label coordinator host yields no relay domain")
+check(PushBridge.relayDomain(ofCoordinatorHost: "login..com") == nil, "an empty label yields no relay domain")
+check(PushBridge.boardURL(fromNotification: ["address": "hers.kosmosplus.com"], coordinator: URL(string: "https://kosmosplus.com")!) == nil, "a misconfigured coordinator origin refuses every tap")
+check(PushBridge.boardURL(fromNotification: ["address": "hers.example.org"], coordinator: URL(string: "https://login.example.org")!)?.absoluteString == "https://hers.example.org/", "repointing the coordinator origin repoints the tap domain with it")
 
 section("response outcomes")
 check(PushBridge.outcome(status: 200) == .ok, "200 ok")
