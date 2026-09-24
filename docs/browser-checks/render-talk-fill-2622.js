@@ -114,6 +114,16 @@ async function measure(page) {
     await page.goto(URL, { waitUntil: 'networkidle' });
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
     await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
+    // Header positions on the board, before opening the agent (A1n compares Talk and Model to it).
+    const headPos = () => page.evaluate(() => {
+      const r = document.querySelector('.apphead .headright').getBoundingClientRect();
+      const t = document.getElementById('tabs').getBoundingClientRect();
+      return { headRight: Math.round(r.right), tabsLeft: Math.round(t.left),
+        gutter: getComputedStyle(document.documentElement).scrollbarGutter,
+        sbw: getComputedStyle(document.documentElement).getPropertyValue('--sbw').trim(),
+        padRight: getComputedStyle(document.querySelector('.apphead')).paddingRight };
+    });
+    const boardHead = await headPos();
     await page.click('[data-agent="beatrix"]');
     await page.waitForSelector('#panel-detail:not([hidden])');
     await page.waitForTimeout(300);
@@ -155,6 +165,11 @@ async function measure(page) {
         'A1e ' + tag + ': the back link does not overlap the identity block', 'backBottom=' + m.backBottom + ' identTop=' + m.identTop);
     };
     edges(tall, 'tall window');
+    // A1m: the wide Talk view drops the #1309 scrollbar gutter (so the box can reach the window
+    // edge on a Mac that shows scrollbars). A computed-style read, so it holds in any scrollbar
+    // mode; A1b shows the result where the runner's scrollbars take width.
+    const talkHead = await headPos();
+    chk(talkHead.gutter === 'auto', 'A1m the wide Talk view drops the scrollbar gutter', JSON.stringify(talkHead));
     // A1g (checked at the Model visit below): the identity block sits at the same distance from the
     // header on Talk as on Model, so switching sections does not make it jump.
     const talkIdentFromHead = tall.identTop - tall.headBottom;
@@ -243,8 +258,6 @@ async function measure(page) {
     await page.setViewportSize({ width: 1000, height: 660 });
     await page.waitForTimeout(200);
     edges(await measure(page), 'Josh window 1000x660');
-    await page.setViewportSize({ width: 1400, height: 700 });
-    await page.waitForTimeout(150);
 
     // --- Narrow width (<=56rem): the identity block and nav stack above the Talk box, so the page
     // scrolls and the box is its own window-tall block; the header is not sticky in this view.
@@ -261,7 +274,7 @@ async function measure(page) {
       const h = document.querySelector('.apphead').getBoundingClientRect();
       const out = { boxHeight: Math.round(b.height), boxTop: Math.round(b.top), boxBottom: Math.round(b.bottom),
         headBottom: Math.round(h.bottom), composerTop: Math.round(c.top), composerBottom: Math.round(c.bottom),
-        innerHeight: window.innerHeight };
+        innerHeight: window.innerHeight, gutter: getComputedStyle(document.documentElement).scrollbarGutter };
       window.scrollTo(0, 0);
       return out;
     }, where);
@@ -274,6 +287,7 @@ async function measure(page) {
       'A2b narrow width: the Talk box is a usable, window-fitting height', JSON.stringify(nEnd));
     chk(onScreen(nEnd),
       'A2d narrow width: scrolled to the box, all of it (header row to composer) is on screen and uncovered', JSON.stringify(nEnd));
+    chk(nEnd.gutter === 'stable', 'A1m scope: the narrow Talk view (which scrolls) keeps the scrollbar gutter', 'gutter=' + nEnd.gutter);
     chk(onScreen(nMax),
       'A2e narrow width: at the end of the page (where scrolling stops), the whole box is on screen and uncovered', JSON.stringify(nMax));
     // A2f: focusing the box (the app does, e.g. the paintTalk rescue) keeps its composer on screen,
@@ -357,6 +371,34 @@ async function measure(page) {
         identFromHead: f ? Math.round(f.getBoundingClientRect().top - head) : null };
     });
     console.log('MEASURE model section: ' + JSON.stringify(model));
+    // A1m scope + A1n: every other view keeps the #1309 gutter, and the header does not move
+    // between the board, Talk and Model (--sbw pads the header by the dropped gutter's width).
+    const modelHead = await headPos();
+    chk(modelHead.gutter === 'stable' && boardHead.gutter === 'stable',
+      'A1m scope: the board and the Model section keep the scrollbar gutter', JSON.stringify({ boardHead, modelHead }));
+    // A1n measures the real thing, but only where this runner's scrollbars take width (--sbw > 0);
+    // with overlay scrollbars there is no gutter to drop, so a pass would prove nothing: SKIP, loudly.
+    if (boardHead.sbw && boardHead.sbw !== '0px') {
+      chk(boardHead.headRight === talkHead.headRight && talkHead.headRight === modelHead.headRight
+        && boardHead.tabsLeft === talkHead.tabsLeft && talkHead.tabsLeft === modelHead.tabsLeft,
+        'A1n the header controls and tabs do not move between the board, Talk and Model',
+        JSON.stringify({ boardHead, talkHead, modelHead }));
+    } else {
+      console.log('SKIP  A1n (overlay scrollbars on this runner, --sbw=' + boardHead.sbw + '); A1o covers the mechanism');
+    }
+    // A1o, the mechanism in any scrollbar mode: with a 15px scrollbar the Talk header gains exactly
+    // 15px of right padding, and the other views do not.
+    const pad = await page.evaluate(async () => {
+      document.documentElement.style.setProperty('--sbw', '15px');
+      const read = () => getComputedStyle(document.querySelector('.apphead')).paddingRight;
+      const model = read();
+      document.querySelector('#panel-detail .snav button[data-go="talk"]').click();
+      await new Promise((r) => setTimeout(r, 150));
+      const talk = read();
+      return { model, talk };
+    });
+    chk(parseFloat(pad.talk) - parseFloat(pad.model) === 15,
+      'A1o in Talk the header is padded by the scrollbar width (15px here), and not in other views', JSON.stringify(pad));
     chk(model.identFromHead !== null && Math.abs(model.identFromHead - talkIdentFromHead) <= 1,
       'A1g the identity block stays where it was (within 1px of Model; the 1px is the pre-existing Talk/Model line-box difference)',
       'talk=' + talkIdentFromHead + ' model=' + model.identFromHead);
