@@ -82,10 +82,10 @@ function keyOfDir(provider, dir) { return provider + ' ' + dir; }
 
 /*
  * Record an observed outcome for an agent on a provider. `provider` must be one of the
- * closed PROVIDER set (PROVIDER.ANTHROPIC / PROVIDER.OPENAI) -- membership is ENFORCED
- * here, not merely asserted by the header comment, because this key is the sole
- * mechanism keeping an OpenAI observation from resolving against a Claude account (and
- * vice versa); a caller passing an unrecognised or empty provider must not land a
+ * closed PROVIDER set (PROVIDER.ANTHROPIC / PROVIDER.OPENAI / PROVIDER.GOOGLE) -- membership
+ * is ENFORCED here, not merely asserted by the header comment, because this key is the sole
+ * mechanism keeping one provider's observation from resolving against another's account;
+ * a caller passing an unrecognised or empty provider must not land a
  * record a later read could mis-join. `outcome` must be OUTCOME.OK or OUTCOME.REJECTED;
  * anything else (including the null status.js passes for idle / needs-you / unknown
  * states) is IGNORED, so a prior real observation SURVIVES an idle tick rather than

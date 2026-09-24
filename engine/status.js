@@ -4936,13 +4936,15 @@ function readGeminiContext(agentName, sess) {
   return measuredResult(tokens, sess.contextWindow, false);
 }
 
-/* #3296 observability follow-on: the completion-time helper, the sibling of
-   codexCompletionAt (4854). A witnessed Gemini turn completion is `sess.contextUsedAt`
-   (geminisession.read sets it from the newest token-reporting turn), the same signal
-   codex keys on. snapshot()'s GOOGLE observation arm consumes it; geminiLastCompletionAt
-   is the direct-caller/test convenience, exported below (the #265 dead-code guard is
-   satisfied now that the arm and the badge overlay consume it). Best-effort: null on a
-   missing/unread session keeps the badge grey, the safe direction. */
+/* #3296 observability follow-on: the completion-time helpers, the siblings of
+   codexCompletionAt / codexLastCompletionAt (4854/4861). A witnessed Gemini turn completion
+   is `sess.contextUsedAt` (geminisession.read sets it from the newest token-reporting turn),
+   the same signal codex keys on. snapshot()'s GOOGLE observation arm consumes the pure
+   `geminiCompletionAt` (session passed in, read once per tick); `geminiLastCompletionAt` is
+   the read-and-derive convenience for a direct caller/test, exported below and reached by
+   the gemini-observed test (its export is what the #265 dead-code guard checks -- same
+   test-only status as codexLastCompletionAt). Best-effort: null on a missing/unread session
+   keeps the badge grey, the safe direction. */
 function geminiCompletionAt(sess) {
   return sess && sess.found && typeof sess.contextUsedAt === 'number' ? sess.contextUsedAt : null;
 }
