@@ -114,6 +114,7 @@ test('#3659: the final setup page is Josh\'s copy: SETUP COMPLETE, one body line
   const open = PAGE.indexOf('function frPaintFleet() {');
   assert.ok(open !== -1, 'frPaintFleet is gone; this guard is measuring nothing');
   const end = PAGE.indexOf('\n}', open);
+  assert.ok(end !== -1, 'frPaintFleet has no closing line; the slice would be the rest of the page');
   const body = PAGE.slice(open, end);
   assert.match(body, /Head to your dashboard to create or import agents, set up your projects, /);
   assert.match(body, /and start building your next big idea\./);

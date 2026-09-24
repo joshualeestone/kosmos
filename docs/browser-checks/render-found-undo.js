@@ -81,7 +81,7 @@ const FOUND = {
   }));
 
   check('first run shows the Giddy Up heading (not a found list)', /ready to start using Kosmos/i.test(view.title), JSON.stringify(view.title));
-  check('the Giddy Up copy is present', /let’s get started/i.test(view.box), view.box.slice(0, 120));
+  check('the Giddy Up copy is present', /create or import agents/i.test(view.box), view.box.slice(0, 120));
   check('no found rows render on first run', view.foundRows === 0, `foundRows=${view.foundRows}`);
   check('no Add or Undo controls render', view.addButtons === 0 && view.undoButtons === 0,
     `add=${view.addButtons} undo=${view.undoButtons}`);
