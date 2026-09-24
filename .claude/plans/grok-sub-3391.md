@@ -69,6 +69,14 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
   grok's leader is its relay to xAI (`grok leader info` names wss://code.grok.com); whether a leader
   carries the sign-in of whoever started it is UNMEASURED (it needs two real subscriptions). Isolating
   it per account is cheap and reversible; a key account and the default keep the default leader.
+  MEASURED (iteration 8, throwaway GROK_HOME): top-level `grok --leader-socket <p> models` runs (rc 0),
+  and an unknown flag is rejected (rc 2, "unexpected argument"), so the launch flag is accepted.
+  `grok login --device-auth --leader-socket <p>` created NO socket and started NO leader: one process,
+  gone after SIGTERM, `grok leader list` empty. So a cancelled or timed-out sign-in leaves nothing behind.
+- The page (web/index.html, the only web change): a keyed row's unverified tooltip no longer says "Use
+  Check now" (keyed rows have no Check now), and a Grok subscription row's Disconnect / Delete titles say
+  sign-in, not key. Pinned by docs/browser-checks/render-account-badge-1921.js (a Grok subscription row),
+  red against the unedited page.
 - MONEY, recorded before merge (challenge iteration 6 raised it). Moving a DEFAULT agent from the door
   key to the subscription changes what it bills against. Measured 2026-09-24 on this box: there is NO
   XAI_API_KEY door file (every secrets/env location is empty or absent), so no running agent's billing
