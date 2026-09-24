@@ -301,34 +301,58 @@ test('#2617: the scan splits the same rows by folder, once per message', async (
   assert.equal(days['2026-08-21']['claude-sonnet-5'].output_tokens, 17);
 });
 
-test('#2617: byAgent gives each agent its folder, the deepest owner wins, and the rest is named', () => {
-  const byDay = { d1: { m: { input_tokens: 0, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 5 } } };
+test('#2617: byAgent gives an agent its own folder only, names the rest, and never picks between sharers', () => {
+  const B = (out) => ({ input_tokens: 0, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 });
+  const byDay = { d1: { m: { ...B(100), rows: 7 } } };
   const byFolder = { d1: {
-    '/w/ann': { input_tokens: 0, output_tokens: 40, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 2 },
-    '/w/ann/sub': { input_tokens: 0, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 },
-    '/w/ann-two': { input_tokens: 0, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 },
-    '/home/me': { input_tokens: 0, output_tokens: 15, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 },
-    '/w/annex': { input_tokens: 0, output_tokens: 3, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 },
+    '/w/ann': B(40),
+    '/w/ann/sub': B(5),   // a subfolder is not the agent's own folder
+    '/w/annex': B(3),     // a prefix-sharing sibling that is no agent's
+    '/w/bob': B(20),
+    '/w/pair': B(9),      // two agents recorded on one folder
+    '/home/me': B(15),
   } };
   const agents = [
     { name: 'ann', shown: 'Ann', dir: '/w/ann' },
-    { name: 'ann-two', shown: 'Ann Two', dir: '/w/ann-two' },
+    { name: 'bob', dir: '/w/bob' },
+    { name: 'p1', dir: '/w/pair' }, { name: 'p2', dir: '/w/pair' },
     { name: 'gone', shown: 'Gone', dir: null },
   ];
   const out = usage.byAgent({ byDay, byFolder }, agents, (p) => p);
   const by = Object.fromEntries(out.agents.map((a) => [a.name, a]));
-  assert.equal(by.ann.output_tokens, 45, 'a subfolder of an agent folder is that agent\'s (and /w/annex, not an agent, is not ann\'s)');
+  assert.equal(by.ann.output_tokens, 40, 'only the agent\'s own folder is its, not a subfolder or a sibling');
   assert.equal(by.ann.shown, 'Ann');
-  // A sibling whose name starts the same is NOT inside /w/ann: the separator matters.
-  assert.equal(by['ann-two'].output_tokens, 20, 'a prefix-sharing sibling folder was claimed by the wrong agent');
-  assert.equal(out.elsewhere.output_tokens, 18, 'a folder no agent owns must land in elsewhere');
-  // 100 in the model total, 83 across folders: the gap is stated, not dropped.
-  assert.equal(out.unattributed.output_tokens, 17);
-  assert.deepEqual(out.agents.map((a) => a.name), ['ann', 'ann-two'], 'agents are ordered by output, largest first');
+  assert.equal(by.bob.shown, 'bob', 'a missing shown name falls back to the name');
+  assert.equal(by.p1, undefined, 'a shared folder was handed to one of its agents');
+  assert.equal(by.p2, undefined, 'a shared folder was handed to one of its agents');
+  assert.equal(out.shared.output_tokens, 9, 'a folder two agents share must be stated as shared');
+  assert.equal(out.elsewhere.output_tokens, 5 + 3 + 15);
+  assert.equal(out.unattributed.output_tokens, 100 - 92);
+  assert.equal(out.overcount.output_tokens, 0);
+  assert.deepEqual(out.agents.map((a) => a.name), ['ann', 'bob'], 'agents are ordered by output, largest first');
   assert.equal(by.gone, undefined, 'an agent with no folder cannot own tokens');
 });
 
-test('#2617: a day already frozen per model keeps its total; its folder split is filled once', async () => {
+test('#2617: a day short and a day over do not cancel: each is reported', () => {
+  const B = (out) => ({ input_tokens: 0, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 });
+  const byDay = { d1: { m: B(10) }, d2: { m: B(10) } };
+  const byFolder = { d1: { '/x': B(4) }, d2: { '/x': B(16) } };
+  const out = usage.byAgent({ byDay, byFolder }, [], (p) => p);
+  assert.equal(out.unattributed.output_tokens, 6, 'the short day went missing');
+  assert.equal(out.overcount.output_tokens, 6, 'the over day was clamped away');
+});
+
+test('#2617: byAgent matches a folder spelled through a link to the same real folder', () => {
+  const real = fs.mkdtempSync(nodePath.join(SANDBOX, 'real-'));
+  const link = nodePath.join(SANDBOX, 'link-' + nodePath.basename(real));
+  fs.symlinkSync(real, link);
+  const B = { input_tokens: 0, output_tokens: 11, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 };
+  // The agent's folder is recorded through the link; the session recorded the real path.
+  const out = usage.byAgent({ byDay: { d: { m: B } }, byFolder: { d: { [fs.realpathSync(real)]: B } } }, [{ name: 'ann', dir: link }]);
+  assert.equal((out.agents[0] || {}).output_tokens, 11, 'two spellings of one real folder were not matched: ' + JSON.stringify(out));
+});
+
+test('#2617: a day already frozen per model keeps its total; its folder split is filled and frozen', async () => {
   resetSandbox();
   const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   fs.mkdirSync(usage.USAGE_DIR, { recursive: true });

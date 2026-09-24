@@ -6528,6 +6528,7 @@ const server = http.createServer((req, res) => {
    * that wants one number has to choose how, and say what it chose.
    * `rootsRead` travels too, so a caller can say which config directories
    * were actually scanned rather than imply it saw everything.
+   * `byAgent` (#2617) is the window per agent, from usage.byAgent().
    */
   if (pathname === '/api/usage' && (req.method === 'GET' || req.method === 'HEAD')) {
     let days = 7;
@@ -6540,15 +6541,25 @@ const server = http.createServer((req, res) => {
       .then((result) => {
         /* #2617: the same window per agent. Every agent Kosmos has a record
            of, stopped ones included, keyed by its folder. A roster that cannot
-           be read gives no per-agent split rather than a wrong one: every
-           token then lands in `elsewhere`, which the page states. */
-        const known = register.known();
-        const agents = known.ok ? known.names.map((name) => {
-          let dir = null;
-          try { dir = create.workerDir(name); } catch { dir = null; }
-          return { name, shown: register.shownName(name), dir };
-        }) : [];
-        sendJson(res, 200, { ...result, byAgent: { ...usage.byAgent(result, agents), rosterRead: known.ok } });
+           be read gives no per-agent split: every token then lands in
+           `elsewhere`, and `rosterRead:false` says why. The per-folder split
+           itself is NOT sent: it names every folder a session ran in (the
+           person's home, project checkouts), and only its per-agent sum is
+           needed. The roster reads here are synchronous but bounded by the
+           number of agents and folders, not by transcript size. A failure in
+           this split must not blank the per-model page, so it degrades to null. */
+        const { byFolder, ...rest } = result;
+        let byAgent = null;
+        try {
+          const known = register.known();
+          const agents = known.ok ? known.names.map((name) => {
+            let dir = null;
+            try { dir = create.workerDir(name); } catch { dir = null; }
+            return { name, shown: register.shownName(name), dir };
+          }) : [];
+          byAgent = { ...usage.byAgent(result, agents), rosterRead: known.ok };
+        } catch { byAgent = null; }
+        sendJson(res, 200, { ...rest, byAgent });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));
     return;
