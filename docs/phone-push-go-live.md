@@ -33,8 +33,8 @@ not the commit or the line.
 - **The iOS app registers for notifications** (kosmos #3635) **and a tap opens the right Mac**
   (kosmos #3642), both merged. Neither has run on a simulator or a phone yet; step 4 has the
   simulator check.
-- **The Android app shows notifications under its own name** (kosmos #3644, Sonya). This
-  is NOT merged yet.
+- **The Android app shows notifications under its own name** (kosmos #3644, Sonya, merged). It
+  opens `https://login.kosmosplus.com/` and delegates notifications to the app.
 
 ## Step 1. Josh's decisions and keys [Josh]
 
@@ -67,8 +67,9 @@ on the approval, and development keeps testing against Kano's mock APNs meanwhil
 
 5. **A Google Play Console developer account.** Sonya has seen no evidence one exists
    (2026-09-24).
-6. **Confirm the Android application id `io.kosmos.app`** (`android/app/build.gradle`). It is
-   permanent after the first Play upload.
+6. **Confirm the Android application id `io.kosmos.app`** (`android/app/build.gradle`). Liu Kang
+   decided to keep it (2026-09-24). Josh can still change it before the first Play upload, and not
+   after.
    - The Android upload key already exists (RSA-4096, alias `kosmos-upload`). Nothing to make.
    - Its secrets-map targets are `kosmos-android-upload-keystore` and
      `kosmos-android-upload-signing`.
@@ -235,19 +236,22 @@ simulator before any real phone:
 
 Sonya owns these facts (her message of 2026-09-24).
 
-**Before anything:**
-- Sonya's PR #3644 merges. It adds notification delegation and points the app at
-  `https://login.kosmosplus.com/`.
-- On `main` without it, a push would show as a Chrome notification.
+**Already on `main`:** notification delegation and the `https://login.kosmosplus.com/` launch URL
+(kosmos #3644).
 
-**The coordinator serves the Digital Asset Links file** [fleet, kosmos-relay PR; Josh for the deploy]:
+**The coordinator serves the Digital Asset Links file** [code merged; Josh for the deploy]:
 - Where: `https://login.kosmosplus.com/.well-known/assetlinks.json`.
 - How: plain HTTPS, 200 with no redirect, `Content-Type: application/json`, no auth.
 - What it says: package `io.kosmos.app`, relation `delegate_permission/common.handle_all_urls`,
   with two fingerprints:
   - the upload key's SHA-256 (`21:4A:61:04:67:09:08:20:B0:05:DC:40:D9:EC:EE:09:65:84:44:2E:40:AB:0F:DC:0F:EF:32:E6:EC:43:78:E8`);
   - the Play app-signing key's SHA-256, read from Play Console after the first upload.
-- Never the debug key. No route for this exists in kosmos-relay today.
+- Never the debug key.
+- The route is merged (kosmos-relay #109, `coordinator/src/assetlinks.rs`) but not live: production
+  answers 404 until the coordinator is deployed (step 3's deploy carries it).
+- It serves the upload key only. The fingerprints are a constant in code
+  (`CERT_SHA256_FINGERPRINTS`), so adding the Play key after the first upload is a kosmos-relay PR
+  and another coordinator deploy [fleet for the PR; Josh for the deploy].
 
 **Build** [fleet, on Mortals, from `android/`]:
 ```
@@ -266,7 +270,7 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 
 **Check:**
 - `keytool -printcert -jarfile app-release.aab` shows the upload key's SHA-256. Sonya built and
-  checked this AAB on the #3644 branch.
+  checked this AAB on the #3644 branch before it merged.
 - `curl -sS -D- https://login.kosmosplus.com/.well-known/assetlinks.json`: read the body, not
   just the 200.
 - Google's checker:
