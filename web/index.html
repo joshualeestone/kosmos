@@ -35887,9 +35887,11 @@ async function changeProviderNow(say) {
        so blanking the tracker here no longer silences it. An asymmetry between two
        paths that need the same reset is still what goes wrong on the next edit. */
     SWITCH_ACCT_SAID = '';
-    /* #2463 follow-up (Mona): on a real restart the dialog reduces to the one action left --
-       say hello to reactivate -- naming the provider it landed on, exactly as changeModelNow
-       does. The engine's fuller sentence still stands on the section line behind the dialog
+    /* #2463 follow-up (Mona): on a real restart the dialog reduces to one line naming the
+       provider it landed on, exactly as changeModelNow does. #2716: that line is "Restarted
+       on <provider>. Waking them..." while the app sends the wake hello, and resolves to the
+       confirmation or to "Say hello to <agent> to reactivate them on <provider>." (see
+       autoHelloOnSwitchRestart). The engine's fuller sentence still stands on the section line behind the dialog
        (msg.textContent above). `partial` (saved, could not restart) and any failure keep the
        engine's exact words AND render at once (ok=false), because those are different facts
        and must not sit behind the K as though the restart happened. The reduced line is the
@@ -36648,9 +36650,11 @@ async function changeModelNow(say) {
        so a slow status read cannot delay the verdict. `changed` is the
        started-again outcome; `partial` is saved-but-not-restarted and is not
        a success to call Done on. */
-    /* #768-batch (Josh, 5.51.59): on a real restart, the DIALOG reduces to the one
-       action left to take -- say hello to reactivate the agent -- instead of the
-       engine's full sentence (which still stands on the section line behind the dialog,
+    /* #768-batch (Josh, 5.51.59): on a real restart, the DIALOG reduces to one line
+       instead of the engine's full sentence. #2716: since the app now sends the wake
+       hello itself, that line is "Restarted on <provider>. Waking them..." until the
+       hello resolves it (autoHelloOnSwitchRestart); "say hello to reactivate" is what it
+       falls back to when the hello does not land. The engine's full sentence (which still stands on the section line behind the dialog,
        set above). Only on `changed`: `partial` (saved, still running the old model) and
        failure keep the engine's exact words, because those are different facts. Provider
        is unchanged by a model switch, so it names the agent's current one. */
