@@ -2067,7 +2067,14 @@ function projectOfPost(id) {
   const wanted = String(id == null ? '' : id).trim();
   if (!wanted) return null;
   const r = record();
-  if (!r || !r.ok || !Array.isArray(r.parsed)) return null;
+  /* THROW on an UNREADABLE record, so the caller can FAIL CLOSED rather than treat
+     "we could not check" as "no such post" (which would silently disable the misroute
+     guard, the fail-open the sibling gates at sweepUnanswered/removal avoid). record()
+     returns ok:true with an empty parsed[] for a missing log (ENOENT) -- that is a
+     readable, genuinely-empty record and correctly falls through to null below. Only a
+     real read failure (ok:false) is unverifiable. */
+  if (!r || r.ok !== true) throw new Error('the message record could not be read');
+  if (!Array.isArray(r.parsed)) return null;
   const m = r.parsed.find((x) => x && x.kind === 'post' && String(x.id) === wanted);
   return m && typeof m.project === 'string' && m.project ? m.project : null;
 }

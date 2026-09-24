@@ -77,14 +77,22 @@ test('#3224 CONTROL: without --in-reply-to the body omits in_reply_to entirely',
     'a post that is not a bound reply must omit in_reply_to, not send an empty one');
 }));
 
-test('#3224: --in-reply-to combines with --no-reply (both leading flags, any order)', () => withStubBoard(async (port, seen) => {
+test('#3224: --in-reply-to combines with --no-reply in EITHER order (both are leading flags)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
-  const out = await runCli(['post', '--no-reply', '--in-reply-to', 'm3', 'beta', 'ack'], env);
-  assert.equal(out.code, 0, out.stdout + out.stderr);
-  assert.equal(seen[0].in_reply_to, 'm3', 'in_reply_to must survive alongside --no-reply');
+  // --no-reply first
+  const a = await runCli(['post', '--no-reply', '--in-reply-to', 'm3', 'beta', 'ack'], env);
+  assert.equal(a.code, 0, a.stdout + a.stderr);
+  assert.equal(seen[0].in_reply_to, 'm3', 'in_reply_to must survive with --no-reply first');
   assert.equal(seen[0].reply_expected, false, '--no-reply must still take effect');
   assert.equal(seen[0].project, 'beta');
   assert.equal(seen[0].text, 'ack');
+  // --in-reply-to first (the reverse order the while-loop must also accept)
+  const b = await runCli(['post', '--in-reply-to', 'm4', '--no-reply', 'beta', 'ack2'], env);
+  assert.equal(b.code, 0, b.stdout + b.stderr);
+  assert.equal(seen[1].in_reply_to, 'm4', 'in_reply_to must survive with --in-reply-to first');
+  assert.equal(seen[1].reply_expected, false, '--no-reply must still take effect in the reverse order');
+  assert.equal(seen[1].project, 'beta');
+  assert.equal(seen[1].text, 'ack2');
 }));
 
 test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documented tradeoff)', () => withStubBoard(async (port, seen) => {

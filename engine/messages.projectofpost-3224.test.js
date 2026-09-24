@@ -67,3 +67,17 @@ test('#3224: projectOfPost trims a padded id so an envelope-copied value with st
   seed([postRow('m5', 'projA')]);
   assert.equal(messages.projectOfPost(' m5 '), 'projA');
 });
+
+test('#3224: projectOfPost THROWS on an UNREADABLE record, so the guard fails CLOSED (not fall-open)', () => {
+  // A directory where the log file is expected: statSync succeeds (not ENOENT) but the
+  // read fails, so record() reports ok:false -- the unverifiable state the guard must
+  // NOT treat as "no such post". Distinct from a missing log (ENOENT), which is a
+  // readable, empty record and correctly returns null.
+  messages.resetForTests();
+  try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* fresh */ }
+  fs.mkdirSync(messages.LOG, { recursive: true });
+  messages.resetForTests();
+  assert.throws(() => messages.projectOfPost('m1'), /could not be read/,
+    'an unreadable record must throw so sendRoomPostAsAgent can refuse rather than post blind');
+  try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* leave clean for the next file */ }
+});

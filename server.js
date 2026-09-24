@@ -2206,7 +2206,17 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      reply over a stale id. A proactive post (no in_reply_to) is unchanged. */
   const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
   if (citedId) {
-    const answeredProject = messages.projectOfPost(citedId);
+    let answeredProject = null;
+    try {
+      answeredProject = messages.projectOfPost(citedId);
+    } catch {
+      /* The record could not be read, so we cannot verify which room the answered
+         message is in. FAIL CLOSED (never post blind into a possibly-wrong room) --
+         retriable, matching the fail-closed sibling gates. A citation that simply is
+         not found returns null (below) and falls through; only an unreadable record
+         throws. */
+      return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
+    }
     if (answeredProject && answeredProject !== found.id) {
       let answeredName = answeredProject;
       try { const ap = projects.get(answeredProject, roster); if (ap && ap.name) answeredName = ap.name; } catch { /* keep the id if the name is unresolvable */ }
