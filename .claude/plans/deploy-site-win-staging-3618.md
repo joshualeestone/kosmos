@@ -32,6 +32,16 @@ R2's staging pointer against the stale committed one and exits red.
   (`promote-channel.sh --family win`, `win-staging-verified.sh`) still read it; that is the old
   pre-R2 flow and is out of scope here.
 
+## Fail-closed choices, named
+- Once the site redirects the staging pointer, a staging pointer R2 cannot serve (or a malformed
+  one) REFUSES the Mac deploy (A32). That matches prod's fail-closed rule and the old refusal when
+  the static pointer failed served-verify. The cost: a gap in R2 staging reds Mac deploys. Chosen
+  because a staging channel nobody can read is a real defect, not noise.
+- A redirected alias whose checksum or bytes disagree with the prod pointer refuses (A29, A35).
+  That assumes R2's alias is always the PROD build. In this repo a staging publish never touches the
+  alias, but the R2 publish lives outside this repo; if it ever writes the alias on a STAGING
+  publish, every Mac deploy goes red. Confirm with Homer alongside the premise below.
+
 ## Weakest premise
 
 That R2's staging channel is the one the Windows box reads, so the site copy is merely stale.
@@ -40,8 +50,8 @@ saying the site's `latest-win-staging.json` is still authoritative for his flow.
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, now 36 arms: A25 to A36 are new (staging redirect,
+`tools/test-deploy-site-served-win-3600.sh`, now 37 arms: A25 to A37 are new (staging redirect,
 its sidecar and bytes, no committed staging copy, R2 staging gone, committed staging newer than R2,
-alias checksum static/redirected/unprobeable, alias bytes on R2, and A36 proving the no-committed-copy path really verifies). A12 was rebuilt: the
+alias checksum static/redirected/unprobeable, alias bytes on R2, A36 proving the no-committed-copy path really verifies, and A37 for a failed staging probe). A12 was rebuilt: the
 static-pointer drift control now uses a post-deploy served copy, because a redirected staging pointer
 is no longer compared with the committed one.

@@ -65,6 +65,8 @@
 #   A35 the alias zip on R2 is a different build than the pointer (sidecar agrees) -> refuse
 #   A36 CONTROL for A31: no committed staging pointer, R2's staging zip bytes are wrong -> refuse,
 #       so A31's green is a real verification, not a skipped one
+#   A37 the staging probe fails at transport -> a NOTE naming the probe, then the strict committed-copy
+#       fallback (which refuses here, since R2's pointer is what the host really serves)
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -188,6 +190,7 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-stagedr2-gone - the staging pointer redirects, but R2 has no staging pointer at all
 #   redirect-aliasprobefail - as aliasstatic, and the un-followed probe of the alias .sha256 fails
 #   redirect-aliasbytes - as redirect, but R2's alias zip is another build than its pointer names
+#   redirect-stagedr2-probefail - as stagedr2, but the un-followed probe of the staging pointer fails
 #   redirect-behind   - as redirect, but R2 serves an OLDER build (0.6.30) than the committed 0.6.40
 #   redirect-probenone - as redirect, but the un-followed probe fails at transport (curl exit 7)
 #   redirect-badbytes - as redirect, but R2's WZ_NEW bytes change after its sha was published
@@ -302,7 +305,8 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         # The staging pointer redirects, but R2 has no staging pointer at all.
         printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
       fi
-      if [ "$mode" = redirect-stagedr2 ] || [ "$mode" = redirect-stagedr2-badsum ] || [ "$mode" = redirect-stagedr2-badbytes ]; then
+      [ "$mode" = redirect-stagedr2-probefail ] && printf '%s\n' 'dist/latest-win-staging.json' > "$live/.probe-fail-paths"
+      if [ "$mode" = redirect-stagedr2 ] || [ "$mode" = redirect-stagedr2-badsum ] || [ "$mode" = redirect-stagedr2-badbytes ] || [ "$mode" = redirect-stagedr2-probefail ]; then
         # R2 keeps its own staging channel: the staging pointer redirects and names a NEWER build.
         printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
         printf 'STAGED-R2-0.6.60\n' > "$r2/kosmos-0.6.60-win-x64.zip"
@@ -569,7 +573,7 @@ fi
 # A25) #3618: the redirected staging pointer is the truth; its newer R2 build is verified in full.
 read -r S L R <<<"$(make_scenario redirect-stagedr2 old)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "prod serves latest-win-staging.json by redirect and it names kosmos-0.6.60-win-x64.zip" && ! has "$out" "not newer than the prod Windows build"; then
+if [ "$RC" = 0 ] && has "$out" "prod serves latest-win-staging.json by redirect and it names kosmos-0.6.60-win-x64.zip; the site's committed copy names kosmos-0.6.45-win-x64.zip and is stale" && ! has "$out" "not newer than the prod Windows build"; then
   pass "A25: a redirected staging pointer naming a newer R2 build is verified (not the stale committed copy), rc=0"
 else
   bad "A25: the redirected staging build was not verified cleanly (rc=$RC); out=$out"
@@ -674,5 +678,14 @@ else
   bad "A36-CONTROL: with no committed staging copy, bad R2 staging bytes were not caught (rc=$RC); out=$out"
 fi
 
+# A37) a failed staging probe is named, and the fallback is the strict committed-copy check.
+read -r S L R <<<"$(make_scenario redirect-stagedr2-probefail old)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "could not probe whether latest-win-staging.json is served by redirect" && has "$out" "is not the committed one"; then
+  pass "A37: a failed staging probe is named, and the strict fallback refuses (rc=$RC)"
+else
+  bad "A37: a failed staging probe was not named or did not fall back strictly (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 36 arms passed"
+echo "test-deploy-site-served-win-3600: all 37 arms passed"

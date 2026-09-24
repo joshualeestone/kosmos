@@ -610,9 +610,6 @@ if [ -n "$WIN_SERVED_SHA" ]; then
   case "${_war%% *}" in
     301|302|303|307|308)
       [ "$_was" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip.sha256 says '${_was:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA for the same build -- a broken alias checksum on R2. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
-      # From R2, the alias BYTES are the download users get: they must be that build too.
-      _wag=$(served_sha256 kosmos-win-x64.zip 300) || { echo "deploy-site: could not fetch the served kosmos-win-x64.zip to hash it -- the deploy already ran, investigate (#3610)."; exit 1; }
-      [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
       ;;
     200)
       if [ "$_was" != "$_wwant" ]; then
@@ -623,6 +620,17 @@ if [ -n "$WIN_SERVED_SHA" ]; then
       ;;
     *)
       [ "$_was" = "$_wwant" ] || echo "deploy-site: NOTE (#3610): kosmos-win-x64.zip.sha256 says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA, and whether it is served from R2 or the site commit could not be probed (answer '${_war%% *}'). Re-run the check before acting on it." >&2
+      ;;
+  esac
+  # The alias ZIP is classified on its OWN redirect, not its sidecar's: on prod it has redirected to
+  # R2 since 09-22 while its sidecar was still static. From R2, those bytes are the download button's
+  # download, so they must be the build the pointer names. Served statically, git archive shipped the
+  # committed alias, which is the site's business, not R2's.
+  _waz=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$HOST/dist/kosmos-win-x64.zip" 2>/dev/null) || _waz=''
+  case "${_waz%% *}" in
+    301|302|303|307|308)
+      _wag=$(served_sha256 kosmos-win-x64.zip 300) || { echo "deploy-site: could not fetch the served kosmos-win-x64.zip to hash it -- the deploy already ran, investigate (#3610)."; exit 1; }
+      [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
       ;;
   esac
 fi
@@ -646,7 +654,9 @@ fi
 # committed copy, which goes stale on every Windows staging publish. Measured, as for prod; a probe
 # that cannot tell keeps the committed staging pointer and its strict checks.
 # Same race as prod: the staging reads (probe, pointer, sidecar, zip) are separate requests, so a
-# Windows staging publish landing between them can refuse a good deploy. Re-run once first.
+# Windows staging publish landing between them can refuse a good deploy; the OPERATOR should re-run
+# once before investigating (nothing here retries). This probe runs even under KOSMOS_WIN_ZIP: that
+# override names only the prod zip.
 WIN_STAGED_SERVED_SHA=""
 _wsp=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$HOST/dist/latest-win-staging.json" 2>/dev/null) || _wsp=''
 case "${_wsp%% *}" in
