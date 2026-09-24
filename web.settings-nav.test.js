@@ -105,14 +105,15 @@ test('#2054/#3138/#2619: Automation holds Auto-save, Prompter, Agent Communicati
   // #2619: both new automations carry the same .toggle switch shape as the others.
   assert.match(sec, /id="rec-toggle"[^>]*class="toggle"|class="toggle"[^>]*id="rec-toggle"/, '#2619: the Recommender toggle is missing');
   assert.match(sec, /id="asg-toggle"[^>]*class="toggle"|class="toggle"[^>]*id="asg-toggle"/, '#2619: the Assigner toggle is missing');
-  // #2619 (Splinter, 2026-09-24): an automation whose behaviour is not built renders
-  // DISABLED with a "not active yet" note, never a switch that does nothing. #3595 built the
-  // Recommender, so it is LIVE; the Assigner is still unbuilt, so it stays disabled.
-  // The real boolean `disabled` attribute, NOT aria-disabled: a plain /\bdisabled\b/ matches
-  // inside "aria-disabled" (the hyphen is a word boundary), so the lookbehind (?<!aria-)
-  // requires the standalone attribute.
-  assert.match(sec, /id="asg-toggle"[^>]*(?<!aria-)\bdisabled\b/, '#2619: the Assigner toggle must carry the real disabled attribute until its behaviour is wired');
-  assert.match(sec, /Not active yet/, '#2619: the still-unbuilt Assigner needs its "not active yet" note');
+  // #3595 phase 2: the Assigner is live too. No disabled attribute (the real boolean one, NOT
+  // aria-disabled: a plain /\bdisabled\b/ matches inside "aria-disabled", so the lookbehind
+  // (?<!aria-) requires the standalone attribute), the toggle starts hidden until the read
+  // lands, no "not active yet" note is left, and it is painted from the server and wired to save.
+  assert.doesNotMatch(sec, /id="asg-toggle"[^>]*(?<!aria-)\bdisabled\b/, '#3595: the Assigner toggle is still disabled though its behaviour is built');
+  assert.match(sec, /id="asg-toggle"[^>]*\bhidden\b/, '#3595: the Assigner toggle must start hidden until the setting is read (never a false Off)');
+  assert.doesNotMatch(sec, /Not active yet/, '#3595: a "not active yet" note is left though both automations are live');
+  assert.match(PAGE, /function paintAssigner\(/, '#3595: the Assigner has no painter');
+  assert.match(PAGE, /\/api\/assigner-setting/, '#3595: the page never reads or writes the Assigner setting');
   // #3595: the Recommender is live. Its toggle and guards carry NO disabled attribute, the
   // toggle starts hidden (status contract: shown only once the server read lands), and it
   // is painted from the server and wired to save.

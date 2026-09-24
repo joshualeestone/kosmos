@@ -83,6 +83,39 @@ run_br "$H"; rc=$?
 [ ! -f "$H/.node-ran" ] && ok "missing runtime: node not started" || bad "missing runtime: node ran"
 rm -rf "$H"
 
+# Start a stub port holder on a port the OS picks (bind 0) and read the port back
+# (#3616: fixed ports collided when two agents ran the suite at once). Sets
+# HOLDER_PID and HOLDER_PORT. Returns non-zero, with the holder killed, when no
+# port is reported; callers then FAIL the case and skip board-run, since an empty
+# KOSMOS_PORT would send board-run to the default port. Needs NODE_BIN, which the
+# callers check before calling.
+#   $1 = module (http|net)   $2 = host   $3 = HTTP body (http only)
+start_holder() {
+  local mod="$1" host="$2" body="${3:-}" dir i
+  dir="$(mktemp -d)"
+  HOLDER_PORT=""
+  PF="$dir/port" BODY="$body" "$NODE_BIN" -e '
+    const fs = require("fs"), m = process.argv[1], host = process.argv[2];
+    const s = m === "http"
+      ? require("http").createServer((_, r) => r.end(process.env.BODY))
+      : require("net").createServer(function () {});
+    s.listen(0, host, () => {
+      fs.writeFileSync(process.env.PF + ".tmp", String(s.address().port));
+      fs.renameSync(process.env.PF + ".tmp", process.env.PF);
+    });' "$mod" "$host" &
+  HOLDER_PID=$!
+  for i in $(seq 1 50); do
+    [ -s "$dir/port" ] && break
+    kill -0 "$HOLDER_PID" 2>/dev/null || break   # holder already exited: stop waiting
+    sleep 0.1
+  done
+  HOLDER_PORT="$(cat "$dir/port" 2>/dev/null)"; rm -rf "$dir"
+  case "$HOLDER_PORT" in
+    ''|*[!0-9]*) kill "$HOLDER_PID" 2>/dev/null; wait "$HOLDER_PID" 2>/dev/null; HOLDER_PORT=""; return 1 ;;
+  esac
+  return 0
+}
+
 # 4. A foreign healthy board already serves the port (the fresh-install RunAtLoad
 # collision, #2956): board-run must DEFER -- exit 0, leave the pidfile untouched,
 # and never exec node -- instead of clobbering the pidfile and exec'ing a doomed
@@ -91,16 +124,18 @@ rm -rf "$H"
 NODE_BIN="$(command -v node 2>/dev/null || true)"
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
   H="$(new_home)"
-  PORTX=18719
-  "$NODE_BIN" -e 'require("http").createServer((_,r)=>r.end("Kosmos board")).listen('"$PORTX"',"127.0.0.1")' &
-  SRV=$!
-  for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTX/" >/dev/null 2>&1 && break; sleep 0.1; done
-  printf 'SENTINEL-4242' > "$H/board.pid"
-  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTX /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-  [ "$rc" = 0 ] && ok "foreign healthy board: board-run exits 0 (defers)" || bad "foreign healthy board: exit $rc (want 0)"
-  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-4242" ] && ok "foreign healthy board: pidfile NOT clobbered" || bad "foreign healthy board: pidfile clobbered -> $(cat "$H/board.pid" 2>/dev/null)"
-  [ ! -f "$H/.node-ran" ] && ok "foreign healthy board: node not exec'd (no doomed second bind)" || bad "foreign healthy board: node ran anyway"
+  if ! start_holder http 127.0.0.1 "Kosmos board"; then
+    bad "foreign healthy board: stub holder never reported a port"
+  else
+    PORTX="$HOLDER_PORT"; SRV="$HOLDER_PID"
+    for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTX/" >/dev/null 2>&1 && break; sleep 0.1; done
+    printf 'SENTINEL-4242' > "$H/board.pid"
+    PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTX /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    [ "$rc" = 0 ] && ok "foreign healthy board: board-run exits 0 (defers)" || bad "foreign healthy board: exit $rc (want 0)"
+    [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-4242" ] && ok "foreign healthy board: pidfile NOT clobbered" || bad "foreign healthy board: pidfile clobbered -> $(cat "$H/board.pid" 2>/dev/null)"
+    [ ! -f "$H/.node-ran" ] && ok "foreign healthy board: node not exec'd (no doomed second bind)" || bad "foreign healthy board: node ran anyway"
+  fi
   rm -rf "$H"
 else
   echo "SKIP  foreign-healthy-board case (no system node to run a stub server)"
@@ -112,16 +147,18 @@ fi
 # healthy() is false but port_taken_by_stranger is true.
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
   H="$(new_home)"
-  PORTY=18723
-  "$NODE_BIN" -e 'require("http").createServer((_,r)=>r.end("some other app")).listen('"$PORTY"',"127.0.0.1")' &
-  SRV=$!
-  for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTY/" >/dev/null 2>&1 && break; sleep 0.1; done
-  printf 'SENTINEL-7777' > "$H/board.pid"
-  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTY /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-  [ "$rc" = 0 ] && ok "stranger on port: board-run exits 0 (no doomed exec)" || bad "stranger on port: exit $rc (want 0)"
-  [ ! -f "$H/.node-ran" ] && ok "stranger on port: node not exec'd (no crash-loop)" || bad "stranger on port: node ran into EADDRINUSE"
-  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-7777" ] && ok "stranger on port: pidfile NOT clobbered" || bad "stranger on port: pidfile clobbered"
+  if ! start_holder http 127.0.0.1 "some other app"; then
+    bad "stranger on port: stub holder never reported a port"
+  else
+    PORTY="$HOLDER_PORT"; SRV="$HOLDER_PID"
+    for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTY/" >/dev/null 2>&1 && break; sleep 0.1; done
+    printf 'SENTINEL-7777' > "$H/board.pid"
+    PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTY /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    [ "$rc" = 0 ] && ok "stranger on port: board-run exits 0 (no doomed exec)" || bad "stranger on port: exit $rc (want 0)"
+    [ ! -f "$H/.node-ran" ] && ok "stranger on port: node not exec'd (no crash-loop)" || bad "stranger on port: node ran into EADDRINUSE"
+    [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-7777" ] && ok "stranger on port: pidfile NOT clobbered" || bad "stranger on port: pidfile clobbered"
+  fi
   rm -rf "$H"
 else
   echo "SKIP  stranger-on-port case (no system node)"
@@ -139,16 +176,18 @@ fi
 # calls lsof by its absolute path.
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ] && [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; then
   H="$(new_home)"
-  PORTZ=18729
-  "$NODE_BIN" -e 'require("net").createServer(function(){}).listen('"$PORTZ"',"127.0.0.1")' &
-  SRV=$!
-  for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTZ -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
-  printf 'SENTINEL-8888' > "$H/board.pid"
-  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTZ /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-  [ "$rc" = 0 ] && ok "silent holder: board-run exits 0 (defers)" || bad "silent holder: exit $rc (want 0)"
-  [ ! -f "$H/.node-ran" ] && ok "silent holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "silent holder: node ran into EADDRINUSE"
-  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-8888" ] && ok "silent holder: pidfile NOT clobbered" || bad "silent holder: pidfile clobbered"
+  if ! start_holder net 127.0.0.1; then
+    bad "silent holder: stub holder never reported a port"
+  else
+    PORTZ="$HOLDER_PORT"; SRV="$HOLDER_PID"
+    for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTZ -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
+    printf 'SENTINEL-8888' > "$H/board.pid"
+    PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTZ /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    [ "$rc" = 0 ] && ok "silent holder: board-run exits 0 (defers)" || bad "silent holder: exit $rc (want 0)"
+    [ ! -f "$H/.node-ran" ] && ok "silent holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "silent holder: node ran into EADDRINUSE"
+    [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-8888" ] && ok "silent holder: pidfile NOT clobbered" || bad "silent holder: pidfile clobbered"
+  fi
   rm -rf "$H"
 else
   echo "SKIP  silent-holder case (needs system node + /usr/sbin/lsof)"
@@ -163,16 +202,18 @@ fi
 # assume across machines/CI, so it is verified manually (2026-09-13), not here.)
 if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ] && [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; then
   H="$(new_home)"
-  PORTW=18731
-  "$NODE_BIN" -e 'require("net").createServer(function(){}).listen('"$PORTW"',"0.0.0.0")' &
-  SRV=$!
-  for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTW -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
-  printf 'SENTINEL-9999' > "$H/board.pid"
-  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTW /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
-  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
-  [ "$rc" = 0 ] && ok "all-interfaces (*) holder: board-run exits 0 (defers)" || bad "all-interfaces (*) holder: exit $rc (want 0)"
-  [ ! -f "$H/.node-ran" ] && ok "all-interfaces (*) holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "all-interfaces (*) holder: node ran into EADDRINUSE"
-  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-9999" ] && ok "all-interfaces (*) holder: pidfile NOT clobbered" || bad "all-interfaces (*) holder: pidfile clobbered"
+  if ! start_holder net 0.0.0.0; then
+    bad "all-interfaces (*) holder: stub holder never reported a port"
+  else
+    PORTW="$HOLDER_PORT"; SRV="$HOLDER_PID"
+    for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTW -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
+    printf 'SENTINEL-9999' > "$H/board.pid"
+    PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTW /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+    [ "$rc" = 0 ] && ok "all-interfaces (*) holder: board-run exits 0 (defers)" || bad "all-interfaces (*) holder: exit $rc (want 0)"
+    [ ! -f "$H/.node-ran" ] && ok "all-interfaces (*) holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "all-interfaces (*) holder: node ran into EADDRINUSE"
+    [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-9999" ] && ok "all-interfaces (*) holder: pidfile NOT clobbered" || bad "all-interfaces (*) holder: pidfile clobbered"
+  fi
   rm -rf "$H"
 else
   echo "SKIP  all-interfaces-holder case (needs system node + /usr/sbin/lsof)"

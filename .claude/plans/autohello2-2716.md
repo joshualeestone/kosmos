@@ -75,8 +75,8 @@ while the app is sending the hello.
   multi-line), confirmed by browser-checks-reason-grep.test.js.
 
 ## Verification
-- docs/browser-checks/render-autohello-switch-2716.js, 19 checks. Arms 1-9 run
-  with a 300ms test hold so no retry outlives its arm; the real-path arms use a
+- docs/browser-checks/render-autohello-switch-2716.js, 19 checks. Arms 1-8 run
+  with a 300ms test hold so no retry outlives its arm (arm 9 uses 600ms); the real-path arms use a
   1500ms hold (a reviewer measured a 767ms report under 20x CPU throttling).
   Comparing against the wrong line reds 8 of the 19. The old source
   invariant (2 x poll > hold), which was red by design, is replaced by three
@@ -86,7 +86,7 @@ while the app is sending the hello.
   reds arm 9, no closed-dialog guard reds arms 4 and 8.
   Arm 10: a stale report from an earlier restart of the same agent does not
   land in the next dialog (red without the token check). Arm 11 clicks the real
-  #d-model-go with the hold (600ms) longer than two readiness polls, so the hello
+  #d-model-go with the hold (1500ms) longer than two readiness polls, so the hello
   is placed before the held render for real (measured 187ms) and the dialog
   still ends on the confirmation. Arm 11b does the same through the real
   #d-provider-go (measured 231ms), which has its own call site and an extra

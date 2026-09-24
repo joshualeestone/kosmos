@@ -85,6 +85,40 @@ function luhn(digits) {
   return sum % 10 === 0;
 }
 
+/* A grouped amount followed by a currency word: `249,000 USD`, `1,234.50 euros`.
+   Equivalent to /\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:USD|...)\b/i, in linear time
+   (#3609). It finds each currency word once and looks backward from it:
+   - The amount must end exactly where the whitespace before the word begins,
+     because an amount ends in a digit and whitespace is not one.
+   - The shortest grouped amount is one digit, a comma, three digits. A longer
+     one ends the same way, so a grouped amount ends at f exactly when the five
+     characters before f are digit, comma, digit, digit, digit.
+   - With decimals, the digits before the whitespace are the whole fraction, so
+     the '.' sits just before that digit run and the grouped part ends there.
+   The regions looked at before two different currency words cannot overlap
+   (a currency word is letters), so the whole scan is linear. The same fact
+   means no amount can end inside a word the scan steps over. Both depend on
+   every word being letters only, which is why the words are a list a test
+   checks. */
+const SPELLED_CURRENCY_WORDS = Object.freeze(['USD', 'EUR', 'GBP', 'dollars', 'dollar', 'euros', 'euro', 'pounds', 'pound']);
+const SPELLED_CURRENCY_SOURCE = '(?:' + SPELLED_CURRENCY_WORDS.join('|') + ')\\b';
+const WHITESPACE = /\s/;
+function spelledGroupedCurrency(s) {
+  const isDigit = (i) => i >= 0 && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57;
+  const groupedEndsAt = (f) => isDigit(f - 5) && s[f - 4] === ',' && isDigit(f - 3) && isDigit(f - 2) && isDigit(f - 1);
+  const word = new RegExp(SPELLED_CURRENCY_SOURCE, 'gi'); // per call: a g regex carries lastIndex
+  for (let m = word.exec(s); m !== null; m = word.exec(s)) {
+    let end = m.index;
+    while (end > 0 && WHITESPACE.test(s[end - 1])) end--;
+    if (groupedEndsAt(end)) return true;
+    let frac = end;
+    while (isDigit(frac - 1)) frac--;
+    if (frac < end && s[frac - 1] === '.' && groupedEndsAt(frac - 1)) return true;
+  }
+  return false;
+}
+spelledGroupedCurrency.words = SPELLED_CURRENCY_WORDS;
+
 /* Size caps. A cap is a cheap structural defense: an enormous body is both a
    denial-of-space risk and a place to bury a payload. These are deliberately
    generous for real narrative posts and firm enough to refuse a blob. */
@@ -159,7 +193,12 @@ const PATTERNS = Object.freeze([
   // motivating "$249,000 finding" class is caught in other currencies too.
   { cls: 'financial', re: /[$€£]\s?\d{1,3}(?:,\d{3})+(?:\.\d+)?\b/, why: 'grouped currency amount' },
   { cls: 'financial', re: /[$€£]\s?\d{4,}(?:\.\d+)?\b/, why: 'large currency amount' },
-  { cls: 'financial', re: /\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:USD|EUR|GBP|dollars?|euros?|pounds?)\b/i, why: 'grouped currency amount (spelled)' },
+  // The spelled grouped form is a function, not a regex (#3609). As a regex,
+  //   /\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*(?:USD|EUR|GBP|dollars?|euros?|pounds?)\b/i
+  // it retried from every digit of a long "9,999,999..." chain with no currency
+  // word after it: quadratic, about 4x per doubling. No lookbehind fixes that
+  // without changing results. The function gives the same answer in linear time.
+  { cls: 'financial', fn: spelledGroupedCurrency, why: 'grouped currency amount (spelled)' },
   { cls: 'financial', re: /\b\d{4,}(?:\.\d+)?\s*(?:USD|EUR|GBP|dollars?|euros?|pounds?)\b/i, why: 'large currency amount (spelled)' },
 ]);
 
