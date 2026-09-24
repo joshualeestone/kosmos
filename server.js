@@ -2091,8 +2091,9 @@ function withCreatorLock(creator, fn) {
  * 100 that no override may exceed -- same "Kosmos owns the bound, not the prompt"
  * posture as the per-team cap. Reversible; Josh can override. */
 /* #3614: the agent page's Files list. 20 is a glance list under the four-pack ("Open in Finder"
- * is the way to everything else, and the page says "And N more"); 500 bounds one ?limit= read so
- * a huge folder cannot make a single poll answer arbitrarily large. Reversible. */
+ * is the way to everything else, and the page says "And N more"); 500 bounds the ROWS one ?limit=
+ * read returns. It does not bound the scan: listFiles still stats every file to sort them, so a
+ * folder of thousands costs that on each 5-second poll. Reversible. */
 const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
 
@@ -4622,10 +4623,13 @@ const server = http.createServer((req, res) => {
       let cap = AGENT_FILES_DEFAULT_CAP;
       try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) cap = Math.min(Math.floor(l), AGENT_FILES_MAX_CAP); } catch { cap = AGENT_FILES_DEFAULT_CAP; }
       if (projects.folderState(folder).state === projects.FOLDER.MISSING) {
-        sendJson(res, 200, { ok: true, missing: true, total: 0, files: [], names: [], stamp: 'missing', folder });
+        sendJson(res, 200, { ok: true, missing: true, total: 0, files: [], stamp: 'missing', folder });
         return;
       }
-      sendJson(res, 200, { ...projects.listFiles(folder, cap), folder });
+      // listFiles also returns `names` (every name in the folder, uncapped); the page never reads
+      // it, so it is dropped here rather than sent on every poll.
+      const { names: _allNames, ...listed } = projects.listFiles(folder, cap);
+      sendJson(res, 200, { ...listed, folder });
       return;
     }
     if (verb === 'open' && req.method === 'POST') {
