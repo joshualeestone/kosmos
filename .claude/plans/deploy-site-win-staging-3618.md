@@ -40,8 +40,8 @@ saying the site's `latest-win-staging.json` is still authoritative for his flow.
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, now 35 arms: A25 to A35 are new (staging redirect,
+`tools/test-deploy-site-served-win-3600.sh`, now 36 arms: A25 to A36 are new (staging redirect,
 its sidecar and bytes, no committed staging copy, R2 staging gone, committed staging newer than R2,
-alias checksum static/redirected/unprobeable, and alias bytes on R2). A12 was rebuilt: the
+alias checksum static/redirected/unprobeable, alias bytes on R2, and A36 proving the no-committed-copy path really verifies). A12 was rebuilt: the
 static-pointer drift control now uses a post-deploy served copy, because a redirected staging pointer
 is no longer compared with the committed one.

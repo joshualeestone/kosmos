@@ -63,6 +63,8 @@
 #   A34 the alias-checksum probe fails -> a NOTE that it could not be probed, never the
 #       "served from the site commit" claim; rc 0
 #   A35 the alias zip on R2 is a different build than the pointer (sidecar agrees) -> refuse
+#   A36 CONTROL for A31: no committed staging pointer, R2's staging zip bytes are wrong -> refuse,
+#       so A31's green is a real verification, not a skipped one
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -364,7 +366,7 @@ fi
 # A4) the served sidecar disagrees with the served pointer's sha -> the updater would refuse; so do we.
 read -r S L R <<<"$(make_scenario redirect-badsum)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" != 0 ] && has "$out" "the Windows updater would refuse this update"; then
+if [ "$RC" != 0 ] && has "$out" "every Windows update would refuse it"; then
   pass "A4: served pointer sha != served $WZ_NEW.sha256 -> refuses (rc=$RC)"
 else
   bad "A4: a pointer/sidecar disagreement did not refuse (rc=$RC); out=$out"
@@ -590,7 +592,7 @@ fi
 # A28) #3610 today: the alias sidecar is static and stale -> warn, do not red the Mac deploy.
 read -r S L R <<<"$(make_scenario redirect-aliasstatic)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit"; then
+if [ "$RC" = 0 ] && has "$out" "WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit" && has "$out" "BUT (#3610) the Windows alias checksum is served stale"; then
   pass "A28: a stale, statically served alias checksum warns (naming the redirect fix), rc=0"
 else
   bad "A28: a stale static alias checksum did not warn cleanly (rc=$RC); out=$out"
@@ -617,7 +619,7 @@ fi
 # A31) no committed staging pointer at all, R2 redirects a newer one: verified in full.
 read -r S L R <<<"$(make_scenario redirect-stagedr2)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "published and verified" && ! has "$out" "not newer than the prod Windows build"; then
+if [ "$RC" = 0 ] && has "$out" "the site commits no latest-win-staging.json, but prod serves one by redirect naming kosmos-0.6.60-win-x64.zip" && ! has "$out" "not newer than the prod Windows build"; then
   pass "A31: with no committed staging pointer, R2's redirected newer staging build is verified, rc=0"
 else
   bad "A31: a redirected staging pointer with no committed copy did not verify cleanly (rc=$RC); out=$out"
@@ -635,7 +637,7 @@ fi
 # A33) the committed staging build (0.6.55) is newer than R2's (0.6.46): loud, not "stale".
 read -r S L R <<<"$(make_scenario redirect-stagedr2-old new)"
 run_deploy "$S" "$L" "$R"
-if [ "$RC" = 0 ] && has "$out" "committed staging build kosmos-0.6.55-win-x64.zip is NEWER than what prod serves by redirect" && ! has "$out" "committed copy names kosmos-0.6.55-win-x64.zip and is stale"; then
+if [ "$RC" = 0 ] && has "$out" "committed staging build kosmos-0.6.55-win-x64.zip is NEWER than what prod serves by redirect" && has "$out" "BUT (#3618) the committed staging build kosmos-0.6.55-win-x64.zip is NOT staged" && ! has "$out" "committed copy names kosmos-0.6.55-win-x64.zip and is stale"; then
   pass "A33: a committed staging build newer than R2's gets the 'not staged' WARNING, rc=0"
 else
   bad "A33: a committed staging build newer than R2 was mislabeled (rc=$RC); out=$out"
@@ -659,5 +661,14 @@ else
   bad "A35: a wrong-build alias zip on R2 was not caught (rc=$RC); out=$out"
 fi
 
+# A36) CONTROL for A31: with no committed staging copy, R2's staging build is still really verified.
+read -r S L R <<<"$(make_scenario redirect-stagedr2-badbytes)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the served kosmos-0.6.60-win-x64.zip hashes to"; then
+  pass "A36-CONTROL: no committed staging copy + bad R2 staging bytes refuses (rc=$RC) -- A31 verifies, not skips"
+else
+  bad "A36-CONTROL: with no committed staging copy, bad R2 staging bytes were not caught (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 35 arms passed"
+echo "test-deploy-site-served-win-3600: all 36 arms passed"

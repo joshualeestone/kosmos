@@ -532,16 +532,17 @@ read_served_win_pointer() {  # <pointer file under dist> <redacted redirect targ
 # pointer advertises (the Windows updater fetches it FIRST and refuses a mismatch), and the served zip
 # BYTES must hash to it: an R2 zip is hashed nowhere else (derive_committed_win_versioned hashes only
 # the committed one). About 40 MB, about a second.
-check_win_sidecar_and_bytes() {  # <zip name> <sha the pointer advertises> <pointer file, for messages>
-  _cwsc=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1.sha256") || { echo "deploy-site: could not re-read the served $1.sha256 -- the deploy already ran, investigate (#3600)."; exit 1; }
+check_win_sidecar_and_bytes() {  # <zip name> <sha the pointer advertises> <pointer file> <card tag> <who is refused>
+  _cwsc=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$1.sha256") || { echo "deploy-site: could not re-read the served $1.sha256 -- the deploy already ran, investigate ($4)."; exit 1; }
   _cwsc=$(printf '%s' "$_cwsc" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]')
   _cwwant=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
-  [ "$_cwsc" = "$_cwwant" ] || { echo "deploy-site: the served $3 advertises sha $2 for $1 but its served .sha256 says '${_cwsc:-nothing}' -- the Windows updater would refuse this update. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
-  _cwgot=$(served_sha256 "$1" 300) || { echo "deploy-site: could not fetch the served $1 to hash it -- the deploy already ran, investigate (#3600)."; exit 1; }
-  [ "$_cwgot" = "$_cwwant" ] || { echo "deploy-site: the served $1 hashes to '${_cwgot:-nothing}' but its pointer and .sha256 say $_cwwant -- a corrupt or partial R2 upload; every Windows update would refuse it. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
+  [ "$_cwsc" = "$_cwwant" ] || { echo "deploy-site: the served $3 advertises sha $2 for $1 but its served .sha256 says '${_cwsc:-nothing}' -- $5 would refuse it. The deploy already ran; investigate the R2 publish ($4)."; exit 1; }
+  _cwgot=$(served_sha256 "$1" 300) || { echo "deploy-site: could not fetch the served $1 to hash it -- the deploy already ran, investigate ($4)."; exit 1; }
+  [ "$_cwgot" = "$_cwwant" ] || { echo "deploy-site: the served $1 hashes to '${_cwgot:-nothing}' but its pointer and .sha256 say $_cwwant -- a corrupt or partial R2 upload; $5 would refuse it. The deploy already ran; investigate the R2 publish ($4)."; exit 1; }
 }
 WIN_VERIFY=$WINZIP
 WIN_SERVED_SHA=""
+WIN_CLOSING_NOTES=""   # #3618/#3610 warnings repeated after the final success line
 WIN_UNPUBLISHED=""   # set when the site's Windows build is newer than what R2 serves; repeated at the end
 # The prod Windows version users get, for the staged block below, always read from the NAME of the
 # zip being verified ($WINZIP here: the sha-verified committed name, or an explicit KOSMOS_WIN_ZIP),
@@ -595,7 +596,7 @@ served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip" "the unversioned Windows 
 served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip.sha256" "the unversioned Windows alias checksum" || { echo "deploy-site: kosmos-win-x64.zip.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 served_verify_asset_ok "$HOST/dist/$WIN_VERIFY.sha256" "the Windows zip checksum $WIN_VERIFY.sha256" || { echo "deploy-site: the Windows zip checksum $WIN_VERIFY.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate. A sidecar-only drop breaks new-install verification while the zip still serves."; exit 1; }
 if [ -n "$WIN_SERVED_SHA" ]; then
-  check_win_sidecar_and_bytes "$WIN_VERIFY" "$WIN_SERVED_SHA" latest-win.json
+  check_win_sidecar_and_bytes "$WIN_VERIFY" "$WIN_SERVED_SHA" latest-win.json "#3600" "every Windows update"
   # #3610: the unversioned alias is the download the pointer's `artifact` names, and the same build,
   # so its served .sha256 must carry the pointer's sha. Served by redirect (from R2), a mismatch is a
   # real broken checksum: refuse. Served statically from the site commit it goes stale on every
@@ -612,7 +613,11 @@ if [ -n "$WIN_SERVED_SHA" ]; then
       [ "$_wag" = "$_wwant" ] || { echo "deploy-site: the served kosmos-win-x64.zip hashes to '${_wag:-nothing}' but latest-win.json advertises $WIN_SERVED_SHA -- the alias on R2 is a different build. The deploy already ran; investigate the R2 publish (#3610)."; exit 1; }
       ;;
     200)
-      [ "$_was" = "$_wwant" ] || echo "deploy-site: WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit and says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA. Redirect it to R2 in the site's vercel.json so it stops going stale." >&2
+      if [ "$_was" != "$_wwant" ]; then
+        echo "deploy-site: WARNING (#3610): kosmos-win-x64.zip.sha256 is served from the site commit and says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA. Redirect it to R2 in the site's vercel.json so it stops going stale." >&2
+        WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3610) the Windows alias checksum is served stale from the site commit.
+"
+      fi
       ;;
     *)
       [ "$_was" = "$_wwant" ] || echo "deploy-site: NOTE (#3610): kosmos-win-x64.zip.sha256 says '${_was:-nothing}', not the served build's $WIN_SERVED_SHA, and whether it is served from R2 or the site commit could not be probed (answer '${_war%% *}'). Re-run the check before acting on it." >&2
@@ -645,13 +650,19 @@ _wsp=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -
 case "${_wsp%% *}" in
   301|302|303|307|308)
     read_served_win_pointer latest-win-staging.json "$(_served_verify_redact_userinfo "${_wsp#* }")" "#3618"
-    if [ -n "$WIN_STAGED" ] && [ "$WIN_STAGED" != "$SWP_NAME" ]; then
+    if [ -z "$WIN_STAGED" ]; then
+      echo "deploy-site: NOTE (#3618): the site commits no latest-win-staging.json, but prod serves one by redirect naming $SWP_NAME. Verifying that staged build." >&2
+    elif [ "$WIN_STAGED" != "$SWP_NAME" ]; then
       _wscv=$(win_zip_version "$WIN_STAGED"); _wssv=$(win_zip_version "$SWP_NAME"); _wsn=""
       [ -z "$_wscv" ] || [ -z "$_wssv" ] || _wsn=$(printf '%s\n%s\n' "$_wscv" "$_wssv" | sort -V | tail -1)
-      if [ -n "$_wsn" ] && [ "$_wsn" = "$_wscv" ]; then
+      if [ -z "$_wsn" ]; then
+        echo "deploy-site: NOTE (#3618): prod serves latest-win-staging.json by redirect and it names $SWP_NAME; the site's committed copy names $WIN_STAGED, and which is newer cannot be told. Verifying the served staging build." >&2
+      elif [ "$_wsn" = "$_wscv" ]; then
         # The site's staged build is NEWER than R2's: a staging publish was committed but never
         # reached R2, so the Windows box cannot see it. Not a Mac deploy failure, but loud.
         echo "deploy-site: WARNING (#3618): the site's committed staging build $WIN_STAGED is NEWER than what prod serves by redirect ($SWP_NAME). R2 was not updated, so it is NOT staged for the Windows box. Verifying what is served ($SWP_NAME); publish the build to R2 to stage it." >&2
+        WIN_CLOSING_NOTES="${WIN_CLOSING_NOTES}deploy-site: BUT (#3618) the committed staging build $WIN_STAGED is NOT staged: R2 still serves $SWP_NAME.
+"
       else
         echo "deploy-site: NOTE (#3618): prod serves latest-win-staging.json by redirect and it names $SWP_NAME; the site's committed copy names $WIN_STAGED and is stale. Verifying the served staging build." >&2
       fi
@@ -689,7 +700,7 @@ if [ -n "$WIN_STAGED" ]; then
   if [ "$WIN_STAGED_SUPERSEDED" = 0 ]; then
     served_verify_asset_ok "$HOST/dist/$WIN_STAGED" "the staged Windows zip $WIN_STAGED" || { echo "deploy-site: the staged Windows zip $WIN_STAGED failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
     served_verify_asset_ok "$HOST/dist/$WIN_STAGED.sha256" "the staged Windows zip checksum $WIN_STAGED.sha256" || { echo "deploy-site: the staged Windows zip checksum $WIN_STAGED.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
-    [ -z "$WIN_STAGED_SERVED_SHA" ] || check_win_sidecar_and_bytes "$WIN_STAGED" "$WIN_STAGED_SERVED_SHA" latest-win-staging.json
+    [ -z "$WIN_STAGED_SERVED_SHA" ] || check_win_sidecar_and_bytes "$WIN_STAGED" "$WIN_STAGED_SERVED_SHA" latest-win-staging.json "#3618" "the Windows box verifying the staged build"
   fi
   served_verify_asset_ok "$HOST/dist/latest-win-staging.json" "the Windows staging pointer" || { echo "deploy-site: latest-win-staging.json failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
   # Served statically, the pointer must be the committed one. Served by redirect it is R2's own
@@ -728,6 +739,7 @@ _svsetup_want=$(awk '{print $1; exit}' "$_svsetup_sum"); rm -f "$_svsetup_sum"
 [ -n "$_svsetup_want" ] && [ "$_svsetup_want" = "$_svsetup_got" ] || { echo "deploy-site: the served /setup (sha $_svsetup_got) does NOT match its served /setup.sha256 (${_svsetup_want:-<none>}) -- refusing to certify. This is exactly what makes the .pkg postinstall refuse with \"installation failed\" (#1666/#2511): a half-published or half-warmed-CDN state where a client can fetch a mismatched (setup, setup.sha256) pair. Re-run the deploy and/or purge+warm the edge for /setup and /setup.sha256."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
+[ -z "$WIN_CLOSING_NOTES" ] || printf '%s' "$WIN_CLOSING_NOTES"
 [ -z "$WIN_UNPUBLISHED" ] || echo "deploy-site: BUT (#3600) the Windows build $WIN_UNPUBLISHED is committed and NOT served: users still get $WIN_VERIFY. Publish it to R2 to finish that Windows promote."
 
 # #2159: a --promote that moves the prod pointer FORWARD is a new release going live to users, so
