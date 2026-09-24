@@ -52,8 +52,7 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
 // The dialog box may sit up to TOL px above the viewport bottom and still read
-// as "filled" -- in the narrow layout that room is the body's own bottom padding
-// (64px) plus a little rounding (the wide layout fills flush, A1b). Pre-change the gap was many hundreds of px, so TOL discriminates.
+// as "filled" (A1, A2; the wide layout fills flush, A1b). Pre-change the gap was many hundreds of px, so TOL discriminates.
 const TOL = 130;
 
 const fail = [];
@@ -240,65 +239,36 @@ async function measure(page) {
       'boxBottom=' + short.boxBottom + ' innerHeight=' + short.innerHeight + ' gap=' + short.gapBelowBox);
     edges(short, 'short window');
 
-    // --- Narrow width (<=56rem): the grid collapses to one column and the snav
-    // wraps to a row above .dsecs. The talk fill must still hold WITHOUT ballooning
-    // the snav row (the failure this arm guards: a single-column grid stretching both
-    // rows equally). Measured at 500px wide, a phone-ish width below the 56rem breakpoint. ---
+    // --- Narrow width (<=56rem): the identity block and nav stack above the Talk box, so the page
+    // scrolls and the box is its own window-tall block; the header is not sticky in this view.
+    // Control for A2b/A2d/A2e: with a window-tall PANEL (the #2622 fill) the box got the sliver left
+    // under the nav: at 500x900, box 775-842 and composer 874-928, below the box and the window. ---
     await page.setViewportSize({ width: 500, height: 900 });
     await page.waitForTimeout(200);
-    const narrow = await measure(page);
-    const narrowNav = await page.evaluate(() => {
-      const snav = document.querySelector('#panel-detail .snav');
+    const narrowAt = (where) => page.evaluate((w) => {
       const box = document.getElementById('d-talk-box');
-      const srect = snav ? snav.getBoundingClientRect() : null;
-      // The nav lives in a .dleft flex-column (identity block + the snav, the snav last), which sits
-      // in the `auto` row of the .dbody grid (#3385). Measure whether that row stays content-height by
-      // the signed gap between the snav's bottom and its .dleft's bottom (minus .dleft's padding-bottom):
-      //   ~0  -> flush, content-height (healthy)
-      //   >0  -> empty space below the nav: the row was STRETCHED to fill a tall track
-      //   <0  -> the nav OVERFLOWS .dleft: the row was shrunk (the actual #2569 regression)
-      // Measured on box geometry, NOT scrollHeight: .dleft/.snav carry no overflow of their own, so
-      // scrollHeight just echoes an externally-sized box; and a stretch balloons the .dleft ROW, not
-      // #d-nav (a flex column always ends flush with its last item, so a #d-nav gap is vacuously 0).
-      const dleft = snav ? snav.closest('.dleft') : null;
-      const drect = dleft ? dleft.getBoundingClientRect() : null;
-      const dPadB = dleft ? (parseFloat(getComputedStyle(dleft).paddingBottom) || 0) : 0;
-      return {
-        snavHeight: srect ? Math.round(srect.height) : null,
-        navGapInDleft: (srect && drect) ? Math.round(drect.bottom - srect.bottom - dPadB) : null,
-        boxHeight: box ? Math.round(box.getBoundingClientRect().height) : null,
-      };
-    });
-    console.log('MEASURE narrow(500x900): ' + JSON.stringify(narrow) + ' nav=' + JSON.stringify(narrowNav));
-    // A2b/A2d narrow width: the identity block and nav stack above the box, so the page scrolls and
-    // the box is its own window-tall block. Scrolled to, it fits the window and the composer sits
-    // inside it on screen. Control: with a window-tall PANEL the box got the ~70px left under the nav
-    // and the composer fell below the window (box 775-842, composer 853-907 at 800x900).
-    const narrowScrolled = await page.evaluate(() => {
-      const box = document.getElementById('d-talk-box');
-      box.scrollIntoView({ block: 'end' });
+      if (w === 'end') box.scrollIntoView({ block: 'end' });
+      else window.scrollTo(0, document.documentElement.scrollHeight);
       const b = box.getBoundingClientRect();
       const c = document.querySelector('#d-talk-box .dmbar.composerbox').getBoundingClientRect();
+      const h = document.querySelector('.apphead').getBoundingClientRect();
       const out = { boxHeight: Math.round(b.height), boxTop: Math.round(b.top), boxBottom: Math.round(b.bottom),
-        composerTop: Math.round(c.top), composerBottom: Math.round(c.bottom), innerHeight: window.innerHeight };
+        headBottom: Math.round(h.bottom), composerTop: Math.round(c.top), composerBottom: Math.round(c.bottom),
+        innerHeight: window.innerHeight };
       window.scrollTo(0, 0);
       return out;
-    });
-    chk(narrowScrolled.boxHeight >= 320 && narrowScrolled.boxHeight <= narrowScrolled.innerHeight,
-      'A2b narrow width: the Talk box is a usable, window-fitting height', JSON.stringify(narrowScrolled));
-    chk(narrowScrolled.composerTop >= narrowScrolled.boxTop && narrowScrolled.composerBottom <= narrowScrolled.boxBottom
-      && narrowScrolled.composerBottom <= narrowScrolled.innerHeight,
-      'A2d narrow width: scrolled to, the composer is inside the box and on screen', JSON.stringify(narrowScrolled));
-    // #3547/#3500: the agent nav is now a vertical stack of icon+label boxes, so at narrow width it is
-    // legitimately TALLER than the talk box (268 vs 209). The old `snavHeight < boxHeight` predated the
-    // boxed redesign and false-failed. This arm now guards the nav's .dleft row staying content-height
-    // (navGapInDleft ~ 0). Proven able to fail on the REAL regression: removing the .dbody
-    // `grid-template-rows: auto minmax(0,1fr)` fix (index.html ~2569) shrinks the row so the nav
-    // overflows .dleft and navGapInDleft goes to -128 (A2b and a #d-nav-only gap both stay green there,
-    // which is why this measures the .dleft row, not #d-nav).
-    chk(narrowNav.navGapInDleft !== null && Math.abs(narrowNav.navGapInDleft) <= 4,
-      'A2c narrow width: the nav sits flush in its .dleft row (content-height, neither stretched nor overflowing)',
-      'navGapInDleft=' + narrowNav.navGapInDleft + ' snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
+    }, where);
+    const onScreen = (m) => m.boxTop >= Math.max(0, m.headBottom) && m.boxBottom <= m.innerHeight
+      && m.composerTop >= m.boxTop && m.composerBottom <= m.boxBottom;
+    const nEnd = await narrowAt('end');
+    const nMax = await narrowAt('max');
+    console.log('MEASURE narrow(500x900) end=' + JSON.stringify(nEnd) + ' max=' + JSON.stringify(nMax));
+    chk(nEnd.boxHeight >= 320 && nEnd.boxHeight <= nEnd.innerHeight,
+      'A2b narrow width: the Talk box is a usable, window-fitting height', JSON.stringify(nEnd));
+    chk(onScreen(nEnd),
+      'A2d narrow width: scrolled to the box, all of it (header row to composer) is on screen and uncovered', JSON.stringify(nEnd));
+    chk(onScreen(nMax),
+      'A2e narrow width: at the end of the page (where scrolling stops), the whole box is on screen and uncovered', JSON.stringify(nMax));
 
     // --- A long THREAD in a SHORT window: the composer must stay reachable. This
     // guards a failure mode the FILL ITSELF introduces, NOT a pre-change control
