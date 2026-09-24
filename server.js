@@ -4601,10 +4601,11 @@ const server = http.createServer((req, res) => {
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
-    const own = create.workerDir(name);
+    // The folder is dmfiles.filesDir (beside the agent's own instructions file), and the agent's
+    // folder is its PARENT, so the existence check and the folder can never name two places.
     const folder = dmfiles.filesDir(name);
     let ownIsDir = false;
-    try { ownIsDir = fs.lstatSync(own).isDirectory(); } catch { ownIsDir = false; }
+    try { ownIsDir = Boolean(folder) && fs.lstatSync(path.dirname(folder)).isDirectory(); } catch { ownIsDir = false; }
     if (!folder || !ownIsDir) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
     const verb = agentFiles[2] || null;
     // A Files that is a LINK would list and open whatever it points at (listFiles and openFile

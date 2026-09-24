@@ -134,3 +134,14 @@ test('reveal: creates the Files folder on first use, inside the agent\'s folder,
   assert.equal(fs.readFileSync(path.join(SANDBOX, 'workers', 'gus', 'Files'), 'utf8'), 'not a folder');
   assert.equal((await post('/api/agent/gus/files/reveal', {}, { origin: 'https://evil.example' })).status, 403);
 });
+
+test('a name store.safeKey changes (Writer) lists the SAME folder dmfiles.filesDir names', async () => {
+  const folder = dmfiles.filesDir('Writer');
+  assert.ok(folder, 'fixture: filesDir gave no folder for Writer');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'draft.md'), 'd');
+  const r = await get('/api/agent/Writer/files');
+  assert.equal(r.status, 200, 'the agent with a changed key read as missing');
+  assert.deepEqual(r.json.files.map((f) => f.name), ['draft.md']);
+  assert.equal(r.json.folder, folder, 'the route listed a different folder than the instruction names');
+});
