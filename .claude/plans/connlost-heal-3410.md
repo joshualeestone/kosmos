@@ -17,7 +17,7 @@ So the premise was false: a self-heal on connection_lost would have restarted ag
 
 ## Change
 - `engine/status.js`: `RETRYING_LINE` (a spinner-glyph line ending "· Retrying in Ns · attempt K/N")
-  classifies WORKING with "it is retrying its connection to the API", just above the
+  classifies WORKING with "it is retrying a failed request to the API", just above the
   connection_lost rule. It is keyed on the retry suffix, so other network errors that retry the same way match.
 - Two comments corrected: the placement note now names RETRYING_LINE, and the "premise unverified"
   warning now records the measurement.
@@ -32,7 +32,10 @@ So the premise was false: a self-heal on connection_lost would have restarted ag
 
 ## Weakest premise
 One Claude Code version, one error (ECONNREFUSED). DNS or timeout errors are assumed to draw the
-same retry suffix, which has not been captured. A UI change would reopen this.
+same retry suffix, which has not been captured. A UI change would reopen this. A retry line that a
+narrow pane splits across two rows is glued back (tested); one split across three or more rows is
+not, and would read connection_lost for as long as it stays on screen. The self-heal's
+unchanged-tail bound is what keeps that from causing a restart.
 
 ## Next (PR 2b, separate)
 The self-heal sweep: restart on connection_lost only when it persists across sweeps with an
