@@ -76,6 +76,9 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   across four arms (installed, not installed, env opt-out, file opt-out).
 
 ## Known and left
+- The lock's heartbeat (the owner touching the lock every minute) has no test of its own; the
+  takeover rules around it do (live pid refused, dead pid taken, stale heartbeat taken, a lock
+  with no readable pid yet treated as live).
 - The shim and the board each pick the Mac CPU from their own node's `process.arch`. In the
   installed layout both run the bundled node, so they agree. If they ever differ, the shim
   finds no shell for its CPU and passes no flag; the board's install is untouched (the

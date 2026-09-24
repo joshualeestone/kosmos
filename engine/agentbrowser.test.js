@@ -224,6 +224,13 @@ test('one Mac browser install at a time: a live owner\'s lock refuses, a dead ow
   assert.match(r.because, /another browser install/);
   assert.equal(fs.readFileSync(ab.lockPath(), 'utf8'), String(process.ppid), 'a live owner\'s lock is left alone');
 
+  /* An empty lock, touched just now: created by a live owner that has not written
+     its pid yet. It must not be taken. */
+  fs.writeFileSync(ab.lockPath(), '');
+  r = await ab.ensureShell(shellSeams('arm64'));
+  assert.equal(r.ok, false, 'a fresh lock with no readable pid is live');
+  assert.match(r.because, /another browser install/);
+
   fs.writeFileSync(ab.lockPath(), '999999');                      // no such process
   r = await ab.ensureShell(shellSeams('arm64'));
   assert.deepEqual(r, { ok: true });

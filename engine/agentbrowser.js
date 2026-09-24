@@ -239,7 +239,8 @@ function launchConfig(opts) {
 
 let inflight = null;
 /** Start the install if it is not running; never throws, never rejects. Skipped
-    under `node --test`, so no suite ever downloads anything by accident. */
+    under `node --test`, so no suite ever downloads anything by accident. A call
+    while one is in flight gets that one's promise, whatever its own opts. */
 function kickInstall(opts) {
   if (process.env.NODE_TEST_CONTEXT && !(opts && opts.force)) return null;
   if (!inflight) {
@@ -341,7 +342,11 @@ function takeLock() {
       if (!e || e.code !== 'EEXIST') { lockError = String((e && e.message) || e); return false; }
       let owner = 0; let quiet = 0;
       try { owner = parseInt(fs.readFileSync(lockPath(), 'utf8'), 10); quiet = Date.now() - fs.statSync(lockPath()).mtimeMs; } catch { /* raced away */ }
-      if (pidAlive(owner) && quiet < LOCK_STALE_MS) { lockError = 'another browser install is already running'; return false; }
+      /* A pid that cannot be read (a lock created a moment ago, before its owner
+         wrote the pid) counts as alive: only a valid pid that is gone, or a stale
+         heartbeat, frees the lock. */
+      const ownerAlive = owner > 0 ? pidAlive(owner) : true;
+      if (ownerAlive && quiet < LOCK_STALE_MS) { lockError = 'another browser install is already running'; return false; }
       /* Move a stale lock aside, then try to create ours again. */
       const mine = lockPath() + '.stale-' + process.pid;
       try { fs.renameSync(lockPath(), mine); } catch { /* another taker won; try once more */ }
@@ -358,7 +363,7 @@ function dropLock() {
 
 /* Remove what an interrupted install left: staging folders whose owner pid is
    gone (named `.staging-<pid>-<ms>` and `.shell-staging-<pid>-<ms>`). Old shell
-   versions are pruned to the pinned one plus the newest other, so an agent
+   versions are pruned to the pinned one plus the highest other, so an agent
    still running under the previous release keeps the browser its config names. */
 function sweepLeftovers() {
   const home = homeDir();
@@ -432,8 +437,7 @@ async function ensureShell(opts) {
     if (!said.includes(SHELL.version)) throw new Error('the browser did not answer with its version');
     fs.writeFileSync(path.join(tree, '.verified'), shellStamp(arch) + '\n');
     fs.mkdirSync(path.dirname(shellDir(arch)), { recursive: true });
-    /* Checked again just before the swap: an install that landed meanwhile is
-       kept, and only a folder without its marker is removed. */
+    /* Checked again just before the swap; a folder without its marker is removed. */
     if (shellInstalled(arch)) return { ok: true, already: true };
     fs.rmSync(shellDir(arch), { recursive: true, force: true });
     fs.renameSync(tree, shellDir(arch));
@@ -483,7 +487,7 @@ function installWithRetry(opts) {
       timer = setTimeout(attempt, delay);
       if (timer.unref) timer.unref();
       delay = Math.min(delay * 2, o.maxDelayMs || RETRY_MAX_MS);
-    });
+    }).catch(() => { /* a throwing log must not become an unhandled rejection */ });
   };
   attempt();
   return () => { stopped = true; if (timer) clearTimeout(timer); };
