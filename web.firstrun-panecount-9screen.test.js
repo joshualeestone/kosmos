@@ -77,8 +77,8 @@ test('#2497: first-run frPaintFleet forces the no-agent Giddy Up screen and fire
   assert.doesNotMatch(body.slice(0, body.indexOf("frActions({ label: 'Giddy Up'")),
     /title\.textContent = 'Create your first agent\.';/,
     '#3575: the forced ending is back to the create-your-first-agent heading');
-  assert.match(body, /Let\\u2019s get started\./,
-    'frPaintFleet no longer shows the Giddy Up "Let’s get started" copy');
+  assert.match(body, /Head to your dashboard to create or import agents, set up your projects, /,
+    'frPaintFleet no longer shows Josh\'s #3659 body line');
   assert.match(body, /frActions\(\{ label: 'Giddy Up', go: \(\) => frFinish\(\(\) => showTab\('agents'\)\) \}\)/,
     'frPaintFleet no longer renders the Giddy Up action landing on the Agents dashboard (#3575)');
   // Everything up to the forced return is what first run renders; it must not open Create Agent.
@@ -107,33 +107,21 @@ test('#2497: first-run frPaintFleet forces the no-agent Giddy Up screen and fire
     'the forced Giddy Up return comes after a path branch; a non-empty roster would miss it');
 });
 
-test('#2497 follow-on: the Giddy Up welcome carries the manual-import POINTER sub-line', () => {
-  // Everyone now lands on the create / Giddy Up welcome, including a user who already runs agents
-  // in Claude Code or Codex that onboarding deliberately no longer scoops up. One quiet sub-line
-  // under "Let's get started." points that user at the manual Import path on the next screen, so
-  // "where are my agents?" does not reappear one screen later. A silent deletion of the pointer
-  // reintroduces exactly the confusion #2497 removes, so guard it here (source match, the same
-  // shape this file already uses for the welcome copy above).
+test('#3659: the final setup page is Josh\'s copy: SETUP COMPLETE, one body line naming import', () => {
+  // Josh, 2026-09-24 17:49 (verbatim on #3659): one body line replaces both earlier paragraphs. It
+  // names import ("create or import agents"), so the #2497 manual-import pointer paragraph is
+  // retired by his copy rather than lost: the line still tells an existing-agent user where to go.
   const open = PAGE.indexOf('function frPaintFleet() {');
   assert.ok(open !== -1, 'frPaintFleet is gone; this guard is measuring nothing');
   const end = PAGE.indexOf('\n}', open);
-  assert.ok(end !== -1, 'could not find the end of frPaintFleet');
   const body = PAGE.slice(open, end);
-
-  // The copy is split across a string concat in the source, so each phrase below is chosen to sit
-  // entirely within one fragment and never crosses the ' + ' break (a phrase spanning the break
-  // could never match). Together they pin the whole pointer: the question and the Import pointer.
-  assert.match(body, /Already have agents in Claude Code or Codex on this computer\?/,
-    'the #2497 manual-import pointer sub-line is gone from the Giddy Up welcome');
-  // #3575: Giddy Up now lands on the dashboard, so Import is not "the next screen" any more; the
-  // pointer names the real path (New agent, which shows on an empty and a populated board).
-  assert.match(body, /choose New agent, then pick the Import option\./,
-    'the #2497 pointer no longer names the manual Import path from the dashboard (#3575)');
-  assert.doesNotMatch(body, /On the next screen you can import/,
-    '#3575: the pointer still says Import is on the next screen, which is now the dashboard');
-  // It must be a POINTER, not a scan: it renders as a static hint paragraph, not a discovery call.
-  assert.match(body, /class="dhint"[^>]*>Already have agents/,
-    'the pointer sub-line is not the muted .dhint hint paragraph it should be');
+  assert.match(body, /Head to your dashboard to create or import agents, set up your projects, /);
+  assert.match(body, /and start building your next big idea\./);
+  assert.match(body, /eyebrow\.textContent = 'Setup complete'/, 'the eyebrow is not set to Setup complete');
+  assert.match(PAGE, /<p class="fc-eyebrow" id="fr-fleet-eyebrow">Setup complete<\/p>/, 'the pre-JS eyebrow still says something else');
+  const render = body.slice(body.indexOf('box.innerHTML = '), body.indexOf("frActions({ label: 'Giddy Up'"));
+  assert.ok(render.length > 0, 'could not find the rendered body statement');
+  assert.doesNotMatch(render, /get started|Already have agents|Import option/, 'an old paragraph is still rendered');
 });
 
 test('every fr-pane-N carries its own <h2> (frFocusActiveHead focuses it; a null head breaks focus/aria)', () => {
