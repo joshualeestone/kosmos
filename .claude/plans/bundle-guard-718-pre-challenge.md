@@ -2,23 +2,24 @@
 pre_challenge: true
 method: challenge-loop
 branch: bundle-guard-718
-diff_hash: ca1b92ab6f488b9f599373a38677a37c245d8bdaadc91d90b9631f7ece266edb
+diff_hash: d026b7451e74352fd3019a62bfcf97f92e2ffb2d5e387dc18a00664c89627483
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-24T22:21:40Z
-iterations: 6
+timestamp: 2026-09-24T22:54:13Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
+**Iterations:** 8 (6 before a rebase onto main, 2 after)
 **Converged:** Yes
-**Total findings:** 22 (0 BLOCKERs, 5 WARNINGs, 0 CONVENTIONs, 17 NITs)
-**Fixed:** 5 WARNINGs, 14 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 30 (1 BLOCKER, 7 WARNINGs, 1 CONVENTION, 21 NITs)
+**Fixed:** 1 BLOCKER, 7 WARNINGs, 1 CONVENTION, 15 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 6.0 passed on the first commit (repo suite 8819 tests, 0 fail, including the new connector-verbs
-suite; audit clean). Final 6j on HEAD b90c73c2: same, 0 fail. Every fix round also ran
+suite; audit clean). Final 6j before the rebase on b90c73c2: 0 fail. After the rebase and the premise correction, final 6j
+on HEAD e2c12807: 8822 tests, 0 fail, connector-verbs 22 passed; audit clean. Every fix round also ran
 tools/test-connector-verbs.sh and mutation-checked the rule it touched; 11 mutations in total,
 each red. The real connector on this Mac (9984170) was probed at each round and reads "old".
 
@@ -63,6 +64,25 @@ each red. The real connector on this Mac (9984170) was probed at each round and 
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs
 **Self-generated:** 0 of the above
+Converged; PR opened; GitHub then refused the merge (main had moved). Rebased onto origin/main
+58443893 via /resolve-merge-conflicts: package.json test:shell conflict only, both sides kept
+(174 entries, no duplicates, checked with a JSON parse).
+
+#### Iteration 7 (after the rebase)
+**Reviewer model:** opus
+**New findings:** 1 BLOCKER, 2 WARNINGs, 1 CONVENTION, 2 NITs
+**Self-generated:** 0 of the above (the premise predates every loop fix)
+- [BLOCKER] tools/lib/connector-verbs.sh:7-14 -- "nothing calls mac-request while the gate is closed" was false after #3626 (mac-standing.js, updating.js). Verified. I first changed the rule to refuse always and raised it with Liu Kang; he disagreed, and his reasoning checked out against the code: prod coordinator 2226c9d runs both routes through verify_mac_request, 0.6.91 sends them unsigned, Raiden measured the 401. So an old tunnel breaks nothing that works. --> FIXED (e2c12807): rule stays gate-based; the gate-closed line says what stays inactive instead of "harmless"; the refuse-always change was reverted before commit.
+- [WARNING] docs/phone-push-go-live.md step 6 repeated the false premise --> FIXED (e2c12807)
+- [WARNING] tests pinned "harmless" --> FIXED (new wording; plus a test pinning the three mac-request callers, shown to fail with a fourth, and a pass-count assertion, which caught my own miscount)
+- [CONVENTION] plan did not record the callers the rule rests on --> FIXED (plan "Correction after rebase")
+- [NIT] setsid children escape the group kill -- left (--help; noted); [NIT] pass count --> FIXED
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 0 of the above
+- [NIT] mktemp template with a trailing-slash TMPDIR -- left; [NIT] doc could name the refusal text's file -- left
 **Converged** -- no new actionable findings.
 
 ### Final Ledger
@@ -74,6 +94,10 @@ each red. The real connector on this Mac (9984170) was probed at each round and 
 | 3 | 3 | WARNING | tools/lib/connector-verbs.sh:44 | SELF | Bound misses a hanging child | FIXED | 2abb9cab |
 | 4 | 4 | WARNING | tools/lib/connector-verbs.sh:139 | BRANCH | Probe temp file off the EXIT trap | FIXED | fb32d4cf |
 | 5 | 5 | WARNING | tools/lib/connector-verbs.sh:52 | SELF | setpgrp race; zero disables bound | FIXED | b90c73c2 |
+| 6 | 7 | BLOCKER | tools/lib/connector-verbs.sh:7 | BRANCH | Gate-closed premise false after #3626 | FIXED | e2c12807 |
+| 7 | 7 | WARNING | docs/phone-push-go-live.md:287 | BRANCH | Doc repeated the false premise | FIXED | e2c12807 |
+| 8 | 7 | WARNING | tools/test-connector-verbs.sh:24 | BRANCH | Tests pinned "harmless" | FIXED | e2c12807 |
+| 9 | 7 | CONVENTION | .claude/plans/bundle-guard-718.md | BRANCH | Callers not recorded | FIXED | e2c12807 |
 
 ### NITs (non-blocking, across all iterations)
 - stub --help, timeout, missing-gate reason, doc quote (1, fixed)
