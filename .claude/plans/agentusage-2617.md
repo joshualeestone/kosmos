@@ -63,4 +63,6 @@ the Kosmos agent.
 engine/usage.test.js and server.usage.test.js. Each guard below was perturbed
 and went red: canonicalisation, first-sharer-wins, per-day gaps, forced model
 rescan, folder-half keep, sort order, launch keying, subagent inheritance, and
-the route's folder leak.
+the route's folder leak. The sort guard is a reversed-order perturbation: the
+test pins "lexically first wins" and cannot see the sort deleted on APFS, which
+already lists names in order.

@@ -187,9 +187,12 @@ async function scanUsage({ sinceDay, untilDay }) {
          wherever its spawner was standing, often a worktree. It is the top-level
          session's work, so it takes that session's launch folder: the FIRST
          /subagents/ segment names it. The sorted walk visits <sess>.jsonl before
-         <sess>/ ('.' sorts before '/'), so it is already known; with no
-         top-level transcript on disk, the subagent keeps its own first cwd. */
-      const sub = file.indexOf(path.sep + 'subagents' + path.sep);
+         <sess>/ ('.' sorts before '/'), so it is already known. The subagent
+         keeps its own first cwd when there is no top-level transcript on disk,
+         or that transcript records no cwd. Searched below the config root only,
+         so a root that itself sits under a folder named subagents is not read
+         as one. */
+      const sub = file.indexOf(path.sep + 'subagents' + path.sep, root.length);
       if (sub !== -1) {
         const parent = launchOf.get(file.slice(0, sub) + '.jsonl');
         if (parent) launch = parent;
@@ -279,10 +282,14 @@ function frozenFolderPath(day) {
   return path.join(USAGE_DIR, `${day}.folders.v1.json`);
 }
 
-/* A frozen file's contents, or null when it is missing or unreadable (either
-   way the day is rescanned). */
+/* A frozen file's contents, or null when it is missing, unreadable, or not
+   a plain object (any of which means the day is rescanned). */
 function readFrozen(file) {
-  return fsp.readFile(file, 'utf8').then((t) => { try { return JSON.parse(t); } catch { return null; } }, () => null);
+  return fsp.readFile(file, 'utf8').then((t) => {
+    let v;
+    try { v = JSON.parse(t); } catch { return null; }
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  }, () => null);
 }
 
 function todayUtc() {
@@ -381,13 +388,18 @@ async function dailyUsageByModel(days = 7) {
       if (day !== today) {
         try {
           await ensureUsageDir();
-          if (!modelFrozen) await fsp.writeFile(frozenDayPath(day), JSON.stringify(byDay[day]), 'utf8');
-          if (!folderFrozen) await fsp.writeFile(frozenFolderPath(day), JSON.stringify(byFolder[day]), 'utf8');
-        } catch (err) {
-          /* Best effort: a failed freeze means this day rescans next time. With
-             two files per day that can now be the whole window on every
-             request (a full disk, a read-only data folder), so say it. */
-          console.error('usage: could not freeze ' + day + ':', (err && err.message) || err);
+        } catch { /* the writes below fail and say so */ }
+        /* Best effort, each half on its own: a failed freeze means that half
+           rescans next time. With two files per day that can be the whole
+           window on every request (a full disk, a read-only data folder), so
+           say it. */
+        if (!modelFrozen) {
+          try { await fsp.writeFile(frozenDayPath(day), JSON.stringify(byDay[day]), 'utf8'); }
+          catch (err) { console.error('usage: could not freeze ' + day + ':', (err && err.message) || err); }
+        }
+        if (!folderFrozen) {
+          try { await fsp.writeFile(frozenFolderPath(day), JSON.stringify(byFolder[day]), 'utf8'); }
+          catch (err) { console.error('usage: could not freeze the folder split for ' + day + ':', (err && err.message) || err); }
         }
       }
     }

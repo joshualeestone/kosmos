@@ -379,7 +379,7 @@ test('#2617: an unreadable frozen file is rescanned, not fatal', async () => {
   const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   fs.mkdirSync(usage.USAGE_DIR, { recursive: true });
   fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), '{not json', 'utf8');
-  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), '{not json', 'utf8');
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), '[]', 'utf8'); // JSON, but not a map
   const dir = projectDir('proj-bad');
   fs.writeFileSync(nodePath.join(dir, 's.jsonl'),
     cwdRow({ timestamp: `${day}T10:00:00.000Z`, id: 'q', cwd: '/w/ann', output: 5 }) + '\n', 'utf8');
@@ -418,10 +418,12 @@ test('#2617: a corrupt frozen total does not throw away a good frozen folder spl
   assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 2, 'the corrupt total was not rescanned');
 });
 
-test('#2617: one message in two transcripts is credited to the same folder on every scan', async () => {
+test('#2617: one message in two transcripts is credited to the lexically first transcript', async () => {
+  /* Pins the rule the sort in scanUsage implements. It goes red if the order
+     is reversed; it cannot catch the sort being deleted on a filesystem that
+     already lists names in order (APFS does). */
   resetSandbox();
   const dir = projectDir('proj-dup');
-  // Written in reverse name order, so creation order cannot be what decides it.
   fs.writeFileSync(nodePath.join(dir, 'b.jsonl'),
     cwdRow({ timestamp: '2026-08-23T10:00:00.000Z', id: 'same', cwd: '/w/bob', output: 9 }) + '\n', 'utf8');
   fs.writeFileSync(nodePath.join(dir, 'a.jsonl'),
