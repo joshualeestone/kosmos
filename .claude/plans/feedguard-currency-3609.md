@@ -47,7 +47,10 @@ handles `fn` entries (contentFindings and the positive-control test).
 - Linear: five 64 KB inputs (the chain that was quadratic, the chain followed by
   USD, 64 KB of whitespace before USD, 7000 currency words each looked back from
   and rejected, a long fraction-shaped run), each under 200 ms and each with its expected answer.
-  Red with the old regex wrapped as the fn: 1395 ms on the chain.
+  Red with the old regex wrapped as the fn: 1395 ms on the chain. Two more
+  inputs are real amounts across a 64 KB gap (whitespace, and a fraction), so a
+  cap on either backward walk, a plausible future optimization, fails: red with
+  the whitespace walk capped at 50 and with the fraction walk capped at 20.
 - Equivalence: fixed edge cases plus 50000 structured generated strings (noise,
   a digit-and-separator core, optional fraction, whitespace, a currency-like
   word, a suffix) against a copy of the old regex. Floors: more than 1000 match,
