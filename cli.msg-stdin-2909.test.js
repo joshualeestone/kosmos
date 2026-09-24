@@ -16,6 +16,11 @@ const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
+/* #3628: the multi-MB cases escape megabytes through sed, which took 10 s at load 60 on
+   agent1. Since #3628 a harness timeout FAILS the test (it used to read as exit 0), so
+   these get room that a busy machine cannot eat; every other case keeps the default. */
+const BIG_INPUT_TIMEOUT_MS = 60000;
+
 function runCli(args, env, input, timeoutMs) {
   return new Promise((resolve) => {
     const child = execFile(CLI, args, { env, timeout: timeoutMs || 20000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -119,7 +124,7 @@ test('#2909: a piped msg with bytes that are not UTF-8 is sent, not aborted', ()
 
 test('#2909: a 2 MB piped msg body reaches the board (curl on stdin, not argv)', () => withStubBoard(async (port, seen) => {
   const big = 'x'.repeat(2 * 1024 * 1024);
-  const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), big);
+  const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), big, BIG_INPUT_TIMEOUT_MS);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text.length, big.length);
 }));
@@ -145,7 +150,7 @@ test('#2909: a piped msg the board refuses, or one too large to send, is kept', 
   const saved = refused.stdout.match(/saved at (\S+)/);
   assert.ok(saved, refused.stdout);
   try { assert.equal(fs.readFileSync(saved[1], 'utf8'), 'REFUSED-BODY'); } finally { fs.rmSync(saved[1], { force: true }); }
-  const quotes = await runCli(['msg', '--stdin', 'mara'], envFor(port), '"'.repeat(3.5 * 1024 * 1024));
+  const quotes = await runCli(['msg', '--stdin', 'mara'], envFor(port), '"'.repeat(3.5 * 1024 * 1024), BIG_INPUT_TIMEOUT_MS);
   assert.equal(quotes.code, 2);
   assert.match(quotes.stdout, /too large to send to the board/);
   const big = quotes.stdout.match(/saved at (\S+)/);

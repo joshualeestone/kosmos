@@ -16,9 +16,14 @@ const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
-function runCli(args, env, input) {
+/* #3628: the multi-MB cases escape megabytes through sed, which took 10 s at load 60 on
+   agent1. Since #3628 a harness timeout FAILS the test (it used to read as exit 0), so
+   these get room that a busy machine cannot eat; every other case keeps the default. */
+const BIG_INPUT_TIMEOUT_MS = 60000;
+
+function runCli(args, env, input, timeoutMs) {
   return new Promise((resolve) => {
-    const child = execFile(CLI, args, { env, timeout: 20000 }, (err, stdout, stderr) => {
+    const child = execFile(CLI, args, { env, timeout: timeoutMs || 20000 }, (err, stdout, stderr) => {
       resolve({ code: err ? (typeof err.code === 'number' ? err.code : 'no exit code (' + (err.signal || err.code) + ')') : 0, stdout: stdout || '', stderr: stderr || '' });
     });
     child.stdin.end(input === undefined ? '' : input);
@@ -128,7 +133,7 @@ test('#2909: control characters (ESC colors) and a leading BOM are dropped, so t
 test('#2909: a 2 MB piped body is sent to the board without hitting the argv limit (the stub has no text cap; the real room refuses long text with its own reason)', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const big = 'x'.repeat(2 * 1024 * 1024);
-  const out = await runCli(['post', '--stdin', 'proj'], env, big);
+  const out = await runCli(['post', '--stdin', 'proj'], env, big, BIG_INPUT_TIMEOUT_MS);
   assert.equal(out.code, 0, 'a long body must not fail to send as "could not reach": ' + out.stdout + out.stderr);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].text.length, big.length);
@@ -148,7 +153,7 @@ test('#2909: control-only input and a body over the board limit are refused and 
   const ctl = await runCli(['post', '--stdin', 'proj'], env, '\u001b\u0007\n');
   assert.equal(ctl.code, 2, 'nothing left after dropping control characters is nothing piped in');
   assert.match(ctl.stdout + ctl.stderr, /nothing was piped in/);
-  const quotes = await runCli(['post', '--stdin', 'proj'], env, '"'.repeat(3.5 * 1024 * 1024));
+  const quotes = await runCli(['post', '--stdin', 'proj'], env, '"'.repeat(3.5 * 1024 * 1024), BIG_INPUT_TIMEOUT_MS);
   assert.equal(quotes.code, 2, '3.5 MB of quotes escapes to about 7 MB, over the board limit, and is refused with the real reason');
   assert.match(quotes.stdout + quotes.stderr, /too large to send to the board/);
   const saved = (quotes.stdout + quotes.stderr).match(/saved at (\S+)/);
@@ -296,7 +301,7 @@ test('#2909: a wrong-world post whose outbox keep fails still keeps the piped me
 
 test('#2909: a raw pipe over the board limit is refused at the read, not held whole or truncated', () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
-  const out = await runCli(['post', '--stdin', 'proj'], env, 'z'.repeat(6 * 1024 * 1024 + 10));
+  const out = await runCli(['post', '--stdin', 'proj'], env, 'z'.repeat(6 * 1024 * 1024 + 10), BIG_INPUT_TIMEOUT_MS);
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.match(out.stdout, /over the 6 MB the board accepts/);
   assert.doesNotMatch(out.stdout, /saved at/, 'only the start was read, so no misleading partial copy is kept');
