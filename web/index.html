@@ -25794,8 +25794,9 @@ async function paintTalk(sessionName, agentName) {
      focus falls to <body> -- AFTER this paint has focused the composer. The
      intent used to be consumed on that first paint, so nothing re-applied it,
      and the recovery paint additionally skipped because it read the STALE
-     `say.disabled` (that flag is written from the same `presence` at line 25951
-     below, so at the TOP of a paint it still holds the PREVIOUS paint's value).
+     `say.disabled` (the authoritative `say.disabled = body.presence === 'off'`
+     write is later in this same paintTalk, so at the TOP of a paint it still holds
+     the PREVIOUS paint's value).
      Net effect in the detail->back->answer flow: focus ends on <body> and a
      keyboard user must re-traverse the whole document. In the CLEAN flow
      (straight to the agent) there is no torn-down button, so the first focus
@@ -25803,17 +25804,19 @@ async function paintTalk(sessionName, agentName) {
 
      Fix: re-apply focus across the one-paint teardown steal, but bound the
      intent's life BY TIME so it can never yank focus later. Within a short window
-     after the press (ANSWER_FOCUS_WINDOW_MS, stamped at ANSWER_WANTS_FOCUS_AT),
+     (ANSWER_FOCUS_WINDOW_MS) of the FIRST PAINT THAT OBSERVES the intent (stamped
+     into ANSWER_WANTS_FOCUS_AT there, NOT at the press -- see its declaration),
      and only when focus has fallen to <body>, enable the composer and re-focus
-     it. The teardown steal lands within a few ms and the recovery paint follows
-     it almost immediately, so the window covers the recovery; a routine 5s poll
-     and any user navigation fall far outside it, so neither can re-grab focus a
-     person placed deliberately -- which is the level-check ambiguity a time bound
-     resolves (a <body> from the teardown and a <body> from a deliberate blur look
-     identical, so only their TIMING can tell them apart). Focusability is read
-     from the NEXT state (`presence`); the composer is enabled before focusing
-     (focusing a still-disabled element is a no-op) and line 25951 re-derives the
-     same value, so this only pulls that one decision earlier for this paint.
+     it. The teardown steal lands within a few ms of that first paint and the
+     recovery paint follows almost immediately, so the window covers the recovery;
+     a routine 5s poll and any user navigation fall far outside it, so neither can
+     re-grab focus a person placed deliberately -- which is the level-check
+     ambiguity a time bound resolves (a <body> from the teardown and a <body> from
+     a deliberate blur look identical, so only their TIMING can tell them apart).
+     Focusability is read from the NEXT state (`presence`); the composer is enabled
+     before focusing (focusing a still-disabled element is a no-op) and the
+     authoritative `say.disabled` write later in this paint re-derives the same
+     value, so this only pulls that one decision earlier for this paint.
 
      ⚠️ WHY TIME AND NOT "consume once focus settles": the steal lands AFTER the
      first paint that focuses the composer, so consuming on that paint loses the
@@ -25826,33 +25829,44 @@ async function paintTalk(sessionName, agentName) {
      forThisAgent arm) so it goes the instant the user opens someone else. */
   if (ANSWER_WANTS_FOCUS) {
     const forThisAgent = CURRENT && ANSWER_WANTS_FOCUS === CURRENT.sessionName;
-    const fresh = (Date.now() - ANSWER_WANTS_FOCUS_AT) < ANSWER_FOCUS_WINDOW_MS;
-    if (!forThisAgent || !fresh) {
-      // A different agent is open, or the post-press recovery window has passed.
-      // Drop the intent so no later poll or revisit can act on it. This is what
-      // keeps a level check on <body> from becoming a focus trap: after the
-      // window, the intent is gone, so a routine 5s poll (or a return to this
-      // agent minutes later) never re-grabs focus a person placed themselves.
+    if (!forThisAgent) {
+      // A different agent is open than the one answer was pressed for: the user
+      // left that flow. Drop the intent (and reset the clock) so it cannot act on
+      // a later visit.
       ANSWER_WANTS_FOCUS = null;
-    } else if (body.presence === 'off') {
-      // Within the window and on the right agent, but the agent is off, so the
-      // composer will be disabled and there is nothing to answer into. Drop it.
-      ANSWER_WANTS_FOCUS = null;
-    } else if (!document.activeElement || document.activeElement === document.body) {
-      // Within the window, on the right agent, composer will be open, and focus
-      // has fallen to <body>: the first paint, or the button-teardown steal on
-      // the paint right after it. Enable the composer (line 25951 below re-derives
-      // the same value from this presence; focusing a still-disabled element is a
-      // no-op) and focus it. KEEP the intent: the steal lands AFTER the first
-      // paint, so the recovery paint must be able to re-apply, and the window --
-      // not a consume-on-first-paint -- is what bounds the intent's life.
-      say.disabled = false;
-      say.focus();
+      ANSWER_WANTS_FOCUS_AT = 0;
+    } else {
+      // Stamp the recovery clock on the FIRST paint that observes this intent for
+      // its agent, NOT at the press: the press only started an async thread fetch,
+      // and this paint runs after it resolves, so measuring from here keeps the
+      // window off the variable fetch latency (see the ANSWER_WANTS_FOCUS_AT decl).
+      if (ANSWER_WANTS_FOCUS_AT === 0) ANSWER_WANTS_FOCUS_AT = performance.now();
+      const fresh = (performance.now() - ANSWER_WANTS_FOCUS_AT) < ANSWER_FOCUS_WINDOW_MS;
+      if (!fresh || body.presence === 'off') {
+        // The recovery window (measured from the first observing paint) has passed,
+        // or the agent is off (composer disabled, nothing to answer into). Drop the
+        // intent and reset the clock. This is what keeps a level check on <body>
+        // from becoming a focus trap: after the window the intent is gone, so a
+        // routine 5s poll (or a return to this agent later) never re-grabs focus a
+        // person placed themselves.
+        ANSWER_WANTS_FOCUS = null;
+        ANSWER_WANTS_FOCUS_AT = 0;
+      } else if (!document.activeElement || document.activeElement === document.body) {
+        // Within the window and focus has fallen to <body>: the first paint, or the
+        // button-teardown steal on the paint right after it. Enable the composer
+        // (the authoritative `say.disabled` write later in this paint re-derives the
+        // same value from this presence; focusing a still-disabled element is a
+        // no-op) and focus it. KEEP the intent: the steal lands AFTER the first
+        // paint, so the recovery paint must be able to re-apply, and the window --
+        // not a consume-on-first-paint -- is what bounds the intent's life.
+        say.disabled = false;
+        say.focus();
+      }
+      // else: within the window but focus is already on a real element (the
+      // composer, or somewhere the user moved it). Do nothing -- do not re-grab,
+      // do not consume; the window will drop the intent shortly. Only a <body>
+      // steal is recovered, so deliberately-placed focus is never disturbed.
     }
-    // else: within the window but focus is already on a real element (the
-    // composer, or somewhere the user moved it). Do nothing -- do not re-grab,
-    // do not consume; the window will drop the intent shortly. Only a <body>
-    // steal is recovered, so deliberately-placed focus is never disturbed.
   }
   /**
    * ⚠️ THE BUTTONS DIE WITH THE COMPOSER (Mona Lisa, state 6). A live option
@@ -45603,12 +45617,18 @@ document.getElementById('pj-say').addEventListener('keydown', (e) => {
    Null everywhere else, which is every arrival at an agent's page that was not
    somebody pressing "answer". */
 let ANSWER_WANTS_FOCUS = null;
-/* #3557: the timestamp of the last "answer" press, so the paint consumer can
-   bound how long the focus intent stays live. The button-teardown steal to
-   <body> lands within a few ms of the press and the recovery paint follows it
-   almost immediately, so a short window covers the recovery; the panel's 5s poll
-   and any user navigation fall far outside it, which is what stops the intent
-   from re-grabbing focus a person placed deliberately, or on a later visit. */
+/* #3557: bounds how long the focus intent stays live, so it recovers the
+   button-teardown steal but can never re-grab focus on a later poll or revisit.
+   ⚠️ STAMPED ON THE FIRST PAINT THAT OBSERVES THE INTENT, NOT AT THE PRESS. The
+   press only kicks off an async thread fetch (openDetail), and the focusing paint
+   runs after it resolves; anchoring the window to the press would fold that
+   variable network latency into the budget, so on a slow read the window could
+   expire before the panel ever paints and the fix would silently no-op. Measuring
+   from the first observing paint decouples the window from the fetch: it only has
+   to cover paint-1 -> the teardown-recovery paint (a few ms), while the 5s poll
+   and any navigation still fall far outside it. 0 is the "not yet observed"
+   sentinel; the paint stamps it once. `performance.now()` (monotonic) so a wall
+   clock adjustment mid-window cannot distort the comparison. */
 let ANSWER_WANTS_FOCUS_AT = 0;
 const ANSWER_FOCUS_WINDOW_MS = 2000;
 
@@ -45663,22 +45683,23 @@ async function pjAnswerFrom(sessionName, displayName) {
    * that a person PRESSED ANSWER, and the paint consumes it in the same turn it
    * unhides the question. Deterministic, and it cannot focus a hidden element.
    *
-   * ⚠️ LIVE ONLY FOR A SHORT WINDOW AFTER THE PRESS (#3557). The consumer (the
-   * panel paint) re-applies focus across the one-paint button-teardown steal to
-   * <body>, but only while `Date.now() - ANSWER_WANTS_FOCUS_AT` is within
-   * ANSWER_FOCUS_WINDOW_MS, and only when a <body> steal is what it sees; it drops
-   * the intent outright once the window passes, when the agent is off, or when a
-   * DIFFERENT agent is opened. The window is why a routine 5s poll, or a return to
-   * this agent later, cannot re-grab focus a person placed themselves -- the steal
-   * lands in a few ms, far inside the window; a poll or a revisit is far outside
-   * it. (Before #3557 this was consumed on the first paint unconditionally, which
-   * lost focus to the teardown steal that lands right after that paint; a first
-   * intermediate fix kept it live until focus settled, which re-introduced exactly
-   * the "lying in wait to yank focus later" hazard this timestamp now closes.)
-   * `ANSWER_WANTS_FOCUS_AT` is stamped with the intent so the two never drift.
+   * ⚠️ LIVE ONLY FOR A SHORT WINDOW (#3557). The consumer (the panel paint)
+   * re-applies focus across the one-paint button-teardown steal to <body>, but
+   * only while within ANSWER_FOCUS_WINDOW_MS of the FIRST PAINT THAT OBSERVES the
+   * intent (the paint stamps ANSWER_WANTS_FOCUS_AT then, not here -- see its
+   * declaration for why anchoring to the press would fold the async thread fetch
+   * into the budget), and only when a <body> steal is what it sees; it drops the
+   * intent once the window passes, the agent is off, or a DIFFERENT agent is
+   * opened. The window is why a routine 5s poll, or a return to this agent later,
+   * cannot re-grab focus a person placed themselves. So set the intent and RESET
+   * the clock to the not-observed sentinel; the paint starts it.
+   * (Before #3557 this was consumed on the first paint unconditionally, which lost
+   * focus to the teardown steal that lands right after that paint; a first
+   * intermediate fix kept it live until focus settled, which re-introduced the
+   * "lying in wait to yank focus later" hazard the window now closes.)
    */
   ANSWER_WANTS_FOCUS = sessionName;
-  ANSWER_WANTS_FOCUS_AT = Date.now();
+  ANSWER_WANTS_FOCUS_AT = 0;
   /**
    * ⚠️ `openDetail` RETURNS SILENTLY when the name is not on the board it
    * reads (`LAST.find` then a bare return), which from the outside is a click
