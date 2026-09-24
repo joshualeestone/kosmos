@@ -4673,7 +4673,9 @@ function createAgentInner(opts) {
         let filesLanded = false;
         try {
           const dmMod = require('./dmfiles');
-          const body = dmMod.blockBody(require('path').join(workerDir(name), dmMod.FOLDER));
+          // dmfiles.bodyFor is the ONE derivation of "this agent's Files folder" (the sweep uses it too).
+          const body = dmMod.bodyFor(name);
+          if (!body) throw new Error('no folder to name');
           const spliced = require('./projects').spliceBlock(text, body, dmMod.START, dmMod.END);
           const { MAX_BYTES } = require('./instructions');
           if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; filesLanded = true; }

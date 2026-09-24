@@ -1940,9 +1940,15 @@ test('custom instructions are written verbatim with a trailing newline, and the 
     const connections = require('./connections');
     const foundConn = projects.findBlock(text, connections.START, connections.END);
     assert.ok(foundConn && !foundConn.ambiguous, 'the person\'s own agent did not get the connections block at birth');
+    // #3614: the direct-message files block rides from birth too, so it is taken out with its siblings.
+    const dmfiles = require('./dmfiles');
+    assert.ok(projects.findBlock(text, dmfiles.START, dmfiles.END), 'the person\'s own agent did not get the files block at birth');
     const without = projects.removeBlock(
-      projects.removeBlock(text, reports.START, reports.END),
-      connections.START, connections.END,
+      projects.removeBlock(
+        projects.removeBlock(text, reports.START, reports.END),
+        connections.START, connections.END,
+      ),
+      dmfiles.START, dmfiles.END,
     );
   /* #591 changed one premise here, stated rather than deleted: the operating
      defaults DO follow a person's own words now, under their own heading,
