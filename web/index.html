@@ -9266,8 +9266,8 @@ window.kosmosMeasureScrollbarWidth();
           <option value="anthropic">Anthropic / Claude</option>
           <option value="openai">OpenAI / Codex</option>
           <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
-          <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
+          <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
           <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -10197,8 +10197,8 @@ window.kosmosMeasureScrollbarWidth();
              API key, #acct-apikey-flow); the rest stay `disabled` (coming soon), so their
              values are never selected or read by the change handler. -->
         <option value="google">Google Gemini</option>
-        <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
         <option value="xai">xAI Grok</option>
+        <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
         <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -11879,8 +11879,8 @@ window.kosmosMeasureScrollbarWidth();
                  the create path can wire a codex agent end to end now. -->
             <option value="openai">OpenAI / Codex</option>
             <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
-            <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
+            <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
             <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
             <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
             <option value="mistral" disabled>Mistral &middot; coming soon</option>
@@ -19777,6 +19777,33 @@ function keyOnlyProvider(p) {
   return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
 }
 /* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic'. */
+/* #3651 (Josh, 2026-09-24 17:05, #admin): "i want to put Grok right under Gemini in all
+   lists, so it would be Claude/OpenAI/Gemini/Grok." THE ONE provider order. Every provider
+   picker is sorted by it at startup (orderProviderOptions, before its logo combobox is
+   built) and the account list's provider groups are sorted by it (accountGroupsHtml), so
+   a list cannot drift out of this order by being written in a different one. The
+   coming-soon providers follow the four that work. `claude` is the Add-a-provider
+   picker's value for Anthropic. Pinned by docs/browser-checks/render-provider-order-3651.js. */
+const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'xai', 'meta', 'alibaba', 'moonshot', 'mistral']);
+const PROVIDER_ORDER_ALIAS = Object.freeze({ claude: 'anthropic' });
+function providerRank(value) {
+  const v = String(value == null ? '' : value).toLowerCase();
+  const i = PROVIDER_ORDER.indexOf(PROVIDER_ORDER_ALIAS[v] || v);
+  return i < 0 ? PROVIDER_ORDER.length : i;
+}
+/* Re-order a provider <select>'s options by PROVIDER_ORDER. The empty placeholder stays
+   first; an option the order does not know keeps its place after the known ones (a stable
+   sort); the current selection is kept. */
+function orderProviderOptions(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const chosen = sel.value;
+  const opts = [...sel.options];
+  const rank = (o) => (o.value === '' ? -1 : providerRank(o.value));
+  const sorted = opts.map((o, i) => [o, i]).sort((a, b) => (rank(a[0]) - rank(b[0])) || (a[1] - b[1])).map(([o]) => o);
+  sorted.forEach((o) => sel.appendChild(o));
+  sel.value = chosen;
+}
 function acctProvider(a) {
   const p = a && typeof a.provider === 'string' ? a.provider.toLowerCase() : '';
   return Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p) ? p : 'anthropic';
@@ -20058,6 +20085,10 @@ function accountGroupsHtml(list, rowHtml) {
     if (!groups.has(name)) { groups.set(name, []); order.push(name); }
     groups.get(name).push(a);
   }
+  /* #3651: provider groups in PROVIDER_ORDER, not in whichever provider's account the
+     server happened to list first. Stable, so groups the order does not know keep theirs. */
+  const groupRank = (name) => providerRank(acctProvider(groups.get(name)[0]));
+  order.sort((a, b) => groupRank(a) - groupRank(b));
   return order.map((name) => {
     const rows = groups.get(name);
     const n = rows.length;
@@ -35767,6 +35798,8 @@ document.getElementById('d-provider').addEventListener('change', (e) => {
   if (go) go.disabled = e.target.disabled || !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
   fillSwitchAccountsSafely();
 });
+/* #3651: every provider picker in PROVIDER_ORDER before its combobox reads the options. */
+['d-provider', 'acct-provider-pick', 'create-provider'].forEach(orderProviderOptions);
 enhanceProviderSelect('d-provider');   // #1040 2b: the switch dialog's provider combobox (shipped first)
 enhanceProviderSelect('acct-provider-pick');   // #1040 2b: the Add-a-provider screen's combobox. Its <select> (~7912) and change listener (~16953) are defined earlier; called HERE, beside the d-provider site, so the function and its consts (PROVIDER_MARK_KEY) are initialized before the call rather than relying on hoisting into a temporal dead zone. Labelled via <label for>, which enhanceProviderSelect falls back to when there is no aria-label.
 enhanceProviderSelect('create-provider');   // #1040 2b (final select): the Create Agent form's provider combobox. Same proven helper as the two above; #create-provider (~9233) carries the identical roster (anthropic/openai + six coming-soon) and its own change listener (applyCreateProviderUI) keeps working unchanged, because the helper commits via select.value + a dispatched `change`. 2b-logos now covers all three provider selects; 2b-roster (GLM/MiniMax/DeepSeek) stays deferred to Josh's #770 roster pass.
