@@ -14,10 +14,10 @@ Every step says who can do it:
 Every step also says how to check it worked and how to undo it. Do the steps in order. A step
 that fails stops the list: undo it, fix the cause, and start that step again.
 
-Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay
-`main` at 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde
-(the last commit of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. Both repos move on, so treat the file and the name as what to search for,
-not the commit or the line.
+Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay `main` at
+50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (the last commit
+of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. Both repos move on, so treat
+the file and the name as what to search for, not the commit or the line.
 
 ## Where things stand today
 
