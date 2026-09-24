@@ -125,4 +125,29 @@ grep -q 'matched no checks at all' "$GATE" \
   || fail "browser-checks.sh has no zero-match guard -- a typo'd/empty allowlist could green from zero checks"
 pass "the gate honors the allowlist and refuses a green from zero checks"
 
+# #2518: the two jobs have different jobs. The allowlist job is the fast DOM-state gate;
+# browser-checks-full runs the WHOLE set as an ADVISORY job. Pinned per job, because a
+# grep over the file cannot tell which job a line belongs to.
+if command -v ruby >/dev/null 2>&1; then
+  jobs_out="$(ruby -ryaml -e '
+    d = YAML.load_file(ARGV[0]); j = d["jobs"] || {}
+    g = j["browser-checks"] or abort "no browser-checks job"
+    f = j["browser-checks-full"] or abort "no browser-checks-full job"
+    envs = ->(job) { [job["env"] || {}] + (job["steps"] || []).map { |s| s["env"] || {} } }
+    runs = ->(job) { (job["steps"] || []).map { |s| s["run"].to_s }.join("\n") }
+    abort "allowlist job is continue-on-error; its red must fail the workflow" if g["continue-on-error"]
+    abort "allowlist job sets no KOSMOS_BC_CI_ALLOWLIST" unless envs.(g).any? { |e| e.key?("KOSMOS_BC_CI_ALLOWLIST") }
+    abort "browser-checks-full is not continue-on-error: true (it must stay advisory)" unless f["continue-on-error"] == true
+    abort "browser-checks-full sets KOSMOS_BC_CI_ALLOWLIST, so it would not run the full set" if envs.(f).any? { |e| e.key?("KOSMOS_BC_CI_ALLOWLIST") } || runs.(f).include?("KOSMOS_BC_CI_ALLOWLIST")
+    abort "browser-checks-full does not run browser-checks.sh with the strict pin" unless runs.(f) =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/
+    abort "browser-checks-full is not on macos-latest" unless f["runs-on"] == "macos-latest"
+    abort "browser-checks-full does not provision Playwright" unless runs.(f).include?("tools/provision-pw.sh")
+    j.each { |k, job| (job["steps"] || []).each { |s| n = s["name"].to_s
+      abort "step name in #{k} was cut short (an unquoted \" #\" starts a YAML comment): #{n}" if n.count("(") != n.count(")") } }
+    puts "ok"
+  ' "$WF" 2>&1)" || fail "job invariants: $jobs_out"
+  [ "$jobs_out" = ok ] || fail "job invariants did not report ok: $jobs_out"
+  pass "the allowlist job gates; browser-checks-full is advisory, allowlist-free, strict-pinned, on macos-latest; no step name is cut short"
+fi
+
 printf 'all browser-checks-workflow invariants hold\n'

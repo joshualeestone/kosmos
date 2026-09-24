@@ -205,7 +205,7 @@ jobs:
       # signed-in build box and timed out on the runner (a false-green machine). The
       # fix (this PR) makes advanceToAnchor click whichever control is actually
       # forward, so it is now headless-ROBUST and rejoins the DOM-state subset.
-      - name: the page layer, headless DOM-state subset (tools/browser-checks.sh, #39/#2445)
+      - name: 'the page layer, headless DOM-state subset (tools/browser-checks.sh, #39/#2445)'
         env:
           # The #2085 gate class: install-flow permission/gate DOM-state checks +
           # the settings/telemetry DOM-state checks (present/hidden/clickable/
@@ -266,4 +266,40 @@ jobs:
             render-login-expiry-3532
             render-win32-board-copy
             render-fed-plus-gate
+        run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
+
+  # #2518: the FULL 3b set, on the same PRs, as a separate ADVISORY job.
+  #
+  # 🛑 WHY. The allowlist job above is the fast DOM-state gate and its green means
+  # only that. The rest of the set (render-fields, render-thread, render-push-718,
+  # ...) ran first at the release cut, so a PR that broke one merged green and the
+  # break surfaced at 3b, the most expensive place. Measured 2026-09-24: #3493 (a
+  # CSS contrast change in web/index.html) broke render-fields on both engines,
+  # merged green here, and blocked the 0.6.91 staging cut. The surface map
+  # (tools/bc-surface-map.sh covering) could not have picked render-fields for that
+  # diff: it maps DOM ids, and the change was CSS. So this runs the whole set.
+  #
+  # ⚠️ ADVISORY, and it means it: continue-on-error, so a red here marks this job
+  # red without failing the workflow. Timing/paint checks can false-red on this
+  # slow headless runner (see the allowlist job's notes). A red here is a question
+  # to answer before merging (is it this PR, or runner noise?), which the
+  # allowlist job's green cannot tell you at all. Its baseline on an unchanged
+  # tree is recorded on #2518.
+  #
+  # Same OS family, same pinned Playwright, same script as the cut's 3b
+  # (run_one forces HEADED=0), with no allowlist: tools/browser-checks.sh runs
+  # every check when KOSMOS_BC_CI_ALLOWLIST is unset.
+  browser-checks-full:
+    runs-on: macos-latest
+    continue-on-error: true
+    # The cut's 3b runs ~16 minutes on a dev Mac; a hosted runner is slower.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: provision the pinned Playwright runtime (#1594)
+        run: bash tools/provision-pw.sh
+      - name: 'the FULL page layer, headless (tools/browser-checks.sh, advisory, #2518)'
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
