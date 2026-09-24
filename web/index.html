@@ -2245,6 +2245,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    tabular numerics so magnitudes line up. */
 .usage-hist { margin: 24px 0 0; }
 .usage-hist h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 6px; }
+/* #2617: the per-agent block reads as a sibling of the history block. */
+.usage-agents { margin: 24px 0 0; }
+.usage-agents h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 6px; }
+.usage-agents .tv-mtable { margin-top: 10px; }
+.usage-agents .tv-mrow.muted .tv-mnl { color: var(--k-ink-2); font-weight: 500; }
 #usage-history { margin-top: 12px; border: 1px solid var(--k-rule); border-radius: 12px; max-height: 520px; overflow-y: auto; }
 .uhrow { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr 1fr; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--k-rule); font-size: .84rem; }
 .uhrow:first-child { border-top: none; }
@@ -13972,8 +13977,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            trend chart; the money box below is one interpretation from OUTPUT
            alone and names its class; the per-model/day table stays as the
            measurement the headline numbers add up from. All from the existing
-           /api/usage data -- the per-AGENT breakdown Josh remembers is engine
-           work and is a deferred fast-follow (#2617 comment). -->
+           /api/usage data. The per-agent breakdown is the "By agent" block
+           below (#2617, from /api/usage's byAgent). -->
       <p class="dhint">What your agents used, per class, over the last 14 days. Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
       <p id="usage-msg" class="dhint">Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.</p>
       <!-- #2840: the approved /design/token-value HERO -- active-days eyebrow +
@@ -13999,6 +14004,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <div class="tv-wtr" id="usage-wtr" hidden>
         <div class="tv-mtable" id="usage-mtable"></div>
         <div class="tv-pie" id="usage-donut"></div>
+      </div>
+      <!-- #2617: who did the work. Same table as the per-model one above, so
+           the page speaks one visual language; rows come from byAgent, which
+           credits each session to the folder it started in. Sessions that are
+           not an agent's, and any gap against the totals, are stated, never
+           folded into an agent. -->
+      <div class="usage-agents" id="usage-agents" hidden>
+        <h4>By agent</h4>
+        <p class="dhint">Which agent did the work, from the folder each session started in.</p>
+        <div class="tv-mtable" id="usage-atable"></div>
+        <p class="dhint" id="usage-agents-note"></p>
       </div>
       <!-- #2840 (Mona's 0.6.57 token-value design): the scrollable usage-history
            list. Newest day+model first, fixed-height scroll. Day / Model / Total
@@ -27543,6 +27559,55 @@ function usageModelTableHtml(models, grandTotal) {
   }).join('');
   return '<div class="tv-mrow head"><div>Model</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + rows;
 }
+/* #2617: the per-agent rows from /api/usage's byAgent, as the model table's
+   { name, tok } shape plus `muted` for the two rows that are not an agent (the
+   person's own sessions, and folders two agents share). Agents first, most
+   tokens first, as the engine orders them; a zero row is left out. Pure. */
+function usageAgentRows(byAgent) {
+  if (!byAgent || typeof byAgent !== 'object') return [];
+  const rows = (Array.isArray(byAgent.agents) ? byAgent.agents : [])
+    .map((a) => ({ name: String((a && (a.shown || a.name)) || ''), tok: usageRowTokenTotal(a || {}), muted: false }))
+    .filter((r) => r.name && r.tok > 0);
+  const other = usageRowTokenTotal(byAgent.elsewhere || {});
+  if (other > 0) rows.push({ name: 'Not an agent (your own sessions)', tok: other, muted: true });
+  const shared = usageRowTokenTotal(byAgent.shared || {});
+  if (shared > 0) rows.push({ name: 'A folder two agents share', tok: shared, muted: true });
+  return rows;
+}
+/* #2617: the per-agent table, the model table's markup with an Agent column.
+   Agents take USAGE_MODEL_COLORS by rank; the two non-agent rows take the muted
+   "Other" color so they never read as an agent. Share is of the rows shown. Pure. */
+function usageAgentTableHtml(rows) {
+  const r = Array.isArray(rows) ? rows : [];
+  if (!r.length) return '';
+  const total = r.reduce((a, x) => a + (Number(x.tok) || 0), 0) || 1;
+  const max = r.reduce((a, x) => Math.max(a, Number(x.tok) || 0), 0) || 1;
+  let rank = 0;
+  const body = r.map((x) => {
+    const color = x.muted ? USAGE_MODEL_COLORS[6] : USAGE_MODEL_COLORS[Math.min(rank++, 5)];
+    const pct = (Number(x.tok) || 0) / total * 100;
+    const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '&lt;0.1%';
+    return '<div class="tv-mrow' + (x.muted ? ' muted' : '') + '"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl">' + esc(x.name) + '</span></div>'
+      + '<div class="tv-mbar"><span style="width:' + ((Number(x.tok) || 0) / max * 100).toFixed(1) + '%;background:' + color + '"></span></div>'
+      + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
+      + '<div class="tv-num">' + pctStr + '</div></div>';
+  }).join('');
+  return '<div class="tv-mrow head"><div>Agent</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + body;
+}
+/* #2617: the sentence under the per-agent table. Says what the table cannot
+   show rather than letting a gap read as zero: an unreadable roster, tokens in
+   the totals whose transcripts are gone, or the reverse. Empty when there is
+   nothing to say. Pure. */
+function usageAgentNote(byAgent) {
+  if (!byAgent || typeof byAgent !== 'object') return '';
+  const out = [];
+  if (byAgent.rosterRead === false) out.push('We could not read the list of agents just now, so every session shows as not an agent.');
+  const gone = usageRowTokenTotal(byAgent.unattributed || {});
+  if (gone > 0) out.push(usageAbbr(gone) + ' tokens in the totals above come from transcripts that have since been removed, so they cannot be matched to an agent.');
+  const over = usageRowTokenTotal(byAgent.overcount || {});
+  if (over > 0) out.push('On some days the transcripts still here hold ' + usageAbbr(over) + ' more tokens than the totals saved for those days, so this table can add up to a little more.');
+  return out.join(' ');
+}
 /* #2840: the donut -- per-model token SHARE, top 6 + an "Other" bucket, matching
    the approved design's pie. Center shows the blended total tokens (Josh's ruling:
    the blended total is the correct headline). Legend lists each slice's share.
@@ -27729,6 +27794,9 @@ async function paintUsage() {
   const mtable = document.getElementById('usage-mtable');
   const donut = document.getElementById('usage-donut');
   const history = document.getElementById('usage-history'); // #2840: the scrollable usage-history list
+  const agentsBox = document.getElementById('usage-agents'); // #2617: the per-agent block
+  const atable = document.getElementById('usage-atable');
+  const anote = document.getElementById('usage-agents-note');
   if (!msg || !hero || USAGE_BUSY) return;
   USAGE_BUSY = true;
   msg.textContent = 'Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';
@@ -27741,6 +27809,9 @@ async function paintUsage() {
     if (mtable) mtable.innerHTML = '';
     if (donut) donut.innerHTML = '';
     if (history) history.innerHTML = '';
+    if (agentsBox) agentsBox.hidden = true;
+    if (atable) atable.innerHTML = '';
+    if (anote) anote.textContent = '';
   };
   try {
     /* 14 days -- the approved design shows a two-week trend. Completed days are
@@ -27779,6 +27850,12 @@ async function paintUsage() {
     if (mtable) mtable.innerHTML = usageModelTableHtml(models, grandTotal);
     if (donut) donut.innerHTML = usageDonutSvg(models, grandTotal);
     if (wtr) wtr.hidden = !models.length;
+    /* #2617: byAgent is null when the server could not split the window; the
+       block then stays hidden rather than showing an empty or wrong table. */
+    const agentHtml = usageAgentTableHtml(usageAgentRows(data.byAgent));
+    if (atable) atable.innerHTML = agentHtml;
+    if (anote) anote.textContent = usageAgentNote(data.byAgent);
+    if (agentsBox) agentsBox.hidden = !agentHtml;
     if (history) history.innerHTML = historyHtml;
     /* Said plainly rather than implied: this counts what was found on this
        machine, and a config root we could not read is a gap in the number

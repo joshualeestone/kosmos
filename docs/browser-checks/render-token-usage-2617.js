@@ -39,6 +39,19 @@ const USAGE = {
     '2026-08-31': { 'claude-opus-4-8': { input_tokens: 2010445, output_tokens: 701558, cache_creation_input_tokens: 8702558, cache_read_input_tokens: 940558112 } },
   },
   rootsRead: ['/tmp/fixture'],
+  // #2617: the per-agent split, as /api/usage sends it. Ann towers, Bob is small,
+  // some work was the person's own, and 2,000 tokens could not be matched.
+  byAgent: {
+    agents: [
+      { name: 'ann', shown: 'Ann', input_tokens: 3000000, output_tokens: 1000000, cache_creation_input_tokens: 12000000, cache_read_input_tokens: 1500000000, rows: 10 },
+      { name: 'bob', shown: 'Bob', input_tokens: 500000, output_tokens: 200000, cache_creation_input_tokens: 2000000, cache_read_input_tokens: 150000000, rows: 3 },
+    ],
+    elsewhere: { input_tokens: 651004, output_tokens: 261889, cache_creation_input_tokens: 4103778, cache_read_input_tokens: 314004102, rows: 2 },
+    shared: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 },
+    unattributed: { input_tokens: 0, output_tokens: 2000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 },
+    overcount: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 },
+    rosterRead: true,
+  },
 };
 
 async function openUsage(page) {
@@ -123,6 +136,15 @@ function readUsage(page) {
       sectionFits: (() => { const el = document.getElementById('s-sec-usage'); return el ? el.scrollWidth <= el.clientWidth + 2 : null; })(),
       wtrCols: (() => { const el = document.getElementById('usage-wtr'); return el ? (getComputedStyle(el).gridTemplateColumns || '').split(' ').filter(Boolean).length : null; })(),
       secW: (() => { const el = document.getElementById('s-sec-usage'); return el ? el.clientWidth : null; })(),
+      // #2617 the per-agent block.
+      agentsShown: (() => { const el = document.getElementById('usage-agents'); return el ? !el.hidden : null; })(),
+      agentHead: ((document.querySelector('#usage-atable .tv-mrow.head > div') || {}).textContent || '').trim(),
+      agentNames: [...document.querySelectorAll('#usage-atable .tv-mrow:not(.head) .tv-mnl')].map((e) => (e.textContent || '').trim()),
+      agentMutedCount: document.querySelectorAll('#usage-atable .tv-mrow.muted').length,
+      agentBarsPainted: [...document.querySelectorAll('#usage-atable .tv-mbar span')].every((b) => b.getBoundingClientRect().width > 0),
+      agentFits: (() => { const el = document.getElementById('usage-atable'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
+      agentNote: txt('#usage-agents-note') || '',
+      agentsAfterWtr: (() => { const a = document.getElementById('usage-agents'), w = document.getElementById('usage-wtr'); return a && w ? !!(w.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) : null; })(),
       // the removed elements must be GONE (Josh's exact-to-spec replacement).
       noCards: !document.getElementById('usage-cards'),
       noMoney: !document.getElementById('usage-worth'),
@@ -198,6 +220,21 @@ function readUsage(page) {
     ok(v.sectionFits, 'the token-usage section has no horizontal overflow at the settings-column width');
     ok(v.donutCenter, 'the donut center names the total tokens');
     ok(v.donutLegend >= 1, `the donut legend lists the model(s) (got ${v.donutLegend})`);
+    // #2617 the per-agent block
+    ok(v.agentsShown === true, 'the By agent block is shown when /api/usage sends byAgent');
+    ok(v.agentHead === 'Agent', `the per-agent table heads its first column Agent (got ${JSON.stringify(v.agentHead)})`);
+    ok(JSON.stringify(v.agentNames) === JSON.stringify(['Ann', 'Bob', 'Not an agent (your own sessions)']),
+      `the per-agent rows are the agents by shown name, then the person's own sessions (got ${JSON.stringify(v.agentNames)})`);
+    ok(v.agentMutedCount === 1, `only the non-agent row is muted (got ${v.agentMutedCount})`);
+    ok(v.agentBarsPainted, 'every per-agent share bar paints with a width');
+    ok(v.agentFits, 'the per-agent table fits the settings column with no horizontal overflow');
+    ok(/2K tokens in the totals above come from transcripts that have since been removed/.test(v.agentNote),
+      `the note states the tokens that cannot be matched (got ${JSON.stringify(v.agentNote)})`);
+    ok(v.agentsAfterWtr === true, 'the By agent block sits under the per-model table and donut');
+    if (process.env.SHOTS) {
+      const el = await p.$('#s-sec-usage');
+      await el.screenshot({ path: process.env.SHOTS + '/usage-by-agent-1280.png' });
+    }
     // the replaced elements are gone
     ok(v.noCards, 'the old full-number cards are removed (replaced by the approved design)');
     ok(v.noMoney, 'the old output-only money box is removed (replaced by the hero value)');
@@ -239,6 +276,10 @@ function readUsage(page) {
       return { n: figs.length, clipped, big };
     });
     ok(scale.big.includes('B'), `hero shows the production-scale total in the B band (got ${scale.big})`);
+    // #2617 CONTROL: that fixture has no byAgent (an older board, or a failed split),
+    // so the per-agent block must stay hidden rather than show an empty table.
+    const agentsHidden = await p.evaluate(() => { const el = document.getElementById('usage-agents'); return el ? el.hidden : null; });
+    ok(agentsHidden === true, 'the By agent block stays hidden when /api/usage sends no byAgent');
     ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
     await ctx.close();
   } finally {
