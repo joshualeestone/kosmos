@@ -314,6 +314,25 @@ test('#3519 CONTROL: an AGENTS.md folder with no hint stays codex/openai', () =>
     'the codex provider write regressed');
 });
 
+/* #3519 CONTROL: the guard's OTHER dangerous direction. The bad-hint control above pins
+   a hint whose file is ABSENT (google on AGENTS.md, no GEMINI.md). This pins a hint whose
+   file MISMATCHES: a non-claude provider (xai -> grok, brief AGENTS.md) on a CLAUDE.md
+   folder. briefFilename('grok') === 'AGENTS.md' !== 'CLAUDE.md', so the guard must ignore
+   the hint and keep the folder claude -- otherwise a hint could start a codex/grok runner
+   in a Claude agent's own folder. Without this, the guard's CLAUDE.md arm is unexercised. */
+test('#3519 CONTROL: a non-claude provider hint on a CLAUDE.md folder is ignored (stays claude)', () => {
+  const dir = agentFolder('scoutclaudehint', 'CLAUDE.md', '# You are Scout ClaudeHint\n');
+  const r = discover.connect(dir, { provider: 'xai' });
+  assert.equal(r.ok, true, r.because);
+  assert.doesNotMatch(plistOf('scoutclaudehint'), /<string>codex<\/string>/,
+    'a CLAUDE.md folder was hinted into a non-claude runner');
+  assert.equal(create.readJob('scoutclaudehint').claude, path.join(SANDBOX, 'bin', 'claude'),
+    'the claude folder did not get the claude binary');
+  const prof = store.readProfile('scoutclaudehint');
+  assert.ok(!prof || !prof.provider,
+    'a claude adoption must record NO provider, even with a non-claude hint');
+});
+
 test('#1159: an adopted Codex agent gets the same first-run setup as a created one', () => {
   /* 🛑 Otherwise it meets a trust prompt and an update prompt that nothing will
      answer, and the board reads both panes as `unknown` (#1315). */
