@@ -374,6 +374,33 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) }));
     await page.evaluate(() => applyLayout('tabs', true));
 
+    // T21: a header menu opened over a tip makes the tip step aside at once, and closing it brings the
+    // tip back (the header is its own stacking layer, so the tip would otherwise draw over the menu).
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.click('#userpop-btn');
+    await page.waitForTimeout(80);
+    const underMenu = await page.evaluate(() => ({ menu: !document.getElementById('userpop-menu').hidden, card: !document.getElementById('tipcard').hidden }));
+    await page.click('#userpop-btn');
+    await page.waitForTimeout(80);
+    const afterMenu = await page.evaluate(() => ({ menu: !document.getElementById('userpop-menu').hidden, card: !document.getElementById('tipcard').hidden }));
+    chk(underMenu.menu && !underMenu.card && !afterMenu.menu && afterMenu.card, 'T21 a tip steps aside at once while a header menu is open and returns when it closes', JSON.stringify({ underMenu, afterMenu }));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+
+    // T22: choosing something else from the ? while the tour that opened by itself is up counts as
+    // closing the tour: it is recorded and does not come back (control: T1, the same empty state
+    // shows it).
+    resetStore({ seen: [], off: false });
+    await page.goto(URL, { waitUntil: 'networkidle' });   // the board (the page may be on a Settings address)
+    chk(await waitTitle(page, TOUR, 4000), 'T22 precondition: the tour shows by itself');
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.click('#tipcard .tip-go');
+    await page.waitForTimeout(2800);
+    const tourBack = await cardState(page);
+    chk((await api('GET')).seen.includes('tour') && !/ of /.test(tourBack.step), 'T22 the tour replaced from the ? is recorded and does not come back', JSON.stringify(tourBack));
+
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
     // that let tips through would show the tour here (control: T1 and T6, the same empty state).
     resetStore({ seen: [], off: false });

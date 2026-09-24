@@ -1412,9 +1412,10 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* #3574 (Josh, 2026-09-24, for 0.6.93): first-run help. ONE card is the welcome tour and every
    first-visit tip: a small gold label, a title, a few short sentences, one button. The ? beside the
    user's name brings any of it back. Only the tour dims the screen; a screen tip floats beside the
-   thing and the page stays usable. No solid left bars (Josh, the same day). Layered above the header
-   menus (40) and below every dialog backdrop (.rm-back 50, .fr-back and .upd-back 60), so a dialog
-   covers a tip the moment it opens (T13). */
+   thing and the page stays usable. No solid left bars (Josh, the same day). Layered above the sticky
+   header (its own stacking layer, z 20, so the tour can ring a place in it) and below every dialog
+   backdrop (.rm-back 50, .fr-back and .upd-back 60), so a dialog covers a tip the moment it opens (T13).
+   A header menu opened over a tip makes the tip step aside at once (T21). */
 .helpq { position: relative; display: inline-flex; }
 .helpq-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--k-rule); background: var(--k-surface);
   display: inline-grid; place-items: center; cursor: pointer; font: 700 var(--text-callout) var(--font-ui); color: var(--k-ink-2); padding: 0; }
@@ -52775,6 +52776,12 @@ let TIP_AUTO = false;           // the open tip showed by itself (not from the ?
 
 /* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
    takeover (.upd-back) is added while it is up. */
+/* An open header menu: the ? and the user menu (aria-haspopup), the burger and the Kosmos switcher.
+   The header is its own stacking layer, so a tip would draw over a menu the person just opened. */
+function tipMenuOpen() {
+  return !!document.querySelector('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]');
+}
+
 function tipModalOpen() {
   return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .upd-back, dialog[open]');
 }
@@ -52842,7 +52849,7 @@ function tipsCheck() {
     /* A tip that showed by itself goes when its screen goes (unrecorded, so it shows when the person
        comes back); otherwise it steps aside for a dialog and follows its target. */
     if (TIP_AUTO && !TIP_OPEN.show()) { tipClose({ record: false }); return; }
-    tipSuspend(tipModalOpen());
+    tipSuspend(tipModalOpen() || tipMenuOpen());
     tipRelayout();
     return;
   }
@@ -53034,7 +53041,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !TIP_OPEN || tipModalOpen()) return;
   /* An open menu takes the Escape: the ? and the user menu (aria-haspopup), the narrow-width burger
      and the Kosmos switcher (aria-expanded without aria-haspopup). */
-  if (document.querySelector('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]')) return;
+  if (tipMenuOpen()) return;
   /* A screen tip leaves an Escape meant for something else alone: typing in a field, an open menu,
      or an open picker (the reaction picker and the project emoji panel close on any Escape). */
   const ae = document.activeElement;
@@ -53058,6 +53065,9 @@ const tipRelayout = () => {
   TIP_RELAYOUT = true;
   requestAnimationFrame(() => { TIP_RELAYOUT = false; const c = document.getElementById('tipcard'); if (TIP_OPEN && c && !c.hidden) tipLayout(TIP_OPEN, c); });
 };
+/* After a click has opened or closed a menu, look again at once rather than on the next tick. Capture
+   phase, because the user menu's button stops its click; the timeout runs after the menu has toggled. */
+document.addEventListener('click', () => { if (TIP_OPEN) setTimeout(() => tipSuspend(tipModalOpen() || tipMenuOpen()), 0); }, true);
 window.addEventListener('resize', tipRelayout);
 document.addEventListener('scroll', tipRelayout, { capture: true, passive: true });
 
@@ -53082,6 +53092,8 @@ function wireHelpq() {
     if (!b) return;
     closeHelpMenu();
     const want = b.dataset.help;
+    /* Choosing something else from the ? while the tour is up is closing the tour: it counts as seen. */
+    if (TIP_OPEN && TIP_OPEN.tour && want !== 'tour') tipClose({ record: true });
     let t = null;
     /* This screen's own tip: the ring has its own item, and its rail rings show on every
        consolidated screen, so it is not a screen's answer. */
@@ -53109,6 +53121,7 @@ document.getElementById('tips-toggle')?.addEventListener('click', async (e) => {
   if (!TIPS_STATE || !TIPS_STATE.ok || sw.disabled) return;
   sw.disabled = true;   // one save at a time, so two quick clicks are a toggle and back, not the same write twice
   try { await tipsSave({ off: !TIPS_STATE.off }); } finally { sw.disabled = false; }
+  if (TIPS_STATE.off && TIP_OPEN && TIP_AUTO) tipClose({ record: false });   // off means the one on screen goes too
   paintTipsToggle();
 });
 
