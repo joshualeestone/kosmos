@@ -32,7 +32,7 @@ not the commit or the line.
   - While it is false the Settings section is hidden, turning on is refused, and nothing is sent.
 - **The iOS app registers for notifications** (kosmos #3635, merged). Opening the right Mac on a
   tap is in review on branch `ios-tap-718`. Neither has run on a simulator or a phone yet.
-- **The Android app shows notifications under its own name** (Sonya's `android-push-718`). This
+- **The Android app shows notifications under its own name** (kosmos #3644, Sonya). This
   is NOT merged yet.
 
 ## Step 1. Josh's decisions and keys [Josh]
@@ -63,6 +63,7 @@ on the approval, and development keeps testing against Kano's mock APNs meanwhil
    signing certificate it needs. The team's id is what step 4 sets as `DEVELOPMENT_TEAM`.
 
 **Google**
+
 5. **A Google Play Console developer account.** Sonya has seen no evidence one exists
    (2026-09-24).
 6. **Confirm the Android application id `io.kosmos.app`** (`android/app/build.gradle`). It is
@@ -75,10 +76,11 @@ on the approval, and development keeps testing against Kano's mock APNs meanwhil
 - `secrets-map.sh lookup <target>` finds the APNs key (the target name is whatever `/add-secret`
   records).
 - The App ID shows Push Notifications enabled in the Kosmos Agent Manager, Inc. account.
+- The push-enabled provisioning profile and its signing certificate (item 4) exist in that account.
 - Josh has said yes to items 1, 2, 5 and 6.
 
-**Undo:** revoke the APNs key and the profile in the developer account. Nothing else here has been
-used yet.
+**Undo:** revoke the APNs key and the profile in the developer account. An App Store Connect app
+record and its seller name cannot be undone, which is why item 2 is Josh's decision.
 
 ## Step 2. Put the APNs settings into the coordinator's env template [fleet]
 
@@ -131,8 +133,11 @@ probably cannot sit under `/root` or `/home`, and the service user must be able 
 **Check:** review the template diff in the PR.
 - `DRY=1` does not render the env; it only prints what the deploy would do.
 - The real check comes in step 3. `INSTALL_ENV=1` renders the whole env from the template and
-  checks it against the box, before changing anything. It refuses if a var the box has would be
-  dropped.
+  checks it against the box. It refuses if a var the box has would be dropped.
+- That check runs AFTER the new binary is installed and BEFORE the env file is replaced and the
+  service restarts (`deploy/deploy-coordinator.sh`). A refusal leaves the new binary installed next
+  to the old env, and the next restart would run it. After a refusal, put the old binary back with
+  the restore command the deploy prints.
 
 **Undo:** revert the PR.
 
@@ -141,8 +146,9 @@ probably cannot sit under `/root` or `/home`, and the service user must be able 
 This is a production change. Tell Liu Kang before it happens (`.claude/plans/apns-718.md`,
 "Shipping").
 
-**First, put the .p8 on the box** [Josh]. No deploy step copies a key file, and the template
-only holds its path.
+### 3a. Put the .p8 on the box [Josh]
+
+No deploy step copies a key file, and the template only holds its path.
 - Copy it to the path set in `KOSMOS_APNS_KEY_PATH`, owned by `kosmos-coordinator` (the unit's
   `User=`), mode 600.
 - The unit's `ProtectSystem=strict` makes the filesystem read-only to the service, not
@@ -150,6 +156,8 @@ only holds its path.
   example under `/etc/kosmos-coordinator/` or `/var/lib/kosmos-coordinator/`.
 - **Check:** `sudo -u kosmos-coordinator test -r <path> && echo readable`.
 - **Undo:** delete the file.
+
+### 3b. Deploy
 
 - **Command:** `INSTALL_ENV=1 bash deploy/deploy-coordinator.sh`, from a clean kosmos-relay
   `main`.
@@ -170,6 +178,8 @@ only holds its path.
   `apns: log only (KOSMOS_PUSH=log, or no APNs key configured)`.
 
 **Undo:**
+- **A refused env check (see step 2):** the new binary is already installed. Restore the old one
+  with the printed command below, even though the service was not restarted.
 - **Binary:** the deploy prints the exact restore command
   (`install -m755 <backup> /usr/local/bin/kosmos-coordinator && systemctl restart kosmos-coordinator`).
   It also rolls itself back if the restart fails. That automatic path has never actually run
@@ -209,7 +219,7 @@ only holds its path.
 Sonya owns these facts (her message of 2026-09-24).
 
 **Before anything:**
-- Her `android-push-718` PR merges. It adds notification delegation and points the app at
+- Sonya's PR #3644 merges. It adds notification delegation and points the app at
   `https://login.kosmosplus.com/`.
 - On `main` without it, a push would show as a Chrome notification.
 
@@ -239,7 +249,7 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 
 **Check:**
 - `keytool -printcert -jarfile app-release.aab` shows the upload key's SHA-256. Sonya built and
-  checked this AAB on her branch.
+  checked this AAB on the #3644 branch.
 - `curl -sS -D- https://login.kosmosplus.com/.well-known/assetlinks.json`: read the body, not
   just the 200.
 - Google's checker:
@@ -273,7 +283,7 @@ needs an update before phone notifications can be turned on" (`engine/phonenotif
 **Check:**
 - `dist/kosmos-tunnel mac-request --help` prints usage, not `unrecognized subcommand`.
 - `dist/kosmos-tunnel.commit` contains `e39eeca`, the commit that added `mac-request`:
-  `git -C ~/work/kosmos-relay merge-base --is-ancestor e39eeca "$(cat dist/kosmos-tunnel.commit)"`.
+  `git -C ~/work/kosmos-relay merge-base --is-ancestor e39eeca "$(cat ~/work/kosmos-relay/dist/kosmos-tunnel.commit)"`.
 - Before cutting step 7, run the same `mac-request --help` check against the binary the bundle
   build will actually use: `KOSMOS_TUNNEL_BIN` if it is set, otherwise the default path above.
 
@@ -284,7 +294,7 @@ check is done by hand.
 
 **Undo:** nothing has shipped. The binary only reaches people inside a board release (step 7).
 
-## Step 7. The board release that opens the lock [fleet builds; Josh approves the promote]
+## Step 7. The board release that opens the lock [Josh signs off the release notes and the promote; fleet builds]
 
 **Code change, one kosmos PR:**
 - Flip `PHONE_APP_CAN_RECEIVE` to `true` in `engine/phonenotify.js`.
@@ -296,6 +306,13 @@ check is done by hand.
   (`setAvailableForTests`), and change the first to assert the new shipped value.
 - Only do this once steps 4 and 5 have an app that receives. The lock exists so that no Mac
   sends before a phone can hear it.
+
+**Before the staging cut, Josh signs off the release notes and site copy** [Josh].
+- A staging cut is not private. `KOSMOS_CUT_CHANNEL=staging tools/release.sh` holds back only the
+  download pointer; its site deploy publishes the site (the versions page entry and the install
+  copy) to installkosmos.com straight away (seen on the 0.6.60 cut).
+- So the "phone notifications" release notes go public under Josh's name at the staging cut,
+  before any staging check has passed.
 
 **Cut the release on staging first**, using the rebuilt tunnel from step 6
 (`docs/staging-channel.md`):
@@ -321,6 +338,8 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 **Undo:**
 - Point `latest.json` back at the previous release and redeploy the site
   (`docs/staging-channel.md`). No rebuild.
+- That does not take back the site copy published at the staging cut. The versions page entry and
+  the install copy stay until the site is redeployed without them.
 - A Mac back on the old board has the lock closed again and sends nothing.
 
 ## Step 8. Let the coordinator send [Josh]
