@@ -13780,6 +13780,42 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
       <p class="dhint" id="feedback-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
+    <!-- #2619: Recommender automation. When on, blocked agents work to a consensus
+         recommendation, document it, and implement it - bounded by three guards.
+         Ships OFF by default: the consensus-and-implement behaviour is a separate
+         build, so an on-by-default toggle would promise action that does not yet
+         happen (recorded on #2619: flip on WITH the behaviour). The three guards
+         are ON by default (the irreversible-consequence carve-outs; on = the safe,
+         restrictive direction). Same .toggle shape + could-not-read-hides-the-knob
+         (status control) as the switches above. Guard checkboxes commit on change. -->
+    <section class="dbox">
+      <h3 class="dlab">Recommender</h3>
+      <div class="setrow" id="rec-row" style="margin-top:14px;">
+        <div><b>Let blocked agents recommend and act</b>
+          <p class="dhint" style="margin:2px 0 0;">When your agents get stuck on something, they work together to agree on a recommendation, write down why, and carry it out - within the guards below. Off by default.</p></div>
+        <button class="toggle" id="rec-toggle" role="switch" aria-label="Let blocked agents recommend and act" hidden><i></i></button>
+      </div>
+      <fieldset class="frow" id="rec-guards-row" style="margin-top:12px; border:0; padding:0; display:flex; flex-direction:column; gap:8px;">
+        <legend class="dhint" style="margin:0 0 2px;">Never let a recommendation:</legend>
+        <label class="dhint" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-money" checked> <span>Act on anything that spends money</span></label>
+        <label class="dhint" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-public" checked> <span>Post anything publicly under my name</span></label>
+        <label class="dhint" style="margin:0; display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" id="rec-guard-delete" checked> <span>Delete anything that has no other copy</span></label>
+      </fieldset>
+      <p class="dhint" id="rec-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
+    <!-- #2619: Assigner automation. When on, it turns your goals into assigned
+         work - mapping top goals to prioritized tasks and giving idle agents some.
+         OFF by default for the same reason as the Recommender: the assignment
+         behaviour is a separate build (recorded on #2619). Status control. -->
+    <section class="dbox">
+      <h3 class="dlab">Assigner</h3>
+      <div class="setrow" id="asg-row" style="margin-top:14px;">
+        <div><b>Turn your goals into assigned work</b>
+          <p class="dhint" style="margin:2px 0 0;">Map your top goals to prioritized tasks, and give agents that have nothing to do some work. Off by default.</p></div>
+        <button class="toggle" id="asg-toggle" role="switch" aria-label="Turn your goals into assigned work" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="asg-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
   </section>
   <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
        already existed and is merged (#854); nothing in the product consumed it,
@@ -19160,11 +19196,128 @@ setInterval(() => {
   const panel = document.getElementById('panel-settings');
   if (!document.hidden && panel && panel.offsetParent !== null) paintPrompterNudges();
 }, 15000);
+/* #2619: the Recommender automation control. Same shape as the Auto-save/Prompter
+   switches: a STATUS control (a non-ok read hides the knob, never a false Off),
+   painted only from the server's stored value (never optimistically from the
+   click), refuses to write until loaded (the toggle ships hidden), and is
+   epoch-guarded so a stale async result cannot stomp a newer one. The three guard
+   checkboxes are independent of the on/off toggle (a person can pre-set them) and
+   each commits on change via PUT {guard,value}. */
+let REC_EPOCH = 0;
+const REC_GUARD_IDS = { money: 'rec-guard-money', public: 'rec-guard-public', delete: 'rec-guard-delete' };
+function recPaintGuards(guards) {
+  for (const k of Object.keys(REC_GUARD_IDS)) {
+    const el = document.getElementById(REC_GUARD_IDS[k]);
+    if (el && document.activeElement !== el) el.checked = !!(guards && guards[k]);
+  }
+}
+async function paintRecommender() {
+  const mine = ++REC_EPOCH;
+  const msg = document.getElementById('rec-msg');
+  try {
+    const res = await fetch('/api/recommender-setting', { cache: 'no-store' });
+    if (mine !== REC_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== REC_EPOCH) return;
+    paintSwitch('rec-toggle', r.on === true);
+    recPaintGuards(r.guards);
+    msg.textContent = '';
+  } catch {
+    if (mine !== REC_EPOCH) return;
+    paintSwitch('rec-toggle', null);
+    msg.textContent = 'We could not read this setting just now.';
+  }
+}
+let REC_SAVING = false;
+async function saveRecommender(body) {
+  if (REC_SAVING) return;
+  REC_SAVING = true;
+  const mine = ++REC_EPOCH;
+  const msg = document.getElementById('rec-msg');
+  try {
+    const res = await fetch('/api/recommender-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (mine !== REC_EPOCH) return;
+    if (!res.ok) { msg.textContent = out.because || 'We could not save that setting.'; return; }
+    paintSwitch('rec-toggle', out.on === true);
+    recPaintGuards(out.guards);
+    msg.textContent = '';
+  } catch {
+    if (mine === REC_EPOCH) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    REC_SAVING = false;
+  }
+}
+function recToggleClick() {
+  const tog = document.getElementById('rec-toggle');
+  if (!tog.hasAttribute('aria-checked')) { paintRecommender(); return; } // not loaded yet
+  saveRecommender({ on: tog.getAttribute('aria-checked') !== 'true' });
+}
+document.getElementById('rec-toggle').addEventListener('click', recToggleClick);
+for (const k of Object.keys(REC_GUARD_IDS)) {
+  document.getElementById(REC_GUARD_IDS[k]).addEventListener('change', (e) => {
+    saveRecommender({ guard: k, value: e.target.checked === true });
+  });
+}
+
+/* #2619: the Assigner automation control. Same status-control contract as above;
+   no guards, just on/off. */
+let ASG_EPOCH = 0;
+async function paintAssigner() {
+  const mine = ++ASG_EPOCH;
+  const msg = document.getElementById('asg-msg');
+  try {
+    const res = await fetch('/api/assigner-setting', { cache: 'no-store' });
+    if (mine !== ASG_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== ASG_EPOCH) return;
+    paintSwitch('asg-toggle', r.on === true);
+    msg.textContent = '';
+  } catch {
+    if (mine !== ASG_EPOCH) return;
+    paintSwitch('asg-toggle', null);
+    msg.textContent = 'We could not read this setting just now.';
+  }
+}
+let ASG_SAVING = false;
+async function saveAssigner(on) {
+  if (ASG_SAVING) return;
+  ASG_SAVING = true;
+  const mine = ++ASG_EPOCH;
+  const msg = document.getElementById('asg-msg');
+  try {
+    const res = await fetch('/api/assigner-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (mine !== ASG_EPOCH) return;
+    if (!res.ok) { msg.textContent = out.because || 'We could not save that setting.'; return; }
+    paintSwitch('asg-toggle', out.on === true);
+    msg.textContent = '';
+  } catch {
+    if (mine === ASG_EPOCH) msg.textContent = 'We could not reach Kosmos to save that.';
+  } finally {
+    ASG_SAVING = false;
+  }
+}
+function asgToggleClick() {
+  const tog = document.getElementById('asg-toggle');
+  if (!tog.hasAttribute('aria-checked')) { paintAssigner(); return; } // not loaded yet
+  saveAssigner(tog.getAttribute('aria-checked') !== 'true');
+}
+document.getElementById('asg-toggle').addEventListener('click', asgToggleClick);
+
 async function paintSettings() {
   paintYouName();
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
+  paintRecommender();
+  paintAssigner();
   paintPrompterNudges();
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */
