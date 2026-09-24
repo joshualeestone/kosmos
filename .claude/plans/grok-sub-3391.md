@@ -44,7 +44,11 @@ separate PR on top of these routes, so each challenge loop stays reviewable.
    of account the home is (GROK_HOME, or the default's three tiers). A subscription drops every
    `XAI_API_KEY=` entry from PANE_ENV and launches through `/usr/bin/env -u XAI_API_KEY`, UNLESS the sign-in
    has provably lapsed (checkLive's offline NONE), in which case the door key is kept and the log says why:
-   stripping it would restart a working agent into a dead sign-in (challenge iteration 12). The
+   stripping it would restart a working agent into a dead sign-in (challenge iteration 12). Only a
+   positive CONNECTED strips; UNKNOWN (no refresh token and no readable expiry, or a failed check) keeps the
+   key too (iteration 13). An ambient GROK_HOME cannot reach a default agent's supervisor: launchd starts it
+   with exactly the plist's EnvironmentVariables (create.js plistFor: HOME, PATH, LANG, the account var only
+   for a per-account agent, port, socket, world), so the default's dir is the three tiers, as the engine's. The
    per-account leader socket is added only when this grok's `--help` lists the flag (an older grok would
    exit rc 2 and crash-loop).
 

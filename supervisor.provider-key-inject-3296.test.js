@@ -262,8 +262,8 @@ test('grok: an auth.json that is not ONE auth.x.ai entry is not a subscription, 
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': {}, 'https://auth.x.ai::b': {} }) })), 'two entries keep the key');
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://other.example::a': {} }) })), 'another issuer keeps the key');
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: '{"https://auth.x.ai::a":{"email":' })), 'ONE entry in a file that does not parse keeps the key (readAuth would not describe it)');
-  // CONTROL: exactly one entry strips, through the same fixture path.
-  assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e' } }) })));
+  // CONTROL: exactly one entry, a sign-in that is positively good (a refresh token), strips through the same fixture path.
+  assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', refresh_token: 'r' } }) })));
 });
 
 test('grok: a WHITESPACE-only key file beside a sign-in is a subscription (identityOf trims it to empty)', () => {
@@ -310,7 +310,7 @@ test('grok DEFAULT agent: the dir the supervisor judged is exported as GROK_HOME
 
 test('grok: the supervisor classifies by identityOf itself, so odd shapes agree with the board', () => {
   // The issuer string repeated INSIDE the entry is still ONE top-level entry: a subscription.
-  assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', note: '"https://auth.x.ai::b' } }) })));
+  assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', refresh_token: 'r', note: '"https://auth.x.ai::b' } }) })));
   // One top-level entry whose value is not an object is not an account (identityOf null): kept.
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': null }) })));
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify([{ 'https://auth.x.ai::a': {} }]) })), 'a top-level array is not an account');
@@ -329,4 +329,10 @@ test('grok: an OLDER grok whose --help has no --leader-socket gets no leader fla
   assert.ok(rec.includes('new-session'), 'it still launches');
   assert.ok(!/--leader-socket/.test(rec), 'the flag is not passed to a grok that does not know it');
   assert.ok(/--leader-socket/.test(runGrokWithAccount({ door: 'globaldoorvalue', authJson: true })), 'CONTROL: a grok that knows the flag gets it');
+});
+
+test('grok: a sign-in we cannot vouch for (UNKNOWN: no refresh token, no readable expiry) keeps the door key and says so', () => {
+  const r = runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e' } }), withStderr: true });
+  assert.ok(kept(r.rec), 'the key is kept when the sign-in is not positively good');
+  assert.match(r.stderr, /could not tell whether the sign-in in \S+ is still good, so this agent keeps any XAI_API_KEY/);
 });

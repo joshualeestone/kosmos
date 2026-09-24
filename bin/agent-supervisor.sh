@@ -670,9 +670,10 @@ if [ -z "$adopt" ]; then
     [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
     _GROK_ID=""
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
-      # "<authMode>\t<email or key tail>\t<lapsed|ok|>" or nothing; never the key. The third
-      # field is grokaccounts.checkLive's OFFLINE verdict, asked for a subscription only (an
-      # api-key check would reach the network): a provably lapsed sign-in says "lapsed".
+      # "<authMode>\t<email or key tail>\t<ok|lapsed|unknown|>" or nothing; never the key. The
+      # third field is grokaccounts.checkLive's OFFLINE verdict, asked for a subscription only
+      # (an api-key check would reach the network): "ok" ONLY for a positive CONNECTED.
+      # "lapsed" is a provable NONE, and "unknown" is anything else, a failed check included.
       # (A function, so its early returns are legal: `node -e` runs a script, where a
       # top-level return is a SyntaxError that would leave this empty and silently keep the key.)
       _GROK_ID="$("$NODE_BIN" -e '
@@ -683,19 +684,24 @@ if [ -z "$adopt" ]; then
             if (!w) return;
             const say = (flag) => process.stdout.write(w.authMode + "\t" + (w.email || w.keyTail || "") + "\t" + flag);
             if (w.authMode !== "subscription") { say(""); return; }
-            g.checkLive(process.argv[2]).then((v) => say(v && v.state === "none" ? "lapsed" : "ok"), () => say("ok"));
+            g.checkLive(process.argv[2]).then((v) => say(v && v.state === "connected" ? "ok" : v && v.state === "none" ? "lapsed" : "unknown"), () => say("unknown"));
           } catch (e) { /* an unreadable answer keeps the key */ }
         })();
       ' "$_eng/grokaccounts.js" "$_GROK_ACCT" 2>/dev/null || true)"
     elif [ -e "${_GROK_ACCT}/auth.json" ]; then
       echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
     fi
+    # "<authMode>\t<who>" (the verdict field cut off), for the leader key: a lapse or a
+    # recovery does not move an agent to a different leader.
     _GROK_WHO="${_GROK_ID%	*}"
-    # A sign-in that has PROVABLY lapsed (no refresh token, expiry past) keeps any door key:
-    # stripping it would restart a working agent into a dead sign-in. The board shows the
-    # sign-in as expired, and the log says why the key stayed.
+    # The key is stripped ONLY for a sign-in positively judged good (fail toward the key
+    # that works, never toward a sign-in we cannot vouch for). A provable lapse, or a
+    # verdict we could not read, keeps any door key, and the log says why. With no door
+    # key at all, grok uses the sign-in either way.
     if [ "${_GROK_ID%%	*}" = subscription ] && [ "${_GROK_ID##*	}" = lapsed ]; then
       echo "grok: the sign-in in ${_GROK_ACCT} has expired, so this agent keeps any XAI_API_KEY rather than a dead sign-in" >&2
+    elif [ "${_GROK_ID%%	*}" = subscription ] && [ "${_GROK_ID##*	}" != ok ]; then
+      echo "grok: we could not tell whether the sign-in in ${_GROK_ACCT} is still good, so this agent keeps any XAI_API_KEY" >&2
     elif [ "${_GROK_ID%%	*}" = subscription ]; then
       _kept=()
       _i=0
