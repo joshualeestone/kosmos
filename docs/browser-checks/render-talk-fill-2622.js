@@ -424,6 +424,7 @@ async function measure(page) {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const afterResize = root.style.getPropertyValue('--scrollbar-width');
       root.style.setProperty('--scrollbar-width', '99px');
+      await new Promise((r) => setTimeout(r, 1100)); // the press re-measure runs at most once a second
       window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
       const afterPress = root.style.getPropertyValue('--scrollbar-width');
       // The Windows stamp: a served win32 meta, and applyPlatformCopy on a DETACHED root so no copy

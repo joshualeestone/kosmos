@@ -8509,7 +8509,13 @@ window.kosmosMeasureScrollbarWidth();
     queued = true;
     requestAnimationFrame(function () { queued = false; window.kosmosMeasureScrollbarWidth(); });
   });
-  window.addEventListener('pointerdown', window.kosmosMeasureScrollbarWidth, { capture: true, passive: true });
+  var lastPress = 0;
+  window.addEventListener('pointerdown', function () {
+    var now = Date.now();
+    if (now - lastPress < 1000) return; /* at most once a second: the check only needs to be fresh, and each probe forces a layout */
+    lastPress = now;
+    window.kosmosMeasureScrollbarWidth();
+  }, { capture: true, passive: true });
   window.addEventListener('focus', window.kosmosMeasureScrollbarWidth);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) window.kosmosMeasureScrollbarWidth(); });
 })();
