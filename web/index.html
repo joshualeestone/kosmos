@@ -1223,14 +1223,6 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
            margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6);
            padding: var(--space-8) var(--space-8) 0;
            border-bottom: 1px solid var(--k-rule); }
-/* #2066 + #2658 build marker: a uniform "beta build v<version>" in the board's fixed
-   corner, quiet furniture present in every screenshot but not competing. #2658 (option a)
-   dropped #2066's loud per-channel staging badge; the channel now rides the hover title
-   only (staging is opt-in, prod is always promoted+verified). Below the sticky header
-   (z 20) so it never sits over the chrome; the corner keeps it clear of content. */
-#buildmark { position: fixed; right: 10px; bottom: 8px; z-index: 15;
-             font: 500 11px/1.4 var(--k-mono); color: var(--k-ink-2); opacity: .75;
-             user-select: none; }
 /**
  * 🛑 THE TABS CENTRED AGAINST THE GAP, NOT AGAINST THE PAGE. `auto 1fr auto`
  * gives the tab bar a middle column that is whatever is left between two
@@ -2492,9 +2484,6 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      The cost there: a page that really scrolls sits its header 15px right of the content edge. */
   html[data-scrollbar-measured]:not([data-layout="consolidated"]) > body > .apphead {
     padding-right: max(0px, calc(3 * var(--space-8) + var(--scrollbar-width, 0px) - 100vw + 100%)); }
-  /* The build marker moves to the bottom-left corner, over the side column, so it does not sit
-     inside the box under Post. */
-  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #buildmark { right: auto; left: 10px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back {
     position: absolute; top: var(--space-6); left: 0; margin: 0; z-index: 1; }
   /* The back row's space (16 offset + its 15px line + the 16 gap .back keeps below it) as a
@@ -8608,15 +8597,6 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #1553: shown from the first frame, removed by revealBoot() only after the
      first-run gate resolves, so no view is painted and then retracted. -->
 <div id="boot-cover"><div class="boot-spin" aria-hidden="true"></div></div>
-<!-- #2066 build marker: "which build am I on", present in a screenshot on every tab.
-     A fixed body corner, NOT Settings: a problem screenshot is not of Settings, and a
-     click/hover reveal is not in a screenshot. Body-fixed rather than inside .apphead
-     because the consolidated layout sets .apphead to position:static, so a body corner
-     is the layout-robust home for "on every tab". A uniform "beta build v<version>" for
-     every channel (#2658 dropped #2066's per-channel loud STAGING badge; the channel rides
-     the hover title only). Painted by paintBuildMark() off the /api/status poll; the hover
-     title carries the fuller line (channel · port). Hidden until the first paint gives it a version. -->
-<div id="buildmark" hidden></div>
 <!-- ⚠️ THE STICKY UNIT IS THE WHOLE BAR, header and tabs together, pulled to
      the page edges with negative margins that mirror the body padding exactly
      (the design pack's own warning: the pull-out must track the stage padding,
@@ -18477,8 +18457,6 @@ async function tick() {
     SERVED_VERSION = data.version || null;
     ENGINE_STALE = data.engine || null;
     paintBuildLine(data.version);
-    // #2066: the corner build marker reads (version, sourceChannel) off this same tick.
-    paintBuildMark(data.version, data.sourceChannel);
     // #3330: stamp the update channel on <html> (kept for other callers/back-compat).
     // Prod-by-default (anything but 'staging'), matching the server's default.
     document.documentElement.setAttribute('data-source-channel',
@@ -24751,24 +24729,6 @@ function paintBuildLine(version) {
     + (pageIsStale(version) ? ' · <b>reload for ' + esc(version) + '</b>' : '');
 }
 
-/**
- * #2066 + #2658: the build marker in the board's persistent chrome -- "which build am I
- * on", shown uniformly for every channel as "beta build v<version>".
- *
- * Same value logic as paintBuildLine: the BAKED version wins, because the question is
- * "what am I looking at" and only the page's own baked value knows that; the polled
- * `version` is the fallback for a source checkout that bakes nothing. Channel is
- * `sourceChannel` off the /api/status poll (never baked into the artifact -- #2036's
- * same-bytes-promotion invariant), defaulting to prod. Port comes from the URL the
- * board is served on, which is per-account (the cabal9 "which of several apps" case).
- *
- * #2658 (option a, Baron): the VISIBLE marker is uniform for every channel; the channel
- * (staging/prod) and port ride the hover title, not the visible text. The staging safety
- * tell lives there and in /api/accounts (#2036) -- staging is opt-in and prod is always
- * promoted+verified, so no constantly-visible staging indicator is needed. This supersedes
- * #2066's loud staging badge (the .staging/.bm-v CSS went with it).
- * Hidden until we actually have a version to show, so it never flashes "unknown".
- */
 /* #3330 -> federation Kosmos+ gate (Josh launch spec, 2026-09-21). The #3312
    federation UI was hidden on prod by a plain sourceChannel gate. It now gates on
    TWO engine signals so the LAUNCH shows federation only to paying members:
@@ -24871,30 +24831,6 @@ function hidePlusGate() {
   const opener = (PLUS_GATE_OPENER && document.contains(PLUS_GATE_OPENER)) ? PLUS_GATE_OPENER : null;
   PLUS_GATE_OPENER = null;
   if (opener) opener.focus();
-}
-function paintBuildMark(version, sourceChannel) {
-  const el = document.getElementById('buildmark');
-  if (!el) return;
-  const baked = bakedVersion();
-  const shown = baked || version;
-  if (!shown) { el.hidden = true; el.className = ''; el.textContent = ''; el.title = ''; return; }
-  const staging = sourceChannel === 'staging';
-  const channel = staging ? 'staging' : 'prod';
-  const port = (typeof location !== 'undefined' && location && location.port) ? location.port : '';
-  /* The hover line: what channel, and which app (port). Kept off the visible marker
-     so prod is not furniture; it is the fuller line the design expands to on hover. */
-  el.title = 'Kosmos v' + shown + ' · ' + channel
-    + (port ? ' · port ' + port : '')
-    + (pageIsStale(version) ? ' · page stale, reload for v' + version : '');
-  /* #2658: one uniform visible marker for every channel -- "beta build v<version>".
-     The staging safety tell is NOT lost: the hover title above still names the
-     channel (staging/prod), and /api/accounts carries the channel metadata (#2036).
-     Baron (who built the #2066 staging-loud marker) ruled option (a): staging is
-     opt-in and prod is always promoted+verified, so no constantly-visible staging
-     indicator is needed. textContent, so the version is escaped by construction. */
-  el.className = '';
-  el.textContent = 'beta build v' + shown;
-  el.hidden = false;
 }
 
 /**
@@ -52729,12 +52665,8 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
 setTimeout(revealBoot, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
-/* #2066: the corner marker paints before the first poll too -- a built board shows
-   its baked version from the first frame even if no poll ever lands; channel defaults
-   to prod until the first /api/status tick supplies it (a prod marker is exactly the
-   safe default when the channel is unknown). Ordered before the build line so
-   `paintBuildLine(null); tick();` stay adjacent (web.baked-version.test.js pins it). */
-paintBuildMark(null, 'prod');
+/* #3641 (Josh, 2026-09-24): the corner version marker was removed; the version lives in
+   Settings > Updates (#build), painted just below. */
 /* 🔑 BEFORE THE FIRST POLL, not after it. The whole point of baking the version
    is that it is readable when no poll will ever succeed, and painting it from
    `tick()` alone would have kept the empty line on exactly the machine this was

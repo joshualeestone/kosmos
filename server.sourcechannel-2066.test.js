@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * kosmos#2066 -- /api/status carries `sourceChannel` for the board's build marker.
+ * kosmos#2066 -- /api/status carries `sourceChannel` for the board (the federation gate and the
+ * data-source-channel stamp; the corner build marker it was first for was removed in #3641).
  *
  * The channel is NOT baked into the artifact (#2036's same-bytes-promotion
  * invariant): the install/update side records which pointer it fetched from into

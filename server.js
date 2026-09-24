@@ -420,8 +420,9 @@ function importIntoWorld(base, targetId, picks, opts = {}) {
   }
   return { world: r.world, imported };
 }
-/* #2066: which channel this build was FETCHED from (staging vs prod), for the
-   board's build marker. It is NOT baked into the artifact -- #2036's invariant is
+/* #2066: which channel this build was FETCHED from (staging vs prod), read by the board
+   (the federation gate and the data-source-channel stamp; the corner marker it was first
+   for went in #3641). It is NOT baked into the artifact -- #2036's invariant is
    that the SAME bytes are promoted to prod with no rebuild, so a baked stamp would
    need a rebuild to flip and break "the tested bytes are the shipped bytes". Instead
    the install/update side records the channel it pulled from into one tiny file under
@@ -3898,7 +3899,8 @@ const server = http.createServer((req, res) => {
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
       body = JSON.stringify({
         ...snap, agents: withDmUnread(agents.concat(offline)), counts, connection, version, dependsOnClaude,
-        /* #2066: the build marker reads (version, sourceChannel). Channel rides
+        /* #2066: the board reads (version, sourceChannel); the version line and the
+           federation gate use them (the corner marker went in #3641). Channel rides
            the 5s status tick the board already polls. #2934: no longer just a file
            read -- it is the recorded install stamp, then (only when that says staging)
            a cached-pointer check that can downgrade it to prod. Never a network call
