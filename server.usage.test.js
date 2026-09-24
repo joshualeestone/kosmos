@@ -66,6 +66,25 @@ test('GET /api/usage returns the four buckets separately, by day and model, neve
   assert.ok(Array.isArray(body.rootsRead) && body.rootsRead.length >= 1, 'rootsRead is missing');
 });
 
+test('#2617: GET /api/usage splits the window per agent by the folder each session ran in', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const annDir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'ann');
+  fs.mkdirSync(annDir, { recursive: true });
+  require('./engine/store').writeProfile('ann', { displayName: 'Ann' });
+  const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'proj');
+  fs.mkdirSync(dir, { recursive: true });
+  const row = (id, cwd, out) => JSON.stringify({ timestamp: `${today}T09:00:00.000Z`, cwd, sessionId: 'sess',
+    message: { id, model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  fs.writeFileSync(path.join(dir, 'sess.jsonl'), [row('r1', annDir, 30), row('r2', HOME, 4)].join('\n') + '\n', 'utf8');
+  const body = await (await fetch(base + '/api/usage?days=1')).json();
+  assert.ok(body.byAgent, 'byAgent is missing from the response');
+  assert.equal(body.byAgent.rosterRead, true);
+  const ann = body.byAgent.agents.find((a) => a.name === 'ann');
+  assert.ok(ann, 'the agent whose folder the session ran in got no tokens: ' + JSON.stringify(body.byAgent));
+  assert.equal(ann.output_tokens, 30);
+  assert.equal(body.byAgent.elsewhere.output_tokens, 4, 'a session outside every agent folder must be counted as elsewhere');
+});
+
 test('GET /api/usage?days= with a hostile value does not crash the route', async () => {
   const res = await fetch(base + '/api/usage?days=not-a-number');
   assert.equal(res.status, 200, 'a non-numeric days value should fall back, not error');

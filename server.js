@@ -6537,7 +6537,19 @@ const server = http.createServer((req, res) => {
     // there would stall every other route on this single-threaded server
     // for the scan's duration -- found in review, fixed at the source.
     usage.dailyUsageByModel(days)
-      .then((result) => sendJson(res, 200, result))
+      .then((result) => {
+        /* #2617: the same window per agent. Every agent Kosmos has a record
+           of, stopped ones included, keyed by its folder. A roster that cannot
+           be read gives no per-agent split rather than a wrong one: every
+           token then lands in `elsewhere`, which the page states. */
+        const known = register.known();
+        const agents = known.ok ? known.names.map((name) => {
+          let dir = null;
+          try { dir = create.workerDir(name); } catch { dir = null; }
+          return { name, shown: register.shownName(name), dir };
+        }) : [];
+        sendJson(res, 200, { ...result, byAgent: { ...usage.byAgent(result, agents), rosterRead: known.ok } });
+      })
       .catch(() => sendJson(res, 500, { error: 'we could not read token usage' }));
     return;
   }
