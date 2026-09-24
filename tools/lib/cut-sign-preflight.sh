@@ -11,15 +11,16 @@
 # So sign a throwaway copy of a system binary with the SAME identity step 4 uses,
 # here, in about a second. --timestamp=none keeps it off the network: the question
 # is only "can this session use the key", which a timestamp does not change.
-# Scope: this proves the Application key is reachable. Step 3c's productsign uses the
-# Developer ID INSTALLER identity from the same login keychain, so a lock found here
-# covers it too, but a missing or expired Installer cert is NOT probed, and neither is
-# Apple's timestamp server, which step 4 contacts and this probe does not.
+# Scope: this proves the Application key is reachable. Since #3647 it also checks that
+# the Developer ID INSTALLER identity is listed as valid (missing or expired refuses) and
+# that the notary .p8 resolves; step 3c needs both whenever the pkg is rebuilt. It does
+# not contact Apple's timestamp or notary services.
 #
 # Sourced by release.sh under `set -euo pipefail`; called as `kosmos_sign_preflight ||
 # exit 1`, bash 3.2.
 #
-# Seams (tests only): KOSMOS_CODESIGN_BIN replaces codesign.
+# Seams (tests only): KOSMOS_CODESIGN_BIN replaces codesign; KOSMOS_SECURITY_BIN and
+# KOSMOS_SECRETS_MAP_BIN replace security and secrets-map.sh (#3647).
 
 # The identity step 4 signs with, from the same file step 4 reads (#3643), so the two cannot drift.
 . "$(dirname "${BASH_SOURCE[0]}")/signing-identity.sh"
@@ -32,18 +33,21 @@ KOSMOS_SIGN_PREFLIGHT_DEFAULT_ID="$KOSMOS_SIGN_APP_DEFAULT"
 kosmos_sign_preflight_installer_and_notary() {
   local inst="${KOSMOS_INSTALLER_CERT:-$KOSMOS_SIGN_INSTALLER_DEFAULT}"
   local sec="${KOSMOS_SECURITY_BIN:-security}" sm="${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}"
-  local ids key
+  local ids key kerr
   ids="$("$sec" find-identity -v 2>/dev/null || true)"
   case "$ids" in
     *"$inst"*) echo "signing preflight: the Installer identity \"$inst\" is in this session's keychains" ;;
     *) echo "signing preflight: the Developer ID Installer identity \"$inst\" is NOT in this session's keychains. Step 3c signs the installer with it whenever the pkg's inputs changed. Cut on the Mac that holds it (Mortals), or set KOSMOS_INSTALLER_CERT."
        return 1 ;;
   esac
-  key="$("$sm" path "$KOSMOS_NOTARY_SECRET_TARGET" 2>/dev/null || true)"
+  kerr="$(mktemp "${TMPDIR:-/tmp}/kosmos-sign-preflight-sm.XXXXXX")" || kerr=/dev/null
+  key="$("$sm" path "$KOSMOS_NOTARY_SECRET_TARGET" 2>"$kerr" || true)"
   if [ -n "$key" ] && [ -r "$key" ]; then
+    [ "$kerr" = /dev/null ] || rm -f "$kerr"
     echo "signing preflight: the notary key ($KOSMOS_NOTARY_SECRET_TARGET) resolves to a readable file"
   else
-    echo "signing preflight: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm on this machine. Step 3c notarises the installer with it. File it with /add-secret, or cut on Mortals."
+    echo "signing preflight: the notary key \"$KOSMOS_NOTARY_SECRET_TARGET\" does not resolve to a readable file through $sm on this machine (got '${key:-nothing}'). Step 3c notarises the installer with it. File it with /add-secret, or cut on Mortals."
+    [ "$kerr" = /dev/null ] || { [ -s "$kerr" ] && sed 's/^/    /' "$kerr"; rm -f "$kerr"; }
     return 1
   fi
 }

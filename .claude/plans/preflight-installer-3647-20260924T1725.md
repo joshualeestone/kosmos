@@ -17,9 +17,13 @@ Either missing refuses at 1c with the fix named. Test seams are functions (KOSMO
 KOSMOS_SECRETS_MAP_BIN), like the existing codesign seam.
 
 ## Rejected
-- Requiring these only when the pkg needs rebuilding: that decision is made at 3c from the site dist,
-  which 1c does not have yet. Every real cut box should hold all three; Mortals does (probed for real
-  17:25, both pass).
+- Requiring these only when the pkg needs rebuilding. That IS computable at 1c
+  (`pkg_publish_needed "$SITE/dist" "$(pkg_input_sha "$REPO")"`; $SITE is set before 1c), so this is a
+  choice, not a limitation: always require all three. Cost, named: a box that cut fine without the
+  Installer identity or notary key (because its pkg happened to be current) now refuses at 1c. Every
+  cut runs on Mortals, which holds all three (probed for real 17:25), and the first cut after #3643
+  needs them regardless. What would change my mind: a second cut box that legitimately lacks the
+  Installer identity.
 - Test-signing a pkg in 1c: find-identity proves presence, and the existing app test-sign already
   proves the keychain is unlocked in this session (both identities live in the same login keychain).
 

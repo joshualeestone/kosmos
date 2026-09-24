@@ -34,6 +34,8 @@ sec_ok()   { echo "  1) ABCDEF0123 \"$KOSMOS_SIGN_APP_DEFAULT\""; echo "  2) 012
 sec_noinst() { echo "  1) ABCDEF0123 \"$KOSMOS_SIGN_APP_DEFAULT\""; }
 sm_ok()    { [ "$1" = path ] && [ "$2" = "$KOSMOS_NOTARY_SECRET_TARGET" ] && echo "$WORK/notary.p8"; }
 sm_none()  { return 1; }
+sec_hashonly() { echo "  1) 0123ABCDEF (identity listed by hash only)"; }
+sm_badpath() { echo "$WORK/no-such-notary.p8"; }
 export KOSMOS_SECURITY_BIN=sec_ok KOSMOS_SECRETS_MAP_BIN=sm_ok
 run() { KOSMOS_CODESIGN_BIN="$1" kosmos_sign_preflight 2>&1; }
 
@@ -154,8 +156,15 @@ out="$(KOSMOS_SECRETS_MAP_BIN=sm_none run cs_ok)"; rc=$?
 case "$rc:$out" in 1:*"notary key"*"does not resolve"*) ok "#3647: a box without the notary key refuses at 1c" ;; *) bad "#3647: a missing notary key did not refuse (rc=$rc): $out" ;; esac
 out="$(run cs_ok)"; rc=$?
 case "$rc:$out" in 0:*"Installer identity"*"is in this session"*"notary key"*"resolves"*) ok "#3647 CONTROL: with both present the preflight passes and says so" ;; *) bad "#3647 control: both present did not pass cleanly (rc=$rc): $out" ;; esac
-out="$(KOSMOS_INSTALLER_CERT=0123ABCDEF run cs_ok)"; rc=$?
+# The override is what is probed: with the identity listed by HASH ONLY (no name), the matching
+# SHA-1 passes and a wrong one refuses, so neither result can come from the default name.
+out="$(KOSMOS_SECURITY_BIN=sec_hashonly KOSMOS_INSTALLER_CERT=0123ABCDEF run cs_ok)"; rc=$?
 [ "$rc" = 0 ] && ok "#3647: KOSMOS_INSTALLER_CERT (a SHA-1) is the Installer identity probed" || bad "#3647: a SHA-1 KOSMOS_INSTALLER_CERT was not honoured (rc=$rc): $out"
+out="$(KOSMOS_SECURITY_BIN=sec_hashonly KOSMOS_INSTALLER_CERT=FFFFFFFFFF run cs_ok)"; rc=$?
+[ "$rc" = 1 ] && ok "#3647 CONTROL: a wrong SHA-1 override refuses (the default name is not what matched)" || bad "#3647: a wrong KOSMOS_INSTALLER_CERT passed (rc=$rc): $out"
+# The notary path must be a READABLE file, not just any string the accessor prints.
+out="$(KOSMOS_SECRETS_MAP_BIN=sm_badpath run cs_ok)"; rc=$?
+case "$rc:$out" in 1:*"does not resolve to a readable file"*"no-such-notary.p8"*) ok "#3647: a notary path that is not a readable file refuses" ;; *) bad "#3647: an unreadable notary path passed (rc=$rc): $out" ;; esac
 
 echo "cut-sign-preflight: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" -ge 32 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
+[ "$fails" = 0 ] && [ "$passes" -ge 34 ] || { echo "FAILED (or fewer arms ran than expected)"; exit 1; }
