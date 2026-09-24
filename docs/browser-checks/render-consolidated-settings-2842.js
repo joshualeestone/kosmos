@@ -127,9 +127,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // #3505: the pills are sized to their longest label, not stretched to the full nav column.
     // Positive-controlled: pre-fix the pill filled the column (pillWidth ~= navToContentSpan minus
     // the column gap), which fails this "comfortably inside its span" bound.
-    // #3598 made the nav column the pills' own width, so the span is now pill + the fixed gap;
-    // "sized to the label, not a stretched column" is the pill leaving at least a real gap.
-    ok(t + ' #3505 the settings pills are sized to their label, not the full column', out.err === null && out.pillWidth > 0 && out.pillWidth <= out.navToContentSpan - 16, JSON.stringify(out));
+    // #3598 made the nav column the pills' own width (max-content), so "a pill stretched to the
+    // full column" and "a pill sized to its label" are now the same width and this arm can no
+    // longer tell them apart. What it still guards is the pill stopping short of the content by a
+    // real gap; the fixed-gap arm (#3598, below) is the sharper guard for the layout.
+    ok(t + ' #3505/#3598 the settings pills stop short of the content by a real gap', out.err === null && out.pillWidth > 0 && out.pillWidth <= out.navToContentSpan - 16, JSON.stringify(out));
     ok(t + ' #2842 navigating to a project hides settings and shows the project', out.err === null && out.settingsHiddenAfterNav === true && out.projectShownAfterNav === true, JSON.stringify(out));
     ok(t + ' #2842 leaving the consolidated view restores settings to the top level', out.err === null && out.restoredToTopLevel === true, JSON.stringify(out));
     ok(t + ' #2842 CONTROL: in the tab view #rail-me-go does not enter the consolidated view', out.err === null && out.tabViewNotConsolidated === true, JSON.stringify(out));
@@ -206,28 +208,58 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     const gapWide = await gapAt(2400);
     ok(t + ' #3598 the pill nav to content gap is a fixed small margin at any width', gapNarrow === gapWide && gapNarrow > 0 && gapNarrow <= 32, JSON.stringify({ gapNarrow, gapWide }));
     // #3598 (2): the five sections Josh named sat ON the header rule. They are the tall ones:
-    // opening one scrolls it into view inside #panel-settings, and that scroll ate the panel's
-    // top padding (measured on a live board: scrollTop 24, box on the rule). This file fixture's
-    // panel does not scroll, so the arm pins the property that fixes it on each named section:
-    // scroll-margin-top equal to the panel's own top padding. Red before the fix (0px).
+    // opening one scrolls it into view inside #panel-settings, and that scroll went past the
+    // panel's top padding. The fixture's panel grows with its content, so it is given a fixed
+    // height here to make it the scroll container a person's board has, and each section is
+    // made to overflow; then the same scrollIntoView runs and the box's inset is measured. The
+    // CONTROL runs it with scroll-margin-top switched off, where the box must land on the edge.
     const tops = await page.evaluate(() => {
-      const panelTop = getComputedStyle(document.getElementById('panel-settings')).paddingTop;
-      const out = { panelTop };
-      for (const sec of ['accounts', 'connect', 'mac', 'automation', 'usage']) out[sec] = getComputedStyle(document.getElementById('s-sec-' + sec)).scrollMarginTop;
+      const panel = document.getElementById('panel-settings');
+      const oldH = panel.style.height;
+      panel.style.height = '320px';
+      const measure = (sec, noMargin) => {
+        document.querySelector('#s-nav button[data-go="' + sec + '"]').click();
+        const el = document.getElementById('s-sec-' + sec);
+        const spacer = document.createElement('div'); spacer.style.height = '2000px'; el.appendChild(spacer);
+        if (noMargin) el.style.scrollMarginTop = '0px';
+        panel.scrollTop = 0; el.scrollIntoView({ block: 'start' });
+        const box = [...el.children].find((k) => k.offsetParent !== null);
+        const r = { inset: Math.round(box.getBoundingClientRect().top - panel.getBoundingClientRect().top), scrolled: panel.scrollTop };
+        spacer.remove(); el.style.scrollMarginTop = ''; panel.scrollTop = 0;
+        return r;
+      };
+      const out = {};
+      for (const sec of ['accounts', 'connect', 'mac', 'automation', 'usage']) out[sec] = measure(sec, false);
+      out.control = measure('accounts', true);
+      panel.style.height = oldH;
       return out;
     });
-    ok(t + ' #3598 Models, Connections, This computer, Automation and Token Usage keep the top inset when scrolled into view', ['accounts', 'connect', 'mac', 'automation', 'usage'].every((k) => tops[k] === tops.panelTop && parseFloat(tops[k]) >= 16), JSON.stringify(tops));
+    const named = ['accounts', 'connect', 'mac', 'automation', 'usage'].map((k) => tops[k]);
+    // With the fix the box already sits at the panel's inset, so the scroll has nothing to do
+    // (scrollTop stays 0); the CONTROL below proves this panel really scrolls when it would not.
+    ok(t + ' #3598 Models, Connections, This computer, Automation and Token Usage keep a top inset when scrolled into view', named.every((v) => v.inset >= 16), JSON.stringify(tops));
+    ok(t + ' #3598 CONTROL: with scroll-margin-top off the same scroll lands the box on the edge (the arm can see the bug)', tops.control.scrolled > 0 && tops.control.inset < 8, JSON.stringify(tops.control));
     await page.setViewportSize({ width: 1280, height: 900 });
     // #3599: Kosmos+ opened in the consolidated view takes the same blue ground as the tab view
     // (body.plus-active), and gives it back the moment another section is chosen.
     const plus = await page.evaluate(() => {
-      document.querySelector('#s-nav button[data-go="plus"]').click();
-      const on = document.body.classList.contains('plus-active');
-      const bg = getComputedStyle(document.body).backgroundImage;
+      const blue = () => document.body.classList.contains('plus-active');
+      const toPlus = () => { openConsolidatedSettings(); document.querySelector('#s-nav button[data-go="plus"]').click(); };
+      toPlus();
+      const on = blue();
+      const bg = /gradient/.test(getComputedStyle(document.body).backgroundImage);
+      const tickSees = typeof plusOnScreen === 'function' && plusOnScreen();   // the #743 status tick reads the same predicate
       document.querySelector('#s-nav button[data-go="you"]').click();
-      return { on, bg: /gradient/.test(bg), offAfter: !document.body.classList.contains('plus-active') };
+      const offOnSection = !blue();
+      toPlus(); pjView('one');                          // project navigation leaves Settings
+      const offOnProject = !blue();
+      toPlus(); openConsolidatedCreate();               // New Agent takes over the column
+      const offOnCreate = !blue();
+      pjView('list');
+      return { on, bg, tickSees, offOnSection, offOnProject, offOnCreate };
     });
-    ok(t + ' #3599 Kosmos+ in the consolidated view is on the blue ground, and leaves it on another section', plus.on === true && plus.bg === true && plus.offAfter === true, JSON.stringify(plus));
+    ok(t + ' #3599 Kosmos+ in the consolidated view is on the blue ground, and the status tick sees it on screen', plus.on === true && plus.bg === true && plus.tickSees === true, JSON.stringify(plus));
+    ok(t + ' #3599 the blue leaves with it: another section, opening a project, or New Agent', plus.offOnSection === true && plus.offOnProject === true && plus.offOnCreate === true, JSON.stringify(plus));
     // #3597: with nothing open the centre says "Open or create a project to get started." centred
     // both ways in the display column (it sat top-left).
     const none = await page.evaluate(() => {

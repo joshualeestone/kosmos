@@ -26,16 +26,15 @@ test('an empty consolidated centre says what to press (the projects column is no
   // #3126 (Josh, 6.68): the folded-projects source branches (the `col` phrase and
   // the two folded sentences) were removed with the collapse control.
   assert.doesNotMatch(PAGE, /The projects list is folded/, 'the folded-projects copy must be gone (#3126)');
-  // the open rail's own "No projects yet" card says it; the sentence stays out of its way
-  assert.match(PAGE, /\} else if \(empty\) \{\n(?:[^\n]*\n){1,4}    say = '';/);
+  // #3597 (Josh): the sentence also shows with no projects yet (his "open or create"), so there
+  // is no longer a silent empty branch; only a failed read stays silent.
+  assert.doesNotMatch(PAGE, /\} else if \(empty\) \{/, 'the zero-projects case went silent again');
   // the view is the record, never the DOM (the list stays visible beside the New project form in the consolidated layout)
   assert.match(PAGE, /const view = which === undefined \? PJ_VIEW : which;/);
   // #2842 / #3053: the show also suppresses the hint while the consolidated user-settings view
   // OR the New Agent create panel is open (each takes over the display column), so #pj-none does
   // not render over them. It still keys on the record (view === 'list'), never the DOM.
   assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !appSettingsOpen && !appCreateOpen;/);
-  // "No projects yet" only after a read has happened
-  assert.match(PAGE, /const empty = PJ_LOADED_ONCE && !PJ_READ_FAILED && PROJECTS\.length === 0;/, 'a failed read never reads as "no projects"');
   assert.match(PAGE, /PJ_READ_FAILED = true;\n    paintPjNone\(\);/, 'the failure branch repaints the sentence');
   // painted after the read's outcome is recorded (PJ_READ_FAILED = false), never between the two
   assert.match(PAGE, /PJ_READ_FAILED = false;\n(?:[^\n]*\n){0,4}    paintPjNone\(\);\n  \} catch \{/);
@@ -73,7 +72,8 @@ test('the sentence table: every state says one true thing or nothing', () => {
   assert.equal(paintWith({ classes: ['consolidated'], projects: one }), 'Open or create a project to get started.');
   /* #3126 (Josh, 6.68): the fold-p (folded-projects) rows were removed - the
      projects column is no longer collapsible, so that state can never occur. */
-  assert.equal(paintWith({ classes: ['consolidated'], projects: [] }), null, 'no projects, rail open: the rail card says it');
+  // #3597 (Josh): the centre speaks when there is no project available, including none yet.
+  assert.equal(paintWith({ classes: ['consolidated'], projects: [] }), 'Open or create a project to get started.', 'no projects yet: the centre says to create one');
   assert.equal(paintWith({ classes: ['consolidated'], projects: [], loaded: false }), 'Open or create a project to get started.', 'before the first read: never "no projects"');
   assert.equal(paintWith({ classes: ['consolidated'], projects: [], failed: true }), null, 'read failed, rail open: silence beside the rail\'s own message');
   assert.equal(paintWith({ classes: ['consolidated'], view: 'one', projects: one, which: 'list' }), 'Open or create a project to get started.', 'an explicit which wins over the record');

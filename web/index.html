@@ -14944,9 +14944,8 @@ applyPlatformCopy(typeof document === 'undefined' ? null : document);
    and #plus-mark (the Kosmos wordmark resolving from scattered dots over 1.5s).
    Both honour prefers-reduced-motion (one static frame, no rAF loop).
    syncPlusChrome() toggles body.plus-active and mounts / tears these down on
-   Plus enter/leave, keyed on the SAME predicate as the #743 status tick and
-   web.plus-tab.test.js: URL_TAB==='settings' && SETTINGS_SEC==='plus'. So the
-   blue and the canvases never paint behind another screen. All state is var (no
+   Plus enter/leave, keyed on plusOnScreen(), the one predicate the #743 status
+   tick reads too. So the blue and the canvases never paint behind another screen. All state is var (no
    TDZ) and every function is a declaration (hoisted), so settingsGo/showTab can
    call syncPlusChrome regardless of source order; it is defined here, above the
    rest of the script, so its assignments run before boot's showTab(BOOT_TAB). */
@@ -15008,18 +15007,22 @@ function plusMount() {
     if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkRun(); } });
 }
 function plusTeardown() { plusMounted = false; cancelAnimationFrame(plusMountRaf); cancelAnimationFrame(plusMarkRaf); cancelAnimationFrame(plusStarsRaf); plusMountRaf = null; plusMarkRaf = null; plusStarsRaf = null; }
+/* Whether the Kosmos Plus section is the one on screen. ONE predicate, read by the blue skin
+   (syncPlusChrome) and by the #743 status tick, so the two cannot disagree about it.
+   #3599 (Josh, 0.6.91 QA): two ways to be there. The Settings TAB on Plus, or, in the
+   consolidated view, Settings opened INSIDE the projects column (openConsolidatedSettings)
+   while URL_TAB stays on projects, which the tab test alone never saw. */
+function plusOnScreen() {
+  if (typeof document === 'undefined' || !document.body) return false;
+  if (typeof SETTINGS_SEC === 'undefined' || SETTINGS_SEC !== 'plus') return false;
+  if (typeof URL_TAB !== 'undefined' && URL_TAB === 'settings') return true;
+  var panel = document.getElementById('panel-settings');
+  return document.body.classList.contains('consolidated')
+    && !!panel && !panel.hidden && panel.parentElement === document.getElementById('panel-projects');
+}
 function syncPlusChrome() {
   if (typeof document === 'undefined' || !document.body) return;
-  var onPlus = typeof SETTINGS_SEC !== 'undefined' && SETTINGS_SEC === 'plus';
-  /* #3599 (Josh, 0.6.91 QA): the consolidated view opens Settings INSIDE the projects
-     column (openConsolidatedSettings) while URL_TAB stays on projects, so the tab test
-     alone never saw Kosmos+ there and it painted on the plain ground (Sign in unreadable
-     in light, black in dark). Settings showing in that column on the Plus section is the
-     same screen, so it takes the same blue. */
-  var panel = document.getElementById('panel-settings');
-  var consolidatedPlus = onPlus && document.body.classList.contains('consolidated')
-    && !!panel && !panel.hidden && panel.parentElement === document.getElementById('panel-projects');
-  var active = ((typeof URL_TAB !== 'undefined' && URL_TAB === 'settings') && onPlus) || consolidatedPlus;
+  var active = plusOnScreen();
   document.body.classList.toggle('plus-active', active);
   if (active) { if (!plusMounted) plusMount(); }
   else if (plusMounted) plusTeardown();
@@ -17875,7 +17878,7 @@ async function tick() {
        Gated on the section actually being on screen, so a hidden Plus
        section still costs nobody a fetch, the concern the arrival-only
        design was protecting. */
-    if (URL_TAB === 'settings' && SETTINGS_SEC === 'plus') paintPlus();
+    if (plusOnScreen()) paintPlus();
     /* The restore sentence is retired by the ARRIVAL it predicted, never by a
        timer: a timeout would clear it while the agent was still coming up, and
        leave the same silence that made it necessary. */
@@ -32794,7 +32797,6 @@ function paintPjNone(which) {
   /* "No projects" is a claim: only after a read that succeeded and came back
      empty. A failed read leaves the rail saying it cannot look, and this
      sentence must not contradict it. */
-  const empty = PJ_LOADED_ONCE && !PJ_READ_FAILED && PROJECTS.length === 0;
   let say;
   /* #3126 (Josh, 6.68): the projects column is no longer collapsible, so the
      two folded-projects copy branches were removed - fold-p can never be set. */
@@ -32802,14 +32804,11 @@ function paintPjNone(which) {
     /* The rail beside it has just said it cannot read the projects and holds
        nothing to pick; telling the person to pick from it would contradict it. */
     say = '';
-  } else if (empty) {
-    /* The open rail already shows its own "No projects yet" card with the
-       Add a project button; saying it twice, beside it, helps nobody. */
-    say = '';
   } else {
-    /* Two + buttons sit at the same height with both rails open (New agent,
-       New project), so the sentence says which. */
-    say = 'Open or create a project to get started.';  // #3597: Josh's words
+    /* #3597 (Josh, 0.6.91 QA): "when there's no project available", centred, in his words.
+       It covers no project open AND no project yet (it used to stay silent beside the rail's
+       own "No projects yet" card), since his sentence says open OR create. */
+    say = 'Open or create a project to get started.';
   }
   el.hidden = !say;
   if (el.textContent !== say) el.textContent = say;
