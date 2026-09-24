@@ -186,3 +186,47 @@ test('#3566 store CONTROL: an explicit label is still validated (a blank-label f
   const r = await post('/api/accounts/gemini/apikey', { label: 'default', key: 'AIzaSy-reserved-label-key-1234' });
   assert.equal(r.status, 400, '"default" is reserved and must still be refused');
 });
+
+test('#3566 store: two label-less adds IN FLIGHT AT ONCE claim two different slots (no key overwrite)', async () => {
+  // The live check awaits; hold both requests inside it so they overlap for real.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let entered = 0;
+  geminiAccounts.setFetcher(async () => { entered += 1; await gate; return { status: 200, body: {} }; });
+  const p1 = post('/api/accounts/gemini/apikey', { key: 'AIzaSy-race-one-key-11112222' });
+  const p2 = post('/api/accounts/gemini/apikey', { key: 'AIzaSy-race-two-key-33334444' });
+  for (let i = 0; i < 100 && entered < 2; i += 1) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(entered, 2, 'CONTROL: both requests must be inside the live check at once, or this proves nothing');
+  release();
+  const [r1, r2] = await Promise.all([p1, p2]);
+  assert.equal(r1.status, 200); assert.equal(r2.status, 200);
+  const [b1, b2] = [await r1.json(), await r2.json()];
+  assert.notEqual(b1.account.dir, b2.account.dir, 'two concurrent adds were given the same slot');
+  const k1 = fs.readFileSync(geminiAccounts.keyFile(b1.account.dir), 'utf8');
+  const k2 = fs.readFileSync(geminiAccounts.keyFile(b2.account.dir), 'utf8');
+  assert.notEqual(k1, k2, 'one account key overwrote the other');
+});
+
+test('#3566 store: a rejected label-less add gives its claimed slot back', async () => {
+  grokAccounts.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+  const before = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.grok-')).sort();
+  const r = await post('/api/accounts/grok/apikey', { key: 'xai-rejected-nolabel-99998888' });
+  assert.equal(r.status, 400, 'CONTROL: the key must actually be refused for this arm to mean anything');
+  const after = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.grok-')).sort();
+  assert.deepEqual(after, before, 'a refused add left a claimed, empty account dir behind');
+});
+
+test('#3566 DELETE: disconnect and delete each say what happened (the row reports `because`)', async () => {
+  geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const add = await (await post('/api/accounts/gemini/apikey', { key: 'AIzaSy-because-key-55556666' })).json();
+  const f = await del('/api/accounts/gemini', { dir: add.account.dir });
+  assert.equal(f.status, 200);
+  const fb = await f.json();
+  assert.equal(fb.forgotten, true);
+  assert.match(fb.because || '', /nothing was deleted/, 'a disconnect must not read as a deletion: ' + JSON.stringify(fb));
+  const add2 = await (await post('/api/accounts/gemini/apikey', { key: 'AIzaSy-because-key-77778888' })).json();
+  const d = await del('/api/accounts/gemini', { dir: add2.account.dir, remove: true });
+  const db = await d.json();
+  assert.equal(db.removed, true);
+  assert.match(db.because || '', /deleted/, 'a delete must say it deleted: ' + JSON.stringify(db));
+});

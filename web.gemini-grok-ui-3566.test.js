@@ -136,3 +136,35 @@ test('#3566: the key step posts to the engine route for the picked provider, and
   assert.match(PAGE, /google: \{ route: 'gemini'/);
   assert.match(PAGE, /xai: \{ route: 'grok'/);
 });
+
+test('#3566: a Gemini agent is offered only Gemini accounts to move to (never Claude ones the engine refuses)', () => {
+  const at = PAGE.indexOf('function acctMoveWorld(');
+  const src = PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
+  // eslint-disable-next-line no-new-func
+  const world = new Function(src + '; return acctMoveWorld;')();
+  const rows = [
+    { provider: 'anthropic', dir: '/h/.claude', memoryShared: true, isDefault: true, connection: { state: 'connected' } },
+    { provider: 'openai', dir: '/h/.codex', isDefault: true, connection: { state: 'connected' } },
+    { provider: 'google', dir: '/h/.gemini-work1', connection: { state: 'connected' } },
+    { provider: 'google', dir: '/h/.gemini-work2', connection: { state: 'none' } },
+    { provider: 'xai', dir: '/h/.grok-work1', connection: { state: 'connected' } },
+  ];
+  const g = world({ runner: 'gemini', account: { dir: '/h/.gemini-work1' } }, rows);
+  assert.equal(g.isKeyed, true);
+  assert.equal(g.isCodex, false, 'a Gemini agent must not be treated as codex');
+  assert.deepEqual(g.movable.map((x) => x.dir), ['/h/.gemini-work1'], 'Gemini agent destinations: ' + JSON.stringify(g.movable.map((x) => x.dir)));
+  const x = world({ runner: 'grok', account: null }, rows);
+  assert.deepEqual(x.movable.map((r) => r.dir), ['/h/.grok-work1']);
+  const c = world({ runner: 'claude', account: { dir: '/h/.claude' } }, rows);
+  assert.equal(c.isKeyed, false, 'CONTROL: a Claude agent keeps the Claude branch');
+  assert.deepEqual(c.movable.map((r) => r.dir), ['/h/.claude']);
+});
+
+test('#3566: a Gemini or Grok model id is never shown as a Claude model', () => {
+  const at = PAGE.indexOf('function modelLine(');
+  const body = PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
+  const gi = body.indexOf("a.runner === 'gemini' || a.runner === 'grok'");
+  const pre = body.indexOf("'Claude ' + name");
+  assert.ok(gi > -1, 'modelLine has no Gemini/Grok arm');
+  assert.ok(pre > gi, 'the Gemini/Grok arm must return before the "Claude " prefix is applied');
+});

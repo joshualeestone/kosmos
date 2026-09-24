@@ -103,6 +103,8 @@ test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at
     // eslint-disable-next-line no-unused-vars
     const CREATE_ACCOUNTS = accounts;
     // eslint-disable-next-line no-unused-vars
+    const CREATE_ACCOUNTS_KNOWN = true;
+    // eslint-disable-next-line no-unused-vars
     const accountQualifiers = () => new Map();
     // eslint-disable-next-line no-unused-vars
     const esc = (s) => String(s);

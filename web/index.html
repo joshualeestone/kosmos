@@ -15486,6 +15486,9 @@ function modelLine(a) {
   if (a.runner === 'codex') return 'OpenAI Codex';
   const notRunning = cardStOf(a).pres === 'off';
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
+  /* #3566: a Gemini or Grok agent's model id is its own vendor's, never a Claude one, so
+     it is shown as-is (no "Claude " prefix), or as the provider when no id is known. */
+  if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   /* #149/#150: two states were collapsed into "Unknown Model", and only one
      of them is a fault. No launch file at all means there was never anywhere
      to look, no restart will fill it in, and the wording (ruled on card #150)
@@ -19439,24 +19442,43 @@ let ACCT_PICKER_EPOCH = 0;
    is now this one function everywhere. */
 function acctChosenName(a) {
   /* Deliberately NOT provider-gated: it answers "what did the user type as a name",
-     and a name is a name whoever carries it. Today only OpenAI accounts get one
-     (`readName` is OpenAI-only, so a.name is absent for Claude), which is why
+     and a name is a name whoever carries it. Today only keyed accounts (OpenAI, and
+     since #3566 Gemini and Grok) get one (a.name is absent for Claude), which is why
      acctHasChosenName -- the SECONDARY-key-detail gate, which needs a keyTail --
-     does gate on openai. If a Claude account ever grew a name, acctPrimaryName would
+     gates on those providers. If a Claude account ever grew a name, acctPrimaryName would
      rightly show it as the primary label and acctHasChosenName would still be false
      (no keyTail to demote), which is the correct behaviour, not a bug. */
   return a && typeof a.name === 'string' ? a.name.trim() : '';
 }
 /* #3566: the providers whose accounts are a pasted key (or, for OpenAI, a key or a
    ChatGPT sign-in), mapped to the engine's route word (/api/accounts/<route>).
-   Everything not listed is a Claude account, which is what every two-provider
-   read below used to mean by "not OpenAI". ONE table, so a third keyed provider
-   is one line here rather than a hunt for every `=== 'openai'`. */
+   Everything not listed is a Claude account. */
 const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
 /* The menu's provider id for an account row: 'openai' | 'google' | 'xai' | 'anthropic'. */
 function acctProvider(a) {
   const p = a && typeof a.provider === 'string' ? a.provider.toLowerCase() : '';
   return Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p) ? p : 'anthropic';
+}
+/* #3566: the screen's word for a keyed provider id ('openai' -> 'OpenAI'). */
+function switchKeyedWord(p) {
+  return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
+}
+/* #3566: Gemini and Grok are offered in a provider menu (#d-provider, #create-provider)
+   only when an account for them is connected, because an agent put on either with no
+   key cannot start. A disabled one says why through `data-off`, which the combobox
+   shows as its pill. When the account list is not known (not loaded yet, or the read
+   failed) they are LEFT ON: the engine refuses a missing account with its own
+   sentence, and hiding a working provider on a slow read is the worse of the two
+   mistakes. `current` stays selectable so the menu can show what the agent is on. */
+function paintKeyedProviderOptions(sel, accounts, known, current) {
+  if (!sel || !sel.options) return;
+  for (const opt of sel.options) {
+    if (opt.value !== 'google' && opt.value !== 'xai') continue;
+    const has = (accounts || []).some((x) => x && acctProvider(x) === opt.value && acctOfferableTarget(x));
+    const on = has || !known || opt.value === current;
+    opt.disabled = !on;
+    if (on) delete opt.dataset.off; else opt.dataset.off = 'Connect in AI Models';
+  }
 }
 function acctPrimaryName(a) {
   const named = acctChosenName(a);
@@ -19483,16 +19505,7 @@ function accountQualifiers(list) {
      this is a function rather than a convention to remember.
      ⚠️ THE KEY IS NOT ONE OF THEM, AND THIS BANNER SAID IT WAS. It was true
      when written and stopped being true in the commit that repointed the key at
-     `acctPrimaryName`; the banner survived the rewrite that made it false.
-     🛑 It matters because of what it hides: `acctPrimaryName`'s own provider
-     read is `a.provider === 'openai'`, EXACT-CASE, and it is the last
-     un-normalised provider read in the qualifier path. A banner claiming the
-     key reads a normalised id is exactly what stops the next person looking
-     there. Not user-reachable today (`server.js:4610` and
-     `openaiaccounts.js:39` are lowercase literals), and harmless if it ever is,
-     because `key()` and the rendered name call the SAME function on the SAME
-     row: a mismatch changes which fallback is chosen, never whether two rows
-     sound alike. */
+     `acctPrimaryName`; the banner survived the rewrite that made it false. */
   const provIdOf = (a) => String((a && a.provider) || '').toLowerCase();
   /* The same key the row renders its name from, so the count answers the
      question the SCREEN asks ("do two rows read alike"), not a question about
@@ -20080,7 +20093,10 @@ async function paintAccounts() {
          apiKeyHelper pointer), and the disabled "removal coming" arm that #2433 wrapped
          around this ternary has been dropped. The openai/default/live ternary below is
          the #1659-pinned one, unchanged. */
-      + (isKeyed
+      /* #3566: a DEFAULT Gemini/Grok row is the machine's own CLI home, which their engines
+         refuse to disconnect or delete (geminiaccounts/grokaccounts forgetAccount/removeAccount),
+         so neither control is offered there; only OpenAI's default is a home Kosmos manages. */
+      + ((isKeyed && a.isDefault && !isOpenai) ? '' : isKeyed
         /* 🔑 ONE WORD FOR ONE ACT (#1659). This said "Remove" while the Claude
            row said "Disconnect", for the same act in the same row builder --
            the exact divergence this card exists to close, one layer up from
@@ -20152,7 +20168,7 @@ async function paintAccounts() {
          Claude Code's home + may hold shared history), and the now-live Disconnect
          already does exactly that; a Claude-default Delete would be byte-identical,
          so it stays suppressed rather than show two controls that do the same thing. */
-      + ((a.isDefault && !isKeyed) ? ''
+      + ((a.isDefault && !isOpenai) ? ''
         : '<button class="acct-remove" type="button" data-remove="' + esc(a.dir) + '" '
           + 'data-forget-provider="' + (keyRoute || 'claude') + '" '
           + 'aria-label="Delete and remove ' + who + ' (' + esc(qualName) + ')" '
@@ -22351,6 +22367,7 @@ function closeAcctAdd() {
   acctOpenaiSubStop();
   ACCT_OPENAI_SUB_SESSION = null;
   acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
+  acctApikeyShow(null);   // #3566: a pasted Gemini/Grok key does not stay in a hidden field after close
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
   const success = document.getElementById('acct-success');
@@ -22495,6 +22512,9 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
   if (!key.trim()) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
   go.disabled = true;
   msg.textContent = 'Checking the key with ' + p.vendor + '…';
+  /* The answer belongs to the provider it was asked for; if the person has since picked
+     another one (or closed the dialog), it is not written under that one. */
+  const stillHere = () => ACCT_APIKEY_WHICH === which;
   try {
     /* No `label`: the engine takes the next free slot for it, and the person's
        optional words travel as the display `name`, which is what they are. */
@@ -22504,6 +22524,7 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
       body: JSON.stringify({ key: key.trim(), name: nameField.value.trim() || undefined }),
     });
     const out = await res.json().catch(() => null);
+    if (!stillHere()) { if (res.ok) paintAccounts(); return; }
     if (!res.ok) {
       /* needsRunner: gemini/grok have no managed install yet (server.js says so), so
          the honest sentence names what is missing rather than offering a button. */
@@ -22523,7 +22544,7 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
     msg.textContent = '';
     acctShowSuccess(entered || 'your ' + p.name + ' account', goldBox);
   } catch (err) {
-    msg.textContent = String((err && err.message) || 'We could not add that account.');
+    if (stillHere()) msg.textContent = String((err && err.message) || 'We could not add that account.');
   } finally {
     go.disabled = false;
   }
@@ -33929,8 +33950,14 @@ let ACCT_PICKER_FETCH = null; // #881: the one in-flight GET /api/accounts, so a
      row, so a null falls back to it. */
 function acctMoveWorld(a, accounts) {
   const rows = Array.isArray(accounts) ? accounts : [];
-  const isCodex = !!(a && a.runner === 'codex');
-  const isOpenaiRow = (x) => !!(x && x.provider === 'openai');
+  /* #3566: a GEMINI or GROK agent moves among its own provider's accounts, exactly as a
+     codex agent does among OpenAI's (setGeminiAccount / setGrokAccount accept only those).
+     `keyedProvider` is the provider id its runner implies, '' for a Claude agent. Spelled
+     inline so this helper stays pure and self-contained. */
+  const keyedProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
+  const isCodex = keyedProvider === 'openai';
+  const isKeyed = !!keyedProvider;
+  const isOpenaiRow = (x) => !!(x && keyedProvider && String(x.provider || '').toLowerCase() === keyedProvider);
   const acct = a && a.account;
   /* An OpenAI row is only a valid MOVE destination when it is BOTH offerable and
      signed in -- the same two gates the sibling create/switch OpenAI picker applies
@@ -33945,14 +33972,14 @@ function acctMoveWorld(a, accounts) {
          to the DESTINATION. `!x.connection` keeps a row whose live state we never read
          (matches the sibling, and does not empty the menu against an older server).
      The Claude branch's `memoryShared` is its own equivalent gate. */
-  const movable = isCodex
+  const movable = isKeyed
     ? rows.filter((x) => isOpenaiRow(x) && (!x.connection || x.connection.state !== 'none') && x.offerable !== false)
     : rows.filter((x) => x && x.memoryShared);
-  const currentDir = isCodex
+  const currentDir = isKeyed
     ? ((acct && acct.dir) || ((movable.find((x) => x.isDefault) || {}).dir) || null)
     : ((acct && acct.dir) || null);
   const currentRow = currentDir ? (rows.find((x) => x && x.dir === currentDir) || null) : null;
-  return { isCodex, movable, currentDir, currentRow };
+  return { isCodex, isKeyed, keyedProvider, movable, currentDir, currentRow };
 }
 
 async function paintAccountPicker(a) {
@@ -34126,21 +34153,21 @@ async function paintAccountPicker(a) {
      codex analogue of the Claude signed-out recovery this same picker surfaces. With no
      resolvable current account the "here" option reads "Move to..." and every movable
      account is offered as a destination. A Claude agent is unchanged (`!!acct`). */
-  const ours = world.isCodex ? movable.length > 0 : !!acct;
+  const ours = world.isKeyed ? movable.length > 0 : !!acct;
   /* The dropdown stays live whenever we know the account: opening it and
      seeing only where you are IS the answer to "can I move this", so the
      one-account sentence that used to say so is gone (Josh, 19:56). Move
      arms only when a different account is picked. */
   sel.disabled = !ours;
   go.disabled = !ours || !sel.value;
-  if (msg && !msg.textContent && !ours && !(world.isCodex && acctLive)) {
+  if (msg && !msg.textContent && !ours && !(world.isKeyed && acctLive)) {
     /* #2338: a codex agent IS movable now -- `acctMoveWorld` gives it the OpenAI
        accounts and `setCodexAccount` performs the swap -- so the old "This is a
        Codex agent... cannot be moved from here" dead-end is gone. A codex agent
        reaches THIS branch only when we could read NO account for it at all
        (`acctLive` null: an unreadable OpenAI list, or a machine with none), which is
        a could-not-read state -- so it says so without a false absolute.
-       🛑 The `!(world.isCodex && acctLive)` guard is load-bearing: a named codex
+       🛑 The `!(world.isKeyed && acctLive)` guard is load-bearing: a named codex
        agent whose only OpenAI home is LISTED but SIGNED OUT (`connection.state
        === 'none'`) has an empty `movable` (the state filter drops it) so `ours` is
        false, but its account IS resolved (`acctLive` set) and `signedOut` is true.
@@ -34148,10 +34175,10 @@ async function paintAccountPicker(a) {
        and withhold the actionable "sign it in again from Settings" remedy below; the
        guard lets it fall through to the accurate `signedOut` branch instead.
        A Claude agent lands here when its own account could not be read (the launch
-       file was unreadable), the pre-existing cannot-tell case; `world.isCodex` is
+       file was unreadable), the pre-existing cannot-tell case; `world.isKeyed` is
        false for it, so the guard never suppresses its message. */
-    msg.textContent = world.isCodex
-      ? 'We could not read the OpenAI accounts for this agent just now, so it cannot be moved from here.'
+    msg.textContent = world.isKeyed
+      ? 'We could not read the ' + switchKeyedWord(world.keyedProvider) + ' accounts for this agent just now, so it cannot be moved from here.'
       : 'We cannot tell which account this one uses, so it cannot be moved from here.';
   } else if (msg && !msg.textContent && signedOut) {
     /* #1492: surface the fix at the point of pain. A signed-out account is why a
@@ -34172,7 +34199,7 @@ async function paintAccountPicker(a) {
        the very not-true claim this branch exists to avoid. Same no-promise phrasing
        as the board-summary "We could not check your accounts just now." */
     msg.textContent = 'We could not check just now whether the account this agent runs on is signed in.';
-  } else if (msg && !msg.textContent && world.isCodex && !currentDir) {
+  } else if (msg && !msg.textContent && world.isKeyed && !currentDir) {
     /* #2338/#1492: the picker is LIVE (there are movable OpenAI accounts, so `ours` is
        true) but we could not resolve the account this agent currently runs on -- a
        default codex agent whose default home is signed out drops out of the account
@@ -34181,7 +34208,7 @@ async function paintAccountPicker(a) {
        what is true and point at the move -- the codex analogue of the signed-out
        recovery the Claude path surfaces above. */
     msg.textContent = 'We could not read the account this agent runs on. Pick an account above and press Move.';
-  } else if (msg && !msg.textContent && world.isCodex && !ours) {
+  } else if (msg && !msg.textContent && world.isKeyed && !ours) {
     /* #2338 EXHAUSTIVENESS: the remaining codex `!ours` case. `movable` is empty and
        the current account IS resolved (`acctLive`) and NOT signed out (else branch 1 or
        the signed-out branch fired), so there is simply nowhere to move to -- e.g. an
@@ -34189,7 +34216,7 @@ async function paintAccountPicker(a) {
        is the only OpenAI account and it is the current one. Without this branch the
        control would sit disabled with a blank/stale message -- the dead silent control
        #1492/#2811/#2338 exist to prevent. Say what is true rather than nothing. */
-    msg.textContent = 'There is no other OpenAI account to move this agent to right now.';
+    msg.textContent = 'There is no other ' + switchKeyedWord(world.keyedProvider) + ' account to move this agent to right now.';
   }
   /* #1373: ACCOUNTS is the switch picker's source too, and it is filled here.
      Without this call the picker stays hidden until the provider dropdown is
@@ -34586,27 +34613,6 @@ function fillSwitchAccountsSafely() {
    provider it does not apply to, which is the orphan-hint class this block exists to
    prevent. Remembering the exact string we last wrote handles a generated sentence and
    any future one, and it still cannot touch somebody else's status text. */
-/* #3566: the screen's word for a keyed provider id ('openai' -> 'OpenAI'). */
-function switchKeyedWord(p) {
-  return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
-}
-/* #3566: Gemini and Grok are offered in a provider menu (#d-provider, #create-provider)
-   only when an account for them is connected, because an agent put on either with no
-   key cannot start. A disabled one says why through `data-off`, which the combobox
-   shows as its pill. When the account list is not known (not loaded yet, or the read
-   failed) they are LEFT ON: the engine refuses a missing account with its own
-   sentence, and hiding a working provider on a slow read is the worse of the two
-   mistakes. `current` stays selectable so the menu can show what the agent is on. */
-function paintKeyedProviderOptions(sel, accounts, known, current) {
-  if (!sel || !sel.options) return;
-  for (const opt of sel.options) {
-    if (opt.value !== 'google' && opt.value !== 'xai') continue;
-    const has = (accounts || []).some((x) => x && acctProvider(x) === opt.value && acctOfferableTarget(x));
-    const on = has || !known || opt.value === current;
-    opt.disabled = !on;
-    if (on) delete opt.dataset.off; else opt.dataset.off = 'Connect in AI Models';
-  }
-}
 function fillSwitchAccounts() {
   const sel = document.getElementById('d-provider-account');
   const prov = document.getElementById('d-provider');
@@ -35514,9 +35520,11 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
   const sel = document.getElementById('d-provider');
   if (!CURRENT || !sel.value) return;
   const toOpenai = sel.value === 'openai';
-  /* #3566: Gemini and Grok. Their switch always carries the row shown (the picker only
-     arms with a connected account, paintKeyedProviderOptions), so their sentence names it. */
+  /* #3566: Gemini and Grok. `fromWord` names the provider the agent is LEAVING, which is
+     not always Claude (an OpenAI agent can switch to Gemini). */
   const toOther = sel.value === 'google' || sel.value === 'xai';
+  const fromProv = providerOf(CURRENT);
+  const fromWord = fromProv === 'anthropic' ? 'Claude' : switchKeyedWord(fromProv);
   const label = toOpenai ? 'OpenAI' : toOther ? switchKeyedWord(sel.value) : 'Anthropic';
   changeDialog({
     title: 'Switch ' + agentShown() + ' to ' + label + '?',
@@ -35631,7 +35639,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              return 'and it runs on this computer’s OpenAI sign-in.';
            })())
         : toOther
-          ? 'Its Claude model and account choices do not cross: ' + label + ' picks its own model, '
+          ? 'Its ' + fromWord + ' model and account choices do not cross: ' + label + ' picks its own model, '
             + ((() => {
               const on = switchAcctShown();
               if (on) return 'and it will run on ' + on + '.';
@@ -35767,6 +35775,10 @@ document.getElementById('create-model').addEventListener('change', () => paintMo
    and are offered whole. When the list has no OpenAI sign-in the option
    names what the agent will actually use, the same rule as the Claude arm. */
 let CREATE_ACCOUNTS = [];
+/* #3566: true only once /api/accounts ANSWERED for the create form. An empty list alone
+   cannot tell "none on this computer" from "not read yet", and the Gemini/Grok gate needs
+   the difference: read-and-empty turns them off, not-read leaves them on. */
+let CREATE_ACCOUNTS_KNOWN = false;
 /* #2097: true once the create-provider has been chosen deliberately -- by a manual
    pick OR by an import setting it explicitly (both fire the `change` handler below).
    resetCreateProvider clears it (an auto-default is not a choice). loadCreateExtras
@@ -35779,7 +35791,7 @@ function fillCreateAccounts() {
   if (!asel) return;
   const provSel = document.getElementById('create-provider');
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
-  paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS.length > 0, '');
+  paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '');
   const openai = provSel.value === 'openai';
   /* #3566: `keyed` covers OpenAI, Gemini and Grok (a pasted key or an OpenAI sign-in);
      the Claude-only memoryShared rule below does not apply to any of them. The list is
@@ -35813,13 +35825,8 @@ function fillCreateAccounts() {
      one for an hour. The Settings list already disambiguates duplicated rows via
      `accountQualifiers` (the default is `main`, the others by their own label, then
      by a provider name only where the group spans providers, then by dir. This list
-     is filtered to ONE provider, so the provider step does not fire here TODAY.
-     ⚠️ That is a fact about there being exactly two providers, not an invariant:
-     the non-openai bucket is `x.provider !== 'openai'`, so a third provider would
-     land in it and the step WOULD fire. That is the intended behaviour rather
-     than a regression, because in a genuinely mixed list the provider name does
-     distinguish; what would be wrong is showing it in a single-provider list,
-     which is what `providerDistinguishes` prevents); the
+     is filtered to ONE provider (acctProvider), so the provider step does not fire
+     here); the
      picker threw that away and rendered by email alone -- the exact bug the Settings
      render was fixed for, one screen over. Compute the same qualifier over the rows
      actually OFFERED and append it, so a duplicated email is distinct and the default
@@ -37729,12 +37736,14 @@ async function loadCreateExtras() {
   if (asel) asel.innerHTML = '<option value="" disabled selected>Checking…</option>';
   (async () => {
     let list = [];
+    let known = false;
     try {
       const r = await fetch('/api/accounts', { cache: 'no-store' });
-      if (r.ok) list = ((await r.json()) || {}).accounts || [];
+      if (r.ok) { list = ((await r.json()) || {}).accounts || []; known = true; }
     } catch { /* the field stays hidden, which is the one-account shape */ }
     if (gen !== EXTRAS_GEN) return;
     CREATE_ACCOUNTS = list;
+    CREATE_ACCOUNTS_KNOWN = known;
     fillCreateAccounts();
     /* #2097: resetCreateProvider ran before this with CREATE_ACCOUNTS still empty, so on
        the FIRST create of a page session the provider fell back to the Claude default even

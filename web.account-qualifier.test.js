@@ -322,10 +322,12 @@ test('EVERY Disconnect control carries the qualifier, escaped, or one branch kee
    a regression to `a.isDefault ? ''` (suppressing the OpenAI-default Delete, or showing
    one on the Claude default) reds here. */
 test('#2684: the Delete button is suppressed only on the CLAUDE default, not the OpenAI default', () => {
-  /* #3566: `!isKeyed` (OpenAI, Gemini, Grok), because a keyed default's Delete removes the
-     whole account dir exactly as OpenAI's does; only the Claude default suppresses it. */
-  assert.match(PAGE, /\(a\.isDefault && !isKeyed\) \? ''/,
-    'the acct-remove suppression is no longer (a.isDefault && !isKeyed): a keyed default may have lost its Delete, or the Claude default gained one');
+  /* #3566: still `!isOpenai`, now deliberately. A Gemini/Grok default is the machine's own
+     CLI home, which their engines refuse to delete, so it is suppressed with Claude's. */
+  assert.match(PAGE, /\(a\.isDefault && !isOpenai\) \? ''/,
+    'the acct-remove suppression is no longer (a.isDefault && !isOpenai): the OpenAI default may have lost its Delete, or another default gained one');
+  assert.match(PAGE, /\(isKeyed && a\.isDefault && !isOpenai\) \? '' : isKeyed/,
+    'a default Gemini/Grok row offers a Disconnect its engine always refuses');
 });
 
 /* Angel's review, kept as an arm rather than a comment. The map was keyed on the

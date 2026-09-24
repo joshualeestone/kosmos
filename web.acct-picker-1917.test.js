@@ -78,6 +78,7 @@ function runFillCreate(accounts, providerValue) {
     ${paintSrc}
     ${wordSrc}
     let CREATE_ACCOUNTS = accounts;
+    let CREATE_ACCOUNTS_KNOWN = true;
     ${fillSrc}
     fillCreateAccounts();
   `);

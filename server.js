@@ -1696,9 +1696,23 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
          human-chosen display name travels separately in `body.name`. An explicit label keeps
          its old validation, so an API caller naming a slot is unchanged. */
       let named;
+      // The slot this request created, so a failed add can give it back (see the claim below).
+      let claimed = null;
       if (body.label === undefined || body.label === null || String(body.label).trim() === '') {
-        const spot = mod.nextWorkDir();
-        named = spot ? { ok: true, label: spot.label, dir: spot.dir } : { ok: false, because: `there is no free spot for another ${providerLabel} account on this computer` };
+        /* 🛑 CLAIM THE SLOT, do not just pick it. The live key check below awaits the network,
+           so two label-less adds racing (two tabs, an API caller) would otherwise both pick
+           work1 and the second storeKey would overwrite the first account's key. mkdir without
+           `recursive` is atomic: exactly one request creates the dir, the other sees EEXIST and
+           moves to the next slot. It also refuses a planted symlink the same way (EEXIST). */
+        const exclude = new Set();
+        named = null;
+        for (let n = 0; n < 50 && !named; n += 1) {
+          const spot = mod.nextWorkDir(exclude);
+          if (!spot) break;
+          try { fs.mkdirSync(spot.dir, { mode: 0o700 }); claimed = spot.dir; named = { ok: true, label: spot.label, dir: spot.dir }; }
+          catch (err) { if (err && err.code === 'EEXIST') exclude.add(spot.dir); else break; }
+        }
+        if (!named) named = { ok: false, because: `there is no free spot for another ${providerLabel} account on this computer` };
       } else {
         named = mod.dirForLabel(body.label);
       }
@@ -1718,10 +1732,20 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
       // key (STATE.NONE); accept CONNECTED and UNKNOWN (unreachable / a non-attributed
       // refusal), never blocking a good key on an answer that does not confirm it bad.
       const live = await mod.validateLive(String(body.key || '').trim());
-      if (live.state === mod.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+      // rmdir removes only an EMPTY dir, so giving a claimed slot back cannot delete anything.
+      const giveBack = () => { if (claimed) { try { fs.rmdirSync(claimed); } catch { /* best effort */ } } };
+      if (live.state === mod.STATE.NONE) { giveBack(); sendJson(res, 400, { error: live.because }); return; }
+      /* Re-checked AFTER the await: an explicitly-labelled add racing another with the same
+         label passes the check above in both requests, and this is the last point before a
+         write that would land in an existing account. */
+      if (mod.identityOf(named.dir)) {
+        sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+        return;
+      }
       try { mod.storeKey(named.dir, body.key); }
       catch {
         try { mod.forgetKey(named.dir); } catch { /* best effort: leave no orphaned key file */ }
+        giveBack();
         sendJson(res, 400, { error: 'we could not store that key on this computer' });
         return;
       }
@@ -1766,9 +1790,13 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
         sendJson(res, 400, { error: result.because, usedBy: result.usedBy || [], stopUnavailable: true });
         return;
       }
+      /* #3566: the Settings row reports `because`, as it does for the Claude and OpenAI routes;
+         without it a Disconnect here read "Removed." against a tooltip saying nothing is deleted. */
       sendJson(res, 200, remove
-        ? { removed: !!result.removed, wasDefault: !!result.wasDefault }
-        : { forgotten: !!result.forgotten, movedTo: result.movedTo || null, wasDefault: !!result.wasDefault });
+        ? { removed: !!result.removed, wasDefault: !!result.wasDefault,
+          because: result.removed ? 'That account is deleted. Its key is gone from this computer.' : (result.because || 'That account is already gone from this computer.') }
+        : { forgotten: !!result.forgotten, movedTo: result.movedTo || null, wasDefault: !!result.wasDefault,
+          because: result.forgotten ? 'That account is off the list. Its key is set aside on this computer, so nothing was deleted.' : (result.because || 'That account is already gone from this computer.') });
     })
     .catch(() => sendJson(res, 400, { error: deleteDoor ? 'we could not delete that account' : 'we could not read that request' }));
 }
