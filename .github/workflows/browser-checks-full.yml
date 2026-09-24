@@ -75,7 +75,11 @@ jobs:
         id: failed
         if: always()
         run: |
-          labels=$(sed -n 's/^FAILED:  //p' "$RUNNER_TEMP/browser-checks.log" 2>/dev/null | tail -n 1)
+          # Must not abort under the runner's -e/pipefail when an earlier step failed and
+          # left no log: the fallback line below has to run either way.
+          log="$RUNNER_TEMP/browser-checks.log"
+          labels=""
+          if [ -f "$log" ]; then labels=$(sed -n 's/^FAILED:  //p' "$log" | tail -n 1 || true); fi
           echo "labels=${labels:-(none captured; see the run log)}" >> "$GITHUB_OUTPUT"
 
   # 🔑 A nightly red must reach the fleet, not just the run's actor (GitHub mails only

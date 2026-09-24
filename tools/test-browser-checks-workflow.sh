@@ -174,6 +174,51 @@ else
   pass "SKIPPED per-job invariants (no ruby on this machine)"
 fi
 
+# #2518: the two embedded scripts are behavior, not shape, so RUN them: extracted from
+# the parsed YAML and executed under the runner's own shell flags (-e and pipefail), with
+# gh stubbed as a shell FUNCTION (never a freshly written executable).
+if command -v ruby >/dev/null 2>&1; then
+  BT="$(mktemp -d)"
+  ruby -ryaml -e '
+    j = YAML.load_file(ARGV[0])["jobs"]
+    File.write(ARGV[1], j["browser-checks-full"]["steps"].find { |s| s["id"] == "failed" }["run"])
+    File.write(ARGV[2], j["file-red-card"]["steps"][0]["run"])
+  ' "$WF_FULL" "$BT/collect.sh" "$BT/card.sh" || fail "could not extract the embedded scripts"
+  # Collector, NO log (an earlier step failed): must reach its fallback, not abort.
+  out="$(RUNNER_TEMP="$BT/nolog" GITHUB_OUTPUT="$BT/o1" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" 2>&1)" \
+    || fail "the label collector aborted with no log under -e/pipefail: $out"
+  grep -q '^labels=(none captured' "$BT/o1" || fail "the collector wrote no fallback with no log: $(cat "$BT/o1")"
+  # Collector WITH a log that also carries assertion-level FAIL lines: only the summary's labels.
+  mkdir -p "$BT/log"; printf '  FAIL  an assertion line\nFAIL  render-fields (failed twice)\nFAILED:  render-fields render-thread\n' > "$BT/log/browser-checks.log"
+  RUNNER_TEMP="$BT/log" GITHUB_OUTPUT="$BT/o2" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" >/dev/null 2>&1 || fail "the collector failed on a real log"
+  [ "$(cat "$BT/o2")" = "labels=render-fields render-thread" ] || fail "the collector read the wrong labels: $(cat "$BT/o2")"
+  pass "the label collector reads only the FAILED: summary, and falls back without aborting when there is no log"
+  # Card script, three states. MODE selects what the stubbed gh answers.
+  card() {
+    MODE="$1" RED="render-fields" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+      gh() { case "$1 $2" in
+        "label list") [ "$MODE" = open ] && echo nightly-browser-checks-red; true ;;
+        "label create") echo "CALL label-create" ;;
+        "issue list") case "$MODE" in open) echo 7 ;; null) echo null ;; *) echo "" ;; esac ;;
+        "issue comment") echo "CALL comment $3 :: $*" ;;
+        "issue create") echo "CALL create :: $*" ;;
+        *) echo "CALL unexpected $*"; return 1 ;;
+      esac; }
+      . "$1"' _ "$BT/card.sh" 2>&1
+  }
+  out="$(card fresh)" || fail "card script failed on a fresh streak: $out"
+  case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields"*) ;; *) fail "fresh streak did not create the label and a card naming the red checks: $out" ;; esac
+  case "$out" in *"CALL comment"*) fail "fresh streak commented instead of creating: $out" ;; esac
+  out="$(card open)" || fail "card script failed with an open card: $out"
+  case "$out" in *"CALL comment 7"*"Red checks: render-fields"*) ;; *) fail "an open card did not get a comment naming the red checks: $out" ;; esac
+  case "$out" in *"CALL create"*|*"CALL label-create"*) fail "an open card streak created again: $out" ;; esac
+  out="$(card null)" || fail "card script failed on a null query result: $out"
+  case "$out" in *"CALL create"*) ;; *) fail "a literal null from the issue query did not create a card: $out" ;; esac
+  case "$out" in *"CALL comment null"*) fail "commented on issue 'null': $out" ;; esac
+  rm -rf "$BT"
+  pass "the card script creates on a fresh streak, comments (naming red checks) on an open card, and treats a null lookup as none"
+fi
+
 # An unquoted " #" inside a step name starts a YAML comment and silently truncates it
 # (the allowlist step's name parsed as "... (tools/browser-checks.sh," until #2518).
 # It also flags a trailing comment after an unquoted name: quote the name, or put the
