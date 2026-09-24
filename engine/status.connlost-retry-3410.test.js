@@ -4,7 +4,7 @@
  * #3410: a pane that is RETRYING a network error is mid-turn (working), and only the
  * pane left behind after the retries run out reads connection_lost.
  *
- * The frames below are real captures, not hand-written: Claude Code 2.1.281 in tmux
+ * The frames below are trimmed from real captures: Claude Code 2.1.281 in tmux
  * with its API pointed at a closed port (2026-09-24). For 152 seconds the pane showed
  * the "Retrying in Ns · attempt K/10" line; after attempt 10/10 it showed the
  * "⏺ API Error: …" line and the turn footer. Before this fix every retrying frame read
@@ -42,11 +42,11 @@ const WEDGED = [
 test('#3410: a pane drawing the live retry line reads WORKING, not connection_lost', () => {
   const r = status.classify(PANE, RETRYING);
   assert.equal(r.state, status.STATE.WORKING);
-  assert.match(r.because, /retrying its connection/);
+  assert.match(r.because, /retrying a failed request/);
   assert.match(r.evidence, /Retrying in 34s · attempt 9\/10/);
 });
 
-test('#3410: every retry attempt number and delay reads WORKING', () => {
+test('#3410: sampled retry attempts and delays read WORKING', () => {
   for (const [delay, n] of [[1, 1], [5, 4], [2, 6], [34, 9], [14, 10]]) {
     const pane = RETRYING.replace('Retrying in 34s · attempt 9/10', `Retrying in ${delay}s · attempt ${n}/10`);
     assert.equal(status.classify(PANE, pane).state, status.STATE.WORKING, `attempt ${n}`);
@@ -59,8 +59,37 @@ test('#3410: the pane left after the retries run out still reads connection_lost
   assert.match(r.evidence, /API Error: Connection refused/);
 });
 
-test('#3410 control: a retry line quoted in the agent\'s own output is not a live retry', () => {
-  // ⏺ prefixes lines the agent writes; it is not a spinner frame, so this must not read WORKING.
+test('#3410: a retry line hard-wrapped by a narrow pane still reads WORKING', () => {
+  // Split where Claude Code breaks the ~110-column line on a narrow pane; the first
+  // fragment alone matches CONNECTION_LOST_MESSAGE, so without the glue this read connection_lost.
+  const wrapped = RETRYING.replace(
+    '(ECONNREFUSED) · Retrying in 34s · attempt 9/10',
+    '(ECONNREFUSED) · Retrying\n  in 34s · attempt 9/10');
+  const r = status.classify(PANE, wrapped);
+  assert.equal(r.state, status.STATE.WORKING);
+  assert.match(r.evidence, /Retrying in 34s · attempt 9\/10/);
+});
+
+test('#3410: a non-network retry (529) reads WORKING, with the error in the evidence and no network claim', () => {
+  const r = status.classify(PANE, RETRYING.replace(
+    'Connection refused — a firewall or proxy may be blocking it (ECONNREFUSED) · Retrying in 34s',
+    'API Error (529 Overloaded) · Retrying in 10s'));
+  assert.equal(r.state, status.STATE.WORKING);
+  assert.doesNotMatch(r.because, /connection/i);
+  assert.match(r.evidence, /529 Overloaded/);
+});
+
+test('#3410 control: a retry line quoted in the agent\'s own output (⏺) is not a live retry', () => {
   const quoted = WEDGED.replace('⏺ API Error:', '⏺ It said "✻ x · Retrying in 5s · attempt 4/10" then API Error:');
   assert.notEqual(status.classify(PANE, quoted).state, status.STATE.WORKING);
+});
+
+test('#3410 control: a spinner-glyph quote with text after the suffix is not a live retry (end anchor)', () => {
+  const trailing = WEDGED.replace('⏺ API Error:', '✻ x · Retrying in 5s · attempt 4/10 was shown, then\n⏺ API Error:');
+  assert.notEqual(status.classify(PANE, trailing).state, status.STATE.WORKING);
+});
+
+test('#3410 control: a markdown * bullet ending in the suffix is not a live retry', () => {
+  const bullet = WEDGED.replace('⏺ API Error:', '⏺ Plan:\n  * step one · Retrying in 5s · attempt 1/3\n⏺ API Error:');
+  assert.notEqual(status.classify(PANE, bullet).state, status.STATE.WORKING);
 });

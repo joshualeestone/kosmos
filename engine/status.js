@@ -2060,10 +2060,30 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * WORKING read is already an unreliable signal (#2413). A Codex equivalent is a
  * separate change with its own captured strings, not a silent omission here.
  */
-/* #3410: the live retry line, a spinner frame (WORKING_LINE's glyph class) ending in
-   "· Retrying in Ns · attempt K/N". Anchored at the line end so a sentence quoting it
-   inside other text does not match. */
-const RETRYING_LINE = /^\s*[·✢✳✶✻✽*] .*·\s+Retrying in\s+\d+s\s+·\s+attempt\s+\d+\/\d+\s*$/u;
+/* #3410: the live retry line, a spinner frame ending in "· Retrying in Ns · attempt K/N".
+   The glyph class is WORKING_LINE's WITHOUT `*`: that sibling keeps `*` because an echo
+   would also need an ellipsis and a live timer, but this anchor is plain text, so a
+   markdown `* ` bullet ending in the suffix would read as a live retry. Anchored at the
+   line end, so a quote followed by more text on the same row does not match. */
+const RETRYING_LINE = /^\s*[·✢✳✶✻✽] .*·\s+Retrying in\s+\d+s\s+·\s+attempt\s+\d+\/\d+\s*$/u;
+
+/* The retry line, with a narrow pane's hard wrap undone: a row is tried alone, then glued
+   to the row below it (the auth rule's wrapJoined approach). The line is ~110 columns, so
+   a narrower pane splits it, and the first fragment alone still matches
+   CONNECTION_LOST_MESSAGE. Returns the glyph-stripped line, or null. */
+function retryingLineIn(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n');
+  for (let i = 0; i < rows.length; i += 1) {
+    const candidates = [rows[i]];
+    if (i + 1 < rows.length) candidates.push(rows[i].replace(/\s+$/, '') + ' ' + rows[i + 1].trim());
+    for (const c of candidates) {
+      if (!RETRYING_LINE.test(c)) continue;
+      const line = c.replace(/^[\s>│├└─*❯›·✢✳✶✻✽]+/, '').replace(/\s+/g, ' ').trim();
+      return line.length > 240 ? line.slice(0, 240) + '…' : line;
+    }
+  }
+  return null;
+}
 
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
 
@@ -3863,22 +3883,23 @@ function classify(pane, paneText) {
    * wedged" bound (no new activity since the error / the error is the live tail),
    * not just a connectivity probe, or it will restart an agent that already healed.
    */
-  /* The shared matchedLine helper (as rate_limited uses it): first row matching
-     CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
-     one derivation of "find the evidence line", not a private copy. */
   /* #3410: Claude Code's LIVE retry line. Measured 2026-09-24 (Claude Code 2.1.281,
      API pointed at a closed port): for all 152 seconds of retrying the pane drew
      "✻ Connection refused — … (ECONNREFUSED) · Retrying in 5s · attempt 4/10", which
      has no ellipsis and no "(Ns" timer, so WORKING_LINE never matched and every one of
      those frames read connection_lost. Only after attempt 10/10 did the line become
      "⏺ API Error: …" with no retry suffix. An agent that is retrying is mid-turn, so it
-     reads WORKING and the #3410 self-heal never restarts it. Keyed on the retry suffix,
-     not the error wording, so other network errors that retry the same way match. */
-  const retryLine = matchedLine(tail, [RETRYING_LINE]);
+     reads WORKING, which the #3410 self-heal does not act on. Keyed on the retry suffix,
+     not the error wording, so any error Claude Code retries this way matches (the
+     evidence line names the actual error). */
+  const retryLine = retryingLineIn(tail);
   if (retryLine !== null) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED,
-             because: 'it is retrying its connection to the API', evidence: retryLine };
+             because: 'it is retrying a failed request to the API', evidence: retryLine };
   }
+  /* The shared matchedLine helper (as rate_limited uses it): first row matching
+     CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
+     one derivation of "find the evidence line", not a private copy. */
   const connLine = matchedLine(tail, [CONNECTION_LOST_MESSAGE]);
   if (connLine !== null) {
     return {
