@@ -9525,6 +9525,24 @@ test('#2245: a BARE name chips to the one nested file with that name, and to non
     'a cite naming a different folder was chipped to a same-named file');
 });
 
+test('#2245: a folder name with HTML in it cannot inject through a room chip', () => {
+  const rich = pageFunction('pjRichSpans', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n'
+    + pageFnSource('pjLinkPaths') + '\n');
+  const evil = 'x"><img src=x onerror=alert(1)>/notes.md';
+  const out = rich('see notes.md', new Set([evil]), new Set());
+  // CONTROL: the chip IS built (so the assertions below are about its escaping, not its absence).
+  assert.match(out, /refgo/, 'the bare-name chip was not built at all: ' + out);
+  assert.ok(!/<img/i.test(out), 'a folder name reached the markup as a live tag: ' + out);
+  assert.ok(!/data-ref="x">/.test(out), 'the data-ref attribute was broken out of: ' + out);
+});
+
+test('#2245: in the room, a folder named with & still chips to its own file, not a top-level twin', () => {
+  const rich = pageFunction('pjRichSpans', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n'
+    + pageFnSource('pjLinkPaths') + '\n');
+  const out = rich('see R&D/report.pdf', new Set(['report.pdf', 'R&D/report.pdf']), new Set());
+  assert.match(out, /data-ref="R&amp;D\/report\.pdf"/, 'the & folder chipped to the wrong file: ' + out);
+});
+
 test('#2245: the room renderer matches citations the same way', () => {
   const rich = pageFunction('pjRichSpans', pageFnSource('esc') + '\n' + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n'
     + pageFnSource('pjLinkPaths') + '\n');

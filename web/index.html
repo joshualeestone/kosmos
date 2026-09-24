@@ -39951,6 +39951,7 @@ function pjById(id) { return PROJECTS.find((p) => p.id === id) || null; }
 let PJ_DOC_NAMES = null;
 /* #2245: shown by both document views when the folder walk stopped short. */
 let PJ_DOCS_VIEW_PARTIAL = false; // #2245: the open View All list was cut short
+let PJ_DOCS_RAIL_PARTIAL = false; // #2245: the rail's last list was cut short
 const PJ_DOCS_PARTIAL = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
 let TK_OPEN = null;        // the task number the task page is showing
 
@@ -41697,6 +41698,7 @@ document.getElementById('docs-prev').addEventListener('click', () => { PJ_DOCS_P
 document.getElementById('docs-next').addEventListener('click', () => { PJ_DOCS_PAGE += 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
 
 async function openDocsView() {
+  PJ_DOCS_VIEW_PARTIAL = false; // #2245: a failed read must not inherit the last project's flag
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   document.getElementById('docs-project').textContent = p.name;
@@ -41896,6 +41898,7 @@ async function pjLoadDocs(id) {
   const roomBox = document.getElementById('pj-room');
   if (roomBox) { roomBox.__lastRoom = undefined; if (roomBox.__lastBody) paintRoom(roomBox.__lastBody); }
   const files = Array.isArray(body.files) ? body.files : [];
+  PJ_DOCS_RAIL_PARTIAL = body.truncated === true;
   if (!files.length) {
     msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
     all.hidden = true;
@@ -42358,20 +42361,16 @@ function pjRichSpans(seg, names, agentNames) {
        pjLinkPaths (pjCiteKey, no `..`), only when a `names` set is supplied.
        Held like the URL so the chip is atomic and inert through the emphasis
        pass -- `**notes.md**` bolds the chip rather than leaking a marker.
-       ⚠️ One deliberate difference from pjLinkPaths: the lookup here is on the
-       already-esc()'d token (step 2 ran first), whereas pjLinkPaths matches the
-       raw token. So a document literally named with an HTML-special character
-       (`&`, `<`, `>`, `"`) does not chip in the room, where it would on the row
-       surfaces. That is the safe direction (it falls through to plain escaped
-       text, never a double-escape or an injection) and such names are
-       vanishingly rare; using the escaped `core` as-is is what keeps the chip
-       from double-escaping. */
+       #2245: the token here is already esc()'d (step 2 ran first), so it is DECODED
+       back to the raw text for the lookup, and the listed name that comes back is a
+       raw folder/file name from disk, so it is esc()'d on the way into the markup. */
     if (hasNames && core && !core.includes('..')) {
-      const key = pjCiteKey(core, names);
+      const rawCore = core.replace(/&(amp|lt|gt|quot);/g, (m, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"' }[e]));
+      const key = pjCiteKey(rawCore, names);
       if (key !== null) {
         return hold('<span class="ref">' + core
-          + '<button class="refgo" type="button" data-ref="' + key
-          + '" aria-label="Show me ' + key + '">Show me</button></span>') + mm[2];
+          + '<button class="refgo" type="button" data-ref="' + esc(key)
+          + '" aria-label="Show me ' + esc(key) + '">Show me</button></span>') + mm[2];
       }
     }
     return tok;
@@ -42575,7 +42574,7 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
     if (res.ok) {
       /* win32-board-copy: a file shown rather than opened (Windows, a type that can run a program) is said. */
       const b = await res.json().catch(() => null);
-      msg.textContent = (b && b.revealedInstead && b.say) || '';
+      msg.textContent = (b && b.revealedInstead && b.say) || (PJ_DOCS_RAIL_PARTIAL ? PJ_DOCS_PARTIAL : '');
       return;
     }
     /* The refusal is the ENGINE's sentence, shown verbatim. It already says

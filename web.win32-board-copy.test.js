@@ -222,10 +222,10 @@ test('NIT 1 (review round 2): open, then a file shown instead, then open again l
     ];
     // eslint-disable-next-line no-new-func
     const handler = new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence',
-      'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'return ' + body)(
+      'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'return ' + body)(
       { getElementById: (id) => (id === msgId ? msg : null) },
       async () => answers.shift(),
-      'proj', (s) => s, (s) => s, false, 'PARTIAL NOTE',
+      'proj', (s) => s, (s) => s, false, 'PARTIAL NOTE', false,
     );
     const click = { target: { closest: () => ({ dataset: { doc: 'notes.pdf', ref: 'notes.pdf' } }) } };
     await handler(click);
@@ -237,25 +237,27 @@ test('NIT 1 (review round 2): open, then a file shown instead, then open again l
   }
 });
 
-test('#2245: after an open, a View All list that was cut short keeps its partial note', async () => {
-  const anchor = "document.getElementById('docs-list').addEventListener('click', ";
-  const at = SCRIPT.indexOf(anchor);
-  assert.ok(at > -1, 'the docs-list open handler moved');
-  const body = SCRIPT.slice(at + anchor.length, SCRIPT.indexOf('\n});', at) + 2);
-  const run = async (partial) => {
-    const msg = { textContent: 'before' };
-    // eslint-disable-next-line no-new-func
-    const handler = new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence',
-      'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'return ' + body)(
-      { getElementById: (id) => (id === 'docs-msg' ? msg : null) },
-      async () => ({ ok: true, json: async () => ({ ok: true }) }),
-      'proj', (s) => s, (s) => s, partial, 'PARTIAL NOTE',
-    );
-    await handler({ target: { closest: () => ({ dataset: { doc: 'a/b.pdf' } }) } });
-    return msg.textContent;
-  };
-  assert.equal(await run(true), 'PARTIAL NOTE', 'the partial note was wiped by opening a file');
-  assert.equal(await run(false), '', 'CONTROL: a complete list shows nothing after an open');
+test('#2245: after an open, a list that was cut short keeps its partial note (View All and the rail)', async () => {
+  for (const [listId, msgId, flag] of [['docs-list', 'docs-msg', 'view'], ['pj-docs', 'pj-docs-msg', 'rail']]) {
+    const anchor = "document.getElementById('" + listId + "').addEventListener('click', ";
+    const at = SCRIPT.indexOf(anchor);
+    assert.ok(at > -1, `the ${listId} open handler moved`);
+    const body = SCRIPT.slice(at + anchor.length, SCRIPT.indexOf('\n});', at) + 2);
+    const run = async (partial) => {
+      const msg = { textContent: 'before' };
+      // eslint-disable-next-line no-new-func
+      const handler = new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence',
+        'PJ_DOCS_VIEW_PARTIAL', 'PJ_DOCS_PARTIAL', 'PJ_DOCS_RAIL_PARTIAL', 'return ' + body)(
+        { getElementById: (id) => (id === msgId ? msg : null) },
+        async () => ({ ok: true, json: async () => ({ ok: true }) }),
+        'proj', (s) => s, (s) => s, flag === 'view' && partial, 'PARTIAL NOTE', flag === 'rail' && partial,
+      );
+      await handler({ target: { closest: () => ({ dataset: { doc: 'a/b.pdf' } }) } });
+      return msg.textContent;
+    };
+    assert.equal(await run(true), 'PARTIAL NOTE', `${listId}: the partial note was wiped by opening a file`);
+    assert.equal(await run(false), '', `${listId}: CONTROL: a complete list shows nothing after an open`);
+  }
 });
 
 test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits named', () => {

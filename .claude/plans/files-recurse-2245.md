@@ -35,6 +35,8 @@ Rejected:
      room's pjRichSpans. Before, both matched the basename only, so a cite of
      sub/report.pdf opened a top-level report.pdf. A BARE name with no top-level file
      chips to the one nested file of that name, and to nothing when two share it.
+     The room renderer decodes its escaped token before the lookup and escapes the listed
+     name it gets back, because a folder name on disk can contain `"`, `<` and `&`.
 4. Doc comments updated where they described top-level only / bare filename only.
 
 Known residual: a cited file that is NOT listed (deeper than the walk, or skipped) but whose
@@ -61,7 +63,8 @@ Two reviewers disagreed. Walking build/, dist/, target/, env/ shows a file a per
 on purpose; skipping them keeps a fresh build's artefacts from filling a newest-first list and
 setting the partial note on every code project. Skipped, because an agent's project folder is
 often a code project and a deliverable saved into build/ is the rarer case. If that is wrong,
-it is one line in LIST_SKIP_DIRS.
+it is one line in LIST_SKIP_DIRS. `env` is in the list on purpose, as the common name for a
+Python virtualenv, at the same cost for a folder of real notes called env/.
 
 ## Weakest premise
 That relative paths in a flat list read well enough. Deep paths are long in a narrow rail. If Josh
