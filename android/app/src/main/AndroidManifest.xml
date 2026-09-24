@@ -46,5 +46,38 @@
                 <data android:scheme="https" android:host="@string/hostName" />
             </intent-filter>
         </activity>
+
+        <!-- Notification delegation (#718: push lives in the app, not the website).
+             Without this service Chrome shows a web push as a CHROME notification
+             (Chrome's name and icon, Chrome's permission). With it, Chrome hands the
+             notification to this app, so it is posted under Kosmos's own name, icon and
+             notification permission. The base class already registers the Android 13
+             permission bridge (NotificationDelegationExtraCommandHandler), so this stays
+             zero hand-written code. The library's own manifest declares neither this
+             service nor the activity below; the app has to. -->
+        <service
+            android:name="com.google.androidbrowserhelper.trusted.DelegationService"
+            android:enabled="true"
+            android:exported="true">
+
+            <!-- Status-bar icon for delegated notifications. Android draws it as a
+                 white-on-transparent silhouette, so it is a separate monochrome drawable,
+                 not the full-colour launcher icon. -->
+            <meta-data
+                android:name="android.support.customtabs.trusted.SMALL_ICON"
+                android:resource="@drawable/ic_notification" />
+
+            <intent-filter>
+                <action android:name="android.support.customtabs.trusted.TRUSTED_WEB_ACTIVITY_SERVICE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+
+        <!-- Shows the system notification-permission prompt (Android 13+) on the
+             page's behalf when it asks for push, so the grant is the app's rather
+             than Chrome's. Started only by DelegationService, hence not exported. -->
+        <activity
+            android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity"
+            android:exported="false" />
     </application>
 </manifest>
