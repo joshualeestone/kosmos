@@ -107,7 +107,8 @@ const SCAN = () => {
 
 const SURFACES = [
   ['agents', null],
-  /* Six surfaces since #2916 (was seven): the scan measures what is on screen, and one nav group
+  /* Five agent-panel surfaces (seven, then six at #2916, now five with #3500's Remove fold below):
+     the scan measures what is on screen, and one nav group
      is, so each pill is visited (the gold `.on` pill, the `.danger` pill and the dot on gold are
      measured on the way). #2916: 'memory' and 'skills' have no pill of their own -- memory folds
      under the 'model' (Model and Memory) surface and skills under 'instr' (Instructions), both

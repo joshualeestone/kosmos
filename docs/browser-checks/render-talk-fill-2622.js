@@ -175,19 +175,22 @@ async function measure(page) {
     const narrowNav = await page.evaluate(() => {
       const snav = document.querySelector('#panel-detail .snav');
       const box = document.getElementById('d-talk-box');
-      const rect = snav ? snav.getBoundingClientRect() : null;
-      const kids = snav ? [...snav.children].filter((c) => c.getBoundingClientRect().height > 0) : [];
-      const last = kids.length ? kids[kids.length - 1].getBoundingClientRect() : null;
-      const cs = snav ? getComputedStyle(snav) : null;
+      const srect = snav ? snav.getBoundingClientRect() : null;
+      // The nav lives in a .dleft flex-column (identity block + the snav, the snav last), which sits
+      // in the `auto` row of the .dbody grid (#3385). Measure whether that row stays content-height by
+      // the signed gap between the snav's bottom and its .dleft's bottom (minus .dleft's padding):
+      //   ~0  -> flush, content-height (healthy)
+      //   >0  -> empty space below the nav: the row was STRETCHED to fill a tall track
+      //   <0  -> the nav OVERFLOWS .dleft: the row was shrunk (the actual #2569 regression)
+      // Measured on box geometry, NOT scrollHeight: .dleft/.snav carry no overflow of their own, so
+      // scrollHeight just echoes an externally-sized box; and a stretch balloons the .dleft ROW, not
+      // #d-nav (a flex column always ends flush with its last item, so a #d-nav gap is vacuously 0).
+      const dleft = snav ? snav.closest('.dleft') : null;
+      const drect = dleft ? dleft.getBoundingClientRect() : null;
+      const dPadB = dleft ? (parseFloat(getComputedStyle(dleft).paddingBottom) || 0) : 0;
       return {
-        snavHeight: rect ? Math.round(rect.height) : null,
-        // The empty space between the last nav item's bottom and the snav's own bottom edge. A
-        // content-height row ends flush with its last item (gap == its padding-bottom); a row the
-        // collapsed single-column grid STRETCHED to fill a tall track opens this gap wide. This is
-        // measured on the box geometry, not scrollHeight (which just echoes an externally-stretched
-        // box for an element with no overflow of its own, so snavHeight==scrollHeight is vacuous).
-        gapBelowLast: (rect && last) ? Math.round(rect.bottom - last.bottom) : null,
-        padBottom: cs ? Math.round(parseFloat(cs.paddingBottom) || 0) : null,
+        snavHeight: srect ? Math.round(srect.height) : null,
+        navGapInDleft: (srect && drect) ? Math.round(drect.bottom - srect.bottom - dPadB) : null,
         boxHeight: box ? Math.round(box.getBoundingClientRect().height) : null,
       };
     });
@@ -197,14 +200,14 @@ async function measure(page) {
       'boxBottom=' + narrow.boxBottom + ' innerHeight=' + narrow.innerHeight + ' gap=' + narrow.gapBelowBox);
     // #3547/#3500: the agent nav is now a vertical stack of icon+label boxes, so at narrow width it is
     // legitimately TALLER than the talk box (268 vs 209). The old `snavHeight < boxHeight` predated the
-    // boxed redesign. What this arm guards is the collapsed single-column grid STRETCHING the nav to
-    // fill a tall track; a stretched row leaves empty space below its last item, a content-height row
-    // ends flush with it. (Measured on box geometry, NOT scrollHeight: for an element with no overflow
-    // of its own scrollHeight just echoes an externally-stretched box, so snavHeight==scrollHeight is
-    // vacuous. Proven able to fail: forcing the snav taller than its content opens gapBelowLast.)
-    chk(narrowNav.gapBelowLast !== null && (narrowNav.gapBelowLast - narrowNav.padBottom) <= 4,
-      'A2c narrow width: the snav is content-height (its last item ends flush with its bottom, not stretched by the collapsed grid)',
-      'gapBelowLast=' + narrowNav.gapBelowLast + ' padBottom=' + narrowNav.padBottom + ' snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
+    // boxed redesign and false-failed. This arm now guards the nav's .dleft row staying content-height
+    // (navGapInDleft ~ 0). Proven able to fail on the REAL regression: removing the .dbody
+    // `grid-template-rows: auto minmax(0,1fr)` fix (index.html ~2569) shrinks the row so the nav
+    // overflows .dleft and navGapInDleft goes to -128 (A2b and a #d-nav-only gap both stay green there,
+    // which is why this measures the .dleft row, not #d-nav).
+    chk(narrowNav.navGapInDleft !== null && Math.abs(narrowNav.navGapInDleft) <= 4,
+      'A2c narrow width: the nav sits flush in its .dleft row (content-height, neither stretched nor overflowing)',
+      'navGapInDleft=' + narrowNav.navGapInDleft + ' snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
 
     // --- A long THREAD in a SHORT window: the composer must stay reachable. This
     // guards a failure mode the FILL ITSELF introduces, NOT a pre-change control

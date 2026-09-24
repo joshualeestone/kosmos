@@ -24,12 +24,14 @@ drop the separate `remove` surface. The whole-page SCAN measures the Remove cont
 surface.
 
 ## Verification
-- render-talk-fill-2622.js: A2c PASS (`gapBelowLast=0`, `padBottom=0`, so the last nav item ends flush
-  with the snav's bottom = content-height, `snavHeight=268`, in an `auto` grid row). NEGATIVE CONTROL
-  proven (prove-a-new-check-can-fail): temporarily forcing the snav 120px taller than its content
-  opened `gapBelowLast` to 120 and turned A2c red, so the assertion is not vacuous. (An earlier
-  `snavHeight === snavScrollH` form was vacuous -- for an element with no overflow of its own,
-  scrollHeight just echoes an externally-stretched box -- and was replaced.)
+- render-talk-fill-2622.js: A2c PASS (`navGapInDleft=0` -- the nav sits flush in its `.dleft` row =
+  content-height, `snavHeight=268`). NEGATIVE CONTROL on the REAL regression (prove-a-new-check-can-fail,
+  fail on the RIGHT thing): removing the `.dbody` `grid-template-rows: auto minmax(0,1fr)` fix
+  (index.html ~2569) shrinks the nav's row so the nav overflows `.dleft`, `navGapInDleft=-128`, and A2c
+  goes red. Two earlier forms were caught in review and rejected: `snavHeight < boxHeight` false-failed
+  on the legitimately-taller boxed nav; `snavHeight === snavScrollH` and a `#d-nav`-only gap were
+  vacuous/false-negative (an element with no overflow of its own echoes its box in scrollHeight, and a
+  stretch balloons the `.dleft` ROW, not `#d-nav`, which as a flex column always ends flush).
 - contrast.js: served against a fully-sandboxed board (all AGENT_WORKFORCE_* + fake tmux, per
   boot_board), both themes PASS, the `term` surface finds 24 texts and all clear AA. No "remove could
   not be reached".
