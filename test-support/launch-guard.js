@@ -49,7 +49,8 @@ function isRealLaunchTarget(target) {
 
 // open/openSync/promises.open write only when their flags say so.
 function opensForWrite(flags) {
-  if (flags == null) return false;
+  // fs.open(path, callback) omits flags: args[1] is then the callback, and the default is read.
+  if (flags == null || typeof flags === 'function') return false;
   if (typeof flags === 'number') {
     const c = fs.constants;
     return (flags & (c.O_WRONLY | c.O_RDWR | c.O_CREAT | c.O_TRUNC | c.O_APPEND)) !== 0;
@@ -69,7 +70,9 @@ function refusal(op, target) {
 }
 
 // [module, method, index of the DESTINATION argument, kind]. kind 'open' checks the flags
-// argument (index 1) and refuses only a write open. Deletes are included: a create
+// argument (index 1) and refuses only a write open. Only the destination is checked, so a
+// rename OUT of the folder is allowed. mkdir is included so a missing real folder is not
+// created by a test. Deletes are included: a create
 // that fails on the refusal rolls back by deleting the same path, which may be a real
 // agent's job file. Callback forms throw synchronously rather than calling back with the
 // error; that is louder than Node's own I/O errors, which is the point here.
@@ -87,6 +90,7 @@ const WRITERS = [
   [fs, 'openSync', 0, 'open'], [fs, 'open', 0, 'open'], [fs.promises, 'open', 0, 'open'],
   [fs, 'rmSync', 0], [fs, 'unlinkSync', 0], [fs, 'rm', 0], [fs, 'unlink', 0],
   [fs, 'rmdirSync', 0], [fs, 'rmdir', 0],
+  [fs, 'mkdirSync', 0], [fs, 'mkdir', 0], [fs.promises, 'mkdir', 0],
   [fs.promises, 'rm', 0], [fs.promises, 'unlink', 0], [fs.promises, 'rmdir', 0],
 ];
 

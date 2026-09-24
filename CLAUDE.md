@@ -233,9 +233,16 @@ from a night in this codebase, kosmos#2616.)
    that asserts behavior the code does not have is the same defect in prose: state what the
    code does at the code, and put reasoning that can go stale in the commit or plan.
 
+6. **A test never writes or deletes in the real `~/Library/LaunchAgents`.** Sandbox it with
+   `AGENT_WORKFORCE_LAUNCH` before creating agents. `tools/run-tests.sh` preloads
+   `test-support/launch-guard.js`, which makes the fs calls in its WRITERS table throw on the
+   real folder, and `engine/create.js` writes job files through `writePlistFile`, which refuses
+   under `NODE_TEST_CONTEXT` (kosmos#3605, after #3011). Enforced by
+   `engine/create.launch-refuse-3605.test.js`.
+
 ### This list is intentionally incomplete
 
-These five come from the account and removal lanes one agent happened to be in. They almost
+The first five come from the account and removal lanes one agent happened to be in. They almost
 certainly miss what the frontend and installer lanes would each put first. This section is
 meant to grow: if you work in a lane not represented here and trip over a convention that
 lives only in your head or a code comment, add it here (sourced to the enforcing code) rather

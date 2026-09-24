@@ -79,6 +79,8 @@ test('#3605: every plist write in create.js goes through writePlistFile', () => 
     'a direct fs.writeFileSync(plistPath(...)) bypasses the #3605 refusal');
   assert.ok((src.match(/writePlistFile\(plistPath\(/g) || []).length >= 3,
     'the three install/rewrite sites must write through writePlistFile');
+  assert.equal((src.match(/fs\.mkdirSync\(agentsDir\(\)/g) || []).length, 0,
+    'mkdir of the LaunchAgents dir must happen inside writePlistFile, after the #3605 refusal');
 });
 
 test('#3605 (the card\'s ask): the LaunchAgents dir is resolved at CALL time, not at require', () => {
@@ -101,11 +103,12 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
     const fs = require('node:fs'); const path = require('node:path'); const { pathToFileURL } = require('node:url');
     const seen = [];
     const SYNC = ['writeFileSync','appendFileSync','copyFileSync','renameSync','symlinkSync','linkSync','rmSync','unlinkSync',
-      'cpSync','truncateSync','createWriteStream','rmdirSync'];
+      'cpSync','truncateSync','createWriteStream','rmdirSync','mkdirSync'];
     const CB = ['writeFile','appendFile','copyFile','rename','symlink','link','rm','unlink','cp','truncate','rmdir'];
     const PR = ['writeFile','appendFile','copyFile','rename','symlink','link','rm','unlink','cp','truncate','rmdir'];
     fs.openSync = (...a) => { seen.push('openSync:' + a[1]); };
     fs.promises.open = async (...a) => { seen.push('p.open:' + a[1]); };
+    fs.open = (...a) => { seen.push('open:' + typeof a[1]); };
     for (const n of SYNC) fs[n] = () => { seen.push(n); };
     for (const n of CB) fs[n] = (...a) => { seen.push('cb.' + n); };
     for (const n of PR) fs.promises[n] = async () => { seen.push('p.' + n); };
@@ -123,7 +126,9 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
     tryIt('openWrite', () => fs.openSync(R, 'w'));
     tryIt('openAppendNum', () => fs.openSync(R, fs.constants.O_WRONLY | fs.constants.O_APPEND));
     tryIt('openRead', () => fs.openSync(R, 'r'));
+    tryIt('mkdirFolder', () => fs.mkdirSync(REAL, { recursive: true }));
     tryIt('openDefault', () => fs.openSync(R));
+    tryIt('openCallbackOnly', () => fs.open(R, () => {}));
     tryIt('caseVariant', () => fs.writeFileSync(path.join(path.dirname(REAL), 'launchagents', 'p.plist'), 'x'));
     tryIt('fileUrl', () => fs.writeFileSync(pathToFileURL(R), 'x'));
     tryIt('renameFromReal', () => fs.renameSync(R, S));
@@ -138,15 +143,15 @@ test('#3605 preload: refuses every wrapped writer and deleter into the real Laun
   `;
   const env = { ...process.env }; delete env.NODE_OPTIONS;
   const res = JSON.parse(execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
-  const ALLOWED = ['renameFromReal', 'sandbox', 'openRead', 'openDefault', 'p.openRead'];
+  const ALLOWED = ['renameFromReal', 'sandbox', 'openRead', 'openDefault', 'p.openRead', 'openCallbackOnly'];
   const refused = Object.keys(res.out).filter((k) => !ALLOWED.includes(k));
   if (process.platform !== 'darwin') refused.splice(refused.indexOf('caseVariant'), 1);
   for (const k of refused) assert.equal(res.out[k], 'refused', `${k} must be refused`);
   assert.equal(res.out.renameFromReal, 'allowed', 'moving a file OUT of the real folder is not a write into it');
   assert.equal(res.out.sandbox, 'allowed');
-  for (const k of ['openRead', 'openDefault', 'p.openRead']) assert.equal(res.out[k], 'allowed', `a read-only open (${k}) is not a write`);
+  for (const k of ['openRead', 'openDefault', 'p.openRead', 'openCallbackOnly']) assert.equal(res.out[k], 'allowed', `a read-only open (${k}) is not a write`);
   // Only the allowed calls reached the underlying function: every refusal came BEFORE the call.
-  const expectSeen = ['renameSync', 'writeFileSync', 'openSync:r', 'openSync:undefined', 'p.open:r'];
+  const expectSeen = ['renameSync', 'writeFileSync', 'openSync:r', 'openSync:undefined', 'p.open:r', 'open:function'];
   if (process.platform !== 'darwin') expectSeen.unshift('writeFileSync');
   assert.deepEqual(res.seen.sort(), expectSeen.sort());
 });
