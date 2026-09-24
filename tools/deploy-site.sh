@@ -505,6 +505,8 @@ WIN_SERVED_SHA=""
 # The prod Windows version users get, for the staged block below: the committed one unless the
 # served pointer is a redirect, in which case the served one.
 WIN_PROD_VERSION=$(ptr_version "$(git -C "$SITE" show "$H:dist/latest-win.json" 2>/dev/null)")
+# An explicit KOSMOS_WIN_ZIP names the prod build, so its version is the prod version.
+[ -z "${KOSMOS_WIN_ZIP:-}" ] || WIN_PROD_VERSION=$(printf '%s' "$KOSMOS_WIN_ZIP" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
 if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   _wr=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$HOST/dist/latest-win.json" 2>/dev/null) || _wr=''
   case "${_wr%% *}" in

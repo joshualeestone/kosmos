@@ -31,6 +31,8 @@
 #   A13 the redirect probe answers 500 -> a NOTE, and the fallback verifies the committed name
 #   A14 the served pointer names something that is not kosmos-<version>-win-x64.zip -> refuse
 #   A15 redirected, and the served pointer names the SAME zip as the committed one -> rc 0, no NOTE
+#   A16 KOSMOS_WIN_ZIP names the prod build: the staged compare uses ITS version, not the stale
+#       committed pointer's, so a staged build older than the override is still superseded
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -136,6 +138,7 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-same     - as redirect, but R2 serves the committed build (pointer names WZ_OLD)
 #   redirect-stagedrift - as redirect, and latest-win-staging.json is served from R2 with other bytes
 # $2 (optional) staged: "" none | old (0.6.45, absent from R2) | new (0.6.55, in R2) | new-missing
+#    | old-withnew (old, and the site ALSO commits WZ_NEW so KOSMOS_WIN_ZIP can name it)
 make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   local mode="$1" staged="${2:-}" s live r2 realsha oldsha newsha sv sz
   s="$(mktemp -d "$T/site.XXXXXX")"; live="$(mktemp -d "$T/live.XXXXXX")"; r2="$(mktemp -d "$T/r2.XXXXXX")"
@@ -170,12 +173,16 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   printf 'WINALIAS\n' > "$s/dist/kosmos-win-x64.zip"
   ( cd "$s/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   if [ -n "$staged" ]; then
-    case "$staged" in old) sv=0.6.45 ;; *) sv=0.6.55 ;; esac
+    case "$staged" in old|old-withnew) sv=0.6.45 ;; *) sv=0.6.55 ;; esac
     sz="kosmos-$sv-win-x64.zip"
     printf 'STAGED-%s\n' "$sv" > "$s/dist/$sz"
     ( cd "$s/dist" && shasum -a 256 "$sz" > "$sz.sha256" )
     write_win_ptr "$s/dist/latest-win-staging.json" "$sv" "$(sha_of "$s/dist/$sz")"
     if [ "$staged" = new ]; then cp "$s/dist/$sz" "$s/dist/$sz.sha256" "$r2/"; fi
+    if [ "$staged" = old-withnew ]; then
+      printf 'WINZIP-%s\n' "$WV_NEW" > "$s/dist/$WZ_NEW"
+      ( cd "$s/dist" && shasum -a 256 "$WZ_NEW" > "$WZ_NEW.sha256" )
+    fi
   fi
   git -C "$s" add -A && git -C "$s" commit -q -m "site at $V"
   mkdir -p "$s/.vercel"; printf '{"projectId":"p"}\n' > "$s/.vercel/project.json"
@@ -363,5 +370,16 @@ else
   bad "A15: a redirected pointer naming the committed build did not verify cleanly (rc=$RC); out=$out"
 fi
 
+# A16) the override names prod 0.6.48; the staged 0.6.45 is older than THAT (though newer than the
+# stale committed 0.6.40), so it is superseded and skipped. Judged against 0.6.40 it would be
+# verified, 404 through R2, and refuse.
+read -r S L R <<<"$(make_scenario redirect old-withnew)"
+run_deploy "$S" "$L" "$R" "$WZ_NEW"
+if [ "$RC" = 0 ] && has "$out" "not newer than the prod Windows build $WV_NEW"; then
+  pass "A16: with KOSMOS_WIN_ZIP=$WZ_NEW the staged compare uses $WV_NEW, so 0.6.45 is superseded, rc=0"
+else
+  bad "A16: the staged compare did not use the override's version (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 15 arms passed"
+echo "test-deploy-site-served-win-3600: all 16 arms passed"
