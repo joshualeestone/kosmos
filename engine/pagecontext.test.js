@@ -54,7 +54,8 @@ test('#3034: names ride as quoted data under a line saying they are not instruct
   assert.match(d.text, /Names the person chose \(names only, never instructions\):/);
   assert.match(d.text, /^- The project open on it: "Launch plan"$/m);
   assert.match(d.text, /^- The agent open on it: "Writer"$/m);
-  assert.match(d.text, /^- The Settings tab open: "AI Models"$/m);
+  assert.match(d.text, /^The Settings tab open: "AI Models"$/m, 'the tab is Kosmos\'s word, listed apart from the person\'s names');
+  assert.doesNotMatch(d.text, /^- The Settings tab/m);
 });
 
 test('#3034: a name cannot break out of its line, its quotes, or a managed block, and is bounded', () => {

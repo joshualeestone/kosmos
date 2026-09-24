@@ -35,10 +35,12 @@ const setupAssistant = require('./engine/setup-assistant');
 
 const REPO = __dirname;
 
-function folderFor(name) {
+function folderFor(name, { guide = false } = {}) {
   const dir = path.dirname(instructions.fileFor(name));
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# ${name}\n`);
+  const marker = path.join(dir, setupAssistant.GUIDE_MARKER);
+  if (guide) fs.writeFileSync(marker, `${name}\n`); else fs.rmSync(marker, { force: true });
   return dir;
 }
 
@@ -85,7 +87,7 @@ test('#3034: with no setup guide on this computer, the route writes nothing and 
 });
 
 test('#3034: the report lands beside the GUIDE\'s instructions only, whatever agent the body names', async () => {
-  const guideDir = folderFor('Josh');
+  const guideDir = folderFor('Josh', { guide: true });
   const otherDir = folderFor('Other');
   setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
   const r = await post({ screen: 'agent', agent: 'Other' });
@@ -97,7 +99,7 @@ test('#3034: the report lands beside the GUIDE\'s instructions only, whatever ag
 });
 
 test('#3034: a screen outside the vocabulary, or a body that is not an object, is a 400 and changes nothing', async () => {
-  const guideDir = folderFor('Josh');
+  const guideDir = folderFor('Josh', { guide: true });
   setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
   const file = path.join(guideDir, roles.PAGE_FILE);
   fs.writeFileSync(file, 'BEFORE\n');
@@ -113,4 +115,17 @@ test('#3034: a seeded guide whose folder is gone is a 409, and no folder is crea
   const r = await post({ screen: 'board' });
   assert.equal(r.status, 409);
   assert.equal(fs.existsSync(path.dirname(instructions.fileFor('Gone'))), false);
+});
+
+test('#3034: a guide deleted and a NEW agent given the same name gets no page reports (no marker, 409)', async () => {
+  const dir = folderFor('Josh');                  // same name, but not the folder the seed marked
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  fs.rmSync(path.join(dir, roles.PAGE_FILE), { force: true });
+  const r = await post({ screen: 'board' });
+  assert.equal(r.status, 409);
+  assert.match((await r.json()).error, /not on this computer any more/);
+  assert.equal(fs.existsSync(path.join(dir, roles.PAGE_FILE)), false, 'a report landed in an agent that is not the guide');
+  // CONTROL: the same folder, marked, is written.
+  folderFor('Josh', { guide: true });
+  assert.equal((await post({ screen: 'board' })).status, 200);
 });

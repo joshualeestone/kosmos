@@ -170,6 +170,39 @@ test('AVATAR: the SHIPPED picture of Josh is present and passes the avatar store
   assert.equal(res.avatarCopied, true, 'the shipped picture was refused by store.saveAvatar');
 });
 
+test('NAME: when "Josh" is taken, the seed falls back to "Josh AI"; any other refusal is not retried', () => {
+  const calls = [];
+  const takenThenOk = (opts) => {
+    calls.push(opts);
+    return opts.name === 'Josh'
+      ? { outcome: create.OUTCOME.REFUSED, because: 'there is already an agent called josh. If it never came up, it is half made rather than missing.' }
+      : { outcome: create.OUTCOME.CREATED, name: opts.name };
+  };
+  const res = setupAssistant.seedSetupAssistant({ createAgent: takenThenOk, hasConnectedAccount: CONNECTED });
+  assert.equal(res.seeded, true, res.reason || '');
+  assert.deepEqual(calls.map((c) => c.name), ['Josh', setupAssistant.GUIDE_FALLBACK_NAME]);
+  assert.equal(res.name, 'Josh AI');
+  // CONTROL: a refusal that is not a taken name stops at the first try.
+  reset();
+  const other = [];
+  const r2 = setupAssistant.seedSetupAssistant({ createAgent: refused(other, 'we could not find Claude Code on this computer'), hasConnectedAccount: CONNECTED });
+  assert.equal(r2.seeded, false);
+  assert.equal(other.length, 1, 'a non-name refusal was retried under the fallback name');
+});
+
+test('MARKER: the seed marks the guide\'s own folder, and only that folder counts as the guide', () => {
+  const instructions = require('./engine/instructions');
+  const dir = path.dirname(instructions.fileFor('Josh'));
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    assert.equal(setupAssistant.isGuideFolder('Josh'), false, 'CONTROL: an unmarked folder is not the guide');
+    const res = setupAssistant.seedSetupAssistant({ createAgent: createdOk([]), hasConnectedAccount: CONNECTED });
+    assert.equal(res.marked, true);
+    assert.equal(setupAssistant.isGuideFolder('Josh'), true);
+    assert.equal(setupAssistant.isGuideFolder('Someone'), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('guideName: null until seeded, then the name the seed recorded', () => {
   assert.equal(setupAssistant.guideName(), null);
   setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });

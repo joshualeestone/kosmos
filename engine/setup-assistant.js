@@ -60,6 +60,15 @@ const SETUP_ROLE_KEY = 'setup';
    travels with it; the role's label says the same. */
 const GUIDE_NAME = 'Josh';
 const GUIDE_TAG = "Josh's AI";
+/* Tried only when GUIDE_NAME is taken (Josh running his own build most likely has an
+   agent called Josh already): the seed runs once, so a refused name would otherwise mean
+   no guide ever, with nothing saying why. */
+const GUIDE_FALLBACK_NAME = 'Josh AI';
+
+/* A file the seed drops in the guide's own folder. The page route writes only where it
+   finds this, so a guide that was deleted (its folder goes with it) never has its page
+   reports land in a later, unrelated agent that happens to take the same name. */
+const GUIDE_MARKER = '.kosmos-setup-guide';
 
 /* Where the bundled picture of Josh lives: web/icons/setup-guide-avatar.<ext>,
    inside web/ so the app bundle ships it (tools/build-kosmos-bundle.sh copies web/
@@ -140,6 +149,29 @@ function copyGuideAvatar(agentName, dir) {
   } catch { return false; }
 }
 
+function guideFolder(agentName) {
+  try {
+    const file = require('./instructions').fileFor(agentName);
+    return typeof file === 'string' && file ? path.dirname(file) : null;
+  } catch { return null; }
+}
+
+/* Mark the freshly-created guide's folder. Best-effort: without it the page route
+   answers 409 rather than write somewhere it cannot vouch for. */
+function markGuideFolder(agentName) {
+  const dir = guideFolder(agentName);
+  if (!dir) return false;
+  try { fs.writeFileSync(path.join(dir, GUIDE_MARKER), `${agentName}\n`, { flag: 'w' }); return true; }
+  catch { return false; }
+}
+
+/* Is this agent's folder the one the seed made for the guide? */
+function isGuideFolder(agentName) {
+  const dir = guideFolder(agentName);
+  if (!dir) return false;
+  try { return fs.lstatSync(path.join(dir, GUIDE_MARKER)).isFile(); } catch { return false; }
+}
+
 /* The guide's agent name as recorded when it was seeded, or null (never seeded,
  * or a flag we cannot read). The page-context route writes only for this agent. */
 function guideName() {
@@ -162,7 +194,6 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
   if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
-  const name = GUIDE_NAME;
 
   // A live agent needs a model. Gate on a connected account rather than create a
   // KeepAlive agent that would loop on auth failure (see the header note).
@@ -171,17 +202,25 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   if (!connected) return { seeded: false, reason: 'no connected account to run the assistant on' };
 
   let out;
-  try {
-    out = createAgent({
-      name,
-      role: SETUP_ROLE_KEY,
-      createdBy: 'kosmos',
-      purpose: `default Kosmos setup guide, ${GUIDE_TAG} (auto-created on first-run, #3034)`,
-    });
-  } catch (err) {
-    // createAgent is not expected to throw (it returns a refusal outcome), but
-    // if it does, swallow it -- onboarding has already completed.
-    return { seeded: false, reason: 'create threw: ' + String((err && err.message) || err) };
+  let name;
+  for (const candidate of [GUIDE_NAME, GUIDE_FALLBACK_NAME]) {
+    name = candidate;
+    try {
+      out = createAgent({
+        name,
+        role: SETUP_ROLE_KEY,
+        createdBy: 'kosmos',
+        purpose: `default Kosmos setup guide, ${GUIDE_TAG} (auto-created on first-run, #3034)`,
+      });
+    } catch (err) {
+      // createAgent is not expected to throw (it returns a refusal outcome), but
+      // if it does, swallow it -- onboarding has already completed.
+      return { seeded: false, reason: 'create threw: ' + String((err && err.message) || err) };
+    }
+    /* Only a TAKEN name moves on to the fallback; any other refusal (no runner) would
+       refuse the fallback the same way. The sentence is create.js's own. */
+    const taken = out && out.outcome !== create.OUTCOME.CREATED && /already an agent called/.test(String(out.because || ''));
+    if (!taken) break;
   }
 
   if (!out || out.outcome !== create.OUTCOME.CREATED) {
@@ -191,13 +230,17 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   }
 
   const avatarCopied = copyGuideAvatar(out.name || name, avatarDir);
-  return { seeded: true, name: out.name || name, avatarCopied };
+  const marked = markGuideFolder(out.name || name);
+  return { seeded: true, name: out.name || name, avatarCopied, marked };
 }
 
 module.exports = {
   SETUP_ROLE_KEY,
   GUIDE_NAME,
+  GUIDE_FALLBACK_NAME,
   GUIDE_TAG,
+  GUIDE_MARKER,
+  isGuideFolder,
   GUIDE_AVATAR_BASE,
   guideAvatarPath,
   guideName,

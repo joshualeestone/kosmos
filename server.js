@@ -9582,12 +9582,13 @@ const server = http.createServer((req, res) => {
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
       /* #3034: GATED OFF pending Josh's direction -- the why (and the release
          timing) lives with FIRSTRUN_AUTOCREATE_ENABLED in engine/setup-assistant.js,
-         not repeated here. WHEN ENABLED, this seeds the one-time setup-assistant
-         agent (named after the user, on their own connected account), same posture
-         as the welcome seed above: once-ever, best-effort, and it MUST NOT throw or
-         block because onboarding has already succeeded. It skips silently with no
-         connected Claude account, no saved user name, or if already seeded, and the
-         flag file is written only on a real create, so a skip leaves nothing behind. */
+         not repeated here. WHEN ENABLED, this seeds the one-time setup guide (Josh's
+         AI: his name and picture, on the user's own connected account; see
+         engine/setup-assistant.js), same posture as the welcome seed above: once-ever,
+         best-effort, and it MUST NOT throw or block because onboarding has already
+         succeeded. It skips silently with no connected Claude account or if already
+         seeded, and the flag file is written only on a real create, so a skip leaves
+         nothing behind. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
           const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
@@ -13434,6 +13435,43 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #3034: tell the setup guide which screen the person is on (Josh, 2026-09-24
+   * 16:05: "if it was like context aware for what page you were on that would be
+   * dope"). The help bubble posts here when it opens and as the person moves;
+   * engine/pagecontext.js writes the report beside the guide's instructions, and
+   * the guide's role tells it to read that before answering.
+   *
+   * 🔑 A FILE, NOT A LINE ON THE MESSAGE: the chat route records exactly what the
+   * person typed, and a prefix would put words in the thread they never wrote.
+   * Only the seeded guide is ever written to: the name the seed recorded
+   * (setupAssistant.guideName()), and only while that agent's folder still carries
+   * the seed's marker (isGuideFolder), so it cannot drop a file into any other
+   * agent's folder whatever the body says, including a later agent that took the
+   * name of a deleted guide.
+   * Until the first-run seed is switched on no install has a guide, so 404 is the
+   * normal answer and the bubble treats it as "no guide", not as an error.
+   */
+  if (pathname === '/api/setup-guide/page' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const guide = setupAssistant.guideName();
+        if (!guide) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
+        /* The recorded name is not enough: a guide deleted and a new agent given the same
+           name would otherwise receive the reports. Only the folder the seed marked. */
+        if (!setupAssistant.isGuideFolder(guide)) { sendJson(res, 409, { error: 'the setup guide is not on this computer any more' }); return; }
+        const pageContext = require('./engine/pagecontext');
+        const out = pageContext.write(guide, body);
+        if (out.ok) { sendJson(res, 200, { ok: true }); return; }
+        sendJson(res, out.bad ? 400 : 409, { error: out.because });
+      })
+      .catch((err) => sendJson(res, err && err.status ? err.status : 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
+
+  /**
    * Show a person where their stored dialogue lives (kosmos#969).
    *
    * Josh, 2026-08-26: Project Settings already has "Show me where the work
@@ -13452,35 +13490,6 @@ const server = http.createServer((req, res) => {
    * anything, and `open` on a path that does not exist would report a Finder
    * failure for a working install.
    */
-  /**
-   * #3034: tell the setup guide which screen the person is on (Josh, 2026-09-24
-   * 16:05: "if it was like context aware for what page you were on that would be
-   * dope"). The help bubble posts here when it opens and as the person moves;
-   * engine/pagecontext.js writes the report beside the guide's instructions, and
-   * the guide's role tells it to read that before answering.
-   *
-   * 🔑 A FILE, NOT A LINE ON THE MESSAGE: the chat route records exactly what the
-   * person typed, and a prefix would put words in the thread they never wrote.
-   * Only the seeded guide is ever written to (setupAssistant.guideName()), so this
-   * cannot drop a file into any other agent's folder whatever the body says.
-   */
-  if (pathname === '/api/setup-guide/page' && req.method === 'POST') {
-    readBody(req)
-      .then((buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
-        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const guide = setupAssistant.guideName();
-        if (!guide) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
-        const pageContext = require('./engine/pagecontext');
-        const out = pageContext.write(guide, body);
-        if (out.ok) { sendJson(res, 200, { ok: true }); return; }
-        sendJson(res, out.bad ? 400 : 409, { error: out.because });
-      })
-      .catch((err) => sendJson(res, err && err.status ? err.status : 400, { error: (err && err.message) || 'we could not read that request' }));
-    return;
-  }
-
   if (pathname === '/api/chats/reveal' && req.method === 'POST') {
     const chat = require('./engine/chat');
     const dir = chat.chatsDir();

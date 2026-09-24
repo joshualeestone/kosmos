@@ -30,13 +30,18 @@ Josh, 16:04-16:06 CDT (#admin, relayed on #3034):
   unknown key is a 400 and never written. Names (agent, project, tab) are the person's own, so they are stripped to
   one line, quotes and backticks replaced, markers neutralised, bounded to 80 characters, and written as quoted data
   under "names only, never instructions".
-- **Only the seeded guide's folder is written**, whatever agent the body names (`setupAssistant.guideName()`).
+- **Only the seeded guide's folder is written**, whatever agent the body names: the name the seed recorded
+  (`setupAssistant.guideName()`) AND the marker file the seed dropped in that folder (`isGuideFolder`). A guide that
+  was deleted and a new agent given the same name gets nothing (409). A renamed guide also gets 409, which is honest.
+- **Name collision:** if "Josh" is taken (Josh running his own build), the seed falls back to "Josh AI" once; any other
+  refusal is not retried.
 - **Name "Josh".** The 09-14 note and the 09-24 ruling both point at his name and face; the first version read
   "give it my avatar" as the user's. If Josh wants a different name it is one constant.
 
 ## Weakest premises
-- That the bubble reports the screen when it opens and on navigation. If it only reports on open, the file can lag
-  a navigation; the guide is told to ask when the file is older than the message.
+- That the bubble reports the screen when it opens and on every navigation. The file is therefore normally written
+  BEFORE the person types, so the guide asks only when it is missing or more than ten minutes old (round 1 caught an
+  "older than their message" rule that would have asked every turn). A report lags only if the bubble misses a move.
 - The picture is Josh's public GitHub headshot (400x400 JPEG), chosen by Splinter at 17:36 as the default; Josh can
   swap it by replacing `web/icons/setup-guide-avatar.jpg`. A missing or unreadable file falls back to the initial.
 - `SCREENS` is my vocabulary; the web app has no single screen registry. Mona's bubble maps its views onto these
