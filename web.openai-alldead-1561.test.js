@@ -87,7 +87,8 @@ test('#1561 both call sites actually use the shared predicate (it is wired, not 
   assert.match(fillBody, /SWITCH_ACCT_ALLDEAD/, 'the all-dead sentence is not set in fillSwitchAccounts');
 
   const chg = PAGE.indexOf('async function changeProviderNow(');
-  const chgBody = PAGE.slice(chg, chg + 2500);
+  // #3566 added the Gemini/Grok refusal beside this one, so the window is wider.
+  const chgBody = PAGE.slice(chg, chg + 4500);
   assert.match(chgBody, /want === 'openai' && openaiAllDead\(ACCOUNTS, ACCOUNTS_UNREADABLE\)/,
     'changeProviderNow does not guard on openaiAllDead, so it can still submit onto a dead account');
   // The guard must return BEFORE the fetch, or it does not actually refuse.

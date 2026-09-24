@@ -271,3 +271,15 @@ test('#3566 store CONTROL: a FRESH claim (an add in flight) is respected, the ne
   assert.equal(r.status, 200);
   assert.notEqual((await r.json()).account.dir, spot.dir, 'an in-flight claim was taken over');
 });
+
+test('#3566 store: a reused slot does not hand the new account an earlier account\'s display name', async () => {
+  geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const spot = geminiAccounts.nextWorkDir();
+  fs.mkdirSync(spot.dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(spot.dir, '.kosmos-name'), 'Somebody Else');
+  const r = await post('/api/accounts/gemini/apikey', { key: 'AIzaSy-reused-name-key-34343434' });
+  assert.equal(r.status, 200);
+  const b = await r.json();
+  assert.equal(b.account.dir, spot.dir, 'CONTROL: the reused slot must be the one taken, or this proves nothing');
+  assert.equal(geminiAccounts.readName(b.account.dir), null, 'the new account inherited an old name');
+});

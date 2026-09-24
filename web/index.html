@@ -35387,6 +35387,18 @@ async function changeProviderNow(say) {
     tell(SWITCH_ACCT_ALLDEAD, false);
     return;
   }
+  /* #3566: the Gemini/Grok gate turned this option off after it was picked (a re-read found no
+     account for it). Posting now would send no account and land the agent on the machine's own
+     unchecked key, the thing the gate exists to prevent; refuse instead, and say why. */
+  {
+    const wantOpt = [...sel.options].find((o) => o.value === want);
+    if (keyOnlyProvider(want) && wantOpt && wantOpt.disabled) {
+      const line = 'There is no ' + switchKeyedWord(want) + ' account connected, so there is nothing to switch onto. Add one in Settings, AI Models.';
+      if (msg) { msg.textContent = line; SWITCH_ACCT_SAID = line; }
+      tell(line, false);
+      return;
+    }
+  }
   const forAgent = CURRENT.sessionName;
   go.disabled = true;
   sel.disabled = true;
@@ -35620,7 +35632,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            sign-in", which reads as OPENAI choosing the account and is false in every
            reachable state: when the menu shows, the page sends the visible row; when
            it is hidden, the COMPUTER's default applies, not the provider's. */
-         ? 'Its Claude model and account choices do not cross: OpenAI picks its own model, '
+         ? 'Its ' + fromWord + ' model and account choices do not cross: OpenAI picks its own model, '
            + ((() => {
              const on = switchAcctShown();
              if (on) return 'and it will run on ' + on + '.';
@@ -35693,7 +35705,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
               if (switchAcctSending()) return 'and it runs on the ' + label + ' account shown above.';
               return 'and with no ' + label + ' account shown above it runs on this computer\'s own ' + label + ' key, if one is set up.';
             })())
-        : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
+        : 'It runs on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
     /* #2463 follow-up (Mona): the provider switch shows the SAME interstitial as the model
        switch, worded for what it is doing -- "Setting up OpenAI" (which may install/authorise)
@@ -35752,9 +35764,19 @@ document.getElementById('d-account-go').addEventListener('click', () => {
   const sel = document.getElementById('d-account');
   if (!CURRENT || !sel.value) return;
   const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent.trim() : sel.value;
+  /* #3566: the same split the move route answers with afterwards. A Codex, Gemini or Grok
+     account keeps its own chat, so only the files and projects travel; a Claude move keeps
+     its shared history. Promising the Claude sentence here and taking it back after the
+     restart is the one thing this screen must not do. */
+  const movingKeyed = acctMoveWorld(CURRENT, ACCOUNTS).keyedProvider;
+  const moveChat = movingKeyed === 'openai' ? 'Codex' : movingKeyed ? switchKeyedWord(movingKeyed) : '';
   changeDialog({
     title: 'Move ' + agentShown() + ' to ' + label + '?',
-    small: agentShown() + ' restarts on that account. Everything it has done comes with it. Anything it was part way through ends, including anything it agreed to and has not done yet.',
+    small: agentShown() + ' restarts on that account. '
+      + (moveChat
+        ? 'Its files and projects come with it; its earlier ' + moveChat + ' chat stays with the account it was on. '
+        : 'Everything it has done comes with it. ')
+      + 'Anything it was part way through ends, including anything it agreed to and has not done yet.',
     go: 'Move and restart',
     run: (say) => moveAccountNow(say),
   });

@@ -244,3 +244,32 @@ test('#3566 (source): a machine whose only connected provider is Gemini/Grok ope
   assert.equal(choose([{ provider: 'xai', dir: '/h/.grok-work1', connection: { state: 'none' } }]), undefined,
     'CONTROL: a rejected key must not become the default');
 });
+
+test('#3566: every inline copy of the keyed-provider set agrees with ACCT_KEYED_ROUTE', () => {
+  const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const keyed = Object.keys(api.ACCT_KEYED_ROUTE).sort();
+  // The self-contained helpers that restate the set, and the server's copies of it.
+  const regexCopies = PAGE.match(/\/\^\((openai\|google\|xai)\)\$\/i/g) || [];
+  assert.ok(regexCopies.length >= 2, 'CONTROL: the inline regex copies were not found; re-anchor');
+  for (const r of regexCopies) assert.deepEqual(r.slice(3, -4).split('|').sort(), keyed, 'a regex copy drifted: ' + r);
+  const maps = [
+    ...(PAGE.match(/\(\{ codex: 'openai', gemini: 'google', grok: 'xai' \}\)/g) || []),
+    ...(SERVER.match(/\(\{ codex: 'openai', gemini: 'google', grok: 'xai' \}\)/g) || []),
+  ];
+  assert.ok(maps.length >= 2, 'CONTROL: the runner maps (acctMoveWorld, accountForAgent) were not found; re-anchor');
+  const chat = SERVER.match(/const moveChatWord = wrote\.account\s*&& \((\{[^}]*\})\)/);
+  assert.ok(chat, 'the move route chat-word map moved; re-anchor');
+  // eslint-disable-next-line no-new-func
+  const chatKeys = Object.keys(new Function('return ' + chat[1])()).sort();
+  assert.deepEqual(chatKeys, keyed, 'the move route chat-word map must name exactly the keyed providers');
+});
+
+test('#3566: modelLine, run, never prefixes Claude to a Gemini or Grok model', () => {
+  const at = PAGE.indexOf('function modelLine(');
+  // eslint-disable-next-line no-new-func
+  const modelLine = new Function('cardStOf', grab('function modelLine(') + '\nreturn modelLine;')(() => ({ pres: 'on' }));
+  assert.ok(at > -1);
+  assert.equal(modelLine({ runner: 'gemini', modelName: 'gemini-2.5-pro' }), 'gemini-2.5-pro');
+  assert.equal(modelLine({ runner: 'grok' }), 'Grok');
+  assert.equal(modelLine({ runner: 'claude', modelName: 'Opus 5' }), 'Claude Opus 5', 'CONTROL: a Claude model keeps its prefix');
+});

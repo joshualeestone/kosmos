@@ -1728,6 +1728,9 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
                drop it so the slot is not skipped forever. A live add finishes in seconds. */
             try { if (Date.now() - fs.statSync(claimFile).mtimeMs > CLAIM_STALE_MS) fs.unlinkSync(claimFile); } catch { /* none, or gone */ }
             fs.closeSync(fs.openSync(claimFile, 'wx', 0o600));
+            /* A reused keyless slot may still hold an earlier account's display name; a new
+               account must not inherit it (it gets its own below, or none). */
+            try { fs.unlinkSync(path.join(spot.dir, '.kosmos-name')); } catch { /* none */ }
             claimed = spot.dir;
             named = { ok: true, label: spot.label, dir: spot.dir };
           } catch (err) { if (err && err.code === 'EEXIST') exclude.add(spot.dir); else failed = true; }
@@ -7043,7 +7046,7 @@ const server = http.createServer((req, res) => {
   }
 
   /* #3296 accounts slice: add a NAMED Gemini account from a pasted key. Backend
-     route (the connect-UI is the follow-on); the shared helper carries the flow. */
+     route (Settings, AI Models posts here since #3566); the shared helper carries the flow. */
   if (pathname === '/api/accounts/gemini/apikey' && req.method === 'POST') {
     handleApikeyAccountStore(req, res, { mod: geminiAccounts, runner: 'gemini', providerLabel: 'Gemini' });
     return;
