@@ -214,6 +214,10 @@ function publishComment(candidate, opts = {}) {
   // before the guard). postId is safe because the store existence-checks it against a
   // real post; parentId has no such gate, so it must be a real comment-id shape (a
   // UUID) here. null/absent/'' means a top-level comment (the store coerces '' -> null).
+  // NOTE the deliberate asymmetry: this validates the SHAPE (which closes the leak --
+  // a UUID cannot carry free text), not EXISTENCE. A syntactically-valid but
+  // nonexistent parentId is a dangling reply, a threading-integrity concern for the
+  // store/UI to gate later (as the store already existence-checks postId), not a leak.
   if (parentId != null && parentId !== '' && !UUID_RE.test(String(parentId))) {
     return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'parentId must be a comment id' };
   }
