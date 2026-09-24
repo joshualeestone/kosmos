@@ -41,21 +41,12 @@ const a11ystatus = require('./a11ystatus');
 const REQUEST_FILE = {
   a11y: 'a11y-prompt-request',
   'file-access': 'file-access-prompt-request',
-  /* #2911/#3113: the tmux accessibility/automation prompt. Distinct from `a11y` (which fires
-     AXIsProcessTrusted inside the app executable and so registers the KOSMOS APP -- the
-     calling binary, #2451). This one asks the native watcher to run an osascript
-     Terminal/System-Events automation op UNDER the bundled tmux, so macOS attributes the
-     prompt to the RESPONSIBLE process (tmux) -- the binary agents actually run under, which
-     is what gets prompted at runtime when engine/terminal.js drives Terminal.app. Firing it
-     lets tmux acquire its own Accessibility TCC row (so the gate row can eventually flip to
-     Activated). #3221: it is fired UP FRONT when the S3 Automation step is ENTERED (client
-     frFireTmuxA11yRegister), so tmux is listed by the time the person reaches its Turn On, which
-     now only deep-links to the Accessibility pane. (#3113 had fired it from Turn On instead,
-     having rejected an entry-time fire over a Playwright networkidle hang; that was re-measured
-     for #3221 and does not reproduce -- see .claude/plans/ick-3221-tmux-a11y.md.)
-     (The exact osascript payload + which TCC service(s) fire is pinned by a fresh-install
-     verify; the native hatch owns that string.) */
-  'tmux-a11y': 'tmux-a11y-prompt-request',
+  /* #3282: the `tmux-a11y` -> `tmux-a11y-prompt-request` entry was REMOVED. It named the
+     onboarding pre-register prompt, written only by the deleted /api/tmux-a11y-prompt route
+     (whose web trigger #3113/#3298 removed) and consumed by the deleted native
+     spawnTmuxAutomationPrompt. The RUNTIME automation path (engine/terminal.js osascript
+     under tmux, where tmux acquires its own Accessibility row at first agent action) is
+     unrelated and untouched. */
   /* #2912: the on-demand a11y RE-CHECK. Distinct from `a11y` (which fires the axPROMPT to
      GRANT, then refreshes the verdict). This one asks the native watcher to run ONLY the
      axcheck (AXIsProcessTrusted, no prompt) and rewrite a11y-status.json AT ONCE, so the
