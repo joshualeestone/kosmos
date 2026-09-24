@@ -38,6 +38,9 @@
 #   A18 the redirect probe gets no status at all (transport error) -> a NOTE, strict fallback
 #   A19 static path, committed pointer whose `version` (0.6.99) disagrees with its checked name
 #       (0.6.40): the staged compare uses the NAME, so a pending 0.6.55 staged build is still verified
+#   A20 the same on the STAGED side: a staging pointer whose `version` says 0.6.30 but whose name is
+#       0.6.55 is not treated as superseded
+#   A21 R2's zip bytes do not hash to the sha its pointer and sidecar agree on -> refuse
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
@@ -84,6 +87,10 @@ case "$url" in
   *)
     rel="${url#"$HOST_URL"/}"
     served_file="$LIVE_DIR/$rel"
+    if [ "$rel" = dist/latest-win.json ] && [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-fail" ]; then
+      [ -n "$wfmt" ] && printf '000 '
+      exit 7   # curl's "failed to connect": the real transport-error shape
+    fi
     if [ "$rel" = dist/latest-win.json ] && [ "$follow" = 0 ] && [ -f "$LIVE_DIR/.probe-status" ]; then
       [ -n "$wfmt" ] && printf '%s ' "$(cat "$LIVE_DIR/.probe-status")"
       exit 0
@@ -143,11 +150,13 @@ sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 #   redirect-same     - as redirect, but R2 serves the committed build (pointer names WZ_OLD)
 #   redirect-stagedrift - as redirect, and latest-win-staging.json is served from R2 with other bytes
 #   redirect-behind   - as redirect, but R2 serves an OLDER build (0.6.30) than the committed 0.6.40
-#   redirect-probenone - as redirect, but the un-followed probe gets no status (transport error)
+#   redirect-probenone - as redirect, but the un-followed probe fails at transport (curl exit 7)
+#   redirect-badbytes - as redirect, but R2's WZ_NEW bytes change after its sha was published
 #   static-versionskew - static, the committed pointer's version field says 0.6.99, and the staged
 #                        zip is unservable
 # $2 (optional) staged: "" none | old (0.6.45, absent from R2) | new (0.6.55, in R2) | new-missing
 #    | old-withnew (old, and the site ALSO commits WZ_NEW so KOSMOS_WIN_ZIP can name it)
+#    | new-skewed (new-missing, but the staging pointer's version field says 0.6.30)
 make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   local mode="$1" staged="${2:-}" s live r2 realsha oldsha newsha sv sz
   s="$(mktemp -d "$T/site.XXXXXX")"; live="$(mktemp -d "$T/live.XXXXXX")"; r2="$(mktemp -d "$T/r2.XXXXXX")"
@@ -190,6 +199,9 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
     printf 'STAGED-%s\n' "$sv" > "$s/dist/$sz"
     ( cd "$s/dist" && shasum -a 256 "$sz" > "$sz.sha256" )
     write_win_ptr "$s/dist/latest-win-staging.json" "$sv" "$(sha_of "$s/dist/$sz")"
+    if [ "$staged" = new-skewed ]; then
+      printf '{"version":"0.6.30","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$(sha_of "$s/dist/$sz")" "$sz" > "$s/dist/latest-win-staging.json"
+    fi
     if [ "$staged" = new ]; then cp "$s/dist/$sz" "$s/dist/$sz.sha256" "$r2/"; fi
     if [ "$staged" = old-withnew ]; then
       printf 'WINZIP-%s\n' "$WV_NEW" > "$s/dist/$WZ_NEW"
@@ -214,7 +226,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
       [ "$mode" = redirect-badname ] && write_win_ptr "$r2/latest-win.json" "$WV_NEW/../x" "$newsha"
       [ "$mode" = redirect-nosha ] && printf '{"version":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$WV_NEW" "$WZ_NEW" > "$r2/latest-win.json"
       [ "$mode" = redirect-probe500 ] && printf '500' > "$live/.probe-status"
-      [ "$mode" = redirect-probenone ] && : > "$live/.probe-status"
+      [ "$mode" = redirect-probenone ] && : > "$live/.probe-fail"
       if [ "$mode" = redirect-behind ]; then
         printf 'WINZIP-0.6.30\n' > "$r2/kosmos-0.6.30-win-x64.zip"
         ( cd "$r2" && shasum -a 256 kosmos-0.6.30-win-x64.zip > kosmos-0.6.30-win-x64.zip.sha256 )
@@ -229,6 +241,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
         printf '%s\n' 'dist/latest-win-staging.json' >> "$live/.redirects"
         write_win_ptr "$r2/latest-win-staging.json" 0.6.44 "$newsha"
       fi
+      [ "$mode" = redirect-badbytes ] && printf 'TRUNCATED\n' > "$r2/$WZ_NEW"
       [ "$mode" = redirect-badsum ] && printf '%s  %s\n' 1111111111111111111111111111111111111111111111111111111111111111 "$WZ_NEW" > "$r2/$WZ_NEW.sha256"
       ;;
     static-versionskew)
@@ -431,5 +444,24 @@ else
   bad "A19: the staged compare trusted the pointer's version field over the checked name (rc=$RC); out=$out"
 fi
 
+# A20) staged side: the version comes from the name (0.6.55 > prod 0.6.48), not the field (0.6.30),
+# so the pending staged build is verified, and refuses because R2 does not have it.
+read -r S L R <<<"$(make_scenario redirect new-skewed)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "the staged Windows zip kosmos-0.6.55-win-x64.zip failed served-verify"; then
+  pass "A20: a staging pointer's version field (0.6.30) does not make its 0.6.55 build look superseded (rc=$RC)"
+else
+  bad "A20: the staged compare trusted the staging pointer's version field over its name (rc=$RC); out=$out"
+fi
+
+# A21) pointer and sidecar agree, but R2's zip bytes do not hash to that sha.
+read -r S L R <<<"$(make_scenario redirect-badbytes)"
+run_deploy "$S" "$L" "$R"
+if [ "$RC" != 0 ] && has "$out" "a corrupt or partial R2 upload"; then
+  pass "A21: served zip bytes that do not match the published sha refuse (rc=$RC)"
+else
+  bad "A21: corrupt served zip bytes were not caught (rc=$RC); out=$out"
+fi
+
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
-echo "test-deploy-site-served-win-3600: all 19 arms passed"
+echo "test-deploy-site-served-win-3600: all 21 arms passed"

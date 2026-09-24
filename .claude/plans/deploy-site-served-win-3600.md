@@ -14,7 +14,8 @@ correct. The post-deploy served-verify checks the Windows zip named by the site'
 Post-deploy only: measure whether `$HOST/dist/latest-win.json` is a redirect (curl without `-L`).
 - Redirect: read the served pointer through it, verify the zip it names plus its `.sha256`, and
   require the served `.sha256` to equal the sha the served pointer advertises (the Windows updater
-  fetches the sidecar first and refuses a mismatch). Print a NOTE naming the stale committed build.
+  fetches the sidecar first and refuses a mismatch), and the served zip BYTES to hash to it (the
+  R2 zip is never hashed anywhere else; about 40 MB, about a second). Print a NOTE naming the stale committed build.
 - Not a redirect: unchanged. git archive ships the committed pointer, so `$WINZIP` is what is served.
 - `KOSMOS_WIN_ZIP` set: unchanged (operator escape hatch).
 
@@ -62,7 +63,7 @@ The pre-deploy committed-pointer vs committed-bytes agreement (#2571) still runs
 
 ## Tests
 
-`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Nineteen arms with a redirect-aware
+`tools/test-deploy-site-served-win-3600.sh`, wired into `test:shell`. Twenty-one arms with a redirect-aware
 curl stub: the card's shape (A1) with a control pinning the old semantics (A2), an unserved served
 zip (A3), a pointer/sidecar disagreement (A4), the static path unchanged (A5) and its control (A6),
 a superseded staged build skipped (A7), a newer served staged build verified (A8) and its control
@@ -71,7 +72,8 @@ check kept for a superseded build (A12), a 500 probe falling back to the strict 
 wrong-shaped served name (A14), a redirect naming the committed build (A15), and the staged compare
 using the KOSMOS_WIN_ZIP override's version (A16), a committed build newer than R2 flagged as
 unpublished (A17), a status-less probe falling back strictly (A18), and the prod version read from the checked
-name rather than a pointer's version field (A19).
+name rather than a pointer's version field (A19), the same on the staged side (A20), and served
+zip bytes that do not hash to the published sha (A21).
 Red-capability: against origin/main's deploy-site.sh, A1 fails with the exact prod message.
 
 ## Status

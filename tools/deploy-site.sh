@@ -521,8 +521,6 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
       case "$_swv" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the served latest-win.json names '$_swv', which is not a bare file name -- the deploy already ran, investigate (#3600)."; exit 1 ;; esac
       [ -n "$WIN_SERVED_SHA" ] || { echo "deploy-site: the served (redirected) latest-win.json names $_swv but no sha256 -- investigate (#3600)."; exit 1; }
       WIN_VERIFY=$_swv
-      # The version of the build users get, read from the name just checked (not the pointer's
-      # separate `version` field, which nothing here checks against the name).
       WIN_PROD_VERSION=$(printf '%s' "$WIN_VERIFY" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
       _wcv=$(printf '%s' "$WINZIP" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
       if [ "$WIN_VERIFY" != "$WINZIP" ]; then
@@ -560,7 +558,15 @@ served_verify_asset_ok "$HOST/dist/$WIN_VERIFY.sha256" "the Windows zip checksum
 if [ -n "$WIN_SERVED_SHA" ]; then
   _wsc=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$WIN_VERIFY.sha256") || { echo "deploy-site: could not re-read the served $WIN_VERIFY.sha256 -- the deploy already ran, investigate (#3600)."; exit 1; }
   _wsc=$(printf '%s' "$_wsc" | awk '{print $1; exit}' | tr '[:upper:]' '[:lower:]')
-  [ "$_wsc" = "$(printf '%s' "$WIN_SERVED_SHA" | tr '[:upper:]' '[:lower:]')" ] || { echo "deploy-site: the served latest-win.json advertises sha $WIN_SERVED_SHA for $WIN_VERIFY but its served .sha256 says '${_wsc:-nothing}' -- the Windows updater would refuse this update. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
+  _wwant=$(printf '%s' "$WIN_SERVED_SHA" | tr '[:upper:]' '[:lower:]')
+  [ "$_wsc" = "$_wwant" ] || { echo "deploy-site: the served latest-win.json advertises sha $WIN_SERVED_SHA for $WIN_VERIFY but its served .sha256 says '${_wsc:-nothing}' -- the Windows updater would refuse this update. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
+  # And the served zip BYTES must hash to it: this zip came from R2, so nothing earlier in this script
+  # hashed it (derive_committed_win_versioned hashes only the committed zip). ~40 MB, about a second.
+  # Fetch to a file, never `curl | shasum`, so a failed fetch is not hidden by the pipe's status.
+  _wzf=$(mktemp "${TMPDIR:-/tmp}/deploy-site-winzip.XXXXXX")
+  curl -fsSL --connect-timeout 10 --max-time 300 -H 'Cache-Control: no-cache' "$HOST/dist/$WIN_VERIFY" -o "$_wzf" || { echo "deploy-site: could not fetch the served $WIN_VERIFY to hash it -- the deploy already ran, investigate (#3600)."; rm -f "$_wzf"; exit 1; }
+  _wzgot=$(shasum -a 256 < "$_wzf" | awk '{print $1}'); rm -f "$_wzf"
+  [ "$_wzgot" = "$_wwant" ] || { echo "deploy-site: the served $WIN_VERIFY hashes to '${_wzgot:-nothing}' but its pointer and .sha256 say $_wwant -- a corrupt or partial R2 upload; every Windows update would refuse it. The deploy already ran; investigate the R2 publish (#3600)."; exit 1; }
 fi
 # The STAGED Windows build, served whole: the Windows box verifies it from these served copies
 # before any promote. The pointer is also compared BY CONTENT with the committed one, so a served
@@ -573,7 +579,8 @@ fi
 # build is verified in full, because the Windows box verifies that one from these served copies.
 WIN_STAGED_SUPERSEDED=0
 WIN_STAGED_VERSION=""
-[ -z "$WIN_STAGED" ] || WIN_STAGED_VERSION=$(ptr_version "$(git -C "$SITE" show "$H:dist/latest-win-staging.json" 2>/dev/null)")
+# From the sha-verified NAME, like the prod side, not the staging pointer's `version` field.
+[ -z "$WIN_STAGED" ] || WIN_STAGED_VERSION=$(printf '%s' "$WIN_STAGED" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p')
 if [ -n "$WIN_STAGED" ] && [ -n "$WIN_STAGED_VERSION" ] && [ -n "$WIN_PROD_VERSION" ] \
    && [ "$(printf '%s\n%s\n' "$WIN_STAGED_VERSION" "$WIN_PROD_VERSION" | sort -V | tail -1)" = "$WIN_PROD_VERSION" ]; then
   echo "deploy-site: WARNING (#3600): the committed latest-win-staging.json names $WIN_STAGED ($WIN_STAGED_VERSION), which is not newer than the prod Windows build $WIN_PROD_VERSION. It is superseded, so its zip and checksum are not served-verified (the staging pointer still is). The next Windows staging publish replaces it." >&2
