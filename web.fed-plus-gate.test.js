@@ -70,7 +70,7 @@ test('#fedgate: the gate CSS + stamping + prompt are wired into the page', () =>
   assert.doesNotMatch(PAGE, /html:not\(\[data-fed-ui="show"\]\)[^{]*\.pj-mode[^{]*\{ display: none/, 'the Create/Join toggle is no longer hidden by the fed gate (#3495: always shows)');
   assert.match(PAGE, /html:not\(\[data-fed-ui="signup"\]\) #pj-plus-signup/, 'sign-up prompt gated to signup mode');
   // #3495: the shared Plus-gate modal + its trigger are wired.
-  assert.match(SCRIPT, /function showPlusGate\(kind\)/, 'showPlusGate exists');
+  assert.match(SCRIPT, /function showPlusGate\(kind(?:,\s*opener)?\)/, 'showPlusGate exists (kind, plus the optional opener that focus returns to)');
   assert.match(SCRIPT, /function fedShow\(\)/, 'the fedShow behaviour gate exists');
   // The prompt markup + its route into the in-app Plus section (no hardcoded domain).
   assert.match(PAGE, /id="pj-plus-signup"/, 'the sign-up prompt element exists');
