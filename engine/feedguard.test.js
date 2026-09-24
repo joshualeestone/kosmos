@@ -253,14 +253,6 @@ test('a huge body is held (oversize) and does not hang the content scan', () => 
   assert.ok(v.findings.some((x) => x.cls === 'oversize' && x.field === 'body'));
 });
 
-/* #3608: the email pattern used to be quadratic on a long run of local-part
-   characters with no "@", which is what made the test above fail on a busy
-   Mac. The inputs here are 65536 characters, four times SCAN_CAP, because
-   this tests the regex itself and a quadratic cost is sixteen times larger
-   there: measured on this fleet's Mac at load 7 to 14, the unanchored form
-   took 2.2 to 3.8 s on each of the first three inputs and the anchored one at
-   most 1 ms, so a 200 ms bound is over ten times away from both. The fourth
-   input exercises the domain half after "@"; it is fast for both forms. */
 /* A seeded generator for the equivalence tests, so a failure reproduces.
    Math.imul keeps the multiply in 32 bits. The first version multiplied as
    floats; the product passed 2^53, the low bits were lost, and the sequence
@@ -276,6 +268,14 @@ test('the seeded generator does not cycle within a test run', () => {
   assert.equal(seen.size, 50000);
 });
 
+/* #3608: the email pattern used to be quadratic on a long run of local-part
+   characters with no "@", which is what made the test above fail on a busy
+   Mac. The inputs here are 65536 characters, four times SCAN_CAP, because
+   this tests the regex itself and a quadratic cost is sixteen times larger
+   there: measured on this fleet's Mac at load 7 to 14, the unanchored form
+   took 2.2 to 3.8 s on each of the first three inputs and the anchored one at
+   most 1 ms, so a 200 ms bound is over ten times away from both. The fourth
+   input exercises the domain half after "@"; it is fast for both forms. */
 const EMAIL = fg.PATTERNS.find((p) => p.cls === 'email').re;
 // A deliberate copy of the pre-#3608 form. A later change to the email pattern
 // that is meant to change what it matches must update this copy too.
@@ -334,7 +334,7 @@ test('#3609: the spelled grouped-currency check is linear on long inputs', () =>
     [chain, false],                          // the shape that was quadratic
     [chain + ' USD', true],                  // the same chain, now an amount
     [' '.repeat(65536) + 'USD', false],      // a long look back over whitespace
-    ['1,234 USDx'.repeat(6554), false],      // thousands of words, none a match
+    ['1,23 USD '.repeat(7000), false],       // thousands of words, each looked back from and rejected
     ['1.'.repeat(32768) + 'USD', false],     // a long look back over a fraction
   ];
   for (const [s, want] of inputs) {
@@ -350,8 +350,9 @@ test('#3609: the spelled grouped-currency check finds exactly what the old regex
   const fixed = [
     '249,000 USD', '1,234.50 euros', 'a,123,456 USD', '1234,567 USD', '1,2345 USD', '1,234USD',
     '1,234 USDX', '1,234.5 6 USD', '1,234.567,890 USD', '1,234 DOLLARS', '1,234 dollarss',
-    '1,234 GBP', '1,234\n\tpounds', '12,34 USD', '1,234. USD', '.1,234 usd', '1,234.USD',
+    '1,234\u00a0GBP', '1,234\n\tpounds', '12,34 USD', '1,234. USD', '.1,234 usd', '1,234.USD',
     '9,999,999,999 EUR!', 'USD', '', '1,234', ',234 USD', '1,234 US dollars',
+    '1,234\ufeffUSD', '1,234\u2028usd', '1,234.5\u00a0\u00a0euros',
   ];
   for (const s of fixed) assert.equal(SPELLED(s), SPELLED_REGEX.test(s), JSON.stringify(s));
   // Structured strings: noise, a digit-and-separator core, an optional
@@ -368,7 +369,7 @@ test('#3609: the spelled grouped-currency check finds exactly what the old regex
     s += digits(0, 4);
     for (let k = Math.floor(rand() * 3); k > 0; k--) s += pick([',', ',', ',', '.', ' ']) + digits(1, 4);
     if (rand() < 0.4) s += pick(['.', '.', ',']) + digits(0, 3);
-    for (let k = Math.floor(rand() * 3); k > 0; k--) s += pick([' ', '\n', ' ', '\t', 'x']);
+    for (let k = Math.floor(rand() * 3); k > 0; k--) s += pick([' ', '\n', '\u00a0', '\t', '\ufeff', '\u2028', 'x']);
     s += pick(['USD', 'usd', 'Eur', 'GBP', 'dollar', 'dollars', 'euros', 'pound', 'pounds', 'US', 'dollarz', '']);
     s += pick(['', '', ' ', '.', 's', 'x', '_', '1', '!']);
     const want = SPELLED_REGEX.test(s);
