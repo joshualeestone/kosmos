@@ -96,9 +96,10 @@ _pkg_stream_file() {
   printf '%s\n%s\n%s\n' "$f" "$x" "$(wc -c < "$f" | tr -d ' ')"
   cat "$f"
 }
-# The signing identity's VALUES only (#3643): its non-comment, non-blank lines, framed like a file
-# but without the x bit. A reworded comment or a chmod must not force a re-notarise; a changed team,
-# identity or notary value must.
+# The signing identity's VALUES only (#3643): its lines that are not whole-line comments or blank,
+# framed like a file but without the x bit. A reworded whole-line comment or a chmod must not force a
+# re-notarise; a changed team, identity or notary value must. (An inline comment on a value line is
+# hashed; test-cut-sign-preflight refuses one.)
 _pkg_stream_assignments() {
   local f="${1:?}" body
   body="$(grep -v -E '^[[:space:]]*(#|$)' "$f")"

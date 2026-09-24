@@ -15,7 +15,8 @@
 #
 # ⚠️ Changing any VALUE below changes the pkg's input sha and makes the next cut rebuild, sign and
 # notarise the installer (minutes, and it needs the Installer identity and the notary key on the cut box).
-# Comments and blank lines are not hashed (lib/pkg-inputs.sh), so rewording this header costs nothing.
+# Whole-line comments and blank lines are not hashed (lib/pkg-inputs.sh), so rewording this header costs
+# nothing. Keep comments on their own lines: an inline comment on a value line IS hashed.
 #
 # What a team switch changes for people who already have Kosmos: macOS privacy grants are keyed to the
 # signer, so Files and Folders, Automation (Terminal) and Accessibility for the bundled tmux may each

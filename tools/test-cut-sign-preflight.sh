@@ -104,6 +104,9 @@ fi
 # The sweep above looks for the CURRENT values, so right after a team switch it would be blind to a
 # leftover of the OLD team. Pin the Stone Syndicate team id (built from fragments so this file does
 # not match itself) everywhere, tests included: only the lib may carry it.
+# Only whole-line comments are unhashed in the pkg input, so a value line must not carry an inline one.
+_inline="$(grep -nE '^[[:space:]]*[A-Z_]+=.*[[:space:]]#' "$REPO/tools/lib/signing-identity.sh" || true)"
+[ -z "$_inline" ] && ok "no value line in lib/signing-identity.sh carries an inline comment (it would be hashed)" || bad "an inline comment on a value line in lib/signing-identity.sh would force a pkg rebuild: $_inline"
 _retired="864QZ""69GF2"
 _ret_hits="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude -e "$_retired" "$REPO" | grep -v '/tools/lib/signing-identity.sh$' || true)"
 [ -z "$_ret_hits" ] && ok "the Stone Syndicate team id appears nowhere but the lib, tests included" || bad "the Stone Syndicate team id is named outside lib/signing-identity.sh: $_ret_hits"
