@@ -306,12 +306,14 @@ async function ensureInstalled(opts) {
   }
 }
 
-/* One Mac browser install at a time, across processes: a lock file holding the
-   owner's pid, which the owner touches every LOCK_BEAT_MS while it works. The
-   lock is taken over only when its owner is gone OR its heartbeat stopped for
-   LOCK_STALE_MS. A slow but live download keeps beating and keeps the lock; a
-   dead owner whose pid was reused by another process stops beating, so its lock
-   cannot stay stuck forever. */
+/* Mostly one Mac browser install at a time, across processes: a lock file holding
+   the owner's pid, which the owner touches every LOCK_BEAT_MS while it works. It
+   is taken over only when its owner is gone OR its heartbeat stopped for
+   LOCK_STALE_MS, so a dead owner whose pid was reused cannot hold it forever.
+   ⚠️ It is not airtight: two takers of one stale lock, or a Mac that slept through
+   a live owner's heartbeat, can leave two installers running. That costs a
+   duplicate download and nothing more, because ensureShell never removes a
+   proven install (it re-checks after the lock and again at the swap). */
 const LOCK_BEAT_MS = 60 * 1000;
 const LOCK_STALE_MS = 5 * 60 * 1000;
 function lockPath() { return path.join(homeDir(), '.shell-install.lock'); }
@@ -337,9 +339,7 @@ function takeLock() {
       let owner = 0; let quiet = 0;
       try { owner = parseInt(fs.readFileSync(lockPath(), 'utf8'), 10); quiet = Date.now() - fs.statSync(lockPath()).mtimeMs; } catch { /* raced away */ }
       if (pidAlive(owner) && quiet < LOCK_STALE_MS) { lockError = 'another browser install is already running'; return false; }
-      /* Take a stale lock by renaming it to a private name first: a rename is
-         atomic, so of two takers only one moves it, and the other cannot delete
-         the winner's new lock by mistake. */
+      /* Move a stale lock aside, then try to create ours again. */
       const mine = lockPath() + '.stale-' + process.pid;
       try { fs.renameSync(lockPath(), mine); fs.rmSync(mine, { force: true }); } catch { /* another taker won; try once more */ }
     }
@@ -366,12 +366,22 @@ function sweepLeftovers() {
       try { fs.rmSync(path.join(home, n), { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }
+  /* Only version-named folders count (a Finder .DS_Store is not a version), and
+     the one kept is the highest other version, by version order. */
   const shells = shellsDir();
+  const parts = (v) => v.split('.').map(Number);
+  const cmp = (a, b) => {
+    const x = parts(a); const y = parts(b);
+    for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+      if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
+    }
+    return 0;
+  };
   try {
-    const others = fs.readdirSync(shells).filter((v) => v !== SHELL.version)
-      .map((v) => ({ v, t: fs.statSync(path.join(shells, v)).mtimeMs }))
-      .sort((x, y) => y.t - x.t);
-    for (const { v } of others.slice(1)) {
+    const others = fs.readdirSync(shells)
+      .filter((v) => v !== SHELL.version && /^\d+(\.\d+)+$/.test(v) && fs.statSync(path.join(shells, v)).isDirectory())
+      .sort((a, b) => cmp(b, a));
+    for (const v of others.slice(1)) {
       try { fs.rmSync(path.join(shells, v), { recursive: true, force: true }); } catch { /* best effort */ }
     }
   } catch { /* none yet */ }
@@ -396,6 +406,8 @@ async function ensureShell(opts) {
   if (!build) return { ok: false, because: 'no pinned browser for this Mac CPU (' + arch + ')' };
   if (shellInstalled(arch)) return { ok: true, already: true };
   if (!takeLock()) return { ok: false, because: lockError };
+  /* Another installer may have finished between the check above and the lock. */
+  if (shellInstalled(arch)) { dropLock(); return { ok: true, already: true }; }
   sweepLeftovers();
   const doDownload = o.download || ((url, file) => runners.download(url, file, { receivedBytes: 0 }));
   const hashOf = o.sha256Of || sha256Of;
@@ -416,8 +428,9 @@ async function ensureShell(opts) {
     if (!said.includes(SHELL.version)) throw new Error('the browser did not answer with its version');
     fs.writeFileSync(path.join(tree, '.verified'), shellStamp(arch) + '\n');
     fs.mkdirSync(path.dirname(shellDir(arch)), { recursive: true });
-    /* Under the lock no other install is running, so anything at this CPU's
-       folder now is a leftover that never got its marker. */
+    /* Never replace a proven install, whoever holds the lock. Anything else at
+       this CPU's folder is a leftover that never got its marker. */
+    if (shellInstalled(arch)) return { ok: true, already: true };
     fs.rmSync(shellDir(arch), { recursive: true, force: true });
     fs.renameSync(tree, shellDir(arch));
     return { ok: shellInstalled(arch) };
@@ -435,16 +448,20 @@ async function ensureShell(opts) {
  * backing off from RETRY_FIRST_MS to RETRY_MAX_MS, until it is installed or the
  * operator opts out. A login-time download that meets no network would otherwise
  * leave every agent without a browser until the next board start. Timers are
- * unref'd, so this never keeps a process alive. Returns a stop function.
+ * unref'd, so this never keeps a process alive. Returns a stop function. An
+ * opt-out ends the loop; removing it takes effect at the next board start.
  */
 const RETRY_FIRST_MS = 60 * 1000;
 const RETRY_MAX_MS = 60 * 60 * 1000;
+/* A download that keeps failing its pinned checksum will not fix itself, and each
+   try costs about 100 MB, so give up after this many in a row and say so. */
+const CHECKSUM_GIVE_UP = 3;
 function installWithRetry(opts) {
   const o = opts || {};
   const log = o.log || ((line) => console.log(line));
   const kick = o.kick || kickInstall;
   let delay = o.firstDelayMs || RETRY_FIRST_MS;
-  let timer = null; let stopped = false;
+  let timer = null; let stopped = false; let badChecksums = 0;
   const attempt = () => {
     /* A sandboxed board (the browser-check harness sets AGENT_WORKFORCE_DRY_RUN=1)
        must not download a browser into the real runners folder. */
@@ -453,6 +470,11 @@ function installWithRetry(opts) {
     if (!p) return;
     p.then((r) => {
       if (stopped || (r && r.ok)) return;
+      badChecksums = /checksum/.test((r && r.because) || '') ? badChecksums + 1 : 0;
+      if (badChecksums >= CHECKSUM_GIVE_UP) {
+        log('agent browser: the download failed its pinned checksum ' + badChecksums + ' times in a row; not trying again until the board restarts');
+        return;
+      }
       log('agent browser: install did not finish (' + ((r && r.because) || 'unknown') + '); trying again in ' + Math.round(delay / 1000) + 's');
       timer = setTimeout(attempt, delay);
       if (timer.unref) timer.unref();

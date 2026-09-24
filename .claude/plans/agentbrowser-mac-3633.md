@@ -36,17 +36,28 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   exports `KOSMOS_AGENT_BROWSER=off`, which also covers its #1573 boards that do not set
   DRY_RUN. The kick is inside server.js's `require.main === module` block, so a check that
   starts the server in-process (`srv.start`) never reaches it.
+- Rejected: also skipping when `AGENT_WORKFORCE_DATA` is set. install/setup.sh:1319 exports it
+  for a real install whose KOSMOS_HOME is not the default, so that would silently turn the
+  browser off on real Macs.
 - Opt-out: `KOSMOS_AGENT_BROWSER=off`, or a file named `off` in the managed
   `playwright-mcp` folder. The file is the Mac's real path: a launchd-started supervisor
-  does not inherit the operator's shell env. The boot install honours it too.
+  does not inherit the operator's shell env. The boot install honours it too. The file is
+  read on Windows as well (nothing creates it, so Windows behaves as before). Removing it
+  takes effect at the next board start.
 - One folder per shell version AND per CPU (`chrome-headless-shell/<version>/<arch>`), so
   installing one CPU's shell can never replace or delete another's.
-- One install at a time: `ensureShell` takes a lock file holding its pid and touches it every
-  minute while it works. It is taken over only when the owner is gone or the heartbeat has
-  stopped for 5 minutes, so a slow live download keeps it and a dead owner whose pid was
-  reused cannot hold it forever. Under the lock it sweeps what interrupted installs left
-  (staging folders whose owner pid is gone) and prunes old shell versions to the newest one
-  before the pinned version, which a still-running agent from the previous release may name.
+- Mostly one install at a time: `ensureShell` takes a lock file holding its pid and touches it
+  every minute while it works. It is taken over only when the owner is gone or the heartbeat
+  has stopped for 5 minutes, so a dead owner whose pid was reused cannot hold it forever. The
+  lock is not airtight (two takers of one stale lock, or a Mac asleep through a live owner's
+  heartbeat, can leave two installers running), so the one act that could do harm is made
+  safe instead: `ensureShell` re-checks for a proven install after taking the lock and again
+  at the swap, and never removes one. A double install costs a duplicate download. Under the lock it sweeps what interrupted installs left
+  (staging folders whose owner pid is gone) and prunes old shell versions to the highest one
+  below the pinned version, by version order and only among version-named folders, which a
+  still-running agent from the previous release may name.
+- The board's retry gives up after 3 checksum failures in a row and logs it: a mismatch does
+  not fix itself, and each try downloads about 100 MB.
 
 ## Evidence
 - Real install in a sandbox: `ensureShell` downloaded, matched the pinned sha256, unpacked and
@@ -55,13 +66,13 @@ Card: kosmos#3633, the Mac half of #3629 (Windows, merged). Josh chose option 2 
   browser_wait_for and browser_snapshot, not WebFetch, and read Google Flights DFW-LAX fares
   for 2026-10-15 ($101 and $124 Frontier, $169 Southwest/American/Delta).
 - Kayak returns "What is a bot?" to this shell and to installed Chrome in headless mode alike.
-- tools/test-supervisor-agentbrowser-3633.sh: 9 checks pass on this branch; against
+- tools/test-supervisor-agentbrowser-3633.sh: the installed-arm checks pass on this branch; against
   origin/main's supervisor, the three installed-arm checks fail (the control).
 - engine/agentbrowser.test.js: see the count below.
 
 - The "launch never installs" checks can fail: with the shim switched to `install: true`, the
   unit test's no-install assertion and the shell test's arm 2 both went red (arm 2 found
-  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 20 pass (14 of them new for the Mac). Shell test: 10 checks
+  `.staging-<pid>-<ms>`); restored, both pass. Unit tests: 22 pass (16 of them new for the Mac). Shell test: 10 checks
   across four arms (installed, not installed, env opt-out, file opt-out).
 
 ## Known and left

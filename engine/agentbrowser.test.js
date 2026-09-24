@@ -172,7 +172,7 @@ test('a proven shell, then a Mac launch gets a flag for a file naming exactly th
   assert.equal(ab.launchConfig({ platform: 'darwin', arch: 'x64', install: false }), null, 'the other CPU is not installed');
 });
 
-test('the supervisor shim prints the path once installed, prints nothing otherwise, and always exits 0', async () => {
+test('the supervisor shim prints the path once installed, prints nothing otherwise, and always exits 0', async (t) => {
   const { spawnSync } = require('node:child_process');
   const shim = path.join(__dirname, 'agent-browser-config.js');
   /* Without NODE_TEST_CONTEXT, which would stop kickInstall on its own and hide a
@@ -188,7 +188,9 @@ test('the supervisor shim prints the path once installed, prints nothing otherwi
   assert.deepEqual(fs.readdirSync(empty), [], 'and the shim never starts an install');
   /* The installed arm needs this host to be a Mac with a pinned build: the shim asks
      for this host's platform and CPU, as the real supervisor does. */
-  if (process.platform === 'darwin' && ab.SHELL.builds[process.arch]) {
+  if (!(process.platform === 'darwin' && ab.SHELL.builds[process.arch])) {
+    t.diagnostic('installed arm skipped: this host is not a Mac with a pinned browser build');
+  } else {
     assert.equal((await ab.ensureShell(shellSeams(process.arch))).ok, true);
     const got = run({ AGENT_WORKFORCE_RUNNERS_DIR: process.env.AGENT_WORKFORCE_RUNNERS_DIR });
     assert.equal(got.status, 0);
@@ -250,6 +252,21 @@ test('an install sweeps what interrupted ones left: dead owners\' staging and ol
   assert.equal(fs.existsSync(oldest), false, 'versions older than the previous one are removed');
   assert.equal(fs.existsSync(previous), true, 'the previous version stays for agents still running under it');
   fs.rmSync(previous, { recursive: true, force: true });
+
+  /* Version order, not modification time, and only version-named folders. */
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
+  const shells = path.join(home, 'chrome-headless-shell');
+  const v9 = path.join(shells, '9.0.0'); const v10 = path.join(shells, '10.0.0'); const v2 = path.join(shells, '2.0.0');
+  for (const d of [v9, v10, v2]) fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(shells, '.DS_Store'), '');
+  const later = new Date(Date.now() + 60 * 1000);
+  fs.utimesSync(v2, later, later);                                // newest by mtime, oldest by version
+  assert.deepEqual(await ab.ensureShell(shellSeams('arm64')), { ok: true });
+  assert.equal(fs.existsSync(v10), true, '10.0.0 is the highest other version, so it is kept');
+  assert.equal(fs.existsSync(v9), false);
+  assert.equal(fs.existsSync(v2), false, 'a recent mtime does not save a lower version');
+  fs.rmSync(v10, { recursive: true, force: true });
+  fs.rmSync(path.join(shells, '.DS_Store'), { force: true });
   assert.equal(fs.existsSync(live), true, 'a staging folder whose owner is running is not touched');
   fs.rmSync(live, { recursive: true, force: true });
 });
@@ -288,7 +305,7 @@ test('a sandboxed board (AGENT_WORKFORCE_DRY_RUN=1) never starts the browser dow
   assert.equal(kicked, 0);
 });
 
-test('a lock that cannot be written says why, not "another install is running"', async () => {
+test('a lock that cannot be written says why, not "another install is running"', { skip: process.getuid && process.getuid() === 0 ? 'root ignores the read-only folder this relies on' : false }, async () => {
   fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
   fs.rmSync(ab.lockPath(), { force: true });
   fs.chmodSync(ab.homeDir(), 0o555);                              // the lock file cannot be created
@@ -297,4 +314,39 @@ test('a lock that cannot be written says why, not "another install is running"',
     assert.equal(r.ok, false);
     assert.match(r.because, /EACCES|permission/i);
   } finally { fs.chmodSync(ab.homeDir(), 0o755); }
+});
+
+test('an install never replaces a proven one that appeared while it was downloading', async () => {
+  fs.rmSync(ab.shellDir('arm64'), { recursive: true, force: true });
+  let otherMarker = '';
+  const r = await ab.ensureShell(shellSeams('arm64', {
+    download: async (url, file) => {
+      /* Another process's install lands first, while this one is still downloading:
+         a proven folder (binary + marker), exactly what its swap leaves. */
+      const b = ab.SHELL.builds.arm64;
+      const other = ab.shellDir('arm64');
+      fs.mkdirSync(path.join(other, b.folder), { recursive: true });
+      fs.writeFileSync(path.join(other, b.folder, 'chrome-headless-shell'), 'the other install');
+      otherMarker = ab.SHELL.version + ' arm64 ' + b.sha256 + '\n';
+      fs.writeFileSync(path.join(other, '.verified'), otherMarker);
+      fs.writeFileSync(file, url);
+    },
+  }));
+  assert.equal(r.ok, true);
+  assert.equal(ab.shellInstalled('arm64'), true);
+  assert.equal(fs.readFileSync(path.join(ab.shellDir('arm64'), '.verified'), 'utf8'), otherMarker, 'the first proven install is the one in place');
+  assert.equal(fs.readFileSync(ab.shellExe('arm64'), 'utf8'), 'the other install', 'its binary was not replaced');
+});
+
+test('the board stops retrying after three checksum failures in a row, and says so', async () => {
+  const lines = [];
+  let calls = 0;
+  await new Promise((resolve) => {
+    ab.installWithRetry({
+      env: {}, firstDelayMs: 5, maxDelayMs: 10, log: (l) => { lines.push(l); if (/not trying again/.test(l)) setTimeout(resolve, 40); },
+      kick: () => { calls += 1; return Promise.resolve({ ok: false, because: 'the browser download did not match its pinned checksum, so it was not used' }); },
+    });
+  });
+  assert.equal(calls, 3);
+  assert.match(lines[lines.length - 1], /checksum 3 times in a row/);
 });

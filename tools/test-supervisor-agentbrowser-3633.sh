@@ -6,7 +6,8 @@
 # drives the real supervisor against a stub tmux that records the `new-session`
 # argv (the test-supervisor-model-2140.sh harness), with the real engine through
 # `engine-path` (test-supervisor-env.sh arm 2) and a sandboxed runners folder, in
-# three states:
+# four states (arm 1 needs a Mac with a pinned build, the host every run of this
+# script has):
 #   - installed  -> `--mcp-config <existing file>` right before --dangerously-skip-permissions
 #   - not installed -> no --mcp-config at all (a flag naming a missing file stops claude)
 #   - KOSMOS_AGENT_BROWSER=off -> no --mcp-config
@@ -65,7 +66,8 @@ fake_install() {
 
 run_claude() {
   local dir="$1"; shift
-  env "$@" STUB_DIR="$dir" AGENT_WORKFORCE_RUNNERS_DIR="$dir/runners" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  # The caller's own opt-out must not leak in and turn arm 1 red for no reason.
+  env -u KOSMOS_AGENT_BROWSER "$@" STUB_DIR="$dir" AGENT_WORKFORCE_RUNNERS_DIR="$dir/runners" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
     bash "$dir/bin/agent-supervisor.sh" ab-3633 "$dir/work" /usr/bin/true "$dir/tmux" "$dir/start.log" "" claude \
     > "$dir/out.log" 2>&1 || true
 }
