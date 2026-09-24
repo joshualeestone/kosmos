@@ -18,9 +18,10 @@
  * follows a recorded folder for an agent brought in from elsewhere), plus `Files`.
  * `filesDir(name)` is the one derivation; nothing else should rebuild it.
  *
- * The folder itself (creating it, listing it on the agent page) is April's half
- * of #3614. This block only tells the agent where it is and to create it if it is
- * missing, so the instruction works before and after that half lands.
+ * The folder itself (creating it, listing it on the agent page) is the agent page's
+ * Files list (server.js /api/agent/:name/files and web/index.html paintAgentFiles).
+ * This block tells the agent where the folder is, to create it if it is missing,
+ * and that the person sees its files on its page.
  *
  * Same guards as reports.js / connections.js, deliberately: an ambiguous file is
  * refused rather than spliced into, an unreadable one is reported, nothing is ever
@@ -49,8 +50,8 @@ const WROTE_WHY = 'Kosmos told it where to save the files it makes for you';
  * named a different folder for any name safeKey changes (`orch.main`, `has space`,
  * `Writer` on a case-sensitive disk), so the agent was told a folder next to its own.
  *
- * April's agent-page list (#3614 items 1, 2, 4, not shipped yet) will read this function and
- * FOLDER, so both keep their names and signatures: tell her before changing either.
+ * The agent page's Files routes (server.js) read this function, so it is the one place the
+ * folder is derived: change it here, never rebuild it elsewhere.
  */
 function filesDir(sessionName) {
   let file = null;

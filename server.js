@@ -4609,7 +4609,9 @@ const server = http.createServer((req, res) => {
     if (!folder || !ownIsDir) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
     const verb = agentFiles[2] || null;
     // A Files that is a LINK would list and open whatever it points at (listFiles and openFile
-    // resolve through it), so it is refused for every verb: this list shows the agent's own folder.
+    // resolve through it), so a link seen here is refused for every verb. This lstat is separate
+    // from the engine's own reads, so a link swapped in between them is not caught; only the
+    // agent, which already writes this folder, could make that swap.
     let isLink = false;
     try { isLink = fs.lstatSync(folder).isSymbolicLink(); } catch { isLink = false; }
     if (isLink) {
