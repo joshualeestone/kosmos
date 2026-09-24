@@ -26,18 +26,24 @@ focus tracer. The sequence in the failing flow:
 ## Fix (`web/index.html`, the `renderStale`-adjacent panel-paint focus block ~25792)
 
 Re-apply focus across the one-paint teardown steal, but BOUND the intent's life BY TIME so it can
-never yank focus later. The intent (`ANSWER_WANTS_FOCUS`) is stamped with a timestamp
-(`ANSWER_WANTS_FOCUS_AT`) when "answer" is pressed; the paint consumer only acts within
-`ANSWER_FOCUS_WINDOW_MS` (2000ms):
+never yank focus later. The intent (`ANSWER_WANTS_FOCUS`) is time-bounded by `ANSWER_WANTS_FOCUS_AT`
+(a monotonic `performance.now()` stamp) and `ANSWER_FOCUS_WINDOW_MS` (2000ms):
 
-1. Within the window, on the intent's agent, composer open, and focus on `<body>`: enable the
+1. The clock is stamped on the FIRST PAINT THAT OBSERVES the intent, NOT at the press. The press
+   only starts an async thread fetch (`openDetail`); anchoring to the press would fold that variable
+   network latency into the budget, so a slow read could expire the window before the panel ever
+   paints (a silent, fail-safe no-op, and stricter than render-thread's own 10s waits). Measuring
+   from the first observing paint decouples the window from the fetch: it only covers paint-1 -> the
+   recovery paint (a few ms).
+2. Within the window, on the intent's agent, composer open, and focus on `<body>`: enable the
    composer and focus it (recovers the first paint AND the teardown steal on the paint right after).
-2. Decide focusability from the NEXT state (`body.presence`), not the stale `say.disabled`, and
-   enable the composer before focusing (focusing a still-disabled element is a no-op). Line 25951
-   (`say.disabled = body.presence === 'off'`) re-derives the same value; this only pulls that
-   decision earlier for this one paint.
-3. Drop the intent when the window has passed, when a DIFFERENT agent is open, or when the agent is
-   off. Never re-grab focus that is already on a real element (only a `<body>` steal is recovered).
+3. Decide focusability from the NEXT state (`body.presence`), not the stale `say.disabled`, and
+   enable the composer before focusing (focusing a still-disabled element is a no-op). The
+   authoritative `say.disabled = body.presence === 'off'` write later in the same paint re-derives
+   the same value; this only pulls that decision earlier for this one paint.
+4. Drop the intent (reset the clock) when the window has passed, when a DIFFERENT agent is open, or
+   when the agent is off. Never re-grab focus that is already on a real element (only a `<body>`
+   steal is recovered).
 
 Why time and not "consume once focus settles": the teardown steal lands AFTER the first paint that
 focuses the composer, so consuming on that paint loses focus to the steal (the original bug). An
@@ -47,7 +53,18 @@ since `#detail-back` does not reset `CURRENT`) and re-firing where the user neve
 and a 5s poll re-grabbing focus a user had deliberately parked on `<body>`. Both were caught in the
 challenge loop. A `<body>` from the teardown and a `<body>` from a deliberate blur are
 indistinguishable by state; only their TIMING separates them, which is what the window uses: it
-outlives the ~few-ms steal but is far shorter than the 5s poll or any navigation.
+outlives the ~few-ms steal (from first observation) but is far shorter than the 5s poll or any
+navigation.
+
+### Clean-flow coverage (known gap, low risk)
+
+render-thread.js's focus assertion exercises only the detail -> back -> answer flow. The CLEAN flow
+(navigate straight to an agent, then answer) has no separate focus assertion. It is safe by
+construction and by shared code path: pressing answer runs `openDetail`, which tears down the card
+holding the pressed button, so focus drops to `<body>` before the first paint in BOTH flows, and
+both go through the exact same focus block. A regression in the clean flow would therefore almost
+certainly also break the covered detail-flow assertion. Adding a second harness flow was judged out
+of scope for this fix (new fixture wiring, flakiness risk) and is left as a follow-up.
 
 ## Verification
 
