@@ -22,6 +22,9 @@ and unlike the constant connections block, because the card says the path is wri
 - The marker pair joins `projects.ALL_MARKERS()` (the registry test enforces it).
 
 ## Decided, and why
+- The block promises only what is true when it ships (challenge round 5): it no longer says the agent page lists
+  the folder, because that list is April's half and ships separately. Her PR adds that line to `blockBody` when the
+  list exists, so the promise and the page land together.
 - The block tells the agent to CREATE the folder if missing, so it works before and after April's half.
 - Premise noted on the card: removal checks whether the worker folder still exists rather than always
   deleting it, so files saved there may outlive the agent. It does not change the instruction.

@@ -46,6 +46,7 @@ const fleet = require('./test-support/fleet');
 const { stopBoard } = require('./test-support/board-child');
 const reports = require('./engine/reports');
 const projects = require('./engine/projects');
+const dmfiles = require('./engine/dmfiles');
 
 /* 🔑 The `-discord` suffix is load-bearing and the folder DROPS it -- both traps
    are documented at length in server.connections-refresh-1649.test.js. Without
@@ -176,7 +177,6 @@ test('#1684 CONTROL: an agent whose blocks all land is still reported as told', 
    row must come back not-told and name that block. Deleting its row from the route's side work
    turns this red. */
 test('#3614: the files block\'s verdict reaches the About-you answer too', async () => {
-  const dmfiles = require('./engine/dmfiles');
   const one = `${dmfiles.START}\n## Where to save files you make for the person\n\nsomething\n${dmfiles.END}\n`;
   const sb = sandbox({ 'mk-dmdup-discord': `# An agent\n\nProse.\n\n${one}\nMore prose.\n\n${one}` });
   const file = path.join(sb, 'workers', 'mk-dmdup', 'CLAUDE.md');

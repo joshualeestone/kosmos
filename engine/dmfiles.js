@@ -78,9 +78,11 @@ function blockBody(dir) {
     '',
     '`' + where + '`',
     '',
-    'Create the folder if it is not there yet. Kosmos lists what is in it on your',
-    'page, so the person can find and open what you made. Inside a project, keep',
-    'using the project\'s own folder.',
+    /* Only what is true today. The Files list on the agent page is April's half of
+       #3614 and ships separately; this block must not promise it before it exists. */
+    'Create the folder if it is not there yet. Keeping everything you make for the',
+    'person in one place means they always know where to find it. Inside a project,',
+    'keep using the project\'s own folder.',
   ].join('\n');
 }
 
