@@ -234,6 +234,46 @@ test('agentAdvisories: genuinely-unset agent (readCcd -> null) buckets to the ba
   assert.equal(out[0].service, 'Claude Code-credentials');
 });
 
+test('cachedAdvisories: first call computes and stores; a call within TTL returns cached (no recompute)', () => {
+  const cache = { at: 0, value: [] };
+  let calls = 0;
+  const compute = () => { calls++; return [{ tag: calls }]; };
+  const a = le.cachedAdvisories({ cache, now: 1000, ttlMs: 100, compute });
+  assert.deepEqual(a, [{ tag: 1 }]);
+  assert.equal(cache.at, 1000);
+  const b = le.cachedAdvisories({ cache, now: 1050, ttlMs: 100, compute }); // within TTL
+  assert.deepEqual(b, [{ tag: 1 }]);   // same value
+  assert.equal(calls, 1);              // compute NOT called again
+});
+
+test('cachedAdvisories: recomputes after the TTL window', () => {
+  const cache = { at: 0, value: [] };
+  let calls = 0;
+  const compute = () => { calls++; return [{ tag: calls }]; };
+  le.cachedAdvisories({ cache, now: 1000, ttlMs: 100, compute });
+  const c = le.cachedAdvisories({ cache, now: 2000, ttlMs: 100, compute }); // past TTL
+  assert.deepEqual(c, [{ tag: 2 }]);
+  assert.equal(calls, 2);
+  assert.equal(cache.at, 2000);
+});
+
+test('cachedAdvisories: a compute THROW keeps last-good and does NOT advance `at` (retry next tick)', () => {
+  const cache = { at: 0, value: [] };
+  le.cachedAdvisories({ cache, now: 1000, ttlMs: 100, compute: () => [{ ok: 1 }] }); // seed
+  const boom = le.cachedAdvisories({ cache, now: 2000, ttlMs: 100, compute: () => { throw new Error('ps failed'); } });
+  assert.deepEqual(boom, [{ ok: 1 }]);   // last-good returned
+  assert.equal(cache.at, 1000);          // `at` NOT advanced -> next call recomputes rather than waiting out the TTL
+  let called = false;
+  le.cachedAdvisories({ cache, now: 2001, ttlMs: 100, compute: () => { called = true; return [{ ok: 2 }] } });
+  assert.equal(called, true);            // it retried immediately, not blocked by a fresh cache stamp
+});
+
+test('exported thresholds have the documented values', () => {
+  assert.equal(le.URGENT_DAYS, 1);
+  assert.equal(le.WARN_DAYS, 3);
+  assert.equal(le.WARN_WITHIN_DAYS, 5);
+});
+
 test('severityFor thresholds', () => {
   assert.equal(le.severityFor(5), 'notice');
   assert.equal(le.severityFor(4), 'notice');

@@ -45,7 +45,10 @@ CCD instead:
   into the snapshot payload the board already consumes. Additive: must not touch classify() or any working/idle read.
 - Cost control: cache the per-service expiry with a short TTL (refresh-token expiry is stable for weeks; a stale
   read for a few minutes is safe) so snapshot() does not shell out to `security`/`ps eww` on every tick.
-- The pane->claude-pid link: pane_pid is the shell; the claude process is its child. Resolve once per tick.
+- The pane->claude-pid link: MEASURED, pane_pid IS the claude process (tmux runs the agent's claude
+  command as the pane leader, not under an intermediate shell), so `ps eww <pane_pid>` carries the
+  agent's own env directly. If a launcher ever wraps claude in a shell, this must revisit (a shell whose
+  env lacks CLAUDE_CONFIG_DIR would mis-bucket the agent as unset).
 
 ### 3. Surface (server + web) - board advisory
 - Server: DONE, no change needed. `/api/status` (server.js:3634) builds the body as

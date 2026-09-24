@@ -33,6 +33,14 @@ const { execFileSync } = require('child_process');
 const DEFAULT_SERVICE = 'Claude Code-credentials';
 const DAY_MS = 86400000;
 
+/* Advisory thresholds, in days of refresh-token life left. WARN_WITHIN_DAYS is the window an
+ * account must fall inside to produce any advisory at all; within it, URGENT_DAYS and WARN_DAYS
+ * set the escalation (<= URGENT_DAYS urgent, <= WARN_DAYS warn, else notice). Named rather than
+ * inline so the board copy, the escalation, and the window cannot drift apart silently. */
+const URGENT_DAYS = 1;
+const WARN_DAYS = 3;
+const WARN_WITHIN_DAYS = 5;
+
 /* Service name for the credential an agent will actually READ, given its CLAUDE_CONFIG_DIR
  * env value (`ccd`). undefined/null/'' means UNSET -> the bare entry; any other value is
  * hashed VERBATIM (Claude Code hashes the env string as set -- a trailing slash changes the
@@ -86,8 +94,8 @@ function ccdFromPsEnv(psText) {
 }
 
 function severityFor(daysLeft) {
-  if (daysLeft <= 1) return 'urgent';   // dies today/tomorrow, or already expired
-  if (daysLeft <= 3) return 'warn';
+  if (daysLeft <= URGENT_DAYS) return 'urgent';   // dies today/tomorrow, or already expired
+  if (daysLeft <= WARN_DAYS) return 'warn';
   return 'notice';
 }
 
@@ -98,7 +106,7 @@ function severityFor(daysLeft) {
  * floored (a 1.5-day expiry reads "1 day", an already-expired one reads negative -> the UI says
  * "expired"). Fail soft: an account whose credential can't be read is skipped, never breaking
  * the others. */
-function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = 5, readCred } = {}) {
+function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = WARN_WITHIN_DAYS, readCred } = {}) {
   const out = [];
   for (const acct of accounts) {
     const expiresAt = refreshExpiryFor(acct.ccd, { readCred });
@@ -125,7 +133,7 @@ function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = 5, re
  * or `undefined` when it could not be resolved -- an unresolvable agent is SKIPPED (fail soft: no
  * warning beats a wrong-account warning), never bucketed as unset. Agents that resolve to the same
  * credential (serviceNameFor(ccd)) share one advisory. Pure: inject readCcd + readCred to test. */
-function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, warnWithinDays = 5 } = {}) {
+function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, warnWithinDays = WARN_WITHIN_DAYS } = {}) {
   const buckets = new Map(); // service -> { ccd, agents: [] }
   for (const a of agents) {
     let ccd;
@@ -138,7 +146,23 @@ function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, war
   return advisoriesFor({ accounts: [...buckets.values()], now, readCred, warnWithinDays });
 }
 
+/* A small TTL cache wrapper so a caller (snapshot()) can recompute advisories only every ttlMs
+ * rather than shelling out to tmux/ps/security on every tick. `cache` is a { at, value } object
+ * the caller owns and this MUTATES. Within the window it returns cache.value. Otherwise it calls
+ * compute() and stores the result. 🛑 On a compute() THROW it returns the last-good value WITHOUT
+ * advancing `at`, so a transient failure is retried on the very next call instead of being pinned
+ * for the whole TTL. Pure and injectable (pass a fake now/compute) so the cache behaviour is
+ * tested without standing up a board. */
+function cachedAdvisories({ cache, now = Date.now(), ttlMs, compute } = {}) {
+  if (cache && cache.at && (now - cache.at) < ttlMs) return cache.value;
+  let value;
+  try { value = compute(); }
+  catch { return cache ? cache.value : []; }  // keep last-good, do NOT advance `at` -> retry next tick
+  if (cache) { cache.at = now; cache.value = value; }
+  return value;
+}
+
 module.exports = {
   serviceNameFor, refreshExpiryFor, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
-  DEFAULT_SERVICE, DAY_MS,
+  cachedAdvisories, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
 };

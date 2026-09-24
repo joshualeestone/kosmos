@@ -6470,7 +6470,7 @@ function codexLiveAuthFor(name, readJobFn, verdictFn) {
  * read is safe and keeps snapshot() off tmux/ps/security on every tick. Fail soft throughout: an
  * unresolvable pane is skipped, and any error keeps the last good value, never breaking snapshot. */
 const LOGIN_ADV_TTL_MS = 5 * 60 * 1000;
-let loginAdvCache = { at: 0, value: [] };
+const loginAdvCache = { at: 0, value: [] }; // mutated in place by loginexpiry.cachedAdvisories
 
 /* Resolve the CCD an agent's claude process actually reads. pane_pid IS the claude process (tmux
  * runs it as the pane leader -- measured), so `ps eww <pane_pid>` carries its env. Returns the CCD
@@ -6490,16 +6490,16 @@ function paneCcd(target) {
 }
 
 function computeLoginAdvisories(panes, nowMs) {
-  if (nowMs - loginAdvCache.at < LOGIN_ADV_TTL_MS) return loginAdvCache.value;
-  let value;
-  try {
-    const agents = panes.filter((p) => isNamedOurs(p)).map((p) => ({ name: p.name, target: p.target }));
-    value = require('./loginexpiry').agentAdvisories({ agents, readCcd: (a) => paneCcd(a.target), now: nowMs });
-  } catch {
-    value = loginAdvCache.value; // keep last good on any failure
-  }
-  loginAdvCache = { at: nowMs, value };
-  return value;
+  const le = require('./loginexpiry');
+  // The TTL + last-good-on-failure logic lives in loginexpiry.cachedAdvisories (unit-tested);
+  // here we supply the impure compute: filter to our named panes, resolve each one's live CCD.
+  return le.cachedAdvisories({
+    cache: loginAdvCache, now: nowMs, ttlMs: LOGIN_ADV_TTL_MS,
+    compute: () => {
+      const agents = panes.filter((p) => isNamedOurs(p)).map((p) => ({ name: p.name, target: p.target }));
+      return le.agentAdvisories({ agents, readCcd: (a) => paneCcd(a.target), now: nowMs });
+    },
+  });
 }
 
 function snapshot() {

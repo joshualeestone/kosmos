@@ -38,6 +38,8 @@ function chk(ok, label, extra) {
 }
 
 const CASES = [
+  { key: 'notice', adv: [{ agents: ['renettilley'], daysLeft: 4, severity: 'notice', expired: false }],
+    text: /An agent’s login expires in 4 days/, cls: 'notice', who: /renettilley/ },
   { key: 'warn', adv: [{ agents: ['angel', 'donnie'], daysLeft: 2, severity: 'warn', expired: false }],
     text: /2 agents’ login expires in 2 days/, cls: 'warn', who: /angel, donnie/ },
   { key: 'urgent', adv: [{ agents: ['leo'], daysLeft: 0, severity: 'urgent', expired: false }],
