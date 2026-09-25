@@ -304,6 +304,19 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   and (optionally) `KOSMOS_UPLOAD_KEY_ALIAS` exist. None are set. Setting them is a repo-admin
   call for Josh.
 
+**Before the first Play submission:**
+- **A person reads the current Google Play Payments policy and its exceptions** [Josh]. This doc
+  deliberately states none of the policy's details: they change, they differ by country, and a
+  summary written here would go stale unnoticed. What the app does, so the reader can check it
+  against the policy: inside the Android app the sign-in page shows no checkout, price or billing
+  portal, and an unpaid account is told only "This account does not include Kosmos+ yet." (kosmos
+  #718, Liu Kang's decision of 2026-09-25, matching iOS; Josh can overrule it). The switch is
+  `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html`, which recognises the app by the
+  referrer Chrome sends when it opens the app (`android-app://io.kosmos.app/`). This is reasoned
+  from Chrome's documented behaviour, not yet seen on a phone.
+- **On a phone with the testing build:** open sign-in with an unpaid account and confirm no pay step
+  or price appears; then open the same page in plain Chrome and confirm it does.
+
 **Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
 **Check:**
