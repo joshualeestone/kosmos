@@ -9426,19 +9426,6 @@ window.kosmosMeasureScrollbarWidth();
   </section>
   </div>
   <div class="dsecs">
-  <!-- #3757: every file in the agent's Files folder, reached from View All beside the list. Open
-       in Finder moved here from the sidebar. It has no pill of its own; the nav lights none. -->
-  <section class="dsec" id="d-sec-files" data-sec="files" tabindex="-1" aria-label="Files" hidden>
-    <!-- Back to the conversation, as the project's file screen has its own back (review pass 1). -->
-    <button class="back" id="d-files-back" type="button">&larr; Direct Message</button>
-    <div class="dfiles-head dfiles-screen-head">
-      <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
-      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
-    </div>
-    <p class="dhint" id="d-filesall-msg" role="status"></p>
-    <div class="pj-docs" id="d-filesall-list"></div>
-    <p class="dhint" id="d-filesall-more" hidden></p>
-  </section>
   <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
 
   <!-- 🛑 THE ROOM-CONVERSATION BOX IS GONE (Josh, 2026-08-23 12:38: "i want to
@@ -10165,6 +10152,19 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <div class="fmsg" id="d-delete-msg" role="alert" aria-live="assertive"></div>
   </div>
+  </section>
+  <!-- #3757: every file in the agent's Files folder, reached from View All beside the list. Open
+       in Finder moved here from the sidebar. It has no pill of its own; the nav lights none. -->
+  <section class="dsec" id="d-sec-files" data-sec="files" tabindex="-1" aria-label="Files" hidden>
+    <!-- Back to the conversation, as the project's file screen has its own back (review pass 1). -->
+    <button class="back" id="d-files-back" type="button">&larr; Direct Message</button>
+    <div class="dfiles-head dfiles-screen-head">
+      <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
+      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+    </div>
+    <p class="dhint" id="d-filesall-msg" role="status"></p>
+    <div class="pj-docs" id="d-filesall-list"></div>
+    <p class="dhint" id="d-filesall-more" hidden></p>
   </section>
   </div>
   </div>
