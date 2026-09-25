@@ -20,7 +20,7 @@ final class ShellState: ObservableObject {
         monitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
             DispatchQueue.main.async {
-                if self?.failure == .offline { self?.retry() }
+                if self?.failure == .offline && self?.retrying == false { self?.retry() }
             }
         }
         monitor.start(queue: DispatchQueue(label: "io.kosmos.app.path"))

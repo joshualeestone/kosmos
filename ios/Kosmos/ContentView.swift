@@ -231,12 +231,11 @@ struct WebView: UIViewRepresentable {
         func reloadOrHome() {
             // No WebView to act on: say so rather than leave Try again stuck on "Trying".
             guard let webView = webView else { shell?.retrying = false; return }
-            if let failed = failedURL {
+            switch Shell.retryAction(failed: failedURL, current: webView.url, home: home) {
+            case .load(let url):
                 failedURL = nil
-                webView.load(URLRequest(url: failed))
-            } else if webView.url == nil {
-                webView.load(URLRequest(url: home))
-            } else {
+                webView.load(URLRequest(url: url))
+            case .reload:
                 webView.reload()
             }
         }
@@ -257,6 +256,8 @@ struct WebView: UIViewRepresentable {
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
             // A new-window request (no target frame) is decided in createWebViewWith.
+            // Allowing it here is safe whatever order WebKit asks in: with no frame to
+            // load into, nothing loads unless createWebViewWith loads it.
             guard let url = navigationAction.request.url,
                   let frame = navigationAction.targetFrame
             else { decisionHandler(.allow); return }
@@ -266,7 +267,8 @@ struct WebView: UIViewRepresentable {
                 return
             }
             let origin: Shell.Origin = navigationAction.navigationType == .linkActivated ? .tapped : .pageFlow
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin) {
+            let onOurPage = webView.url.map { Shell.isOurs($0, coordinator: KosmosConfig.coordinatorOrigin) } ?? true
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, onOurPage: onOurPage) {
             case .inApp: decisionHandler(.allow)
             case .external:
                 UIApplication.shared.open(url)

@@ -71,6 +71,19 @@ enum Shell {
         }
     }
 
+    // What Try again (or pull to refresh) loads: the page that failed, else the
+    // home page when nothing has loaded yet, else a reload of the current page.
+    enum RetryAction: Equatable {
+        case load(URL)
+        case reload
+    }
+
+    static func retryAction(failed: URL?, current: URL?, home: URL) -> RetryAction {
+        if let failed = failed { return .load(failed) }
+        if current == nil { return .load(home) }
+        return .reload
+    }
+
     // What started a navigation, as far as the rule cares.
     enum Origin {
         // The person tapped a link.
@@ -96,22 +109,39 @@ enum Shell {
     //   which would replace the board with a blank page.
     // - Every other scheme (javascript:, file:, data:, blob:, custom schemes): refused.
     //   A data: or blob: download is refused on purpose: the board has none today.
-    static func linkDecision(for url: URL, coordinator: URL, origin: Origin) -> LinkDecision {
+    // Kosmos+ itself or one of the person's Macs, over https: the plain host with no
+    // user part, and the coordinator's own port (443 and none are the same) or none.
+    static func isOurs(_ url: URL, coordinator: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(), !host.isEmpty,
+              url.user == nil, url.password == nil
+        else { return false }
+        let port = url.port == 443 ? nil : url.port
+        if host == coordinator.host?.lowercased() {
+            let want = coordinator.port == 443 ? nil : coordinator.port
+            return port == want
+        }
+        return port == nil && PushBridge.isMacHost(host, coordinator: coordinator)
+    }
+
+    // `onOurPage`: the page showing in the main frame is ours. While a sign-in or
+    // checkout flow is on another site's page (it got there by a redirect), a link
+    // the person taps ON that page is part of the flow ("Use another account",
+    // "Continue"), so it stays in the app too; the flow returns by redirect.
+    static func linkDecision(for url: URL, coordinator: URL, origin: Origin, onOurPage: Bool = true) -> LinkDecision {
         let scheme = url.scheme?.lowercased() ?? ""
+        let inFlow = origin == .pageFlow || (origin == .tapped && !onOurPage)
         switch scheme {
-        case "https", "http":
-            guard let host = url.host?.lowercased(), !host.isEmpty else { return .block }
-            // Ours means the plain host: no port and no user part, the same rule a
-            // tapped notification's address follows.
-            let plain = url.port == nil && url.user == nil && url.password == nil
-            let ours = plain && (host == coordinator.host?.lowercased() || PushBridge.isMacHost(host, coordinator: coordinator))
-            if scheme == "https" {
-                if ours { return .inApp }
-                return origin == .pageFlow ? .inApp : .external
-            }
+        case "https":
+            if isOurs(url, coordinator: coordinator) { return .inApp }
+            guard let host = url.host, !host.isEmpty else { return .block }
+            return inFlow ? .inApp : .external
+        case "http":
+            guard let host = url.host, !host.isEmpty else { return .block }
             return origin == .pageFlow ? .block : .external
         case "mailto", "tel", "sms":
-            return .external
+            // Only a person's tap (or a new window they asked for) may open Mail,
+            // Phone or Messages; a script or redirect may not.
+            return origin == .pageFlow ? .block : .external
         case "about":
             return url.absoluteString == "about:blank" && origin != .newWindow ? .inApp : .block
         default:
