@@ -99,11 +99,11 @@ function blockBody(dir) {
     '',
     'When the conversation is about one of your projects (the person names it, or the',
     'file is unmistakably that project\'s work, not only the same kind of thing), save',
-    'it in that project\'s folder instead, the folder listed for it under',
-    '"Your projects" in your instructions, even when they asked for it, or you made',
-    'it, in a direct conversation. Then tell them in one line where you put it: which',
-    'project, and the file\'s name. If they name a project you are not on, or no',
-    'folder is listed for it, treat it as unclear, as below.',
+    'it in that project\'s folder instead. That folder is the one listed for it under',
+    '"Your projects" in your instructions. This holds even when they asked for it, or',
+    'you made it, in a direct conversation. Then tell them in one line where you put',
+    'it: which project, and the file\'s name. If they name a project you are not on,',
+    'or no folder is listed for it, treat it as unclear, as below.',
     '',
     'When you cannot tell whether the file belongs to a project, or to which one, do',
     'not guess a project: save it in your Files folder, and in the same line that',
@@ -111,7 +111,8 @@ function blockBody(dir) {
     'not guessing: your Files folder is where it goes by default. The file is never',
     'left unsaved while you wait for an answer.',
     '',
-    'Inside a project, keep using the project\'s own folder.',
+    'When the conversation itself happens inside a project, not in a direct',
+    'conversation, keep using that project\'s own folder, as you already do there.',
   ].join('\n');
 }
 

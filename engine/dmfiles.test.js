@@ -45,10 +45,10 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   // Only files made for the person: the role's running summaries (roles.js SUMMARY_RHYTHM, "inside your
   // own folder") must not be pulled into the list the person sees (review round 12).
   assert.match(flat, /This Files folder is inside your own folder, and it is only for files made for the person: your running summaries and other working files stay where your instructions put them/);
-  assert.doesNotMatch(flat, /wherever else these instructions use that phrase/);
+  assert.doesNotMatch(flat, /wherever else these instructions use that phrase/);   // round 7's wider redirect, removed in round 12, must not come back
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
-  assert.match(flat, /Inside a project, keep using the project's own folder/);
+  assert.match(flat, /When the conversation itself happens inside a project, not in a direct conversation, keep using that project's own folder/);
 });
 
 test('#3759: the block names BOTH destinations and when each applies, says where it put the file, and what to do when unsure', () => {
@@ -56,8 +56,8 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // A direct ask: the agent's own Files folder (with the real path).
   assert.match(flat, /save it in your Files folder, unless it belongs to one of your projects \(see the next paragraphs; if you are on no projects, it always goes here\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
   // About a project: that project's folder instead, even when asked in the direct conversation.
-  assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead/);
-  assert.match(flat, /even when they asked for it, or you made it, in a direct conversation/);
+  assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead\./);
+  assert.match(flat, /This holds even when they asked for it, or you made it, in a direct conversation/);
   assert.match(flat, /If they name a project you are not on, or no folder is listed for it, treat it as unclear, as below/);
   assert.match(flat, /That is not guessing: your Files folder is where it goes by default/);
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);

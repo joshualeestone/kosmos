@@ -55,18 +55,18 @@ conversation, and be context-aware enough to put a project's file in that projec
   a board run from a checkout, as on the fleet Mac, waits for its next restart), and the PR says so for
   the release notes, which are generated from what lands.
 
-## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~13:50 CDT, on the wording committed with "review round 12")
+## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~13:55 CDT, on the wording committed with "review round 13")
 One run per case, each in a fresh sandbox: a check of the wording, not a rate.
 
 | Case | Projects the agent is on | Saved to | First line of its reply |
 |---|---|---|---|
-| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/weekend-camping-packing-list.md` | I saved the packing list as `weekend-camping-packing-list.md` in your Files folder. It's a checklist in six sections: shelter and sleep, kitchen, clothing, tools and safety, personal items, and a few ... |
-| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/Renewal notice summary.md` | I saved the summary in the Henderson lease project folder as `Renewal notice summary.md`. |
-| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | `workers/writer/Files/lease-renewal-email.md` | I saved the draft as `lease-renewal-email.md` in my Files folder. Is this for the Henderson lease project? If it is, I'll move it into that project's folder. |
-| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/lease-renewal-email.md` | I wrote the email and saved it as `lease-renewal-email.md` in your Files folder, because I couldn't tell which lease it's for. Is it the Henderson lease or the Maple Street lease? I'll move it to ... |
-| same landlord email | none | `workers/writer/Files/landlord-lease-renewal-email.md` | I saved the draft to your Files folder as `landlord-lease-renewal-email.md`. |
-| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | I saved the summary as `Oak Avenue lease - renewal notice summary.md` in your Files folder, because Oak Avenue isn't one of my projects. Should it go in the Henderson lease project, or somewhere ... |
-| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | `workers/writer/summaries/2026-09-25-13.md` | I wrote the summary to `summaries/2026-09-25-13.md`. There's nothing to report yet. This is my first summary, the Henderson lease project folder is empty, and I haven't been given any work on it. ... |
+| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/weekend-camping-packing-list.md` | I saved the packing list as `weekend-camping-packing-list.md` in your Files folder. It's a checklist in six sections: shelter and sleep, cooking and food, clothing, safety and tools, personal items, ... |
+| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/renewal-notice-summary.md` | I saved it in the Henderson lease project as `renewal-notice-summary.md`. |
+| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as `lease-renewal-email.md` in your Files folder. Is it for the Henderson lease project? If so, I'll move it there. |
+| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/lease-renewal-email.md` | I've saved the draft as `lease-renewal-email.md` in my Files folder. Is it for the Henderson lease or the Maple Street lease? Tell me which and I'll move it into that project's folder. |
+| same landlord email | none | `workers/writer/Files/landlord-lease-renewal-email.md` | I wrote the email and saved it as `landlord-lease-renewal-email.md` in your Files folder. |
+| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | I saved it in my Files folder as `Oak Avenue lease - renewal notice summary.md`. I'm not on an Oak Avenue lease project, so which project does it belong to? I can move it there. |
+| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | `workers/writer/summaries/2026-09-25-13.md` | I wrote the summary to `summaries/2026-09-25-13.md`. There was nothing to report this period. No work has come in yet, and the Henderson lease project folder is still empty, so nothing is blocked and ... |
 
 Row 3 changed with round 10: under "plainly part of that project's work" the agent filed the landlord email
 straight into its only project; under "unmistakably that project's work, not only the same kind of thing"
