@@ -1,8 +1,8 @@
 'use strict';
 /* #718 mobile: the project room on a phone. The geometry and the tap behaviour are measured
    by docs/browser-checks/render-room-msgbox-2806.js (phone, touch and hover arms). This file
-   pins the phone rules that check does not render: the conversation first on the project
-   page, and the touchscreen rules that keep the reaction bar reachable and closable. */
+   pins what that check does not render: that the conversation-first order is a DOM move,
+   and the touchscreen rules that keep the reaction bar reachable and closable. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -10,8 +10,14 @@ const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const blocks = (q) => [...html.matchAll(new RegExp('@media \\(' + q + '\\) \\{([\\s\\S]*?)\\n\\}', 'g'))].map((m) => m[1]).join('\n');
 
-test('on a phone the conversation comes first on the project page', () => {
-  assert.match(blocks('max-width: 30rem'), /\.pj3 > \.pjmid \{ order: -1; \}/);
+test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1017)', () => {
+  // A visual-only reorder splits reading order from tab order; the browser check measures the
+  // real DOM order at 375 and 800 (render-room-msgbox-2806, phone arm).
+  assert.doesNotMatch(blocks('max-width: 30rem'), /\.pjmid \{[^}]*order:/);
+  assert.match(html, /function pjPhoneOrder\(\) \{/);
+  assert.match(html, /grid\.insertBefore\(mid, grid\.firstElementChild\)/);
+  assert.match(html, /split\.after\(mid\)/);
+  assert.match(html, /pjPhoneMq\.addEventListener\('change', pjPhoneOrder\)/);
 });
 
 test('on a touchscreen only a tap (or focus) opens the room reaction bar, never sticky hover', () => {

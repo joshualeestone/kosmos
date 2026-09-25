@@ -5791,7 +5791,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    Direct Message thread, which shares .msg, is untouched. Measured at 375 before this: the
    page, column and thread paddings plus a 34px avatar, a 14px gap and the matching far
    gutter left a 167px bubble, so a long post read as a column of two or three words.
-   - The conversation comes FIRST on the project page: Members and Files follow it.
+   - The conversation comes FIRST on the project page (a DOM move, see pjPhoneOrder: CSS
+     order would split reading order from tab order, the #1017 defect).
    - Leaner padding and a 28px avatar. The gap stays 14px: the bubble tail's ground mask
      (.msg-bd::after, 14px wide, 14px outside the bubble) would otherwise paint over the
      avatar's inner edge (Scorpion found it on the Direct Message). The far gutter still
@@ -5802,19 +5803,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* A file's name is one unbreakable line (.att-name is nowrap), so a long name became the
    bubble's MINIMUM width: on the person's own right-aligned post a 120-character name made
    a 544px card that hung 330px off the left edge at 375 (measured; the thread box clipped
-   it, so the page did not scroll). The same fix Scorpion is making for the Direct Message
-   on his own branch: the name wraps like text but still shows one line with an ellipsis.
-   Every width, not only phones. */
-#pj-room .att-name { white-space: normal; overflow-wrap: anywhere;
+   it, so the page did not scroll). The Direct Message has the same bubble and the same bug,
+   so this is ONE rule for both (.msg-b is the bubble column in the room and the DM): the
+   name wraps like text but still shows one line with an ellipsis. Every width. */
+.msg-b .att-name { white-space: normal; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; }
 @media (max-width: 30rem) {
-  .pj3 > .pjmid { order: -1; }
   .pjcol.pjmid { padding: 12px 8px 8px; }
   #pj-room.thread { padding: 12px 6px; gap: 12px; }
   #pj-room .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
   #pj-room .msg:not(.you) .msg-b { margin-right: calc(28px + 14px); }
   #pj-room .msg.you .msg-b { margin-left: calc(28px + 14px); }
-  #pj-room .rxn { min-height: 32px; padding: 2px 10px; }
+  #pj-room .rxn { min-height: 36px; padding: 2px 10px; }
   #pj-post::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 /* #718 mobile: a touchscreen has no hover, so the add-reaction bar (.rxn-quick, shown on
@@ -46364,6 +46364,32 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
 });
 
+/* #718 mobile: on a phone (max-width 30rem) the conversation comes FIRST on the project page,
+   before Members and Files. Moved in the DOM, not with CSS order: a visual-only reorder makes
+   a sighted reader and a keyboard or screen-reader user meet the panels in different orders
+   (WCAG 2.4.3 / 1.3.2), the exact #1017 defect this page already fixed once, by a DOM change.
+   Wider than a phone it goes back after the Members/Files column, the desktop order. The room
+   keeps its scroll position across the move. */
+function pjPhoneOrder() {
+  const grid = document.querySelector('.pj3');
+  const mid = grid && grid.querySelector(':scope > .pjmid');
+  const split = grid && grid.querySelector(':scope > .pjsplit');
+  if (!grid || !mid || !split || !window.matchMedia) return;
+  const th = document.getElementById('pj-room');
+  const kept = th ? th.scrollTop : 0;
+  if (window.matchMedia('(max-width: 30rem)').matches) {
+    if (grid.firstElementChild !== mid) grid.insertBefore(mid, grid.firstElementChild);
+  } else if (mid.previousElementSibling !== split) {
+    split.after(mid);
+  }
+  if (th && th.scrollTop !== kept) th.scrollTop = kept;
+}
+pjPhoneOrder();
+if (window.matchMedia) {
+  const pjPhoneMq = window.matchMedia('(max-width: 30rem)');
+  if (pjPhoneMq.addEventListener) pjPhoneMq.addEventListener('change', pjPhoneOrder);
+  else if (pjPhoneMq.addListener) pjPhoneMq.addListener(pjPhoneOrder);
+}
 /* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
    does it on a computer). One row at a time. A tap on a link, a button or the reaction row
    is left to its own handler, except that picking a reaction closes the bar. Registered

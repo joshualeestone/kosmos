@@ -652,6 +652,17 @@ const now = () => new Date().toISOString();
         window.fetch = async () => enc({});
       });
       await phonePage.goto(PAGE);
+      // Conversation first on a phone, in the DOM (reading order == tab order, #1017), and back
+      // after Members/Files once the window is wider than a phone.
+      const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other')).join(','));
+      const o375 = await order();
+      chk(o375.startsWith('room,'), `[phone] the conversation is first in the DOM at 375px`, o375);
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const o800 = await order();
+      chk(o800.startsWith('members-files,room'), `[wide] wider than a phone, it goes back after Members/Files`, o800);
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
       const ph = await phonePage.evaluate((ts) => {
         const p = { agents: [{ sessionName: 'april', name: 'April' }] };
         const long = 'this is a deliberately long message so the bubble fills the whole available width on a phone and would reach the far edge if it were not capped short of the opposite avatar column.';
@@ -659,7 +670,9 @@ const now = () => new Date().toISOString();
         document.body.appendChild(room);
         // Real taps: the first-run overlay (not part of the room) would intercept them.
         const fr = document.getElementById('firstrun'); if (fr) fr.remove();
-        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;z-index:50;';
+        // The thread's real max-height and overflow stay (only width is set): the reaction bar's
+        // clipping against that scroll box is part of what is measured.
+        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;z-index:50;';
         room.hidden = false;
         const longName = 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits-A-through-F-and-landlord-comments-inline.pdf';
         room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long, id: 'm1' }, p) + pjRoomRow({ operator: true, at: ts, text: long, id: 'm2' }, p)
@@ -705,6 +718,14 @@ const now = () => new Date().toISOString();
       await phonePage.waitForTimeout(300);   // the bar fades in over .12s
       const t1 = await bar();
       chk(t1.hoverNone && t1.shown === 1 && t1.op === '1', `[phone/touch] a tap on a message shows its add-reaction bar`, JSON.stringify(t1));
+      // The first post's bar sits above its bubble: it must not be cut by the thread's top edge.
+      const clip = await phonePage.evaluate(() => {
+        const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
+        if (!q) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        return { barTop: Math.round(Q.top), roomTop: Math.round(R.top + parseFloat(getComputedStyle(room).borderTopWidth)), barLeft: Math.round(Q.left), roomLeft: Math.round(R.left) };
+      });
+      chk(!clip.error && clip.barTop >= clip.roomTop && clip.barLeft >= clip.roomLeft, `[phone/touch] the first post's bar is not clipped by the thread`, JSON.stringify(clip));
       await firstBody.tap();
       await phonePage.waitForTimeout(300);
       const t2 = await bar();
