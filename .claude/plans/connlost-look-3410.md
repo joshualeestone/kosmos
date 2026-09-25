@@ -42,6 +42,10 @@ up needs the person, so it should look like it. Angel makes the edit (agreed in 
 - Mona's weakest premise: a restart loses work in progress for every runner. No launch line on
   main passes a resume or continue flag (Claude, Codex, Gemini, Grok, Antigravity), so the clause
   stays.
+  Windows has a resume path, checked too: engine/win32supervisor.js resumes (`--resume`) only when
+  an agent dies under a supervisor that is still running; a restart from the board runs main(),
+  which "mints a NEW session: a fresh conversation, as a Mac restart gives" (its own measured
+  note, ~line 420). The card tells the person to restart the agent, which is that second path.
 - Red controls: without the cardStOf change the unit test fails 1 and the browser check fails 2
   (class and border).
 
