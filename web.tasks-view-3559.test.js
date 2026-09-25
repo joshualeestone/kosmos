@@ -10,13 +10,23 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const os = require('node:os');
+// The roster (LAST) is REAL board cards (fixture-discipline): sandbox the roots before the fleet.
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-tasksview-page-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 const page = require('./test-support/page');
+const fleet = require('./test-support/fleet');
+const BOARD = fleet.install([fleet.agent('rex', { displayName: 'Rex' }), fleet.agent('ada', { displayName: 'Ada' })]);
+test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const FNS = page.liftAll(SCRIPT, ['tskAgentName', 'tskInWindow', 'tskMatches', 'tskSort', 'tskScoped']);
 const make = new Function('LAST', FNS + '\nreturn { tskAgentName, tskInWindow, tskMatches, tskSort, tskScoped };');
-const api = make([{ sessionName: 'rex', name: 'Rex' }, { sessionName: 'ada', name: 'Ada' }]);
+const api = make(BOARD.agents);
 
 const NOW = Date.parse('2026-09-25T06:00:00Z');
 const h = (hours) => new Date(NOW - hours * 3600000).toISOString();

@@ -65,7 +65,12 @@ test('taskState never answers a group the engine cannot prove (waiting on you, d
 test('lastActivityOf: the newest transcript event, else created; never "now" for an unknown', () => {
   const p = freshProject('Activity');
   const t = tasks.create(p.id, { sentence: 'Something to do' });
-  assert.equal(tasks.lastActivityOf(p.id, t), t.createdAt, 'with no events, the last activity is when it was made');
+  /* create() records a "created" event a moment after stamping createdAt, so the newest of the
+     two is the answer (asserting createdAt alone passed only when both landed in one ms). */
+  const newestOf = () => [t.createdAt].concat(taskchat.read(p.id, t.number).map((e) => e.at))
+    .sort((a, b) => Date.parse(a) - Date.parse(b)).pop();
+  assert.equal(tasks.lastActivityOf(p.id, t), newestOf(), 'the last activity is the newest of made and its events');
+  assert.equal(tasks.lastActivityOf(p.id, { number: 998, createdAt: '2026-09-01T00:00:00Z' }), '2026-09-01T00:00:00Z', 'with no events at all, it is when the task was made');
   taskchat.record(p.id, t.number, { kind: 'said', text: 'a later word' });
   const events = taskchat.read(p.id, t.number);
   const newest = events.map((e) => e.at).sort().pop();

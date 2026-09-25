@@ -3113,7 +3113,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    underneath re-imposes one.
    📌 These are containers: the measure belongs to the prose inside them, not to
    the panel, which also holds the collections. */
-#panel-settings, #panel-projects, #panel-tasks { max-width: none; background: none; border: 0; box-shadow: none; padding: 0; }
+#panel-settings, #panel-projects { max-width: none; background: none; border: 0; box-shadow: none; padding: 0; }
+/* #3559: the Tasks page on the same paper ground, for the same reason (its cards are the surfaces). */
+#panel-tasks { max-width: none; background: none; border: 0; box-shadow: none; padding: 0; }
 /* ---- #3559: the Tasks view (Mona's mock, tasks-view-3559 248c953) -----------------------
    Built only on the app's own tokens, so light, dark and high contrast follow with no block of
    their own. 🛑 NO COLOURED BAR DOWN A LEFT EDGE, ANYWHERE (Josh, 2026-09-24 12:52: "the em-dash
@@ -3121,7 +3123,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    browser check asserts no element here carries a coloured left border.
    The status colours: grey for nobody on it, gold for assigned, the working green for in
    progress, a quiet grey for closed -- the app's existing meanings, no new palette. */
-#panel-tasks { --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
+#panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
 .tsk-view { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 70vh;
@@ -3199,7 +3201,7 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
 #panel-tasks :is(button, select, input):focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 /* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
 .rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
-  padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-right: 6px; }
+  padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
   .tsk-view { grid-template-columns: 1fr; }
@@ -12466,12 +12468,11 @@ window.kosmosMeasureScrollbarWidth();
          title aligned with the agents head, where a 22px fold button + 7px gap
          still inset the name. -->
     <div class="railhead" id="rail-projects" hidden>
-      <span class="lead"><span class="railname">Projects</span></span>
+      <!-- #3559: the consolidated view hides the tab bar (it is one screen), so its way into
+           Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
+           the far right). It opens the Tasks page, a whole page in both views, like Settings. -->
+      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects">Tasks</button></span>
       <span class="railacts">
-        <!-- #3559: the consolidated view hides the tab bar (it is one screen), so its way into
-             Tasks lives here, beside the projects it lists tasks from. It opens the Tasks page,
-             which is a whole page in both views, like Settings. -->
-        <button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects">Tasks</button>
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
     </div>
@@ -42211,12 +42212,13 @@ const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['A
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
 const TSK = { data: null, error: null, proj: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '' };
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
-/* The name the board prints for an agent (its roster card's `name`), falling back to the
+/* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
+   field -- test-support/fleet refuses the read), falling back to the
    session name while the roster has not arrived; TSK.names remembers what was painted so the
    first roster that changes a name repaints once (see the LAST assignment). */
 function tskAgentName(sessionName) {
   const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
-  return String((a && (a.name || a.displayName)) || sessionName || '');
+  return String((a && a.name) || sessionName || '');
 }
 /* Called from the board poll's LAST assignment, which sits far ABOVE `const TSK` in this script:
    a function declaration is hoisted, and the try covers the one ordering (a poll landing before
@@ -42227,7 +42229,7 @@ function tskRosterChanged() {
   } catch { /* the Tasks view is not ready yet; its own load paints with the roster it finds */ }
 }
 function tskNamesSig() {
-  return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || a.displayName || ''))).join('|');
+  return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).join('|');
 }
 /* Pure (the tests lift these): does a task fall in the Added-in window, match the search, and in
    what order. `now` is passed in so a test pins it. */
