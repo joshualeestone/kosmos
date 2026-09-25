@@ -23,6 +23,11 @@
 # path as the cut's 3b. Still, the full set has never run on this runner before its first
 # night: dispatch once before relying on the first card.
 #
+# ⚠️ SILENCE IS NOT GREEN: GitHub disables a schedule after 60 days without repository
+# activity, and a queued run can be superseded before it starts; neither files a card. A card
+# that neither gets a comment nor closes for 2+ days means: look at this workflow's run list.
+# A green DISPATCH run never touches the card (only scheduled runs report), by design.
+#
 # ⚠️ LIMIT: a check that is red EVERY night on this runner is never NEW, so a real regression
 # in that same check adds no signal, and the card stays open with a comment a night. The card
 # says so; the remedy is to fix the check or record it as runner noise, not to read past it.
@@ -159,7 +164,7 @@ jobs:
             for n in $cards; do
               # The note once (a retried comment would post twice), then the close (safe to repeat).
               gh1 gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card." || true
-              ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY"
+              ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY" || true   # one failure must not skip the rest
             done
             exit 0
           fi
