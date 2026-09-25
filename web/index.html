@@ -42635,7 +42635,7 @@ function tskRow(t) {
        label carries it: a screen reader moving between checkboxes still hears where each task is.
        Grouped by project the row shows its state line, so the label does not say it again. */
     + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
-    + (g && TSK.by !== 'project' ? ', ' + esc(g.l) : '') + '">'
+    + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '">'
     + '<div class="t"><span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
@@ -43100,7 +43100,7 @@ function paintTaskPage() {
      naming the agent of a finished part would point at the one who is done. */
   const firstOpen = !!firstWho && parts.some((x) => x.who === firstWho && !x.closedAt);
   const claimWho = who || (firstOpen ? tkMemberName(p, firstWho) : null);
-  const sayShown = parts.some((x) => x.who && x.who === firstWho && !x.closedAt);
+  const sayShown = firstOpen;   // the same fact: that agent's open part (and its claim line) is on screen
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
   why.textContent = notReported ? (sayShown || !claimWho ? '' : claimWho + ' ' + notReported + '.')
     : unknownBecause ? 'We could not check whether ' + (claimWho || 'its agent') + ' is on this: ' + unknownBecause + '.' : '';
