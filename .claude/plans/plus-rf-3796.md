@@ -19,9 +19,11 @@ covers the wizard on its real ground. Setting plus-active in render-fields would
 whole page and falsify every other field.
 
 ## Weakest premise
-That the flip is exactly the intended design and nothing else: the exemption is per id, so a
-new wizard field is still checked, and the other assertions (same fill, boundaries) still run
-on these seven.
+That render-plus-signin-3478 is a sufficient stand-in on the real ground. It is not complete:
+it runs chromium only, and it pins the fields' fill and text colour and that the secondary
+button has a solid stroke, but does not measure the fields' border or the button's stroke
+against the navy card. So a later restyle that makes either vanish on navy would pass every
+check. Recorded as kosmos#3841; the #3796 rework (Pete) is the natural place for it.
 
 ## Proof
 - Red: render-fields on main 0da7100a4 (Mortals): the 7 flips + the button.

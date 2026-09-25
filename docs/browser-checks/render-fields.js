@@ -108,16 +108,23 @@ function selfCheck() {
    Adding a native slider on purpose means adding its id here. */
 const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 'create-swarm-cap'];
 /* The Kosmos+ sign-in wizard (#plus-state2, #3808/#3796) is NOT measured on its real ground
-   here: its navy card and the navy --k-bg it sits on are scoped to body.plus-active, which the
+   here. Its navy card (a gradient, #1b2c50 to #0f1d38) is scoped to body.plus-active, which the
    Kosmos+ tab sets (syncPlusChrome) and this check, which unhides panels in place, never does.
    So the wizard reads against the bare page ground instead: its always-dark fields as "recessed
-   in light, raised in dark", and #plus-si-enrol-sms's outline (about 2.2:1 on the real navy
-   card) as invisible in light. Found at the 0.6.95 cut. These ids are skipped from the
-   cross-scheme check and the button-boundary check, by name and no wider; the wizard on its
-   real ground is covered by render-plus-signin-3478, which navigates to the tab for real.
-   Setting plus-active here would recolour the whole page's --k-bg and falsify every other
-   field, so it is not done in place. */
-const PLUS_WIZARD_OFF_GROUND = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name', 'plus-si-enrol-sms']);
+   in light, raised in dark", and #plus-si-enrol-sms's outline (about 2.2:1 on the real card) as
+   invisible in light. Found at the 0.6.95 cut. Setting plus-active here would not help: the
+   card and body paint gradients, so ground(), which reads only backgroundColor, would find no
+   ground at all; and it would recolour the page for every other field.
+   So these are skipped, by name and no wider, from the cross-scheme check (fields) and the
+   button-boundary check (the one secondary button). A NEW #plus-state2 field fails here until
+   it is added. The enrol flow's white fields (#plus-flow) are measured off their ground too;
+   they pass only because white is lighter than both bare grounds, so that pass means little.
+   ⚠️ WHAT COVERS THE WIZARD INSTEAD IS NARROWER: render-plus-signin-3478 navigates to the tab
+   for real (chromium only) and pins the fields' fill and text colour and that the secondary
+   button has a solid stroke; it does NOT measure the fields' border or the button's stroke
+   AGAINST the card. That gap is kosmos#3841, not this change. */
+const PLUS_WIZARD_FIELDS = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name']);   // field loop keys carry '#'
+const PLUS_WIZARD_BUTTONS = new Set(['plus-si-enrol-sms']);   // the button loop compares BARE ids
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own
@@ -501,7 +508,7 @@ async function measure(engine, scheme) {
       let faint = 0;
       for (const b of (r.buttons || [])) {
         if (!b.box) continue;
-        if (PLUS_WIZARD_OFF_GROUND.has(b.id)) continue;   // off its real ground here (see the top)
+        if (PLUS_WIZARD_BUTTONS.has(b.id)) continue;   // off its real ground here (see the top)
         /* ⚠️ READ OFF THE COMPUTED VALUE, NOT OFF THE RATIO. `declaresFill` was
            `f !== 1`, which conflates "declares no fill" with "declares a fill
            IDENTICAL to its container" — and the second is precisely the
@@ -619,8 +626,8 @@ async function measure(engine, scheme) {
          column stays (Josh's #3493); this field keeps its depth cue against it. */
       if (id === '#pj-thread-who') continue;
       /* The Kosmos+ wizard's fields: measured off their real ground here (see
-         PLUS_WIZARD_OFF_GROUND at the top). */
-      if (PLUS_WIZARD_OFF_GROUND.has(id)) continue;
+         PLUS_WIZARD_FIELDS at the top). */
+      if (PLUS_WIZARD_FIELDS.has(id)) continue;
       const dl = dir(lightById[id]), dd = dir(darkById[id]);
       if (dl !== 'n/a' && dd !== 'n/a' && dl !== dd) {
         flipped += 1;
