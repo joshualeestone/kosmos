@@ -185,6 +185,14 @@ test('scrubAuthorName rejects PII and impersonation (no oracle in the message)',
   assert.equal(site.scrubAuthorName('Josh Stone').ok, false, 'the operator name is rejected (impersonation)');
   assert.equal(site.scrubAuthorName('joshualeestone').ok, false, 'an operator handle is rejected');
   assert.match(site.scrubAuthorName('Josh Stone').error, /another person/i, 'impersonation message');
+  // Format characters (\p{Cf}) must be stripped like feedguard's name scan, or an
+  // impersonation hidden by a soft hyphen / word joiner / bidi override would slip this
+  // up-front deny check and reach the public display name. Caught up front now = rejected.
+  assert.equal(site.scrubAuthorName('Jos­h Stone').ok, false, 'soft-hyphen impersonation rejected up front');
+  assert.equal(site.scrubAuthorName('Josh⁠ Stone').ok, false, 'word-joiner impersonation rejected up front');
+  assert.equal(site.scrubAuthorName('Josh‮ Stone').ok, false, 'bidi-override impersonation rejected up front');
+  // A benign name carrying a stray format char has it stripped, not rejected.
+  assert.equal(site.scrubAuthorName('Ka​te').name, 'Kate', 'a stray format char in a benign name is stripped');
 });
 
 test('publishHumanPost publishes a trusted, site-identified user post', () => {

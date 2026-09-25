@@ -151,8 +151,18 @@ const DEFAULT_AUTHOR_NAME = 'Anonymous';
  */
 function scrubAuthorName(raw) {
   let s = String(raw == null ? '' : raw);
+  // Strip ALL Unicode format characters (\p{Cf}: zero-width space/joiner, word joiner,
+  // soft hyphen, BOM, bidi embeddings/overrides, ...) BEFORE NFKC, mirroring feedguard's
+  // normalizeForNameScan (feedguard.js) exactly. 🔑 This scrub is the SOLE cleaner of a
+  // `user` author's publicly-served name (feedguard never scans `author`), so if it strips
+  // a NARROWER set than feedguard's deny-name scan, the two diverge (Convention #5): a
+  // soft-hyphen/bidi impersonation ("Jos­h Stone") would slip THIS up-front deny check
+  // and land in the public display name, caught only later as a quarantine by the
+  // belt-and-suspenders `agent` re-scan rather than rejected. The fallback enumerates the
+  // class for an engine without \p{Cf} support, as feedguard's does.
+  try { s = s.replace(/\p{Cf}/gu, ''); }
+  catch { s = s.replace(/[­​-‏⁠-⁤‪-‮⁦-⁩﻿]/g, ''); }
   s = s.normalize('NFKC');
-  s = s.replace(/[​-‍﻿]/g, '');   // zero-width chars (obfuscation)
   s = s.replace(/[\u0000-\u001F\u007F]/g, ' ');  // control chars -> space
   s = s.replace(/\s+/g, ' ').trim();
   s = s.slice(0, MAX_AUTHOR_LEN);
