@@ -157,14 +157,15 @@ test('check-in: while Kosmos is reconnecting it, the question does not ask the p
   const body = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
   // eslint-disable-next-line no-new-func
   const ask = (LAST, n) => new Function('LAST', body + '\n; return prompterCheckinQuestion;')(LAST)(n);
-  const n = { session: 'nettie', to: 'connection_lost' };
+  // The LAST rows are the real fleet card (connLostAgent), keyed by its own sessionName.
+  const n = { session: BASE.sessionName, to: 'connection_lost' };
   for (const phase of ['waiting', 'retried']) {
-    const q = ask([{ sessionName: 'nettie', reconnect: { phase, tries: 0 } }], n);
+    const q = ask([connLostAgent({ reconnect: { phase, tries: 0 } })], n);
     assert.match(q, /Kosmos is reconnecting it/);
     assert.doesNotMatch(q, /Reconnect it/, `(${phase}) asked the person to reconnect it`);
   }
   // Control: given up, or not running, or no board read yet: the original question.
-  for (const LAST of [[{ sessionName: 'nettie', reconnect: { phase: 'gave_up', tries: 3 } }], [{ sessionName: 'nettie', reconnect: null }], []]) {
+  for (const LAST of [[connLostAgent({ reconnect: { phase: 'gave_up', tries: 3 } })], [connLostAgent({ reconnect: null })], []]) {
     assert.match(ask(LAST, n), /Reconnect it, or is it done\?/);
   }
 });
