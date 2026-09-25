@@ -20,8 +20,8 @@ test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1
   assert.match(html, /function pjPhoneOrder\(\) \{/);
   // The Members/Files column is what moves. The conversation column holds the composer, and
   // moving it would blur the composer (iOS does not restore the keyboard for a scripted focus).
-  assert.match(html, /mid\.after\(split\)/);
-  assert.match(html, /grid\.insertBefore\(split, mid\)/);
+  // Anchored to its branch: a swap of the phone and wide moves must fail here, not only in the browser.
+  assert.match(html, /if \(window\.matchMedia\(PJ_PHONE_MQ\)\.matches\) \{\n    if \(mid\.nextElementSibling !== split\) mid\.after\(split\);\n  \} else if \(mid\.previousElementSibling !== split\) \{\n    grid\.insertBefore\(split, mid\);\n  \}/);
   assert.doesNotMatch(html, /grid\.insertBefore\(mid,|split\.after\(mid\)/);
   assert.match(html, /pjPhoneMq\.addEventListener\('change', pjPhoneOrder\)/);
 });
