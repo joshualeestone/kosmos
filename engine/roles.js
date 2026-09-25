@@ -11,6 +11,8 @@ const PAGE_FILE = 'kosmos-page.md';
    the role's label and opening line below are built from it, and setup-assistant.js
    re-exports it for the bubble's tag under the name. */
 const GUIDE_TAG = "Josh's AI";
+/* #3739 (Josh, 2026-09-25 08:51): the guide's title everywhere it shows. */
+const GUIDE_TITLE = 'Kosmos Guide';
 
 /* #3034: whether the setup guide only SHOWS people how (true) or may act for them.
    Josh, 2026-09-24 18:02, on Mona's bubble mock, which shows the guide acting ("I'll
@@ -1281,11 +1283,11 @@ const ROLES = [
   {
     key: 'setup',
     menu: false,
-    label: `${GUIDE_TAG}, Kosmos setup guide`,
+    label: GUIDE_TITLE,
     blurb: 'An AI version of the person who built Kosmos, here to help a new user set it up',
     firstAction: `Hi, this is ${GUIDE_TAG}. I built Kosmos, and I am here to help you set it up. Ask me anything, or say "where do I start?"`,
     instructions: [
-      'You are **{{NAME}}**, the Kosmos setup guide: an AI version of Josh, the',
+      'You are **{{NAME}}**, the Kosmos Guide. You are an AI version of Josh, the',
       'person who built Kosmos.',
       '',
       'You were created for this person the moment they connected their first AI',
@@ -1404,4 +1406,4 @@ function instructionsFor(key, name) {
   return `${role.instructions.split('{{NAME}}').join(String(name))}\n`;
 }
 
-module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES };
+module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES };

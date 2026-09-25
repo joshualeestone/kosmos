@@ -2128,6 +2128,23 @@ function withCreatorLock(creator, fn) {
 const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
 
+/* #3739: mark the setup guide's row, stated on every row (`isGuide`), and give it its title. Before its first
+   session its model is unread and its job may name none (it starts on the runner's own default), so it says
+   which runner's default rather than "Unknown", which Josh saw and does not want. */
+const GUIDE_RUNNER_WORD = { claude: 'Claude', codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok' };
+function markGuide(rows, guideName) {
+  for (const a of rows) {
+    if (!a || typeof a !== 'object') continue;
+    a.isGuide = Boolean(guideName) && a.sessionName === guideName;
+    if (!a.isGuide) continue;
+    a.role = roles.GUIDE_TITLE;
+    if (!a.modelName && !a.plannedModelName) {
+      a.plannedModelName = (GUIDE_RUNNER_WORD[a.runner] || 'Claude') + ' (its default model)';
+    }
+  }
+  return rows;
+}
+
 const CREATOR_AGENT_CAP_DEFAULT = 25;
 const MAX_CREATOR_AGENT_CAP = 100;
 function creatorAgentCap(env) {
@@ -3914,7 +3931,12 @@ const server = http.createServer((req, res) => {
           return [];
         }
       })();
-      const counts = countAgents(agents, snap.counts && snap.counts.unreadableLines, snap.counts && snap.counts.unreadableSamples);
+      /* #3739 (Josh, 2026-09-25 09:22: "let's hide it"): the setup guide is reached from the bubble only. Its
+         row is marked `isGuide` so the page leaves it out of every list while still finding it by name, and the
+         counts leave it out here, so the fleet the tiles count is the fleet the grid draws. */
+      const guideNow = setupGuideNow();
+      markGuide(agents.concat(offline), guideNow.ok ? guideNow.name : null);
+      const counts = countAgents(agents.filter((a) => !a.isGuide), snap.counts && snap.counts.unreadableLines, snap.counts && snap.counts.unreadableSamples);
       /* #3216: the RAW active-projects DM-unread total, so a cross-tab Projects nav badge can
          read a FRESH number every /api/status tick (the projects poll that refreshes p.unread is
          visibility-gated, so a Projects badge is stale on the Agents tab). One derivation with the
@@ -3937,7 +3959,7 @@ const server = http.createServer((req, res) => {
          `null` travels as "we could not work it out"; the tile shows it the
          same way it shows a blind poll. */
       const couldNotAccount = Boolean(snap.counts && snap.counts.unreadableLines > 0);
-      counts.notRunning = couldNotAccount ? null : offline.length;
+      counts.notRunning = couldNotAccount ? null : offline.filter((a) => !a.isGuide).length;
       counts.total += offline.length;
       /* #3718: an offline row waiting at the trust prompt needs the person too; countAgents only
          saw the running rows, so the Issue tile adds these here with the same rule. */
@@ -16084,6 +16106,7 @@ module.exports = {
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
+  markGuide, // #3739: the guide row's mark and title, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the

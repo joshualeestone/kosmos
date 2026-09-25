@@ -68,7 +68,7 @@ test('the setup role exists, is menu:false, and is NOT offered in the normal cre
   const inMenu = roles.ROLES.filter((r) => r.menu !== false).some((r) => r.key === 'setup');
   assert.equal(inMenu, false, 'the setup role leaked into the create menu');
   const brief = roles.instructionsFor('setup', 'Dana');
-  assert.match(brief, /You are \*\*Dana\*\*, the Kosmos setup guide: an AI version of Josh/);
+  assert.match(brief, /You are \*\*Dana\*\*, the Kosmos Guide\. You are an AI version of Josh/);
 });
 
 test('POSITIVE: connected account -> seeds as Josh (not the user), role setup, labelled as his AI', () => {

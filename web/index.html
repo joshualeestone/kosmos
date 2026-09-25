@@ -16671,9 +16671,11 @@ function ring(a) {
      the pack draws faces in the same slot). */
   const pct = pctOf(ctx);
   if (pct === null) {
+    /* #3739: the setup guide's ring is drawn empty (the plain track) until its memory is read, never the dashed
+       unknown ring Josh saw on a fresh install. */
     return `<svg viewBox="0 0 72 72" role="img"
          aria-label="${esc(a.name)}. ${memUnknown(ctx).aria}">
-      <circle class="gu" cx="36" cy="36" r="${R}" fill="none" stroke-width="4"/>
+      <circle class="${a.isGuide === true ? 'gt' : 'gu'}" cx="36" cy="36" r="${R}" fill="none" stroke-width="4"/>
       ${av}
     </svg>`;
   }
@@ -18311,7 +18313,7 @@ function paintAgentList() {
   const alist = document.getElementById('alist');
   if (!alist) return;
   const lim = new URLSearchParams(location.search).get('limit');
-  const src = Array.isArray(LAST) ? LAST : [];
+  const src = LISTED;
   const shown = lim ? src.slice(0, Number(lim)) : src;
   if (!shown.length) { setAgentsGrouped(false); alist.innerHTML = boardEmpty(); return; }
   const openProj = (layoutConsolidated() && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
@@ -18381,6 +18383,7 @@ async function tick() {
 
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
+    LISTED = listedAgents(LAST);
     /* #3559: the Tasks view prints agents by the board's names; repaint it once when the roster
        brings a name it did not have (never on an unchanged poll, so the list does not churn). */
     /* Isolated: a Tasks repaint failing must never read as the board's own read failing. */
@@ -18388,7 +18391,7 @@ async function tick() {
     LAST_AT = Date.now();  // #1150: the moment this sample reached the page
     // #3574: whether this is someone new is decided by the board's FIRST answer, whatever the
     // tips are doing then (off, a dialog, first run); see tipAutoOk.
-    if (TIP_NEW_BOARD === null && Array.isArray(data.agents)) TIP_NEW_BOARD = data.agents.length === 0;
+    if (TIP_NEW_BOARD === null && Array.isArray(data.agents)) TIP_NEW_BOARD = listedAgents(data.agents).length === 0;
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
      *
@@ -18701,7 +18704,7 @@ async function tick() {
         // off the screen while the box still held the older text.
       }
     }
-    const shown = lim ? data.agents.slice(0, Number(lim)) : data.agents;
+    const shown = lim ? LISTED.slice(0, Number(lim)) : LISTED;
     /* 🛑 ZERO AGENTS DREW NOTHING AT ALL, and the rule it broke is stated at
        the declaration of BOARD_SEEN eleven hundred lines below: [] before the
        first answer means "not heard yet", not "empty board", and the two must
@@ -18752,10 +18755,10 @@ async function tick() {
        the tile SUMS states, so any unknown makes Working and Idle floors, the
        same mark the unreadable-lines poll already wears. The Agents total is
        not floored by this: an unknown agent is still counted as an agent. */
-    const unknowns = data.agents.filter((a) => a.state === 'unknown').length;
+    const unknowns = LISTED.filter((a) => a.state === 'unknown').length;
     const stateFloor = floor || unknowns > 0;
     document.getElementById('st-agents').textContent = tileCount(c.total, floor);
-    const workingCount = data.agents.filter((a) => a.state === 'working').length;
+    const workingCount = LISTED.filter((a) => a.state === 'working').length;
     document.getElementById('st-working').textContent = tileCount(workingCount, stateFloor);
     /* #2157: hide the Working tile (chip + its .act animation) at a KNOWN zero,
        the alert tile's grammar. stateFloor true means unknowns cloud the count
@@ -18763,7 +18766,7 @@ async function tick() {
        that cannot stand behind it -- keep it shown, as the failed-poll "?" is. */
     document.getElementById('st-working-tile').hidden = workingCount === 0 && !stateFloor;
     document.getElementById('st-idle').textContent =
-      tileCount(data.agents.filter((a) => a.state === 'idle').length, stateFloor);
+      tileCount(LISTED.filter((a) => a.state === 'idle').length, stateFloor);
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
        agree today and the tile is a claim about the FLEET, which is what the
        engine counted; a second derivation here is how a headline starts
@@ -18875,7 +18878,7 @@ async function tick() {
       }
       unreadEl.hidden = !floor;
     }
-    renderConnection(data.connection, data.agents, data.dependsOnClaude);
+    renderConnection(data.connection, LISTED, data.dependsOnClaude);
     // Says "early" out loud. For a product whose whole thesis is not
     // overstating what it knows, admitting its own maturity is on-brand.
     //
@@ -25165,7 +25168,7 @@ function paintOrg() {
      counting everything: they answer "how is the fleet", not "how many are
      drawn". This is a drawing, so it takes the slice.) */
   const lim = new URLSearchParams(location.search).get('limit');
-  const all = (LAST || []).filter((a) => a && a.sessionName);
+  const all = LISTED.filter((a) => a && a.sessionName);
   const agents = lim ? all.slice(0, Number(lim)) : all;
   const note = document.getElementById('orgnote');
   if (!agents.length) {
@@ -25698,6 +25701,11 @@ for (const scope of Object.keys(LAYOUTS)) {
 // Deep-linkable, so a tab can be shared or bookmarked rather than only reached
 // by clicking. Also the only way to screenshot a panel headlessly.
 let LAST = [];
+/* #3739 (Josh, 2026-09-25 09:22: "let's hide it"): the agents the page LISTS and COUNTS, which leave out the
+   setup guide (the board marks its row isGuide). LAST keeps every agent, so a lookup by name, such as the
+   guide's own page opened from the bubble, still finds it. */
+let LISTED = [];
+function listedAgents(list) { return (Array.isArray(list) ? list : []).filter((a) => !(a && a.isGuide === true)); }
 /**
  * 🛑 WHEN THAT SNAPSHOT ARRIVED, AND WHEN WE LAST HEARD EACH AGENT SPEAK (#1150).
  *
@@ -35680,7 +35688,7 @@ function paintReportsTo(a) {
   const sel = document.getElementById('d-reports');
   if (!wrap || !sel) return;
   const me = a && a.sessionName;
-  const others = (LAST || []).filter((x) => x && x.sessionName && x.sessionName !== me);
+  const others = LISTED.filter((x) => x && x.sessionName && x.sessionName !== me);
   /* 🛑 ALWAYS HERE, AND YOU ARE THE DEFAULT. This is the create form's ruling
      (0.2.95) arriving on the second surface that needed it, and it arrives late:
      Josh gave it once, for one screen, and this one kept the old shape for
@@ -39672,7 +39680,7 @@ async function loadCreateExtras() {
   const rwrap = document.getElementById('create-reports-wrap');
   const rsel = document.getElementById('create-reports');
   rwrap.hidden = false;
-  const existing = (LAST || []).filter((x) => x && x.sessionName);
+  const existing = LISTED.filter((x) => x && x.sessionName);
   rsel.innerHTML = ['<option value="" selected>' + esc(YOU_NAME || 'You') + '</option>'].concat(
     existing.map((x) => '<option value="' + esc(x.sessionName) + '">' + esc(x.name || x.sessionName) + '</option>'),
   ).join('');
@@ -44308,13 +44316,13 @@ function paintOneProject() {
  */
 function paintFreeAgentPicker(p, sel, btn) {
   const on = new Set((p.agents || []).map((a) => a.sessionName));
-  const free = LAST.filter((a) => !on.has(a.sessionName));
+  const free = LISTED.filter((a) => !on.has(a.sessionName));
   const emptyBecause = BOARD_NEEDS_SIGNIN // #2023: distinct from "cannot see them".
     ? 'this board is not signed in yet'
     : BOARD_LOOK_FAILED
       ? 'we cannot see the agents right now'
       : !BOARD_LOOKED ? 'looking for the agents…'
-        : !LAST.length ? 'we cannot see any agents on this computer'
+        : !LISTED.length ? 'we cannot see any agents on this computer'
           : 'every agent we can see is already on it';
   const html = free.length
     ? free.map((a) => '<option value="' + esc(a.sessionName) + '">' + esc(a.name) + '</option>').join('')
@@ -48735,7 +48743,7 @@ function paintAddAgents() {
     setLive(box, '<p class="fhint">Looking for the agents on this computer…</p>');
     return;
   }
-  if (!LAST.length) {
+  if (!LISTED.length) {
     setLive(box, '<p class="fhint">We cannot see any agents on this computer right now.</p>');
     return;
   }
@@ -48785,7 +48793,7 @@ function addAgentsHtml(agents = PJ_ADD_AGENTS, unpickAttr = 'data-unpick') {
 }
 function addPickOptions() {
   const sel = document.getElementById('pj-add-pick');
-  const free = LAST.filter((a) => !PJ_ADD_AGENTS.includes(a.sessionName));
+  const free = LISTED.filter((a) => !PJ_ADD_AGENTS.includes(a.sessionName));
   sel.innerHTML = '<option value="">Pick an agent\u2026</option>'
     + free.map((a) => '<option value="' + esc(a.sessionName) + '">' + esc(a.name) + (roleLine(a, ROLE_TITLES) ? ' \u00b7 ' + esc(roleLine(a, ROLE_TITLES)) : '') + '</option>').join('');
   const btn = document.getElementById('pj-add-agent');
@@ -49245,7 +49253,7 @@ function pjJoinPickOptions() {
   // Mirrors addPickOptions (the create-mode picker): the role rides each option label, and the
   // button carries the same disabled title when every agent is already on it.
   const sel = document.getElementById('pj-join-pick');
-  const free = LAST.filter((a) => a && !PJ_JOIN_ADD_AGENTS.includes(a.sessionName));
+  const free = LISTED.filter((a) => a && !PJ_JOIN_ADD_AGENTS.includes(a.sessionName));
   sel.innerHTML = '<option value="">Pick an agent…</option>'
     + free.map((a) => '<option value="' + esc(a.sessionName) + '">' + esc(a.name || a.sessionName) + (roleLine(a, ROLE_TITLES) ? ' · ' + esc(roleLine(a, ROLE_TITLES)) : '') + '</option>').join('');
   const btn = document.getElementById('pj-join-add-agent');
@@ -54669,7 +54677,7 @@ function tipsCheck() {
      unrecorded, below), a save that failed, and someone who went to the create form before the
      tour's first tick (the tour never shows over it). Above the open-tip return so a failed save is retried
      while a screen tip is up; never while the tour itself is on screen. */
-  if (TIP_NEW_BOARD === true && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && Array.isArray(LAST) && LAST.length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
+  if (TIP_NEW_BOARD === true && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && LISTED.length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
     /* Keyed on what the board has confirmed, not on the local list: a close that recorded the tour
        locally but whose save failed is caught here too. Counted locally at once so the screen tips can
        follow; a failed save is tried again, less often each time. */
@@ -54706,7 +54714,7 @@ function tipAutoOk(t) {
   if (t.tour) {
     /* Latched by the status handler at the board's first answer: a board that had agents then and
        has since removed its last one is not someone new, and the tour would be the wrong help. */
-    return TIP_NEW_BOARD === true && Array.isArray(LAST) && LAST.length === 0;
+    return TIP_NEW_BOARD === true && LISTED.length === 0;
   }
   /* On a new board the create form's own tip does not wait for the tour: someone new who clicks New
      agent before the tour's first tick is on a screen the tour never shows over, and it is exactly
