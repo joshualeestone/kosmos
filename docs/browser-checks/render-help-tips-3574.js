@@ -686,9 +686,34 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-menu [data-help="ring"]');
     await page.waitForTimeout(250);
     const narrow32 = await shortRead();
-    // T32d: words the person scrolled stay scrolled when the card is placed again (it is, on every scroll and tick).
-    const kept32 = await page.evaluate(async () => { const bd = document.querySelector('#tipcard .tip-bd'); bd.scrollTop = 30; const at = bd.scrollTop; window.dispatchEvent(new Event('resize')); await new Promise((r) => setTimeout(r, 1300)); return { at, after: bd.scrollTop }; });
-    chk(kept32.at > 0 && kept32.after === kept32.at, 'T32d the words stay where the person scrolled them when the card is placed again', JSON.stringify(kept32));
+    // T32f: words the person scrolled stay scrolled when the card is placed again (it is, on every resize and tick),
+    // and scrolling them places nothing (on WebKit that re-placing looped every frame).
+    const kept32 = await page.evaluate(async () => {
+      const bd = document.querySelector('#tipcard .tip-bd');
+      const real = window.tipPlace; let calls = 0; window.tipPlace = function (...a) { calls++; return real.apply(this, a); };
+      try {
+        bd.scrollTop = 30; const at = bd.scrollTop;
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        /* Read synchronously, so the page's own tip tick cannot land in the measurement: a scroll on the words
+           must not queue a placement, and a scroll on the page (the control) must. */
+        const idle = TIP_RELAYOUT === false;
+        bd.dispatchEvent(new Event('scroll')); const byScroll = TIP_RELAYOUT;
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        document.dispatchEvent(new Event('scroll')); const byPage = TIP_RELAYOUT;
+        const before = calls;
+        window.dispatchEvent(new Event('resize')); await new Promise((r) => setTimeout(r, 1300));
+        return { at, after: bd.scrollTop, idle, byScroll, byPage, byResize: calls - before };
+      } finally { window.tipPlace = real; }
+    });
+    chk(kept32.at > 0 && kept32.after === kept32.at && kept32.idle && kept32.byScroll === false && kept32.byPage === true && kept32.byResize > 0, 'T32f the words stay where the person scrolled them, and scrolling them places nothing', JSON.stringify(kept32));
+    // T32g: a keyboard user on the scrolling words keeps focus in the card when the window grows and the words stop scrolling.
+    await page.evaluate(() => document.querySelector('#tipcard .tip-bd').focus());
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.waitForTimeout(1300);
+    const foc32 = await page.evaluate(() => ({ tag: document.activeElement && (document.activeElement.className || document.activeElement.tagName), inCard: !!(document.activeElement && document.activeElement.closest('#tipcard')), tab: document.querySelector('#tipcard .tip-bd').getAttribute('tabindex') }));
+    chk(foc32.inCard && foc32.tab === null, 'T32g a keyboard user on the words keeps focus in the card when the window grows', JSON.stringify(foc32));
+    await page.setViewportSize({ width: 360, height: 300 });
+    await page.waitForTimeout(400);
     chk(narrow32.top >= 12 && narrow32.vh - narrow32.bottom >= 12 && narrow32.goIn, 'T32d narrow and short, the card still fits with Got it in view', JSON.stringify(narrow32));
     await page.keyboard.press('Escape');
     // T32e CONTROL: a tall window gives the words room, so they neither scroll nor add a tab stop.

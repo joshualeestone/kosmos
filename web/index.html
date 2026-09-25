@@ -1452,7 +1452,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-off, .tipcard .tip-skip { border: 0; background: none; padding: 0; cursor: pointer; font: .75rem var(--font-ui);
   color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 2px; }
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
-.tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.tipcard .tip-bd:focus-visible, .tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
   box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
@@ -53796,15 +53796,20 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
      tab stop only while they scroll, so a keyboard can reach the hidden part and a short tip adds no stop. */
   const bd = card.querySelector('.tip-bd');
   if (bd) {
-    /* The card is placed again on every scroll and tick: keep where the person had scrolled the words to. */
-    const was = bd.scrollTop;
-    bd.style.maxHeight = '';
-    const over = card.offsetHeight - (window.innerHeight - 24);
-    if (over > 0) bd.style.maxHeight = Math.max(48, bd.clientHeight - over) + 'px';
-    bd.scrollTop = was;
+    /* Worked out from the card as it stands, never by clearing the height first: clearing it would pull the words
+       back to the top on every placement. The style is written only when the value changes. Below a window of
+       about 150px even the title and buttons do not fit, and the card keeps its top on screen. */
+    const natural = card.offsetHeight - bd.clientHeight + bd.scrollHeight;
+    const over = natural - (window.innerHeight - 24);
+    const want = over > 0 ? Math.max(24, bd.scrollHeight - over) + 'px' : '';
+    if (bd.style.maxHeight !== want) bd.style.maxHeight = want;
     const scrolls = bd.scrollHeight > bd.clientHeight + 1;
     if (scrolls) { bd.tabIndex = 0; bd.setAttribute('role', 'region'); bd.setAttribute('aria-label', 'Tip text, scrolls'); }
-    else { bd.removeAttribute('tabindex'); bd.removeAttribute('role'); bd.removeAttribute('aria-label'); }
+    else if (bd.hasAttribute('tabindex')) {
+      /* A person on the words keeps their place: focus moves to Got it before the stop goes away. */
+      if (document.activeElement === bd) { const go = card.querySelector('.tip-go'); if (go) go.focus({ preventScroll: true }); }
+      bd.removeAttribute('tabindex'); bd.removeAttribute('role'); bd.removeAttribute('aria-label');
+    }
   }
   const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
   const pageW = document.documentElement.getBoundingClientRect().width;
@@ -53953,7 +53958,9 @@ document.addEventListener('pointerdown', (e) => {
   tipClose({ record: true });
 }, true);
 let TIP_RELAYOUT = false;
-const tipRelayout = () => {
+const tipRelayout = (e) => {
+  /* Scrolling the tip's own words moves nothing else; placing the card for it would loop on WebKit. */
+  if (e && e.type === 'scroll' && e.target instanceof Element && e.target.closest('#tiplayer')) return;
   if (!TIP_OPEN || TIP_RELAYOUT) return;
   TIP_RELAYOUT = true;
   requestAnimationFrame(() => { TIP_RELAYOUT = false; const c = document.getElementById('tipcard'); if (TIP_OPEN && c && !c.hidden) tipLayout(TIP_OPEN, c); });
