@@ -317,8 +317,9 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     // count is the ONLY thing keeping it: stopped, the lead idle, a full count. CONTROL: the same with none greys it.
     crewState = 'idle';
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'stopped', metered: true, activeHelpers: 2 };
-    chk(await waitFor(page, () => document.querySelector('input[name="d-swarm-active"][value="off"]').checked && !!CURRENT && CURRENT.state === 'idle' && !document.getElementById('d-swarm-stop').disabled, null, 8000),
-      'S12 stopped with an idle lead but two helpers still working: Stop now is still there to press');
+    chk(await waitFor(page, () => document.querySelector('input[name="d-swarm-active"][value="off"]').checked && !!SWARM_ROW && SWARM_ROW.state === 'idle' && !document.getElementById('d-swarm-stop').disabled, null, 15000),   // the lead's state rides the status poll, as in S24
+      'S12 stopped with an idle lead but two helpers still working: Stop now is still there to press',
+      JSON.stringify(await page.evaluate(() => ({ off: document.querySelector('input[name="d-swarm-active"][value="off"]').checked, state: SWARM_ROW && SWARM_ROW.state, sw: SWARM_ROW && SWARM_ROW.swarm, dis: document.getElementById('d-swarm-stop').disabled }))));
     crewSwarm = { ...crewSwarm, activeHelpers: 0 };
     chk(await waitFor(page, () => document.getElementById('d-swarm-stop').disabled, null, 8000), 'S12 CONTROL: the same with no helper working, Stop now greys');
     crewSwarm = { ...crewSwarm, activeHelpers: 2 };
