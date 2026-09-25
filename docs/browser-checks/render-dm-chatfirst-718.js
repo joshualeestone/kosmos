@@ -127,7 +127,7 @@ function measure() {
         chk(m.docW <= m.vw, `${t} no sideways page scroll`, `docW=${m.docW} vw=${m.vw}`);
         // Not scroll-locked: a header menu taller than the screen (the world switcher with many
         // Kosmos instances) must still be able to scroll the page to its last row.
-        chk(m.bodyOverflow !== 'hidden', `${t} the page is not scroll-locked, so a tall header menu stays reachable`, m.bodyOverflow);
+        chk(m.bodyOverflow !== 'hidden', `${t} the body is not overflow:hidden (a tall header menu can still scroll the page)`, m.bodyOverflow);
 
         // Simulated keyboard: focus the composer, shrink the visible height the way the page's
         // visualViewport listener would, and the composer must sit above the keyboard.
@@ -138,8 +138,7 @@ function measure() {
         chk(k.box && k.box.bottom <= limit + 1 && k.box.top >= 0, `${t} with the keyboard up the composer sits above it`, `bottom=${k.box && Math.round(k.box.bottom)} limit=${limit}`);
         chk(k.head && !k.head.shown, `${t} while typing the header steps aside`);
         chk(k.threadH >= MIN_THREAD_WHILE_TYPING_PX, `${t} while typing the thread still shows conversation`, `threadH=${k.threadH}`);
-        // Post takes focus (it does on Android, and sendTalk hands focus back to it): the header
-        // must not flash back while focus is anywhere in the composer.
+        // Post takes focus when tapped on Android: the header must not flash back mid-tap.
         await page.focus('#d-send');
         const kp = await page.evaluate(measure);
         chk(kp.head && !kp.head.shown, `${t} with focus on Post the header stays aside`);
@@ -152,6 +151,17 @@ function measure() {
         const ks = await page.evaluate(measure);
         chk(ks.search && ks.search.shown && ks.search.bottom <= limit && ks.threadH >= MIN_THREAD_WHILE_TYPING_PX, `${t} searching with the keyboard up keeps the search box and some thread visible`, `search=${ks.search && Math.round(ks.search.bottom)} threadH=${ks.threadH} limit=${limit}`);
 
+        // Everything below the thread stays reachable while typing: the folder-trust box, file
+        // chips and a send error can outgrow a short talk box, which then scrolls (#2622).
+        const crowd = await page.evaluate(() => {
+          const q = document.getElementById('d-qask'); q.hidden = false; document.getElementById('d-qask-lab').textContent = 'This agent is waiting for you to trust its folder before it can start work again.';
+          const chips = document.getElementById('d-attach-chips'); chips.hidden = false; chips.innerHTML = '<span class="chip">IMG_2041.png</span><span class="chip">quarterly-report.pdf</span>';
+          document.getElementById('d-say-msg').textContent = 'Could not send just now. Try again in a moment.';
+          const box = document.getElementById('d-talk-box'); box.scrollTop = box.scrollHeight;
+          const m = document.getElementById('d-say-msg').getBoundingClientRect(); const b = box.getBoundingClientRect();
+          return { overflowY: getComputedStyle(box).overflowY, msgBottom: m.bottom, boxBottom: b.bottom };
+        });
+        chk(crowd.overflowY === 'auto' && crowd.msgBottom <= crowd.boxBottom + 1, `${t} with the keyboard up, a send error below the composer can be scrolled into view`, JSON.stringify(crowd));
         // Leave the composer (a person dismisses the keyboard), then Profile is one tap.
         await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); });
         await page.click('#d-nav [data-go=profile]');
@@ -161,13 +171,13 @@ function measure() {
         await page.close();
       }
       // A long agent name in the compact phone header: it must stay inside the screen.
-      for (const eng2 of [eng]) {
+      {
         const { page, errs } = await open(browser, 375, 667, 'light', LONG_AGENT_NAME);
-        const t = `[${eng2} 375x667 long name]`;
+        const t = `[${eng} 375x667 long name]`;
         const n = await page.evaluate(() => {
           const name = document.getElementById('d-name'); const head = document.querySelector('.dhead');
           const r = name.getBoundingClientRect(); const hr = head.getBoundingClientRect();
-          return { right: r.right, headRight: hr.right, vw: document.documentElement.clientWidth, docW: document.documentElement.scrollWidth, lines: Math.round(r.height / parseFloat(getComputedStyle(name).lineHeight || '20')) };
+          return { right: r.right, headRight: hr.right, vw: document.documentElement.clientWidth, docW: document.documentElement.scrollWidth };
         });
         chk(n.right <= n.vw + 0.5 && n.headRight <= n.vw + 0.5 && n.docW <= n.vw, `${t} the name stays inside the screen`, JSON.stringify(n));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
