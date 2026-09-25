@@ -1174,8 +1174,16 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
+  # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). The setup guide
+  # runs sandboxed with Kosmos's data folder denied, so it cannot read the board token; its agent
+  # token is what keeps its reply on an enforcing board. Omitted when empty, as before.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
   local _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
-  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/reply" \
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
     --data "$_data" 2>/dev/null) || {
     say "We could not reach Kosmos to keep that. Is it running at $URL?"
