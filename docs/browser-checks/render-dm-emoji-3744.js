@@ -57,7 +57,8 @@ const FX = {
       await page.addInitScript(() => {
         window.__fx = null;
         window.__posts = [];
-        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.__threadFails = false;
+        const enc = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: { 'content-type': 'application/json' } });
         window.setInterval = () => 0;
         window.fetch = async (url, opts) => {
           const u = String(url);
@@ -67,6 +68,7 @@ const FX = {
             window.__fx.messages.push({ at: new Date().toISOString(), text: body.text, delivery: { state: 'placed', paneState: 'idle' } });
             return enc({ ok: true, delivery: { state: 'placed', paneState: 'idle' } });
           }
+          if (u.includes('/thread') && window.__threadFails) return enc({ error: 'we could not read this conversation' }, 500);
           if (u.includes('/thread')) return enc(window.__fx);
           if (u.includes('/api/status')) return enc({ agents: [], version: '0.0.0' });
           return enc({});
@@ -140,6 +142,9 @@ const FX = {
       }, first);
       chk(pick.value === 'hi' + first + ' there' && pick.caret === pick.want, `${t} a pick inserts the emoji at the caret, not at the end`, JSON.stringify(pick));
       chk(pick.focus && pick.open && pick.roomValue === '', `${t} focus stays in the DM input, the panel stays open, the room's input is untouched`, JSON.stringify(pick));
+      // The pick is a typed character to everything listening: the draft kept for April holds it.
+      const draft = await page.evaluate(() => (typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS.april) || null);
+      chk(draft === pick.value, `${t} the draft kept for April holds the emoji (a pick fires input, like typing)`, JSON.stringify({ draft, value: pick.value }));
 
       // The keyboard: Escape closes; Enter on the smiley opens; Enter on an emoji inserts.
       await page.keyboard.press('Escape');
@@ -184,6 +189,73 @@ const FX = {
       await page.waitForTimeout(150);
       const on = await page.evaluate(() => ({ btn: document.getElementById('d-emoji-btn').disabled }));
       chk(!on.btn, `${t} and it comes back with the box`, JSON.stringify(on));
+
+      // The other way the box closes: the conversation cannot be read at all.
+      await page.click('#d-emoji-btn');
+      await page.waitForTimeout(50);
+      await page.evaluate(() => { window.__threadFails = true; });
+      await page.evaluate(() => paintTalk('april', 'April'));
+      await page.waitForTimeout(150);
+      const unread = await page.evaluate(() => {
+        const say = document.getElementById('d-say'); const before = say.value;
+        pjEmojiInsert('\u{1F680}', 'agent');   // a pick that reaches a closed box anyway is refused
+        return { say: say.disabled, btn: document.getElementById('d-emoji-btn').disabled, panel: document.getElementById('d-emoji').hidden, refused: say.value === before };
+      });
+      chk(unread.say && unread.btn && unread.panel, `${t} a conversation that cannot be read greys the smiley and closes the panel too`, JSON.stringify(unread));
+      chk(unread.refused, `${t} an emoji is never put into a closed box`, JSON.stringify(unread));
+      await page.evaluate(() => { window.__threadFails = false; });
+      await page.evaluate(() => paintTalk('april', 'April'));
+      await page.waitForTimeout(150);
+
+      // Leaving for another agent takes the panel with it, as it takes the words.
+      await page.click('#d-emoji-btn');
+      await page.waitForTimeout(50);
+      const sw = await page.evaluate(async () => {
+        const was = !document.getElementById('d-emoji').hidden;
+        // openDetail opens only an agent the board knows, so Bob is put on it (minimal, as the poll would).
+        LAST = [{ sessionName: 'april', name: 'April', state: 'idle', running: true }, { sessionName: 'bob', name: 'Bob', state: 'idle', running: true }];
+        try { openDetail('bob', 'talk'); } catch (e) { return { was, threw: String(e && e.message || e) }; }
+        await new Promise((r) => setTimeout(r, 150));
+        return { was, open: !document.getElementById('d-emoji').hidden, expanded: document.getElementById('d-emoji-btn').getAttribute('aria-expanded') };
+      });
+      chk(sw.was && !sw.threw && !sw.open && sw.expanded === 'false', `${t} switching to another agent closes the panel`, JSON.stringify(sw));
+      await page.evaluate(() => { CURRENT = { sessionName: 'april', name: 'April' }; });
+      await page.evaluate(() => paintTalk('april', 'April'));
+      await page.waitForTimeout(150);
+
+      // A short window: the panel is not cut off by the conversation's scroll box, whose top edge it
+      // used to rise past; every part of it is on screen and is the panel, not what is behind it.
+      // 420 is the case that clipped: the composer sits within a panel's height of the scroll box's top.
+      for (const h of [620, 420]) {
+        await page.setViewportSize({ width: 1200, height: h });
+        await page.waitForTimeout(100);
+        await page.click('#d-emoji-btn');
+        await page.waitForTimeout(80);
+        const shortW = await page.evaluate(() => {
+          const panel = document.getElementById('d-emoji');
+          const r = panel.getBoundingClientRect();
+          const probe = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && panel.contains(el); };
+          const tb = document.getElementById('d-talk-box').getBoundingClientRect();
+          const box = document.getElementById('d-say').closest('.composerbox').getBoundingClientRect();
+          return { tight: box.top - tb.top < r.height + 8, top: r.top, bottom: r.bottom, left: r.left, right: r.right, h: innerHeight,
+            topHit: probe(r.left + r.width / 2, r.top + 4), bottomHit: probe(r.left + r.width / 2, r.bottom - 4),
+            first: panel.querySelector('button[data-emoji]').getBoundingClientRect().top >= r.top - 1 };
+        });
+        chk(shortW.top >= 0 && shortW.bottom <= shortW.h && shortW.left >= 0 && shortW.right <= 1200 && shortW.topHit && shortW.bottomHit,
+          `${t} at 1200x${h} the whole panel is on screen and nothing covers or clips it`, JSON.stringify(shortW));
+        if (SHOTS && h === 420) await page.screenshot({ path: path.join(SHOTS, `3744-${platform}-4-short-window.png`) });
+        await page.keyboard.press('Escape');
+      }
+      // A phone: no smiley in the DM (its own keyboard has emoji), so the words keep the width.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.waitForTimeout(150);
+      const phone = await page.evaluate(() => {
+        const b = document.getElementById('d-emoji-btn');
+        return { shown: b.getBoundingClientRect().width > 0, sayWidth: Math.round(document.getElementById('d-say').getBoundingClientRect().width) };
+      });
+      chk(!phone.shown, `${t} at phone width the DM has no smiley, so the words keep their room`, JSON.stringify(phone));
+      await page.setViewportSize({ width: 1200, height: 900 });
+      await page.waitForTimeout(100);
 
       // The room's picker still works, and only one panel is open at a time.
       const room = await page.evaluate(() => {

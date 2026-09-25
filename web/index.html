@@ -5993,9 +5993,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* The out. One line, and it points DOWN at the composer this page already has
    rather than away to another screen. */
 .dmbar { margin-top: 14px; }
-/* #3744: the DM's emoji panel is positioned from its own composer box, as the room's is from
-   .composer, so it opens just above the box it types into. */
-.dmbar.composerbox { position: relative; }
+/* #3744: the DM's emoji panel is FIXED and placed by script from its composer box (emojiPlace),
+   the #2834 reaction picker's approach, not absolute: the box sits inside #d-talk-box, an
+   overflow:auto scroll box, and an absolute panel rising above that box's top edge was cut off
+   in any window under about 670px tall (review pass 1, measured at 1200x620). */
+#d-emoji { position: fixed; right: auto; bottom: auto; }
+/* On a phone the DM keeps its whole width for the words: the smiley's 40px cut "Write
+   something..." to "Write" at 390px (review pass 1), and a phone's own keyboard has emoji. */
+@media (max-width: 480px) { #d-emoji-btn { display: none; } }
 #d-say { flex: 1 1 auto; }
 /* Inside the room's box the field is bare: the box carries the border and the
    focus ring. Specific enough to beat `.detail .dbox input[type=text]`. */
@@ -28412,6 +28417,7 @@ function openDetail(sessionName, section, fromProject) {
        words are not lost: the input handler parks them under their own agent
        on every keystroke. */
     pjComposerReset(document.getElementById('d-say'));
+    pjEmojiClose('agent');   // #3744: the panel belongs to the composer being left, like its words
     /* #967: the Terminal-tab box belongs to the agent being LEFT exactly as the
        composer above does, so it is cleared on switch and paintTalk restores the
        one being opened from TERM_DRAFTS. Without this a reply typed for one agent
@@ -46919,7 +46925,35 @@ function pjEmojiOpen(where = 'room') {
   if (!panel || !btn) return;
   panel.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
+  if (where === 'agent') emojiPlace();
 }
+
+/* #3744: the DM's panel, placed from its composer box (see #d-emoji in the style block): above the
+   box, right-aligned with it as the room's is; below it when there is more room there; its height
+   capped to the room it has; and kept inside the window and below the sticky app header, which
+   would otherwise cover its top rows in a short window. */
+function emojiPlace() {
+  const panel = document.getElementById('d-emoji');
+  const btn = document.getElementById('d-emoji-btn');
+  if (!panel || panel.hidden || !btn) return;
+  const box = (btn.closest('.composerbox') || btn).getBoundingClientRect();
+  const GAP = 6, EDGE = 8;
+  const head = document.querySelector('.apphead');
+  const ceiling = Math.max(EDGE, head ? head.getBoundingClientRect().bottom + 4 : EDGE);
+  panel.style.maxHeight = '';
+  const natural = panel.offsetHeight;
+  const above = box.top - GAP - ceiling;
+  const below = innerHeight - box.bottom - GAP - EDGE;
+  const up = above >= natural || above >= below;
+  const room = Math.max(96, up ? above : below);
+  if (natural > room) panel.style.maxHeight = room + 'px';
+  const h = Math.min(natural, room);
+  panel.style.top = Math.round(up ? box.top - GAP - h : box.bottom + GAP) + 'px';
+  const w = panel.offsetWidth;
+  panel.style.left = Math.round(Math.max(EDGE, Math.min(box.right - 12 - w, innerWidth - EDGE - w))) + 'px';
+}
+window.addEventListener('resize', emojiPlace);
+{ const tb = document.getElementById('d-talk-box'); if (tb) tb.addEventListener('scroll', emojiPlace, { passive: true }); }
 
 function pjEmojiClose(where = 'room') {
   const panel = document.getElementById(EMOJI_AT[where].panel);

@@ -30,3 +30,23 @@ Josh, 2026-09-25 09:29 in #admin: "We need emoji support in the agent DM." Filed
   render-agentdm-3414; README row; reason-grep counts 148 -> 150 and 103 -> 104, measured.
 - emoji-picker-2254.js and render-emoji-mute-2357.js (the room's) still pass.
 - Screenshots: ~/.cache/claude-handoffs/shots-3744/{before,after}.
+
+## Review pass 1 (opus): 0 blockers, 3 warnings, 6 nits
+- W1 the panel was cut off in a short window (it rose past the top of #d-talk-box, an overflow:auto
+  box) -> #d-emoji is position:fixed, placed by emojiPlace from the composer box (the #2834 reaction
+  picker's approach): above, or below when there is more room, height capped to the room, inside the
+  window and below the sticky .apphead (which covered its top rows once it escaped the clip). Repositions
+  on resize and on the talk box's scroll. Arm at 1200x420 (the composer within a panel's height of the
+  box's top): red with the old absolute panel. This also scopes away NIT 5 (the rule matched the
+  Terminal composer).
+- W2 at phone width the smiley took 40px and cut the placeholder to "Write" -> hidden under 480px: a
+  phone's own keyboard has emoji. Arm red without the rule.
+- W3 untested paths -> arms for the draft after a pick (red without the input event), the cannot-read
+  arm (red without its two lines), and a pick into a disabled box (red without the refusal).
+- NIT 2 the panel stayed open across an agent switch -> closed in openDetail's switch block; arm red
+  without it.
+- Not taken: NIT 1 (focus to body when the box closes under a keyboard user; the control case in #d-say
+  does the same today), NIT 3 and NIT 4 (the room has the same Escape behaviour), NIT 6 (Tab order is
+  DOM order, same as the room).
+- Weakest premise now: hiding the DM smiley on a phone. Josh asked for emoji in the DM; a phone gets
+  them from its keyboard. One media rule to undo.
