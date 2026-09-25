@@ -73,6 +73,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     }, theme);
     const c = await read();
     const on = c.segs.find((s) => s.checked), off = c.segs.find((s) => !s.checked);
+    // The gold arms compare against a probe painted with --gold-bright; if the token ever went missing
+    // the probe and an unfilled segment would both read transparent and those arms would pass on nothing.
+    ok(theme + ': the gold token resolves to a real colour', c.gold !== 'rgba(0, 0, 0, 0)' && c.gold !== '', 'gold=' + c.gold);
     ok(theme + ': two segments, Create chosen', c.segs.length === 2 && c.segs[0].checked, JSON.stringify(c.segs));
     ok(theme + ': the chosen segment is gold', !!on && on.bg === c.gold, 'bg=' + (on && on.bg) + ' gold=' + c.gold);
     ok(theme + ': the chosen segment ink is #14161a', !!on && on.color === 'rgb(20, 22, 26)', 'color=' + (on && on.color));
