@@ -13141,6 +13141,17 @@ const server = http.createServer((req, res) => {
       }
       const results = [];
       const toTell = new Set();
+      /* ONE store read for every lookup. projects.get() would run the whole claim join (every
+         project's tasks, a commitments read per assignee) once per item, and tasks.say() would run
+         it again: ~400 joins for a 200-task close. Closes made earlier in THIS request are not in
+         the snapshot, so they are remembered here (a task sent twice gets one note, one close). */
+      let everyProject;
+      try { everyProject = projects.readAll(); } catch (err) {
+        sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your tasks right now') });
+        return;
+      }
+      const closedHere = new Set();
+      const taskchat = require('./engine/taskchat');
       for (const item of body.tasks) {
         const projectId = item && typeof item.projectId === 'string' ? item.projectId : null;
         const number = item && Number.isSafeInteger(item.number) ? item.number : null;
@@ -13152,12 +13163,19 @@ const server = http.createServer((req, res) => {
           /* Looked up FIRST, so a missing task never gets the note, and one already closed
              (a stale page, or sent twice) is left alone rather than re-stamped with the note
              written a second time. */
-          const p = projects.get(projectId);
+          const p = (everyProject || []).find((x) => x && x.id === projectId);
           const found = p ? tasks.byNumber(p, number) : null;
           if (!found) throw new Error(p ? 'there is no task by that number on this project' : 'there is no project by that name');
-          if (tasks.progressOf(found).closed) { results.push({ projectId, number, ok: true, already: true }); continue; }
-          if (note) tasks.say(projectId, number, note);
+          const here = projectId + '#' + number;
+          if (closedHere.has(here) || tasks.progressOf(found).closed) { results.push({ projectId, number, ok: true, already: true }); continue; }
+          /* The note is recorded exactly as tasks.say records it (a 'said' event); say() itself would
+             re-read and re-join the store just to find the task we already hold. Length and
+             emptiness were checked above. */
+          if (note && !taskchat.record(projectId, found.number, { kind: 'said', text: note })) {
+            throw new Error('we could not record the note, so this task was not closed');
+          }
           const t = tasks.close(projectId, number);
+          closedHere.add(here);
           for (const one of tasks.whoOf(t)) toTell.add(one);
           results.push({ projectId, number, ok: true });
         } catch (err) {
