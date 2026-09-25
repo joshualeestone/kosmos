@@ -9557,7 +9557,7 @@ function bodyFn() {
   // in turn calls pjRichSpans; both are lifted in so the extracted pjBody runs.
   return pageFunction('pjBody', pageFnSource('esc') + '\n'
     + pageFnSource('pjInline') + '\n' + pageFnSource('pjLinkPaths') + '\n'
-    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjProse') + '\n');
+    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjListDepth') + '\n' + pageFnSource('pjProse') + '\n');
 }
 
 test('a closed fence becomes a block and its contents are escaped, not linked', () => {
@@ -14750,6 +14750,51 @@ test('#3650: a DM reaction is stored, shown, and told to the agent once with the
     assert.equal(lostState, chatEngine.DELIVERY.UNCONFIRMED, 'CONTROL: the send was not unconfirmed, so this arm tests nothing: ' + lost.body);
     assert.ok(chatEngine.dmReactionNote('lena').includes('🎉'), 'an unconfirmed send marked the reaction told');
   } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
+
+test('#3679: the DM route refuses a message whose stored form is past the ceiling, and says why', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('indenta', { state: 'idle' })]);
+  try {
+    const text = '```\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + '```';
+    assert.ok(chatEngine.cleanMessage(text).length <= chatEngine.MAX_TEXT, 'CONTROL: the one-line form is under the limit');
+    const res = await req('/api/agent/indenta/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.equal(res.status, 400, res.body);
+    assert.match(res.body, /indentation and spacing/);
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
+
+test('#3679: /api/reply and the project-thread DM route refuse a stored form past the ceiling', async () => {
+  const messagesEngine = require('./engine/messages');
+  const chatEngine = require('./engine/chat');
+  const projectsEngine = require('./engine/projects');
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+  const text = '```\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + '```';
+  assert.ok(chatEngine.cleanMessage(text).length <= chatEngine.MAX_TEXT, 'CONTROL: the one-line form is under the limit');
+  const pr = projectsEngine.create({ name: 'Indent Ceiling 3679' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: ['leo'] } : x)));
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    const reply = await req('/api/reply', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.match(reply.body, /indentation and spacing/, 'the reply route kept it: ' + reply.body.slice(0, 200));
+    const thread = await req('/api/project/' + pr.id + '/thread/leo', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.equal(thread.status, 400, thread.body.slice(0, 200));
+    assert.match(thread.body, /indentation and spacing/);
+  } finally {
+    try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ }
+    messagesEngine.setRunner(null);
     chatEngine.resetForTests();
     board.restore();
   }

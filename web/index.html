@@ -5678,8 +5678,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      (#2711), so an agent message reads as its own bubble again. */
   background: transparent;
   /* #1927: the store keeps paragraph breaks now, so render them. `pre-wrap`
-     shows the stored `\n`; `storeText` already collapsed space RUNS, so this
-     does not resurrect ragged whitespace. Both surfaces that draw a message
+     shows the stored `\n` (and, since #3679, kept indentation). Both surfaces that draw a message
      bubble -- the operator DM view (`dmRow`) and the project room -- use this
      one class, so this covers both. `overflow-wrap: anywhere` still breaks a
      long unbroken token. */
@@ -5760,6 +5759,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dm-b .mdq, .pj-msg-text .mdq, .msg-b .mdq, .tkdetail .mdq { border-left: 2px solid var(--k-rule); padding-left: 8px; color: var(--k-ink-2); }
 .dm-b .mdli::before, .pj-msg-text .mdli::before, .msg-b .mdli::before, .tkdetail .mdli::before { content: "\2022\00a0\00a0"; }
 .dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before, .msg-b .mdli.mdlin::before, .tkdetail .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
+.dm-b .mdli-d1, .pj-msg-text .mdli-d1, .msg-b .mdli-d1, .tkdetail .mdli-d1 { margin-left: 1.25em; }
+.dm-b .mdli-d2, .pj-msg-text .mdli-d2, .msg-b .mdli-d2, .tkdetail .mdli-d2 { margin-left: 2.5em; }
+.dm-b .mdli-d3, .pj-msg-text .mdli-d3, .msg-b .mdli-d3, .tkdetail .mdli-d3 { margin-left: 3.75em; }
 .dm-b .mdhr, .pj-msg-text .mdhr, .msg-b .mdhr, .tkdetail .mdhr { display: inline-block; width: 100%; margin: 4px 0;
   border-top: 1px solid var(--k-rule); vertical-align: middle; }
 /* 🛑 A `.theirs` FILL IS RIGHT AS OF #2805 -- BUT ONLY WITH THE RIGHT TOKEN,
@@ -43942,7 +43944,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names, agentNames) {
   return h + '</tbody></table></span>';
 }
 function pjProse(text, names, agentNames) {
-  const src = String(text == null ? '' : text).split('\n');
+  const src = String(text == null ? '' : text).split(/\r?\n/);   // #3679: a CRLF line still matches the `$`-anchored line rules below
   /* Drop empty lines at the two ENDS only (never interior blank lines, which
      are the paragraph breaks this renderer exists to show). This absorbs the
      single boundary `\n` a fence split leaves on the prose either side of a
@@ -43951,8 +43953,13 @@ function pjProse(text, names, agentNames) {
   while (src.length && src[0] === '') src.shift();
   while (src.length && src[src.length - 1] === '') src.pop();
   const out = [];
+  const listStack = [];   // #3679: pjListDepth's open levels for the current list
   for (let i = 0; i < src.length; i += 1) {
     const line = src[i];
+    // A non-list line ends the list only when it is not indented under it (a table or heading
+    // nested in an item, and in pjRich a fence, keeps the list open).
+    if (listStack.length && /\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)
+        && /^[ \t]*/.exec(line)[0].replace(/\t/g, '    ').length <= listStack[0]) listStack.length = 0;
     /* #2701: a GFM table -- this line is the header ONLY when the next line is a
        valid separator, so a stray `|` in prose never starts one. */
     if (line.indexOf('|') !== -1 && i + 1 < src.length) {
@@ -43969,7 +43976,7 @@ function pjProse(text, names, agentNames) {
     /* #2701: emit the heading LEVEL (mdh1..mdh6) so `#`..`######` render at
        different sizes -- a `##` heading (and any emoji in it) is bigger than a
        `####` one, which a single mdh size collapsed. */
-    let m = /^[ \t]*(#{1,6})[ \t]+(.*)$/.exec(line);
+    let m = /^[ \t]*(#{1,6})[ \t]+([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
     /* NO markdown blockquote in the room, on purpose. The room already has a
        DISTINCT, server-supplied quote (`m.quotes` -> <blockquote class="quoteb">),
@@ -43977,10 +43984,12 @@ function pjProse(text, names, agentNames) {
        so the two never collide. (The pjRich row surfaces, which have no
        server-quote concept, do style `>` as `.mdq`; this renderer deliberately
        does not.) `>` therefore falls through to inline text below. */
-    m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1], names, agentNames) + '</span>'); continue; }
-    m = /^[ \t]*(\d+)\.[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
+    // #3679: a nested item keeps its depth, as in pjRich (pjListDepth). The line rules end in
+    // ([^]*)$ rather than (.*)$: `.` stops at U+2028, and (.*)$ then backtracks over a long space run.
+    m = /^([ \t]*)[-+*][ \t]+([^]*)$/.exec(line);
+    if (m) { out.push('<span class="mdli' + pjListDepth(listStack, m[1]) + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
+    m = /^([ \t]*)(\d+)\.[ \t]+([^]*)$/.exec(line);
+    if (m) { out.push('<span class="mdli mdlin' + pjListDepth(listStack, m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3], names, agentNames) + '</span>'); continue; }
     out.push(pjRichSpans(line, names, agentNames));
   }
   return out.join('<br>');
@@ -44196,6 +44205,20 @@ function pjRichSpans(seg, names, agentNames) {
   s = s.replace(/(^|[^_\w])_([^\n_]+?)_(?![_\w])/g, '$1<em>$2</em>');
   return s.replace(/￼(\d+)￼/g, (mm, i) => (Number(i) < HOLD.length ? HOLD[Number(i)] : mm));
 }
+/* #3679: a list item's depth, relative to the items above it: deeper than the enclosing item
+   is one level in, whatever the width (two spaces, four, a tab). `stack` holds the widths of
+   the open levels for one list; the renderers reset it on a non-list line that is not indented
+   under the list. Self-contained (its constant is inside), so a test that lifts a renderer
+   needs only this function beside it. LIST_DEPTH_MAX must match the `.mdli-d1`..`.mdli-d3`
+   rules in the stylesheet (web.list-depth-3679.test.js checks both). */
+function pjListDepth(stack, lead) {
+  const LIST_DEPTH_MAX = 3;
+  const w = String(lead).replace(/\t/g, '    ').length;
+  while (stack.length && w <= stack[stack.length - 1]) stack.pop();
+  const d = Math.min(LIST_DEPTH_MAX, stack.length);
+  stack.push(w);
+  return d ? ' mdli-d' + d : '';
+}
 function pjRich(text) {
   const raw = String(text == null ? '' : text);
   /* Fast path: no inline marker, no block-marker line, no URL, no `[text](url)`
@@ -44226,19 +44249,28 @@ function pjRich(text) {
       && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) {
     return esc(raw);
   }
-  const src = raw.split('\n');
+  const src = raw.split(/\r?\n/);   // #3679: a CRLF text (a task's detail) still closes its fences
   const out = [];
+  const listStack = [];   // #3679: pjListDepth's open levels for the current list
   let i = 0;
   while (i < src.length) {
     const line = src[i];
+    // A non-list line ends the list only when it is not indented under it (a table or heading
+    // nested in an item, and in pjRich a fence, keeps the list open).
+    if (listStack.length && /\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)
+        && /^[ \t]*/.exec(line)[0].replace(/\t/g, '    ').length <= listStack[0]) listStack.length = 0;
     /* Fenced code block: from a ``` line to the next ``` (or end of message --
        an unclosed fence still renders as code so no raw ``` ever leaks).
        Nothing inside is markdown-parsed or linkified; CSS gives `.mdcb` its
        own `pre-wrap` so the block keeps its newlines on both surfaces. */
-    if (/^[ \t]*```/.test(line)) {
+    // #3679: a fence as the store reads one: three or more backticks and no backtick after
+    // them (an inline ```span``` line is not one), closed by a bare run at least as long.
+    const fo = /^[ \t]*(`{3,})[^`]*$/.exec(line);
+    if (fo) {
       const body = [];
       i += 1;
-      while (i < src.length && !/^[ \t]*```/.test(src[i])) { body.push(src[i]); i += 1; }
+      const closes = (l) => { const fc = /^[ \t]*(`{3,})[ \t]*$/.exec(l); return !!fc && fc[1].length >= fo[1].length; };
+      while (i < src.length && !closes(src[i])) { body.push(src[i]); i += 1; }
       if (i < src.length) i += 1;
       out.push('<span class="mdcb">' + esc(body.join('\n')) + '</span>');
       continue;
@@ -44257,14 +44289,16 @@ function pjRich(text) {
     if (/^[ \t]*(-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) { out.push('<span class="mdhr"></span>'); i += 1; continue; }
     /* #2701: emit the heading LEVEL (mdh1..mdh6) so different `#` depths render
        at different sizes (emojis/text in a `##` heading larger than a `####`). */
-    let m = /^[ \t]*(#{1,6})[ \t]+(.*)$/.exec(line);
+    let m = /^[ \t]*(#{1,6})[ \t]+([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
-    m = /^[ \t]*>[ \t]?(.*)$/.exec(line);
+    m = /^[ \t]*>[ \t]?([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdq">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
-    m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
-    m = /^[ \t]*(\d+)\.[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
+    /* #3679: a nested item keeps its depth (pjListDepth), now that the store keeps
+       indentation. A top-level item's markup is unchanged. */
+    m = /^([ \t]*)[-+*][ \t]+([^]*)$/.exec(line);
+    if (m) { out.push('<span class="mdli' + pjListDepth(listStack, m[1]) + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
+    m = /^([ \t]*)(\d+)\.[ \t]+([^]*)$/.exec(line);
+    if (m) { out.push('<span class="mdli mdlin' + pjListDepth(listStack, m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3]) + '</span>'); i += 1; continue; }
     out.push(pjRichSpans(line));
     i += 1;
   }
@@ -44994,7 +45028,8 @@ function pjRoomBody(m, p) {
   /* Prose between quotes keeps the spacing the person typed inside it; only
      the whitespace at its edges goes, since that only separated it from the
      quote, so no empty paragraph or hanging indent is drawn beside the bar. */
-  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES, agentNames) + '</p>' : ''; };
+  // #3679: trim(), not /\s+$/, which backtracks on a long space run the store now keeps.
+  const prose = (t) => { const k = t.trim(); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES, agentNames) + '</p>' : ''; };
   let out = '';
   let at = 0;
   for (const q of qs) {

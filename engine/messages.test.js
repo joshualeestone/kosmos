@@ -2183,3 +2183,52 @@ test('#670: unread is every post after the person last opened the room, agent ch
     assert.equal(messages.unread('henderson-lease'), 3, 'and with no cursor at all, everything counts again');
   });
 });
+
+/* ── #3679: the stored post keeps indentation, bounded on its own ────────── */
+
+test('#3679: a room post keeps its code indentation in the record', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const text = 'try:\n```\nif (x) {\n    return 1;\n}\n```\n- a\n  - nested';
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    const row = messages.record().rows.filter((m) => m.kind === 'post').slice(-1)[0];
+    assert.equal(row.text, text);
+  });
+});
+
+test('#3679: a post of blank lines the room accepted before is still accepted', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const text = 'a\n\n'.repeat(25000);
+    assert.ok(chat.storeText(text).length > 64 * 1024, 'CONTROL: the stored form exceeds MAX_BODY itself');
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+    assert.doesNotMatch(String(sent.because || ''), /indentation/, 'refused for indentation it does not have');
+    assert.equal(sent.state, chat.DELIVERY.PLACED, 'not placed: ' + (sent.because || ''));
+  });
+});
+
+test('#3679: a post whose kept indentation passes the room limit is refused with its own reason', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    const text = '```\n' + ('x' + ' '.repeat(10) + '\n' + ' '.repeat(120) + 'y\n').repeat(2200) + '```';
+    assert.ok(chat.cleanMessage(text).length <= 64 * 1024, 'CONTROL: the one-line form must be under the room limit');
+    assert.ok(chat.storeText(text).length > chat.STORE_GROWTH * 64 * 1024, 'CONTROL: the stored form must be over the ceiling');
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+    assert.notEqual(sent.state, chat.DELIVERY.PLACED);
+    assert.match(String(sent.because), /indentation/, 'it must name indentation, not call it a document: ' + sent.because);
+  });
+});
+
+test('#3679: a room post whose raw text is huge is refused before the store walks it', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    const text = 'hi' + '\n\n'.repeat(600000) + 'bye';
+    assert.ok(chat.cleanMessage(text).length < 20, 'CONTROL: the one-line form is tiny');
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+    assert.notEqual(sent.state, chat.DELIVERY.PLACED);
+    assert.match(String(sent.because), /indentation and spacing/);
+  });
+});
