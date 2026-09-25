@@ -12,10 +12,10 @@ converged: true
 ## [CHALLENGE-LOOP] Summary
 
 **Iterations:** 1 blind fact-check (sonnet). The reviewer measured every changed claim itself.
-**Converged:** Yes. 0 blockers, 1 should (taken), 0 nits.
+**Converged:** Yes. 0 blockers, 1 warning (taken), 0 nits.
 
 ## Iteration 1 (sonnet)
-- [SHOULD] The 20-of-20 env match was cited from the 14:34 deploy (build 571add9), but the live build 59b0962 came from the 15:17 deploy, which kosmos#3763's 15:39 comment also measured at 20 of 20. Taken: the doc now cites the deploy that made 59b0962 live.
+- [WARNING] The 20-of-20 env match was cited from the 14:34 deploy (build 571add9), but the live build 59b0962 came from the 15:17 deploy, which kosmos#3763's 15:39 comment also measured at 20 of 20. Taken: the doc now cites the deploy that made 59b0962 live.
 - Confirmed by the reviewer's own measurements:
   - /v1/meta reports build 59b0962;
   - relay #103, #104 and #109 are all ancestors of it;
