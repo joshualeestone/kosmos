@@ -101,6 +101,10 @@ function measure() {
     head: R('.dhead'), label: R('#d-talk-label'),
     tabsRow: getComputedStyle(document.getElementById('d-nav')).flexDirection,
     bodyOverflow: getComputedStyle(document.body).overflowY,
+    visibleVar: getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim(),
+    boxMinH: getComputedStyle(document.getElementById('d-talk-box')).minHeight,
+    labelDisplay: getComputedStyle(document.getElementById('d-talk-label')).display,
+    labelText: (document.getElementById('d-talk-label').textContent || '').trim(),
     search: R('#d-talk-search'), conn: R('#conn'),
     bodyPadLeft: parseFloat(getComputedStyle(document.body).paddingLeft),
     boxLeft: R('#d-talk-box') && R('#d-talk-box').left,
@@ -123,7 +127,9 @@ function measure() {
         chk(m.profile && m.profile.shown && m.profile.bottom <= m.vh && m.profile.left >= 0 && m.profile.right <= m.vw && m.profile.h >= MIN_TAP_PX, `${t} the Profile tab is on screen and at least ${MIN_TAP_PX}px`, JSON.stringify(m.profile));
         chk(Math.abs(m.boxLeft) <= 0.5, `${t} the conversation box runs edge to edge (its negative margin matches the page gutter)`, `left=${m.boxLeft} bodyPad=${m.bodyPadLeft}`);
         chk(m.tabsRow === 'row', `${t} the section tabs are one row`, m.tabsRow);
-        chk(!(m.label && m.label.w > 2 && m.label.h > 2), `${t} the caption that repeats the agent's name is not shown (kept for screen readers)`, JSON.stringify(m.label));
+        chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));
+        chk(m.visibleVar === m.vh + 'px', `${t} the page's visualViewport listener writes the visible height`, `var=${m.visibleVar} vh=${m.vh}`);
+        chk(m.boxMinH === '0px', `${t} the phone rules win over the 56rem talk-fill block (talk box min-height 0)`, m.boxMinH);
         chk(m.docW <= m.vw, `${t} no sideways page scroll`, `docW=${m.docW} vw=${m.vw}`);
         // Not scroll-locked: a header menu taller than the screen (the world switcher with many
         // Kosmos instances) must still be able to scroll the page to its last row.
@@ -138,10 +144,15 @@ function measure() {
         chk(k.box && k.box.bottom <= limit + 1 && k.box.top >= 0, `${t} with the keyboard up the composer sits above it`, `bottom=${k.box && Math.round(k.box.bottom)} limit=${limit}`);
         chk(k.head && !k.head.shown, `${t} while typing the header steps aside`);
         chk(k.threadH >= MIN_THREAD_WHILE_TYPING_PX, `${t} while typing the thread still shows conversation`, `threadH=${k.threadH}`);
-        // Post takes focus when tapped on Android: the header must not flash back mid-tap.
-        await page.focus('#d-send');
+        // A real press on Post (pointer down, measured before release, then released off the
+        // button so nothing is sent): the text box keeps focus and the header stays aside. WebKit
+        // does not focus a button on click, so programmatic focus would not test this.
+        const sb = await page.evaluate(() => { const r = document.getElementById('d-send').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+        await page.mouse.move(sb.x, sb.y); await page.mouse.down();
         const kp = await page.evaluate(measure);
-        chk(kp.head && !kp.head.shown, `${t} with focus on Post the header stays aside`);
+        const keptFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        await page.mouse.move(2, 2); await page.mouse.up();
+        chk(kp.head && !kp.head.shown && keptFocus === 'd-say', `${t} pressing Post keeps focus in the text box and the header aside`, `active=${keptFocus}`);
         // Searching opens the keyboard too: the search row stays, the rest steps aside. A person
         // leaves the composer first (the search row is aside while it has focus).
         await page.evaluate(() => document.activeElement.blur());
@@ -162,11 +173,37 @@ function measure() {
           return { overflowY: getComputedStyle(box).overflowY, msgBottom: m.bottom, boxBottom: b.bottom };
         });
         chk(crowd.overflowY === 'auto' && crowd.msgBottom <= crowd.boxBottom + 1, `${t} with the keyboard up, a send error below the composer can be scrolled into view`, JSON.stringify(crowd));
+        // The visualViewport listener follows a real viewport shrink (a keyboard opening shrinks
+        // the visual viewport the same way; Playwright can only drive it through the window size).
+        await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); });
+        await page.setViewportSize({ width: w, height: h - SIMULATED_KEYBOARD_PX });
+        await page.waitForFunction((want) => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim() === want + 'px', h - SIMULATED_KEYBOARD_PX, { timeout: 3000 }).catch(() => {});
+        const shrunk = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim());
+        chk(shrunk === (h - SIMULATED_KEYBOARD_PX) + 'px', `${t} the visible height follows a viewport shrink`, `var=${shrunk}`);
+        await page.setViewportSize({ width: w, height: h });
         // Leave the composer (a person dismisses the keyboard), then Profile is one tap.
         await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); });
         await page.click('#d-nav [data-go=profile]');
         const prof = await page.evaluate(() => !document.getElementById('d-sec-profile').hidden);
         chk(prof, `${t} one tap on Profile opens the Profile section`);
+        // Every optional identity note at once (usage-limit quote, conflict, sign in again, start
+        // this agent), on a fresh page: the identity block scrolls on its own and the thread keeps
+        // room to read. The floor is lower on an SE, where the 189px top bar (Raiden's frame, a
+        // one-line phone bar is on its way) takes the most.
+        {
+          const { page: np, errs: nerrs } = await open(browser, w, h, theme);
+          await np.evaluate(() => {
+            const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
+            show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
+            show('d-conflict', 'Two windows claim this agent. We are showing the one that answered most recently; the other may be stale.');
+            show('d-reauth'); show('d-start-wrap');
+          });
+          const mn = await np.evaluate(measure);
+          const floor = h < 700 ? 60 : 120;
+          chk(mn.threadH >= floor && mn.box && mn.box.bottom <= mn.vh + 1 && mn.profile && mn.profile.shown && mn.profile.h >= MIN_TAP_PX, `${t} with every header note showing, the thread keeps room, the tabs keep their size and the composer is on screen`, `threadH=${mn.threadH} floor=${floor} box=${mn.box && Math.round(mn.box.bottom)} profileH=${mn.profile && mn.profile.h}`);
+          chk(nerrs.length === 0, `${t} no page errors with every header note`, nerrs.join(' | '));
+          await np.close();
+        }
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       }

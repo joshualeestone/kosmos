@@ -9235,7 +9235,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      - Files is not shown here, to keep the first screen for the conversation (it stays on the
        other sections);
      - the page is exactly the visible screen and the thread scrolls inside it, so the composer sits
-       at the bottom, padded by Raiden's shared --safe-bottom (0 today: the board does not opt into
+       at the bottom, padded by Raiden's shared --safe-bottom once his frame change defines it (the 0px
+       fallback applies until then, and it is 0 anyway today: the board does not opt into
        viewport-fit=cover, per Johnny's ruling). The height is --kosmos-visible-height when the script below has set it (the
        visual viewport, which shrinks when the on-screen keyboard opens), else 100dvh.
    Other sections, tablets (40rem to 56rem) and desktop keep their layout.
@@ -9263,6 +9264,13 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dbody {
     flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { flex: none; overflow: visible; min-height: 0; padding-top: 0; }
+  /* Capped: the identity block's notes (a usage-limit quote, a conflict, sign in again, start this
+     agent) can run to several lines, and uncapped they took the whole screen and left the thread at
+     0px. Past about a sixth of the visible height the block scrolls on its own, as the wide
+     layout's column does (#3385). The tab row below it never shrinks, so Profile stays one tap. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead {
+    max-height: calc(0.18 * var(--kosmos-visible-height, 100dvh)); overflow-y: auto; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed { flex: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead {
     flex-direction: row; align-items: center; text-align: left; gap: 10px; margin: 0 0 8px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
@@ -9278,7 +9286,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-state { font-size: .8125rem; margin: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
     flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none;
-    margin: 0 -2px; padding: 0 2px 2px; }
+    margin: 0 -2px; padding: 4px 2px 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed::-webkit-scrollbar { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack { display: contents; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button,
@@ -30076,9 +30084,10 @@ function detailGo(section, opts) {
     document.documentElement.style.setProperty('--kosmos-visible-height', Math.round(viewport.height * viewport.scale) + 'px');
   };
   /* iOS can pan the page to show a focused text box before this resize arrives; with the page
-     already exactly the visible height, that pan only cuts off the header. Undo it, and only
-     while typing in the phone chat so a tall header menu's own scroll is left alone.
-     Reasoned, not observed: on the iOS simulator checklist (no simulator on this Mac). */
+     already exactly the visible height, that pan only cuts off the header. This undoes a pan
+     that shows up as window.scrollY, and only while typing in the phone chat so a tall header
+     menu's own scroll is left alone. A pan that shows up only as visualViewport.offsetTop is NOT
+     handled: unobserved (no iOS simulator on this Mac), on Johnny's simulator checklist. */
   const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
   viewport.addEventListener('resize', () => {
     write();
@@ -51134,6 +51143,13 @@ async function pjSend() {
 }
 
 /* --- the agent page's own composer, and the answers above it -------------- */
+/* #718: pressing Post while typing keeps focus in the text box. Safari/WebKit does not focus a
+   button on click, so focus used to fall to the talk box, the phone layout's header came back
+   mid-tap and the keyboard dropped; chat apps keep the keyboard up across a send. Only when the
+   text box already has focus, so a Post press from anywhere else behaves as before. */
+document.getElementById('d-send').addEventListener('mousedown', (e) => {
+  if (document.activeElement === document.getElementById('d-say')) e.preventDefault();
+});
 document.getElementById('d-send').addEventListener('click', () => {
   const say = document.getElementById('d-say');
   /* ⚠️ THE TRIMMED TEXT IS WHAT IS SENT, matching pjSend's `box.value.trim()`
