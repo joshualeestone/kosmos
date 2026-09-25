@@ -9686,7 +9686,7 @@ test('#3723 an agent stopped by its account gets one Kosmos line in its thread, 
     const rae = JSON.parse((await req('/api/agent/rae/thread')).body);
     const rows = rae.messages.filter((m) => m.kind === 'kosmos');
     assert.equal(rows.length, 1, 'exactly one Kosmos line');
-    assert.match(rows[0].text, /has run out of Claude usage or credits, so it has stopped/);
+    assert.match(rows[0].text, /^It looks like rae has hit a Claude usage limit, so it has stopped\./, 'a Claude reading is said as "looks like"');
     assert.equal(rows[0].from, null, 'Kosmos speaking: not the agent, not the person');
     assert.equal(rows[0].at, null, 'derived each read, not stored');
     assert.equal(rows[0].id, 'kosmos-account:rae');

@@ -51,7 +51,16 @@ manager should surface it immediately, as well as the agent.
    never screen text. An unconfirmed delivery counts as told (never twice). No manager: recorded once.
 5. The DM line's links: only known vendor hosts are clickable, and no preview is fetched for it.
 
+## How firm each reading is
+A Codex usage limit is Codex's own sentence at the START of a row (a line that merely mentions it,
+from an answer or a search, does not count), so it is said plainly and its manager is told. Every other
+usage-limit reading goes through Claude's "reached your ... limit" pattern, which has a known false match
+kept on the card, so it is said as "It looks like ...", "context" is dropped, and no manager is
+interrupted for it. A sign-in that stopped working (Claude's own error text) is firm.
+
 ## Not in this PR, recorded
+- The Issue tile does not count a usage limit or a failed sign-in (engine/status.js needsPerson); the
+  card says Paused and the DM and manager say it. Worth a follow-up with the design owner.
 - connection_lost after the #3410 self-heal gave up (the reconnect phase lives in the route, not the
   board card the sweep reads).
 - Gemini and Grok limit wording (their panes read through the Claude arm; nothing measured yet).

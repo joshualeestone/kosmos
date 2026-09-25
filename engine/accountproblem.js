@@ -35,8 +35,9 @@ function quoted(card) {
 
 /**
  * The account problem on this card, or null.
- * { kind: 'usage' | 'signin', provider, text, summary }: `text` is for the person (it may quote the
- * vendor's sentence from the agent's screen); `summary` is Kosmos's own words only, for another agent.
+ * { kind: 'usage' | 'signin', provider, notify, text, summary }: `text` is for the person (it may
+ * quote the vendor's sentence from the agent's screen); `summary` is Kosmos's own words only, for
+ * another agent; `notify` says whether the reading is firm enough to interrupt a manager with it.
  */
 function accountProblemOf(card) {
   if (!card || typeof card.state !== 'string') return null;
@@ -44,15 +45,25 @@ function accountProblemOf(card) {
   const provider = providerOf(card);
   const said = quoted(card);
   if (card.state === 'rate_limited') {
-    /* Claude's "reached your ... limit" marker also matches prose like "reached your context limit",
-       a known false match kept on the card (engine/status.js RATE_LIMIT_MARKERS). That is not an
-       account problem, so it is not told here. */
-    if (said && provider === 'Claude' && /\bcontext\b/i.test(said)) return null;
-    const head = `${who} has run out of ${provider} usage or credits, so it has stopped.`;
-    const todo = ` Add credits with ${provider}, or wait until the limit resets, and then send it a message.`;
+    /* Which reader saw it. A Codex pane's usage limit comes only from Codex's own sentence, anchored
+       at the start of a row (engine/status.js CODEX_LIMIT_MARKERS), so it is a firm reading. Every
+       other pane (Claude, and Gemini and Grok, which are read the Claude way) goes through Claude's
+       "reached your ... limit" marker, which also matches prose like "reached your context limit": a
+       known false match kept on the card. So those are said as "looks like", "context" is dropped,
+       and they are not typed into a manager (`notify: false`). */
+    const firm = card.runner === 'codex';
+    if (!firm && said && /\bcontext\b/i.test(said)) return null;
+    const head = firm
+      ? `${who} has run out of ${provider} usage or credits, so it has stopped.`
+      : `It looks like ${who} has hit a ${provider} usage limit, so it has stopped.`;
+    // Kosmos's own advice, picked by which kind of message it was (no screen text is used for this).
+    const todo = said && /workspace/i.test(said)
+      ? ` Ask whoever owns the ${provider} workspace to add credits, and then send it a message.`
+      : ` Add credits with ${provider}, or wait until the limit resets, and then send it a message.`;
     return {
       kind: 'usage',
       provider,
+      notify: firm,
       // For the person: the vendor's own sentence and link when there is one.
       text: head + (said ? ` ${provider} says: "${said}"` : todo),
       // For another agent: Kosmos's own words only. Screen text is never passed to another agent.
@@ -61,7 +72,7 @@ function accountProblemOf(card) {
   }
   if (card.state === 'auth_failed') {
     const text = `${who}'s ${provider} sign-in has stopped working, so it cannot do anything. Open its page and choose Sign in again.`;
-    return { kind: 'signin', provider, text, summary: text };
+    return { kind: 'signin', provider, notify: true, text, summary: text };
   }
   return null;
 }

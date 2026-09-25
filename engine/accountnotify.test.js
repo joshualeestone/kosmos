@@ -29,9 +29,15 @@ let fileN = 0;
 const newFile = () => nodePath.join(SANDBOX, `book-${++fileN}.json`);
 
 // A board: `ada` stopped by its account (or not), `pat` its manager (or not).
+/* A usage limit is only told to a manager when it is Codex's own anchored sentence (a firm reading),
+   so Ada's out-of-credits screen is the real Codex one. */
+const CODEX_LIMIT = "• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n\n› Ask Codex to do anything";
+const adaSpec = (state) => (state === 'rate_limited'
+  ? { state, runner: 'codex', command: 'node', screen: CODEX_LIMIT, displayName: 'Ada', role: 'Researcher' }
+  : { state, displayName: 'Ada', role: 'Researcher' });
 function board(adaState, patState, withPat) {
   const b = fleet.install([
-    fleet.agent('ada', { state: adaState, displayName: 'Ada', role: 'Researcher' }),
+    fleet.agent('ada', adaSpec(adaState)),
     ...(withPat === false ? [] : [fleet.agent('pat', { state: patState || 'idle', displayName: 'Pat', role: 'Project manager' })]),
   ]);
   return b.agents;
@@ -58,7 +64,7 @@ test('told once, after it is seen on consecutive sweeps, and never again for the
   const first = sweep(cards, file, t += 60000);
   assert.equal(first.sent.length, 1);
   assert.equal(first.sent[0].session, 'pat', 'the manager is told');
-  assert.match(first.sent[0].text, /^\[Kosmos\] Ada has run out of Claude usage or credits, so it has stopped\./);
+  assert.match(first.sent[0].text, /^\[Kosmos\] Ada has run out of OpenAI usage or credits, so it has stopped\./);
   assert.match(first.sent[0].text, /Please tell the person now/);
   assert.equal(sweep(cards, file, t += 60000).sent.length, 0, 'told twice for one incident');
 });
@@ -187,4 +193,15 @@ test('a named manager missing from one read is tried again, not recorded as nobo
   assert.deepEqual(sent, [], 'told someone while the manager was away');
   const back = sweep(board('rate_limited'), file, t += 60000).sent;
   assert.deepEqual(back.map((m) => m.session), ['pat'], 'the manager was never told after it came back');
+});
+
+test('a Claude usage-limit reading (a pattern with a known false match) never interrupts a manager', () => {
+  const file = newFile();
+  const cards = fleet.install([
+    fleet.agent('ada', { state: 'rate_limited', displayName: 'Ada', role: 'Researcher' }),
+    fleet.agent('pat', { state: 'idle', displayName: 'Pat', role: 'Project manager' }),
+  ]).agents;
+  let sent = [];
+  for (let i = 0; i < SEEN_SWEEPS + 1; i++) sent = sent.concat(sweep(cards, file, (i + 1) * 60000).sent);
+  assert.deepEqual(sent, []);
 });

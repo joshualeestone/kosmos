@@ -284,6 +284,15 @@ test('#3723: the quoted message is Codex\'s sentence alone, never its prompt or 
   assert.doesNotMatch(p.text, /context left|secret-project/);
 });
 
+test('#3723: an answer or a tool line that merely mentions the phrase is not a limit', () => {
+  const answer = classify(pane({ command: 'node', runner: 'codex' }), `• I added a marker for Codex's message "You've hit your usage limit" so the board shows it.\n› Ask Codex to do anything`);
+  assert.equal(answer.state, 'idle', 'an agent talking about the feature read as out of credits');
+  const midRow = classify(pane({ command: 'node', runner: 'codex' }), "• Done. The fix handles You've hit your usage limit screens.\n› Ask Codex to do anything");
+  assert.equal(midRow.state, 'idle');
+  const tool = classify(pane({ command: 'node', runner: 'codex' }), "  └ engine/status.js:1575: /You've hit your usage limit/i\n› Ask Codex to do anything");
+  assert.equal(tool.state, 'idle', 'a search result read as out of credits');
+});
+
 test('#3723: a short reply after the limit ends it (the person fixed it and the agent carried on)', () => {
   const r = classify(pane({ command: 'node', runner: 'codex' }), `• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n› continue\n• Done.\n› Ask Codex to do anything\n  gpt-5.6-sol default`);
   assert.equal(r.state, 'idle');

@@ -102,13 +102,16 @@ function sweepOnce(o) {
   for (const card of cards) {
     if (!card || !card.sessionName) continue;
     const s = card.sessionName;
-    const problem = accountProblemOf(card);
+    const found = accountProblemOf(card);
+    // Only a reading firm enough to interrupt someone (see accountproblem.js `notify`).
+    const problem = found && found.notify ? found : null;
     const prev = book[s];
     if (!problem) {
       if (prev) settle(s, prev);
       continue;
     }
     const same = prev && prev.kind === problem.kind;
+    if (same && prev.told && prev.okSince == null) continue; // told already: nothing to record each minute
     const entry = same
       ? { ...prev, seen: (prev.seen || 0) + 1, okSince: null }
       : { kind: problem.kind, seen: 1, since: now, told: false, toldAt: null, manager: null, okSince: null, last: null };

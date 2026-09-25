@@ -1560,10 +1560,13 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
  *   "Your workspace is out of credits. Ask your workspace owner to add more."
  *   "You've reached your workspace credit limit"
  */
+/* ANCHORED to the start of a row (after only Codex's own lead-in mark), so the sentence has to OPEN
+   the row the way Codex prints it. An answer or a tool line that merely mentions the phrase (an agent
+   working on this very feature, or a search result) does not count. */
 const CODEX_LIMIT_MARKERS = Object.freeze([
-  /You['’]ve hit your usage limit/i,
-  /Your workspace is out of credits/i,
-  /You['’]ve reached your workspace credit limit/i,
+  /^\s*(?:[•■]\s*)?You['’]ve hit your usage limit/i,
+  /^\s*(?:[•■]\s*)?Your workspace is out of credits/i,
+  /^\s*(?:[•■]\s*)?You['’]ve reached your workspace credit limit/i,
 ]);
 /* Only the last rows count, and only while nothing has happened since: Codex redraws its empty
    prompt (and a footer) right under the message, but once a newer turn shows (a message the person

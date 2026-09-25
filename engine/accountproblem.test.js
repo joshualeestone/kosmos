@@ -73,3 +73,18 @@ test('every runner Kosmos can start is named, and a missing runner is Claude', (
   const name = (runner) => accountProblemOf({ state: 'auth_failed', runner, name: 'Di' }).provider;
   assert.deepEqual(['codex', 'gemini', 'grok', 'antigravity', undefined].map(name), ['OpenAI', 'Gemini', 'Grok', 'Antigravity', 'Claude']);
 });
+
+test('a Gemini or Grok pane read the Claude way is hedged, drops the "context" false match, and is not for a manager', () => {
+  assert.equal(accountProblemOf({ state: 'rate_limited', runner: 'gemini', name: 'Gi', stateEvidence: 'You have reached your context limit.' }), null);
+  const p = accountProblemOf({ state: 'rate_limited', runner: 'grok', name: 'Gro', stateEvidence: "You've reached your daily limit." });
+  assert.match(p.text, /^It looks like Gro has hit a Grok usage limit, so it has stopped\./);
+  assert.equal(p.notify, false);
+  assert.equal(accountProblemOf({ state: 'rate_limited', runner: 'codex', name: 'Cx' }).notify, true, 'CONTROL: Codex\'s anchored reading is firm');
+  assert.equal(accountProblemOf({ state: 'auth_failed', name: 'Si' }).notify, true, 'CONTROL: a sign-in that stopped working is firm');
+});
+
+test('a workspace that is out of credits is told to ask the workspace owner, not to wait', () => {
+  const p = accountProblemOf({ state: 'rate_limited', runner: 'codex', name: 'Wo', stateEvidence: 'Your workspace is out of credits. Ask your workspace owner to add more.' });
+  assert.match(p.summary, /Ask whoever owns the OpenAI workspace to add credits/);
+  assert.doesNotMatch(p.summary, /wait until the limit resets/);
+});
