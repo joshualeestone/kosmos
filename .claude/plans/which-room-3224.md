@@ -66,3 +66,11 @@ The daily digest's suspected-misroute count (#3231) is the measure of how often 
 - Mutations added, all RED: no --new acknowledgement, canPostIn ignored, digest counts --new, an older
   target question excuses, newPost not on the row, Windows no hand-back, server drops membersOf. The
   "after the text checks" order is pinned by the oversized-post test (reasoned, not mutated).
+
+## Review round 2 (sonnet): one BLOCKER, fixed
+- A post with both `new_post` and `in_reply_to` was marked `newPost`, which acknowledged (and so silenced)
+  every question the agent owed anywhere for up to an hour, and both CLIs accepted the combination. The
+  reviewer reproduced it end to end. Fixed: the mark is gated on the post not being a reply
+  (`newPost && !citedId`, the same gate `askWhichRoom` has, covering the route and the drain), and both CLIs
+  refuse `--new` with `--in-reply-to` before sending. Test: a reply with new_post is not marked and a later
+  misroute is still held. Mutations RED: server gate removed, bash refusal removed, Windows refusal removed.
