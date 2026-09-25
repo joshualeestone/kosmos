@@ -53351,22 +53351,76 @@ function tipPlace(card, sel, side = false) {
     return;
   }
   const r = el.getBoundingClientRect();
-  /* Beside the target when asked and there is room (a form field: the card stays off the fields
-     below it); the page's own width, not innerWidth, which includes a scrollbar gutter. */
-  if (side && r.right + 14 + w <= pageW - pad) {
-    const top = Math.min(Math.max(pad, r.top - 10), window.innerHeight - h - pad);
-    card.className = 'tipcard left';
-    card.style.left = Math.round(r.right + 14) + 'px';
-    card.style.top = Math.round(top) + 'px';
-    card.style.setProperty('--ay', Math.round(Math.min(Math.max(12, r.top + r.height / 2 - top - 7), h - 26)) + 'px');
-    return;
+  /* 🛑 A TIP MUST NEVER SIT ON A REAL CONTROL (0.6.93 cut, 2026-09-24: the Settings tip landed on Check for
+     Update and took its click). Each candidate place is scored by the visible controls it would cover,
+     and the first that covers none wins; if every place covers something, the one covering least. The
+     order keeps the old preference: beside when asked (a form field), else below, above, then either side. */
+  const vh = window.innerHeight;
+  const sideTop = Math.min(Math.max(pad, r.top - 10), vh - h - pad);
+  const midLeft = Math.min(Math.max(pad, r.left + r.width / 2 - 28), pageW - w - pad);
+  const cands = [];
+  const right = { cls: 'left', left: r.right + 14, top: sideTop, fits: r.right + 14 + w <= pageW - pad };
+  const below = { cls: 'up', left: midLeft, top: r.bottom + 12, fits: r.bottom + 12 + h <= vh - pad };
+  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h, fits: r.top - 12 - h >= pad };
+  const leftSide = { cls: 'flat', left: r.left - 14 - w, top: sideTop, fits: r.left - 14 - w >= pad };
+  for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (c.fits) cands.push(c);
+  if (!cands.length) cands.push({ ...below, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
+  const covered = tipCoveredControls(el);
+  const hitsAt = (left, top) => covered.filter((q) => q.l < left + w && q.r > left && q.t < top + h && q.b > top).length;
+  let best = null;
+  for (const c of cands) {
+    c.hits = hitsAt(c.left, c.top);
+    if (!best || c.hits < best.hits) best = c;
+    if (c.hits === 0) break;
   }
-  const below = r.bottom + 12 + h <= window.innerHeight - pad;
-  const left = Math.min(Math.max(pad, r.left + r.width / 2 - 28), pageW - w - pad);
-  card.className = 'tipcard ' + (below ? 'up' : 'down');
-  card.style.left = Math.round(left) + 'px';
-  card.style.top = Math.round(below ? r.bottom + 12 : Math.max(pad, r.top - 12 - h)) + 'px';
-  card.style.setProperty('--ax', Math.round(Math.min(Math.max(14, r.left + r.width / 2 - left - 7), w - 28)) + 'px');
+  /* No pointing place is clear (a dense screen such as Settings): a clear place anywhere on the page,
+     the nearest to the target, without the arrow (it would point across other things). Only if the
+     whole page has no clear place does the card keep the pointing place that covers least. */
+  if (best.hits > 0) {
+    /* A card already sitting in a clear place stays there while it is still clear and on screen, so it
+       does not hop about as the page scrolls; only a card with an arrow follows its target. */
+    if (card.classList.contains('flat') && card.dataset.covers === '0' && !card.hidden) {
+      const nowL = parseFloat(card.style.left), nowT = parseFloat(card.style.top);
+      if (Number.isFinite(nowL) && Number.isFinite(nowT) && nowT >= pad && nowT + h <= vh - pad && nowL >= pad && nowL + w <= pageW - pad && !hitsAt(nowL, nowT)) {
+        best = { cls: 'flat', left: nowL, top: nowT, hits: 0 };
+      }
+    }
+  }
+  if (best.hits > 0) {
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    let near = null;
+    for (let top = pad; top + h <= vh - pad; top += 24) {
+      for (let left = pad; left + w <= pageW - pad; left += 24) {
+        if (hitsAt(left, top)) continue;
+        const d = Math.hypot(left + w / 2 - cx, top + h / 2 - cy);
+        if (!near || d < near.d) near = { cls: 'flat', left, top, hits: 0, d };
+      }
+    }
+    if (near) best = near;
+  }
+  card.className = 'tipcard ' + best.cls;
+  card.style.left = Math.round(best.left) + 'px';
+  card.style.top = Math.round(best.top) + 'px';
+  card.dataset.covers = String(best.hits);   // read by the browser check
+  if (best.cls === 'left') card.style.setProperty('--ay', Math.round(Math.min(Math.max(12, r.top + r.height / 2 - best.top - 7), h - 26)) + 'px');
+  else card.style.setProperty('--ax', Math.round(Math.min(Math.max(14, r.left + r.width / 2 - best.left - 7), w - 28)) + 'px');
+}
+
+/* The page's visible controls a tip card could cover, as rectangles: anything a person clicks or types
+   into, except the tip's own target (the card points at it, it does not cover it) and the tip and
+   assistant layers themselves. */
+const TIP_CONTROL_SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="switch"], [role="tab"], [role="button"], [contenteditable="true"]';
+function tipCoveredControls(target) {
+  const out = [];
+  for (const q of document.querySelectorAll(TIP_CONTROL_SEL)) {
+    if (q.closest('#tiplayer, #asblayer, [hidden]') || (target && (target === q || target.contains(q) || q.contains(target)))) continue;
+    const b = q.getBoundingClientRect();
+    if (b.width < 1 || b.height < 1 || b.bottom < 0 || b.top > window.innerHeight) continue;
+    const cs = getComputedStyle(q);
+    if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+    out.push({ l: b.left, t: b.top, r: b.right, b: b.bottom });
+  }
+  return out;
 }
 
 function tipClose({ record, also = null }) {

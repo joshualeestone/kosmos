@@ -343,8 +343,20 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-menu [data-help="screen"]');
     const top0 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
     const scrolled = await page.evaluate(async () => { const y = window.scrollY; window.scrollBy(0, 120); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return window.scrollY - y; });
-    const top1 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
-    chk(scrolled > 0 && Math.round(top0 - top1) === Math.round(scrolled), 'T14 scrolling moves the card with its target', JSON.stringify({ top0, top1, scrolled }));
+    /* Since the 0.6.93 fix a card never sits on a control, so after a scroll it either still points at its
+       target from exactly its gap (arrow up / down / beside), or, when that place would cover a control, sits
+       in a clear place with no arrow. Both are strict: which one is read from the card, not allowed either way. */
+    const after14 = await page.evaluate(() => {
+      const c = document.getElementById('tipcard');
+      const t = [...document.querySelectorAll('#panel-settings .dsec:not([hidden]) .dlab')].find((x) => x.getBoundingClientRect().height > 0);
+      const cr = c.getBoundingClientRect(), tr = t.getBoundingClientRect();
+      const cls = ['up', 'down', 'left', 'flat'].find((k) => c.classList.contains(k));
+      return { cls, covers: c.dataset.covers, gap: cls === 'up' ? Math.round(cr.top - tr.bottom) : cls === 'down' ? Math.round(tr.top - cr.bottom) : cls === 'left' ? Math.round(cr.left - tr.right) : null,
+        onScreen: cr.top >= 0 && cr.bottom <= innerHeight };
+    });
+    const want14 = { up: 12, down: 12, left: 14 }[after14.cls];
+    chk(scrolled > 0 && after14.onScreen && after14.covers === '0' && (after14.cls === 'flat' || after14.gap === want14),
+      'T14 after a scroll the card still points at its target from its gap, or sits clear of every control', JSON.stringify({ top0, scrolled, after14 }));
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.setViewportSize({ width: 1280, height: 860 });
@@ -542,6 +554,43 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(!tourShown28 && (await api('GET')).seen.includes('tour'), 'T28 and the tour is recorded as seen', JSON.stringify({ tourShown28 }));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
+
+    // T31: a tip never sits on a real control (0.6.93 cut: the Settings tip took Check for Update's
+    // click). Every screen's tip is opened from the ? and must cover no visible control; on Settings >
+    // Updates, Check for Update is still the thing under the pointer.
+    resetStore({ seen: ['tour', 'ring', 'agents', 'projects', 'project', 'newagent', 'agentpage', 'settings'], off: false });
+    withAgent();
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    await page.evaluate(() => applyLayout('tabs', true));
+    const openHere = async () => {
+      await page.click('#helpq-btn');
+      await page.click('#helpq-menu [data-help="screen"]');
+      await page.waitForTimeout(250);
+      return page.evaluate(() => { const c = document.getElementById('tipcard'); return { shown: !!c && !c.hidden, title: c && c.querySelector('h2') ? c.querySelector('h2').textContent : null, covers: c ? c.dataset.covers : null }; });
+    };
+    const screens31 = [
+      ['board', async () => { await page.evaluate(() => showTab('agents')); }],
+      ['projects', async () => { await page.evaluate(() => showTab('projects')); }],
+      ['create', async () => { await page.evaluate(() => openCreate()); }],
+      ['agent page', async () => { await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); }); }],
+      ['settings (you)', async () => { await page.evaluate(() => showTab('settings')); }],
+      ...['mac', 'updates', 'models', 'look'].map((sec) => ['settings (' + sec + ')', async () => { await page.evaluate(() => showTab('settings')); await page.evaluate((g) => { const b = document.querySelector('#s-nav button[data-go="' + g + '"]'); if (b) b.click(); }, sec); }]),
+    ];
+    const got31 = [];
+    for (const [name, go] of screens31) {
+      await page.keyboard.press('Escape');
+      await go();
+      await page.waitForTimeout(300);
+      const t = await openHere();
+      got31.push({ name, shown: t.shown, covers: t.covers });
+      if (name === 'settings (updates)') {
+        const upd = await page.evaluate(() => { const b = document.getElementById('upd-btn'); if (!b || b.hidden) return 'no button'; const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && !!hit.closest('#upd-btn'); });
+        chk(t.shown && upd === true, 'T31 on Settings > Updates, with its tip open, Check for Update is still under the pointer', JSON.stringify({ t, upd }));
+      }
+    }
+    const bad31 = got31.filter((g) => !g.shown || g.covers !== '0');
+    chk(got31.length === 9 && bad31.length === 0, 'T31 every screen\'s tip opens and covers no visible control', JSON.stringify(bad31.length ? bad31 : got31.map((g) => g.name)));
+    await page.keyboard.press('Escape');
 
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
     // that let tips through would show the tour here (control: T1 and T6, the same empty state).
