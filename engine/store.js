@@ -534,6 +534,28 @@ function readSettings() {
   }
 }
 
+/* #3559: an AUTOMATIC writer (not the person's own Settings save) must never replace what it could
+   not read. writeSettings merges over readSettings(), which answers {} for an unreadable file, so a
+   blind automatic write there would drop the timezone and every other choice. This merges only
+   over a file that is absent or parses as an object, from ONE read (no gap between checking and
+   writing), and answers null when it refused. The path is this module's own settingsPath. */
+function writeSettingsIfReadable(patch) {
+  let had = {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    had = parsed;
+  } catch (err) {
+    if (!err || err.code !== 'ENOENT') return null;   // unreadable or unparseable: leave it alone
+  }
+  ensure(root());
+  const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
+  const tmp = settingsPath() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, settingsPath());
+  return next;
+}
+
 function writeSettings(patch) {
   ensure(root());
   const had = readSettings();
@@ -556,7 +578,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarPathIn, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarPathIn, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
