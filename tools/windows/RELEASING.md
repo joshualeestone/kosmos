@@ -118,7 +118,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
   cache already holds from before the header was set: after the first promote from this script
   (the alias was uploaded by hand, without it) and after any -ReplaceVersioned, check that the
   served bytes are the new ones (the script's own served checks do) and purge the cache if not. A versioned zip
-  carries no such header, except one replaced with `-ReplaceVersioned`, which is no-cache.
+  carries no such header, except one replaced with `-ReplaceVersioned`, which is no-cache. Every
+  versioned `.sha256` sidecar is no-cache, always (a replace rewrites it; it is a few bytes).
 
 - **`TEST TRANSPORT` in the output means nothing was published**: `KOSMOS_PUBLISH_R2_FAKE_DIR` is
   set (the offline test uses it). `Remove-Item Env:KOSMOS_PUBLISH_R2_FAKE_DIR` and run again.

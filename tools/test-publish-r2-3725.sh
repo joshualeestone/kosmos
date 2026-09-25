@@ -211,7 +211,7 @@ cp "$TMP/r2.zip" "$FAKE/kosmos-9.9.4-win-x64.zip"; SHA_R2=$(shasum -a 256 "$TMP/
 printf '{"version":"9.9.4","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"kosmos-9.9.4-win-x64.zip","arch":"x64"}\n' "$SHA_R2" > "$TMP/prod-944.json"
 cp "$FAKE/latest-win.json" "$TMP/prod.keep" 2>/dev/null || : > "$TMP/prod.keep"
 KOSMOS_PUBLISH_R2_FAKE_AFTER="GET latest-win.json|latest-win.json|$TMP/prod-944.json" fake -Zip "$TMP/r3.zip" -ReplaceVersioned; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF "a promote landed in between" "$TMP/out" && cmp -s "$FAKE/kosmos-9.9.4-win-x64.zip" "$TMP/r2.zip"; then pass "a promote landing mid-replace: the previous bytes are put back and the replace refuses"
+if [ "$rc" -eq 1 ] && grep -qF "a promote landed in between" "$TMP/out" && grep -qF "The replace was undone" "$TMP/out" && cmp -s "$FAKE/kosmos-9.9.4-win-x64.zip" "$TMP/r2.zip"; then pass "a promote landing mid-replace: the previous bytes are put back and the replace refuses"
 else fail "replace/promote race: rc=$rc zip-restored=$(cmp -s "$FAKE/kosmos-9.9.4-win-x64.zip" "$TMP/r2.zip" && echo yes || echo no) $(tail -1 "$TMP/out")"; fi
 if [ -s "$TMP/prod.keep" ]; then cp "$TMP/prod.keep" "$FAKE/latest-win.json"; else rm -f "$FAKE/latest-win.json"; fi
 # ...and the put-back itself is pinned: a staging that landed after this replace's upload is
@@ -219,7 +219,7 @@ if [ -s "$TMP/prod.keep" ]; then cp "$TMP/prod.keep" "$FAKE/latest-win.json"; el
 cp "$TMP/r2.zip" "$FAKE/kosmos-9.9.4-win-x64.zip"
 KOSMOS_PUBLISH_R2_FAKE_AFTER="GET latest-win.json|latest-win.json|$TMP/prod-944.json
 PUT kosmos-9.9.4-win-x64.zip|kosmos-9.9.4-win-x64.zip|$TMP/r1.zip" fake -Zip "$TMP/r3.zip" -ReplaceVersioned; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF "PUTTING THE PREVIOUS BYTES BACK FAILED (412)" "$TMP/out" && ! grep -qF "The replace did not happen" "$TMP/out"; then pass "the replace put-back is pinned: a newer staging is not reverted"
+if [ "$rc" -eq 1 ] && grep -qF "PUTTING THE PREVIOUS BYTES BACK FAILED (412)" "$TMP/out" && ! grep -qF "The replace was undone" "$TMP/out"; then pass "the replace put-back is pinned: a newer staging is not reverted"
 else fail "replace put-back pin: rc=$rc $(tail -1 "$TMP/out")"; fi
 cp "$TMP/r2.zip" "$FAKE/kosmos-9.9.4-win-x64.zip"
 cp "$TMP/staging.keep" "$FAKE/latest-win-staging.json"

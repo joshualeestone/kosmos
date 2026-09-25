@@ -287,7 +287,8 @@ function Get-Object([string] $Name) {
   $r
 }
 # Objects that are OVERWRITTEN in place (pointers, the alias and its sidecar) carry
-# Cache-Control: no-cache, so no cache between R2 and a user can keep serving the old bytes.
+# Cache-Control: no-cache, so no cache between R2 and a user can keep serving the old bytes. So
+# does every versioned SIDECAR, always: a -ReplaceVersioned rewrites it, and it is a few bytes.
 $NoCache = @{ 'cache-control' = 'no-cache' }
 $script:LastPut = $null   # set by Put-Object; initialised for StrictMode (a dry run sets nothing)
 function Put-Object([string] $Name, [byte[]] $Body, [string] $File, [string] $Sha, [string] $Type, [hashtable] $Extra = @{}) {
@@ -495,7 +496,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       $how = if ($back.Status -eq 200) { "the previous bytes ($existingSha) were put back" } else { "PUTTING THE PREVIOUS BYTES BACK FAILED ($($back.Status)): prod names $Versioned but it now holds $Sha; restore it by hand" }
       $script:AfterNote = ''
       # The closing sentence only when it is true: a failed put-back means the replace DID land.
-      Refuse "prod's latest-win.json named $Versioned while this replace ran (a promote landed in between); $how.$(if ($back.Status -eq 200) { ' The replace did not happen.' })"
+      Refuse "prod's latest-win.json named $Versioned while this replace ran (a promote landed in between); $how.$(if ($back.Status -eq 200) { ' The replace was undone (for a moment the key held the new bytes).' })"
     }
   }
   $side = New-SidecarBytes $Sha $Versioned
