@@ -40,6 +40,7 @@ remote.macRequest = async (method, route, body) => {
   if (route === '/v1/mac/federation/invite') return { ok: true, data: { code: 'CODE-ABC', expires_at: 123 } };
   if (route === '/v1/mac/federation/verify') {
     if (body.code === 'USED') return { ok: false, because: 'that code has already been used. Ask for a new one.' };
+    if (body.code === 'ROLLBACK') return { ok: true, data: { edge_id: 'edge-rb', project_name: 'Rollback Club', project_desc: '', owner_handle: 'reader' } };
     return { ok: true, data: { edge_id: 'edge-77', project_name: 'Tuesday Book Club', project_desc: 'We read one book a month.', owner_handle: 'reader' } };
   }
   return { ok: false, because: 'unexpected route ' + route };
@@ -119,4 +120,16 @@ test('creating a project with the ref its invites were minted with records the o
   const plain = await post('/api/projects', { name: 'Plain Club' }, SCREEN);
   assert.equal(plain.json.federationLinked, undefined, 'no ref, no link and no claim of one');
   assert.equal(federation.linkFor(plain.json.id), null);
+});
+
+test('a join whose link cannot be recorded leaves no project behind', async () => {
+  const v = await post('/api/federation/verify', { code: 'ROLLBACK' }, SCREEN);
+  assert.equal(v.status, 200, JSON.stringify(v.json));
+  const real = federation.recordLink;
+  federation.recordLink = () => { throw new Error('disk full'); };
+  let j;
+  try { j = await post('/api/federation/join', { edge_id: 'edge-rb', agents: [] }, SCREEN); }
+  finally { federation.recordLink = real; }
+  assert.notEqual(j.status, 200, JSON.stringify(j.json));
+  assert.ok(!projects.readAll().some((p) => p.name === 'Rollback Club'), 'the half-made project was taken back out');
 });

@@ -21,10 +21,16 @@
 const federation = require('./federation');
 
 const RESTART_START_MS = 2000;
+/* Inbound bound per project: a connected peer may not flood this Mac's message
+   log (the relay allows bursts of 128). Past it, messages are dropped and the
+   room says so once per window. */
+const INBOUND_PER_WINDOW = 60;
+const INBOUND_WINDOW_MS = 60000;
+const MAX_LINE = 64 * 1024;
 const RESTART_MAX_MS = 60000;
 const MAC_EDGES = '/v1/mac/federation/edges';
 
-/* projectId -> { child, edge, status, backoff, timer, ended } */
+/* projectId -> { child, edge, status, backoff, timer, ended, stopped, starting, inbound } */
 const seats = new Map();
 
 let deps = null;
@@ -36,6 +42,9 @@ let deps = null;
  *   onStatus(projectId, status)   optional
  *   enrolled() -> bool            optional; no seat is started on a Mac that is
  *                                 not connected to Kosmos+ (a dev board, a test)
+ *   projectExists(projectId)      optional; a removed project gets no seat
+ *   note(projectId, text)         optional; Kosmos's own line in the room, used to
+ *                                 say a post did not go out or messages were dropped
  */
 function configure(d) {
   deps = d;
@@ -46,8 +55,10 @@ function statusOf(projectId) {
   return s ? s.status : null;
 }
 
+/* A one-line label from outside: control characters (terminal escapes among
+   them) become spaces, whitespace collapses. */
 function clean(v, max) {
-  return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 /* One event line from a seat. Unknown shapes are ignored; a message is recorded
@@ -61,14 +72,26 @@ function onEvent(projectId, line) {
   if (!s) return;
   if (ev.event === 'connected') { setStatus(projectId, 'connected'); s.backoff = RESTART_START_MS; return; }
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
-  if (ev.event === 'ended') { s.ended = String(ev.because || 'the connection ended'); setStatus(projectId, 'ended'); return; }
-  if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string') {
+  if (ev.event === 'ended') { s.ended = String(ev.because || 'the connection ended'); return; }
+  if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to the external project: ' + clean(ev.because, 200) + '.'); return; }
+  if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
+    const now = Date.now();
+    if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, noted: false };
+    s.inbound.count += 1;
+    if (s.inbound.count > INBOUND_PER_WINDOW) {
+      if (!s.inbound.noted) { s.inbound.noted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept.'); }
+      return;
+    }
     deps.recordExternal(projectId, {
       from: clean(ev.data.from, 80) || 'someone outside',
       fromKind: ev.data.kind === 'agent' ? 'agent' : 'person',
       text: ev.data.text,
     });
   }
+}
+
+function say(projectId, text) {
+  if (deps && typeof deps.note === 'function') { try { deps.note(projectId, text); } catch { /* a note is furniture */ } }
 }
 
 function setStatus(projectId, status) {
@@ -96,12 +119,16 @@ function spawnFor(projectId, edge) {
   // may never 'exit': treat it as an exit so it backs off instead of crashing
   // the board on an unhandled event.
   child.on('error', () => { child.emit('exit', null); });
+  // A write racing the child's death surfaces as an async EPIPE on stdin; with no
+  // listener it would crash the board.
+  if (child.stdin && typeof child.stdin.on === 'function') child.stdin.on('error', () => {});
   s.edge = edge;
   setStatus(projectId, 'connecting');
   let buf = '';
   child.stdout.setEncoding && child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk) => {
     buf += chunk;
+    if (buf.length > MAX_LINE && buf.indexOf('\n') < 0) buf = '';
     let i;
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i);
@@ -113,27 +140,57 @@ function spawnFor(projectId, edge) {
     const cur = seats.get(projectId);
     if (!cur || cur.child !== child) return;
     cur.child = null;
-    // 3 = refused for good (revoked, lapsed): do not hammer the coordinator.
-    if (code === 3 || cur.stopped) { if (code === 3) setStatus(projectId, 'ended'); return; }
+    if (cur.stopped) return;
+    // 3 = refused for good (revoked, lapsed). A member's seat ends there. An
+    // owner's seat was pinned to one member's edge; it looks for another active
+    // edge on the next check and ends only when none is left.
+    if (code === 3) {
+      const link = safeLink(projectId);
+      if (link && link.role === 'owner') { setStatus(projectId, 'waiting'); return; }
+      setStatus(projectId, 'ended');
+      return;
+    }
     setStatus(projectId, 'reconnecting');
     cur.timer = setTimeout(() => { cur.timer = null; ensure(projectId).catch(() => {}); }, cur.backoff);
     cur.backoff = Math.min(cur.backoff * 2, RESTART_MAX_MS);
   });
 }
 
-/** Make sure a linked project has a live seat. Safe to call repeatedly. */
+function safeLink(projectId) {
+  try { return federation.linkFor(projectId); } catch { return null; }
+}
+
+/** Make sure a linked project has a live seat. Safe to call repeatedly and
+    concurrently: `starting` is set before the edge lookup's await, so two
+    overlapping calls cannot both spawn a seat. */
 async function ensure(projectId) {
   if (!deps) return null;
   const link = federation.linkFor(projectId);
   if (!link) return null;
   if (typeof deps.enrolled === 'function' && !deps.enrolled()) return null;
+  if (typeof deps.projectExists === 'function' && !deps.projectExists(projectId)) { stop(projectId); return null; }
   let s = seats.get(projectId);
-  if (!s) { s = { child: null, edge: null, status: null, backoff: RESTART_START_MS, timer: null, ended: null, stopped: false }; seats.set(projectId, s); }
-  if (s.child || s.stopped || s.status === 'ended') return s.status;
-  const edge = link.role === 'member' ? link.edge_id : await ownerEdge(link);
-  if (!edge) { setStatus(projectId, 'waiting'); return 'waiting'; }
-  spawnFor(projectId, edge);
-  return statusOf(projectId);
+  if (!s) { s = { child: null, edge: null, status: null, backoff: RESTART_START_MS, timer: null, ended: null, stopped: false, starting: false }; seats.set(projectId, s); }
+  if (s.child || s.starting || s.timer || s.stopped || s.status === 'ended') return s.status;
+  s.starting = true;
+  try {
+    const edge = link.role === 'member' ? link.edge_id : await ownerEdge(link);
+    if (!edge) { setStatus(projectId, 'waiting'); return 'waiting'; }
+    if (s.stopped || s.child) return s.status;
+    spawnFor(projectId, edge);
+    return statusOf(projectId);
+  } finally {
+    s.starting = false;
+  }
+}
+
+function stop(projectId) {
+  const s = seats.get(projectId);
+  if (!s) return;
+  s.stopped = true;
+  if (s.timer) clearTimeout(s.timer);
+  if (s.child) { try { s.child.stdin.end(); } catch { /* gone */ } }
+  seats.delete(projectId);
 }
 
 /** Seat every linked project (called at boot and after a join or a link). */
@@ -152,7 +209,10 @@ async function ensureAll() {
  */
 function post(projectId, { from, kind, text }) {
   const s = seats.get(projectId);
-  if (!s || !s.child || !s.child.stdin || s.status !== 'connected') return false;
+  if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
+    say(projectId, 'That message stayed on this computer: the connection to the external project is not up right now.');
+    return false;
+  }
   const line = JSON.stringify({ from: clean(from, 80) || 'someone', kind: kind === 'agent' ? 'agent' : 'person', text: String(text || '') });
   try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
 }
@@ -167,4 +227,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { configure, ensure, ensureAll, post, statusOf, stopAll, onEvent, MAC_EDGES };
+module.exports = { configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW };

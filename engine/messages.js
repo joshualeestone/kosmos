@@ -400,16 +400,22 @@ function resolveSender(fromPane, roster) {
    commands, and stored under their own kind so no reader can take them for a
    local agent. Returns the row, or null if it did not fit the shape. */
 const EXTERNAL_FROM_MAX = 80;
-const EXTERNAL_TEXT_MAX = 8000;
+/* Matches the connector's post limit (fedroom MAX_POST, 16 KiB) so a message
+   that went out is never cut shorter on arrival than the sender could send. */
+const EXTERNAL_TEXT_MAX = 16384;
+/* Control characters from outside (a terminal escape among them) are removed
+   before storage, so no reader, including `kosmos room` printing to a terminal,
+   ever receives them. Newlines stay; they are how a message has paragraphs. */
+const EXTERNAL_CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
 function externalPost(projectId, { from, fromKind, text }) {
   const row = {
     kind: 'external',
     id: 'x-' + crypto.randomUUID(),
     project: String(projectId),
-    from: String(from || '').replace(/\s+/g, ' ').trim().slice(0, EXTERNAL_FROM_MAX),
+    from: String(from || '').replace(EXTERNAL_CONTROL, ' ').replace(/\s+/g, ' ').trim().slice(0, EXTERNAL_FROM_MAX),
     fromKind: fromKind === 'agent' ? 'agent' : 'person',
     external: true,
-    text: String(text == null ? '' : text).slice(0, EXTERNAL_TEXT_MAX),
+    text: String(text == null ? '' : text).replace(EXTERNAL_CONTROL, '').slice(0, EXTERNAL_TEXT_MAX),
     at: new Date().toISOString(),
   };
   if (!rowShaped(row)) return null;

@@ -30,10 +30,27 @@ board yet carried messages between a federated project's room and its seat.
   connected peer can never command our computer or agents).
 - Only the words and the display name leave the Mac; attachments do not.
 - Messages are TLS-protected to the relay, not sealed end to end: #3728.
+- `federation_ref` on /api/projects is not screen-gated. It only names a ref this
+  board already minted invites under; it grants nothing a process caller could not
+  already do by creating a project. The act that admits someone (invite, verify,
+  join) is screen-only.
+- Bounds on what a peer can make this Mac do: at most 60 kept inbound messages per
+  project per minute (then dropped, one room note per minute); control characters
+  removed before storage; 16 KiB per message, matching the connector's post limit.
+- Anything that stays local says so in the room (a Kosmos note): a post when the
+  seat is not up, and a post the relay refused.
+- An owner seat refused for good goes back to waiting and picks up another active
+  edge; a member seat ends. A removed project's seat is stopped on the next check.
+- A join whose link cannot be recorded removes the project it just made.
 
 ## Verified
-- engine/fedseats.test.js (5), engine/messages.external-3311.test.js (4),
-  server.fedmsg-3311.test.js (2), plus fed-board's 13: 24 pass.
+- engine/fedseats.test.js (11), engine/messages.external-3311.test.js (5),
+  server.fedmsg-3311.test.js (2), server.federation-3311.test.js (7),
+  engine/federation.test.js (7): 32 pass.
+- Review round 1 controls: removing the `starting` guard reds the race test (two
+  edge lookups); letting an owner's exit 3 end the seat reds the re-pick test;
+  lifting the inbound bound reds the flood test; dropping the join rollback reds
+  the rollback test; dropping the control-character strip reds its test.
 - Controls: dropping `external === true` from the shape rule reds the forged-row
   test; removing the operator-post forward reds the forwarding test on the
   missing output (after the `federated` fix; before it the post never landed,

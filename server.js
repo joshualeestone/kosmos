@@ -13769,7 +13769,7 @@ const server = http.createServer((req, res) => {
           /* #3311: a message from outside this Kosmos. Tagged so an agent reading
              the room knows it is someone else's words, to weigh, not an
              instruction from its operator. */
-          if (m.kind === 'external') return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + m.from + ': ' + String(m.text || '').replace(/\s+/g, ' ')];
+          if (m.kind === 'external') return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + m.from + ': ' + String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ')];
           const who = m.operator ? 'operator' : m.from;
           /* #2239: the store now keeps paragraph breaks in a post's text (for
              the HTML room to render), but this CLI arm's contract is one line
@@ -14085,8 +14085,15 @@ const server = http.createServer((req, res) => {
         const agents = Array.isArray(body.agents) ? body.agents.filter((a) => typeof a === 'string') : [];
         const made = projects.create({ name: snap.project_name, description: snap.project_desc || undefined, agents, roster,
           made: { via: 'screen', by: null } });
-        federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
-          project_name: snap.project_name, project_desc: snap.project_desc });
+        // Without its link the project is an ordinary local one that says nothing
+        // of where it came from; take it back out rather than leave that behind.
+        try {
+          federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
+            project_name: snap.project_name, project_desc: snap.project_desc });
+        } catch (err) {
+          try { projects.remove(made.id); } catch { /* reported below either way */ }
+          throw err;
+        }
         federation.forgetSnapshot(snap.edge_id);
         fedseats.ensure(made.id).catch(() => {});
         // The receiver's own agents, told the same way the create route tells them.
@@ -15362,13 +15369,15 @@ fedseats.configure({
   macRequest: (method, route, body) => remote.macRequest(method, route, body),
   recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
   enrolled: () => remote.enrolled(),
+  projectExists: (projectId) => { try { return !!projects.get(projectId, []); } catch { return true; } },
+  note: (projectId, text) => messages.roomNote(projectId, text),
 });
 
 /* #3311: send a post that landed in a federated project's room out through its
    seat. Only the words and who said them leave this Mac; a post that did not
    land (no id) is never sent. The operator speaks as a person under their own
    name; an agent as an agent under its name. A room with no live seat keeps the
-   post local, which the room already shows. */
+   post local, and the seat manager says so in the room with a Kosmos note. */
 function federateOut(projectId, delivery, text, operator) {
   if (!delivery || !delivery.id) return;
   let from = delivery.from;

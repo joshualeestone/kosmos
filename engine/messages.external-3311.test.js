@@ -41,3 +41,9 @@ test('a hand-written external row without external:true is dropped on read', () 
 test('a blank sender is refused rather than written anonymously', () => {
   assert.strictEqual(messages.externalPost('proj-1', { from: '   ', fromKind: 'person', text: 'x' }), null);
 });
+
+test('control characters from outside never reach storage; newlines do', () => {
+  const row = messages.externalPost('proj-1', { from: 'Ev\u001b[31me', fromKind: 'person', text: 'a\u001b]0;title\u0007b\nc\u009bd' });
+  assert.strictEqual(row.from, 'Ev [31me');
+  assert.strictEqual(row.text, 'a]0;titleb\ncd');
+});
