@@ -108,6 +108,11 @@ test('#3679: a byte-order mark and non-breaking-space indentation do not unbalan
   assert.equal(chat.storeText('x\n  \u00a0\u00a0- b'), 'x\n    - b', 'spaces then non-breaking spaces count as one run');
 });
 
+test('#3679: a line of only Unicode whitespace is a blank line', () => {
+  assert.equal(chat.storeText('a\n\n\n\n\u3000\n\n\n\nb'), 'a\n\nb');
+  assert.equal(chat.storeText('    - a\n\u3000\n    - b'), '- a\n\n- b');
+});
+
 test('#3679: whitespace the old trim removed is still removed', () => {
   for (const ws of ['\u00a0', '\ufeff', '\u3000', ' \n\u00a0 ']) {
     assert.equal(chat.messageProblem(ws), 'write something to send', JSON.stringify(ws));

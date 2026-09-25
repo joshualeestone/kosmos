@@ -395,7 +395,8 @@ function storeText(raw) {
     }
     const lead = /^ */.exec(line)[0];
     const rest = trimSpacesEnd(line.slice(lead.length).replace(/ +/g, ' '));
-    if (!rest) { blanks += 1; if (blanks > 1) continue; out.push(''); continue; }
+    // Blank means no visible character, whatever the whitespace (a full-width space line too).
+    if (!/\S/.test(rest)) { blanks += 1; if (blanks > 1) continue; out.push(''); continue; }
     blanks = 0;
     out.push(lead + rest);
   }

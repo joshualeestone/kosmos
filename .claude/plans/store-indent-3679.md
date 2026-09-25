@@ -132,3 +132,9 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
 - Recorded, not changed: a fence's own indentation is not removed from its content lines
   (CommonMark does that); the store and pjRich agree. And pjRich's list regex is the old shape
   with a capture added; its behaviour on a long space run before a line separator predates this.
+
+## Review pass 8 (sonnet)
+- WARNING fixed: a line of only non-ASCII whitespace (a full-width space, common in CJK text)
+  counted as content, splitting a collapsed paragraph break and pulling the shared indent to
+  zero. Blank now means no visible character, whatever the whitespace. Tested; the old check
+  reds it.
