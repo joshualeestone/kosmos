@@ -51,6 +51,11 @@ outside a short, justified allow-list, and a browser check proves the computed s
 - `docs/browser-checks/render-no-left-bars-3692.js`: it builds each fixed element on a sealed board in
   both themes and asserts equal borders on all four sides and no x-only inset shadow. It leads with
   two controls that must detect a bar (a quote, and an inset left shadow). Screenshot sheet per theme.
+  36/36 pass. The first version passed the roadmap row vacuously: `#pj-list` carried `.asgrid`, so the
+  roadmap rules never applied (the row measured a 1px border and a drop shadow). It now removes
+  `.asgrid` and asserts that the roadmap rules applied (no border, an inset ring) before judging the
+  bar. With the old 3px bar restored, the light arm fails. The dark arm keeps its ring through the
+  dark override, which is correct.
 
 ## Weakest part
 The browser check builds the elements in a sheet instead of reaching each real screen, so it proves

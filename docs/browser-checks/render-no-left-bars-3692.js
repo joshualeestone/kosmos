@@ -98,19 +98,25 @@ const SAMPLES = [
           const el = document.getElementById(id);
           out.samples.push({ label: '#' + id, missing: !el, ...(el ? bar(el) : {}) });
         }
-        /* The roadmap needs-you row: roadmap body class, a row in the real #pj-list. */
+        /* The roadmap needs-you row: roadmap body class, and #pj-list in its list form (the
+           roadmap rules exclude .asgrid, the grid view). `roadmap` proves those rules applied:
+           the roadmap row has no border, so a pass cannot come from the grid row's styles. */
         document.body.classList.add('pj-roadmap');
         const list = document.getElementById('pj-list');
         const row = document.createElement('div');
         row.className = 'pj-row attn';
-        if (list) list.appendChild(row);
-        out.samples.push({ label: 'roadmap .pj-row.attn', missing: !list, ...(list ? bar(row) : {}) });
+        if (list) { list.classList.remove('asgrid'); list.appendChild(row); }
+        const rb = list ? bar(row) : {};
+        out.samples.push({ label: 'roadmap .pj-row.attn', missing: !list, ...rb });
+        out.roadmap = list ? { widths: rb.widths, ringed: /inset/.test(rb.shadow) } : null;
         return out;
       }, SAMPLES);
 
       chk(res.controls.quote.widths[3] > res.controls.quote.widths[1], `[${theme}] control: the quote's left rule is seen as a left bar`, JSON.stringify(res.controls.quote.widths));
       chk(res.controls.shadow.insetX, `[${theme}] control: an inset left shadow is seen as a left bar`, res.controls.shadow.shadow);
       chk(res.samples.length === SAMPLES.length + 3, `[${theme}] every fixed element was measured`, String(res.samples.length));
+      chk(res.roadmap && res.roadmap.widths.every((w) => w === 0) && res.roadmap.ringed,
+        `[${theme}] the roadmap rules applied to the needs-you row (no border, an inset ring)`, JSON.stringify(res.roadmap));
       for (const s of res.samples) {
         chk(!s.missing && s.sidesEqual && !s.insetX, `[${theme}] ${s.label} has no left bar`, JSON.stringify({ widths: s.widths, shadow: s.shadow }));
       }
