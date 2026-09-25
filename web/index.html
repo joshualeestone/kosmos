@@ -18017,6 +18017,9 @@ async function tick() {
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
     LAST_AT = Date.now();  // #1150: the moment this sample reached the page
+    // #3574: whether this is someone new is decided by the board's FIRST answer, whatever the
+    // tips are doing then (off, a dialog, first run); see tipAutoOk.
+    if (TIP_NEW_BOARD === null && Array.isArray(data.agents)) TIP_NEW_BOARD = data.agents.length === 0;
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
      *
@@ -52770,7 +52773,7 @@ function tipVisible(sel) {
 
 async function tipsLoad() {
   try {
-    const r = await (await fetch('/api/tips', { cache: 'no-store' })).json();
+    const r = await (await fetch('/api/tips', { cache: 'no-store', signal: AbortSignal.timeout(10000) })).json();
     TIPS_STATE = (r && r.ok === true && Array.isArray(r.seen)) ? { ok: true, seen: r.seen, off: r.off === true } : { ok: false, seen: [], off: true };
     if (TIPS_STATE.ok && r.seen.includes('tour')) TIP_TOUR_SAVED = true;
   } catch { TIPS_STATE = { ok: false, seen: [], off: true }; }
@@ -52858,11 +52861,9 @@ function tipsCheck() {
    follow the tour, so they never start on their own on such a board. The ? offers all of it anyway. */
 function tipAutoOk(t) {
   if (t.tour) {
-    if (!(LAST_AT > 0 && Array.isArray(LAST))) return false;
-    /* Decided once, at the first answer: a board that had agents then and has since removed its
-       last one is not someone new, and the tour would be the wrong help. */
-    if (TIP_NEW_BOARD === null) TIP_NEW_BOARD = LAST.length === 0;
-    return TIP_NEW_BOARD && LAST.length === 0;
+    /* Latched by the status handler at the board's first answer: a board that had agents then and
+       has since removed its last one is not someone new, and the tour would be the wrong help. */
+    return TIP_NEW_BOARD === true && Array.isArray(LAST) && LAST.length === 0;
   }
   return TIPS_STATE.seen.includes('tour');
 }

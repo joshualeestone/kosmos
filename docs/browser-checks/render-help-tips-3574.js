@@ -155,11 +155,25 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(!(await api('GET')).seen.includes('tour'), 'T23 and the tour is not recorded for a board that already had agents (control: T24, a met tour, is)');
     // T26: the same board then removes its last agent. It had agents at its first answer, so it is not
     // someone new and the tour must not appear (control: T1, empty at its first answer, shows it).
+    chk(await page.waitForFunction(() => TIP_NEW_BOARD === false, null, { timeout: 8000 }).then(() => true, () => false), 'T26 precondition: the board decided at its first answer that it is not new');
     noAgents();
     const emptied = await page.waitForFunction(() => Array.isArray(LAST) && LAST.length === 0, null, { timeout: 8000 }).then(() => true, () => false);
     await page.waitForTimeout(2800);
     const t26 = await cardState(page);
     chk(emptied && !/ of /.test(t26.step) && !t26.shown, 'T26 a board that had agents and removed the last one gets no tour', JSON.stringify({ emptied, t26 }));
+    withAgent();
+    // T27: the same, with tips off at load and turned on after the last agent went. The decision was
+    // made by the first answer, not by the first tips check, so the tour still does not appear.
+    resetStore({ seen: [], off: true });
+    await page.reload({ waitUntil: 'networkidle' });
+    chk(await page.waitForFunction(() => TIP_NEW_BOARD === false, null, { timeout: 8000 }).then(() => true, () => false), 'T27 precondition: tips off, and the board still decided it is not new');
+    noAgents();
+    await page.waitForFunction(() => Array.isArray(LAST) && LAST.length === 0, null, { timeout: 8000 }).catch(() => {});
+    await api('PUT', { off: false });
+    await page.evaluate(() => tipsLoad());
+    await page.waitForTimeout(2800);
+    const t27 = await cardState(page);
+    chk(!/ of /.test(t27.step), 'T27 tips turned on after the last agent went: still no tour', JSON.stringify(t27));
     withAgent();
     resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
     await page.reload({ waitUntil: 'networkidle' });
