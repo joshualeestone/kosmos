@@ -204,6 +204,20 @@ if command -v ruby >/dev/null 2>&1; then
   mkdir -p "$BT/log"; printf '  FAIL  an assertion line\nFAIL  render-fields (failed twice)\nFAILED:  render-fields regress-a-night (server did not boot)\nFAILED-LIST:  render-fields|regress-a-night (server did not boot)\n' > "$BT/log/browser-checks.log"
   RUNNER_TEMP="$BT/log" GITHUB_OUTPUT="$BT/o2" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" >/dev/null 2>&1 || fail "the collector failed on a real log"
   [ "$(cat "$BT/o2")" = "labels=render-fields|regress-a-night (server did not boot)" ] || fail "the collector read the wrong labels: $(cat "$BT/o2")"
+  # The card's retry wrapper, extracted from the card script itself: two failures then a
+  # success must go through; three failures must raise ::error:: and return non-zero.
+  sed -n '/^ghr() {/,/return 1; }$/p' "$BT/card.sh" > "$BT/ghr.sh"
+  grep -q 'ghr()' "$BT/ghr.sh" || fail "could not extract ghr from the card script"
+  out=$(GH_RETRY_SECONDS=0 RUN_URL=u bash -c '. "$1"; n=0; flaky() { n=$((n+1)); [ "$n" -ge 3 ]; }; ghr flaky a b && echo "ok after $n"' _ "$BT/ghr.sh" 2>&1) || true
+  [ "$out" = "ok after 3" ] || fail "ghr did not retry through two failures: $out"
+  out=$(GH_RETRY_SECONDS=0 RUN_URL=u bash -c '. "$1"; ghr false issue list; echo "rc=$?"' _ "$BT/ghr.sh" 2>&1) || true
+  printf '%s' "$out" | grep -q '::error::false issue list failed 3 times' && printf '%s' "$out" | grep -q 'rc=1' || fail "ghr did not report a final failure: $out"
+  # A cut-short run: a log that never reached the summary has no FAILED-LIST line.
+  mkdir -p "$BT/cut"; printf 'PASS  render-a\nFAIL  render-b (failed twice)\n' > "$BT/cut/browser-checks.log"
+  RUNNER_TEMP="$BT/cut" GITHUB_OUTPUT="$BT/o3" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" >/dev/null 2>&1 || fail "the collector aborted on a cut-short log"
+  grep -q '^labels=(none captured' "$BT/o3" || fail "a cut-short log did not fall back: $(cat "$BT/o3")"
+  # The token the collector reads is the one the driver writes (the two are separate files).
+  grep -qE '^[[:space:]]*log "FAILED-LIST:' "$REPO/tools/browser-checks.sh" || fail "browser-checks.sh no longer writes a FAILED-LIST: line, so every card would carry no labels"
   pass "the label collector reads only the FAILED-LIST: summary (entries kept whole), and falls back without aborting when there is no log"
   # Card script. $1 = the checks job RESULT, $2 = what the stubbed issue list answers
   # (empty / 7 / null); the open card's last report named render-fields only.

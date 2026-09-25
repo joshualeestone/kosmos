@@ -42,10 +42,11 @@ defaults:
     shell: bash
 
 concurrency:
-  group: browser-checks-full-${{ github.ref }}
-  # A run in progress is never superseded; let it finish. (A PENDING run can still be
-  # replaced by a newer queued one. Such a run starts no jobs at all, so it is not
-  # reported; it needs a third run queued on main, e.g. a dispatch during the nightly.)
+  # One lane per trigger, so a dispatch before a cut can never supersede a PENDING nightly
+  # (a superseded pending run starts no jobs and so would file no card).
+  group: browser-checks-full-${{ github.ref }}-${{ github.event_name }}
+  # A run in progress is never superseded; let it finish. (Within the schedule lane a
+  # pending run could only be replaced by the next night's.)
   cancel-in-progress: false
 
 jobs:
@@ -54,7 +55,7 @@ jobs:
     # The runner's full-set duration is not measured yet (a dispatch run needs this file on
     # main); the cut's 3b render window is ~16 minutes on a dev Mac. Sized generously, and
     # any non-success, a timeout included, still files a card (see file-red-card).
-    timeout-minutes: 150
+    timeout-minutes: 170
     outputs:
       failed: ${{ steps.failed.outputs.labels }}
     steps:
@@ -88,7 +89,9 @@ jobs:
           # failed and left no log: the fallback line below has to run either way.
           log="$RUNNER_TEMP/browser-checks.log"
           labels=""
-          if [ -f "$log" ]; then labels=$(sed -n 's/^FAILED-LIST:  //p' "$log" | tail -n 1 || true); fi
+          # Any spacing after the token, so a cosmetic edit to the driver's log line cannot
+          # silently empty every card (the driver's token itself is pinned by the test).
+          if [ -f "$log" ]; then labels=$(sed -n 's/^FAILED-LIST:[[:space:]]*//p' "$log" | tail -n 1 || true); fi
           echo "labels=${labels:-(none captured; see the run log)}" >> "$GITHUB_OUTPUT"
 
   # 🔑 A nightly red must reach the fleet, not just the run's actor (GitHub mails only
@@ -112,24 +115,28 @@ jobs:
           RED: ${{ needs.browser-checks-full.outputs.failed }}
           RESULT: ${{ needs.browser-checks-full.result }}
         run: |
+          # A transient API error must not lose a red night: every gh call retries, and a
+          # final failure is an ::error:: annotation on the run, not a silent step abort.
+          ghr() { local i; for i in 1 2 3; do "$@" && return 0; [ "$i" -lt 3 ] && sleep $((i * ${GH_RETRY_SECONDS:-10})); done
+                  echo "::error::$1 $2 $3 failed 3 times; this red night was NOT reported to the card. Run: $RUN_URL" >&2; return 1; }
           label=nightly-browser-checks-red
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number')
+          open=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number')
           [ "$open" = null ] && open=""
           if [ "$RESULT" = success ]; then
             if [ -n "$open" ]; then
-              gh issue close "$open" --repo "$GITHUB_REPOSITORY" --comment "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card."
+              ghr gh issue close "$open" --repo "$GITHUB_REPOSITORY" --comment "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card."
             fi
             exit 0
           fi
           # Entries are separated by "|" (they can contain spaces); shown as " | ".
-          red=$(printf '%s' "${RED:-(none captured)}" | sed 's/[[:space:]]*|[[:space:]]*/ | /g')
+          red=$(printf '%s' "${RED:-(none captured; see the run log)}" | sed 's/[[:space:]]*|[[:space:]]*/ | /g')
           if [ -n "$open" ]; then
             # The entries named by this card's most recent report, found by the opening words
             # this job writes (startswith: same meaning in gh's gojq and in jq; a person
             # pasting a report verbatim would also match), so only NEW ones lead.
             # If that report cannot be read, say so rather than calling everything new.
             unread=""
-            if ! prev=$(gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
+            if ! prev=$(ghr gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
                 -q '[.body] + [.comments[].body] | map(select(startswith("The nightly full") or startswith("Still not green"))) | last // ""' \
                 | sed -n 's/^.*Red checks: //p' | tail -n 1); then
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
@@ -143,16 +150,16 @@ jobs:
               [ -n "$seen" ] || new="${new:+$new | }$w"
             done
             IFS=$_ifs; set +f
-            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
+            ghr gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
           NEW since the last red night: ${new:-none}$unread
           Red checks: $red"
           else
-            have=$(gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name')
+            have=$(ghr gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name')
             if ! printf '%s\n' "$have" | grep -qx "$label"; then
-              gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
+              ghr gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
                 --description "The nightly full browser-check run on main is not green (#2518)"
             fi
-            gh issue create --repo "$GITHUB_REPOSITORY" --label "$label" \
+            ghr gh issue create --repo "$GITHUB_REPOSITORY" --label "$label" \
               --title "Nightly full browser-check run is not green on main" \
               --body "The nightly full page-layer run (browser-checks-full.yml, #2518) ended $RESULT on main at $GITHUB_SHA: $RUN_URL
 
