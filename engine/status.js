@@ -4240,12 +4240,14 @@ function sessionIdsFor(sessionName, exactSession) {
    flatten to one folder (see byWorkdirDetailed). */
 function swarmField(profile, agentName, exactSession) {
   try {
+    const swarm = require('./swarm');
+    if (!swarm.settingsOf(profile)) return null;
     const belongs = workdirBelongs(agentName);
     const owns = (file) => {
       const cwd = transcriptCwd(file);
       return belongs && cwd != null ? belongs(cwd) : null;
     };
-    return require('./swarm').cardField(profile, () => transcriptFor(agentName, exactSession), undefined, owns);
+    return swarm.cardField(profile, () => transcriptFor(agentName, exactSession), undefined, owns);
   } catch { return null; }
 }
 

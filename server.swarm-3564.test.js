@@ -211,3 +211,28 @@ test('#3564 Stop now sends the stop-all chord BEFORE the Escape (an Escape just 
     assert.equal(b.stopped, true, 'both keys went and the answer says otherwise: ' + JSON.stringify(b));
   } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
 });
+
+test('#3564 a second Stop now within a few seconds sends the chord again but NO second Escape (the double-Escape key)', async () => {
+  const fleetMod = require('./test-support/fleet');
+  const chat = require('./engine/chat');
+  lead('hive9', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive9', { state: 'idle' })]);
+  const calls = [];
+  chat.setRunner((args) => { calls.push(args); return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  const keys = () => calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+  try {
+    await post('/api/agent/hive9/swarm/stop');
+    assert.deepEqual(keys(), ['C-x', 'C-k', 'C-x', 'C-k', 'Escape'], 'CONTROL: the first press sends chord then Escape');
+    calls.length = 0;
+    const r = await post('/api/agent/hive9/swarm/stop');
+    const b = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(b));
+    assert.deepEqual(keys(), ['C-x', 'C-k', 'C-x', 'C-k'], 'a quick second press sent a second Escape');
+    calls.length = 0;
+    const prof = store.readProfile('hive9');
+    store.writeProfile('hive9', { swarm: { ...prof.swarm, pausedAt: new Date(Date.now() - 10000).toISOString() } });
+    await post('/api/agent/hive9/swarm/stop');
+    assert.deepEqual(keys(), ['C-x', 'C-k', 'C-x', 'C-k', 'Escape'], 'CONTROL: a press after the gap sends the Escape again');
+  } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
+});

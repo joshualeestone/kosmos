@@ -4890,6 +4890,11 @@ const server = http.createServer((req, res) => {
     if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
     const s = swarm.settingsOf(store.readProfile(name));
     if (!s) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
+    /* A second press within STOP_REPEAT_MS sends no second Escape: Claude Code's double-Escape
+       shortcut opens its rewind list at the prompt (its documented key; not measured here). The
+       chord is sent again. */
+    const repeat = s.pausedBecause === 'stopped' && s.active === false
+      && Date.now() - Date.parse(s.pausedAt || '') < swarm.STOP_REPEAT_MS;
     const next = swarm.pausedFor(s, 'stopped');
     store.writeProfile(name, { swarm: next });
     const roster = safeRoster();
@@ -4897,7 +4902,7 @@ const server = http.createServer((req, res) => {
        Escape just before the chord swallowed it (measured 2026-09-25, Claude Code 2.1.282);
        chord-then-Escape stopped them with the lead idle and with it busy. */
     const helped = chat.stopHelpers(name, roster);
-    const stopped = chat.interrupt(name, roster);
+    const stopped = repeat ? { ok: true } : chat.interrupt(name, roster);
     const ok = stopped.ok === true && helped.ok === true;
     sendJson(res, 200, { ok: true, stopped: ok,
       because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
@@ -14230,8 +14235,9 @@ const server = http.createServer((req, res) => {
         const senderCard = tokenSender ? tokenSender.card : (fromPane ? roster.find((c) => c && c.target === fromPane) : null);
         const senderName = clean(senderCard && senderCard.sessionName);
         /* #3564: a swarm switched off in this project is not told about its tasks. */
+        const offHere = projects.swarmOffSet(id);
         const recipients = (senderName ? named.filter((m) => m !== senderName) : named)
-          .filter((m) => !projects.swarmOffIn(id, m));
+          .filter((m) => !offHere.has(String(m)));
         const who = viaScreen ? 'The person' : (senderName || 'An agent');
         /* Built once: nothing in the line depends on the recipient. `id` is cleaned
            for consistency with the other interpolated values, though a stored project

@@ -75,6 +75,19 @@ test('#3564 switching a swarm back on overrides the limit only for a pause from 
   assert.ok(on2.limitOverrideDay, 'CONTROL: switching on after today\'s limit pause holds for today');
 });
 
+test('#3564 a NEW limit holds as soon as it is set: switching on with a new limit, or changing it later, gives no override', () => {
+  const base = swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const NOW9 = new Date(2026, 8, 25, 12, 0, 0).getTime();
+  const pausedNow = { ...swarm.birthProfile({ dailyTokenLimit: 1000 }), swarm: swarm.pausedFor(base, 'limit', NOW9 - 60000) };
+  const same = swarm.applyPatch(pausedNow, { active: true, dailyTokenLimit: 1000 }, NOW9);
+  assert.ok(same.limitOverrideDay, 'CONTROL: on again with the same limit holds for today');
+  const raised = swarm.applyPatch(pausedNow, { active: true, dailyTokenLimit: 5000 }, NOW9);
+  assert.equal(raised.active, true);
+  assert.equal(raised.limitOverrideDay, null, 'switching on with a new limit turned the limit off for today');
+  const later = swarm.applyPatch({ ...pausedNow, swarm: same }, { dailyTokenLimit: 800 }, NOW9);
+  assert.equal(later.limitOverrideDay, null, 'lowering the limit after an override left it off for today');
+});
+
 /* ---- the meter ----------------------------------------------------------------- */
 
 const NOW = new Date(2026, 8, 24, 15, 0, 0).getTime();   // 15:00 local
@@ -228,6 +241,25 @@ test('#3564 meter: two leads sharing one folder, metered back to back, each coun
   assert.equal(swarm.meter(a, NOW, ownsFor(['a.jsonl', 'a0.jsonl'])).leadTokens, 15, 'CONTROL: lead A counts both its sessions');
   assert.equal(swarm.meter(b, NOW, ownsFor(['b.jsonl'])).leadTokens, 700, 'lead B was given lead A\'s cached answer about a file');
   assert.equal(swarm.meter(a, NOW, ownsFor(['a.jsonl', 'a0.jsonl'])).leadTokens, 15, 'lead A was given lead B\'s cached answer about a file');
+});
+
+test('#3564 meter: a session untouched for over a day is not asked about; a "cannot tell" answer is asked again only after a while', () => {
+  swarm.resetForTests();
+  const old = new Date(2026, 8, 20, 12, 0, 0).getTime();
+  const dir = transcripts('asks', [
+    ['cur.jsonl', [asst(today(9), U(1, 0), 'end_turn')], NOW - 60000],
+    ['ancient.jsonl', [asst(new Date(old).toISOString(), U(1, 0), 'end_turn')], old],
+    ['unplaced.jsonl', [asst(today(9), U(2, 0), 'end_turn')], NOW - 60000],
+  ]);
+  const asked = [];
+  const owns = (f) => { asked.push(path.basename(f)); return null; };
+  const cur = path.join(dir, 'cur.jsonl');
+  assert.equal(swarm.meter(cur, NOW, owns).leadTokens, 3, 'CONTROL: the unplaced session still counts');
+  assert.deepEqual(asked, ['unplaced.jsonl'], 'a session over a day old was asked about');
+  swarm.meter(cur, NOW + 60000, owns);
+  assert.deepEqual(asked, ['unplaced.jsonl'], 'a "cannot tell" answer was asked again a minute later');
+  swarm.meter(cur, NOW + 6 * 60000, owns);
+  assert.deepEqual(asked, ['unplaced.jsonl', 'unplaced.jsonl'], 'CONTROL: it is asked again after the retry time');
 });
 
 test('#3564 meter: a file larger than one call reads catches up over polls, and says it is not complete until it has', () => {

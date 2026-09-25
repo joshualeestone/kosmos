@@ -22,11 +22,14 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
   when today's tokens could not be read in full (no transcript found, or a large file still catching up).
 - **Settings:** `PUT /api/agent/<name>/swarm { maxHelpers?, dailyTokenLimit?, active? }`.
 - **Paused is real:** `chat.deliver` refuses a paused swarm (every caller goes through it), except slash commands.
-- **Stop now:** `POST /api/agent/<name>/swarm/stop` pauses it "stopped", sends Escape (`chat.interrupt`) and the
-  stop-all chord (`chat.stopHelpers`), both through `keysAllowed`; the answer says whether both were sent.
+- **Stop now:** `POST /api/agent/<name>/swarm/stop` pauses it "stopped", sends the stop-all chord
+  (`chat.stopHelpers`) and then Escape (`chat.interrupt`), both through `keysAllowed`; the answer says whether
+  both were sent. A second press within `STOP_REPEAT_MS` (3 s) sends the chord only: two Escapes close together
+  open Claude Code's rewind list at the prompt (not measured here; a documented Claude Code key), and later
+  messages would be typed into it.
 - **The Assigner** skips a paused swarm (its card is not idle for assignment), as well as an Off one.
-- **The daily limit:** a one-minute sweep (`swarm.sweepOnce`) pauses a swarm at its limit, interrupts it, stops its
-  helpers, and says so in its own DM; a limit pause lifts at local midnight, a person's or Stop now's never does.
+- **The daily limit:** a one-minute sweep (`swarm.sweepOnce`) pauses a swarm at its limit, sends the stop-all chord and
+  then Escape, and says so in its own DM; a limit pause lifts at local midnight, a person's or Stop now's never does.
 - **Per project:** `PUT /api/project/<id>/swarm/<name> { on }`; an Off swarm is skipped by room posts unless @-named,
   and a person's message or task line to it in that project is refused / not sent.
 
@@ -68,8 +71,9 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 
 ## Settings behaviour worth knowing
 - Raising `dailyTokenLimit` on a swarm paused at its limit does not switch it back on; `active: true` does.
-- Once the person switches a swarm paused at its limit TODAY back on, the limit is not enforced again that day
-  (`limitOverrideDay`), even if they lower it. A limit pause left over from yesterday gives no such override.
+- Once the person switches a swarm paused at its limit TODAY back on, with the limit unchanged, the limit is not
+  enforced again that day (`limitOverrideDay`). Setting a different limit (in the same change or later) re-arms it,
+  so the new number holds. A limit pause left over from yesterday gives no override.
 - A paused swarm accepts only /compact, /clear, /cost, /context and /status; any other slash command is work.
 
 ## Verification

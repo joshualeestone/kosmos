@@ -1115,7 +1115,7 @@ function keysAllowed(sessionName, roster) {
     return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
   }
   if (allowed.card.reachedByChannel === true) {
-    return { ok: false, because: 'Stop now cannot reach an agent on Windows yet; stop it from its own window' };
+    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
   }
   return { ok: true, card: allowed.card };
 }

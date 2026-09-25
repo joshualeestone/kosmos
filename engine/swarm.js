@@ -35,6 +35,8 @@ const READ_CHUNK_BYTES = 4 * 1024 * 1024;
 const READ_PER_CALL_BYTES = 64 * 1024 * 1024;
 let readPerCallBytes = READ_PER_CALL_BYTES;   // resetForTests can lower it
 const DAY_MS = 24 * 60 * 60 * 1000;
+/* A second Stop now this soon after one sends no second Escape (see server.js). */
+const STOP_REPEAT_MS = 3000;
 /* The reasons a swarm can be paused. */
 const PAUSED_BECAUSE = Object.freeze(['person', 'limit', 'stopped']);
 
@@ -114,16 +116,19 @@ function patchProblem(patch) {
 function dayKey(now) { return new Date(startOfDay(now)).toISOString(); }
 
 /** The swarm block of a profile after a valid patch. Switching it back on clears the reason;
- *  switching it on after a LIMIT pause from today also holds for the rest of today. */
+ *  switching it on after a LIMIT pause from today, with the same limit, also holds for the
+ *  rest of today. A new limit is enforced as soon as it is set. */
 function applyPatch(profile, patch, now = Date.now()) {
   const cur = settingsOf(profile);
   const next = { ...cur };
   if ('maxHelpers' in patch) next.maxHelpers = patch.maxHelpers;
+  const newLimit = 'dailyTokenLimit' in patch && patch.dailyTokenLimit !== cur.dailyTokenLimit;
   if ('dailyTokenLimit' in patch) next.dailyTokenLimit = patch.dailyTokenLimit;
+  if (newLimit) next.limitOverrideDay = null;
   if ('active' in patch) {
     /* Only TODAY's limit pause earns the override; one left over from yesterday is simply lifted. */
     const pausedToday = cur.pausedAt && Date.parse(cur.pausedAt) >= startOfDay(now);
-    if (patch.active && cur.pausedBecause === 'limit' && pausedToday) next.limitOverrideDay = dayKey(now);
+    if (patch.active && !newLimit && cur.pausedBecause === 'limit' && pausedToday) next.limitOverrideDay = dayKey(now);
     next.active = patch.active;
     next.pausedBecause = patch.active ? null : 'person';
     next.pausedAt = patch.active ? null : new Date(now).toISOString();
@@ -286,10 +291,11 @@ function readFile(file, since, now = Date.now()) {
   return { tokens: e.tokens, finished: e.finished, mtimeMs: e.mtimeMs, caughtUp: e.offset >= st.size };
 }
 
-/* (lead's current transcript, session file) -> whether that file is the lead's, for definite
-   answers only (a session's cwd never changes, and an answer not yet known is asked again next
-   time). Keyed per lead: two leads can share one folder, and each has its own answer. */
+/* (lead's current transcript, session file) -> { mine, at }: whether that file is the lead's.
+   A true/false answer is kept (a session's cwd never changes); "cannot tell" (null) is asked
+   again after OWNER_RETRY_MS. Keyed per lead: two leads can share one folder. */
 const ownerCache = new Map();
+const OWNER_RETRY_MS = 5 * 60 * 1000;
 
 /**
  * Today's metering for a lead whose CURRENT transcript is `transcriptPath`. The lead's
@@ -316,22 +322,23 @@ function meter(transcriptPath, now = Date.now(), owns = null) {
     const file = path.join(dir, n);
     let st;
     try { st = fs.statSync(file); } catch { continue; }
+    /* A session untouched for a day before today has nothing for today and cannot have helpers
+       writing today, so it is neither read nor asked about. */
+    if (st.mtimeMs < since - DAY_MS) continue;
     if (typeof owns === 'function' && file !== transcriptPath) {
       const key = transcriptPath + '\0' + file;
-      let mine = ownerCache.get(key);
-      if (mine === undefined) {
+      const hit = ownerCache.get(key);
+      let mine;
+      if (hit && (typeof hit.mine === 'boolean' || now - hit.at < OWNER_RETRY_MS)) mine = hit.mine;
+      else {
         try { mine = owns(file); } catch { mine = null; }
-        if (typeof mine === 'boolean') {
-          if (ownerCache.size > 1024) ownerCache.clear();
-          ownerCache.set(key, mine);
-        }
+        if (ownerCache.size > 1024) ownerCache.clear();
+        ownerCache.set(key, { mine: typeof mine === 'boolean' ? mine : null, at: now });
       }
       if (mine === false) continue;
     }
     const subDir = path.join(dir, n.slice(0, -'.jsonl'.length), 'subagents');
     if (st.mtimeMs >= since) out.leadTokens += count(readFile(file, since, now)).tokens;
-    /* A session untouched for a day before today cannot have helpers writing today. */
-    if (st.mtimeMs < since - DAY_MS) continue;
     let subs;
     try { subs = fs.readdirSync(subDir); } catch { subs = []; }
     for (const s of subs) {
@@ -389,8 +396,8 @@ function sweepRows(cards) {
 
 /**
  * One pass of the daily-limit sweep over `sweepRows(cards)`. For each swarm:
- *   - active and at or over its limit: pause it ("limit"), interrupt it, stop its
- *     working helpers, and say so in its own DM thread;
+ *   - active and at or over its limit: pause it ("limit"), send the stop-all chord and
+ *     then Escape (whether or not a helper is working), and say so in its own DM thread;
  *   - paused by the limit on an EARLIER day: switch it back on (a new day's budget).
  * A pause by the person or by Stop now never lifts by itself. `deps` supplies
  * readProfile, writeProfile, interrupt(name), stopHelpers(name), say(name, text).
@@ -429,7 +436,7 @@ function resetForTests({ perCallBytes } = {}) {
 }
 
 module.exports = {
-  MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ACTIVE_WINDOW_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,
+  MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ACTIVE_WINDOW_MS, STOP_REPEAT_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,
   createProblem, birthProfile, settingsOf, patchProblem, applyPatch, pausedSentence,
   blockBody, tellLead, tokensOf, meter, cardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
 };
