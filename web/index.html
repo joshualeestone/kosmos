@@ -1506,7 +1506,6 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .asb-nudge button { border: 0; background: none; cursor: pointer; font: inherit; color: inherit; padding: 0; text-align: left; }
 .asb-nudge .asb-nudge-x { width: 24px; height: 24px; border-radius: 7px; color: var(--k-ink-2); font-weight: 400; text-align: center; }
 .asb-nudge .asb-nudge-x:hover { background: var(--k-sunk); color: var(--k-ink); }
-/* The open chat's bottom-right corner is the bubble's (asbAnchor sets bottom and max-height from it). */
 .asp { position: fixed; right: 16px; bottom: 16px; z-index: 44; width: 300px; height: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 96px);
   display: flex; flex-direction: column; overflow: hidden; background: var(--bg-elevated); color: var(--k-ink);
   border: 1px solid var(--k-rule); border-radius: 16px; box-shadow: 0 12px 32px rgba(20,22,26,.22); font-size: .875rem; }
@@ -56835,14 +56834,13 @@ function asbLayerEnsure() {
 }
 
 /* The corner is shared: on an agent's page the chat's Send button lives there. The bubble is lifted just
-   above a control it would mostly hide (a quarter of it or more). A big control it only clips, an agent card on
-   a full board, stays usable with a corner covered, as under any support chat; dodging those walked the bubble
-   up the whole column of cards to the header. The open panel does not dodge anything itself: it sits where the
-   bubble sits (asbAnchor). Measured against the page, not the assistant. */
+   above any control it would cover; the open panel only above controls in the page's bottom band (a
+   composer), since it is meant to sit over the page. Measured against the page, not the assistant. */
 const ASB_SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="switch"], [role="tab"], [data-agent], [contenteditable="true"]';
-function asbLift(el) {
+function asbLift(el, bandOnly) {
   if (!el || el.hidden) return;
   el.style.bottom = '';
+  if (bandOnly) el.style.maxHeight = '';
   const vh = window.innerHeight;
   for (let pass = 0; pass < 3; pass++) {
     const a = el.getBoundingClientRect();
@@ -56851,30 +56849,17 @@ function asbLift(el) {
       if (q.closest('#asblayer, #tiplayer, [hidden]')) continue;
       const b = q.getBoundingClientRect();
       if (b.width < 1 || b.height < 1 || getComputedStyle(q).visibility === 'hidden') continue;
-      const ix = Math.min(a.right, b.right) - Math.max(a.left, b.left), iy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-      if (ix > 0 && iy > 0 && ix * iy >= 0.25 * b.width * b.height) lift = Math.max(lift, vh - b.top + 12);
+      if (bandOnly && b.bottom <= vh - 160) continue;   // anything reaching into the bottom band
+      if (b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top) lift = Math.max(lift, vh - b.top + 12);
     }
     if (!lift) return;
-    /* Never above the window: a lift is capped so the whole thing stays on screen (a short window). */
-    lift = Math.min(lift, Math.max(16, vh - el.offsetHeight - 12));
+    /* Never above the window: a lift is capped so the whole thing stays on screen, and the panel gives up
+       height instead (a short window). */
+    const cap = bandOnly ? vh - 160 : vh - el.offsetHeight - 12;
+    lift = Math.min(lift, Math.max(16, cap));
     el.style.bottom = Math.round(lift) + 'px';
+    if (bandOnly) el.style.maxHeight = Math.max(160, Math.round(vh - lift - 12)) + 'px';
   }
-}
-/* Josh 2026-09-25: the chat pops up in the bottom-right corner, where the bubble was, like a support chat: its
-   bottom-right corner sits on the bubble's and it grows up and left from there. It used to dodge anything in the
-   page's bottom band, and on a board full of agent cards that pushed it up to just under the header. It keeps
-   to the bubble's spot now (which still clears an agent page's Send) and gives up height instead, so it stays
-   wholly on screen and never runs under the sticky header bar. */
-function asbAnchor(panel, bub) {
-  if (!panel || panel.hidden || !bub) return;
-  const was = bub.hidden;
-  bub.hidden = false; asbLift(bub); bub.hidden = was;   // where the bubble would sit, measured in the same frame
-  const vh = window.innerHeight;
-  const bar = document.querySelector('.apphead');
-  const top = Math.max(0, bar ? bar.getBoundingClientRect().bottom : 0) + 12;
-  const bottom = Math.min(parseFloat(bub.style.bottom) || 16, Math.max(16, vh - top - 160));
-  panel.style.bottom = Math.round(bottom) + 'px';
-  panel.style.maxHeight = Math.max(160, Math.round(vh - bottom - top)) + 'px';
 }
 
 /* Whether the bubble belongs on screen right now. */
@@ -56917,8 +56902,8 @@ function asbPaint() {
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
   bub.hidden = ASB.open;
-  asbLift(bub);
-  asbAnchor(panel, bub);
+  asbLift(bub, false);
+  asbLift(panel, true);
   const nudge = document.getElementById('asb-nudge');
   nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
   /* #3733: working on a reply. A guide is working when the board says so (its card state), the hosted assistant while
