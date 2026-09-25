@@ -17,9 +17,11 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 
 ## One-time setup
 
-1. **The R2 key.** It is an R2 API token with **Object Read & Write** on the one bucket
-   `kosmos-dist-win`, nothing else. Only the Cloudflare account owner can create one. The steps
-   are on #3725. Save its three values to
+1. **The R2 key.** Use the existing R2 API token `kosmos-windows-deploy`. It should have
+   **Object Read & Write** on the one bucket `kosmos-dist-win` and nothing else. If it has
+   wider scope, ask the Cloudflare account owner for a bucket-scoped one (the steps are on
+   #3725). An R2 token comes with an S3 Access Key ID and Secret Access Key, and those two,
+   plus the account id, are what this script uses. Save the three values to
    `%LOCALAPPDATA%\Kosmos\release-secrets\r2-dist-win.env`:
 
    ```
