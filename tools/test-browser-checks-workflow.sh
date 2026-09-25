@@ -283,6 +283,19 @@ if command -v ruby >/dev/null 2>&1; then
         "label create") [ -n "$LCFAIL" ] && { echo "HTTP 502" >&2; return 1; }; echo "CALL label-create" ;;
         "api --paginate")
           # (every lookup pages through the list: gh api --paginate <url>)
+          # The card comments, as the REST list pages them (oldest first). Two pages: an OLDER
+          # report on the first, the newest report (then non-report and outsider comments) on
+          # the second, so a reader that stops at page one, or takes the first page, reads the
+          # wrong baseline.
+          case "$3" in repos/o/r/issues/*/comments*)
+            [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
+            f=$(qarg "$@") || { echo "CALL unexpected comments list without -q"; return 1; }
+            if [ -n "$VIEWBODY" ] || [ "$3" != "${3#repos/o/r/issues/9/}" ]; then printf "%s" "[]" | jq -r "$f"; return; fi
+            bot="{\"login\":\"github-actions[bot]\"}"
+            printf "%s" "[{\"user\":$bot,\"body\":\"Still not green (failure) at older: u\\nNEW since the last red night: none\\nRed checks: render-thread | an entry from an old night\"}]" | jq -r "$f"
+            printf "%s" "[{\"user\":$bot,\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"user\":$bot,\"body\":\"A re-run (attempt 2) of the night at old was green: u. Not closing on a re-run; the next scheduled night decides.\"},{\"user\":{\"login\":\"someone\"},\"body\":\"a person quoting it: Red checks: something else entirely\"},{\"user\":{\"login\":\"mallory\"},\"body\":\"Still not green (failure) at spoof: u\\nRed checks: render-thread | render-list-row render-fields (rich board did not boot)\"}]" | jq -r "$f"
+            return ;;
+          esac
           case "$3" in repos/o/r/issues\?*) ;; *) echo "CALL unexpected api $3"; return 1 ;; esac
           # The REST issues list the script now uses for every lookup. Fixture issues: the open
           # card (OPEN) and #3 carry the label; the ghost card (#9, made by a create that
@@ -313,7 +326,11 @@ if command -v ruby >/dev/null 2>&1; then
           # The ghost card (#9) is the one THIS run made: its body names this run.
           if [ "$3" = 9 ]; then jq -n --arg b "The nightly full page-layer run ended failure: $RUN_URL" "{author: {login: \"app/github-actions\"}, body: \$b, comments: []}" | jq -r "$f"; return; fi
           printf "%s" "{\"author\":{\"login\":\"app/github-actions\"},\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"author\":{\"login\":\"github-actions\"},\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"author\":{\"login\":\"github-actions\"},\"body\":\"A re-run (attempt 2) of the night at old was green: u. Not closing on a re-run; the next scheduled night decides.\"},{\"author\":{\"login\":\"someone\"},\"body\":\"a person quoting it: Red checks: something else entirely\"},{\"author\":{\"login\":\"mallory\"},\"body\":\"Still not green (failure) at spoof: u\\nRed checks: render-thread | render-list-row render-fields (rich board did not boot)\"}]}" | jq -r "$f" ;;
-        "issue comment") [ -n "$COMMENTFAIL" ] && { echo "HTTP 502" >&2; return 1; }; echo "CALL comment $3 :: $*"
+        "issue comment") echo "ATTEMPT comment $3"
+          # COMMENTFAIL=once fails the first attempt only (a retrying caller would then succeed).
+          if [ "$COMMENTFAIL" = once ]; then [ -f "$FLAGDIR/cfonce" ] || { : > "$FLAGDIR/cfonce"; echo "HTTP 502" >&2; return 1; }
+          elif [ -n "$COMMENTFAIL" ]; then echo "HTTP 502" >&2; return 1; fi
+          echo "CALL comment $3 :: $*"
           [ -n "$COMMENTFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$COMMENTFILE"; prevarg="$a"; done; }; true ;;
         "issue create")
           # CREATEFAIL=ghost: fails but GitHub made it. CREATEFAIL=once: fails the first time only.
@@ -322,7 +339,10 @@ if command -v ruby >/dev/null 2>&1; then
           echo "CALL create :: $*"
           # keep the real body, so a later arm can read back what this job wrote
           [ -n "$BODYFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$BODYFILE"; prevarg="$a"; done; }; true ;;
-        "issue close") [ -n "$CLOSEFAIL" ] && { echo "HTTP 502" >&2; return 1; }; echo "CALL close $3 :: $*" ;;
+        "issue close")
+          if [ "$CLOSEFAIL" = once ]; then [ -f "$FLAGDIR/clonce" ] || { : > "$FLAGDIR/clonce"; echo "HTTP 502" >&2; return 1; }
+          elif [ -n "$CLOSEFAIL" ]; then echo "HTTP 502" >&2; return 1; fi
+          echo "CALL close $3 :: $*" ;;
         *) echo "CALL unexpected $*"; return 1 ;;
       esac; }
       . "$1"' _ "$BT/card.sh" > "$BT/arm.out" 2>&1
@@ -333,8 +353,21 @@ if command -v ruby >/dev/null 2>&1; then
   out="$(card failure "")" || fail "card script failed on a fresh streak: $out"
   case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields | render-thread | regress-a-night (server did not boot) | render-list-row render-fields (rich board did not boot)"*) ;; *) fail "a fresh red streak did not create the label and a card naming the red checks: $out" ;; esac
   case "$out" in *"CALL comment"*|*"CALL close"*) fail "a fresh red streak commented or closed: $out" ;; esac
+  # A fresh card carries the label, or no later night finds, comments on or closes it.
+  case "$out" in *"CALL create :: issue create --repo o/r --label nightly-browser-checks-red"*) ;; *) fail "a fresh card was filed without the label: $out" ;; esac
+  case "$out" in *"Filed without"*) fail "a card that could be labelled says it was filed without: $out" ;; esac
   out="$(LABEL=1 card failure "")" || fail "card script failed on a fresh streak with the label present: $out"
   case "$out" in *"CALL label-create"*) fail "the label already exists but was created again: $out" ;; *"CALL create"*) ;; *) fail "a fresh streak with the label present filed no card: $out" ;; esac
+  case "$out" in *"CALL create :: issue create --repo o/r --label nightly-browser-checks-red"*) ;; *) fail "a fresh card (label present) was filed without the label: $out" ;; esac
+  # A comment is NEVER retried (one GitHub accepted but answered with an error would post
+  # twice): exactly one attempt, and the job ends red.
+  mkdir -p "$BT/flags"; rm -f "$BT/flags/"*; out="$(COMMENTFAIL=once card failure 7 2>&1)" && rc=0 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a failed report comment (once) ended the card job green: $out"
+  [ "$(printf '%s\n' "$out" | grep -c '^ATTEMPT comment 7')" -eq 1 ] || fail "a report comment was retried (it could post twice): $out"
+  # A close IS retried (closing twice is harmless): a close that fails once still closes.
+  rm -f "$BT/flags/"*; out="$(CLOSEFAIL=once card success 7)" || fail "a close that failed once ended red: $out"
+  case "$out" in *"CALL close 7"*) ;; *) fail "a close that failed once was not retried: $out" ;; esac
+  rm -f "$BT/flags/"*
   out="$(card failure 7)" || fail "card script failed with an open card: $out"
   # The NEW entries include a spaced composite that the last report did not name: it must
   # come through WHOLE (a whitespace split would leak "(rich" and "board" as fake checks).

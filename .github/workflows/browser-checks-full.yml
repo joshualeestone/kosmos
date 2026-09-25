@@ -218,12 +218,16 @@ jobs:
             # comment starting "Still not green" to steer NEW. The bot login is matched in all
             # three spellings gh and the API use (github-actions, app/github-actions,
             # github-actions[bot]).
-            # KNOWN LIMIT: gh may return only the first page of a long card's comments (not
-            # measured; about 100). A card past that reads an OLD report as the last one, so NEW
-            # lists more than it should: noise, never silence. Close and refile a card that old.
-            if ! prev=$(ghr gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json author,body,comments \
-                -q '([select((.author.login // "") | test("^(app/)?github-actions(\\[bot\\])?$")) | .body]) + [.comments[] | select((.author.login // "") | test("^(app/)?github-actions(\\[bot\\])?$")) | .body] | map(select(startswith("The nightly full") or startswith("Still not green"))) | last // ""' \
-                | tr -d '\r' | sed -n 's/^.*Red checks: //p' | tail -n 1); then
+            # The card's body, then EVERY page of its comments (the paginated REST list, oldest
+            # first): a card open for months, or one an outsider floods with comments, must not
+            # freeze the baseline at an old report, which could hide a check newly red (iteration
+            # 30). Each page prints its own last report; the last line over all of them wins.
+            if prevb=$(ghr gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json author,body \
+                  -q '[select((.author.login // "") | test("^(app/)?github-actions(\\[bot\\])?$")) | .body | select(startswith("The nightly full") or startswith("Still not green"))] | last // ""') \
+               && prevc=$(ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$open/comments?per_page=100" \
+                  -q '[.[] | select((.user.login // "") | test("^(app/)?github-actions(\\[bot\\])?$")) | .body | select(startswith("The nightly full") or startswith("Still not green"))] | last // empty'); then
+              prev=$(printf '%s\n%s\n' "$prevb" "$prevc" | tr -d '\r' | sed -n 's/^.*Red checks: //p' | tail -n 1)
+            else
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
             fi
             new=""
