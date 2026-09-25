@@ -1584,6 +1584,14 @@ function setProvider(name, provider, opts) {
   if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
+  /* #3564: a swarm's meter and stop keys are Claude Code's, so it stays on Claude, as at birth. */
+  if (provider !== 'anthropic') {
+    let profile = null;
+    try { profile = store.readProfile(clean); } catch { profile = null; }
+    if (require('./swarm').settingsOf(profile)) {
+      return { outcome: OUTCOME.REFUSED, because: `${spoken} is a swarm, and swarms run on Claude for now, so nothing was changed` };
+    }
+  }
   const platform = opts && opts.platform;
   const verdict = readJobVerdict(clean, undefined, platform);
   const job = verdict.job;

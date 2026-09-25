@@ -2470,6 +2470,22 @@ test('#3564: a swarm on another provider, without a limit, or with a bad count i
   assert.equal(create.createAgent({ ...BINS, name: 'oddkind', role: 'pm', kind: 'crowd' }).outcome, create.OUTCOME.REFUSED);
 });
 
+test('#3564: an existing swarm cannot be switched off Claude; an ordinary agent is not refused for being one', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, name: 'hiveswitch', role: 'pm', kind: 'swarm', dailyTokenLimit: 1000 });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  for (const provider of ['openai', 'google', 'xai']) {
+    const r = create.setProvider('hiveswitch', provider, BINS);
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, provider);
+    assert.match(r.because, /swarm/, provider + ': ' + r.because);
+  }
+  assert.equal(store.readProfile('hiveswitch').provider || 'anthropic', 'anthropic', 'the refused switch changed the provider');
+  const plain = create.createAgent({ ...BINS, name: 'soloswitch', role: 'pm' });
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+  assert.doesNotMatch(String(create.setProvider('soloswitch', 'openai', BINS).because || ''), /swarm/, 'CONTROL: an ordinary agent was refused as a swarm');
+});
+
 test('#3614: every agent is born knowing where to save the files it makes, with its OWN folder written in', () => {
   /* The card's point: the path is written in, never left for the agent to guess. Both
      creation paths (a menu role and the person's own words) carry the block, it names

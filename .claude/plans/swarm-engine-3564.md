@@ -5,7 +5,8 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 (Renet, 22:33), with one change noted below (routes are `/api/agent/<name>/...`, singular, the repo's convention).
 
 ## What this branch does
-- **The swarm type.** `createAgent({ kind: 'swarm', maxHelpers, dailyTokenLimit })`: Claude only, 2 to 10 helpers
+- **The swarm type.** `createAgent({ kind: 'swarm', maxHelpers, dailyTokenLimit })`: Claude only (and
+  `setProvider` refuses to move an existing swarm off Claude), 2 to 10 helpers
   (default 3), a daily token limit required; refused before anything is written otherwise. The profile carries
   `kind: 'swarm'` and `swarm: { maxHelpers, dailyTokenLimit, active, pausedBecause, pausedAt }`.
 - **The lead's block** (`kosmos:swarm` markers, registered): at most N helpers at once via the subagent tool, a
@@ -65,7 +66,8 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 
 4. The meter reads at most READ_PER_CALL_BYTES (64 MiB) per call, across all the lead's files, so a larger backlog catches up
    over the next polls rather than stalling the board; until it does, today's tokens read low and the card
-   says `metered: false`. The sweep still acts on what it has read.
+   says `metered: false`. The sweep still acts on what it has read. The budget is per swarm: a board with several
+   swarms all catching up at once reads up to that much for each, in one poll.
 5. Sessions the lead ran today under a DIFFERENT account root (after an account move) sit in another folder
    and are not counted. Not handled in v1.
 6. The stop keys were measured on an idle lead and a busy one, NOT on a lead showing a permission or question
