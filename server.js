@@ -357,6 +357,7 @@ function engineFreshness() {
   return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
 }
 const store = require('./engine/store');
+const communitysite = require('./engine/communitysite'); // #3485: community SITE layer — read + moderation over communitystore
 const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registry
 /* #1704: the registry base is CAPTURED at the top of this file (engine/worldenv.js),
    from the ORIGINAL env BEFORE applyActiveWorldEnv sets any AGENT_WORKFORCE_DATA
@@ -1685,6 +1686,14 @@ function communityValveRecord(agentId) {
   arr.push(Date.now());
   communitySends.set(agentId, arr);
 }
+// #3485: the human write path (board-token gated, one operator today) shares this
+// same sliding-window valve, under a Symbol key so it is STRUCTURALLY impossible for
+// its bucket to collide with an agent's. The agent path keys on an authenticated
+// `sessionName` (a string); a Symbol is `!==` every string, so even an agent whose
+// session is literally named 'human' gets a distinct bucket. A plain 'human' string
+// key would let such an agent share the operator's budget and exhaust it (a
+// cross-identity DoS) -- the Symbol removes the collision rather than asserting it away.
+const COMMUNITY_HUMAN_VALVE_KEY = Symbol('community-human-valve');
 
 function safeRoster() {
   try {
@@ -1701,7 +1710,11 @@ function safeRoster() {
     // itself is retired now -- success says nothing -- but the write
     // gate this comment justifies is unchanged).
     const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
-    return agents.filter((a) => !gone.has(a.sessionName));
+    /* #3726: the roster carries where the automatic reconnect stands, as /api/status's rows do (the
+       same expression), so the project routes can tell a connection Kosmos has given up on. */
+    return agents.filter((a) => !gone.has(a.sessionName)).map((a) => (a.state === 'connection_lost'
+      ? Object.assign({}, a, { reconnect: connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) })
+      : a));
   } catch {
     return null;
   }
@@ -2456,12 +2469,59 @@ function swarmSweepDeps(roster) {
   };
 }
 
+/* #3769 (Josh, 2026-09-25 11:54: the guide must never give out passwords or keys): is `name` the setup
+   guide? Either its folder carries the guide marker (create.js writes it for EVERY setup-role agent
+   before it starts, so this holds even when the seed's name record was never written), or it is the
+   seeded name in its marked folder. The name compared WITHOUT case: a route can be asked for "Josh"
+   or "josh" and reach the same thread, and a case-sensitive miss would skip the mask. */
+function isSetupGuide(name) {
+  if (typeof name !== 'string' || !name) return false;
+  try { if (setupAssistant.isGuideFolder(name)) return true; } catch { /* then the recorded name decides */ }
+  try {
+    const guide = setupAssistant.guideName();
+    if (!guide || create.cleanName(guide).toLowerCase() !== create.cleanName(name).toLowerCase()) return false;
+    return setupAssistant.isGuideFolder(guide);
+  } catch { return false; }
+}
+/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js), for every
+   agent-written text that reaches the person: stored replies (keepAgentReply) and the thread as read.
+   Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
+function guideMasked(who, text) {
+  if (typeof text !== 'string' || !isSetupGuide(who)) return text;
+  const out = require('./engine/secretmask').mask(text);
+  if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+  return out.text;
+}
+
+/* #3769: rows as read, for a route that serves stored rows: any row the setup guide wrote is masked
+   (rows stored before the write-side filter existed). `wholeThread` masks every row, for a thread
+   whose other party is the guide. Rows from anyone else pass unchanged. */
+function guideMaskedRows(rows, wholeThread) {
+  if (!Array.isArray(rows)) return rows;
+  const guideBy = new Map();   // one look per sender, not per row: a long list repeats a few names
+  const isGuide = (from) => {
+    if (!guideBy.has(from)) guideBy.set(from, isSetupGuide(from));
+    return guideBy.get(from);
+  };
+  return rows.map((m) => {
+    if (!m || typeof m.text !== 'string') return m;
+    if (!wholeThread && !isGuide(m.from)) return m;
+    const out = require('./engine/secretmask').mask(m.text);
+    if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+    return { ...m, text: out.text };
+  });
+}
+
+/* #3769: the guide's posts into a project room and its messages to other agents go through
+   engine/messages.js; the same mask applies there, keyed on the resolved sender. */
+messages.setSenderTextFilter(guideMasked);
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route. */
 function keepAgentReply(who, text, at) {
   return chat.appendMessage(chat.DIRECT, who, {
-    text,
+    text: guideMasked(who, text),
     at: at || new Date().toISOString(),
     from: who,
   });
@@ -3137,6 +3197,19 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    far below #1946's account-data threat. Read-only; GET/HEAD only. */
 const PUBLIC_WORLD_ROUTES = new Set(['GET /api/worlds/names', 'HEAD /api/worlds/names']);
 
+// #3485: the Kosmos Community feed is OPEN/PUBLIC (Josh: browse it like Reddit
+// with no account), so its READ routes are exempt from the board-token gate —
+// the same low-sensitivity-public-read exemption as PUBLIC_WORLD_ROUTES, kept as
+// its own set because the reason differs (a public product surface, not the
+// post-switch lockout fix). The community MODERATION routes (GET
+// /api/community/moderation, POST /api/community/release) are deliberately NOT
+// here: they expose held/quarantined content + findings and stay board-token
+// gated as the moderator surface.
+const PUBLIC_COMMUNITY_ROUTES = new Set([
+  'GET /api/community/feed', 'HEAD /api/community/feed',
+  'GET /api/community/comments', 'HEAD /api/community/comments',
+]);
+
 /**
  * What makes opening the bind safe (#1112 phase 2).
  *
@@ -3386,7 +3459,11 @@ const server = http.createServer((req, res) => {
     // lockout. Kept as its OWN term, not folded into exemptAgent, because the reason differs:
     // this is a low-sensitivity public read, not an agent-token-authenticated route.
     const exemptPublic = PUBLIC_WORLD_ROUTES.has(`${req.method} ${pathname}`);
-    if (sensitive && !exemptAgent && !exemptPublic && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    // #3485: community feed READS are public (browse with no account). Its own
+    // term, not folded into exemptPublic, because the reason differs: a public
+    // product surface, not the post-switch lockout read.
+    const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -3405,6 +3482,124 @@ const server = http.createServer((req, res) => {
      is not enforcing. */
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
     sendJson(res, 200, { nonce: boardauth.mintNonce() });
+    return;
+  }
+
+  // ── #3485 Kosmos Community SITE (Mikey's slice A) ──────────────────────────
+  // READ routes are PUBLIC (exempt from the board-token gate above). MODERATION
+  // and the HUMAN post/comment WRITE routes are board-token gated by the
+  // sensitive-route check. The agent board->feed WRITE choke is Pete's engine
+  // lane (/api/community/{post,comment} lower down); the human WRITE routes below
+  // call that same feedpublish choke via communitysite and own the author.name
+  // scrub + board taxonomy. The READ handlers below do not publish: they serve
+  // communitystore's already-redacted published rows.
+  // try/catch on each handler: a store read (postsFile/commentsFile via the lazy
+  // store.ROOT) can throw, and there is no process-level uncaughtException
+  // handler, so an unguarded throw would kill the board for EVERY user — and two
+  // of these are public routes. Fail the one request with a 500 instead, matching
+  // the try/catch every other handler in this file uses.
+  if (pathname === '/api/community/feed' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      const feed = communitysite.feedView({
+        board: q.get('board'), sort: q.get('sort'), limit: q.get('limit'), offset: q.get('offset'),
+      });
+      sendJson(res, 200, { feed });
+    } catch { sendJson(res, 500, { error: 'could not load the community feed' }); }
+    return;
+  }
+
+  if (pathname === '/api/community/comments' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      sendJson(res, 200, { comments: communitysite.commentsView(q.get('postId')) });
+    } catch { sendJson(res, 500, { error: 'could not load comments' }); }
+    return;
+  }
+
+  // Moderation queue — NOT public (held/quarantined + findings). Board-token
+  // gated by the sensitive-route check above.
+  if (pathname === '/api/community/moderation' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      const queue = communitysite.moderationList({
+        status: q.get('status'), kind: q.get('kind'), limit: q.get('limit'),
+      });
+      sendJson(res, 200, { queue });
+    } catch { sendJson(res, 500, { error: 'could not load the moderation queue' }); }
+    return;
+  }
+
+  // Release a held post/comment — moderator action, board-token gated above.
+  if (pathname === '/api/community/release' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || !body.id) {
+          sendJson(res, 400, { error: 'release requires an id' });
+          return;
+        }
+        try {
+          sendJson(res, 200, { released: communitysite.release(body.id) });
+        } catch (e) {
+          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason
+          sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+        }
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3485: the HUMAN post/comment WRITE path. Board-token gated by the
+     sensitive-route check above (NOT in PUBLIC_COMMUNITY_ROUTES), so only the
+     account that started the board reaches it -- that authenticated operator is
+     the SITE's human identity, and communitysite passes feedpublish `trusted:true`
+     accordingly. (The AGENT write path is /api/community/{post,comment} lower down,
+     token-authenticated per-agent and held-by-default; the human path is trusted
+     because the board token already proved the operator.) communitysite owns the
+     author.name scrub (feedguard does not scan `author`) and the board taxonomy.
+     🛑 findings are moderator-only -- NEVER echoed to the submitter (evasion
+     oracle); the response collapses quarantined -> held, exactly like the agent
+     routes. */
+  if (pathname === '/api/community/human/post' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (communityValveTripped(COMMUNITY_HUMAN_VALVE_KEY)) {
+          sendJson(res, 429, { error: 'the community feed has taken many posts in the last hour, so Kosmos is pausing posts and comments' }); return;
+        }
+        let r;
+        try { r = communitysite.publishHumanPost({ authorName: body.authorName, author: body.author, topic: body.topic, body: body.body, links: body.links, board: body.board }); }
+        catch (e) { console.error('FAIL /api/community/human/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        communityValveRecord(COMMUNITY_HUMAN_VALVE_KEY);
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+      })
+      .catch((e) => { console.error('FAIL /api/community/human/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
+    return;
+  }
+  if (pathname === '/api/community/human/comment' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (communityValveTripped(COMMUNITY_HUMAN_VALVE_KEY)) {
+          sendJson(res, 429, { error: 'the community feed has taken many posts in the last hour, so Kosmos is pausing posts and comments' }); return;
+        }
+        let r;
+        try { r = communitysite.publishHumanComment({ authorName: body.authorName, author: body.author, body: body.body, links: body.links, postId: body.postId, parentId: body.parentId }); }
+        catch (e) { console.error('FAIL /api/community/human/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        communityValveRecord(COMMUNITY_HUMAN_VALVE_KEY);
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+      })
+      .catch((e) => { console.error('FAIL /api/community/human/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
   }
 
@@ -12115,13 +12310,22 @@ const server = http.createServer((req, res) => {
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
        ({emoji, count, who, mine}) so the page draws them with the room's renderer.
        `reactionsTold` is the engine's own bookkeeping and is not sent. */
-    const reactedMessages = Array.isArray(servedMessages)
-      ? servedMessages.map((m) => {
+    /* #3769: in the setup guide's thread EVERY row is masked as read: its own rows stored before the
+       write-side mask, the question row taken off its screen, and a key the person pasted to it, which
+       is not shown back either. Decided once per request, on the name asked for AND the card's own
+       name, so a differently-cased URL cannot skip it. */
+    const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
+    const guideName = guideThread ? ((card && card.sessionName) || name) : null;
+    const maskedMessages = guideThread && Array.isArray(servedMessages)
+      ? servedMessages.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
+      : servedMessages;
+    const reactedMessages = Array.isArray(maskedMessages)
+      ? maskedMessages.map((m) => {
         if (!m || m.from !== name) return m;
         const { reactionsTold, ...rest } = m;
         return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
       })
-      : servedMessages;
+      : maskedMessages;
     sendJson(res, 200, {
       messages: withPreviews(reactedMessages),
       olderCount,
@@ -12140,7 +12344,8 @@ const server = http.createServer((req, res) => {
       presence,
       presenceBecause,
       asking,
-      question,
+      /* #3769: a question read off the guide's screen is its words too. */
+      question: guideThread && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideName, question.text) } : question,
       questionBecause,
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
@@ -12148,7 +12353,8 @@ const server = http.createServer((req, res) => {
          so the person reads it before typing rather than after a 409. Null
          for every other question. */
       answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
-      options,
+      /* #3769: a menu's labels come from the same screen text, so they are masked too. */
+      options: guideThread && Array.isArray(options) ? options.map((o) => (o && typeof o.label === 'string' ? { ...o, label: guideMasked(guideName, o.label) } : o)) : options,
     });
     return;
   }
@@ -12433,7 +12639,7 @@ const server = http.createServer((req, res) => {
     try {
       let who = null;
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
-      sendJson(res, 200, { messages: withPreviews(messages.list(who)) });
+      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null)) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
@@ -13793,7 +13999,8 @@ const server = http.createServer((req, res) => {
     }
     try {
       const rec = messages.record();
-      const rows = rec.rows
+      /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
+      const rows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
@@ -14924,10 +15131,12 @@ const server = http.createServer((req, res) => {
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
     if (olderCount) messages = messages.slice(-TAIL);
+    /* #3769: a project thread with the setup guide is its words throughout, as in its direct thread. */
+    const guideMember = member && isSetupGuide(member.sessionName) ? member.sessionName : null;
     sendJson(res, 200, {
       project: { id: project.id, name: project.name },
       agent: member,
-      messages: withPreviews(messages),
+      messages: withPreviews(guideMaskedRows(messages, guideMember)),
       olderCount,
       historyBecause,
       // See the block above: withheld is not unreadable, and the page says a
@@ -14945,7 +15154,7 @@ const server = http.createServer((req, res) => {
       viewport: engmode.read().on ? view
         : { text: null, because: 'engineering mode is off, so the window is not shown' },
       asking,
-      question,
+      question: guideMember && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideMember, question.text) } : question,
       questionBecause,
       /* #1629: same note as the agent thread, same sentence, same reason. */
       answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
@@ -15720,6 +15929,8 @@ function start(port = PORT) {
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
          Once, at start; a no-op when the paragraph is not there. */
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
+      /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
+      try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
       /* #3034/#3660: the setup guide is created the moment the first model is connected,
          after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
          background). One sweep sees them all instead of a hook in every route. Cheap until
@@ -16242,6 +16453,7 @@ module.exports = {
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   markGuide, // #3739: the guide row's mark and title, for its tests
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
+  keepAgentReply, guideMasked, guideMaskedRows, // #3769: the setup guide's words masked where they are stored, for its tests
   creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw

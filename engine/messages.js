@@ -685,6 +685,16 @@ function logRefusedSend(from, toWho, because, at) {
  * chat.deliver and inventing a second vocabulary for the same outcomes is
  * how two surfaces drift.
  */
+/* #3769: a filter on what an AGENT sender says, applied once the sender is known and before the
+   text is checked, recorded or pasted anywhere. The board installs the setup guide's secret mask
+   (server.js guideMasked); unset, text passes unchanged. (from, text) -> text. */
+let senderTextFilter = null;
+function setSenderTextFilter(fn) { senderTextFilter = typeof fn === 'function' ? fn : null; }
+function filteredText(from, text) {
+  if (!senderTextFilter || typeof text !== 'string') return text;
+  try { return senderTextFilter(from, text); } catch { return text; }
+}
+
 function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster) {
   const at = new Date().toISOString();
   /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
@@ -694,6 +704,7 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
   if (!sender.ok) return { state: chat.DELIVERY.COULD_NOT, because: sender.because, id: null, at };
 
   const from = sender.card.sessionName;
+  text = filteredText(from, text);
 
   /* ⚠️ EVERY ATTRIBUTED REFUSAL IS AN EVENT (the clean-chat rule: chrome
      may drop, events may not - and a refusal their agent just met is an
@@ -1061,6 +1072,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     const sender = resolvedSender || resolveSender(fromPane, roster);
     if (!sender.ok) return { state: chat.DELIVERY.COULD_NOT, because: sender.because, id: null, at, outcomes: null };
     from = sender.card.sessionName;
+    text = filteredText(from, text);
   }
 
   /* The same attributed-refusal contract as send(): every refusal their
@@ -2102,6 +2114,7 @@ function projectOfPost(id) {
 }
 
 module.exports = {
+  setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost,
   react, reactionsFor, normalizeReactionEmoji,

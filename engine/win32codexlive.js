@@ -38,6 +38,9 @@ const win32sessions = require('./win32sessions');
 const win32streamstate = require('./win32streamstate');
 const win32orphan = require('./win32orphan');
 
+/* The runners win32codexsup supervises one turn at a time. */
+const PER_TURN = new Set(['codex', 'gemini', 'grok']);
+
 /**
  * The live codex agents, as `claude agents --json`-shaped rows.
  *
@@ -64,7 +67,9 @@ function liveSessions(opts) {
     // and win32roster: the store is the trust root explicitly, not by construction.
     if (!win32sessions.validId(sid)) continue;
     const row = owned[sid] || {};
-    if (row.runner !== 'codex') continue;
+    /* Every per-turn runner (win32codexsup drives gemini and grok the same way) stamps the
+       same presence, so each is live by the same rule. */
+    if (!PER_TURN.has(row.runner)) continue;
     const name = row.name;
     if (!win32sessions.validName(name)) continue;
     let id = null;
@@ -75,7 +80,7 @@ function liveSessions(opts) {
     let alive = false;
     try { alive = pidAlive(id.pid) === true; } catch { alive = false; }
     if (!alive) continue;
-    out.push({ sessionId: sid, pid: id.pid, name, kind: 'interactive', runner: 'codex' });
+    out.push({ sessionId: sid, pid: id.pid, name, kind: 'interactive', runner: row.runner });
   }
   return out;
 }

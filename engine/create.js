@@ -3260,13 +3260,10 @@ function installJob(name, opts) {
      the plist is then written with THAT runner and its own binary, so a gemini agent is
      no longer silently (re)installed as a CLAUDE job with claudeBin (the mis-launch the
      old root refusal existed to prevent). `wantRunner` is computed ONCE here and drives
-     both the win32 refusal below and the plist write.
-     🛑 WIN32 STILL REFUSES gemini/grok. `engine/win32launch.js` (win32StartViaJob) has no
-     gemini/grok substrate, and it LAUNCHES rather than just registering, so proceeding
-     there would spawn an agent the substrate cannot actually run. The Windows backfill is
-     carded, not built here. The refusal sits before the win32 launch arm, so win32 never
-     reaches win32StartViaJob with gemini/grok. Create is unaffected: it never calls
-     installJob. */
+     both the win32 launch arm and the plist write.
+     📌 WIN32 RUNS gemini/grok NOW. The Windows supervisor drives them one turn at a time,
+     as it does codex (engine/win32keyed.js), so the win32 launch arm below starts one with
+     its own runner and binary; there is no longer a refusal here. */
   const wantRunner = (opts && opts.runner) || recordedRunner(clean);
   // #3568: the flag holds on this route too (connect, repair and backfill all reach installJob).
   if (wantRunner === 'antigravity' && !antigravityEnabled()) {
@@ -3275,10 +3272,9 @@ function installJob(name, opts) {
   if (wantRunner === 'antigravity' && jobPlatform === 'win32') {
     return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };
   }
-  if ((wantRunner === 'gemini' || wantRunner === 'grok') && jobPlatform === 'win32') {
-    const label = wantRunner === 'gemini' ? 'Gemini' : 'Grok';
-    return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a Windows launch job for it yet -- it can be created fresh, but not backfilled, repaired, or imported on Windows` };
-  }
+  /* 📌 gemini/grok are no longer refused on win32: the Windows per-turn supervisor runs them
+     (engine/win32keyed.js through win32codexsup), so win32StartViaJob below starts one the
+     same way it starts a codex agent. */
   /* #3568: Kosmos keeps no Antigravity accounts, and accountEnvVar would write any account dir
      into an agy job as CLAUDE_CONFIG_DIR (its default). Refuse one here, the same line create and
      setAccount take, so no path (backfill, repair, an import's first start) can do it. */
@@ -4855,6 +4851,15 @@ function createAgentInner(opts) {
     fs.writeFileSync(instructionFile(name, runner), text, 'utf8');
   });
 
+  /* #3769: the setup guide's folder is guarded BEFORE anything can start it: its marker (which the
+     supervisor reads to launch it with none of the tokens Kosmos holds) and its deny rules on
+     credential files. Written after the start, the first session would run unguarded. Gating: a
+     guide whose guards could not be written is not made. Every other role skips this. */
+  const guardedGuide = roleKey !== 'setup' || DRY_RUN || step('kept it away from passwords and keys', () => {
+    const guarded = require('./setup-assistant').guardGuideFolder(workerDir(name), name);
+    if (!guarded.ok) throw new Error(guarded.because || 'the guards could not be written');
+  });
+
   /**
    * The display name, written where the board reads it.
    *
@@ -4971,7 +4976,7 @@ function createAgentInner(opts) {
    * your computer either way" — a sentence that is false in exactly the case
    * that produced it.
    */
-  if (!wroteInstructions || !installedSupervisor || !wroteJob) {
+  if (!wroteInstructions || !guardedGuide || !installedSupervisor || !wroteJob) {
     rollBack();
     // ⚠️ A missing supervisor gets its OWN sentence. It is not "try again":
     // `bin/agent-supervisor.sh` is missing from the installation, so retrying
