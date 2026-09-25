@@ -451,7 +451,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
      tint: the common case is the person's own phone, in their hand. */
   /* #718: the gold edge is the whole border now, not a solid left bar (Josh, 2026-09-24:
      no solid coloured left bars on cards). Same attention, same gold. */
-  .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid var(--gold-edge, var(--gold));
+  .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid var(--gold-edge);
              border-radius: 10px;
              background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
   .askcard h3 { font: 600 1rem var(--font-ui); color: var(--k-ink); margin: 0 0 4px; }
@@ -18274,14 +18274,17 @@ async function tick() {
     if (addView && !addView.hidden) paintAddAgents();
     if (WANT_AGENT && !CURRENT && !WANT_AGENT_GONE) {
       openDetail(WANT_AGENT);
-      /* #718: settled ONCE, on the first status (this runs on every poll). A link that
-         opened its agent scrolls to the conversation on a phone. A link to an agent that
-         is not on the board (a push for an agent removed since) goes to the board home
-         instead of leaving an empty agent page, and stops trying. */
+      /* #718: settled ONCE (this runs on every poll). A link that opened its agent scrolls
+         to the conversation on a phone. A link to an agent that is not on the board (a push
+         for an agent removed since) goes to the board home instead of leaving an empty agent
+         page, and stops trying, but only after TWO statuses without it, so an agent that is
+         a moment late to appear on the first one still opens. */
       if (!WANT_AGENT_SETTLED) {
-        WANT_AGENT_SETTLED = true;
-        if (CURRENT && CURRENT.sessionName === WANT_AGENT) detailRevealTalkOnPhone();
-        else { WANT_AGENT_GONE = true; if (URL_TAB === 'detail') { showTab('agents'); syncUrl(); } }
+        if (CURRENT && CURRENT.sessionName === WANT_AGENT) { WANT_AGENT_SETTLED = true; detailRevealTalkOnPhone(); }
+        else if (++WANT_AGENT_MISSES >= 2) {
+          WANT_AGENT_SETTLED = true; WANT_AGENT_GONE = true;
+          if (URL_TAB === 'detail') { showTab('agents'); syncUrl(); }
+        }
       }
     }
 
@@ -54506,6 +54509,7 @@ const PARAMS = new URLSearchParams(location.search);
 const WANT_AGENT = PARAMS.get('agent');
 let WANT_AGENT_SETTLED = false;   // #718: the first status has decided the link (see the poll)
 let WANT_AGENT_GONE = false;      // #718: the linked agent is not on the board; stop reopening it
+let WANT_AGENT_MISSES = 0;       // #718: statuses so far without the linked agent
 const WANT_PROJECT = PARAMS.get('project');
 const WANT_TASK = PARAMS.get('task');
 let WANT_PROJECT_DONE = false;
