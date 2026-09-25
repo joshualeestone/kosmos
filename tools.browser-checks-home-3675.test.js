@@ -1,0 +1,92 @@
+'use strict';
+
+/*
+ * #3675: browser-check fixture boards must not read the host Mac's real accounts.
+ * The account modules look under AGENT_WORKFORCE_HOME || os.homedir(); a fixture
+ * that sandboxed everything but HOME showed real Claude emails and the end of a real
+ * OpenAI key in Settings (measured on Agent1s: 5 Claude accounts, 1 OpenAI).
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const DIR = path.join(__dirname, 'docs', 'browser-checks');
+const LIB = path.join(DIR, 'lib-sandbox-home.js');
+
+/* A check boots a board if it requires server.js or spawns it. */
+function bootsBoard(src) {
+  // With or without .js: thread-server.js loads the board as require('../../server').
+  if (/require\((['"])\.\.\/\.\.\/server(\.js)?\1\)|require\(path\.join\([^)]*server/.test(src)) return true;
+  return /server\.js'/.test(src) && /\b(spawn|fork|execFile)\b/.test(src);
+}
+
+test('#3675: every browser check that boots or spawns the board requires lib-sandbox-home at top level, before the board', () => {
+  const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.js') && !f.startsWith('lib-'));
+  const booting = files.filter((f) => bootsBoard(fs.readFileSync(path.join(DIR, f), 'utf8')));
+  assert.ok(booting.length >= 50, `found ${booting.length} board-booting checks; the scan is not seeing them`);
+  const missing = [];
+  for (const f of booting) {
+    const lines = fs.readFileSync(path.join(DIR, f), 'utf8').split('\n');
+    const at = lines.findIndex((l) => /^require\('\.\/lib-sandbox-home\.js'\);/.test(l));
+    const firstBoard = lines.findIndex((l) => /\.\.\/\.\.\/server|server\.js/.test(l) && !/^\s*(\/\/|\*|\/\*)/.test(l));
+    if (at === -1 || (firstBoard !== -1 && at > firstBoard)) missing.push(f);
+  }
+  assert.deepEqual(missing, [], 'these checks can read the host Mac\'s real accounts');
+});
+
+/* Run a fixture-shaped child with HOME pointed at a planted "real" home holding one
+   Claude account, and report how many accounts the board would list. */
+function listedAccounts({ withLib, home }) {
+  const code = `
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const mk = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
+    const S = mk('aw-3675-');
+    Object.assign(process.env, { AGENT_WORKFORCE_DATA: S, AGENT_WORKFORCE_WORKERS: mk('aw-3675w-'),
+      AGENT_WORKFORCE_PROJECTS: mk('aw-3675p-'), AGENT_WORKFORCE_LAUNCH: mk('aw-3675l-'),
+      AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(S, 'claude.json'), AGENT_WORKFORCE_CONFIG_ROOT: mk('aw-3675c-') });
+    ${withLib ? `require(${JSON.stringify(LIB)});` : ''}
+    const n = require(${JSON.stringify(path.join(__dirname, 'engine', 'accounts.js'))}).list().length;
+    process.stdout.write(String(n));`;
+  const env = { ...process.env, HOME: home };
+  delete env.AGENT_WORKFORCE_HOME;
+  const r = spawnSync(process.execPath, ['-e', code], { env, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return Number(r.stdout);
+}
+
+test('#3675: a fixture requiring lib-sandbox-home lists none of the real home\'s accounts (control: without it, it does)', (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-3675-realhome-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(home, '.claude-planted'));
+  fs.writeFileSync(path.join(home, '.claude-planted', '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'planted-3675@example.com' } }));
+  assert.ok(listedAccounts({ withLib: false, home }) >= 1, 'CONTROL: without the lib the planted account is listed (the leak)');
+  assert.equal(listedAccounts({ withLib: true, home }), 0, 'with the lib the real home is never read');
+});
+
+test('#3675: the lib keeps a caller\'s sandbox, replaces the real home, and removes only the folder it made', () => {
+  const run = (envHome) => {
+    const env = { ...process.env };
+    if (envHome === undefined) delete env.AGENT_WORKFORCE_HOME; else env.AGENT_WORKFORCE_HOME = envHome;
+    const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(LIB)}); process.stdout.write(process.env.AGENT_WORKFORCE_HOME);`], { env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  const made = run(undefined);
+  const tmps = [os.tmpdir(), fs.realpathSync(os.tmpdir())];
+  assert.ok(made !== '' && made !== os.homedir() && tmps.some((d) => made.startsWith(d)), `unset: a temp folder, got ${made}`);
+  assert.equal(fs.existsSync(made), false, 'the folder it made is removed when the process exits');
+  assert.notEqual(run(os.homedir()), os.homedir(), 'set to the real home: replaced');
+  const mine = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-3675-mine-'));
+  assert.equal(run(mine), mine, 'set to a sandbox: kept');
+  assert.equal(fs.existsSync(mine), true, 'and never removed');
+  fs.rmSync(mine, { recursive: true, force: true });
+});
+
+test('#3675: tools/browser-checks.sh exports a sandbox home for every board and check it runs', () => {
+  const sh = fs.readFileSync(path.join(__dirname, 'tools', 'browser-checks.sh'), 'utf8');
+  assert.match(sh, /^\s+export AGENT_WORKFORCE_HOME="\$RUN_DIR\/home"$/m);
+});

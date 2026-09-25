@@ -238,6 +238,16 @@ fi
 # Servers were never affected: boot_board appends to SERVER_PIDS directly.
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
+# #3675: no fixture board in this run may read the host Mac's real accounts. The
+# account modules look under AGENT_WORKFORCE_HOME || the real home, so every board
+# this script starts, and every check it runs, inherits a sandbox home inside
+# RUN_DIR (removed by cleanup). A caller that already pointed it somewhere other
+# than the real home keeps theirs. The checks also require
+# docs/browser-checks/lib-sandbox-home.js, which covers a check run on its own.
+if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME%/}" ]; then
+  export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
+  mkdir -p "$AGENT_WORKFORCE_HOME"
+fi
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
 # run-log entry, so a reader grepping for FAIL reads the dead run as green (the
