@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: asb-hosted-3660
-diff_hash: 26127349178989887e6ac19bba25bdb493c82eba63b29fd370b7d861f7b41a3f
+diff_hash: 2744fc6cd1044e847fc2cead437013b072abae35ca438c5f4a7a9106f78d6265
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T11:25:36Z
+timestamp: 2026-09-25T11:40:05Z
 iterations: 12
 converged: true
 ---
@@ -50,7 +50,7 @@ No BLOCKER or WARNING.
 Every fix above was checked with its guard removed, and the named arm failed. The list is in the plan.
 
 ## Validation
-- Full suite clean after merging main: 9,210 tests, 0 failed (hash 26127349178989887e6ac19bba25bdb493c82eba63b29fd370b7d861f7b41a3f).
+- Full suite clean after merging main (twice; main moved): 9,272 tests, 0 failed (hash 2744fc6cd1044e847fc2cead437013b072abae35ca438c5f4a7a9106f78d6265).
 - One earlier run went red on engine/feedbacksend's timing test at a load of 14.6 on 10 cores. That file is untouched by this branch, and it passed 3 of 3 alone.
 - render-assistant-hosted-3660: 96 arms. render-assistant-bubble-3034: 54. render-agentdm-3414 green.
 
