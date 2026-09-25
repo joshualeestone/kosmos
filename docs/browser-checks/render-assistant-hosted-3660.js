@@ -543,7 +543,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(h28.box === 'Still there?' && h28.open && h28.note === '' && h28.fb === null && !h28.aside, 'H28 the words stay in the box for the guide, and the chat does not end', JSON.stringify(h28));
     // H29: the board then says the guide answers (the real board: its card is idle): the next question goes to the
     // guide's thread. First the fallback again, so this reads the board's word, not H28's.
-    await page.evaluate(() => { ASB.fallback = { problem: 'rate_limited', runner: 'codex' }; });
+    failing27 = { ok: true, name: 'josh', hosted: true, hostedWhy: 'own_model_failing', problem: 'auth_failed', runner: null };
+    chk(await waitFor(page, () => !!ASB.fallback && document.querySelector('#asp .asp-note').textContent === "Your Claude account isn't answering right now, so I'm helping on Kosmos's backup. Its Claude sign-in has stopped working: open the guide's page and choose Sign in again.", 15000),
+      'H29 precondition: back in the fallback from the board\'s answer (a sign-in problem, no runner reads as Claude)', (await state(page)).note);
     failing27 = null;
     const g29 = await (await fetch(URL + '/api/setup-guide')).json();
     const back29 = g29.ok === true && g29.name === 'josh' && g29.hosted !== true;
@@ -552,6 +554,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(back29 && await waitFor(page, () => document.getElementById('asp-say').value === '', 8000) && asked.length === before29 && threadPosts.length === posts29 + 1,
       'H29 once the board says it answers, the question goes to the guide\'s thread', JSON.stringify({ back29, asked: asked.length - before29, posts: threadPosts.length - posts29 }));
     chk(await page.evaluate(() => ASB.fallback === null && document.querySelector('#asp .asp-note').textContent === ''), 'H29 and the backup line is gone');
+    chk((await state(page)).msg === 'Your own AI is answering again.', 'H29 and the chat says their own AI is answering again', (await state(page)).msg);
     await page.unroute(/\/api\/setup-guide$/);
     await page.click('#asp-fold');
     unseed();

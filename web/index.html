@@ -56085,7 +56085,7 @@ function asbIsHosted() { return !ASB.guide && ASB.hosted && !ASB.hostedOff; }
 /* #3660 fallback (Josh 2026-09-25 07:22): the guide is there, but the AI it runs on cannot answer (out of credits or
    at a limit, a login it rejects, or unreachable), so this chat is answered by Kosmos's own model until it can. */
 function asbInFallback() { return !!(ASB.guide && ASB.fallback && !ASB.hostedOff); }
-const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok' };   // engine/accountproblem.js's names
+const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Antigravity' };   // engine/accountproblem.js's names
 /* The one line, the card's words, then what fixes it, in #3723's words where it has them. */
 function asbFallbackWords(f) {
   const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';
@@ -56270,7 +56270,8 @@ function asbPaint() {
   const stale = !!(row && ASB.heardAt && typeof LAST_AT !== 'undefined' && ASB.heardAt > LAST_AT);
   const working = row && !asbInFallback() ? (row.state === 'working' && !stale) : ((asbIsHosted() || asbInFallback()) && ASB.sending);
   /* A broken sign-in says so in the chat (busyRow's own #874 line), so a message is not just met with silence. */
-  const signIn = !!(row && row.state === 'auth_failed');
+  const signIn = !!(row && row.state === 'auth_failed') && !asbInFallback();   // in the fallback, the backup's line says it
+  const busyRowOf = row && !asbInFallback() ? row : null;   // the backup at work draws the hosted row, not the guide's
   const act = bub.querySelector('.asb-act');
   if (act) act.hidden = !working || ASB.open;
   const busy = document.getElementById('asp-busy');
@@ -56278,11 +56279,11 @@ function asbPaint() {
   if (busy) {
     /* Written only when its inputs change (#3421): a string compare never matches (&hellip; reads back as the
        character), and rebuilding the .act dots restarts their loop every paint. Keyed as paintBusy keys. */
-    const key = !(working || signIn) ? '' : [row ? row.sessionName : 'hosted', row ? row.state : 'hosted', who, row && row.hasAvatar ? '1' : '0',
+    const key = !(working || signIn) ? '' : [busyRowOf ? busyRowOf.sessionName : 'hosted', busyRowOf ? busyRowOf.state : 'hosted', who, busyRowOf && busyRowOf.hasAvatar ? '1' : '0',
       signIn ? (row.stateEvidence || '') : ''].join('\u0001');
     const rekeyed = busy.dataset.busyKey !== key;
     if (rekeyed) {
-      busy.innerHTML = !key ? '' : row ? busyRow(row, who)
+      busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who)
         : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
       busy.dataset.busyKey = key;
     }
@@ -56330,7 +56331,7 @@ function asbPaint() {
 /* The board's answer NOW to "which agent is the guide". Asked before every thread read and every send,
    so a guide removed (or a new agent that took its name) is never read or written as the guide, open
    or folded. Local and cheap: at most every 5s while open, every minute while folded. */
-async function asbConfirmGuide({ forgetLater = false } = {}) {
+async function asbConfirmGuide({ forgetLater = false, keepFallback = false } = {}) {
   let r = null, b = null;
   try {
     r = await fetch('/api/setup-guide', { cache: 'no-store' });
@@ -56340,7 +56341,7 @@ async function asbConfirmGuide({ forgetLater = false } = {}) {
      took the name), or a DIFFERENT guide. Only 'unchecked' (the board could not read its removed list just now)
      keeps it, and the next read decides. */
   if (r.ok && b && b.ok && typeof b.name === 'string') {
-    if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) { asbFallbackFrom(b); return true; }
+    if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) { if (!keepFallback) asbFallbackFrom(b); return true; }
   } else if (!(b && (b.reason === 'none' || b.reason === 'not-guide'))) return !!ASB.guide;
   if (b && (b.reason === 'none' || b.reason === 'not-guide') && !(b.hosted !== true && b.hostedWhy === 'unchecked')) ASB.hosted = b.hosted === true;   // stands in at once, no blink
   if (forgetLater && !asbIsHostedAfterForget()) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();   // hosted stands in at once
@@ -56365,6 +56366,9 @@ async function asbPoll(force) {
   const every = ASB.open ? ASB_OPEN_POLL_MS : ASB_FOLDED_POLL_MS;
   if (!force && now - ASB.lastPoll < every) return;
   ASB.lastPoll = now;
+  /* In the fallback the board is still asked whether the guide is there (a guide removed, or its name taken, is acted on
+     at once), but not whether it answers again: that is read on the next message (Josh). */
+  if (asbInFallback() && !(await asbConfirmGuide({ keepFallback: true }))) { asbPaint(); return; }
   if (asbIsHosted() || asbInFallback()) {
     const hm = asbHostedMsgs();
     ASB.readOnce = true;
@@ -56377,6 +56381,7 @@ async function asbPoll(force) {
      why), confirming would "forget" a guide that never was, closing the chat the person just opened. */
   if (!ASB.guide) return;
   if (!(await asbConfirmGuide())) return;
+  if (asbInFallback()) return asbPoll(true);   // it just went into the fallback: paint the backup's chat, not a tick of the guide's
   const t = await asbReadThread();
   if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
   const speech = asbSpeech(t.rows);
@@ -56480,15 +56485,22 @@ async function asbSend() {
   if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   /* In the fallback, the board is asked again before each message (Josh: on the next message, not continuously):
      still failing, the backup answers; answering again, it goes to the guide as usual. */
+  let backNow = false;
   if (asbInFallback() && text && !ASB.sending) {
-    if (!(await asbConfirmGuide({ forgetLater: true }))) { if (asbIsHosted()) await asbHostedSend(text); return; }
+    ASB.sending = true;   // held across the board's answer, so a second Enter cannot ask twice
+    document.getElementById('asp-send').disabled = true;
+    const confirmed = await asbConfirmGuide({ forgetLater: true });
+    ASB.sending = false;
+    document.getElementById('asp-send').disabled = false;
+    if (!confirmed) { if (asbIsHosted()) await asbHostedSend(text); return; }
     if (asbInFallback()) { await asbHostedSend(text); return; }
+    backNow = msg.textContent === ASB_FALLBACK_BACK;   // it answers again: that line stays while this goes to it
   }
   const row = asbGuideRow();
   if (!text || ASB.sending || !row) return;
   ASB.sending = true;
   document.getElementById('asp-send').disabled = true;
-  msg.textContent = '';
+  msg.textContent = backNow ? ASB_FALLBACK_BACK : '';
   /* The guide went: say so in the open panel (the words stay in the box) before it closes a moment later. */
   if (!(await asbConfirmGuide({ forgetLater: true }))) {
     ASB.sending = false;
@@ -56562,7 +56574,7 @@ async function asbHostedSend(text) {
     if (say.value.trim() === text) say.value = '';
     ASB.wroteOnce = true;
     if (!ASB.open) ASB.dot = true;   // answered while folded: the gold dot, as a guide's reply lights it
-    if (!ASB.open && !asbIsHosted() && !ASB.asideOnOpen) asbAsideWait(document.getElementById('asp-msg').textContent || ASB_WHY_NONE);   // the answer to a question asked just before it ended
+    if (!ASB.open && !asbIsHosted() && !asbInFallback() && !ASB.asideOnOpen) asbAsideWait(document.getElementById('asp-msg').textContent || ASB_WHY_NONE);   // the answer to a question asked just before it ended
     ASB.remaining = Number.isInteger(b.remaining) ? b.remaining : null;
     document.getElementById('asp-live').textContent = b.reply;
     if ((asbIsHosted() || asbInFallback()) && ASB.remaining !== null && ASB.remaining <= 5) msg.textContent = ASB.remaining === 0 ? 'That was your last question for today.' : ASB.remaining === 1 ? '1 question left today.' : ASB.remaining + ' questions left today.';
