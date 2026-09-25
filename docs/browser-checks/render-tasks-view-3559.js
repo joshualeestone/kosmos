@@ -15,7 +15,8 @@
  *  - Group by Project regroups the same rows,
  *  - ticking two rows and Close them closes both, with the note on each history,
  *  - no element in the view carries a coloured left border (Josh, 2026-09-24 12:52),
- *  - light, dark and a 760-wide window (the rail becomes a dropdown).
+ *  - light, dark, a 760-wide and a 390-wide window (the rail becomes a dropdown, the search goes
+ *    full width below it), with no sideways scroll.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
  *
@@ -93,11 +94,19 @@ function chk(ok, label, extra) {
       rows,
       bars,
       railShown: getComputedStyle(document.querySelector('.tsk-rail')).display !== 'none',
-      selShown: getComputedStyle(document.getElementById('tsk-projsel')).display !== 'none',
+      /* On-screen boxes, not computed display: the dropdown's WRAPPER is what hides. */
+      selShown: document.getElementById('tsk-projsel').getClientRects().length > 0,
+      searchBelowSel: (() => {
+        const a = document.getElementById('tsk-projsel').getBoundingClientRect();
+        const q = document.getElementById('tsk-search').getBoundingClientRect();
+        return a.height > 0 && q.top >= a.bottom;
+      })(),
+      searchW: Math.round(document.getElementById('tsk-search').getBoundingClientRect().width),
+      mainW: Math.round(document.querySelector('.tsk-main').getBoundingClientRect().width),
     };
   };
   try {
-    for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 760]]) {
+    for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 760], ['dark', 390]]) {
       const tag = `[${theme} ${width}]`;
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });
       const errs = [];
@@ -125,8 +134,13 @@ function chk(ok, label, extra) {
       const proof = a.rows.find((r) => r.text === 'Order proof copies');
       chk(proof && /Assigned, not started/.test(proof.state), `${tag} an assigned task its agent has not named is Assigned`, JSON.stringify(proof));
       chk(a.bars.length === 0, `${tag} no element carries a coloured left border`, JSON.stringify(a.bars.slice(0, 5)));
+      const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      chk(sideways <= 0, `${tag} no sideways scroll`, String(sideways));
       if (width < 1000) {
         chk(!a.railShown && a.selShown, `${tag} a narrow window folds the rail into a dropdown`, JSON.stringify({ rail: a.railShown, sel: a.selShown }));
+        chk(a.searchBelowSel && a.searchW >= a.mainW - 40, `${tag} the search sits below the dropdown, full width (Mona a40bbe1)`, JSON.stringify({ below: a.searchBelowSel, w: a.searchW, main: a.mainW }));
+      } else {
+        chk(!a.selShown, `${tag} the dropdown is hidden while the rail shows`, JSON.stringify({ sel: a.selShown }));
       }
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `tasks-${theme}-${width}.png`), fullPage: true }); }
 
@@ -162,6 +176,16 @@ function chk(ok, label, extra) {
         await page.fill('#tsk-search', 'podcast');
         rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
         chk(JSON.stringify(rows) === JSON.stringify(['Book the podcast tour']), `${tag} search finds a task by what it says`, JSON.stringify(rows));
+        /* Its own clear button: shown with text, clears and hides again. */
+        const clr = await page.evaluate(() => !document.getElementById('tsk-qclear').hidden);
+        chk(clr, `${tag} the search's clear button shows once there is text`);
+        await page.click('#tsk-qclear');
+        const cleared = await page.evaluate(() => ({ v: document.getElementById('tsk-search').value, hidden: document.getElementById('tsk-qclear').hidden, rows: document.querySelectorAll('#tsk-groups .tsk-row').length }));
+        chk(cleared.v === '' && cleared.hidden && cleared.rows > 1, `${tag} clear empties the search and brings the rows back`, JSON.stringify(cleared));
+        /* No match says so, and what to do (Mona a40bbe1). */
+        await page.fill('#tsk-search', 'zzz nothing like this');
+        const none = await page.evaluate(() => document.getElementById('tsk-groups').textContent);
+        chk(/No tasks match .zzz nothing like this.\. Try fewer words, or clear the search\./.test(none), `${tag} a search with no match says so`, none);
         await page.fill('#tsk-search', '');
         /* Group by Project regroups the same rows. */
         await page.click('#tsk-by [data-by="project"]');
@@ -216,7 +240,7 @@ function chk(ok, label, extra) {
           stillCons: document.body.classList.contains('consolidated'),
           inColumn: pt.parentElement && pt.parentElement.id === 'panel-projects',
           ownRailHidden: getComputedStyle(pt.querySelector('.tsk-rail')).display === 'none',
-          dropdown: getComputedStyle(document.getElementById('tsk-projsel')).display !== 'none',
+          dropdown: document.getElementById('tsk-projsel').getClientRects().length > 0,
         };
       });
       chk(got.shown && got.tiles === 4, '[consolidated] it opens the Tasks view', JSON.stringify(got));
