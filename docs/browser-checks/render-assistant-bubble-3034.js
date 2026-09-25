@@ -179,6 +179,50 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asp-fold');
     await page.evaluate(() => document.querySelector('[data-check="b17"]').remove());
     await page.setViewportSize({ width: 1280, height: 860 });
+    // B31 (#3821, Josh 2026-09-25 16:25 on Windows): the open chat sits where the bubble was, its bottom-right on the
+    // bubble's, growing upward below the header, at every window height. A wide control in the bottom band beside the
+    // bubble (his Settings page's "+ Add a provider") used to lift it to just under the header; it must not now.
+    // CONTROL: the folded bubble is at the same corner in each size, so the arm reads the panel against a known place.
+    await page.evaluate(() => showTab('settings'));   // Josh's screen: Settings, nothing in the bubble's own corner
+    await page.evaluate(() => { const t = document.createElement('button'); t.dataset.check = 'b31'; t.textContent = 'Add a provider';
+      t.style.cssText = 'position:fixed;right:90px;bottom:120px;width:560px;height:42px;z-index:1'; document.body.appendChild(t); });
+    const got31 = [];
+    for (const [w, h] of [[1520, 858], [1280, 720], [1280, 1200]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.waitForTimeout(1700);   // a tick: the bubble re-measures the corner
+      /* From the page's right edge (clientWidth): Settings scrolls, and the tab layout keeps a scrollbar gutter. */
+      const bub31 = await page.evaluate(() => { const r = document.getElementById('asb').getBoundingClientRect(); return { right: Math.round(document.documentElement.clientWidth - r.right), bottom: Math.round(innerHeight - r.bottom) }; });
+      await page.click('#asb');
+      await page.waitForTimeout(300);
+      const p31 = await page.evaluate(() => { const r = document.getElementById('asp').getBoundingClientRect(); const hd = document.querySelector('.apphead').getBoundingClientRect();
+        return { right: Math.round(document.documentElement.clientWidth - r.right), bottom: Math.round(innerHeight - r.bottom), top: Math.round(r.top), head: Math.round(hd.bottom), h: Math.round(r.height) }; });
+      got31.push({ w, h, bub31, p31 });
+      await page.click('#asp-fold');
+      await page.waitForTimeout(200);
+    }
+    /* The right offset is not a fixed number: it depends on whether this machine draws a scrollbar in the gutter the
+       tab layout reserves. What is fixed is that the bubble keeps one corner at every size, 16px from the bottom. */
+    chk(got31.every((g) => g.bub31.bottom === 16 && g.bub31.right === got31[0].bub31.right && g.bub31.right >= 16 && g.bub31.right <= 32),
+      'B31 CONTROL: the folded bubble keeps one bottom-right corner at each size, 16px from the bottom', JSON.stringify(got31.map((g) => g.bub31)));
+    chk(got31.every((g) => g.p31.right === g.bub31.right && g.p31.bottom === g.bub31.bottom && g.p31.top >= g.p31.head && g.p31.h >= 160),
+      'B31 the open chat sits on the bubble\'s corner and grows upward below the header, at 1520x858, 1280x720 and 1280x1200 (#3821)', JSON.stringify(got31.map((g) => ({ w: g.w, h: g.h, p: g.p31 }))));
+    if (SHOTS) { await page.setViewportSize({ width: 1520, height: 858 }); await page.waitForTimeout(1700); await page.click('#asb'); await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(SHOTS, 'panel-anchored-1520x858.png') }); await page.click('#asp-fold'); }
+    await page.evaluate(() => document.querySelector('[data-check="b31"]').remove());
+    await page.setViewportSize({ width: 1280, height: 860 });
+    // B32 (#3821 review): the chat opened on an agent's page (the bubble lifted over Send), then Settings with it still
+    // open: the chat comes down to the bubble's corner there, rather than keeping the agent page's lift.
+    await page.evaluate(() => { showTab('agents'); const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); });
+    await waitFor(page, () => { const s2 = document.getElementById('d-send'); return !!s2 && s2.getClientRects().length > 0; });
+    await page.waitForTimeout(1700);
+    await page.click('#asb');
+    await page.waitForTimeout(300);
+    const up32 = await page.evaluate(() => Math.round(innerHeight - document.getElementById('asp').getBoundingClientRect().bottom));
+    await page.evaluate(() => showTab('settings'));
+    await page.waitForTimeout(1700);   // a tick of the assistant
+    const down32 = await page.evaluate(() => ({ open: !document.getElementById('asp').hidden, bottom: Math.round(innerHeight - document.getElementById('asp').getBoundingClientRect().bottom) }));
+    chk(up32 > 40 && down32.open && down32.bottom === 16, 'B32 an open chat follows the bubble when the page under it changes (lifted over Send, then down on Settings)', JSON.stringify({ up32, down32 }));
+    await page.click('#asp-fold');
     await page.evaluate(() => showTab('agents'));
     await page.waitForTimeout(300);
 
