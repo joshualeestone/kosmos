@@ -104,13 +104,16 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
   (not `path=promote`) plus `bucket=` and `prefix=`, so a self-test never reads as a real promote.
   A Windows promote from the PC is therefore NOT in the Mac's log. The durable record of the go
   is his message itself, which the log line names by `approval_ref`.
-- **R2 enforces the two conditional writes this script relies on** (measured 2026-09-25 against
+- **R2 enforces the three conditional writes this script relies on** (measured 2026-09-25 against
   the real bucket): a create with `If-None-Match: *` over an existing key, and a copy with a
   stale `x-amz-copy-source-if-match`, and (for `-ReplaceVersioned`) a PUT with a stale
   `If-Match`, all fail with PreconditionFailed and change nothing.
   `-DryRun` does not issue them.
 - **Overwritten objects are stored `Cache-Control: no-cache`** (the pointers, the alias and its
-  sidecar), so nothing between R2 and a user keeps serving the previous bytes. A versioned zip
+  sidecar), so a cache honouring the header revalidates them. That does NOT evict bytes a
+  cache already holds from before the header was set: after the first promote from this script
+  (the alias was uploaded by hand, without it) and after any -ReplaceVersioned, check that the
+  served bytes are the new ones (the script's own served checks do) and purge the cache if not. A versioned zip
   carries no such header, except one replaced with `-ReplaceVersioned`, which is no-cache.
 
 - **`TEST TRANSPORT` in the output means nothing was published**: `KOSMOS_PUBLISH_R2_FAKE_DIR` is

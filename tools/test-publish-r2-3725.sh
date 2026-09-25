@@ -168,7 +168,7 @@ refuses_clean "a promote whose sha is not the staged one: refused, nothing writt
 if ! grep -qF "$SHA_A" "$TMP/out"; then pass "that refusal does not print the staged sha"; else fail "the mismatch refusal printed the staged sha"; fi
 promote -DryRun; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(writes)" -eq 0 ] && [ ! -e "$ALOG" -o ! -s "$ALOG" ]; then pass "a promote -DryRun writes nothing and logs nothing"; else fail "promote dry run: rc=$rc writes=$(writes) log=$(cat "$ALOG" 2>/dev/null)"; fi
-: > "$FAKE/.calls"; KOSMOS_WIN_PROMOTE_LOG_SAVE="$ALOG"; mkdir -p "$TMP/notafile"
+: > "$FAKE/.calls"; mkdir -p "$TMP/notafile"
 KOSMOS_PUBLISH_R2_FAKE_DIR="$FAKE" KOSMOS_WIN_VERIFY_DIR="$VDIR" KOSMOS_WIN_PROMOTE_LOG="$TMP/notafile" "$PWSH" -NoProfile -File "$PS1" -CredentialFile "$TMP/cred.env" -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.821399 > "$TMP/out" 2>&1; rc=$?
 refuses_clean "a promote whose approval cannot be logged: refused, nothing written" "an approval that is not logged is not given"
 cp "$FAKE/latest-win-staging.json" "$TMP/ptr.good"
@@ -197,6 +197,24 @@ fake -Zip "$TMP/b.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersione
 KOSMOS_PUBLISH_R2_FAKE_FAIL=latest-win-staging.json fake -Zip "$TMP/c.zip"; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF "staging writes had begun" "$TMP/out"; then pass "a staging failure after its first write says what may be up"
 else fail "staging partial-state note: rc=$rc $(tail -2 "$TMP/out")"; fi
+# -ReplaceVersioned, the write itself: pinned (If-Match) and no-cache when it succeeds; a
+# stale pin refuses; a promote landing mid-replace gets the previous bytes put back.
+mkzip "$TMP/r1.zip" 9.9.4 R1; mkzip "$TMP/r2.zip" 9.9.4 R2; mkzip "$TMP/r3.zip" 9.9.4 R3
+cp "$FAKE/latest-win-staging.json" "$TMP/staging.keep"
+fake -Zip "$TMP/r1.zip" >/dev/null; fake -Zip "$TMP/r2.zip" -ReplaceVersioned; rc=$?
+if [ "$rc" -eq 0 ] && grep -qE '^PUT kosmos-9\.9\.4-win-x64\.zip \| cache-control=no-cache;if-match="[0-9a-f]{64}"$' "$FAKE/.calls"; then pass "a replace is pinned with If-Match and stored no-cache"
+else fail "replace headers: rc=$rc $(grep '^PUT kosmos-9.9.4-win-x64.zip ' "$FAKE/.calls") $(tail -1 "$TMP/out")"; fi
+KOSMOS_PUBLISH_R2_FAKE_AFTER="GET kosmos-9.9.4-win-x64.zip|kosmos-9.9.4-win-x64.zip|$TMP/r1.zip" fake -Zip "$TMP/r3.zip" -ReplaceVersioned; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "answered 412" "$TMP/out"; then pass "a replace whose pin went stale (a concurrent staging) refuses"
+else fail "stale replace pin: rc=$rc $(tail -1 "$TMP/out")"; fi
+cp "$TMP/r2.zip" "$FAKE/kosmos-9.9.4-win-x64.zip"; SHA_R2=$(shasum -a 256 "$TMP/r2.zip" | cut -d' ' -f1)
+printf '{"version":"9.9.4","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"kosmos-9.9.4-win-x64.zip","arch":"x64"}\n' "$SHA_R2" > "$TMP/prod-944.json"
+cp "$FAKE/latest-win.json" "$TMP/prod.keep" 2>/dev/null || : > "$TMP/prod.keep"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="GET latest-win.json|latest-win.json|$TMP/prod-944.json" fake -Zip "$TMP/r3.zip" -ReplaceVersioned; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "a promote landed in between" "$TMP/out" && cmp -s "$FAKE/kosmos-9.9.4-win-x64.zip" "$TMP/r2.zip"; then pass "a promote landing mid-replace: the previous bytes are put back and the replace refuses"
+else fail "replace/promote race: rc=$rc zip-restored=$(cmp -s "$FAKE/kosmos-9.9.4-win-x64.zip" "$TMP/r2.zip" && echo yes || echo no) $(tail -1 "$TMP/out")"; fi
+if [ -s "$TMP/prod.keep" ]; then cp "$TMP/prod.keep" "$FAKE/latest-win.json"; else rm -f "$FAKE/latest-win.json"; fi
+cp "$TMP/staging.keep" "$FAKE/latest-win-staging.json"
 # A rounded ts (what PowerShell makes of an unquoted one) is refused, not logged.
 fake -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.8214; rc=$?
 refuses_clean "a rounded (unquoted) Slack ts is refused" "10 digits . 6 digits"

@@ -103,7 +103,7 @@ if ($KeyPrefix -and ($KeyPrefix -cnotmatch '^[0-9A-Za-z._-]+(/[0-9A-Za-z._-]+)*/
 $FakeDir = $env:KOSMOS_PUBLISH_R2_FAKE_DIR
 if ($FakeDir) { [Console]::Error.WriteLine("publish-r2: TEST TRANSPORT: the bucket is the local directory $FakeDir; nothing is published") }
 if ($ServedBase -cne 'https://installkosmos.com/dist' -and -not $KeyPrefix) { Refuse "-ServedBase is for tests and needs -KeyPrefix; users are served from https://installkosmos.com/dist" }
-if ($KeyPrefix -and $ServedBase -ceq 'https://installkosmos.com/dist' -and -not $FakeDir) { Refuse "-KeyPrefix needs a -ServedBase that serves that prefix; otherwise the checks after writing would read prod's objects" }
+if ($KeyPrefix -and $ServedBase -match '^https?://([a-z0-9-]+\.)*installkosmos\.com(/|:|$)' -and -not $FakeDir) { Refuse "-KeyPrefix needs a -ServedBase that serves that prefix; otherwise the checks after writing would read prod's objects" }
 
 # ---------- hashing and signing -----------------------------------------------------------------
 $Utf8 = New-Object Text.UTF8Encoding $false
@@ -189,7 +189,7 @@ function Invoke-R2 {
     $resp = $Http.SendAsync($req).GetAwaiter().GetResult()
     $bytes = $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
     $etag = if ($resp.Headers.ETag) { $resp.Headers.ETag.Tag } else { '' }
-    [pscustomobject]@{ Status = [int]$resp.StatusCode; Bytes = $bytes; Body = $Utf8.GetString($bytes); ETag = $etag }
+    [pscustomobject]@{ Status = [int]$resp.StatusCode; Bytes = $bytes; Body = $(if ($bytes.Length -le 1MB) { $Utf8.GetString($bytes) } else { '' }); ETag = $etag }
   } catch {
     $why = "network error on $Method $Key ($($_.Exception.GetBaseException().Message))"
     if ($Method -ceq 'GET') { Refuse $why }
@@ -265,12 +265,14 @@ function Get-Object([string] $Name) {
 # Objects that are OVERWRITTEN in place (pointers, the alias and its sidecar) carry
 # Cache-Control: no-cache, so no cache between R2 and a user can keep serving the old bytes.
 $NoCache = @{ 'cache-control' = 'no-cache' }
+$script:LastPut = $null   # set by Put-Object; initialised for StrictMode (a dry run sets nothing)
 function Put-Object([string] $Name, [byte[]] $Body, [string] $File, [string] $Sha, [string] $Type, [hashtable] $Extra = @{}) {
   $key = "$KeyPrefix$Name"
   if ($DryRun) { Say "DRY RUN: would PUT $key ($Type, sha256 $Sha)"; return }
   $r = Invoke-R2 -Method PUT -Key $key -Body $Body -BodyFile $File -PayloadSha $Sha -ContentType $Type -Extra $Extra
   if ($r.Status -ne 200) { Refuse "PUT $key answered $($r.Status): $($r.Body)" }
   Say "wrote $key"
+  $script:LastPut = $r   # the response (its ETag), without emitting it into the output stream
 }
 function Copy-Object([string] $FromName, [string] $ToName, [string] $IfMatch) {
   $from = "$KeyPrefix$FromName"; $to = "$KeyPrefix$ToName"
@@ -422,13 +424,33 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   }
 
   # Zip, then sidecar, then pointer LAST, so the pointer never names bytes that are not up.
-  # A replace of an existing versioned name is not immutable any more, so it is no-cache too.
   # A real replace (-ReplaceVersioned, different bytes) is no-cache, and pinned with If-Match to
-  # the object read above, so a promote of this version landing in between makes it refuse
-  # (R2 honours If-Match on PUT, measured 2026-09-25). A same-bytes re-run stays cacheable.
-  if ($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha) { $putExtra = @{ 'cache-control' = 'no-cache'; 'if-match' = $existing.ETag } }
+  # the object read above, so a CONCURRENT STAGING of the same name makes it refuse (R2 honours
+  # If-Match on PUT, measured 2026-09-25). A promote does not write the zip, so the pin cannot
+  # see one: that race is closed by re-reading prod right after the upload (below). A same-bytes
+  # re-run stays cacheable.
+  $replacing = [bool]($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha)
+  if ($replacing) {
+    if (-not $existing.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the replace cannot be pinned to the object just read. Nothing was written." }
+    $putExtra = @{ 'cache-control' = 'no-cache'; 'if-match' = $existing.ETag }
+  }
   if (-not $DryRun) { $script:AfterNote = " (staging writes had begun: $Versioned may be up; latest-win-staging.json still names the previous build unless the run said it was written. Re-run the same command to finish.)" }
   Put-Object $Versioned $null $ZipPath $Sha 'application/zip' $putExtra
+  $zipPut = $script:LastPut
+  if ($replacing -and -not $DryRun) {
+    # A promote of this version may have landed between the prod read above and this upload
+    # (prod would now name sha A over zip B, and every updater would refuse). Read prod again:
+    # if it names this version, put the previous bytes back and refuse. A promote landing
+    # AFTER this read is refused by its own gates (the zip no longer has the approved sha).
+    $prodNow = Get-Object 'latest-win.json'
+    $pfNow = if ($prodNow) { Read-PointerFields $prodNow.Bytes } else { $null }
+    if ($prodNow -and (-not $pfNow -or $pfNow.versioned -ceq $Versioned)) {
+      $back = Invoke-R2 -Method PUT -Key "$KeyPrefix$Versioned" -Body $existing.Bytes -PayloadSha (Sha256-Bytes $existing.Bytes) -ContentType 'application/zip' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $zipPut.ETag }
+      $how = if ($back.Status -eq 200) { "the previous bytes ($existingSha) were put back" } else { "PUTTING THE PREVIOUS BYTES BACK FAILED ($($back.Status)): prod names $Versioned but it now holds $Sha; restore it by hand" }
+      $script:AfterNote = ''
+      Refuse "prod's latest-win.json named $Versioned while this replace ran (a promote landed in between); $how. The replace did not happen."
+    }
+  }
   $side = New-SidecarBytes $Sha $Versioned
   Put-Object "$Versioned.sha256" $side $null (Sha256-Bytes $side) 'text/plain; charset=utf-8' $NoCache
   $ptr = New-PointerBytes $Version $Sha $Versioned
@@ -440,6 +462,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   Assert-Served "$Versioned.sha256" (Sha256-Bytes $side)
   Assert-Served 'latest-win-staging.json' (Sha256-Bytes $ptr)
   $script:AfterNote = ''
+  if ($FakeDir) { Say "TEST TRANSPORT, NOTHING PUBLISHED:" }
   Say "STAGED $Version ($Sha). Prod is untouched. Next: verify it on this PC with node tools/win-staging-verify.js (it writes the verification record), then send Josh the version and sha above, and ONLY on his go:"
   # The sha is deliberately NOT filled in: the one to promote is the one in HIS message
   # (promote-channel.sh never prints it for the same reason).
@@ -545,5 +568,6 @@ Assert-Served 'latest-win.json' (Sha256-Bytes $staging.Bytes)
 Assert-Served $Versioned $ApprovedSha
 Assert-Served "$Versioned.sha256" (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned))
 Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef promoted=yes $Where" -Outcome
+if ($FakeDir) { Say "TEST TRANSPORT, NOTHING PUBLISHED:" }
 Say "PROMOTED $ApprovedVersion ($ApprovedSha) to prod; the bucket and the served bytes both verified."
 exit 0

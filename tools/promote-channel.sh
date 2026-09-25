@@ -328,6 +328,7 @@ if [ "$FAMILY" = win ]; then
   # publish a MOVED latest.json) would refuse it as "nothing to promote"; a plain --publish carries
   # the committed Windows files (they are tracked, shipped by git archive).
   echo "promote-channel: commit dist/$PROD_NAME, dist/$ALIAS and dist/$ALIAS.sha256, then deploy with tools/deploy-site.sh --publish."
+  [ "$FAMILY" = win ] && echo "promote-channel: NOTE users are served the Windows files from R2 (kosmos-dist-win), which this does not write; tools/windows/publish-r2.ps1 -Promote is what moves served prod (#3725)."
   exit 0
 fi
 

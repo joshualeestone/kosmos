@@ -215,6 +215,7 @@ else
   echo "   versioned: $VERSIONED ($SHA)"
   echo "   manifest:  $POINTER_FILE -> $(cat "$SITE/dist/$POINTER_FILE")"
   echo "   untouched: $ALIAS, its sidecar and latest-win.json (prod stays on its current build)."
+  echo "publish-win: NOTE users are served the Windows files from R2 (kosmos-dist-win), which this script does not write; tools/windows/publish-r2.ps1 is what stages a served build (tools/windows/RELEASING.md, #3725)."
   echo "publish-win: next: commit these and deploy (tools/deploy-site.sh) so the staged build is served, verify it on the Windows box (which writes its verification record), then, ONLY on Josh's go for this exact build:"
   echo "   tools/promote-channel.sh <site> --family win --approved-version <V> --approved-sha <the sha256 he approved> --approval-ref <his message's Slack ts or permalink>"
 fi
