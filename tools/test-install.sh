@@ -270,6 +270,12 @@ export AGENT_WORKFORCE_PROJECTS="$SB/projects" AGENT_WORKFORCE_WORKERS="$SB/work
 # and does nothing to READS, so those boards enumerated the real fleet. Naming a
 # stub makes the read inert too, which is what this block already intended.
 export AGENT_WORKFORCE_TMUX_BIN="$HERE/test-support/fake-tmux.sh"
+# #3691: a MISSING stub is not inert. The board's roster read fails, the Prompter skips its
+# first write (prompternudge.shouldWrite), and the data diff below reports
+# "expected, not added: prompter-nudges.json", naming a symptom three steps away from the
+# cause. That is how test-install-gate-control.sh (which copied tools/ but not test-support/)
+# went red on every bundle. Refuse here, naming the cause.
+[ -x "$AGENT_WORKFORCE_TMUX_BIN" ] || { echo "FAIL  the harness's fake tmux is missing at $AGENT_WORKFORCE_TMUX_BIN (copy test-support/ beside tools/); without it the board reads no roster and the data diff reds on prompter-nudges.json" >&2; exit 1; }
 export AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/claude.json" AGENT_WORKFORCE_CONFIG_ROOT="$SB/config"
 # A test that steals the operator's browser is a test nobody runs twice:
 # every pass suppresses the fresh-install open unless it deliberately
