@@ -15291,7 +15291,8 @@ function start(port = PORT) {
       const swarmSweep = setInterval(() => {
         try {
           const roster = safeRoster();
-          require('./engine/swarm').sweepOnce(roster, {
+          const swarmMod = require('./engine/swarm');
+          swarmMod.sweepOnce(swarmMod.sweepRows(roster), {
             readProfile: (n) => store.readProfile(n),
             writeProfile: (n, patch) => store.writeProfile(n, patch),
             interrupt: (n) => chat.interrupt(n, roster),

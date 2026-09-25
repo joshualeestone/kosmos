@@ -126,7 +126,7 @@ function deps(profiles) {
     say: (n, text) => { calls.says.push([n, text]); },
   };
 }
-const card = (name, tokensToday) => ({ sessionName: name, isNamedOurs: true, swarm: { tokensToday } });
+const card = (name, tokensToday) => ({ name, tokensToday });   // a sweep row, not a board card (sweepRows derives these)
 
 test('#3564 sweep: at the limit it pauses itself, interrupts, and says so in its DM; below the limit nothing happens', () => {
   const profiles = { big: swarm.birthProfile({ dailyTokenLimit: 1000 }), small: swarm.birthProfile({ dailyTokenLimit: 1000 }) };
@@ -224,4 +224,14 @@ test('#3564 per project: a swarm switched off is off only in that project, and b
   assert.equal(projects.swarmOffIn(id, 'someone-else'), false, 'another agent was switched off too');
   projects.setSwarmOn(id, 'lead', true);
   assert.equal(projects.swarmOffIn(id, 'lead'), false);
+});
+
+test('#3564 sweepRows: only OUR swarms, as { name, tokensToday }; a plain agent and a stranger are left out', () => {
+  store.writeProfile('rowlead', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  store.writeProfile('rowstranger', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  withFleet([fleet.agent('rowlead', { state: 'idle' }), fleet.agent('rowplain', { state: 'idle' }), fleet.stranger('rowstranger', { state: 'idle' })], (board) => {
+    const rows = swarm.sweepRows(board.agents);
+    assert.deepEqual(rows.map((r) => r.name), ['rowlead']);
+    assert.ok(Number.isFinite(rows[0].tokensToday));
+  });
 });

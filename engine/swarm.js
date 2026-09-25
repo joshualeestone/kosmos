@@ -289,8 +289,15 @@ function pausedFor(settings, because, now = Date.now()) {
   return { ...settings, active: false, pausedBecause: because, pausedAt: new Date(now).toISOString() };
 }
 
+/** The sweep's input, from the board's cards: our swarms only, as { name, tokensToday }. */
+function sweepRows(cards) {
+  return (Array.isArray(cards) ? cards : [])
+    .filter((c) => c && c.isNamedOurs === true && c.sessionName && c.swarm && Number.isFinite(c.swarm.tokensToday))
+    .map((c) => ({ name: c.sessionName, tokensToday: c.swarm.tokensToday }));
+}
+
 /**
- * One pass of the daily-limit sweep over the board's cards. For each swarm:
+ * One pass of the daily-limit sweep over `sweepRows(cards)`. For each swarm:
  *   - active and at or over its limit: pause it ("limit"), interrupt it, and say so
  *     in its own DM thread;
  *   - paused by the limit on an EARLIER day: switch it back on (a new day's budget).
@@ -298,16 +305,16 @@ function pausedFor(settings, because, now = Date.now()) {
  * readProfile, writeProfile, interrupt(name), say(name, text). Never throws; returns
  * what it did, per swarm.
  */
-function sweepOnce(cards, deps, now = Date.now()) {
+function sweepOnce(rows, deps, now = Date.now()) {
   const did = [];
-  for (const c of Array.isArray(cards) ? cards : []) {
-    if (!c || !c.swarm || !c.sessionName || c.isNamedOurs !== true) continue;
-    const name = c.sessionName;
+  for (const c of Array.isArray(rows) ? rows : []) {
+    if (!c || !c.name || !Number.isFinite(c.tokensToday)) continue;
+    const name = c.name;
     try {
       const profile = deps.readProfile(name);
       const s = settingsOf(profile);
       if (!s) continue;
-      if (s.active && s.dailyTokenLimit && c.swarm.tokensToday >= s.dailyTokenLimit) {
+      if (s.active && s.dailyTokenLimit && c.tokensToday >= s.dailyTokenLimit) {
         deps.writeProfile(name, { swarm: pausedFor(s, 'limit', now) });
         const stopped = deps.interrupt(name);
         deps.say(name, `I paused myself at today's token limit (${s.dailyTokenLimit} tokens). I'll start again tomorrow, or switch me back on.`);
@@ -328,5 +335,5 @@ function resetForTests() { fileCache.clear(); }
 module.exports = {
   MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ACTIVE_WINDOW_MS, PAUSED_BECAUSE, START, END,
   createProblem, birthProfile, settingsOf, patchProblem, applyPatch, pausedSentence,
-  blockBody, tellLead, tokensOf, meter, cardField, pausedFor, sweepOnce, startOfDay, resetForTests,
+  blockBody, tellLead, tokensOf, meter, cardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
 };
