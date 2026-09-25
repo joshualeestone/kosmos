@@ -280,6 +280,11 @@ function heardBy(projectId, t, who, sentence, roster) {
 // own exactly as before -- only #761's routes, which already have one in
 // scope for `heardBy`, pass it through instead of paying for a second
 // snapshot() in the same request.
+/* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
+   hand, so a real selection is far below this; the cap bounds one request's
+   writes so a malformed or hostile body cannot close a whole store in one go. */
+const BULK_CLOSE_MAX = 200;
+
 function tellEveryoneOn(t, roster) {
   const named = tasks.whoOf(t);
   if (!named.length) return undefined;
@@ -13034,8 +13039,9 @@ const server = http.createServer((req, res) => {
    * six, because one number came from the data and the other from the DOM.
    */
   if (pathname === '/api/tasks' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let everyProject;
     try {
-      projects.readAll();
+      everyProject = projects.readAll();
     } catch (err) {
       sendJson(res, 500, {
         error: String((err && err.message) || 'we cannot read your tasks right now'),
@@ -13051,9 +13057,94 @@ const server = http.createServer((req, res) => {
        but the route stays backward-compatible for one if it is ever added. */
     let projectScope = null;
     try { projectScope = new URL(req.url, ROUTING_BASE).searchParams.get('project') || null; } catch { projectScope = null; }
-    const all = tasks.allTasks();
-    const rows = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    const all = tasks.allTasks(everyProject);
+    const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
+       that, never the page. Each row gains:
+         claim          the same join the project card uses ("says it is on
+                        this" / has not said / could not tell, with why), one
+                        roster read and one commitments reading per agent for
+                        the whole request
+         state          tasks.taskState: closed / nobody / working / assigned
+         lastActivityAt the newest transcript event, else created/closed
+       Added fields only, so the project View-all door's reader is unchanged. */
+    const roster = safeRoster();
+    const claims = new Map();
+    for (const p of everyProject || []) {
+      if (projectScope && p.id !== projectScope) continue;
+      let joined = [];
+      try {
+        joined = projects.joinTaskClaims(Array.isArray(p.tasks) ? p.tasks : [], everyProject, p.agents || [], roster, { name: p.name, id: p.id });
+      } catch { joined = []; }
+      for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
+    }
+    const rows = scoped.map((t) => {
+      const claim = claims.get(t.projectId + '\u0000' + t.number) || null;
+      return Object.assign({}, t, {
+        claim,
+        state: tasks.taskState(Object.assign({}, t, { claim })),
+        lastActivityAt: tasks.lastActivityOf(t.projectId, t),
+      });
+    });
     sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
+    return;
+  }
+
+  /**
+   * Close many tasks at once, with one optional note (#3559, the Tasks view's
+   * bulk bar). Body { tasks: [{ projectId, number }], note }.
+   *
+   * 🔑 A PERSON'S ACTION. A request that presents an agent token is refused:
+   * closing a pile of tasks in one call is exactly what a looping agent must not
+   * be able to do, and the screen is the only door that offers it.
+   * 🔑 EACH TASK STANDS ALONE. One that cannot close (gone, unreadable) does not
+   * stop the others, and the answer says which failed and why. The note is
+   * written to each task's history FIRST, so it reads note, then closed.
+   * Closing tells the assignees exactly as a single close does (their managed
+   * block stops listing the task). Closing does not stop an agent (tasks.js).
+   */
+  if (pathname === '/api/tasks/close' && req.method === 'POST') {
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || !Array.isArray(body.tasks)) {
+        sendJson(res, 400, { error: 'we could not read which tasks to close' });
+        return;
+      }
+      if (presentedAgentToken(req, body) || !isViaScreen(req, body)) {
+        sendJson(res, 403, { error: 'closing several tasks at once is done from the Tasks screen' });
+        return;
+      }
+      if (!body.tasks.length) { sendJson(res, 400, { error: 'pick at least one task to close' }); return; }
+      if (body.tasks.length > BULK_CLOSE_MAX) {
+        sendJson(res, 400, { error: `close up to ${BULK_CLOSE_MAX} tasks at a time` });
+        return;
+      }
+      const note = typeof body.note === 'string' ? body.note.trim() : '';
+      if (note.length > tasks.MESSAGE_MAX) {
+        sendJson(res, 400, { error: `keep the note to ${tasks.MESSAGE_MAX} characters or fewer` });
+        return;
+      }
+      const results = [];
+      for (const item of body.tasks) {
+        const projectId = item && typeof item.projectId === 'string' ? item.projectId : null;
+        const number = item && Number.isSafeInteger(item.number) ? item.number : null;
+        if (!projectId || number === null) {
+          results.push({ projectId, number, ok: false, error: 'that is not a task we can find' });
+          continue;
+        }
+        try {
+          if (note) tasks.say(projectId, number, note);
+          const t = tasks.close(projectId, number);
+          tellEveryoneOn(t);
+          results.push({ projectId, number, ok: true });
+        } catch (err) {
+          results.push({ projectId, number, ok: false, error: String((err && err.message) || 'we could not close that task') });
+        }
+      }
+      const closed = results.filter((r) => r.ok).length;
+      sendJson(res, closed === results.length ? 200 : (closed ? 207 : 400), { results, closed, failed: results.length - closed });
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
