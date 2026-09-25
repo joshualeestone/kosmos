@@ -916,7 +916,7 @@ const now = () => new Date().toISOString();
       const linkClose = await phonePage.evaluate(() => {
         const rows = [...document.querySelectorAll('#pj-room .msg')]; const other = rows[1];
         if (!other) return { error: 'no second row' };
-        const a = document.createElement('a'); a.href = '#arm-link'; a.textContent = 'a link'; a.id = 'arm-link';
+        const a = document.createElement('a'); a.href = '#'; a.textContent = 'a link'; a.setAttribute('data-arm', 'link');   // made by this check, not in the page (so no id)
         a.addEventListener('click', (ev) => ev.preventDefault());
         (other.querySelector('.msg-bd') || other).appendChild(a); a.scrollIntoView({ block: 'center' });
         // Precondition: a bar IS open (on another row) right before the tap, or this proves nothing.
@@ -924,10 +924,10 @@ const now = () => new Date().toISOString();
         return { ok: open.length === 1 && open[0] !== other, openBefore: open.length };
       });
       if (!linkClose.error) {
-        await phonePage.locator('#arm-link').tap();
+        await phonePage.locator('[data-arm="link"]').tap();
         await phonePage.waitForTimeout(200);
       }
-      const afterLink = await phonePage.evaluate(() => { const a = document.getElementById('arm-link'); if (a) a.remove(); return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }; });
+      const afterLink = await phonePage.evaluate(() => { const a = document.querySelector('[data-arm="link"]'); if (a) a.remove(); return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }; });
       chk(!linkClose.error && linkClose.ok && afterLink.shown === 0, `[phone/touch] a tap on a link in another row closes an open bar`, JSON.stringify(Object.assign({}, linkClose, afterLink)));
       // Reopen it, so the arms below start from an open bar as before.
       await firstBody.scrollIntoViewIfNeeded(); await firstBody.tap(); await phonePage.waitForTimeout(300);
