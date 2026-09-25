@@ -10,10 +10,11 @@ The shipped entry point used to be `Kosmos.cmd`, and **a `.cmd` file cannot carr
 an Authenticode signature** — measured, not assumed: `Get-AuthenticodeSignature`
 on a `.cmd` returns `UnknownError`, because a batch file has nowhere to put one.
 
-So the certificate we are buying would have signed nothing a user ever sees: the
+So the certificate we were buying would have signed nothing a user ever sees: the
 only file they double-click was the one file in the package that is structurally
 unsignable. A PE binary can be signed. The entry point had to become one before a
-certificate bought anything.
+certificate bought anything. It now is, and the committed `Kosmos.exe` is signed
+(see [Signing](#signing)).
 
 `KosmosLauncher.cs` therefore starts the same two things `Kosmos.cmd` did, with
 the same arguments — the browser-open helper, then the board — and propagates the
@@ -53,8 +54,9 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   directly, not this exe.
 - **An icon and version information.** The icon is `assets/kosmos.ico`, generated
   by `assets/make-kosmos-ico.ps1`. FileDescription and ProductName are "Kosmos".
-  CompanyName is left out until it can match the code-signing certificate's
-  subject. The version is the **launcher's** own (`LauncherVersion`, currently
+  CompanyName is still left out. The certificate's subject is now known
+  (Kosmos Agent Manager, Inc.), but setting `AssemblyCompany` is a source change,
+  so it means a rebuild and a re-sign; it is a follow-up of its own. The version is the **launcher's** own (`LauncherVersion`, currently
   5.0.0.0), not the app's. This binary is copied unchanged into every release, so
   an app version stamped into it would be wrong from the next release on.
 
@@ -129,7 +131,9 @@ of the engine's own helpers, run with the bundle's node:
   (from manifest.json), InstallLocation, UninstallString and QuietUninstallString
   (`"<exe>" --uninstall`), NoModify, NoRepair and EstimatedSize. **Publisher is
   the legal company name** (`PublisherLegalName` = "Kosmos Agent Manager, Inc."),
-  the same name AssemblyCompany carries.
+  the same name the code-signing certificate carries. (The exe committed with #3342
+  was not rebuilt, so builds from then until the launcher was signed wrote no
+  Publisher; the signed exe does.)
 - **`Kosmos.exe --uninstall`.**
   - It asks "Remove Kosmos from this PC? Your agents will stop." and then "Also
     delete your agents' chats and settings? Your projects and your agents'
@@ -239,7 +243,26 @@ powershell -File tools/windows/verify-launcher.ps1
 ```
 
 Exit 0 means the committed `Kosmos.exe` reproduces from the committed
-`KosmosLauncher.cs`.
+`KosmosLauncher.cs`, and, because it is signed, that Windows accepts its
+signature. The script prints the signature status, the signer and the timestamp
+authority. `-Exe <file>` checks another copy against the source instead.
+
+### How a signed binary is compared
+
+Signing happens after the compile and changes exactly three things, all defined by
+the PE/COFF format rather than by this compiler:
+
+| what signing changes | how the check treats it |
+|---|---|
+| a certificate table appended at the end of the file, after up to 7 zero bytes of 8-byte alignment padding | cut off; it must be the whole tail of the file, start at the end of a fresh build's image, and the padding must be zeros |
+| the optional header's Security data directory entry (index 4, 8 bytes: file offset and size of that table) | masked, located from the header, not hardcoded |
+| the optional header `CheckSum` | already masked |
+
+Every other byte is compared as before. Flipping one code byte in a signed copy
+fails the check with one differing byte (and Windows reports the signature as
+`HashMismatch`). The signature itself is Windows' to judge:
+`Get-AuthenticodeSignature tools\windows\Kosmos.exe` must say `Valid`, and the
+script fails if it does not.
 
 ### Why the comparison is masked
 
@@ -297,6 +320,10 @@ Those flags are the ones `verify-launcher.ps1` uses. If they change, they must
 change in both places, and the binary must be rebuilt.
 `tools.win-launcher-native.test.js` compares the two.
 
+**A rebuild drops the signature, so it must be re-signed in the same commit**
+(see [Signing](#signing)). An unsigned rebuild still passes the provenance check,
+which is why the re-sign has to be a habit and not something the check forces.
+
 If you change the icon master, regenerate the icon first
 (`powershell -ExecutionPolicy Bypass -File assets/make-kosmos-ico.ps1`), then
 rebuild the binary: the icon is compiled into it.
@@ -316,10 +343,26 @@ default, so refusing to start here would turn a stray environment variable into
 
 ## Signing
 
-Signing is a **downstream release step**, not something this directory does. The
-point of the `.exe` is that a signature becomes *possible*; applying one is a
-separate action with its own certificate and its own timing. Unsigned-but-signable
-is the current, intended state.
+The committed `Kosmos.exe` is **Authenticode-signed** by **Kosmos Agent Manager,
+Inc.**, through Azure Artifact Signing, and RFC 3161 timestamped by the Microsoft
+Public RSA Time Stamping Authority. Artifact Signing certificates last only a few
+days; the timestamp is what keeps the signature valid after the certificate
+expires. Check it with:
 
-Until it is signed, Windows shows "Windows protected your PC" on first run, and
-the package's `! READ ME FIRST` file is what walks a person past it.
+```
+Get-AuthenticodeSignature tools\windows\Kosmos.exe
+powershell -File tools/windows/verify-launcher.ps1
+```
+
+Because the binary is committed, the signature is applied here, to the committed
+file, not during the release: the release lane on the Mac copies the signed exe
+into the package unchanged.
+
+**Whenever `KosmosLauncher.cs` changes:** rebuild (above), sign the new exe, run
+`verify-launcher.ps1`, and commit the signed exe with the source change. The signing
+tool and its credentials live only on the Windows box, so a launcher change has to
+pass through it.
+
+A new certificate earns SmartScreen reputation over time, so the first downloads
+may still show "Windows protected your PC", now naming Kosmos Agent Manager, Inc. as
+the publisher. The package's `! READ ME FIRST` file still walks a person past it.

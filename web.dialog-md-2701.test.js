@@ -21,7 +21,7 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const lift = (names) => names.map((n) => page.lift(SCRIPT, n)).join('\n');
 
-const TABLE_DEPS = ['esc', 'pjRichSpans', 'pjTableCells', 'pjTableAligns', 'pjTableHtml'];
+const TABLE_DEPS = ['esc', 'pjRichSpans', 'pjListDepth', 'pjTableCells', 'pjTableAligns', 'pjTableHtml'];
 const proseFn = () => new Function(lift(TABLE_DEPS.concat(['pjProse'])) + '\nreturn pjProse;')();
 const richFn = () => new Function(lift(TABLE_DEPS.concat(['pjRich'])) + '\nreturn pjRich;')();
 

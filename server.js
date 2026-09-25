@@ -2395,7 +2395,7 @@ function wrongWorldRefusal(req, pathname) {
    then the delivery-marker impersonation refusal. One function, so /api/reply and
    the outbox drain refuse exactly the same replies. */
 function agentReplyProblem(text) {
-  return chat.messageProblem(text) || messages.markerProblem(text) || null;
+  return chat.messageProblem(text) || chat.storedProblem(text) || messages.markerProblem(text) || null;
 }
 
 /* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
@@ -3183,6 +3183,26 @@ function gateLog(req) {
     const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
+}
+
+/* #3034: the setup guide as it stands NOW, behind every gate, for both /api/setup-guide
+   routes. { ok: true, name } or { ok: false, status, error }.
+   - The name the seed recorded (setupAssistant.guideName()); none is 404.
+   - That name alone is not enough: a guide deleted and a new agent given the same name
+     would otherwise be treated as the guide. Only the folder the seed marked (409).
+   - Removing an agent deletes nothing on disk (engine/remove.js), so the marker survives
+     a removal: a REMOVED guide is "no guide" (404) until it is restored. An unreadable
+     removed list refuses (409) rather than act for an agent that may be gone. */
+function setupGuideNow() {
+  const guide = setupAssistant.guideName();
+  /* `reason` tells a caller that has already met the guide which refusals mean it is GONE ('none',
+     'not-guide') and which mean only that the board could not check just now ('unchecked'). */
+  if (!guide) return { ok: false, status: 404, reason: 'none', error: 'there is no setup guide on this computer' };
+  if (!setupAssistant.isGuideFolder(guide)) return { ok: false, status: 409, reason: 'not-guide', error: 'the setup guide is not on this computer any more' };
+  const removed = removal.removedNames();
+  if (!removed.ok) return { ok: false, status: 409, reason: 'unchecked', error: 'we could not check whether the setup guide was removed' };
+  if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, reason: 'none', error: 'there is no setup guide on this computer' };
+  return { ok: true, name: guide };
 }
 
 const server = http.createServer((req, res) => {
@@ -12024,7 +12044,8 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, so a message we would never
         // send does not cost a tmux fan-out.
-        const problem = chat.messageProblem(body.text);
+        // #3679: storedProblem too, because this route keeps the stored form.
+        const problem = chat.messageProblem(body.text) || chat.storedProblem(body.text);
         if (problem) throw new Error(problem);
         /**
          * ⚠️ `chose` IS THE OPTION'S OWN WORDS, and it is bounded like any
@@ -13787,6 +13808,23 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #3034: which agent is the setup guide, for the help bubble. The page has no other
+   * way to know: /api/status carries no guide marker, and the name alone is not
+   * enough (see setupGuideNow). { ok: false, reason: 'none' } means no guide, which until
+   * #3660 creates one is every install, and the bubble then shows nothing.
+   */
+  if (pathname === '/api/setup-guide' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const found = setupGuideNow();
+    /* "No guide" is an ordinary answer here, not an error: the page asks on every install, and a 404 is
+       logged by the browser as a failed resource on every page load (it failed every "no page errors"
+       check). So it is 200 { ok: false, reason: 'none' }; only a refusal (409) keeps its status. */
+    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error }); return; }
+    if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
+    sendJson(res, 200, { ok: true, name: found.name });
+    return;
+  }
+
+  /**
    * #3660: the setup assistant on Kosmos's own model, for a person who has not
    * connected a model yet. The bubble posts `{ messages, page? }` and gets back
    * `{ reply, remaining }`, or a refusal `{ error, code, retryAfterSecs }` whose
@@ -13834,17 +13872,9 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const guide = setupAssistant.guideName();
-        if (!guide) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
-        /* The recorded name is not enough: a guide deleted and a new agent given the same
-           name would otherwise receive the reports. Only the folder the seed marked. */
-        if (!setupAssistant.isGuideFolder(guide)) { sendJson(res, 409, { error: 'the setup guide is not on this computer any more' }); return; }
-        /* Removing an agent deletes nothing on disk (engine/remove.js), so the marker
-           survives a removal: a REMOVED guide is "no guide" until it is restored. An
-           unreadable removed list refuses rather than write to an agent that may be gone. */
-        const removed = removal.removedNames();
-        if (!removed.ok) { sendJson(res, 409, { error: 'we could not check whether the setup guide was removed' }); return; }
-        if (removed.names.includes(create.cleanName(guide))) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
+        const found = setupGuideNow();
+        if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
+        const guide = found.name;
         const pageContext = require('./engine/pagecontext');
         const out = pageContext.write(guide, body);
         if (out.ok) { sendJson(res, 200, { ok: true }); return; }
@@ -14621,7 +14651,8 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, so a message we would never
         // send does not cost a tmux fan-out.
-        const problem = chat.messageProblem(body.text);
+        // #3679: storedProblem too, because this route keeps the stored form.
+        const problem = chat.messageProblem(body.text) || chat.storedProblem(body.text);
         if (problem) throw new Error(problem);
 
         const roster = safeRoster();

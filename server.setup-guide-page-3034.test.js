@@ -170,3 +170,65 @@ test('#3034: a REMOVED guide (removal deletes nothing, so its marker survives) i
     assert.equal((await post({ screen: 'board' })).status, 200);
   } finally { fs.rmSync(removedFile, { force: true }); }
 });
+
+/* GET /api/setup-guide (#3034, the bubble half): the page learns WHICH agent is the guide here,
+   behind the same gates as the page report (setupGuideNow). The dangerous answers: naming an
+   agent that is not the seeded guide (a new agent that took a deleted guide's name, or a removed
+   guide), and a 200 when there is no guide at all. */
+const getGuide = () => fetch(board.base + '/api/setup-guide');
+
+test('#3034 read: no guide on this computer is 200 { ok: false, reason: none }, and a marked guide answers its name', async () => {
+  fs.rmSync(setupAssistant.flagPath(), { force: true });
+  /* An ordinary answer, not a 404: the page asks on every install, and a 404 shows as a failed resource
+     in every page's console (it broke the "no page errors" browser checks). */
+  const none = await getGuide();
+  assert.equal(none.status, 200);
+  const nb = await none.json();
+  assert.equal(nb.ok, false);
+  assert.equal(nb.reason, 'none');
+  // CONTROL: the same computer with a seeded, marked guide names it.
+  folderFor('Josh', { guide: true });
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  const r = await getGuide();
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.deepEqual(await r.json(), { ok: true, name: 'Josh' });
+});
+
+test('#3034 read: an agent that took a deleted guide\'s name is not the guide (409), and a removed guide is none (404)', async () => {
+  const create = require('./engine/create');
+  folderFor('Josh');                                   // same name, no marker
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  const notGuide = await getGuide();
+  assert.equal(notGuide.status, 409, 'an unmarked agent with the guide\'s name was named as the guide');
+  assert.equal((await notGuide.json()).reason, 'not-guide', 'the page must be able to tell "not the guide" from "could not check"');
+  folderFor('Josh', { guide: true });
+  const removedFile = path.join(path.dirname(setupAssistant.flagPath()), 'removed.json');
+  try {
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: create.cleanName('Josh') }]));
+    const gone = await getGuide();
+    assert.equal(gone.status, 200);
+    assert.deepEqual([(await gone.json()).reason], ['none'], 'a removed guide was named');
+    fs.writeFileSync(removedFile, '{not a list');
+    const unchecked = await getGuide();
+    assert.equal(unchecked.status, 409, 'an unreadable removed list must refuse');
+    assert.equal((await unchecked.json()).reason, 'unchecked');
+    fs.writeFileSync(removedFile, '[]');
+    assert.equal((await getGuide()).status, 200, 'CONTROL: restored, the guide is named again');
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
+
+test('#3034 bubble: the New agent form is a screen the guide is told about', async () => {
+  const guideDir = folderFor('Josh', { guide: true });
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  const r = await post({ screen: 'create' });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.match(fs.readFileSync(path.join(guideDir, roles.PAGE_FILE), 'utf8'), /Screen: the New agent form/);
+});
+
+test('#3034 read: the guide is named by the slug the seed records (production shape, e.g. "josh-ai")', async () => {
+  folderFor('josh-ai', { guide: true });
+  setupAssistant.markSetupAssistantSeeded({ name: 'josh-ai', via: 'test' });
+  const r = await getGuide();
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.deepEqual(await r.json(), { ok: true, name: 'josh-ai' });
+});

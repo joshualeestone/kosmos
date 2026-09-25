@@ -149,7 +149,7 @@ test('a reply is escaped on its way to the screen', () => {
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
     'let CURRENT = ' + JSON.stringify(pick(card)) + '; let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans'].map(slice).join('\n')
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth'].map(slice).join('\n')
     + '; return dmRow;',
   )();
 
@@ -248,7 +248,7 @@ test('the person’s own row carries its time now that the receipt may say nothi
   // eslint-disable-next-line no-new-func
   const dmRow = new Function(
     'let CURRENT = ' + JSON.stringify(pick(card)) + '; let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n'
-    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans'].map(lift).join('\n')
+    + ['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth'].map(lift).join('\n')
     + '; return dmRow;',
   )();
   const at = new Date().toISOString();

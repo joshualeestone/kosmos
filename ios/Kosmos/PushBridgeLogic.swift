@@ -135,7 +135,8 @@ enum PushBridge {
 
     // The coordinator puts the Mac's address in every push as a top-level
     // `address` ("<mac name>.<relay domain>", kosmos-relay apns.rs payload()), and
-    // a tap opens https://<address>/, the same URL the coordinator's own web-push
+    // a tap opens https://<address>/ (plus ?tab=detail&agent=<session> when the push
+    // names a valid agent session), the same base URL the coordinator's own web-push
     // tap opens (coordinator sw.js). A push is not trusted input: only a single
     // ASCII DNS label directly under the relay domain is accepted, so a payload can
     // never steer the app's WebView to another site, a path, a port or a scheme.
@@ -145,16 +146,50 @@ enum PushBridge {
     static func boardURL(fromNotification userInfo: [AnyHashable: Any], coordinator: URL) -> URL? {
         guard let raw = userInfo["address"] as? String,
               raw.unicodeScalars.allSatisfy({ $0.isASCII }),
-              let coordinatorHost = coordinator.host?.lowercased(),
-              let relayDomain = relayDomain(ofCoordinatorHost: coordinatorHost)
+              isMacHost(raw.lowercased(), coordinator: coordinator)
         else { return nil }
-        let address = raw.lowercased()
-        guard address != coordinatorHost else { return nil }
+        var parts = URLComponents()
+        parts.scheme = "https"
+        parts.host = raw.lowercased()
+        parts.path = "/"
+        // kosmos#718 (agreed with Kano): a tap lands on the agent that asked, via the
+        // board's own deep link (?tab=detail&agent=, read at boot by web/index.html).
+        // The push's `session` is used only when it is a plain agent name; anything
+        // else, or none, opens the board home, never a dead tap.
+        if let session = userInfo["session"] as? String, isAgentSession(session) {
+            parts.queryItems = [URLQueryItem(name: "tab", value: "detail"), URLQueryItem(name: "agent", value: session)]
+        }
+        return parts.url
+    }
+
+    // The board's agent-name characters (engine/create.js NAME_RE): lowercase letters,
+    // digits, hyphen and underscore, starting with a letter or digit. No dots,
+    // slashes, colons, percent signs, spaces or Unicode. The LENGTH is deliberately
+    // wider than NAME_RE's 2 to 32 on both ends (1 to 64): a found agent's session
+    // may not follow NAME_RE, and a name the board does not know just opens the
+    // board home, so width here is safe while the character rule is what matters.
+    static let agentSessionMaxLength = 64
+
+    static func isAgentSession(_ s: String) -> Bool {
+        guard (1...agentSessionMaxLength).contains(s.count), let first = s.unicodeScalars.first,
+              ("a"..."z").contains(first) || ("0"..."9").contains(first)
+        else { return false }
+        return s.unicodeScalars.allSatisfy {
+            ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" || $0 == "_"
+        }
+    }
+
+    // A Mac's host: one RFC 1123 label directly under the coordinator's domain, and
+    // never the coordinator's own host. Lowercase ASCII expected; callers lowercase.
+    static func isMacHost(_ host: String, coordinator: URL) -> Bool {
+        guard host.unicodeScalars.allSatisfy({ $0.isASCII }),
+              let coordinatorHost = coordinator.host?.lowercased(),
+              let relayDomain = relayDomain(ofCoordinatorHost: coordinatorHost),
+              host != coordinatorHost
+        else { return false }
         let suffix = "." + relayDomain
-        guard address.hasSuffix(suffix) else { return nil }
-        let label = String(address.dropLast(suffix.count))
-        guard isHostLabel(label) else { return nil }
-        return URL(string: "https://\(address)/")
+        guard host.hasSuffix(suffix) else { return false }
+        return isHostLabel(String(host.dropLast(suffix.count)))
     }
 
     // "login.kosmosplus.com" -> "kosmosplus.com". Nil when the host has fewer than

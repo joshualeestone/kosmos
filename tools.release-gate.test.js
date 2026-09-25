@@ -365,6 +365,13 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
   return { dir, remote, home, site };
 }
 
+/* A TMPDIR inside the sandbox (never equal to HOME, which release.sh refuses). */
+function tmpdirIn(dir) {
+  const t = path.join(dir, 'tmp');
+  fs.mkdirSync(t, { recursive: true });
+  return t;
+}
+
 function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending = null } = {}) {
   /* #1455: the pending-entry shape. The operator may leave the entry as a FILE
      carrying TIMESTAMP instead of hand-stamping the page, and step 1 accepts that as a
@@ -431,6 +438,23 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       HOME: home,
       KOSMOS_SITE: site,
       KOSMOS_HARNESS_IGNORE_CUT: '1',
+      /* #3619: and the other direction. release.sh also refuses while an install harness
+         (tools/test-install.sh) runs anywhere on the Mac, and tools/test-cut-guard.sh starts
+         a real stand-in for one (`bash tools/test-install.sh --sleep 4`) as its fixture. So
+         any other suite on the box that is inside test-cut-guard.sh turned these arms red
+         with the harness refusal, although none of them tests that guard
+         (test-cut-guard.sh does). Measured with a stand-in harness running: 12 of 26 red
+         without this, 26 of 26 with it. */
+      KOSMOS_CUT_IGNORE_HARNESS: '1',
+      /* #3619, same family: the arms that pass step 2 run on into the load guard (step 2b),
+         which waits up to 600 s while the Mac's load is high. They only need to reach step 2,
+         so the load is pinned quiet; otherwise a loaded Mac holds each arm to its timeout
+         and leaves a live sandbox release.sh that other suites' cut guard takes for a cut. */
+      KOSMOS_FAKE_LOAD: '0',
+      /* #3619, same family: release.sh recreates $TMPDIR/kosmos-cut-home, so a bare run
+         of this file sharing the per-user TMPDIR could wipe a real cut's home. Kept inside
+         the sandbox, as tools.cut-home-2724.test.js does. */
+      TMPDIR: tmpdirIn(dir),
       /* #3579: step 1c test-signs with the Developer ID cert before the bump. The
          sandbox holds no cert (CI runs on Linux and cert-less macOS), so the arms that
          must reach step 2 point the preflight at the `true` builtin. The preflight has

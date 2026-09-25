@@ -1181,6 +1181,12 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   if (chat.cleanMessage(text).length > MAX_BODY) {
     return refuse('that is a document, not a message; put it in the project folder and post your colleagues the path');
   }
+  /* #3679: the stored form keeps indentation and blank lines, so it is bounded on its own
+     (chat.storedWithin), as a direct message is. */
+  const stored = chat.storedWithin(text, MAX_BODY);
+  if (stored === null) {
+    return refuse('that has more indentation and spacing than we keep in a post; put it in the project folder and post your colleagues the path');
+  }
   const markerBad = markerProblem(text);
   if (markerBad) return refuse(markerBad);
 
@@ -1310,15 +1316,14 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
 
   const cleaned = chat.cleanMessage(text);
-  /* #2239: the STORED text keeps paragraph breaks (storeText: horizontal runs
-     collapsed, but blank lines and single newlines preserved), so the room
+  /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
+     since #3679 also indentation and fenced code), so the room
      thread can render an agent's headings, lists and paragraph structure
      instead of one flattened line. This mirrors what #1927 did for the direct
      thread's store. `cleaned` stays the one-line form used for everything the
      room does NOT render: the delivered pane envelope (an agent reads a line),
      @mention detection, the spill-length decision and validation. The two are
      allowed to differ -- the pane gets a line, the UI record keeps the shape. */
-  const stored = chat.storeText(text);
   let body = cleaned;
   if (cleaned.length > SPILL_AT) {
     const spillFile = path.join(SPILL_DIR, id + '.txt');

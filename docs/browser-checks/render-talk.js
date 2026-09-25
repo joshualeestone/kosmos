@@ -845,8 +845,7 @@ function unreachableStates() {
       /* #1927: the bubble must preserve paragraph breaks. `pre-wrap` is what
          shows a stored `\n`; `normal` (the default, and what a reverted rule
          gives) collapses paragraphs into a blob -- the exact operator-facing
-         defect this card is about. `storeText` already collapsed space RUNS, so
-         pre-wrap does not resurrect ragged whitespace. */
+         defect this card is about. */
       if (m.bubbleWhiteSpace !== null) {
         measuredBubbleWrap += 1;
         if (m.bubbleWhiteSpace !== 'pre-wrap') {

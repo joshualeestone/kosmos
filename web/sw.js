@@ -107,7 +107,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 /* The coordinator's sender (kosmos-relay VapidSender) posts who/what/where and
-   never content, so the payload is {kind, agent, project, id, address} -- NOT
+   never content, so the payload is {kind, agent, project, id, address, session} -- NOT
    {title, body}. `kind` is one of posted|replied|needs_you; `address` is the
    person's own Mac host ("<mac>.<domain>", no scheme) so a tap opens her board.
    We render a plain-language line from those fields, still preferring an
@@ -125,12 +125,67 @@ const KIND_HEADLINE = {
    clients.openWindow()/navigate(). No `url` field is honored: the coordinator
    never sends one, and passing an arbitrary string straight through would be
    exactly that gap. A future producer that wants a full URL must add its own
-   validated branch, not a passthrough. Falls back to the board on this origin. */
+   validated branch, not a passthrough. Falls back to the board on this origin.
+
+   #718: when the push names the agent (`session`, a plain id the coordinator
+   has already checked), the tap opens that agent: the board's own link
+   `?tab=detail&agent=<session>`, which it reads at boot. Checked again here
+   with the same rule, and put in with URLSearchParams, so it can only ever be
+   a query value, never a path, a scheme or another host. Anything else opens
+   the board's home, as before. NOTE: a phone's web push is subscribed on the
+   coordinator's origin, so the COORDINATOR's worker (kosmos-relay
+   coordinator/src/sw.js) handles that tap, with the same link and rule. This
+   worker sees a push only from a subscription made on the board's own origin,
+   of which there is none today (#3510). The iOS app builds the same link.
+
+   #3689: a domain SHAPE is not enough for the host. `address` must be exactly one
+   host label under this board's own relay domain (this worker runs on
+   "<mac>.<domain>", so "<other-mac>.<domain>" is accepted and "evil.example" is
+   not). On the Kosmos relay domain that keeps a tap on Kosmos-owned hosts; it
+   does NOT prove the host is one of THIS person's Macs (another person's Mac, or
+   a service host such as login.<domain>, has the same shape), which only the
+   coordinator knows. KNOWN LIMIT: the domain is whatever this board is served
+   under, which the worker cannot check against the coordinator; a board served on
+   a shared domain (a tunnel service such as *.trycloudflare.com, or a public
+   suffix such as example.co.uk) would accept any other name there. The label
+   rule is the iOS app's (PushBridge.isHostLabel: RFC 1123, no punycode, since xn--
+   is how a lookalike Unicode name arrives in ASCII). Two differences from iOS: the
+   domain here comes from this worker's own host, not the coordinator's, and the
+   coordinator host is not excluded (the board does not know it). A board on
+   localhost, an IP address, a two-label host, or a name written with a trailing
+   dot has no relay domain, so every tap opens the board on this origin. Non-ASCII
+   is refused before lowercasing, as iOS does (JS lowercases some non-ASCII
+   letters, such as the Kelvin sign, into ASCII ones). The host is decided FIRST; the session query is
+   added after, to whichever base that leaves. */
+const TAP_SESSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+function relayDomainOf(host) {
+  const labels = String(host || '').toLowerCase().split('.');
+  if (labels.length < 3 || labels.some((l) => !l)) return '';
+  if (labels.every((l) => /^[0-9]+$/.test(l))) return ''; // an IPv4 address
+  return labels.slice(1).join('.');
+}
+
+function isHostLabel(label) {
+  return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label) && label.slice(0, 4) !== 'xn--';
+}
+
+// The Mac host a tap may open, lowercased, or '' when `address` is not one.
+function macHostFor(address) {
+  if (typeof address !== 'string' || !/^[\x00-\x7f]*$/.test(address)) return '';
+  const host = address.toLowerCase();
+  const domain = relayDomainOf(self.location && self.location.hostname);
+  if (!domain || !host.endsWith('.' + domain)) return '';
+  return isHostLabel(host.slice(0, host.length - domain.length - 1)) ? host : '';
+}
+
 function boardUrlFor(data) {
-  if (typeof data.address === 'string' && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(data.address)) {
-    return 'https://' + data.address + '/';
+  const host = macHostFor(data.address);
+  let url = host ? 'https://' + host + '/' : '/';
+  if (typeof data.session === 'string' && TAP_SESSION.test(data.session)) {
+    url += '?' + new URLSearchParams({ tab: 'detail', agent: data.session }).toString();
   }
-  return '/';
+  return url;
 }
 
 /* Turn a push payload into a notification. Factored out so the shape is in one
@@ -199,8 +254,17 @@ self.addEventListener('notificationclick', (event) => {
       let cOrigin = null;
       try { cOrigin = new URL(c.url).origin; } catch (_e) {}
       if (cOrigin && cOrigin === targetOrigin && 'focus' in c) {
-        if ('navigate' in c) { try { await c.navigate(target); } catch (_e) {} }
-        return c.focus();
+        // #718: focus the page navigate() LANDED on. A tab this worker does not control (a
+        // hard reload bypasses it) rejects navigate(), and an engine without navigate() cannot
+        // move the tab at all; focusing it anyway would show the old page, not the agent. So
+        // try the next open tab at this origin, and if none can be moved, the link opens in a
+        // window of its own (the old page stays where it was).
+        // navigate() RESOLVES null when the tab moved but landed on another origin (a sign-in
+        // redirect in front of the Mac): it did move, so focus it rather than open a second.
+        let landed; let moved = false;
+        if ('navigate' in c) { try { landed = await c.navigate(target); moved = true; } catch (_e) {} }
+        if (moved && landed && 'focus' in landed) return landed.focus();
+        if (moved) return c.focus();
       }
     }
     if (self.clients.openWindow) return self.clients.openWindow(target);
