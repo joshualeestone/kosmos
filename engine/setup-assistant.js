@@ -246,8 +246,10 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
  * 🔑 ARMED, NOT MERELY "A MODEL IS CONNECTED". Every install that predates this has
  * models connected and no seed flag, so a bare "connected and not seeded" check would
  * put an agent called Josh on every existing board the moment this ships. First-run
- * completion (Giddy Up) ARMS it, so only an install set up from now on gets a guide:
- * at Giddy Up if a model is already connected, or later, the first time one is.
+ * completion (Giddy Up) ARMS it: at Giddy Up if a model is already connected, or later,
+ * the first time one is. Since #3760 (Josh, 2026-09-25) an install that finished first run
+ * before the guide existed is ALSO armed, once, at board start (armExistingInstall below),
+ * so existing installs get the guide too, under the same off switch as a new user.
  */
 function armPath() { return path.join(store.ROOT, 'setup-assistant-armed.json'); }
 
@@ -437,7 +439,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   if (!enabled) return Promise.resolve({ seeded: false, reason: 'the automatic setup guide is switched off' });
   /* The cheap, permanent answers first: on an existing (unarmed) or already-seeded install
      the sweep then costs one stat a minute. */
-  if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (this install was set up before the guide existed)' });
+  if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (first run is not finished)' });
   if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
   if (namesTaken) return Promise.resolve({ seeded: false, reason: 'both guide names are taken by other agents' });
   /* "Don't show this again" (the bubble's switch) also means: no guide agent later. */
