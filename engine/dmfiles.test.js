@@ -56,14 +56,14 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // A direct ask: the agent's own Files folder (with the real path).
   assert.match(flat, /save it in your Files folder, unless it belongs to one of your projects \(see the next paragraphs; if you are on no projects, it always goes here\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
   // About a project: that project's folder instead, even when asked in the direct conversation.
-  assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead, directly in it and not in a subfolder/);
+  assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead\./);
   assert.match(flat, /This holds even when they asked for it, or you made it, in a direct conversation/);
-  assert.match(flat, /If they name a project you are not on, or no folder is listed for it, treat it as unclear, as below/);
+  assert.match(flat, /If they name a project you are not on, or it is not listed under \"Your projects\", treat it as unclear, as below/);
   assert.match(flat, /That is not guessing: your Files folder is where it goes by default/);
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
   // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
   // save it here, say so, and ask which project in the same line.
-  assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project: save it in your Files folder, and in the same line that says so \(under Files on your page\), ask which project it belongs to/);
+  assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project\. Save it in your Files folder\. In the same line where you tell them it is under Files on your page, ask which project it belongs to/);
   // The doctrine's general "ask, do not guess" is carried out this way for these files (round 15).
   assert.match(flat, /this is how the rule to ask one short question and not guess, wherever it appears in your instructions, is carried out: save here and ask, never wait with the file unsaved/);
   // The project rule is its own paragraph, not folded into the first one (which an agent may act on

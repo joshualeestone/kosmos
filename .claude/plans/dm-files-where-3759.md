@@ -47,6 +47,10 @@ conversation, and be context-aware enough to put a project's file in that projec
   offer are the net when it cannot.
 - The page half was dropped on rebase: #3757 replaced the agent page's Files section (hidden when empty),
   so the empty-list sentence this branch had corrected no longer exists on main.
+- Where inside a project's folder a file goes is left to the doctrine ("the obvious spot inside it"),
+  not overridden here. Round 15 briefly said "directly in it, not in a subfolder" so the project's Files
+  list shows it; round 16 found that sent a design note to the top of a repository with a docs/ folder
+  only because the request came in a direct conversation. Rejected: two placement rules for one folder.
 - The project rule names the "Your projects" section by name, never by position: for an agent that had
   projects before #3614, the board appended this block after that section, so "below" would be wrong
   (review round 3).
@@ -55,19 +59,19 @@ conversation, and be context-aware enough to put a project's file in that projec
   a board run from a checkout, as on the fleet Mac, waits for its next restart), and the PR says so for
   the release notes, which are generated from what lands.
 
-## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~14:15 CDT, on the wording committed with "review round 15"; the control row is main's wording, run at ~14:05)
+## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~14:25 CDT, on the wording committed with "review round 16"; the control row is main's wording, run at ~14:05)
 One run per case, each in a fresh sandbox: a check of the wording, not a rate. "Where it said" quotes the
 sentences of the reply that tell the person where the file went.
 
 | Case | Projects the agent is on | Saved to | Where it said |
 |---|---|---|---|
-| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/weekend-camping-packing-list.md` | I made the list and saved it as **weekend-camping-packing-list.md**, under Files on my page in Kosmos. |
-| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/Renewal notice summary.md` | I saved it as **Renewal notice summary.md** in the Henderson lease project. The paragraph lists what a renewal notice should cover: The project folder was empty, so I didn't have the lease itself. |
-| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | `workers/writer/Files/Lease renewal email to landlord.md` | I saved it as **Lease renewal email to landlord** under Files on my page. Is this for the Henderson lease? If so, I'll move it into that project. |
-| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/Lease renewal email to landlord.md` | I drafted the email and saved it as "Lease renewal email to landlord" under Files on my page. Is it for the Henderson lease or the Maple Street lease? Tell me which and I'll move it into that project. |
-| same landlord email | none | `workers/writer/Files/landlord-lease-renewal-email.txt` | I drafted the email and saved it as **landlord-lease-renewal-email.txt**, under Files on my page in Kosmos. |
-| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | It's under Files on my page in Kosmos. Oak Avenue isn't one of my projects; the only one I'm on is the Henderson lease. Which project does this belong to, so I can move it? |
-| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | `workers/writer/summaries/2026-09-25-14.md` | I wrote the summary to `summaries/2026-09-25-14.md` in my folder. |
+| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/Weekend Camping Packing List.md` | I saved it as **Weekend Camping Packing List** under Files on my page in Kosmos. |
+| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/Renewal notice summary.md` | I saved **Renewal notice summary.md** in the Henderson lease project. The project folder was empty, so I didn't have the actual lease. If you add the lease to the project, I can make the summary specific to it. |
+| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | `workers/writer/Files/Lease renewal email to landlord.md` | It's saved as **Lease renewal email to landlord** under Files on my page in Kosmos. Is this for the Henderson lease? If so, I'll move it into that project. |
+| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/Lease renewal email to landlord.md` | I drafted the email and saved it as **Lease renewal email to landlord** under Files on my page in Kosmos. Is it for the Henderson lease or the Maple Street lease? Tell me which and I'll move it into that project. |
+| same landlord email | none | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as **lease-renewal-email.md** under Files on my page in Kosmos. |
+| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | I wrote the summary and saved it as **"Oak Avenue lease - renewal notice summary"** under Files on my page in Kosmos. Oak Avenue isn't one of my projects; the only one I'm on is Henderson lease. Which project should this file go in, so I can move it there? |
+| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | `workers/writer/summaries/2026-09-25-14.md` | I wrote the summary to `summaries/2026-09-25-14.md` (2:20 PM Central). There are no earlier summaries, I haven't made any files, and the Henderson lease project folder is empty. |
 | CONTROL, main's old wording: same landlord email | Henderson lease | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as `lease-renewal-email.md` in your Files folder |
 
 What the change measurably does, honestly: main's old wording already put a named project's file in the
